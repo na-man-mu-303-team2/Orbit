@@ -27,9 +27,11 @@ from app.ai.generate_deck import (
     ValidationResult,
     allocate_weighted_integers,
     analyze_input,
+    apply_timing_to_slide_plans,
     chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
+    compact_dense_speaker_notes,
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
@@ -47,6 +49,8 @@ from app.ai.generate_deck import (
     message_duplicates_content_items,
     normalize_structural_content_text,
     presentation_profile_for_request,
+    plan_presentation,
+    plan_slides,
     presentation_rule_prompt,
     refine_design_issues,
     repair_design_pack_text_element,
@@ -496,14 +500,16 @@ def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
 
 
 @pytest.mark.parametrize(
-    ("request_patch", "expected"),
+        ("request_patch", "expected"),
     [
-        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 300),
-        ({"brief": {"presentationType": "초등 교육"}}, 280),
-        ({"metadata": {"tone": "friendly"}}, 320),
-        ({"metadata": {"tone": "concise"}}, 440),
-        ({"brief": {"presentationType": "제품 기획 피치"}}, 400),
-        ({}, 350),
+        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 240),
+        ({"brief": {"presentationType": "초등 교육"}}, 240),
+        ({"brief": {"presentationType": "자유 토의"}}, 240),
+        ({"metadata": {"tone": "friendly"}}, 260),
+        ({"metadata": {"tone": "concise"}}, 260),
+        ({"brief": {"presentationType": "제품 기획 피치"}}, 280),
+        ({"prompt": "빠른 발표 속도로 진행"}, 300),
+        ({}, 260),
     ],
 )
 def test_chars_per_minute_uses_ordered_presentation_context(
@@ -529,6 +535,56 @@ def test_weighted_timing_allocation_is_exact_and_respects_minimum() -> None:
     assert sum(allocated) == 480
     assert min(allocated) >= 15
     assert len(set(allocated)) > 1
+
+
+def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="15 minute timing",
+            generationMode="design-pack",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+    slide_plans = apply_timing_to_slide_plans(
+        raw_input,
+        plan_slides(raw_input, plan_presentation(raw_input)),
+    )
+
+    assert raw_input.timing_plan.speaking_time_ratio == 0.8
+    assert raw_input.timing_plan.target_spoken_seconds == 720
+    assert raw_input.timing_plan.target_total_chars == 3120
+    assert sum(slide.target_seconds for slide in slide_plans) == 900
+    assert sum(slide.target_spoken_seconds for slide in slide_plans) == 720
+    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) == 3120
+    assert slide_plans[0].target_spoken_seconds < max(
+        slide.target_spoken_seconds for slide in slide_plans[1:-1]
+    )
+
+
+def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
+    slide = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Dense notes",
+        message="Evidence supports the decision.",
+        speaker_notes=" ".join(
+            f"Distinct evidence sentence {index} supports the decision."
+            for index in range(1, 9)
+        ),
+        keywords=[],
+        evidence=[],
+        target_speaker_notes_chars=160,
+    )
+    original_chars = len("".join(slide.speaker_notes.split()))
+
+    compact_dense_speaker_notes(slide)
+
+    compacted_chars = len("".join(slide.speaker_notes.split()))
+    assert round(160 * 0.7) <= compacted_chars <= round(160 * 1.15)
+    assert compacted_chars < original_chars
+    assert slide.speaker_notes.count("Distinct evidence sentence") == 3
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:
@@ -1586,13 +1642,22 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
                 "Short note.",
                 slide_type="cover",
                 slot_preset="title_center",
-                content_items=["A concise verified point."],
+                content_items=["Official evidence supports the concise point."],
             )
         ],
     }
-    repaired_notes = (
-        "검증된 근거를 중심으로 핵심 사실과 의미를 차례로 설명합니다. " * 12
-    ).strip()
+    repaired_notes = " ".join(
+        [
+            "검증된 근거가 핵심 사실을 뒷받침합니다.",
+            "첫 번째 자료에서 확인된 맥락을 설명합니다.",
+            "두 번째 근거는 결론의 의미를 구체화합니다.",
+            "마지막으로 청중이 기억할 판단 기준을 정리합니다.",
+            "이 기준을 다음 행동과 자연스럽게 연결합니다.",
+            "공식 자료의 범위를 벗어난 추정은 포함하지 않습니다.",
+            "각 근거가 결론에 미치는 영향을 차례로 구분합니다.",
+            "발표를 마치며 확인할 후속 과제를 분명히 제시합니다.",
+        ]
+    )
     fake_client = FakeOpenAIClient(
         [
             short_plan,
@@ -1622,7 +1687,7 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
     slide = response.deck["slides"][0]
     timing = slide["aiNotes"]["timingPlan"]
     assert len(slide["speakerNotes"].replace(" ", "")) >= round(
-        timing["targetSpeakerNotesChars"] * 0.8
+        timing["targetSpeakerNotesChars"] * 0.7
     )
 
 
@@ -1688,9 +1753,9 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
     )[0]
 
     request_payload = json.loads(str(fake_client.requests[0]["input"]))
-    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 560
-    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 640
-    assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
+    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 360
+    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 440
+    assert 280 <= len(repaired.speaker_notes.replace(" ", "")) <= 460
     assert "official source confirms" in repaired.speaker_notes
 
 
@@ -1897,7 +1962,7 @@ def test_short_speaker_note_repair_retries_remaining_slide_individually() -> Non
     )[0]
 
     assert len(fake_client.requests) == 2
-    assert 160 <= len("".join(repaired.speaker_notes.split())) <= 250
+    assert 140 <= len("".join(repaired.speaker_notes.split())) <= 230
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
@@ -3212,9 +3277,13 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     )
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
-    assert timing_plan["charsPerMinute"] == 320
+    assert timing_plan["charsPerMinute"] == 240
+    assert timing_plan["speakingTimeRatio"] == 0.8
     assert timing_plan["targetSlideCount"] == 7
     assert sum(slide["estimatedSeconds"] for slide in slides) == 420
+    assert sum(
+        slide["aiNotes"]["timingPlan"]["targetSpokenSeconds"] for slide in slides
+    ) == 336
     assert all(slide["estimatedSeconds"] >= 15 for slide in slides)
     assert len({slide["estimatedSeconds"] for slide in slides}) > 1
     assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in slides) >= round(
@@ -3497,7 +3566,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     cover, overview, process, comparison, closing = response.deck["slides"]
     assert has_element(cover, "el_1_cover_trust_signal_panel")
     assert has_element(cover, "el_1_cover_summary_card_1")
-    assert has_element(cover, "el_1_body")
+    assert not has_element(cover, "el_1_body")
     assert not has_element(cover, "el_1_accent_rail")
     for index in range(1, 4):
         label = element_by_id(cover, f"el_1_cover_summary_card_{index}_label")

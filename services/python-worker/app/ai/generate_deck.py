@@ -533,6 +533,7 @@ class SlidePlan(BaseModel):
     visual_intent: VisualIntent = Field(default_factory=VisualIntent)
     media_intent: MediaIntent = Field(default_factory=MediaIntent)
     target_seconds: int = 0
+    target_spoken_seconds: int = 0
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
@@ -2550,20 +2551,25 @@ def presentation_timing_plan_for_request(
     slide_count: int,
 ) -> PresentationTimingPlan:
     chars_per_minute = chars_per_minute_for_request(request)
-    target_total_chars = request.target_duration_minutes * chars_per_minute
+    speaking_time_ratio = 0.8
+    target_spoken_seconds = round(
+        request.target_duration_minutes * 60 * speaking_time_ratio
+    )
+    target_total_chars = round(
+        request.target_duration_minutes * speaking_time_ratio * chars_per_minute
+    )
     safe_slide_count = max(1, slide_count)
     return PresentationTimingPlan(
         charsPerMinute=chars_per_minute,
+        speakingTimeRatio=speaking_time_ratio,
         targetTotalChars=target_total_chars,
+        targetSpokenSeconds=target_spoken_seconds,
         targetSlideCount=slide_count,
         targetSecondsPerSlide=max(
             15,
             round(request.target_duration_minutes * 60 / safe_slide_count),
         ),
-        targetSpeakerNotesCharsPerSlide=max(
-            90,
-            round(target_total_chars / safe_slide_count),
-        ),
+        targetSpeakerNotesCharsPerSlide=max(1, round(target_total_chars / safe_slide_count)),
     )
 
 
@@ -2581,44 +2587,29 @@ def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
         ]
         if part
     ).casefold()
-    if request.metadata.audience == "executive" or has_any(
-        source,
-        ["executive", "board", "임원", "경영진", "이사회"],
-    ):
+    if has_any(source, ["fast", "quick", "빠른", "속도감"]):
         return 300
-    if has_any(
-        source,
-        ["child", "children", "elementary", "education", "어린이", "초등", "교육"],
-    ):
-        return 280
-    if has_any(
+    profile = presentation_profile_for_request(request)
+    if request.metadata.audience == "executive" or profile in {
+        "executive-report",
+        "education",
+    } or has_any(
         source,
         [
-            "friendly",
-            "funny",
-            "easy",
-            "casual",
             "discussion",
             "workshop",
             "토의",
             "토론",
             "자유롭게",
-            "쉽게",
-            "재미",
         ],
     ):
-        return 320
-    if request.metadata.tone == "concise" or has_any(
+        return 240
+    if profile in {"product-launch", "proposal"} or has_any(
         source,
-        ["fast", "quick", "빠른", "속도감"],
+        ["product", "proposal", "pitch", "제품", "제안", "피치"],
     ):
-        return 440
-    if has_any(
-        source,
-        ["product", "planning", "proposal", "pitch", "제품", "기획", "제안", "피치"],
-    ):
-        return 400
-    return 350
+        return 280
+    return 260
 
 
 def analyze_input(
@@ -3395,25 +3386,37 @@ def apply_timing_to_slide_plans(
     raw_input.timing_plan.target_speaker_notes_chars_per_slide = round(
         raw_input.timing_plan.target_total_chars / len(slide_plans)
     )
+    raw_input.timing_plan.target_spoken_seconds = round(
+        raw_input.target_duration_minutes
+        * 60
+        * raw_input.timing_plan.speaking_time_ratio
+    )
     weights = [slide_timing_weight(slide_plan) for slide_plan in slide_plans]
     seconds = allocate_weighted_integers(
         raw_input.target_duration_minutes * 60,
         weights,
         minimum_each=15,
     )
+    spoken_seconds = allocate_weighted_integers(
+        raw_input.timing_plan.target_spoken_seconds,
+        weights,
+    )
     note_chars = allocate_weighted_integers(
         raw_input.timing_plan.target_total_chars,
         weights,
     )
-    for slide_plan, target_seconds, target_chars in zip(
+    for slide_plan, target_seconds, target_spoken_seconds, target_chars in zip(
         slide_plans,
         seconds,
+        spoken_seconds,
         note_chars,
         strict=True,
     ):
         slide_plan.target_seconds = target_seconds
+        slide_plan.target_spoken_seconds = target_spoken_seconds
         slide_plan.target_speaker_notes_chars = target_chars
         slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
+        compact_dense_speaker_notes(slide_plan)
     if raw_input.generation_mode == "design-pack":
         ensure_research_first_web_source_coverage(raw_input, slide_plans)
     return slide_plans
@@ -3536,6 +3539,21 @@ def fit_grounded_speaker_note_candidates(
     return " ".join(selected)
 
 
+def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
+    target = slide_plan.target_speaker_notes_chars
+    actual = count_speaker_note_chars(slide_plan.speaker_notes)
+    if target <= 0 or actual <= round(target * 1.15):
+        return
+    compacted = fit_grounded_speaker_note_candidates(
+        speaker_note_fragments(slide_plan.speaker_notes),
+        minimum_chars=round(target * 0.7),
+        preferred_max_chars=round(target * 1.15),
+    )
+    compacted_chars = count_speaker_note_chars(compacted)
+    if round(target * 0.7) <= compacted_chars < actual:
+        slide_plan.speaker_notes = compacted
+
+
 def speaker_note_sentence(text: str) -> str:
     sentence = " ".join(text.split()).strip()
     if not sentence or sentence.endswith((".", "!", "?")):
@@ -3652,11 +3670,11 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
             )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
-        if target > 0 and actual < round(target * 0.8):
+        if target > 0 and actual < round(target * 0.7):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
             )
-        elif target > 0 and actual > round(target * 1.25):
+        elif target > 0 and actual > round(target * 1.15):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
             )
@@ -3788,7 +3806,7 @@ def repair_short_speaker_notes_with_llm(
         for slide in slide_plans
         if slide.target_speaker_notes_chars > 0
         and count_speaker_note_chars(slide.speaker_notes)
-        < round(slide.target_speaker_notes_chars * 0.8)
+        < round(slide.target_speaker_notes_chars * 0.7)
     ]
     if not short_slides:
         return slide_plans
@@ -3822,10 +3840,10 @@ def repair_short_speaker_notes_with_llm(
                     "currentSpeakerNotes": slide.speaker_notes,
                     "sourceRefs": source_refs,
                     "minimumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 1.4
+                        slide.target_speaker_notes_chars * 0.9
                     ),
                     "maximumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 1.6
+                        slide.target_speaker_notes_chars * 1.1
                     ),
                 }
             )
@@ -3867,8 +3885,8 @@ def repair_short_speaker_notes_with_llm(
         repaired_by_order = {item.order: item for item in repaired.slides}
         for slide in batch:
             item = repaired_by_order[slide.order]
-            minimum_chars = round(slide.target_speaker_notes_chars * 0.8)
-            maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
+            minimum_chars = round(slide.target_speaker_notes_chars * 0.7)
+            maximum_chars = round(slide.target_speaker_notes_chars * 1.15)
             speaker_notes = " ".join(item.speaker_notes.split())
             actual_chars = count_speaker_note_chars(speaker_notes)
             if not minimum_chars <= actual_chars <= maximum_chars:
@@ -3892,7 +3910,7 @@ def repair_short_speaker_notes_with_llm(
         repair_batch(short_slides[batch_start : batch_start + 3])
     for slide in short_slides:
         if count_speaker_note_chars(slide.speaker_notes) < round(
-            slide.target_speaker_notes_chars * 0.8
+            slide.target_speaker_notes_chars * 0.7
         ):
             repair_batch([slide])
     return slide_plans
@@ -5820,6 +5838,7 @@ def design_pack_timing_plan(
 ) -> dict[str, Any]:
     return {
         "charsPerMinute": raw_input.timing_plan.chars_per_minute,
+        "speakingTimeRatio": raw_input.timing_plan.speaking_time_ratio,
         "targetTotalChars": raw_input.timing_plan.target_total_chars,
         "targetSlideCount": raw_input.timing_plan.target_slide_count,
         "targetSecondsPerSlide": raw_input.timing_plan.target_seconds_per_slide,
@@ -5829,6 +5848,10 @@ def design_pack_timing_plan(
         "targetSeconds": (
             slide_plan.target_seconds
             or raw_input.timing_plan.target_seconds_per_slide
+        ),
+        "targetSpokenSeconds": (
+            slide_plan.target_spoken_seconds
+            or raw_input.timing_plan.target_spoken_seconds
         ),
         "targetSpeakerNotesChars": target_speaker_notes_chars_for_slide(
             raw_input,
