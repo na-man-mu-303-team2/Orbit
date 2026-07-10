@@ -371,12 +371,20 @@ DeckPatch 결정 사항:
 - `delete_element`: element 삭제
 - `update_speaker_notes`: 발표자 노트 교체
 - `replace_keywords`: slide keyword 목록 전체 교체
+- `replace_semantic_cues`: slide Semantic Cue 목록 전체 교체
 - `add_animation`: animation 추가
 - `update_animation`: animation 부분 수정
 - `delete_animation`: animation 삭제
 - `add_slide_action`: slide action 추가
 - `update_slide_action`: slide action 부분 수정
 - `delete_slide_action`: slide action 삭제
+
+Semantic Cue cascade 규칙:
+
+- `update_speaker_notes`와 text/table/chart의 의미 내용 변경은 기존 `reviewStatus`를 보존하고 해당 slide cue의 `freshness`만 `stale`로 바꾼다.
+- frame 좌표, z-index, text/table/chart의 장식 style만 바뀌면 cue를 stale 처리하지 않는다.
+- `delete_element`는 `targetElementIds`와 같은 element를 가리키는 `sourceRefs`를 제거하고, `delete_slide_action` 및 연쇄 삭제된 action은 `triggerActionIds`에서 제거한다.
+- element/action reference가 제거된 cue는 stale이 되며, 최종 Deck은 다시 `deckSchema`로 검증한다.
 
 patch 적용 규칙:
 
