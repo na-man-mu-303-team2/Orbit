@@ -11127,6 +11127,15 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.rehearsal-teleprompter-progress {
+  color: rgba(219, 242, 238, 0.58);
+  font-size: 0.78rem;
+  font-weight: 700;
+  position: absolute;
+  right: 24px;
+  top: 16px;
+}
+
 .rehearsal-auto-advance-card {
   align-items: center;
   background: var(--presenter-panel-strong);
@@ -11780,6 +11789,10 @@ button:disabled {
 .rehearsal-teleprompter-current {
   color: var(--text-primary);
   text-shadow: none;
+}
+
+.rehearsal-teleprompter-progress {
+  color: var(--text-muted);
 }
 
 .rehearsal-auto-advance-card {

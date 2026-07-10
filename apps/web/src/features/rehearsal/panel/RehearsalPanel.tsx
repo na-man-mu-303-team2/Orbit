@@ -94,6 +94,12 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     [coveredSentenceIds, props.sentences, props.snapshot.coveredSentenceMatchKinds]
   );
   const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
+  const semanticCoveragePercent = Math.round(
+    props.snapshot.effectiveCoverage * 100
+  );
+  const scriptProgressPercent = Math.round(
+    (props.snapshot.scriptProgress?.ratio ?? 0) * 100
+  );
 
   const scrollScriptToFocus = useCallback(
     (behavior: ScrollBehavior) => {
@@ -254,7 +260,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   따라가기
                 </button>
               ) : null}
-              <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+              <strong title="의미 커버리지와 원문 기준 실시간 진행률">
+                의미 {semanticCoveragePercent}% · 원문 {scriptProgressPercent}%
+              </strong>
             </div>
           </div>
           <div
