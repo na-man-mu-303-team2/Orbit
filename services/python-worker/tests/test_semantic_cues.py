@@ -81,8 +81,10 @@ def test_extract_semantic_cues_uses_openai_structured_output() -> None:
                     "semanticCues": [
                         {
                             "meaning": "기존 고객 확장 매출의 의미를 설명했다",
-                            "required": True,
-                            "priority": 1,
+                            "reportLabel": "기존 고객 확장 매출",
+                            "presenterTag": "확장 매출",
+                            "cueType": "definition",
+                            "importance": "core",
                             "candidateKeywords": ["ARR 확장 매출"],
                             "aliasEntries": [
                                 {"term": "ARR 확장 매출", "values": ["Expansion ARR"]}
@@ -136,6 +138,12 @@ def test_extract_semantic_cues_uses_openai_structured_output() -> None:
     ]
     cues = result.model_dump(by_alias=True)["slides"][0]["semanticCues"]
     assert cues[0]["cueId"] == "scue_imported_1"
+    assert cues[0]["importance"] == "core"
+    assert cues[0]["required"] is True
+    assert cues[0]["priority"] == 1
+    assert cues[0]["reviewStatus"] == "suggested"
+    assert cues[0]["origin"] == "ai"
+    assert cues[0]["sourceDeckVersion"] == 1
     assert cues[0]["candidateKeywords"] == ["ARR 확장 매출"]
     assert cues[0]["requiredConcepts"] == ["기존 고객 확장", "매출 유지"]
     assert cues[0]["targetElementIds"] == ["headline"]
@@ -220,7 +228,12 @@ def test_extract_semantic_cues_keeps_empty_slides_empty_when_llm_returns_no_cues
     result = extract_semantic_cues(payload, client=fake_client, model="gpt-test")
 
     assert result.model_dump(by_alias=True)["slides"] == [
-        {"slideId": "slide_empty", "semanticCues": []}
+        {
+            "slideId": "slide_empty",
+            "status": "succeeded",
+            "semanticCues": [],
+            "warnings": [],
+        }
     ]
 
 
@@ -272,7 +285,12 @@ def test_extract_semantic_cues_filters_filler_cues_returned_by_llm() -> None:
     result = extract_semantic_cues(payload, client=fake_client, model="gpt-test")
 
     assert result.model_dump(by_alias=True)["slides"] == [
-        {"slideId": "slide_imported", "semanticCues": []}
+        {
+            "slideId": "slide_imported",
+            "status": "succeeded",
+            "semanticCues": [],
+            "warnings": [],
+        }
     ]
 
 

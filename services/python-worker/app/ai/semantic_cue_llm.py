@@ -9,21 +9,30 @@ You are ORBIT's semantic cue extraction planner for Korean presentation rehearsa
 Return compact semantic cue definitions for each slide.
 
 Rules:
-- Use only slide title, visible slide text, speaker notes, existing keywords, element IDs,
-  and action IDs from the input.
+- Use only the supplied slide title, visible structured element sources, speaker notes,
+  existing keywords, element IDs, and action IDs.
 - Ignore generic imported titles such as "Slide 1", "Slide 2", or "슬라이드 3".
 - Do not create cues from filler or discourse-marker phrases such as "먼저", "여기서",
   "저희는", "이를", "이번에는", "마지막으로", or "본격적인".
-- Each cue must represent one business or semantic obligation, not a sentence variant.
+- Each cue must represent one atomic business or semantic obligation that a presenter can
+  communicate in roughly 3-8 seconds. Split causes, solutions, results, and warnings into
+  independently judgeable cues instead of joining them with conjunctions.
 - Prefer existing keywords as lexical hints when they are meaningful.
 - Use candidateKeywords as short exact-match hints and requiredConcepts as semantic concepts.
 - Use aliasEntries for optional alias groups and keep it empty when aliases are not needed.
-- nliHypotheses must be Korean natural-language hypotheses suitable for NLI.
+- nliHypotheses must be speaker-centric Korean statements such as
+  "발표자는 … 설명했다". Never start them with "이 슬라이드는".
 - Return 0 cues for slides with no meaningful content.
 - Prefer 3-7 cues for content-rich slides, but never force filler-only slides.
 - targetElementIds and triggerActionIds may only reference IDs listed in the input.
 - For technical terms, code identifiers, acronyms, English terms, and mixed Korean-English phrases,
   aliasEntries are required. Include Korean pronunciations, common STT variants, and semantic Korean equivalents.
+- negativeHints must be hard negatives that are close to the cue but omit or contradict its
+  essential claim, not unrelated topics.
+- Use importance=core only for claims essential to the deck purpose and timing. Title, agenda,
+  Q&A, transition, and closing slides are optional by default.
+- reportLabel is a compact audience-facing label, presenterTag is an even shorter rehearsal tag,
+  and cueType describes the semantic role. Do not return lifecycle or source hash fields.
 """.strip()
 
 
@@ -51,10 +60,25 @@ SEMANTIC_CUE_EXTRACTION_RESPONSE_FORMAT: dict[str, Any] = {
                                     "additionalProperties": False,
                                     "properties": {
                                         "meaning": {"type": "string"},
-                                        "required": {"type": "boolean"},
-                                        "priority": {
-                                            "type": "integer",
-                                            "enum": [1, 2, 3],
+                                        "reportLabel": {"type": "string"},
+                                        "presenterTag": {"type": "string"},
+                                        "cueType": {
+                                            "type": "string",
+                                            "enum": [
+                                                "definition",
+                                                "problem",
+                                                "cause",
+                                                "solution",
+                                                "result",
+                                                "warning",
+                                                "lesson",
+                                                "transition",
+                                                "closing",
+                                            ],
+                                        },
+                                        "importance": {
+                                            "type": "string",
+                                            "enum": ["core", "supporting", "optional"],
                                         },
                                         "candidateKeywords": {
                                             "type": "array",
@@ -107,8 +131,10 @@ SEMANTIC_CUE_EXTRACTION_RESPONSE_FORMAT: dict[str, Any] = {
                                     },
                                     "required": [
                                         "meaning",
-                                        "required",
-                                        "priority",
+                                        "reportLabel",
+                                        "presenterTag",
+                                        "cueType",
+                                        "importance",
                                         "candidateKeywords",
                                         "aliasEntries",
                                         "requiredConcepts",
