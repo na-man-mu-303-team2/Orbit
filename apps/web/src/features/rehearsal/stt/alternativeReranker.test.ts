@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { rerankAlternatives } from "./alternativeReranker";
+import { buildSpeechTrackingBiasPhrases } from "../speech/speechBiasPhrases";
 
 describe("alternativeReranker", () => {
   it("대안이 없으면 null을 반환한다", () => {
@@ -83,6 +84,50 @@ describe("alternativeReranker", () => {
       selectedIndex: 0,
       selectedScore: 0,
       changed: false
+    });
+  });
+
+  it("Semantic Cue의 한국어 code alias가 정확한 STT 대안을 선택하게 한다", () => {
+    const phrases = buildSpeechTrackingBiasPhrases({
+      semanticCues: [
+        {
+          cueId: "scue_file_deny_write",
+          slideId: "slide_1",
+          meaning: "file_deny_write 정책이 파일 쓰기를 차단합니다",
+          importance: "core",
+          reviewStatus: "approved",
+          freshness: "current",
+          origin: "manual",
+          revision: 1,
+          sourceRefs: [],
+          qualityWarnings: [],
+          required: true,
+          priority: 1,
+          candidateKeywords: ["file_deny_write"],
+          aliases: {
+            file_deny_write: ["파일 디나이 라이트", "파일 쓰기 차단"]
+          },
+          requiredConcepts: ["file_deny_write"],
+          nliHypotheses: ["발표자는 파일 쓰기 차단 정책을 설명했다"],
+          negativeHints: [],
+          targetElementIds: [],
+          triggerActionIds: []
+        }
+      ]
+    });
+
+    expect(
+      rerankAlternatives(
+        [
+          { text: "파일 디자인 라이트 정책", confidence: 0.85 },
+          { text: "파일 디나이 라이트 정책", confidence: 0.62 }
+        ],
+        phrases
+      )
+    ).toMatchObject({
+      selected: { text: "파일 디나이 라이트 정책" },
+      selectedIndex: 1,
+      changed: true
     });
   });
 });
