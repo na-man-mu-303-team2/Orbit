@@ -3687,86 +3687,88 @@ def repair_short_speaker_notes_with_llm(
         source.source_id: source
         for source in (raw_input.source_records or initial_source_records(raw_input))
     }
-    requested_orders = {slide.order for slide in short_slides}
-    slide_payloads: list[dict[str, Any]] = []
-    referenced_source_ids: list[str] = []
-    for slide in short_slides:
-        source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
-        referenced_source_ids.extend(source_refs)
-        slide_payloads.append(
-            {
-                "order": slide.order,
-                "title": slide.title,
-                "message": slide.message,
-                "contentItems": [item.text for item in slide.content_items],
-                "currentSpeakerNotes": slide.speaker_notes,
-                "sourceRefs": source_refs,
-                "minimumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 1.4
-                ),
-                "maximumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 1.6
-                ),
-            }
-        )
-    sources = [
-        {
-            "sourceId": source.source_id,
-            "sourceType": source.source_type,
-            "authority": source.authority,
-            "title": source.title,
-            "url": source.url,
-            "content": source.content[:1600],
-        }
-        for source_id in unique_non_empty(referenced_source_ids)
-        if (source := source_records.get(source_id)) is not None
-    ]
-    try:
-        response = api_client.responses.create(
-            model=model or "gpt-4.1-mini",
-            instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
-            input=json.dumps(
+    for batch_start in range(0, len(short_slides), 3):
+        batch = short_slides[batch_start : batch_start + 3]
+        requested_orders = {slide.order for slide in batch}
+        slide_payloads: list[dict[str, Any]] = []
+        referenced_source_ids: list[str] = []
+        for slide in batch:
+            source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
+            referenced_source_ids.extend(source_refs)
+            slide_payloads.append(
                 {
-                    "topic": raw_input.topic,
-                    "referencePolicy": raw_input.brief.reference_policy,
-                    "slides": slide_payloads,
-                    "verifiedSources": sources,
-                },
-                ensure_ascii=False,
-            ),
-            text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
-        )
-        repaired = SpeakerNotesRepairPlan.model_validate_json(
-            str(getattr(response, "output_text", "")).strip()
-        )
-    except Exception:
-        return slide_plans
-
-    if {item.order for item in repaired.slides} != requested_orders:
-        return slide_plans
-    repaired_by_order = {item.order: item for item in repaired.slides}
-    for slide in short_slides:
-        item = repaired_by_order[slide.order]
-        minimum_chars = round(slide.target_speaker_notes_chars * 0.8)
-        maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
-        speaker_notes = " ".join(item.speaker_notes.split())
-        actual_chars = count_speaker_note_chars(speaker_notes)
-        if not minimum_chars <= actual_chars <= maximum_chars:
-            speaker_notes = fit_grounded_speaker_note_candidates(
-                [
-                    *speaker_note_fragments(speaker_notes),
-                    *[content_item.text for content_item in slide.content_items],
-                    slide.message,
-                    *grounded_speaker_note_transitions(slide),
-                    *speaker_note_fragments(slide.speaker_notes),
-                ],
-                minimum_chars=minimum_chars,
-                preferred_max_chars=maximum_chars,
+                    "order": slide.order,
+                    "title": slide.title,
+                    "message": slide.message,
+                    "contentItems": [item.text for item in slide.content_items],
+                    "currentSpeakerNotes": slide.speaker_notes,
+                    "sourceRefs": source_refs,
+                    "minimumNonWhitespaceChars": round(
+                        slide.target_speaker_notes_chars * 1.4
+                    ),
+                    "maximumNonWhitespaceChars": round(
+                        slide.target_speaker_notes_chars * 1.6
+                    ),
+                }
             )
-            actual_chars = count_speaker_note_chars(speaker_notes)
-        if not minimum_chars <= actual_chars <= maximum_chars:
+        sources = [
+            {
+                "sourceId": source.source_id,
+                "sourceType": source.source_type,
+                "authority": source.authority,
+                "title": source.title,
+                "url": source.url,
+                "content": source.content[:1600],
+            }
+            for source_id in unique_non_empty(referenced_source_ids)
+            if (source := source_records.get(source_id)) is not None
+        ]
+        try:
+            response = api_client.responses.create(
+                model=model or "gpt-4.1-mini",
+                instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
+                input=json.dumps(
+                    {
+                        "topic": raw_input.topic,
+                        "referencePolicy": raw_input.brief.reference_policy,
+                        "slides": slide_payloads,
+                        "verifiedSources": sources,
+                    },
+                    ensure_ascii=False,
+                ),
+                text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
+            )
+            repaired = SpeakerNotesRepairPlan.model_validate_json(
+                str(getattr(response, "output_text", "")).strip()
+            )
+        except Exception:
             continue
-        slide.speaker_notes = speaker_notes
+
+        if {item.order for item in repaired.slides} != requested_orders:
+            continue
+        repaired_by_order = {item.order: item for item in repaired.slides}
+        for slide in batch:
+            item = repaired_by_order[slide.order]
+            minimum_chars = round(slide.target_speaker_notes_chars * 0.8)
+            maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
+            speaker_notes = " ".join(item.speaker_notes.split())
+            actual_chars = count_speaker_note_chars(speaker_notes)
+            if not minimum_chars <= actual_chars <= maximum_chars:
+                speaker_notes = fit_grounded_speaker_note_candidates(
+                    [
+                        *speaker_note_fragments(speaker_notes),
+                        *[content_item.text for content_item in slide.content_items],
+                        slide.message,
+                        *grounded_speaker_note_transitions(slide),
+                        *speaker_note_fragments(slide.speaker_notes),
+                    ],
+                    minimum_chars=minimum_chars,
+                    preferred_max_chars=maximum_chars,
+                )
+                actual_chars = count_speaker_note_chars(speaker_notes)
+            if not minimum_chars <= actual_chars <= maximum_chars:
+                continue
+            slide.speaker_notes = speaker_notes
     return slide_plans
 
 
