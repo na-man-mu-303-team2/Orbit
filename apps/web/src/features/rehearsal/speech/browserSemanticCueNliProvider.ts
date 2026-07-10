@@ -9,6 +9,7 @@ import type {
   SemanticCueNliProvider,
   SemanticCueNliProviderInfo
 } from "./semanticCueNliProvider";
+import { SemanticCueNliProviderError } from "./semanticCueNliProvider";
 
 type BrowserSemanticCueNliWorker = Pick<
   Worker,
@@ -20,6 +21,8 @@ export type BrowserSemanticCueNliProviderOptions = {
   createWorker?: () => BrowserSemanticCueNliWorker;
   loadTimeoutMs?: number;
   inferenceTimeoutMs?: number;
+  loadOnEvaluate?: boolean;
+  deviceOverride?: BrowserSemanticCueNliDevice;
   now?: () => number;
   globalScope?: Pick<typeof globalThis, "Worker" | "navigator">;
 };
@@ -33,6 +36,7 @@ export function createBrowserTransformersSemanticCueNliProvider(
   const scope = options.globalScope ?? globalThis;
   let worker: BrowserSemanticCueNliWorker | null = null;
   let loadPromise: Promise<SemanticCueNliProviderInfo> | null = null;
+  let lastInfo: SemanticCueNliProviderInfo | null = null;
   let requestSequence = 0;
   let latestJobId = 0;
   const pendingRequests = new Map<
@@ -48,12 +52,13 @@ export function createBrowserTransformersSemanticCueNliProvider(
     async load() {
       const capability = getBrowserSemanticCueNliCapability(scope);
       if (!capability.enabled) {
-        return {
+        lastInfo = {
           provider: "browser-transformersjs",
           status: "disabled-low-capability",
           modelId: options.modelId,
           error: capability.reason
         };
+        return lastInfo;
       }
 
       loadPromise ??= requestWorker(
@@ -62,7 +67,8 @@ export function createBrowserTransformersSemanticCueNliProvider(
           type: "load",
           requestId: nextRequestId(),
           modelId: options.modelId,
-          device: capability.device
+          device: options.deviceOverride ?? capability.device,
+          dtype: "fp32"
         },
         loadTimeoutMs,
         pendingRequests
@@ -75,43 +81,74 @@ export function createBrowserTransformersSemanticCueNliProvider(
           provider: "browser-transformersjs",
           status: "ready",
           modelId: response.modelId,
-          loadedAtMs: response.loadedAtMs
+          loadedAtMs: response.loadedAtMs,
+          device: response.device,
+          dtype: response.dtype,
+          labelMapping: response.labelMapping
         };
       });
 
       try {
-        return await loadPromise;
+        lastInfo = await loadPromise;
+        return lastInfo;
       } catch (error) {
         loadPromise = null;
-        return {
+        lastInfo = {
           provider: "browser-transformersjs",
           status: "failed",
           modelId: options.modelId,
           error: error instanceof Error ? error.message : String(error)
         };
+        return lastInfo;
       }
     },
 
     async evaluate(input) {
-      const info = await this.load();
+      const info = options.loadOnEvaluate === false ? lastInfo : await this.load();
+      if (!info) {
+        const capability = getBrowserSemanticCueNliCapability(scope);
+        if (!capability.enabled) {
+          throw new SemanticCueNliProviderError(
+            "provider_unavailable",
+            `Semantic cue NLI is unavailable: ${capability.reason}.`
+          );
+        }
+        throw new SemanticCueNliProviderError(
+          "model_not_ready",
+          "Semantic cue NLI model is not prewarmed."
+        );
+      }
       if (info.status !== "ready") {
-        return [];
+        throw new SemanticCueNliProviderError(
+          info.status === "failed" ? "model_load_failed" : "provider_unavailable",
+          info.status === "failed"
+            ? "Semantic cue NLI model failed to load."
+            : "Semantic cue NLI is unavailable on this device."
+        );
       }
 
       const jobId = ++latestJobId;
-      const response = await requestWorker(
-        getOrCreateWorker(),
-        {
-          type: "infer",
-          requestId: nextRequestId(),
-          jobId,
-          premise: input.premise,
-          hypotheses: input.hypotheses
-        },
-        inferenceTimeoutMs,
-        pendingRequests,
-        input.signal
-      );
+      let response: BrowserSemanticCueNliWorkerResponse;
+      try {
+        response = await requestWorker(
+          getOrCreateWorker(),
+          {
+            type: "infer",
+            requestId: nextRequestId(),
+            jobId,
+            premise: input.premise,
+            hypotheses: input.hypotheses
+          },
+          inferenceTimeoutMs,
+          pendingRequests,
+          input.signal
+        );
+      } catch (error) {
+        if (error instanceof BrowserSemanticCueNliTimeoutError) {
+          throw new SemanticCueNliProviderError("timeout", "Semantic cue NLI inference timed out.");
+        }
+        throw error;
+      }
 
       if (response.type !== "result" || response.jobId !== latestJobId) {
         return [];
@@ -128,12 +165,15 @@ export function createBrowserTransformersSemanticCueNliProvider(
 
     dispose() {
       if (worker) {
-        worker.postMessage({ type: "dispose" } satisfies BrowserSemanticCueNliWorkerRequest);
+        worker.postMessage({
+          type: "dispose"
+        } satisfies BrowserSemanticCueNliWorkerRequest);
         worker.terminate();
         worker = null;
       }
       rejectPendingRequests(pendingRequests, "Semantic cue NLI worker disposed.");
       loadPromise = null;
+      lastInfo = null;
     }
   };
 
@@ -154,10 +194,7 @@ export function createBrowserTransformersSemanticCueNliProvider(
         pending.resolve(event.data);
       };
       worker.onerror = (event) => {
-        rejectPendingRequests(
-          pendingRequests,
-          event.message || "Semantic cue NLI worker failed."
-        );
+        rejectPendingRequests(pendingRequests, event.message || "Semantic cue NLI worker failed.");
       };
     }
     return worker;
@@ -214,7 +251,7 @@ function requestWorker(
     const requestId = "requestId" in message ? message.requestId : "";
     const timeoutId = globalThis.setTimeout(() => {
       cleanup();
-      reject(new Error("Semantic cue NLI worker timed out."));
+      reject(new BrowserSemanticCueNliTimeoutError());
     }, timeoutMs);
 
     const abortHandler = () => {
@@ -238,6 +275,12 @@ function requestWorker(
     pendingRequests.set(requestId, { resolve, reject, cleanup });
     worker.postMessage(message);
   });
+}
+
+class BrowserSemanticCueNliTimeoutError extends Error {
+  constructor() {
+    super("Semantic cue NLI worker timed out.");
+  }
 }
 
 function rejectPendingRequests(

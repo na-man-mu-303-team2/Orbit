@@ -5,7 +5,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { createSemanticCueRuntime } from "./semanticCueRuntime";
-import type { SemanticCueNliProvider } from "./semanticCueNliProvider";
+import {
+  SemanticCueNliProviderError,
+  type SemanticCueNliProvider
+} from "./semanticCueNliProvider";
 
 describe("semanticCueRuntime fallback", () => {
   it("semantic matching toggle이 꺼지면 기존 발표 추적에 decision을 추가하지 않는다", async () => {
@@ -134,6 +137,32 @@ describe("semanticCueRuntime fallback", () => {
     });
   });
 
+  it("provider가 abort에 즉시 반응해도 runtime timeout reason을 유지한다", async () => {
+    const provider: SemanticCueNliProvider = {
+      load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+      evaluate: vi.fn(
+        async ({ signal }) =>
+          await new Promise<never>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("aborted", "AbortError")),
+              { once: true }
+            );
+          })
+      )
+    };
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      provider,
+      nliTimeoutMs: 5,
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.9]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(runtimeInput());
+
+    expect(result.debugEvent.fallback?.reason).toBe("timeout");
+  });
+
   it("NLI 입력은 ambiguous top 2 cue와 cue당 최대 2개 hypothesis로 제한한다", async () => {
     const evaluate = vi.fn(async (input: Parameters<SemanticCueNliProvider["evaluate"]>[0]) =>
       input.hypotheses.map((hypothesis) => ({
@@ -206,6 +235,78 @@ describe("semanticCueRuntime fallback", () => {
     expect(error.capabilityUpdates).toEqual(
       expect.arrayContaining([expect.objectContaining({ reason: "runtime_error" })])
     );
+  });
+
+  it("shadow NLI 결과는 debug에만 남기고 cue decision이나 action 근거로 사용하지 않는다", async () => {
+    const provider: SemanticCueNliProvider = {
+      load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+      evaluate: vi.fn(
+        async (input: Parameters<SemanticCueNliProvider["evaluate"]>[0]) =>
+          input.hypotheses.map((hypothesis) => ({
+            ...hypothesis,
+            entailmentScore: 0.98,
+            neutralScore: 0.01,
+            contradictionScore: 0.01,
+            provider: "mock" as const,
+            latencyMs: 40
+          }))
+      )
+    };
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      nliMode: "shadow",
+      provider,
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.9]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(runtimeInput());
+
+    expect(result.decisions).toEqual([]);
+    expect(result.debugEvent.nli?.hypotheses[0]).toMatchObject({
+      entailmentScore: 0.98
+    });
+    expect(result.debugEvent.decision.reasonCodes).toContain("nli-shadow-only");
+    expect(result.debugEvent.actionGate).toMatchObject({
+      allowed: false,
+      blockedReasons: expect.arrayContaining(["nli-cannot-advance-slide-alone"])
+    });
+    expect(result.capabilityUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "semantic_runtime",
+          measurementMode: "none"
+        })
+      ])
+    );
+  });
+
+  it("provider의 model_not_ready reason을 visible capability fallback으로 유지한다", async () => {
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      provider: {
+        load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+        evaluate: vi.fn(async () => {
+          throw new SemanticCueNliProviderError(
+            "model_not_ready",
+            "Semantic cue NLI model is not prewarmed."
+          );
+        })
+      },
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.9]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(runtimeInput());
+
+    expect(result.capabilityUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "nli",
+          toState: "unavailable",
+          reason: "model_not_ready"
+        })
+      ])
+    );
+    expect(result.debugEvent.fallback?.reason).toBe("model_not_ready");
   });
 });
 

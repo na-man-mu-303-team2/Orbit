@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
   const env = loadWebEnv(mode);
 
   return {
+    envDir: rootDir,
     plugins: [react()],
     worker: {
       // The sherpa live STT runtime is a classic worker that loads WASM with importScripts.
