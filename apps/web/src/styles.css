@@ -334,12 +334,14 @@ button:disabled {
 }
 
 .orbit-product-nav {
+  align-self: start;
   background: #ffffff;
   border-right: 1px solid #dbe3ef;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   padding: 44px 26px 28px;
   position: sticky;
   top: 0;
@@ -8462,9 +8464,11 @@ button:disabled {
   }
 
   .orbit-product-nav {
+    align-self: stretch;
     border-bottom: 1px solid #d7dde8;
     border-right: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
     min-height: auto;
     padding: 18px;
     position: relative;

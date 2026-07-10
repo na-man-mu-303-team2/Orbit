@@ -5,8 +5,7 @@ import {
   LogIn,
   LogOut,
   PanelLeftClose,
-  PanelLeftOpen,
-  Sparkles
+  PanelLeftOpen
 } from "lucide-react";
 import type { ReactNode } from "react";
 import orbitLogo from "../assets/orbit-logo.png";
@@ -14,12 +13,10 @@ import orbitLogo from "../assets/orbit-logo.png";
 type AppSidebarProps = {
   isAuthenticated: boolean;
   isCollapsed: boolean;
-  isCreateDeckActive: boolean;
   isHomeActive: boolean;
   isLoggingOut: boolean;
   isProjectActive: boolean;
   isReportActive: boolean;
-  onCreateDeckClick: () => void;
   onHomeClick: () => void;
   onLoginClick: () => void;
   onLogoutClick: () => void;
@@ -34,12 +31,10 @@ export function AppSidebar(props: AppSidebarProps) {
   const {
     isAuthenticated,
     isCollapsed,
-    isCreateDeckActive,
     isHomeActive,
     isLoggingOut,
     isProjectActive,
     isReportActive,
-    onCreateDeckClick,
     onHomeClick,
     onLoginClick,
     onLogoutClick,
@@ -87,12 +82,6 @@ export function AppSidebar(props: AppSidebarProps) {
         icon={<BarChart3 size={15} />}
         label="리포트"
         onClick={onReportClick}
-      />
-      <SidebarButton
-        active={isCreateDeckActive}
-        icon={<Sparkles size={15} />}
-        label="AI 덱 생성"
-        onClick={onCreateDeckClick}
       />
       <div className="orbit-product-nav-account">
         {isAuthenticated ? (

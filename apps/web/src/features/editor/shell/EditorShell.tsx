@@ -28,6 +28,8 @@ import {
   normalizeElementFrameDraft
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
+  appendDeckPatchAckResponseSchema,
+  appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   createKeywordOccurrenceId,
   deckApiErrorSchema,
@@ -121,6 +123,7 @@ export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
   ApplyAiSuggestionResponse,
+  AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
   Deck,
@@ -495,6 +498,8 @@ function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
 
+const slideThumbnailHeight = 360;
+
 async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -520,8 +525,10 @@ async function createSlideRenderFile(args: {
     pixelRatio
   }) as HTMLCanvasElement;
   const canvas = document.createElement("canvas");
-  canvas.width = args.deck.canvas.width;
-  canvas.height = args.deck.canvas.height;
+  canvas.width = Math.round(
+    (args.deck.canvas.width / args.deck.canvas.height) * slideThumbnailHeight
+  );
+  canvas.height = slideThumbnailHeight;
 
   const context = canvas.getContext("2d");
 
@@ -918,6 +925,57 @@ async function appendProjectDeckPatch(
   };
   emitOoxmlSyncJob(payload.ooxmlSyncJob);
   return payload.deck;
+}
+
+export function applyDeckPatchAcknowledgement(
+  baseDeck: Deck,
+  patch: DeckPatch,
+  acknowledgement: AppendDeckPatchAckResponse
+): Deck {
+  const matchesRequest =
+    acknowledgement.deckId === patch.deckId &&
+    acknowledgement.changeRecord.deckId === patch.deckId &&
+    acknowledgement.changeRecord.beforeVersion === patch.baseVersion &&
+    acknowledgement.changeRecord.source === patch.source &&
+    JSON.stringify(acknowledgement.changeRecord.operations) ===
+      JSON.stringify(patch.operations);
+
+  if (!matchesRequest) {
+    throw new Error("Deck patch acknowledgement does not match the request");
+  }
+
+  const result = applyDeckPatch(baseDeck, patch, {
+    createdAt: acknowledgement.changeRecord.createdAt
+  });
+
+  if (!result.ok || result.deck.version !== acknowledgement.version) {
+    throw new Error("Deck patch acknowledgement version does not match the local result");
+  }
+
+  return result.deck;
+}
+
+async function appendProjectDeckPatchAck(
+  projectId: string,
+  baseDeck: Deck,
+  patch: DeckPatch
+): Promise<Deck> {
+  const request = appendDeckPatchRequestSchema.parse({ patch, responseMode: "ack" });
+  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(request)
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Deck save failed");
+  }
+
+  const acknowledgement = appendDeckPatchAckResponseSchema.parse(await response.json());
+  emitOoxmlSyncJob(acknowledgement.ooxmlSyncJob);
+  return applyDeckPatchAcknowledgement(baseDeck, request.patch, acknowledgement);
 }
 
 function emitOoxmlSyncJob(job: Job | undefined) {
@@ -2149,6 +2207,15 @@ export function EditorShell(props: { projectId?: string }) {
         );
       }
 
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
+      }
+
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
 
@@ -2225,7 +2292,11 @@ export function EditorShell(props: { projectId?: string }) {
       let persistedDeck: Deck;
 
       try {
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          basePersistedDeck,
+          buildResult.patch
+        );
       } catch (error) {
         if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
           throw error;
@@ -2240,7 +2311,11 @@ export function EditorShell(props: { projectId?: string }) {
         recoveredConflict = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          latestDeck,
+          buildResult.patch
+        );
       }
 
       let finalPersistedDeck = persistedDeck;
@@ -2275,8 +2350,9 @@ export function EditorShell(props: { projectId?: string }) {
               currentDeck: workingDeckRef.current
             })
           ) {
-            finalPersistedDeck = await appendProjectDeckPatch(
+            finalPersistedDeck = await appendProjectDeckPatchAck(
               activeProjectId,
+              persistedDeck,
               thumbnailPatch
             );
           }

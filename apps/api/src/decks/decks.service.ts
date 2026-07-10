@@ -9,6 +9,7 @@ import {
   type EnqueuePptxOoxmlSyncJobInput,
 } from "@orbit/job-queue";
 import {
+  appendDeckPatchAckResponseSchema,
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
@@ -25,6 +26,9 @@ import {
   restoreDeckSnapshotResponseSchema,
 } from "@orbit/shared";
 import type {
+  AppendDeckPatchAckRequest,
+  AppendDeckPatchAckResponse,
+  AppendDeckPatchFullRequest,
   AppendDeckPatchRequest,
   AppendDeckPatchResponse,
   Deck,
@@ -271,8 +275,20 @@ export class DecksService {
 
   async appendPatch(
     projectId: string,
+    body: AppendDeckPatchAckRequest,
+  ): Promise<AppendDeckPatchAckResponse>;
+  async appendPatch(
+    projectId: string,
+    body: AppendDeckPatchFullRequest,
+  ): Promise<AppendDeckPatchResponse>;
+  async appendPatch(
+    projectId: string,
     body: unknown,
-  ): Promise<AppendDeckPatchResponse> {
+  ): Promise<AppendDeckPatchResponse | AppendDeckPatchAckResponse>;
+  async appendPatch(
+    projectId: string,
+    body: unknown,
+  ): Promise<AppendDeckPatchResponse | AppendDeckPatchAckResponse> {
     const request = parseAppendDeckPatchRequest(body);
     let syncInput: PptxOoxmlSyncJobInput | null = null;
 
@@ -355,22 +371,30 @@ export class DecksService {
         };
       }
 
-      return appendDeckPatchResponseSchema.parse({
+      return {
         deck,
         changeRecord: applyResult.changeRecord,
         snapshot,
         updatedAt,
-      });
+      };
     });
 
     const ooxmlSyncJob = syncInput
       ? await this.enqueueOoxmlSync(projectId, syncInput)
       : undefined;
 
-    return appendDeckPatchResponseSchema.parse({
-      ...response,
-      ooxmlSyncJob,
-    });
+    if (request.responseMode === "ack") {
+      return appendDeckPatchAckResponseSchema.parse({
+        deckId: response.deck.deckId,
+        version: response.deck.version,
+        changeRecord: response.changeRecord,
+        ...(response.snapshot ? { snapshot: response.snapshot } : {}),
+        ooxmlSyncJob,
+        updatedAt: response.updatedAt,
+      });
+    }
+
+    return appendDeckPatchResponseSchema.parse({ ...response, ooxmlSyncJob });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {
