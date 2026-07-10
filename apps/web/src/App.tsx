@@ -29,10 +29,8 @@ import {
   ListChecks,
   Paperclip,
   Plus,
-  Search,
   Sparkles,
-  UploadCloud,
-  Trash2
+  UploadCloud
 } from "lucide-react";
 import type {
   CSSProperties,
@@ -54,7 +52,6 @@ import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuth
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
-  deleteProject,
   fetchProjects,
   resolveAssetMimeType,
   uploadProjectAsset
@@ -1662,90 +1659,6 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   );
 }
 
-export function ProjectListPage() {
-  const [isCreating, setIsCreating] = useState(false);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState("");
-  const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => fetchProjects(),
-    retry: false
-  });
-
-  async function handleCreateProject() {
-    if (isCreating) return;
-    setIsCreating(true);
-    try {
-      const project = await createProject("새 프레젠테이션");
-      await projects.refetch();
-      navigateTo(`/project/${project.projectId}`);
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
-  async function handleDeleteProject(project: Project) {
-    if (deletingProjectId) return;
-    const shouldDelete = window.confirm(
-      `"${project.title}" 프레젠테이션을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
-    );
-    if (!shouldDelete) return;
-
-    setDeleteError("");
-    setDeletingProjectId(project.projectId);
-    try {
-      await deleteProject(project.projectId);
-      await projects.refetch();
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "프로젝트를 삭제하지 못했습니다.");
-    } finally {
-      setDeletingProjectId(null);
-    }
-  }
-
-  return (
-    <section className="project-page">
-      <header className="page-heading row">
-        <div>
-          <span>프로젝트</span>
-          <h1>프로젝트 불러오기</h1>
-        </div>
-        <button type="button" className="ghost-button" onClick={() => void projects.refetch()}>
-          <Search size={16} />
-          새로고침
-        </button>
-      </header>
-
-      <TemplateRail
-        title="템플릿"
-        onCreateProject={handleCreateProject}
-        onSelectStyle={(styleId) => navigateTo(getHomeTemplateStylePath(styleId))}
-        isCreating={isCreating}
-      />
-
-      <section className="project-history">
-        <div className="section-heading">
-          <h2>최근 에디팅한 프로젝트</h2>
-          <span>{projects.data?.length ?? 0}개</span>
-        </div>
-        {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
-        {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
-        {deleteError ? <p className="empty-state project-delete-error">{deleteError}</p> : null}
-        <div className="project-grid">
-          {(projects.data ?? []).map((project) => (
-            <ProjectCard
-              key={project.projectId}
-              project={project}
-              isDeleting={deletingProjectId === project.projectId}
-              onDelete={() => void handleDeleteProject(project)}
-            />
-          ))}
-        </div>
-      </section>
-    </section>
-  );
-}
-
 export function TemplateRail(props: {
   title: string;
   isCreating?: boolean;
@@ -2179,41 +2092,6 @@ function HomeUploadList(props: {
         ))}
       </ul>
     </div>
-  );
-}
-
-function ProjectCard(props: { project: Project; isDeleting: boolean; onDelete: () => void }) {
-  const createdAt = new Date(props.project.createdAt);
-  return (
-    <article className="project-card">
-      <button
-        aria-label={`${props.project.title} 열기`}
-        className="project-card-open"
-        type="button"
-        onClick={() => navigateTo(`/project/${props.project.projectId}`)}
-      >
-        <div className="project-thumb">
-          <span />
-        </div>
-        <strong>{props.project.title}</strong>
-        <span>
-          {Number.isNaN(createdAt.getTime())
-            ? props.project.projectId
-            : createdAt.toLocaleDateString("ko-KR")}
-        </span>
-      </button>
-      <button
-        aria-label={`${props.project.title} 삭제`}
-        className="project-card-delete"
-        disabled={props.isDeleting}
-        title="프레젠테이션 삭제"
-        type="button"
-        onClick={props.onDelete}
-      >
-        <Trash2 size={15} />
-        <span>{props.isDeleting ? "삭제 중" : "삭제"}</span>
-      </button>
-    </article>
   );
 }
 

@@ -204,7 +204,7 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 - 좋은 점은 Success, 개선점은 Warning, AI 분석은 Lilac/Lime surface를 사용하되 점수만으로 성공을 단정하지 않는다.
 - 프로젝트 종합 리포트는 최근 점수, AI 종합 요약, 핵심 지표, 회차별 변화, 반복 강점, 다음 연습 목표, 회차별 리포트 순으로 구성한다.
 - 리허설 리포트 목록의 상단 요약 카드는 프로젝트 종합 리포트의 진입점으로 사용하고, 회차별 목록 행은 개별 리포트로 연결해 정보 수준을 구분한다.
-- 리포트 목록·상세·프로젝트 종합 리포트의 상단 navigation은 `홈 → 프로젝트 → 리허설 → 리포트` 순서를 유지하며 `홈`은 `/mockup/home`으로 연결한다.
+- 리포트 목록·상세·프로젝트 종합 리포트의 상단 navigation은 `홈 → 프로젝트 → 리허설 → 리포트` 순서를 유지하며 `홈`은 실제 작업 공간 `/`으로 연결한다.
 - 상단 종합 리포트 카드의 Lilac 배경은 hover에도 고정하고, hover 피드백은 `종합 리포트 보기` action 안에서만 제공한다.
 - 점수와 발표 시간 추세는 같은 위치에서 전환하고, 각 회차의 실제 값과 진행 수준을 함께 표시한다.
 
@@ -228,17 +228,17 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 ### 실전 발표
 
 - 청중용 실전 발표 화면은 Ink background 위에 현재 슬라이드를 가장 크게 두고, `LIVE`, 연결 상태, 슬라이드 이동과 전체화면만 최소 chrome으로 제공한다.
-- 실전 발표자 모드는 현재·다음 슬라이드, 발표 메모, 경과 시간, 청중 연결 상태와 발표 종료를 한 화면에 유지한다.
-- 리허설의 AI 코치와 키워드 점검은 실전 화면에서 제거한다. 대신 청중 수, 질문, 발언 요청과 청중 화면 동기화 상태를 보조 정보로 제공한다.
-- 실전 화면과 발표자 모드는 `청중 화면`과 `발표자 모드` action으로 서로 이동할 수 있어야 한다.
-- 발표 종료는 즉시 실행하지 않고 청중 화면 연결 종료와 기록 저장을 설명하는 확인 dialog를 거친다.
+- 실전 발표자 모드는 현재·다음 슬라이드, 발표 메모, 경과 시간과 발표 종료를 한 화면에 유지한다.
+- 리허설의 AI 코치와 자동 평가 정보는 실전 화면에서 제거한다. 청중 수, 질문, 발언 요청, 기록 저장은 실제 presentation session 계약이 추가되기 전까지 노출하지 않는다.
+- 동기화 slide window는 정상 연결 시 슬라이드를 최우선으로 보여주고, 연결 전·실패·stale 상태에서만 복구 안내와 fallback chrome을 제공한다.
+- 청중 입장 화면은 기존 access/passcode 계약만 사용하고 발표자 script, transcript, raw audio를 전달하거나 DOM에 포함하지 않는다.
 
 ### 인증
 
 - 데스크톱 인증 화면은 ORBIT 가치 제안과 form을 2열로 분리한다. 모바일에서는 가치 제안 영역을 접고 form을 첫 화면에 우선한다.
-- 로그인은 이메일·비밀번호, 로그인 유지, 비밀번호 찾기와 회원가입 전환을 제공한다.
-- 회원가입은 이름·이메일·비밀번호와 필수/선택 약관을 구분하며, 비밀번호 최소 조건을 입력 중 바로 보여준다.
-- 필수 입력과 약관 오류는 field 아래 Danger Soft 상태로 설명하고 사용자가 입력한 값은 유지한다.
+- 로그인은 현재 인증 계약에 맞춰 이메일·비밀번호와 회원가입 전환을 제공한다. 로그인 유지와 비밀번호 찾기는 해당 API 계약이 추가된 뒤 제공한다.
+- 회원가입은 현재 인증 계약에 맞춰 이메일·비밀번호를 받고 최소 비밀번호 조건을 입력 중 보여준다. 이름과 약관은 서버 계약이 추가되기 전까지 수집하지 않는다.
+- 필수 입력과 서버 오류는 field 아래 Danger Soft 상태로 설명하고 사용자가 입력한 값은 유지한다.
 - 비밀번호는 기본적으로 가리고, 같은 field 안의 Eye action으로 표시 상태를 전환한다.
 
 ## 현재 시스템 채택 규칙
@@ -256,6 +256,11 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 - Reusable primitives: `apps/web/src/design-system/components.tsx`
 - Public import surface: `apps/web/src/design-system/index.ts`
 - Browser preview: `/design-system`
+- Production public/auth: `/`, `/login`, `/signup`
+- Production workspace/project: `/`, `/project`, `/createdeck`, `/project/:projectId/request`
+- Production reports: `/reports`, `/reports/:projectId`, `/rehearsal/:projectId/report/:runId`
+- Production editor/rehearsal: `/project/:projectId`, `/rehearsal/:projectId`
+- Production presentation/audience: `/presentation/:projectId`, `/present/:deckId`, `/audience/:sessionId`
 - Editor mockup: `/mockup/editor`
 - Microphone permission check mockup: `/mockup/microphone-check`
 - Project access request mockup: `/mockup/project-request`

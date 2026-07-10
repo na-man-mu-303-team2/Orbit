@@ -765,7 +765,6 @@ button:disabled {
 
 .home-page,
 .project-page,
-.login-page,
 .loading-page {
   margin: 0 auto;
   max-width: 1180px;
@@ -1681,7 +1680,6 @@ button:disabled {
   width: 54%;
 }
 
-.login-page,
 .loading-page {
   align-items: center;
   display: grid;
@@ -3041,7 +3039,6 @@ button:disabled {
 @media (max-width: 560px) {
   .home-page,
   .project-page,
-  .login-page,
   .loading-page {
     padding: 22px 16px;
   }

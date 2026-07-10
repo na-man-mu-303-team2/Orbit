@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import type { Deck } from "@orbit/shared";
+import { createAuthenticatedProject } from "./authenticatedProject";
 
 const initialNotes = "기존 발표 메모입니다.";
 const appliedNotes = "AI가 승인한 발표 메모입니다.";
@@ -94,7 +96,12 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
   test("shows a pending slide suggestion, applies it, persists after reload, and prevents a second apply", async ({
     page
   }) => {
-    let deck: DeckFixture = structuredClone(baseDeck);
+    const created = await createAuthenticatedProject(page, {
+      deck: baseDeck as Deck,
+      label: "ai-suggestions",
+    });
+    let deck = structuredClone(created.deck ?? baseDeck) as DeckFixture;
+    const projectId = created.project.projectId;
     let suggestionStatus: SuggestionStatus = "pending";
     let applyCount = 0;
 
@@ -112,17 +119,7 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
       });
     });
 
-    await page.route("**/api/v1/auth/me", async (route) => {
-      await route.fulfill({
-        status: 401,
-        json: {
-          code: "UNAUTHENTICATED",
-          message: "Not authenticated"
-        }
-      });
-    });
-
-    await page.route("**/api/v1/projects/project_demo_1/deck", async (route) => {
+    await page.route(`**/api/v1/projects/${projectId}/deck`, async (route) => {
       await route.fulfill({
         json: {
           projectId: deck.projectId,
@@ -133,7 +130,7 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
     });
 
     await page.route(
-      "**/api/v1/projects/project_demo_1/ai-suggestions**",
+      `**/api/v1/projects/${projectId}/ai-suggestions**`,
       async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -209,7 +206,7 @@ test.describe("ORBIT-27 AI suggestion review/apply", () => {
       }
     );
 
-    await page.goto("/project/project_demo_1");
+    await page.goto(`/project/${projectId}`);
     await expect(page.getByLabel("Presentation editor")).toBeVisible();
 
     const aiPanel = page.getByLabel("AI 제안");

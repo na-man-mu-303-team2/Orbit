@@ -1125,3 +1125,30 @@ final result: passed
 - No actionable P0/P1/P2 findings remain.
 
 final result: passed
+
+## Production rollout and legacy cleanup T19 QA
+
+### Source and implementation
+
+- Source visual truth: the canonical ORBIT tokens/primitives, all approved production-route mockups and the route-by-route migration plan in `docs/orbit-ui-migration-plan.md`.
+- Browser implementations: final public route at `artifacts/migration/t19/public-final.png`; desktop live presenter/slide window and mobile login/signup/audience routes were rechecked in the in-app Browser.
+- Desktop viewport: 1440×1024. Mobile viewport: 390×844. All checked routes reported `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: public, auth, workspace, report, editor, rehearsal, presentation and audience surfaces now share the canonical Pretendard/Inter and mono scales.
+- Spacing and layout rhythm: production routes use the approved document header, page width, field height, panel radius and responsive stacking rules; mockups remain isolated under `/mockup/*`.
+- Colors and visual tokens: migrated production surfaces use ORBIT Ink, Lilac, Lime, Cream, Mint and Navy semantics. The public rehearsal editorial is now a token-driven product preview rather than a production import from mockup assets.
+- Image quality and asset fidelity: light surfaces use `orbit-logo.png`; dark presenter and slide-window surfaces use `orbit-logo-white.png` directly. Operational icons use Tabler Icons in migrated slices.
+- Copy and content: authentication, project access, reports, rehearsal, live presentation and audience copy now follows current API contracts and excludes unsupported identity fields, audience metrics and presenter-private data.
+
+### Interaction and findings
+
+- Removed the unused legacy `AppSidebar`, `AuthPanel`, `ProjectListPage` and `ProjectCard` implementations. Production components no longer import mockup components or mockup CSS/assets; `App.tsx` retains the intentional `/mockup/*` route boundary only.
+- Updated the design-system document where earlier mockup-only routes or unsupported auth/live assumptions conflicted with the production contracts.
+- Updated the Chromium smoke fixtures to authenticate through the real API, create owned projects and enter the new rehearsal preflight. All 7 smoke tests passed.
+- Full validation passed: monorepo typecheck, lint, test, build, `docker compose config` and `git diff --check`. Web tests: 702 passed; shared: 162; editor-core: 68; API: 183; worker: 35; job queue: 6; storage: 1.
+- `node infra/scripts/check-env.mjs` remains red because the pre-existing staging/production example files omit `API_JSON_BODY_LIMIT_BYTES`; no environment file was changed by this UI migration. Existing Vite large-chunk warnings also remain.
+- No actionable P0/P1/P2 design findings remain.
+
+final result: passed
