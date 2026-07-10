@@ -447,6 +447,54 @@ describe("editor shell", () => {
     expect(html).toContain("테마 배경");
   });
 
+  it("integrates imported Semantic Cue review into the right panel", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_imported_review",
+        slideId: deck.slides[0].slideId,
+        meaning: "발표자는 도입 효과를 설명한다",
+        reportLabel: "도입 효과",
+        presenterTag: "효과",
+        cueType: "result",
+        importance: "supporting",
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "ai",
+        revision: 1,
+        sourceRefs: [
+          {
+            kind: "slide-title",
+            refId: deck.slides[0].slideId,
+            sourceHash: "a".repeat(64)
+          }
+        ],
+        qualityWarnings: [],
+        required: false,
+        priority: 2,
+        candidateKeywords: ["도입 효과"],
+        aliases: {},
+        requiredConcepts: ["도입 효과"],
+        nliHypotheses: ["발표자는 도입 효과를 설명했다"],
+        negativeHints: [],
+        targetElementIds: [],
+        triggerActionIds: []
+      }
+    ];
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('id="editor-semantic-cue-tab"');
+    expect(html).toContain('id="editor-semantic-cue-panel"');
+    expect(html).toContain("발표 메시지");
+    expect(html).toContain("도입 효과");
+    expect(html).toContain("슬라이드 제목");
+  });
+
   it("returns a warning for unreadable text overlap", () => {
     const deck = createDemoDeck();
     deck.slides[0].elements = [
