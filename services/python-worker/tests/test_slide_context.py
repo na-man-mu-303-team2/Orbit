@@ -3,11 +3,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.slide_context import (
-    ContextItem,
-    SlideContextExtractionResult,
     SlideInput,
     _build_slide_input,
     _normalize_context_items,
