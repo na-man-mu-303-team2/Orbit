@@ -1,7 +1,10 @@
 import type { SemanticCue } from "@orbit/shared";
 
 import { normalizeSpeechText } from "./phraseExtractor";
-import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
+import {
+  semanticCueRuntimeConfig,
+  type SemanticCueRuntimeConfig
+} from "./semanticCueRuntimeConfig";
 
 export type SemanticCueCandidate = {
   cue: SemanticCue;
@@ -21,7 +24,9 @@ export function selectSemanticCueCandidates(options: {
   coveredCueIds: ReadonlySet<string>;
   retrievalScoresByCueId?: ReadonlyMap<string, number>;
   maxCandidates?: number;
+  config?: SemanticCueRuntimeConfig;
 }): SemanticCueCandidate[] {
+  const config = options.config ?? semanticCueRuntimeConfig;
   const maxCandidates = options.maxCandidates ?? 3;
   const slideCues = options.cues.filter(
     (cue) =>
@@ -34,7 +39,8 @@ export function selectSemanticCueCandidates(options: {
       cue,
       transcript: options.transcript,
       covered: options.coveredCueIds.has(cue.cueId),
-      retrievalScore: options.retrievalScoresByCueId?.get(cue.cueId) ?? 0
+      retrievalScore: options.retrievalScoresByCueId?.get(cue.cueId) ?? 0,
+      config
     })
   );
 
@@ -55,7 +61,9 @@ function scoreSemanticCueCandidate(options: {
   transcript: string;
   covered: boolean;
   retrievalScore: number;
+  config: SemanticCueRuntimeConfig;
 }): SemanticCueCandidate {
+  const config = options.config;
   const lexicalScore = scoreTermGroupCoverage(
     options.transcript,
     buildSemanticCueTermGroups(options.cue, [
@@ -69,7 +77,7 @@ function scoreSemanticCueCandidate(options: {
   );
   const priorityScore = priorityToScore(options.cue.priority, options.cue.required);
   const retrievalScore = clamp01(options.retrievalScore);
-  const weights = semanticCueRuntimeConfig.candidateWeights;
+  const weights = config.candidateWeights;
   const score = roundScore(
     lexicalScore * weights.lexical +
       conceptCoverage * weights.conceptCoverage +
@@ -77,9 +85,9 @@ function scoreSemanticCueCandidate(options: {
       priorityScore * weights.importance
   );
   const eligible =
-    lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical ||
+    lexicalScore >= config.candidateEligibility.lexical ||
     conceptCoverage > 0 ||
-    retrievalScore >= semanticCueRuntimeConfig.candidateEligibility.retrieval;
+    retrievalScore >= config.candidateEligibility.retrieval;
   const nliSkippedReason = getCandidateSkipReason({
     covered: options.covered,
     eligible

@@ -1,4 +1,26 @@
-export const semanticCueRuntimeConfig = {
+export type SemanticCueRuntimeConfig = {
+  candidateWeights: {
+    lexical: number;
+    conceptCoverage: number;
+    retrieval: number;
+    importance: number;
+  };
+  candidateEligibility: {
+    lexical: number;
+    retrieval: number;
+  };
+  maxCandidates: number;
+  maxNliCandidates: number;
+  maxHypothesesPerCue: number;
+  maxNliTokens: number;
+  nliTimeoutMs: number;
+  nliThrottleMs: number;
+  basicCoveredRetrieval: number;
+  basicPartialScore: number;
+  basicPartialConceptCoverage: number;
+};
+
+export const semanticCueRuntimeConfig: SemanticCueRuntimeConfig = {
   candidateWeights: {
     lexical: 0.2,
     conceptCoverage: 0.25,
@@ -18,4 +40,4 @@ export const semanticCueRuntimeConfig = {
   basicCoveredRetrieval: 0.6,
   basicPartialScore: 0.62,
   basicPartialConceptCoverage: 0.34
-} as const;
+};

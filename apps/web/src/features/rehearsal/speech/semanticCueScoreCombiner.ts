@@ -10,16 +10,57 @@ export type SemanticCueScoreCombination = {
   reasonCodes: string[];
 };
 
-export function combineSemanticCueScore(options: {
-  lexicalScore?: number;
-  conceptCoverage?: number;
-  embeddingScore?: number;
-  nli?: {
-    entailmentScore: number;
-    neutralScore: number;
-    contradictionScore: number;
+export type SemanticCueCombinerConfig = {
+  weights: {
+    lexical: number;
+    conceptCoverage: number;
+    embedding: number;
+    entailment: number;
   };
-}): SemanticCueScoreCombination {
+  contradictionThreshold: number;
+  entailmentReasonThreshold: number;
+  conceptReasonThreshold: number;
+  lexicalReasonThreshold: number;
+  embeddingReasonThreshold: number;
+  entailmentFloorThreshold: number;
+  entailmentFloorScore: number;
+  coveredFinalScore: number;
+  coveredEntailment: number;
+  partialFinalScore: number;
+};
+
+export const defaultSemanticCueCombinerConfig: SemanticCueCombinerConfig = {
+  weights: {
+    lexical: 0.1,
+    conceptCoverage: 0.2,
+    embedding: 0.25,
+    entailment: 0.45
+  },
+  contradictionThreshold: 0.7,
+  entailmentReasonThreshold: 0.78,
+  conceptReasonThreshold: 0.5,
+  lexicalReasonThreshold: 0.5,
+  embeddingReasonThreshold: 0.7,
+  entailmentFloorThreshold: 0.9,
+  entailmentFloorScore: 0.75,
+  coveredFinalScore: 0.7,
+  coveredEntailment: 0.78,
+  partialFinalScore: 0.45
+};
+
+export function combineSemanticCueScore(
+  options: {
+    lexicalScore?: number;
+    conceptCoverage?: number;
+    embeddingScore?: number;
+    nli?: {
+      entailmentScore: number;
+      neutralScore: number;
+      contradictionScore: number;
+    };
+  },
+  config: SemanticCueCombinerConfig = defaultSemanticCueCombinerConfig
+): SemanticCueScoreCombination {
   const lexicalScore = clamp01(options.lexicalScore ?? 0);
   const conceptCoverage = clamp01(options.conceptCoverage ?? 0);
   const embeddingScore = clamp01(options.embeddingScore ?? 0);
@@ -27,7 +68,7 @@ export function combineSemanticCueScore(options: {
   const contradictionScore = clamp01(options.nli?.contradictionScore ?? 0);
   const reasonCodes: string[] = [];
 
-  if (contradictionScore >= 0.7) {
+  if (contradictionScore >= config.contradictionThreshold) {
     return {
       label: "contradicted",
       finalScore: roundScore(Math.max(0, 1 - contradictionScore)),
@@ -35,32 +76,37 @@ export function combineSemanticCueScore(options: {
     };
   }
 
-  if (entailmentScore >= 0.78) {
+  if (entailmentScore >= config.entailmentReasonThreshold) {
     reasonCodes.push("nli-entailment");
   }
 
-  if (conceptCoverage >= 0.5) {
+  if (conceptCoverage >= config.conceptReasonThreshold) {
     reasonCodes.push("concept-coverage");
   }
 
-  if (lexicalScore >= 0.5) {
+  if (lexicalScore >= config.lexicalReasonThreshold) {
     reasonCodes.push("lexical-support");
   }
 
-  if (embeddingScore >= 0.7) {
+  if (embeddingScore >= config.embeddingReasonThreshold) {
     reasonCodes.push("embedding-support");
   }
 
   const finalScore = roundScore(
-    lexicalScore * 0.1 +
-      conceptCoverage * 0.2 +
-      embeddingScore * 0.25 +
-      entailmentScore * 0.45
+    lexicalScore * config.weights.lexical +
+      conceptCoverage * config.weights.conceptCoverage +
+      embeddingScore * config.weights.embedding +
+      entailmentScore * config.weights.entailment
   );
   const effectiveFinalScore =
-    entailmentScore >= 0.9 ? Math.max(finalScore, 0.75) : finalScore;
+    entailmentScore >= config.entailmentFloorThreshold
+      ? Math.max(finalScore, config.entailmentFloorScore)
+      : finalScore;
 
-  if (effectiveFinalScore >= 0.7 && entailmentScore >= 0.78) {
+  if (
+    effectiveFinalScore >= config.coveredFinalScore &&
+    entailmentScore >= config.coveredEntailment
+  ) {
     return {
       label: "covered",
       finalScore: roundScore(effectiveFinalScore),
@@ -68,7 +114,7 @@ export function combineSemanticCueScore(options: {
     };
   }
 
-  if (effectiveFinalScore >= 0.45) {
+  if (effectiveFinalScore >= config.partialFinalScore) {
     return {
       label: "partial",
       finalScore: roundScore(effectiveFinalScore),
