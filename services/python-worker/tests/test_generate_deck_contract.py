@@ -134,6 +134,41 @@ def test_presentation_profile_resolver_uses_stable_precedence(
     assert analyze_input(request).presentation_profile == expected
 
 
+@pytest.mark.parametrize(
+    ("request_patch", "expected"),
+    [
+        (
+            {
+                "design": {"profile": "startup-pitch"},
+                "brief": {"presentationType": "기술 연구 발표"},
+            },
+            "proposal",
+        ),
+        ({"brief": {"presentationType": "기술 연구 발표"}}, "research"),
+        ({"brief": {"presentationType": "신상품 기획 제안"}}, "product-launch"),
+        (
+            {
+                "design": {"profile": "editorial"},
+                "brief": {"presentationType": "신상품 기획 제안"},
+            },
+            "product-launch",
+        ),
+    ],
+)
+def test_presentation_profile_resolver_handles_conflicting_signals(
+    request_patch: dict[str, object],
+    expected: str,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="ORBIT",
+        generationMode="design-pack",
+        **request_patch,
+    )
+
+    assert presentation_profile_for_request(request) == expected
+
+
 def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -153,6 +188,36 @@ def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
     assert "release information" in rules[1]
     assert any("concrete next action" in rule for rule in rules)
     assert "Presentation profile: product-launch" in deck_content_prompt(raw_input)
+
+
+def test_presentation_rule_prompt_controls_beat_scaling_and_agenda() -> None:
+    education = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="교육 발표",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+            brief={"presentationType": "교육 발표"},
+        )
+    )
+    proposal = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="스타트업 피치",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+            design={"profile": "startup-pitch"},
+        )
+    )
+
+    education_rules = presentation_rule_prompt(education)
+    proposal_rules = presentation_rule_prompt(proposal)
+
+    assert any("merge adjacent beats" in rule for rule in education_rules)
+    assert any("Include an agenda" in rule for rule in education_rules)
+    assert any("Do not add an agenda" in rule for rule in proposal_rules)
 
 
 def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() -> None:

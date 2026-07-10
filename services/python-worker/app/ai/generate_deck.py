@@ -6101,6 +6101,7 @@ def presentation_rule_prompt(raw_input: RawInput) -> list[str]:
         "Use one core message per slide and make each body title state its conclusion.",
         "Use 1-5 supporting content items per body slide; process slides may use up to 6.",
         "Keep body content within six rendered lines and move detail into speakerNotes.",
+        "Preserve cover and closing; merge adjacent beats for short decks, expand evidence, examples, or execution for long decks, and never repeat a message to fill slide count.",
         "Ground every factual claim and number in the supplied sources.",
         agenda,
         closing,
