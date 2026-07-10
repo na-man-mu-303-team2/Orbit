@@ -7674,6 +7674,405 @@ button:disabled {
   font-weight: 600;
 }
 
+/* Semantic delivery report */
+
+.rrd-semantic-report {
+  border-top: 4px solid #2563eb;
+}
+
+.rrd-semantic-mode-badge {
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  border-radius: 999px;
+  color: #075985;
+  font-size: 0.75rem;
+  font-weight: 850;
+  padding: 4px 10px;
+}
+
+.rrd-semantic-state {
+  align-items: center;
+  background: var(--report-panel-subtle);
+  border: 1px solid var(--report-border);
+  border-left: 4px solid var(--report-border-strong);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 16px 18px;
+}
+
+.rrd-semantic-state.is-success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  border-left-color: #15803d;
+}
+
+.rrd-semantic-state.is-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  border-left-color: #b45309;
+}
+
+.rrd-semantic-state strong {
+  color: var(--report-text);
+  display: block;
+  font-size: 0.94rem;
+  font-weight: 850;
+}
+
+.rrd-semantic-state p {
+  color: var(--report-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 3px 0 0;
+}
+
+.rrd-semantic-state-icon {
+  color: var(--report-text-muted);
+}
+
+.rrd-semantic-state.is-success .rrd-semantic-state-icon {
+  color: #15803d;
+}
+
+.rrd-semantic-state.is-warning .rrd-semantic-state-icon {
+  color: #b45309;
+}
+
+.rrd-semantic-retry {
+  align-items: center;
+  background: var(--report-panel);
+  border: 1px solid var(--report-border-strong);
+  border-radius: 8px;
+  color: var(--report-accent-strong);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.8rem;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.rrd-semantic-retry:hover:not(:disabled) {
+  background: var(--report-panel-strong);
+}
+
+.rrd-semantic-retry:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 2px;
+}
+
+.rrd-semantic-retry:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.rrd-semantic-retry .is-spinning {
+  animation: orbit-spin 0.9s linear infinite;
+}
+
+.rrd-semantic-retry-message {
+  border-radius: 8px;
+  color: var(--report-text-soft);
+  font-size: 0.84rem;
+  margin: -8px 0 0;
+  padding: 10px 12px;
+}
+
+.rrd-semantic-retry-message.is-failed {
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+.rrd-semantic-retry-message.is-succeeded {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.rrd-semantic-system-notices {
+  background: #f8fafc;
+  border: 1px solid var(--report-border);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.rrd-semantic-system-notices h3,
+.rrd-semantic-subhead h3 {
+  color: var(--report-text);
+  font-size: 0.82rem;
+  font-weight: 850;
+  margin: 0;
+}
+
+.rrd-semantic-system-notices ul,
+.rrd-semantic-outcome-group ul {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rrd-semantic-system-notices li {
+  display: grid;
+  gap: 2px;
+}
+
+.rrd-semantic-system-notices li strong {
+  color: var(--report-text-soft);
+  font-size: 0.82rem;
+}
+
+.rrd-semantic-system-notices li span {
+  color: var(--report-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.rrd-semantic-coverage-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(160px, 0.7fr) minmax(0, 1.8fr);
+}
+
+.rrd-semantic-score {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  display: grid;
+  gap: 3px;
+  padding: 16px;
+}
+
+.rrd-semantic-score span,
+.rrd-semantic-score em {
+  color: #475569;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.rrd-semantic-score strong {
+  color: #1d4ed8;
+  font-size: 1.65rem;
+  font-weight: 900;
+}
+
+.rrd-semantic-count-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rrd-semantic-count {
+  align-content: center;
+  background: var(--report-panel-subtle);
+  border: 1px solid var(--report-border);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.rrd-semantic-count strong {
+  color: var(--report-accent-strong);
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.rrd-semantic-count span {
+  color: var(--report-text-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.rrd-semantic-count.is-success {
+  border-top: 3px solid #16a34a;
+}
+
+.rrd-semantic-count.is-warning {
+  border-top: 3px solid #d97706;
+}
+
+.rrd-semantic-count.is-danger {
+  border-top: 3px solid #e11d48;
+}
+
+.rrd-semantic-goals {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.rrd-semantic-subhead {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.rrd-semantic-subhead > span {
+  color: var(--report-text-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.rrd-semantic-goals ol {
+  counter-reset: semantic-goal;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rrd-semantic-goals li {
+  background: var(--report-panel);
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px 12px 44px;
+  position: relative;
+}
+
+.rrd-semantic-goals li::before {
+  align-items: center;
+  background: #9a3412;
+  border-radius: 999px;
+  color: #ffffff;
+  content: counter(semantic-goal);
+  counter-increment: semantic-goal;
+  display: flex;
+  font-size: 0.72rem;
+  font-weight: 900;
+  height: 22px;
+  justify-content: center;
+  left: 12px;
+  position: absolute;
+  top: 12px;
+  width: 22px;
+}
+
+.rrd-semantic-goals li > span,
+.rrd-semantic-item-head > div:first-child > span {
+  color: var(--report-text-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.rrd-semantic-goals li > strong,
+.rrd-semantic-item-head > div:first-child > strong {
+  color: var(--report-text);
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.rrd-semantic-goals p,
+.rrd-semantic-outcome-group li > p,
+.rrd-semantic-item-reason p {
+  color: var(--report-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.rrd-semantic-goals blockquote,
+.rrd-semantic-outcome-group blockquote {
+  border-left: 3px solid var(--report-border-strong);
+  color: var(--report-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 3px 0 0;
+  padding-left: 10px;
+}
+
+.rrd-semantic-outcome-groups,
+.rrd-semantic-outcome-group {
+  display: grid;
+  gap: 12px;
+}
+
+.rrd-semantic-outcome-group li {
+  border: 1px solid var(--report-border);
+  border-left: 4px solid var(--report-border-strong);
+  border-radius: 10px;
+  display: grid;
+  gap: 9px;
+  padding: 13px 14px;
+}
+
+.rrd-semantic-outcome-group li.is-success {
+  border-left-color: #16a34a;
+}
+
+.rrd-semantic-outcome-group li.is-warning {
+  border-left-color: #d97706;
+}
+
+.rrd-semantic-outcome-group li.is-danger {
+  border-left-color: #e11d48;
+}
+
+.rrd-semantic-item-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.rrd-semantic-item-head > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.rrd-semantic-item-badges {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.rrd-semantic-item-badges span,
+.rrd-semantic-item-badges strong {
+  background: var(--report-panel-subtle);
+  border-radius: 999px;
+  color: var(--report-text-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 3px 8px;
+}
+
+.rrd-semantic-item-reason {
+  background: var(--report-panel-subtle);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+.rrd-semantic-item-reason > span {
+  color: var(--report-text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.rrd-semantic-item-reason > strong {
+  color: var(--report-text-soft);
+  font-size: 0.8rem;
+}
+
 /* Summary */
 
 .rrd-summary-block {
@@ -9008,7 +9407,8 @@ button:disabled {
 
   .rrd-overview-grid,
   .rrd-overview-columns,
-  .rrd-utterance-grid {
+  .rrd-utterance-grid,
+  .rrd-semantic-coverage-summary {
     grid-template-columns: 1fr;
   }
 
@@ -9206,6 +9606,29 @@ button:disabled {
     border-radius: 14px;
     gap: 16px;
     padding: 20px;
+  }
+
+  .rrd-semantic-state {
+    align-items: flex-start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .rrd-semantic-retry {
+    grid-column: 1 / -1;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .rrd-semantic-count-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rrd-semantic-item-head {
+    flex-direction: column;
+  }
+
+  .rrd-semantic-item-badges {
+    justify-content: flex-start;
   }
 
   .rrd-overview-slide-row,
