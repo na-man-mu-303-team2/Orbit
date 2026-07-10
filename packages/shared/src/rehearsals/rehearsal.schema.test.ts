@@ -355,6 +355,41 @@ describe("rehearsalRunMetaSchema", () => {
     });
 
     expect(meta.utteranceOutcomes).toEqual([]);
+    expect(meta.contextCoverageDecisions).toEqual([]);
+  });
+
+  it("accepts covered and missed context coverage decisions", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      contextCoverageDecisions: [
+        {
+          itemId: "11111111-1111-1111-1111-111111111111",
+          slideId: "slide_1",
+          label: "문제 배경",
+          status: "covered",
+          method: "semantic",
+          lexicalOverlap: 0.42,
+          semanticSimilarity: 0.91,
+          strength: 0.91,
+          at: "2026-07-10T01:10:00.000Z"
+        },
+        {
+          itemId: "22222222-2222-2222-2222-222222222222",
+          slideId: "slide_2",
+          label: "해결 전략",
+          status: "missed",
+          method: "none",
+          lexicalOverlap: 0,
+          semanticSimilarity: 0,
+          strength: 0,
+          at: "2026-07-10T01:12:00.000Z"
+        }
+      ]
+    });
+
+    expect(meta.contextCoverageDecisions.map((decision) => decision.status)).toEqual([
+      "covered",
+      "missed"
+    ]);
   });
 
   it("rejects oversized ad-lib utterance text", () => {

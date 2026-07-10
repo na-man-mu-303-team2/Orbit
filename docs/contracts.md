@@ -1095,7 +1095,8 @@ API:
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
 - `PATCH /api/v1/rehearsals/:runId/meta`
-  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }], "contextCoverageDecisions": [{ "itemId": "11111111-1111-1111-1111-111111111111", "slideId": "slide_1", "label": "문제 배경", "status": "covered", "method": "semantic", "lexicalOverlap": 0.42, "semanticSimilarity": 0.91, "strength": 0.91, "at": "2026-07-02T00:00:25.000Z" }] }`
+  - `contextCoverageDecisions`는 각 컨텍스트 항목의 최초 `covered` 판정 또는 종료 시점의 `missed` 판정만 저장하며, 문장 원문은 저장하지 않는다.
   - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
   - response: `{ "run": RehearsalRun }`
 

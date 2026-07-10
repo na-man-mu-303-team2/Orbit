@@ -20,7 +20,8 @@ describe("rehearsalLogCollector", () => {
       ],
       missedKeywords: [],
       adviceEvents: [],
-      utteranceOutcomes: []
+      utteranceOutcomes: [],
+      contextCoverageDecisions: []
     });
   });
 

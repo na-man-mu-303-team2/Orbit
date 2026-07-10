@@ -275,7 +275,8 @@ describe("RehearsalsService", () => {
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
         adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
-        utteranceOutcomes: []
+        utteranceOutcomes: [],
+        contextCoverageDecisions: []
       });
   });
 

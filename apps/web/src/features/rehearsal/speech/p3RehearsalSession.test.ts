@@ -158,7 +158,8 @@ describe("p3RehearsalSession", () => {
           slideId: "slide_2",
           sentenceId: "sentence_1"
         }
-      ]
+      ],
+      contextCoverageDecisions: []
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");

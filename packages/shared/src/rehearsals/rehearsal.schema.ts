@@ -139,6 +139,32 @@ export const rehearsalUtteranceOutcomeSchema = z
   })
   .strict();
 
+export const rehearsalContextCoverageStatusSchema = z.enum([
+  "covered",
+  "missed"
+]);
+
+export const rehearsalContextCoverageMethodSchema = z.enum([
+  "substring",
+  "dice",
+  "semantic",
+  "none"
+]);
+
+export const rehearsalContextCoverageDecisionSchema = z
+  .object({
+    itemId: z.string().uuid(),
+    slideId: deckSlideIdSchema,
+    label: z.string().trim().min(1).max(200),
+    status: rehearsalContextCoverageStatusSchema,
+    method: rehearsalContextCoverageMethodSchema,
+    lexicalOverlap: z.number().min(0).max(1),
+    semanticSimilarity: z.number().min(-1).max(1),
+    strength: z.number().min(0).max(1),
+    at: isoDateTimeSchema
+  })
+  .strict();
+
 export const rehearsalReportSchema = z
   .object({
     reportId: z.string().min(1),
@@ -269,6 +295,9 @@ export const rehearsalRunMetaSchema = z
       .default([]),
     utteranceOutcomes: z
       .array(rehearsalUtteranceOutcomeSchema)
+      .default([]),
+    contextCoverageDecisions: z
+      .array(rehearsalContextCoverageDecisionSchema)
       .default([])
   })
   // Run meta stores bounded report facts only. It may include approved ad-lib
@@ -333,6 +362,15 @@ export type RehearsalUtteranceOutcome = z.infer<
 >;
 export type RehearsalUtteranceOutcomeKind = z.infer<
   typeof rehearsalUtteranceOutcomeKindSchema
+>;
+export type RehearsalContextCoverageDecision = z.infer<
+  typeof rehearsalContextCoverageDecisionSchema
+>;
+export type RehearsalContextCoverageStatus = z.infer<
+  typeof rehearsalContextCoverageStatusSchema
+>;
+export type RehearsalContextCoverageMethod = z.infer<
+  typeof rehearsalContextCoverageMethodSchema
 >;
 export type UpdateRehearsalRunMetaRequest = z.infer<
   typeof updateRehearsalRunMetaRequestSchema

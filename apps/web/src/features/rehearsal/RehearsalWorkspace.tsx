@@ -20,6 +20,7 @@ import {
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
+  type RehearsalContextCoverageDecision,
   type RehearsalReport,
   type RehearsalRun,
   type RehearsalRunMeta,
@@ -159,6 +160,11 @@ import {
   buildContextMatchCandidateWindows,
   selectBestContextItemMatch,
 } from "./panel/contextCoverageMatcher";
+import {
+  appendCoveredContextDecision,
+  createEmptyRehearsalRunMeta,
+  mergeRunMetaWithContextCoverage,
+} from "./panel/contextCoverageMeta";
 import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
@@ -756,10 +762,8 @@ export async function runRehearsalUploadFlow(options: {
     options.runMeta ??
     (options.slideTimeline?.length
         ? {
+            ...createEmptyRehearsalRunMeta(),
             slideTimeline: options.slideTimeline,
-            missedKeywords: [],
-            adviceEvents: [],
-            utteranceOutcomes: [],
           }
         : null);
 
@@ -768,7 +772,8 @@ export async function runRehearsalUploadFlow(options: {
     (runMeta.slideTimeline.length > 0 ||
       runMeta.missedKeywords.length > 0 ||
       runMeta.adviceEvents.length > 0 ||
-      runMeta.utteranceOutcomes.length > 0)
+      runMeta.utteranceOutcomes.length > 0 ||
+      runMeta.contextCoverageDecisions.length > 0)
   ) {
     try {
       await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
@@ -1699,6 +1704,8 @@ export function RehearsalWorkspace(props: {
   const contextEmbeddingsRef = useRef<Map<string, Float32Array>>(new Map());
   const contextWindowRef = useRef<ContextSlidingWindow>(createContextSlidingWindow());
   const contextItemsRef = useRef<SlideContextItem[]>([]);
+  const coveredContextItemIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const contextCoverageDecisionsRef = useRef<RehearsalContextCoverageDecision[]>([]);
   const exitWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
@@ -1749,6 +1756,10 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     contextItemsRef.current = contextItems;
   }, [contextItems]);
+
+  useEffect(() => {
+    coveredContextItemIdsRef.current = coveredContextItemIds;
+  }, [coveredContextItemIds]);
 
   useEffect(() => {
     if (!deck) {
@@ -2319,6 +2330,8 @@ export function RehearsalWorkspace(props: {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
     contextWindowRef.current = createContextSlidingWindow();
     setCoveredContextItemIds(new Set());
+    coveredContextItemIdsRef.current = new Set();
+    contextCoverageDecisionsRef.current = [];
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setLiveError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
@@ -2620,6 +2633,8 @@ export function RehearsalWorkspace(props: {
       candidateWindows.map((candidate) => svc.embedQuery(candidate))
     );
     const newlyCovered = new Set<string>();
+    const alreadyCovered = coveredContextItemIdsRef.current;
+    let nextDecisions = contextCoverageDecisionsRef.current;
     for (let index = 0; index < candidateWindows.length; index += 1) {
       const candidateWindow = candidateWindows[index];
       const queryEmbedding = queryEmbeddings[index];
@@ -2627,7 +2642,7 @@ export function RehearsalWorkspace(props: {
 
       const semanticSimilarities = new Map<string, number>();
       for (const item of slideItems) {
-        if (coveredContextItemIds.has(item.itemId)) {
+        if (alreadyCovered.has(item.itemId) || newlyCovered.has(item.itemId)) {
           continue;
         }
         const itemEmbedding = contextEmbeddingsRef.current.get(item.itemId);
@@ -2639,18 +2654,28 @@ export function RehearsalWorkspace(props: {
       }
 
       const selected = selectBestContextItemMatch({
-        items: slideItems.filter((item) => !coveredContextItemIds.has(item.itemId)),
+        items: slideItems.filter(
+          (item) =>
+            !alreadyCovered.has(item.itemId) && !newlyCovered.has(item.itemId),
+        ),
         transcriptWindow: candidateWindow,
         semanticSimilarities,
       });
       if (selected) {
         newlyCovered.add(selected.item.itemId);
+        nextDecisions = appendCoveredContextDecision(nextDecisions, {
+          item: selected.item,
+          evaluation: selected.evaluation,
+          at: new Date().toISOString(),
+        });
       }
     }
     if (newlyCovered.size > 0) {
+      contextCoverageDecisionsRef.current = nextDecisions;
       setCoveredContextItemIds((prev) => {
         const next = new Set(prev);
         for (const id of newlyCovered) next.add(id);
+        coveredContextItemIdsRef.current = next;
         return next;
       });
     }
@@ -2741,6 +2766,7 @@ export function RehearsalWorkspace(props: {
       p3RunMetaRef.current = null;
       pendingP3RunMetaRef.current = null;
       setP3RunMeta(null);
+      contextCoverageDecisionsRef.current = [];
       setP3SessionState(session.getState());
       setLiveStatus("listening");
       void startContextEmbeddings(contextItems);
@@ -3137,9 +3163,15 @@ export function RehearsalWorkspace(props: {
     setError("");
 
     try {
-      const runMeta = pendingP3RunMetaRef.current
+      const baseRunMeta = pendingP3RunMetaRef.current
         ? await pendingP3RunMetaRef.current
         : p3RunMetaRef.current;
+      const runMeta = mergeRunMetaWithContextCoverage({
+        runMeta: baseRunMeta,
+        items: contextItemsRef.current,
+        coveredItemIds: coveredContextItemIdsRef.current,
+        decisions: contextCoverageDecisionsRef.current,
+      });
       const result = await runRehearsalUploadFlow({
         projectId: activeDeck.projectId,
         deckId: activeDeck.deckId,
@@ -3555,6 +3587,11 @@ export function RehearsalWorkspace(props: {
       const items = await extractSlideContextItems(deck.projectId, deck.deckId, slides);
       setContextItems(items);
       setContextItemsError("");
+      setCoveredContextItemIds(new Set());
+      coveredContextItemIdsRef.current = new Set();
+      setExitWarningItemIds(new Set());
+      contextCoverageDecisionsRef.current = [];
+      contextWindowRef.current = createContextSlidingWindow();
       if (isP3TrackingActive) {
         void startContextEmbeddings(items);
       }
@@ -3590,6 +3627,20 @@ export function RehearsalWorkspace(props: {
       setContextItemsError("");
       contextEmbeddingsRef.current.delete(itemId);
       setContextItems((items) => items.map((i) => (i.itemId === itemId ? updated : i)));
+      setCoveredContextItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        coveredContextItemIdsRef.current = next;
+        return next;
+      });
+      setExitWarningItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+      contextCoverageDecisionsRef.current = contextCoverageDecisionsRef.current.filter(
+        (decision) => decision.itemId !== itemId,
+      );
       if (prev && prev.sentence !== sentence) {
         const svc = await getOrCreateSemanticEmbeddingService().catch(() => null);
         if (!svc) {
@@ -3620,6 +3671,20 @@ export function RehearsalWorkspace(props: {
       setContextItemsError("");
       setContextItems((items) => items.filter((i) => i.itemId !== itemId));
       contextEmbeddingsRef.current.delete(itemId);
+      setCoveredContextItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        coveredContextItemIdsRef.current = next;
+        return next;
+      });
+      setExitWarningItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+      contextCoverageDecisionsRef.current = contextCoverageDecisionsRef.current.filter(
+        (decision) => decision.itemId !== itemId,
+      );
     },
     [deck]
   );
@@ -3692,6 +3757,10 @@ export function RehearsalWorkspace(props: {
     setP3SessionState(null);
     p3RunMetaRef.current = null;
     pendingP3RunMetaRef.current = null;
+    contextCoverageDecisionsRef.current = [];
+    coveredContextItemIdsRef.current = new Set();
+    setCoveredContextItemIds(new Set());
+    setExitWarningItemIds(new Set());
     setPendingReportCapture(null);
     setRun(null);
     setHasLocalCompletion(false);

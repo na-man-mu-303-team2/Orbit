@@ -165,7 +165,8 @@ export function createRehearsalLogCollector(
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents],
-      utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes]
+      utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes],
+      contextCoverageDecisions: []
     };
   }
 
