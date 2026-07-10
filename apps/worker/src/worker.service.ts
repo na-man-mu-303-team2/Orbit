@@ -83,6 +83,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           this.config.PYTHON_WORKER_URL,
           job.data,
           this.transcriptCache ?? undefined,
+          (event) => {
+            const level = event.event.endsWith(".partial") ? "warn" : "info";
+            this.logger[level](event, "Rehearsal semantic evaluation updated.");
+          },
         ),
       ),
       this.createWorker(generateDeckQueueName, (job) =>

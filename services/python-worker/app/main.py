@@ -69,6 +69,12 @@ from app.rehearsal import (
     generate_progress_comment,
     generate_rehearsal_coaching,
 )
+from app.semantic_rehearsal import (
+    AnalyzeSemanticCuesRequest,
+    AnalyzeSemanticCuesResponse,
+    OpenAISemanticGrader,
+    analyze_semantic_cues,
+)
 
 
 class HealthResponse(BaseModel):
@@ -684,6 +690,24 @@ def analyze_rehearsal(
             improvements=coaching.improvements,
             nextPracticeFocus=coaching.next_practice_focus,
             message=coaching.message,
+        ),
+    )
+
+
+@app.post(
+    "/rehearsal/analyze-semantic-cues",
+    response_model=AnalyzeSemanticCuesResponse,
+)
+def analyze_rehearsal_semantic_cues(
+    payload: AnalyzeSemanticCuesRequest,
+    request: Request,
+) -> AnalyzeSemanticCuesResponse:
+    config = _config(request)
+    return analyze_semantic_cues(
+        payload,
+        grader=OpenAISemanticGrader(
+            model=config.openai_model,
+            api_key=config.openai_api_key,
         ),
     )
 
