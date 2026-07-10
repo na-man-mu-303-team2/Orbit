@@ -1,19 +1,19 @@
 import type { Deck } from "@orbit/shared";
 import {
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Circle,
-  EyeOff,
-  ListChecks,
-  Maximize2,
-  Monitor,
-  PauseCircle,
-  PlayCircle,
-  Power,
-  RotateCcw,
-  Timer,
-} from "lucide-react";
+  IconCircleCheck as CheckCircle2,
+  IconChevronLeft as ChevronLeft,
+  IconChevronRight as ChevronRight,
+  IconCircle as Circle,
+  IconEyeOff as EyeOff,
+  IconListCheck as ListChecks,
+  IconMaximize as Maximize2,
+  IconDeviceDesktop as Monitor,
+  IconPlayerPause as PauseCircle,
+  IconPlayerPlay as PlayCircle,
+  IconPower as Power,
+  IconRefresh as RotateCcw,
+  IconClock as Timer,
+} from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SemanticSpeechDebugPanel,
@@ -35,6 +35,7 @@ import type { PresenterSlideshowState } from "./presenterStateStore";
 import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScriptList";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
+import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 
 type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
@@ -181,6 +182,7 @@ export function PresenterRemoteWindow(props: {
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
       <header className="presenter-remote-header">
+        <img alt="ORBIT" src={orbitLogoWhite} />
         <span>
           <Monitor size={16} />
           발표자 제어

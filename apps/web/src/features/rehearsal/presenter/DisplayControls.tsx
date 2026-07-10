@@ -1,11 +1,11 @@
 import {
-  AlertCircle,
-  ChevronDown,
-  Maximize2,
-  Monitor,
-  RefreshCcw,
-  X,
-} from "lucide-react";
+  IconAlertCircle as AlertCircle,
+  IconChevronDown as ChevronDown,
+  IconMaximize as Maximize2,
+  IconDeviceDesktop as Monitor,
+  IconRefresh as RefreshCcw,
+  IconX as X,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import type {
   DisplayManagerErrorCode,

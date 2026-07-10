@@ -36,3 +36,27 @@
   .rehearsal-completion-body { grid-template-columns: 1fr; }
   .rehearsal-completion-card > footer { align-items: stretch; flex-direction: column-reverse; }
 }
+
+.presenter-display-primary { background: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill) 0 0 var(--orbit-ds-radius-pill); color: white; }
+.presenter-display-options-toggle { background: var(--orbit-ds-ink); border-left-color: rgba(255,255,255,.28); border-radius: 0 var(--orbit-ds-radius-pill) var(--orbit-ds-radius-pill) 0; color: white; }
+.presenter-display-options-popover { border: 1px solid var(--orbit-ds-border); border-radius: 14px; box-shadow: 0 24px 70px rgba(9,9,9,.18); width: min(420px,calc(100vw - 32px)); }
+.presenter-display-option-row, .presenter-display-option-group { border-color: var(--orbit-ds-border); }
+.presenter-display-option-row input, .presenter-display-option-group input, .presenter-display-screen-options input { accent-color: var(--orbit-ds-lilac-strong); }
+.presenter-display-options-actions button:last-child { background: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill); color: white; }
+
+.presenter-remote-shell { background: #0b1020; color: white; min-height: 100vh; }
+.presenter-remote-header { background: #0b1020; border-bottom-color: rgba(255,255,255,.14); grid-template-columns: auto auto 1fr auto; }
+.presenter-remote-header > img { display: block; height: 28px; object-fit: contain; width: auto; }
+.presenter-remote-stage { background: #0b1020; }
+.presenter-remote-preview-rail, .presenter-remote-script, .presenter-remote-control-panel { background: #151b2c; border-color: rgba(255,255,255,.13); }
+.presenter-remote-slide-list button, .presenter-remote-control-panel button { background: #1d2438; border-color: rgba(255,255,255,.12); color: white; }
+.presenter-remote-slide-list button[aria-current="true"] { border-color: var(--orbit-ds-lilac); color: var(--orbit-ds-lilac); }
+.presenter-remote-section-heading, .presenter-remote-connection { color: rgba(255,255,255,.7); }
+.presenter-remote-script .presenter-script-row { border-color: rgba(255,255,255,.1); color: rgba(255,255,255,.78); }
+.presenter-remote-script .presenter-script-row.current { background: rgba(188,167,245,.16); color: white; }
+.single-screen-presenter { background: #05070d; }
+.single-screen-actions { background: rgba(11,16,32,.88); border-color: rgba(255,255,255,.16); }
+
+@media (max-width:760px) {
+  .presenter-display-options-popover { left: 16px; position: fixed; right: 16px; top: 118px; width: auto; }
+}

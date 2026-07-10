@@ -744,6 +744,31 @@
 
 final result: passed
 
+## Production rehearsal display and presenter mode T15 QA
+
+### Source and implementation
+
+- Source visual truth: the approved rehearsal mockups for display selection and the dark presenter-control surface, including the official white ORBIT logo treatment.
+- Browser implementations: `/rehearsal/project_demo_1` display options at `artifacts/migration/t15/display-options.png` and the connected presenter window at `artifacts/migration/t15/presenter-dark.png`.
+- Desktop viewport: 1440×1024. The display-options panel and presenter remote both rendered without horizontal overflow.
+
+### Required fidelity surfaces
+
+- Fonts and typography: operational labels remain at the canonical readable scale while slide titles, timing and presenter cues receive the stronger hierarchy required for distance viewing.
+- Spacing and layout rhythm: the display options stay anchored to one compact control, while the presenter window separates current slide, next slide, script, timing and navigation into stable regions.
+- Colors and visual tokens: the presenter shell uses the approved Navy/Ink dark surface with high-contrast white text; Lilac remains the interactive accent.
+- Image quality and asset fidelity: the presenter header uses the official `orbit-logo-white.png` directly, without a light container or improvised logo treatment. All interface symbols use Tabler Icons.
+- Copy and content: display placement, reset, fullscreen and slide-window options describe existing behavior only. Presenter content continues to use the loaded deck and rehearsal state.
+
+### Interaction and findings
+
+- The display-options panel exposes presenter-view, first-slide reset, monitor placement, fullscreen and separate/current-window modes without requesting screen permissions during QA.
+- The connected presenter window retained current/next slide, script cue, timer, keyword, STT and slide-navigation controls; no audience metric or unsupported live data was introduced.
+- Presenter component tests: 26 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production rehearsal active and completion T14 QA
 
 ### Source and implementation
