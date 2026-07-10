@@ -11394,6 +11394,7 @@ def preview_color(value: Any, fallback: str) -> str | None:
 
 def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    presentation_rules = bool(deck.get("metadata", {}).get("presentationProfile"))
     topic = deck["metadata"]["createdFrom"]["topic"]
     if topic not in deck["title"]:
         issues.append(
@@ -11420,22 +11421,61 @@ def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
                     message="발표자 노트가 필요합니다.",
                 )
             )
-        issues.extend(validate_slide_timing_plan(slide, slide_index))
+        issues.extend(
+            validate_slide_timing_plan(
+                slide,
+                slide_index,
+                presentation_rules=presentation_rules,
+            )
+        )
         issues.extend(validate_slide_source_ledger(slide, slide_index))
         issues.extend(validate_slide_visual_slot(slide, slide_index))
-    issues.extend(validate_deck_timing_summary(deck))
+    issues.extend(
+        validate_deck_timing_summary(
+            deck,
+            presentation_rules=presentation_rules,
+        )
+    )
     return issues
 
 
 def validate_slide_timing_plan(
     slide: dict[str, Any],
     slide_index: int,
+    *,
+    presentation_rules: bool = False,
 ) -> list[ValidationIssue]:
     timing_plan = slide.get("aiNotes", {}).get("timingPlan")
     if not isinstance(timing_plan, dict):
         return []
     target_chars = int(timing_plan.get("targetSpeakerNotesChars") or 0)
     actual_chars = count_speaker_note_chars(str(slide.get("speakerNotes", "")))
+    if presentation_rules and target_chars > 0:
+        if actual_chars < round(target_chars * 0.7):
+            return [
+                ValidationIssue(
+                    code="SPEAKER_NOTES_SHORT",
+                    scope="slide",
+                    path=f"slides.{slide_index}.speakerNotes",
+                    message=(
+                        "발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. "
+                        f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
+                    ),
+                )
+            ]
+        if actual_chars > round(target_chars * 1.15):
+            return [
+                ValidationIssue(
+                    code="SPEAKER_NOTES_DENSE",
+                    scope="slide",
+                    path=f"slides.{slide_index}.speakerNotes",
+                    message=(
+                        "발표자 메모가 장표별 발화 목표의 115%를 초과합니다. "
+                        f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
+                    ),
+                )
+            ]
+        return []
     if target_chars > 0 and actual_chars < round(target_chars * 0.8):
         return [
             ValidationIssue(
@@ -11502,7 +11542,11 @@ def validate_slide_visual_slot(
     ]
 
 
-def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
+def validate_deck_timing_summary(
+    deck: dict[str, Any],
+    *,
+    presentation_rules: bool = False,
+) -> list[ValidationIssue]:
     slides = deck.get("slides", [])
     timing_plans = [
         slide.get("aiNotes", {}).get("timingPlan")
@@ -11520,7 +11564,36 @@ def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
         for slide in slides
     )
     issues: list[ValidationIssue] = []
-    if target_total > 0 and actual_total < round(target_total * 0.8):
+    if presentation_rules:
+        chars_per_minute = int(timing_plans[0].get("charsPerMinute") or 0)
+        duration_minutes = int(deck.get("targetDurationMinutes") or 0)
+        minimum_total = round(duration_minutes * chars_per_minute * 0.75)
+        maximum_total = round(duration_minutes * chars_per_minute * 0.85)
+        if minimum_total > 0 and actual_total < minimum_total:
+            issues.append(
+                ValidationIssue(
+                    code="SPEAKER_NOTES_SHORT",
+                    scope="deck",
+                    path="slides",
+                    message=(
+                        "전체 실제 발화 시간이 발표 제한 시간의 75%보다 짧습니다. "
+                        f"최소 {minimum_total}자 대비 현재 {actual_total}자입니다."
+                    ),
+                )
+            )
+        elif maximum_total > 0 and actual_total > maximum_total:
+            issues.append(
+                ValidationIssue(
+                    code="SPEAKER_NOTES_DENSE",
+                    scope="deck",
+                    path="slides",
+                    message=(
+                        "전체 실제 발화 시간이 발표 제한 시간의 85%를 초과합니다. "
+                        f"최대 {maximum_total}자 대비 현재 {actual_total}자입니다."
+                    ),
+                )
+            )
+    elif target_total > 0 and actual_total < round(target_total * 0.8):
         issues.append(
             ValidationIssue(
                 scope="deck",
@@ -12024,6 +12097,7 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
                     )
                 )
         issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
+        issues.extend(validate_slide_content_duplication(slide, slide_index))
         issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
         issues.extend(validate_slide_typography(slide, slide_index))
         issues.extend(validate_slide_grid_alignment(slide, slide_index))
@@ -12122,6 +12196,62 @@ EXECUTIVE_CLOSING_TOKENS = (
 def action_title_requires_attention(title: str) -> bool:
     normalized = " ".join(title.split()).strip(" .,:;!?-_").casefold()
     return len(normalized) > 40 or normalized in GENERIC_ACTION_TITLES
+
+
+def validate_slide_content_duplication(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    candidates = [
+        element
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") in {"subtitle", "body", "highlight"}
+        and len(
+            normalize_structural_content_text(
+                str(element.get("props", {}).get("text", ""))
+            )
+        )
+        >= 6
+    ]
+    keys = {
+        str(element.get("elementId", "")): normalize_structural_content_text(
+            str(element.get("props", {}).get("text", ""))
+        )
+        for element in candidates
+    }
+    duplicate_ids: set[str] = set()
+    grouped: dict[str, list[str]] = {}
+    for element_id, key in keys.items():
+        grouped.setdefault(key, []).append(element_id)
+    for element_ids in grouped.values():
+        if len(element_ids) > 1:
+            duplicate_ids.update(element_ids)
+
+    for primary_id, primary_key in keys.items():
+        supporting = [
+            (element_id, key)
+            for element_id, key in keys.items()
+            if element_id != primary_id and key in primary_key
+        ]
+        if len(supporting) < 2 or sum(len(key) for _, key in supporting) < len(
+            primary_key
+        ) * 0.8:
+            continue
+        duplicate_ids.add(primary_id)
+        duplicate_ids.update(element_id for element_id, _ in supporting)
+
+    if not duplicate_ids:
+        return []
+    return [
+        ValidationIssue(
+            code="CONTENT_DUPLICATED",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="같은 핵심 내용이 본문 요소에 구조적으로 반복되어 있습니다.",
+        )
+    ]
 
 
 def validate_slide_content_density(

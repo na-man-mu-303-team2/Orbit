@@ -36,7 +36,10 @@ export type EditorValidationItem = {
     | "LINE_HEIGHT_OUT_OF_RANGE"
     | "VISUAL_HIERARCHY_WEAK"
     | "CTA_MISSING"
-    | "GRID_ALIGNMENT_INCONSISTENT";
+    | "GRID_ALIGNMENT_INCONSISTENT"
+    | "CONTENT_DUPLICATED"
+    | "SPEAKER_NOTES_SHORT"
+    | "SPEAKER_NOTES_DENSE";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -56,6 +59,7 @@ export function getEditorValidationItems(
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
   const items: EditorValidationItem[] = [];
+  const presentationRules = Boolean(deck.metadata.presentationProfile);
   const timingPlan = deck.slides.find(
     (slide) => slide.aiNotes?.timingPlan
   )?.aiNotes?.timingPlan;
@@ -80,7 +84,30 @@ function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
       (total, slide) => total + countSpokenChars(slide.speakerNotes),
       0
     );
-    if (actualTotalChars < Math.round(targetTotalChars * 0.8)) {
+    const charsPerMinute = timingPlan?.charsPerMinute ?? 0;
+    const minimumTotalChars = Math.round(
+      deck.targetDurationMinutes * charsPerMinute * 0.75
+    );
+    const maximumTotalChars = Math.round(
+      deck.targetDurationMinutes * charsPerMinute * 0.85
+    );
+    if (presentationRules && minimumTotalChars > 0 && actualTotalChars < minimumTotalChars) {
+      items.push({
+        issue: "SPEAKER_NOTES_SHORT",
+        message: `전체 실제 발화 시간이 발표 제한 시간의 75%보다 짧습니다. 최소 ${minimumTotalChars}자 대비 현재 ${actualTotalChars}자입니다.`,
+        severity: "warning"
+      });
+    } else if (
+      presentationRules &&
+      maximumTotalChars > 0 &&
+      actualTotalChars > maximumTotalChars
+    ) {
+      items.push({
+        issue: "SPEAKER_NOTES_DENSE",
+        message: `전체 실제 발화 시간이 발표 제한 시간의 85%를 초과합니다. 최대 ${maximumTotalChars}자 대비 현재 ${actualTotalChars}자입니다.`,
+        severity: "warning"
+      });
+    } else if (!presentationRules && actualTotalChars < Math.round(targetTotalChars * 0.8)) {
       items.push({
         issue: "speakerNotesShort",
         message: `발표자 노트가 발표 시간 기준보다 짧습니다. 목표 ${targetTotalChars}자 대비 현재 ${actualTotalChars}자입니다.`,
@@ -124,10 +151,35 @@ function getEditorSlideValidationItems(
   const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
   const items: EditorValidationItem[] = [];
   const targetSpeakerNotesChars = slide.aiNotes?.timingPlan?.targetSpeakerNotesChars ?? 0;
+  const actualSpeakerNotesChars = countSpokenChars(slide.speakerNotes);
+  const presentationRules = Boolean(deck.metadata.presentationProfile);
 
   if (
+    presentationRules &&
     targetSpeakerNotesChars > 0 &&
-    countSpokenChars(slide.speakerNotes) < Math.round(targetSpeakerNotesChars * 0.8)
+    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.7)
+  ) {
+    items.push({
+      issue: "SPEAKER_NOTES_SHORT",
+      message: `발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      slideId: slide.slideId,
+      severity: "warning"
+    });
+  } else if (
+    presentationRules &&
+    targetSpeakerNotesChars > 0 &&
+    actualSpeakerNotesChars > Math.round(targetSpeakerNotesChars * 1.15)
+  ) {
+    items.push({
+      issue: "SPEAKER_NOTES_DENSE",
+      message: `발표자 메모가 장표별 발화 목표의 115%를 초과합니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      slideId: slide.slideId,
+      severity: "warning"
+    });
+  } else if (
+    !presentationRules &&
+    targetSpeakerNotesChars > 0 &&
+    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.8)
   ) {
     items.push({
       issue: "speakerNotesShort",
@@ -238,7 +290,7 @@ function getEditorSlideValidationItems(
   }
 
   items.push(...getEditorTextOverlapValidationItems(deck, slide));
-  items.push(...getEditorDuplicateTextValidationItems(slide));
+  items.push(...getEditorDuplicateTextValidationItems(slide, presentationRules));
   items.push(...getEditorPresentationSlideValidationItems(deck, slide));
 
   return items;
@@ -848,13 +900,20 @@ function getEditorTextOverlapValidationItems(
   return items;
 }
 
-function getEditorDuplicateTextValidationItems(slide: Slide): EditorValidationItem[] {
+function getEditorDuplicateTextValidationItems(
+  slide: Slide,
+  presentationRules: boolean
+): EditorValidationItem[] {
   const groups = new Map<string, Extract<DeckElement, { type: "text" }>[]>();
+  const textElements = slide.elements.filter(
+    (element): element is Extract<DeckElement, { type: "text" }> =>
+      presentationRules
+        ? isPresentationDuplicateCandidate(element)
+        : isReadableEditorTextElement(element)
+  );
 
-  for (const element of slide.elements) {
-    if (!isReadableEditorTextElement(element)) continue;
-
-    const textKey = normalizeComparableText(
+  for (const element of textElements) {
+    const textKey = (presentationRules ? normalizeStructuralText : normalizeComparableText)(
       getTextElementText(element.props as TextElementProps)
     );
     if (textKey.length < editorDuplicateTextMinimumLength) continue;
@@ -864,15 +923,56 @@ function getEditorDuplicateTextValidationItems(slide: Slide): EditorValidationIt
     groups.set(textKey, group);
   }
 
-  return Array.from(groups.values())
+  const duplicateGroups = Array.from(groups.values())
     .filter((elements) => elements.length > 1)
-    .map((elements) => ({
-      elementIds: elements.map((element) => element.elementId),
+    .map((elements) => elements.map((element) => element.elementId));
+
+  if (presentationRules) {
+    const keys = new Map<string, string>();
+    for (const element of textElements) {
+      const key = normalizeStructuralText(
+        getTextElementText(element.props as TextElementProps)
+      );
+      if (key.length >= editorDuplicateTextMinimumLength) {
+        keys.set(element.elementId, key);
+      }
+    }
+    for (const [primaryId, primaryKey] of keys) {
+      const supporting = Array.from(keys).filter(
+        ([elementId, key]) => elementId !== primaryId && primaryKey.includes(key)
+      );
+      if (
+        supporting.length >= 2 &&
+        supporting.reduce((total, [, key]) => total + key.length, 0) >=
+          primaryKey.length * 0.8
+      ) {
+        duplicateGroups.push([primaryId, ...supporting.map(([elementId]) => elementId)]);
+      }
+    }
+  }
+
+  const uniqueGroups = new Map(
+    duplicateGroups.map((elementIds) => [Array.from(new Set(elementIds)).sort().join("|"), elementIds])
+  );
+  return Array.from(uniqueGroups.values()).map((elementIds) => ({
+      elementIds,
+      issue: presentationRules ? ("CONTENT_DUPLICATED" as const) : undefined,
       level: "warning" as const,
-      message: "같은 텍스트가 여러 요소에 반복되어 있습니다.",
+      message: presentationRules
+        ? "같은 핵심 내용이 본문 요소에 구조적으로 반복되어 있습니다."
+        : "같은 텍스트가 여러 요소에 반복되어 있습니다.",
       severity: "warning" as const,
       slideId: slide.slideId
     }));
+}
+
+function isPresentationDuplicateCandidate(
+  element: DeckElement
+): element is Extract<DeckElement, { type: "text" }> {
+  return (
+    isReadableEditorTextElement(element) &&
+    ["subtitle", "body", "highlight"].includes(element.role ?? "")
+  );
 }
 
 function isReadableEditorTextElement(
@@ -888,6 +988,10 @@ function isReadableEditorTextElement(
 
 function normalizeComparableText(text: string) {
   return text.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+}
+
+function normalizeStructuralText(text: string) {
+  return text.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 function getElementOverlapRatio(

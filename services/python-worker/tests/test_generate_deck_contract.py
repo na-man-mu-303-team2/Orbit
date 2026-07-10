@@ -60,6 +60,7 @@ from app.ai.generate_deck import (
     slide_plans_from_generated_content,
     review_text_overlap_candidates,
     validate_and_patch,
+    validate_content,
     validate_design,
     validate_presentation,
     web_source_id,
@@ -289,6 +290,58 @@ def test_presentation_validation_detects_missing_primary_content() -> None:
     codes = {issue.code for issue in validate_presentation(deck)}
 
     assert "VISUAL_HIERARCHY_WEAK" in codes
+
+
+def test_presentation_validation_detects_structural_content_duplication() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Duplicate validation",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    body = next(
+        element
+        for element in slide["elements"]
+        if element["type"] == "text" and element.get("role") == "body"
+    )
+    body["props"]["text"] = "Alpha evidence and beta evidence"
+    for index, text in enumerate(["Alpha evidence", "beta evidence"], start=1):
+        supporting = deepcopy(body)
+        supporting["elementId"] = f"el_duplicate_{index}"
+        supporting["props"]["text"] = text
+        supporting["y"] += index * 80
+        slide["elements"].append(supporting)
+
+    assert "CONTENT_DUPLICATED" in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+
+def test_timing_validation_uses_design_pack_short_and_dense_codes() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Timing validation",
+            generationMode="design-pack",
+        )
+    ).deck
+    for slide in deck["slides"]:
+        target = slide["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
+        slide["speakerNotes"] = "가" * target
+
+    first = deck["slides"][0]
+    first_target = first["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
+    first["speakerNotes"] = "가" * max(1, round(first_target * 0.69))
+    assert "SPEAKER_NOTES_SHORT" in {
+        issue.code for issue in validate_content(deck)
+    }
+
+    first["speakerNotes"] = "가" * round(first_target * 1.16)
+    assert "SPEAKER_NOTES_DENSE" in {
+        issue.code for issue in validate_content(deck)
+    }
 
 
 @pytest.mark.parametrize(
@@ -6872,7 +6925,7 @@ class RepairingFakeOpenAIClient(FakeOpenAIClient):
         repaired = deepcopy(payload)
         for index, slide in enumerate(repaired.get("slides", []), start=1):
             if isinstance(slide, dict):
-                slide["speakerNotes"] = long_speaker_notes(index)
+                slide["speakerNotes"] = bounded_speaker_notes(index)
         super().__init__([payload, repaired])
 
 
@@ -7050,3 +7103,13 @@ def long_speaker_notes(order: int) -> str:
         "청중이 다음 행동을 판단할 수 있도록 배경과 예상 효과를 차례로 짚겠습니다. "
     )
     return sentence * 8
+
+
+def bounded_speaker_notes(order: int) -> str:
+    return (
+        f"{order}번째 장에서는 확인된 근거를 핵심 주장과 연결해 설명합니다. "
+        "첫 번째 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
+        "두 번째 기준은 선택 가능한 행동과 예상 효과를 구분해 보여 줍니다. "
+        "관련 자료의 범위와 한계를 함께 확인해 과도한 해석을 피합니다. "
+        "마지막으로 청중이 다음 단계에서 확인할 판단 기준을 명확히 정리합니다."
+    )

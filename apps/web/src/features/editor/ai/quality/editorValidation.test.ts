@@ -308,6 +308,54 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("uses synchronized design-pack speaker-note density codes", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    if (!slide.aiNotes?.timingPlan) throw new Error("timing plan missing");
+    slide.aiNotes.timingPlan.targetSpeakerNotesChars = 100;
+
+    slide.speakerNotes = "가".repeat(69);
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "SPEAKER_NOTES_SHORT" })
+    );
+
+    slide.speakerNotes = "가".repeat(116);
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "SPEAKER_NOTES_DENSE" })
+    );
+  });
+
+  it("detects structural body duplication without matching distinct support", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    const body = slide.elements.find(
+      (element) => element.type === "text" && element.role === "body"
+    );
+    if (!body || body.type !== "text") throw new Error("body missing");
+    body.props.text = "Alpha evidence and beta evidence";
+    for (const [index, text] of ["Alpha evidence", "beta evidence"].entries()) {
+      slide.elements.push({
+        ...structuredClone(body),
+        elementId: `el_1_duplicate_${index + 1}`,
+        y: body.y + (index + 1) * 80,
+        props: { ...body.props, text }
+      });
+    }
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "CONTENT_DUPLICATED" })
+    );
+
+    body.props.text = "Evidence supports the decision";
+    expect(
+      getEditorValidationItems(deck, slide).filter(
+        (item) => item.issue === "CONTENT_DUPLICATED"
+      )
+    ).toHaveLength(0);
+  });
+
   it("mirrors presentation profile quality issue codes", () => {
     const deck = structuredClone(designPackDeck);
     deck.metadata.presentationProfile = "proposal";
