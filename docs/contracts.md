@@ -1160,6 +1160,10 @@ API:
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+- `GET /api/v1/projects/:projectId/rehearsals/:runId/comparison`
+  - 현재 run과 같은 프로젝트의 직전 `succeeded` run을 비교하며, 프로젝트 read 권한과 run 소속을 모두 검증한다.
+  - response: `RehearsalRunComparison`
+  - 현재 report가 준비되지 않았으면 `REHEARSAL_COMPARISON_NOT_READY`, 현재 report 계약이 유효하지 않으면 `REHEARSAL_COMPARISON_REPORT_INVALID` 충돌을 반환한다.
 - `POST /api/v1/rehearsals/:runId/semantic-evaluation/retry`
   - response: `{ "job": Job }`
   - 성공한 `full` run에 retryable semantic report, immutable evaluation snapshot, Redis semantic evidence cache가 모두 있을 때만 `rehearsal-semantic-evaluation` Job을 enqueue한다.
@@ -1284,6 +1288,31 @@ Report 응답 구조:
 - 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.
 - 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
+
+### 리허설 회차 비교와 브리핑 계약
+
+`RehearsalRunComparison`은 owner-only report 파생 응답이며 별도 DB 원본으로 저장하지 않는다.
+
+```json
+{
+  "currentRunId": "run_2",
+  "previousRunId": "run_1",
+  "improved": [],
+  "repeated": [],
+  "newIssues": [],
+  "incomparable": [],
+  "briefing": []
+}
+```
+
+각 배열 항목은 `{ category, slideId, cueId?, cueRevision?, label, severity, reason }` 구조다. `category`는 `semantic-cue | timing | delivery`, `severity`는 `high | medium | low`이며 `briefing`은 최대 3개다.
+
+- Semantic Cue는 동일한 `cueId + cueRevision`일 때만 직접 비교한다. revision이 다르거나 어느 회차라도 `unmeasured | excluded`이면 `incomparable`로 분류하고 부정적 결과나 브리핑 우선순위에 포함하지 않는다.
+- 직전 `missed | partial`이 현재 `covered`이면 `improved`, 두 회차 모두 `missed | partial`인 core Cue이면 `repeated`, 현재 이슈 중 반복 core가 아닌 항목은 `newIssues`다.
+- 첫 성공 run은 `previousRunId=null`이며 현재 측정 이슈를 `newIssues`, 측정 불가 항목을 `incomparable`로 설명한다.
+- 브리핑 우선순위는 반복 core 의미 누락, 현재 core 의미 누락, 반복 시간 초과, 반복 전달 이슈 순서이며 최대 3개만 제공한다.
+- 응답에는 transcript, Semantic Cue evidence excerpt, speaker notes, raw audio, presenter script를 포함하지 않는다. 서버 로그와 audience channel에도 비교/브리핑 내용을 전송하지 않는다.
+- 슬라이드 진입 알림은 `repeated`의 high-severity `semantic-cue`만 대상으로 하며 한 리허설 세션에서 항목별 한 번만 표시하고 사용자가 닫을 수 있다.
 
 ### Semantic Cue 측정·fallback 계약
 
