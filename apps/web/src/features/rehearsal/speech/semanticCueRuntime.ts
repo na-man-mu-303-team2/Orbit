@@ -38,6 +38,8 @@ export type SemanticCueRuntimeInput = {
   semanticMatchingEnabled: boolean;
   generation: number;
   nowMs: number;
+  evidenceStartMs?: number;
+  evidenceEndMs?: number;
 };
 
 export type SemanticCueRuntimeResult = {
