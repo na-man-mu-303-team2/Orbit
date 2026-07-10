@@ -128,17 +128,23 @@ SEMANTIC_CUE_EXTRACTION_RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
+class SemanticCueLlmError(RuntimeError):
+    pass
+
+
 def generate_semantic_cue_payload(
     input_payload: dict[str, Any],
     *,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     api_client: Any = client
     if api_client is None:
         if not api_key:
-            return None
+            raise SemanticCueLlmError(
+                "OpenAI API key is required for semantic cue extraction."
+            )
 
         from openai import OpenAI
 
@@ -152,17 +158,21 @@ def generate_semantic_cue_payload(
             text=SEMANTIC_CUE_EXTRACTION_RESPONSE_FORMAT,
         )
     except Exception:
-        return None
+        raise SemanticCueLlmError("OpenAI semantic cue generation request failed.")
 
     output_text = str(getattr(response, "output_text", "")).strip()
     if not output_text:
-        return None
+        raise SemanticCueLlmError("OpenAI semantic cue generation returned no output.")
 
     try:
         payload = json.loads(output_text)
     except json.JSONDecodeError:
-        return None
+        raise SemanticCueLlmError(
+            "OpenAI semantic cue generation returned invalid JSON."
+        )
 
     if not isinstance(payload, dict):
-        return None
+        raise SemanticCueLlmError(
+            "OpenAI semantic cue generation returned an invalid payload."
+        )
     return payload

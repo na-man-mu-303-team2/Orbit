@@ -3,18 +3,6 @@ from __future__ import annotations
 import re
 
 
-def important_terms(text: str) -> list[str]:
-    candidates = re.findall(
-        r"[A-Za-z][A-Za-z0-9_-]{2,}|[가-힣][가-힣A-Za-z0-9_-]{1,}",
-        text,
-    )
-    return [
-        candidate
-        for raw_candidate in candidates
-        if (candidate := normalize_term(raw_candidate)) and is_meaningful_term(candidate)
-    ]
-
-
 def compact_meaningful_phrases(
     values: list[str],
     *,
