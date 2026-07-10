@@ -44,6 +44,7 @@ from app.ai.generate_deck import (
     repair_content_plan_with_llm,
     review_text_overlap_candidates,
     validate_and_patch,
+    validate_design,
     web_source_id,
     web_sources_from_response,
 )
@@ -4240,6 +4241,97 @@ def test_refiner_shrinks_clamps_and_corrects_text_contrast() -> None:
     assert element["y"] == 88
     assert element["props"]["fontSize"] < 28
     assert element["props"]["color"] == "#111827"
+
+
+def test_validation_uses_local_solid_shape_for_text_contrast() -> None:
+    card = {
+        "elementId": "el_1_card",
+        "type": "rect",
+        "role": "decoration",
+        "x": 120,
+        "y": 120,
+        "width": 640,
+        "height": 280,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "fill": "#5A3E9D",
+            "stroke": "transparent",
+            "strokeWidth": 0,
+            "borderRadius": 8,
+        },
+    }
+    text = text_box(
+        "el_1_card_text",
+        180,
+        180,
+        "Dark text on a dark local card",
+        width=420,
+        height=80,
+    )
+    text["zIndex"] = 2
+    deck = text_overlap_deck([card, text])
+
+    issues = validate_design(deck)
+
+    assert any(
+        issue.code == "TEXT_CONTRAST_LOW"
+        and issue.path == "slides.0.elements.1.props.color"
+        for issue in issues
+    )
+    refined = refine_design_issues(deck, issues)
+    assert refined["slides"][0]["elements"][1]["props"]["color"] == "#f8fafc"
+
+
+def test_validation_marks_gradient_text_background_as_unverifiable() -> None:
+    card = {
+        "elementId": "el_1_gradient_card",
+        "type": "rect",
+        "role": "decoration",
+        "x": 120,
+        "y": 120,
+        "width": 640,
+        "height": 280,
+        "rotation": 0,
+        "opacity": 0.8,
+        "zIndex": 1,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "fill": {
+                "type": "linear-gradient",
+                "angle": 0,
+                "stops": [
+                    {"offset": 0, "color": "#111827", "opacity": 1},
+                    {"offset": 1, "color": "#5A3E9D", "opacity": 1},
+                ],
+            },
+            "stroke": "transparent",
+            "strokeWidth": 0,
+            "borderRadius": 8,
+        },
+    }
+    text = text_box(
+        "el_1_gradient_text",
+        180,
+        180,
+        "Text over a gradient card",
+        width=420,
+        height=80,
+    )
+    text["zIndex"] = 2
+    deck = text_overlap_deck([card, text])
+
+    issues = validate_design(deck)
+
+    assert any(
+        issue.code == "TEXT_CONTRAST_UNVERIFIABLE"
+        and issue.path == "slides.0.elements.1.props.color"
+        for issue in issues
+    )
 
 
 def test_refiner_does_not_clamp_caption_labels_into_title_area() -> None:

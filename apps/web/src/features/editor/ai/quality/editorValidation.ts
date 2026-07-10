@@ -17,6 +17,8 @@ export type EditorValidationItem = {
     | "titleWrap"
     | "labelWrap"
     | "speakerNotesShort"
+    | "textContrast"
+    | "contrastUnverifiable"
     | "mediaSlotMissing"
     | "sourceLedgerMissing"
     | "slideCountMismatch";
@@ -104,6 +106,19 @@ function getEditorSlideValidationItems(
 ): EditorValidationItem[] {
   const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
   const items: EditorValidationItem[] = [];
+  const targetSpeakerNotesChars = slide.aiNotes?.timingPlan?.targetSpeakerNotesChars ?? 0;
+
+  if (
+    targetSpeakerNotesChars > 0 &&
+    countSpokenChars(slide.speakerNotes) < Math.round(targetSpeakerNotesChars * 0.8)
+  ) {
+    items.push({
+      issue: "speakerNotesShort",
+      message: `발표자 메모가 슬라이드 목표 분량의 80%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${countSpokenChars(slide.speakerNotes)}자입니다.`,
+      slideId: slide.slideId,
+      severity: "warning"
+    });
+  }
 
   for (const element of slide.elements) {
     if (!element.visible) continue;
@@ -167,14 +182,29 @@ function getEditorSlideValidationItems(
       }
 
       const color = element.props.color ?? slide.style.textColor ?? deck.theme.textColor;
+      const effectiveBackground = getEffectiveTextBackground(
+        slide,
+        element,
+        backgroundColor
+      );
+
+      if (effectiveBackground.kind === "unverifiable") {
+        items.push({
+          elementId: element.elementId,
+          issue: "contrastUnverifiable",
+          message: "이미지, 그라데이션 또는 반투명 배경의 텍스트 대비는 자동 검증할 수 없습니다.",
+          severity: "risk"
+        });
+        continue;
+      }
 
       if (
         isHexColor(color) &&
-        isHexColor(backgroundColor) &&
-        contrastRatio(color, backgroundColor) < 4.5
+        contrastRatio(color, effectiveBackground.color) < 4.5
       ) {
         items.push({
           elementId: element.elementId,
+          issue: "textContrast",
           message: "텍스트와 배경 대비가 낮습니다.",
           severity: "warning"
         });
@@ -312,6 +342,83 @@ function isShortLabelTextBoxTooNarrow(
 
 function isHexColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value);
+}
+
+type PaintedBackgroundElement = Extract<
+  DeckElement,
+  {
+    type:
+      | "rect"
+      | "ellipse"
+      | "polygon"
+      | "star"
+      | "ring"
+      | "customShape";
+  }
+>;
+
+function isPaintedBackgroundElement(
+  element: DeckElement
+): element is PaintedBackgroundElement {
+  return ["rect", "ellipse", "polygon", "star", "ring", "customShape"].includes(
+    element.type
+  );
+}
+
+function getEffectiveTextBackground(
+  slide: Slide,
+  textElement: Extract<DeckElement, { type: "text" }>,
+  slideBackgroundColor: string
+): { kind: "solid"; color: string } | { kind: "unverifiable" } {
+  const candidates = slide.elements
+    .filter(
+      (candidate) =>
+        candidate.elementId !== textElement.elementId &&
+        candidate.visible &&
+        candidate.zIndex < textElement.zIndex &&
+        (isPaintedBackgroundElement(candidate) ||
+          candidate.type === "image" ||
+          candidate.type === "svg") &&
+        getTextBackgroundCoverage(textElement, candidate) >= 0.5
+    )
+    .sort((first, second) => second.zIndex - first.zIndex);
+
+  for (const candidate of candidates) {
+    if (candidate.type === "image" || candidate.type === "svg") {
+      return { kind: "unverifiable" };
+    }
+    if (candidate.opacity < 1) return { kind: "unverifiable" };
+    if (!isPaintedBackgroundElement(candidate)) continue;
+    const fill = candidate.props.fill;
+    if (fill === "transparent") continue;
+    if (typeof fill === "string" && isHexColor(fill)) {
+      return { kind: "solid", color: fill };
+    }
+    return { kind: "unverifiable" };
+  }
+
+  if (slide.style.backgroundImage?.src) return { kind: "unverifiable" };
+  return isHexColor(slideBackgroundColor)
+    ? { kind: "solid", color: slideBackgroundColor }
+    : { kind: "unverifiable" };
+}
+
+function getTextBackgroundCoverage(textElement: DeckElement, backgroundElement: DeckElement) {
+  const left = Math.max(textElement.x, backgroundElement.x);
+  const top = Math.max(textElement.y, backgroundElement.y);
+  const right = Math.min(
+    textElement.x + textElement.width,
+    backgroundElement.x + backgroundElement.width
+  );
+  const bottom = Math.min(
+    textElement.y + textElement.height,
+    backgroundElement.y + backgroundElement.height
+  );
+  if (right <= left || bottom <= top) return 0;
+  return (
+    ((right - left) * (bottom - top)) /
+    Math.max(1, textElement.width * textElement.height)
+  );
 }
 
 function contrastRatio(first: string, second: string) {

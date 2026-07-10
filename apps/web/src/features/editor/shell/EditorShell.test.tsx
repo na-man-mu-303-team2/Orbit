@@ -407,6 +407,7 @@ describe("editor shell", () => {
 
   it("returns a warning for unreadable text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 150, 120, "본문 B")
@@ -424,6 +425,7 @@ describe("editor shell", () => {
 
   it("does not warn for small decorative text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 370, 100, "본문 B")
@@ -1234,7 +1236,12 @@ describe("editor shell", () => {
         issue: "textOverflow"
       })
     );
-    expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        issue: "contrastUnverifiable",
+        severity: "risk"
+      })
+    );
     expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
     expect(riskElementIds).toContain("el_manual_customShape");
   });

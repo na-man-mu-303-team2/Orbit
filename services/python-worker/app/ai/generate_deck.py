@@ -10995,9 +10995,10 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                             message="텍스트가 상자 높이를 넘을 수 있습니다.",
                         )
                     )
-                if is_low_contrast_text(element, background_color):
+                if text_contrast_requires_attention(element, elements, slide, background_color):
                     issues.append(
                         ValidationIssue(
+                            code=text_contrast_issue_code(element, elements, slide, background_color),
                             scope="element",
                             path=f"slides.{slide_index}.elements.{element_index}.props.color",
                             message="텍스트와 배경의 대비가 낮습니다.",
@@ -11197,6 +11198,123 @@ def is_low_contrast_text(element: dict[str, Any], background_color: str) -> bool
     return contrast_ratio(color, background_color) < 4.5
 
 
+def text_contrast_requires_attention(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+    slide: dict[str, Any],
+    slide_background_color: str,
+) -> bool:
+    kind, background_color = effective_text_background(
+        element,
+        elements,
+        slide_background_color,
+        has_slide_background_image=bool(
+            slide.get("style", {}).get("backgroundImage")
+        ),
+    )
+    return kind == "unverifiable" or is_low_contrast_text(
+        element,
+        background_color or "",
+    )
+
+
+def text_contrast_issue_code(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+    slide: dict[str, Any],
+    slide_background_color: str,
+) -> str:
+    kind, _ = effective_text_background(
+        element,
+        elements,
+        slide_background_color,
+        has_slide_background_image=bool(
+            slide.get("style", {}).get("backgroundImage")
+        ),
+    )
+    return (
+        "TEXT_CONTRAST_UNVERIFIABLE"
+        if kind == "unverifiable"
+        else "TEXT_CONTRAST_LOW"
+    )
+
+
+def effective_text_background(
+    text_element: dict[str, Any],
+    elements: list[dict[str, Any]],
+    slide_background_color: str,
+    *,
+    has_slide_background_image: bool = False,
+) -> tuple[Literal["solid", "unverifiable"], str | None]:
+    supported_shape_types = {
+        "rect",
+        "ellipse",
+        "polygon",
+        "star",
+        "ring",
+        "customShape",
+    }
+    candidates = sorted(
+        (
+            candidate
+            for candidate in elements
+            if candidate is not text_element
+            and candidate.get("visible", True)
+            and int(candidate.get("zIndex", 0))
+            < int(text_element.get("zIndex", 0))
+            and candidate.get("type") in {*supported_shape_types, "image", "svg"}
+            and text_background_coverage(text_element, candidate) >= 0.5
+        ),
+        key=lambda candidate: int(candidate.get("zIndex", 0)),
+        reverse=True,
+    )
+    for candidate in candidates:
+        if candidate.get("type") in {"image", "svg"}:
+            return "unverifiable", None
+        if float(candidate.get("opacity", 1)) < 1:
+            return "unverifiable", None
+        fill = candidate.get("props", {}).get("fill", "transparent")
+        if fill == "transparent":
+            continue
+        if is_hex_color(fill):
+            return "solid", str(fill)
+        return "unverifiable", None
+    if has_slide_background_image:
+        return "unverifiable", None
+    if is_hex_color(slide_background_color):
+        return "solid", slide_background_color
+    return "unverifiable", None
+
+
+def text_background_coverage(
+    text_element: dict[str, Any],
+    background_element: dict[str, Any],
+) -> float:
+    text_left = float(text_element.get("x", 0))
+    text_top = float(text_element.get("y", 0))
+    text_width = max(1.0, float(text_element.get("width", 1)))
+    text_height = max(1.0, float(text_element.get("height", 1)))
+    background_left = float(background_element.get("x", 0))
+    background_top = float(background_element.get("y", 0))
+    intersection_width = max(
+        0.0,
+        min(
+            text_left + text_width,
+            background_left + float(background_element.get("width", 1)),
+        )
+        - max(text_left, background_left),
+    )
+    intersection_height = max(
+        0.0,
+        min(
+            text_top + text_height,
+            background_top + float(background_element.get("height", 1)),
+        )
+        - max(text_top, background_top),
+    )
+    return intersection_width * intersection_height / (text_width * text_height)
+
+
 def is_hex_color(value: Any) -> bool:
     return isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value) is not None
 
@@ -11370,14 +11488,23 @@ def refine_design_issues(
         element = slide["elements"][element_index]
         if element["type"] != "text" or is_imported_element(element, slide.get("order")):
             continue
-        background_color = slide.get("style", {}).get(
+        slide_background_color = slide.get("style", {}).get(
             "backgroundColor",
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
         shrink_text_to_fit(element)
         if should_clamp_text_to_safe_area(element):
             clamp_text_to_safe_area(element)
-        correct_text_contrast(element, background_color)
+        contrast_kind, effective_background = effective_text_background(
+            element,
+            slide["elements"],
+            slide_background_color,
+            has_slide_background_image=bool(
+                slide.get("style", {}).get("backgroundImage")
+            ),
+        )
+        if contrast_kind == "solid" and effective_background:
+            correct_text_contrast(element, effective_background)
     return refined
 
 

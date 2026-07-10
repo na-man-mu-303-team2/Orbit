@@ -208,4 +208,103 @@ describe("editor design-pack validation", () => {
       })
     );
   });
+
+  it("uses the topmost local solid shape for text contrast", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    slide.elements.push(
+      {
+        elementId: "el_1_dark_card",
+        type: "rect",
+        role: "decoration",
+        x: 100,
+        y: 80,
+        width: 1200,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 3,
+        locked: false,
+        visible: true,
+        props: {
+          fill: "#5A3E9D",
+          stroke: "transparent",
+          strokeWidth: 0,
+          borderRadius: 8
+        }
+      }
+    );
+    const title = slide.elements.find((element) => element.elementId === "el_1_title");
+    if (!title || title.type !== "text") throw new Error("title missing");
+    title.zIndex = 4;
+    title.props.color = "#111827";
+
+    const items = getEditorValidationItems(deck, slide);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_1_title",
+        issue: "textContrast"
+      })
+    );
+  });
+
+  it("reports gradient or transparent local backgrounds as unverifiable", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    slide.elements.push({
+      elementId: "el_1_gradient_card",
+      type: "rect",
+      role: "decoration",
+      x: 100,
+      y: 80,
+      width: 1200,
+      height: 180,
+      rotation: 0,
+      opacity: 0.8,
+      zIndex: 3,
+      locked: false,
+      visible: true,
+      props: {
+        fill: {
+          type: "linear-gradient",
+          angle: 0,
+          stops: [
+            { offset: 0, color: "#111827", opacity: 1 },
+            { offset: 1, color: "#5A3E9D", opacity: 1 }
+          ]
+        },
+        stroke: "transparent",
+        strokeWidth: 0,
+        borderRadius: 8
+      }
+    });
+
+    const items = getEditorValidationItems(deck, slide);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_1_title",
+        issue: "contrastUnverifiable",
+        severity: "risk"
+      })
+    );
+  });
+
+  it("validates the 80 percent speaker-note floor per slide", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    if (!slide.aiNotes?.timingPlan) throw new Error("timing plan missing");
+    slide.aiNotes.timingPlan.targetSpeakerNotesChars = 100;
+    slide.speakerNotes = "짧은 메모";
+
+    const items = getEditorValidationItems(deck, slide);
+
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        issue: "speakerNotesShort",
+        slideId: slide.slideId
+      })
+    );
+  });
 });
