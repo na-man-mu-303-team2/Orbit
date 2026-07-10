@@ -27,6 +27,7 @@ import {
   getHomeDeckGenerationJobEndpoint,
   getHomeDefaultUploadRole,
   getHomeGenerationValidationMessage,
+  getAppNavigationItem,
   getHomeContentReferenceUploads,
   getHomePptxConversionValidationMessage,
   getHomeTemplateStylePath,
@@ -46,6 +47,7 @@ import {
   TemplateRail,
   TemplateStyleOptionsPanel
 } from "./App";
+import { OrbitAppHeader } from "./components/OrbitAppHeader";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -73,6 +75,36 @@ vi.mock("react-konva", () => {
 });
 
 describe("App shell routing", () => {
+  it("keeps the product navigation order and active state consistent", () => {
+    const html = renderToStaticMarkup(
+      <OrbitAppHeader
+        activeItem="reports"
+        isAuthenticated
+        isLoggingOut={false}
+        onLogout={() => undefined}
+        onNavigate={() => undefined}
+        userInitial="김"
+        userLabel="kim@orbit.test"
+      />
+    );
+
+    expect(html.indexOf(">홈<")).toBeLessThan(html.indexOf(">프로젝트<"));
+    expect(html.indexOf(">프로젝트<")).toBeLessThan(html.indexOf(">리허설<"));
+    expect(html.indexOf(">리허설<")).toBeLessThan(html.indexOf(">리포트<"));
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('aria-haspopup="menu"');
+  });
+
+  it("resolves the header active item from production routes", () => {
+    expect(getAppNavigationItem({ name: "home" })).toBe("home");
+    expect(getAppNavigationItem({ name: "project-list" }, "")).toBe("project");
+    expect(getAppNavigationItem({ name: "project-list" }, "?intent=rehearsal")).toBe(
+      "rehearsal"
+    );
+    expect(getAppNavigationItem({ name: "report-list" })).toBe("reports");
+    expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
+  });
+
   it("keeps the login page outside the shared navigation shell", () => {
     expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
     expect(

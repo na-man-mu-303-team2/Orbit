@@ -693,4 +693,29 @@
 - Targeted design-system tests: 7 passed. Web TypeScript validation and production build passed; the existing large-bundle warning remains.
 - No actionable P0/P1/P2 findings remain.
 
+## Production product-header T2 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/home` at `artifacts/migration/t2/home-mock-source.jpg`, with the approved logo, centered `홈 → 프로젝트 → 리허설 → 리포트` navigation and right-side account region.
+- Legacy production baseline: `/project` at `artifacts/migration/t2/project-before.jpg`, showing the previous 250px left sidebar.
+- Browser implementation: `/project` at `artifacts/migration/t2/project-header-after.jpg`; responsive state at `artifacts/migration/t2/project-header-mobile.jpg`.
+- Desktop viewport: 1440×1024. Mobile viewport: 390×844 (`clientWidth=375`). The source and implementation were opened together in one comparison input, followed by a legacy-before/implementation comparison.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the header uses Pretendard/Inter with 13px UI labels and 12px account metadata. No readable text below the system floor was introduced.
+- Spacing and layout rhythm: the desktop shell uses a 72px sticky header and 1280px inner rhythm. The compact mobile header is 109px tall with brand/account on row one and four equal navigation targets on row two.
+- Colors and visual tokens: Canvas, Surface, Border, Ink, Muted, Lilac Soft/Strong and Mint tokens replace the previous blue-gray sidebar active treatment.
+- Image quality and asset fidelity: the official `orbit-logo.png` raster asset is used at both desktop and mobile sizes. Account/logout symbols use Tabler Icons; no handcrafted asset was added.
+- Copy and content: the approved four-label order is identical at every verified route. Unauthenticated state shows `로그인`; authenticated state retains the existing user identity and logout action.
+
+### Interaction and findings
+
+- [P1 resolved] The production shell used a route-specific left sidebar, so navigation position and content width differed from the approved mockups. A shared sticky top header now wraps `/`, `/project`, `/reports` and `/createdeck` without changing route content or API behavior.
+- `/project`, `/reports` and `/createdeck` browser smoke confirmed one header each and the expected `aria-current=page` state. The rehearsal entry routes to `/project?intent=rehearsal` and receives its own active state while a project is selected.
+- Desktop checks reported `scrollWidth === clientWidth` on all three directly accessible production routes. Mobile `/project` reported `scrollWidth=375`, `clientWidth=375`, and retained all four navigation labels without clipping.
+- The account trigger exposes menu semantics, closes on outside pointer or Escape, and delegates logout to the existing `/api/v1/auth/logout` handler. Focus states use the canonical ORBIT focus token.
+- `App.test.tsx`: 42 passed. Web TypeScript validation passed. No actionable T2 P0/P1/P2 findings remain; the existing project-page title/refresh wrapping at 390px is scoped to the T4 page migration rather than the shared header.
+
 final result: passed

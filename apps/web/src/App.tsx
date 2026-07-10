@@ -44,7 +44,10 @@ import type {
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
-import { AppSidebar } from "./components/AppSidebar";
+import {
+  OrbitAppHeader,
+  type OrbitAppNavigationItem
+} from "./components/OrbitAppHeader";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
@@ -743,7 +746,6 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isHomeDashboard = route.name === "home";
   const userLabel = user ? getUserLabel(user) : "로그인";
@@ -766,42 +768,41 @@ function AppFrame(props: {
     }
   }
   return (
-    <main
+    <div
       className={`orbit-layout orbit-product-shell orbit-headerless-shell${
         isHomeDashboard ? " orbit-home-shell" : ""
       }`}
     >
-      <div
-        className={`orbit-product-body${
-          isSidebarCollapsed ? " orbit-product-body-collapsed" : ""
-        }`}
-      >
-        <AppSidebar
-          isAuthenticated={isAuthenticated}
-          isCollapsed={isSidebarCollapsed}
-          isCreateDeckActive={route.name === "create-deck"}
-          isHomeActive={route.name === "home"}
-          isLoggingOut={isLoggingOut}
-          isProjectActive={
-            route.name === "project-list" ||
-            route.name === "project-editor" ||
-            route.name === "project-request"
-          }
-          isReportActive={route.name === "report-list" || route.name === "report-project-overview"}
-          onCreateDeckClick={() => navigateTo("/createdeck")}
-          onHomeClick={() => navigateTo("/")}
-          onLoginClick={() => navigateTo("/login")}
-          onLogoutClick={() => void handleLogout()}
-          onProjectListClick={() => navigateTo("/project")}
-          onReportClick={() => navigateTo("/reports")}
-          onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
-          userInitial={userInitial}
-          userLabel={userLabel}
-        />
-        <section className="orbit-page">{children}</section>
-      </div>
-    </main>
+      <OrbitAppHeader
+        activeItem={getAppNavigationItem(route)}
+        isAuthenticated={isAuthenticated}
+        isLoggingOut={isLoggingOut}
+        onLogout={() => void handleLogout()}
+        onNavigate={navigateTo}
+        userInitial={userInitial}
+        userLabel={userLabel}
+      />
+      <main className="orbit-page">{children}</main>
+    </div>
   );
+}
+
+export function getAppNavigationItem(
+  route: Route,
+  currentSearch = typeof window === "undefined" ? "" : window.location.search
+): OrbitAppNavigationItem {
+  if (route.name === "home") return "home";
+  if (route.name === "report-list" || route.name === "report-project-overview") {
+    return "reports";
+  }
+  if (
+    route.name === "rehearsal" ||
+    (route.name === "project-list" &&
+      new URLSearchParams(currentSearch).get("intent") === "rehearsal")
+  ) {
+    return "rehearsal";
+  }
+  return "project";
 }
 
 function getUserInitial(user: AuthUser) {
