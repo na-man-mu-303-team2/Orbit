@@ -1,3 +1,4 @@
+import type { SemanticCue } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveSttError, type LiveSttPort, type LiveSttResult } from "../stt/liveSttPort";
@@ -6,6 +7,7 @@ import {
   type P3RehearsalSessionSlide
 } from "./p3RehearsalSession";
 import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
+import { createSemanticCueEmbeddingIndex } from "./semanticCueEmbeddingIndex";
 import { createSemanticCueRuntime } from "./semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./mockSemanticCueNliProvider";
 import type { SemanticUtteranceDebugState } from "./semanticSpeechDebug";
@@ -85,6 +87,93 @@ describe("p3RehearsalSession", () => {
       slideEnteredAtMs: 2_000
     });
     expect(session.getState().runMeta?.slideTimeline).toBeUndefined();
+  });
+
+  it("cue-only slide의 current와 adjacent approved core 용어로 STT bias를 갱신한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_rsp",
+              aliases: { RSP: ["알에스피"] }
+            }),
+            semanticCue({
+              cueId: "scue_unreviewed",
+              reviewStatus: "suggested",
+              aliases: { SECRET: ["시크릿"] }
+            })
+          ]
+        },
+        {
+          slideId: "slide_2",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_rox",
+              slideId: "slide_2",
+              aliases: { ROX: ["알오엑스"] }
+            })
+          ]
+        },
+        {
+          slideId: "slide_3",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_far",
+              slideId: "slide_3",
+              aliases: { FAR_CODE: ["파 코드"] }
+            })
+          ]
+        }
+      ],
+      port,
+      now: createNow([2_000, 3_000])
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+
+    expect(port.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biasPhrases: expect.arrayContaining([
+          expect.objectContaining({
+            text: "RSP",
+            source: "semantic-cue-term",
+            weight: 0.93
+          }),
+          expect.objectContaining({
+            text: "ROX",
+            source: "semantic-cue-term",
+            weight: 0.85
+          })
+        ])
+      })
+    );
+    const startConfig = (port.start as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const startBiasTexts = startConfig.biasPhrases.map(
+      (phrase: { text: string }) => phrase.text
+    );
+    expect(startBiasTexts).not.toContain("SECRET");
+    expect(startBiasTexts).not.toContain("FAR_CODE");
+
+    session.enterSlide(1);
+
+    expect(port.updateBiasPhrases).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ text: "ROX", weight: 0.93 }),
+        expect.objectContaining({ text: "RSP", weight: 0.85 })
+      ])
+    );
   });
 
   it("tracks final transcript events and finalizes meta without transcript text", async () => {
@@ -675,6 +764,177 @@ describe("p3RehearsalSession", () => {
       })
     ]);
   });
+
+  it("notes와 keyword와 sentence matcher 없이 cue E5 top-k를 준비해 NLI 후보를 만든다", async () => {
+    const port = createMockLiveSttPort();
+    const debugEvents: SemanticCueDebugEvent[] = [];
+    const provider = createMockSemanticCueNliProvider({
+      scoresByCueId: {
+        scue_rsp: {
+          entailmentScore: 0.93,
+          neutralScore: 0.05,
+          contradictionScore: 0.02
+        }
+      }
+    });
+    const evaluate = vi.spyOn(provider, "evaluate");
+    const embedPassages = vi.fn(async (texts: readonly string[]) =>
+      texts.map(() => new Float32Array([1, 0]))
+    );
+    const embeddingIndex = createSemanticCueEmbeddingIndex({
+      embeddingService: {
+        embedQuery: vi.fn(async () => new Float32Array([1, 0])),
+        embedPassages
+      }
+    });
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_rsp",
+              meaning: "RSP가 런타임에서 파일 쓰기를 차단합니다",
+              requiredConcepts: ["RSP", "파일 쓰기 차단"]
+            })
+          ]
+        }
+      ],
+      port,
+      semanticCueRuntime: createSemanticCueRuntime({
+        provider,
+        enabled: true,
+        embeddingIndex,
+        now: () => 100_000
+      }),
+      isSemanticMatchingEnabled: () => true,
+      now: createNow([100_000, 101_000]),
+      onSemanticCueDebugEvent: (event) => debugEvents.push(event)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    expect(embedPassages.mock.invocationCallOrder[0]).toBeLessThan(
+      (port.start as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? 0
+    );
+    port.emit({
+      text: "실행 중에는 파일을 쓰지 못하도록 막는 정책입니다",
+      isFinal: true,
+      timestampMs: [500, 1_000]
+    });
+    await flushSemanticQueue();
+
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    expect(debugEvents.at(-1)).toMatchObject({
+      candidates: [
+        expect.objectContaining({
+          cueId: "scue_rsp",
+          embeddingScore: 1,
+          selectedForNli: true
+        })
+      ],
+      decision: {
+        cueId: "scue_rsp",
+        label: "covered"
+      }
+    });
+  });
+
+  it("NLI provider가 없어도 cue E5 후보를 계산하되 provisional decision은 만들지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const debugEvents: SemanticCueDebugEvent[] = [];
+    const embeddingIndex = createSemanticCueEmbeddingIndex({
+      embeddingService: {
+        embedQuery: vi.fn(async () => new Float32Array([1, 0])),
+        embedPassages: vi.fn(async (texts: readonly string[]) =>
+          texts.map(() => new Float32Array([1, 0]))
+        )
+      }
+    });
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [semanticCue({ cueId: "scue_basic_rsp" })]
+        }
+      ],
+      port,
+      semanticCueRuntime: createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex
+      }),
+      isSemanticMatchingEnabled: () => true,
+      now: createNow([101_000, 102_000]),
+      onSemanticCueDebugEvent: (event) => debugEvents.push(event)
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+    port.emit({
+      text: "파일 쓰기 차단 정책을 설명합니다",
+      isFinal: true,
+      timestampMs: [500, 1_000]
+    });
+    await flushSemanticQueue();
+
+    expect(debugEvents.at(-1)).toMatchObject({
+      candidates: [
+        expect.objectContaining({
+          cueId: "scue_basic_rsp",
+          embeddingScore: 1
+        })
+      ],
+      decision: {
+        label: "no_candidate",
+        reasonCodes: ["feature_disabled"]
+      }
+    });
+    expect((await session.stop()).semanticCueDecisions).toEqual([]);
+  });
+
+  it("semantic matching이 꺼져 있으면 cue embedding index를 prewarm하지 않는다", async () => {
+    const prepareSlide = vi.fn(async () => ({
+      slideId: "slide_1",
+      signature: "disabled",
+      cueCount: 1,
+      vectorCount: 1
+    }));
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [semanticCue({ cueId: "scue_disabled" })]
+        }
+      ],
+      port: createMockLiveSttPort(),
+      semanticCueRuntime: createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex: {
+          prepareSlide,
+          retrieveScores: vi.fn(async () => new Map())
+        }
+      }),
+      isSemanticMatchingEnabled: () => false,
+      now: () => 102_000
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+
+    expect(prepareSlide).not.toHaveBeenCalled();
+  });
 });
 
 const slides: P3RehearsalSessionSlide[] = [
@@ -726,7 +986,7 @@ const semanticCueSlides: P3RehearsalSessionSlide[] = [
         slideId: "slide_1",
         meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
         importance: "supporting",
-        reviewStatus: "suggested",
+        reviewStatus: "approved",
         freshness: "current",
         origin: "imported",
         revision: 1,
@@ -747,6 +1007,31 @@ const semanticCueSlides: P3RehearsalSessionSlide[] = [
     ]
   }
 ];
+
+function semanticCue(overrides: Partial<SemanticCue> = {}): SemanticCue {
+  return {
+    cueId: "scue_1",
+    slideId: "slide_1",
+    meaning: "기술 정책을 설명합니다",
+    importance: "core",
+    reviewStatus: "approved",
+    freshness: "current",
+    origin: "manual",
+    revision: 1,
+    sourceRefs: [],
+    qualityWarnings: [],
+    required: true,
+    priority: 1,
+    candidateKeywords: [],
+    aliases: {},
+    requiredConcepts: [],
+    nliHypotheses: ["발표자는 기술 정책을 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: [],
+    ...overrides
+  };
+}
 
 function createMockLiveSttPort(overrides: Partial<LiveSttPort> = {}) {
   const resultSubscribers = new Set<(result: LiveSttResult) => void>();

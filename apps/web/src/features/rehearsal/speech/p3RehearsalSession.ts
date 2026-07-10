@@ -110,6 +110,7 @@ export function createP3RehearsalSession(
   let semanticGeneration = 0;
   let semanticQueue: Promise<void> = Promise.resolve();
   const semanticPrepareBySlideId = new Map<string, Promise<void>>();
+  const semanticCuePrepareBySlideId = new Map<string, Promise<void>>();
   let resultTimestampOffsetMs = 0;
   let lastAcceptedResultEndMs = 0;
 
@@ -124,6 +125,7 @@ export function createP3RehearsalSession(
     finalSegments.length = 0;
     resultTimestampOffsetMs = 0;
     lastAcceptedResultEndMs = 0;
+    scheduleSemanticCuePrewarm(slideIndex);
 
     try {
       cleanupSubscriptions?.();
@@ -141,7 +143,7 @@ export function createP3RehearsalSession(
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
-        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+        biasPhrases: buildBiasPhrasesForSlideIndex(slideIndex)
       });
     } catch (error) {
       status = "failed";
@@ -183,14 +185,14 @@ export function createP3RehearsalSession(
       return getState();
     }
 
-    const slide = getSlide(slideIndex);
     resultTimestampOffsetMs = lastAcceptedResultEndMs;
     status = "starting";
+    scheduleSemanticCuePrewarm(slideIndex);
     try {
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
-        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+        biasPhrases: buildBiasPhrasesForSlideIndex(slideIndex)
       });
     } catch (error) {
       status = "failed";
@@ -216,13 +218,14 @@ export function createP3RehearsalSession(
       events.push(...currentTracker.exitSlide(atMs));
     }
 
+    scheduleSemanticCuePrewarm(nextSlideIndex);
     slideIndex = nextSlideIndex;
     const slide = getSlide(slideIndex);
     currentTracker = getTracker(slideIndex);
     currentTracker.resetForSlideVisit();
     slideEnteredAtMs = getNowMs();
     collector.enterSlide(slide.slideId);
-    input.port.updateBiasPhrases(buildBiasPhrasesForSlide(slide, input.config));
+    input.port.updateBiasPhrases(buildBiasPhrasesForSlideIndex(slideIndex));
     semanticGeneration += 1;
     scheduleSemanticPrepare(slideIndex, semanticGeneration);
     applyEventsToLog(events, collector);
@@ -326,6 +329,14 @@ export function createP3RehearsalSession(
     return slide;
   }
 
+  function buildBiasPhrasesForSlideIndex(index: number) {
+    return buildBiasPhrasesForSlide(getSlide(index), input.config, {
+      adjacentSlides: [input.slides[index - 1], input.slides[index + 1]].filter(
+        (slide): slide is P3RehearsalSessionSlide => slide !== undefined
+      )
+    });
+  }
+
   function scheduleSemanticPrepare(index: number, generation: number) {
     if (!input.semanticMatcher || status !== "running") {
       return;
@@ -377,6 +388,27 @@ export function createP3RehearsalSession(
     semanticPrepareBySlideId.set(slide.slideId, preparePromise);
   }
 
+  function scheduleSemanticCuePrewarm(index: number) {
+    if (
+      !input.semanticCueRuntime ||
+      !(input.isSemanticMatchingEnabled?.() ?? false)
+    ) {
+      return;
+    }
+    for (const targetIndex of [index, index - 1, index + 1]) {
+      const slide = input.slides[targetIndex];
+      if (!slide) {
+        continue;
+      }
+      const preparePromise = input.semanticCueRuntime.prepareSlide({
+        slideId: slide.slideId,
+        cues: slide.semanticCues ?? []
+      });
+      semanticCuePrepareBySlideId.set(slide.slideId, preparePromise);
+      void preparePromise.catch(() => undefined);
+    }
+  }
+
   function enqueueSemanticFinalResult(options: {
     result: LiveSttResult;
     resultSlideIndex: number;
@@ -385,7 +417,7 @@ export function createP3RehearsalSession(
     phraseMatched: boolean;
     keywordCoverage: number;
   }) {
-    if (!input.semanticMatcher) {
+    if (!input.semanticMatcher && !input.semanticCueRuntime) {
       return;
     }
 
@@ -419,6 +451,18 @@ export function createP3RehearsalSession(
     });
 
     try {
+      if (!input.semanticMatcher) {
+        await processSemanticCueFinalResult({
+          slide,
+          result: options.result,
+          decisionReason: "no_match",
+          generation: options.generation,
+          resultSlideIndex: options.resultSlideIndex,
+          phraseMatched: options.phraseMatched,
+          keywordCoverage: options.keywordCoverage
+        });
+        return;
+      }
       const match = await input.semanticMatcher?.matchFinalTranscript({
         slideId: slide.slideId,
         transcript: options.result.text,
@@ -520,6 +564,8 @@ export function createP3RehearsalSession(
       return;
     }
 
+    await semanticCuePrepareBySlideId.get(options.slide.slideId);
+
     const cueResult = await input.semanticCueRuntime.evaluateFinalResult({
       deckId: "deck_unknown",
       slideId: options.slide.slideId,
@@ -582,7 +628,8 @@ function calculateKeywordCoverage(
 
 export function buildBiasPhrasesForSlide(
   slide: P3RehearsalSessionSlide,
-  config: SpeechTrackingConfigOverride = {}
+  config: SpeechTrackingConfigOverride = {},
+  context: { adjacentSlides?: readonly P3RehearsalSessionSlide[] } = {}
 ): LiveSttBiasPhrase[] {
   const extractor = createDefaultPhraseExtractor({
     ...config,
@@ -607,6 +654,10 @@ export function buildBiasPhrasesForSlide(
     finalTriggerPhrases,
     cuePhrases: slide.cuePhrases,
     keywords: slide.keywords,
+    semanticCues: slide.semanticCues,
+    adjacentSemanticCues: context.adjacentSlides?.flatMap(
+      (adjacentSlide) => adjacentSlide.semanticCues ?? []
+    ),
     representativePhrases,
     legacyPhrases: slide.legacyPhrases
   }).map((term) => ({
