@@ -774,6 +774,12 @@ def load_icon_map(path: Path) -> dict[str, str]:
 
 
 CANVAS = Canvas()
+GRID_COLUMN_COUNT = 12
+GRID_GUTTER = 24
+GRID_COLUMN_WIDTH = 118
+GRID_STEP = GRID_COLUMN_WIDTH + GRID_GUTTER
+GRID_SPACING = 8
+GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
 DECK_CONTENT_PLAN_CACHE_VERSION = "v1"
@@ -5593,6 +5599,7 @@ def assemble_design_pack_slide(
 ) -> dict[str, Any]:
     recipe = recipe or design_pack_recipe_for(raw_input, slide_plan, slide_plans)
     elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
+    align_design_pack_core_geometry(elements)
     elements = cap_elements(elements, limit=48)
     build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
@@ -11768,6 +11775,7 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
         issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
         issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
         issues.extend(validate_slide_typography(slide, slide_index))
+        issues.extend(validate_slide_grid_alignment(slide, slide_index))
 
     font_families = {
         str(element.get("props", {}).get("fontFamily", "")).strip().casefold()
@@ -12001,6 +12009,140 @@ def visible_slide_text(slide: dict[str, Any]) -> str:
         and element.get("role") not in {"caption", "footer"}
     )
     return " ".join(part for part in parts if part.strip())
+
+
+def align_design_pack_core_geometry(elements: list[dict[str, Any]]) -> None:
+    for element in elements:
+        if not is_design_pack_grid_element(element, elements):
+            continue
+        x, width = nearest_grid_slot(
+            float(element.get("x", 0)),
+            float(element.get("width", 1)),
+        )
+        element["x"] = x
+        element["width"] = width
+        element["y"] = round(float(element.get("y", 0)) / GRID_SPACING) * GRID_SPACING
+        element["height"] = max(
+            GRID_SPACING,
+            math.ceil(float(element.get("height", 1)) / GRID_SPACING)
+            * GRID_SPACING,
+        )
+
+
+def nearest_grid_slot(x: float, width: float) -> tuple[int, int]:
+    candidates = [
+        (
+            CANVAS.safe_x + column * GRID_STEP,
+            span * GRID_COLUMN_WIDTH + (span - 1) * GRID_GUTTER,
+        )
+        for column in range(GRID_COLUMN_COUNT)
+        for span in range(1, GRID_COLUMN_COUNT - column + 1)
+    ]
+    non_shrinking = [candidate for candidate in candidates if candidate[1] >= width]
+    return min(
+        non_shrinking or candidates,
+        key=lambda candidate: abs(candidate[0] - x) + abs(candidate[1] - width),
+    )
+
+
+def is_design_pack_grid_element(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> bool:
+    if not element.get("visible", True) or is_full_bleed_element(element):
+        return False
+    role = str(element.get("role", ""))
+    element_id = str(element.get("elementId", ""))
+    if role in {"background", "footer"} or is_design_pack_chrome_text(element):
+        return False
+    if any(
+        token in element_id
+        for token in ("_card_", "_accent", "_divider", "_number", "_label")
+    ):
+        return False
+    if role in {"title", "media"} or element.get("type") == "chart":
+        return True
+    if role in {"body", "subtitle"}:
+        return not is_contained_by_grid_panel(element, elements)
+    return (
+        role == "highlight"
+        and element.get("type") != "text"
+        and float(element.get("width", 0)) >= 400
+        and float(element.get("height", 0)) >= 120
+        and any(token in element_id for token in ("_panel", "_block"))
+    )
+
+
+def is_full_bleed_element(element: dict[str, Any]) -> bool:
+    return (
+        float(element.get("x", 0)) <= 0
+        and float(element.get("y", 0)) <= 0
+        and float(element.get("width", 0)) >= CANVAS.width
+        and float(element.get("height", 0)) >= CANVAS.height
+    )
+
+
+def is_contained_by_grid_panel(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> bool:
+    return any(
+        candidate is not element
+        and candidate.get("visible", True)
+        and candidate.get("role") == "highlight"
+        and candidate.get("type") != "text"
+        and text_background_coverage(element, candidate) >= 0.9
+        for candidate in elements
+    )
+
+
+def validate_slide_grid_alignment(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    elements = slide.get("elements", [])
+    for element_index, element in enumerate(elements):
+        if not is_design_pack_grid_element(element, elements):
+            continue
+        if is_grid_aligned(element):
+            continue
+        return [
+            ValidationIssue(
+                code="GRID_ALIGNMENT_INCONSISTENT",
+                scope="element",
+                path=f"slides.{slide_index}.elements.{element_index}",
+                message="핵심 레이아웃 요소가 12열 grid와 8px 간격 기준에서 벗어났습니다.",
+            )
+        ]
+    return []
+
+
+def is_grid_aligned(element: dict[str, Any]) -> bool:
+    x = float(element.get("x", 0))
+    width = float(element.get("width", 1))
+    horizontal = any(
+        abs(candidate_x - x) <= GRID_TOLERANCE
+        and abs(candidate_width - width) <= GRID_TOLERANCE
+        for candidate_x, candidate_width in (
+            (
+                CANVAS.safe_x + column * GRID_STEP,
+                span * GRID_COLUMN_WIDTH + (span - 1) * GRID_GUTTER,
+            )
+            for column in range(GRID_COLUMN_COUNT)
+            for span in range(1, GRID_COLUMN_COUNT - column + 1)
+        )
+    )
+    y = float(element.get("y", 0))
+    height = float(element.get("height", 1))
+    vertical = (
+        distance_to_spacing(y, GRID_SPACING) <= GRID_TOLERANCE
+        and distance_to_spacing(height, GRID_SPACING) <= GRID_TOLERANCE
+    )
+    return horizontal and vertical
+
+
+def distance_to_spacing(value: float, spacing: int) -> float:
+    return abs(value - round(value / spacing) * spacing)
 
 
 def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:

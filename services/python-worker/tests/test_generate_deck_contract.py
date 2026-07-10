@@ -350,6 +350,31 @@ def test_design_pack_generation_applies_role_based_typography_floor() -> None:
                 assert element["props"]["lineHeight"] >= 1.2
 
 
+def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+
+    assert "GRID_ALIGNMENT_INCONSISTENT" not in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+    title = next(
+        element
+        for element in deck["slides"][1]["elements"]
+        if element["type"] == "text" and element.get("role") == "title"
+    )
+    title["x"] += 12
+
+    assert "GRID_ALIGNMENT_INCONSISTENT" in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+
 @pytest.mark.parametrize(
     ("request_patch", "expected"),
     [
