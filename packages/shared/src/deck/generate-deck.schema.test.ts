@@ -599,7 +599,11 @@ describe("generateDeckResponseSchema", () => {
         relevantWebSourceCount: 2,
         officialWebSourceCount: 1,
         repairAttempted: true,
-        repairReasons: ["SPEAKER_NOTES_SHORT"],
+        repairReasons: [
+          "SLIDE_COUNT_SHORT",
+          "CONTENT_DUPLICATED",
+          "SPEAKER_NOTES_SHORT"
+        ],
         uniqueCoreLayoutCount: 5,
         validationIssueCount: 0
       }

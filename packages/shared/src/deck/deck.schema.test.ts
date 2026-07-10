@@ -67,6 +67,18 @@ type DeckValidationInput = {
         confidence: number;
         usedInSlideId: string;
       }>;
+      timingPlan?: {
+        charsPerMinute?: number;
+        speakingTimeRatio?: number;
+        targetTotalChars?: number;
+        targetSlideCount?: number;
+        targetSecondsPerSlide?: number;
+        targetSpeakerNotesCharsPerSlide?: number;
+        targetSeconds: number;
+        targetSpokenSeconds?: number;
+        targetSpeakerNotesChars: number;
+        actualSpeakerNotesChars: number;
+      };
     };
     keywords: Array<{
       keywordId: string;
@@ -1079,7 +1091,19 @@ describe("deckSchema validation", () => {
           confidence: 0.9,
           usedInSlideId: deck.slides[0].slideId
         }
-      ]
+      ],
+      timingPlan: {
+        charsPerMinute: 260,
+        speakingTimeRatio: 0.8,
+        targetTotalChars: 2080,
+        targetSlideCount: 10,
+        targetSecondsPerSlide: 60,
+        targetSpeakerNotesCharsPerSlide: 208,
+        targetSeconds: 60,
+        targetSpokenSeconds: 48,
+        targetSpeakerNotesChars: 208,
+        actualSpeakerNotesChars: 201
+      }
     };
 
     expectValidDeck(deck);

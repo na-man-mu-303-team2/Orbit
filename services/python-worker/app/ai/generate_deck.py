@@ -48,6 +48,8 @@ SourceType = Literal["topic", "uploaded", "web", "generated", "none"]
 SourceAuthority = Literal["official", "independent", "unknown"]
 GenerationMode = Literal["legacy", "design-pack"]
 RepairReasonCode = Literal[
+    "SLIDE_COUNT_SHORT",
+    "CONTENT_DUPLICATED",
     "CONTENT_CAPACITY",
     "SPEAKER_NOTES_SHORT",
     "SPEAKER_NOTES_LONG",
@@ -385,7 +387,9 @@ class PresentationTimingPlan(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     chars_per_minute: int = Field(alias="charsPerMinute")
+    speaking_time_ratio: float = Field(default=0.8, alias="speakingTimeRatio")
     target_total_chars: int = Field(alias="targetTotalChars")
+    target_spoken_seconds: int = Field(default=0, alias="targetSpokenSeconds")
     target_slide_count: int = Field(alias="targetSlideCount")
     target_seconds_per_slide: int = Field(alias="targetSecondsPerSlide")
     target_speaker_notes_chars_per_slide: int = Field(

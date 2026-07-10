@@ -205,11 +205,13 @@ export const slideSourceLedgerSchema = z.object({
 
 export const slideTimingPlanSchema = z.object({
   charsPerMinute: z.number().int().positive().optional(),
+  speakingTimeRatio: z.number().finite().min(0).max(1).optional(),
   targetTotalChars: z.number().int().nonnegative().optional(),
   targetSlideCount: z.number().int().positive().optional(),
   targetSecondsPerSlide: z.number().int().positive().optional(),
   targetSpeakerNotesCharsPerSlide: z.number().int().nonnegative().optional(),
   targetSeconds: z.number().int().positive(),
+  targetSpokenSeconds: z.number().int().positive().optional(),
   targetSpeakerNotesChars: z.number().int().nonnegative(),
   actualSpeakerNotesChars: z.number().int().nonnegative()
 });
