@@ -15,6 +15,7 @@ from app.ai.generate_deck import (
     DeckGenerationOrchestrator,
     GenerateDeckRequest,
     GenerateDeckResponse,
+    GeneratedDeckContentPlan,
     GeneratedContentItem,
     ReferenceContext,
     SlidePlan,
@@ -33,10 +34,14 @@ from app.ai.generate_deck import (
     generate_content_plan_with_llm,
     generate_deck,
     icon_name_for_keyword,
+    initial_source_records,
     is_text_overflowing,
+    merge_grounded_repair_notes,
     refine_design_issues,
+    repair_content_plan_with_llm,
     review_text_overlap_candidates,
     validate_and_patch,
+    web_sources_from_response,
 )
 from tests.test_config import VALID_ENV
 
@@ -279,6 +284,25 @@ def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
         for previous, current in zip(fingerprints, fingerprints[1:], strict=False)
     )
     assert not any(fingerprints.count(item) > 2 for item in set(fingerprints))
+    decision_slide = next(
+        slide
+        for slide in response.deck["slides"]
+        if any(
+            element["elementId"].endswith("decision_actions_focus_label")
+            for element in slide["elements"]
+        )
+    )
+    order = decision_slide["order"]
+    assert (
+        element_by_id(
+            decision_slide,
+            f"el_{order}_decision_actions_focus_label",
+        )["props"]["text"]
+        != element_by_id(
+            decision_slide,
+            f"el_{order}_design_pack_section_label",
+        )["props"]["text"]
+    )
 
 
 def test_validation_contract_marks_any_issue_failed_and_classifies_blocking_content() -> None:
@@ -341,10 +365,20 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     assert web_requests[0]["tools"] == [
         {"type": "web_search", "search_context_size": "medium"}
     ]
+    assert "at least two distinct authoritative public URLs" in str(
+        web_requests[0]["instructions"]
+    )
+    assert "underlying technology, market, or operating concepts" in str(
+        web_requests[0]["input"]
+    )
     ledgers = response.deck["slides"][0]["aiNotes"]["sourceLedger"]
     assert ledgers[0]["sourceType"] == "web"
     assert ledgers[0]["url"] == "https://example.com/report-a"
     assert ledgers[0]["sourceId"].startswith("web:")
+    assert {ledger["url"] for ledger in ledgers if "url" in ledger} == {
+        "https://example.com/report-a",
+        "https://example.org/report-b",
+    }
     content_request = next(
         request for request in client.requests if not request.get("tools")
     )
@@ -375,6 +409,53 @@ def test_research_first_rejects_fewer_than_two_url_citations() -> None:
         )
 
     assert len([request for request in client.requests if request.get("tools")]) == 1
+
+
+def test_web_sources_include_search_action_sources_not_cited_in_message() -> None:
+    summary = "검색 결과를 비교해 발표 근거와 다음 실행 우선순위를 정리했습니다."
+    response = SimpleNamespace(
+        output_text=summary,
+        output=[
+            SimpleNamespace(
+                type="web_search_call",
+                action=SimpleNamespace(
+                    type="search",
+                    sources=[
+                        SimpleNamespace(type="url", url="https://example.com/report-a"),
+                        SimpleNamespace(type="url", url="https://example.org/report-b"),
+                    ],
+                ),
+            ),
+            SimpleNamespace(
+                type="message",
+                content=[
+                    SimpleNamespace(
+                        type="output_text",
+                        text=summary,
+                        annotations=[
+                            SimpleNamespace(
+                                type="url_citation",
+                                url="https://example.com/report-a",
+                                title="Report A",
+                                start_index=0,
+                                end_index=len(summary),
+                            )
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+
+    sources = web_sources_from_response(response)
+
+    assert [source.url for source in sources] == [
+        "https://example.com/report-a",
+        "https://example.org/report-b",
+    ]
+    assert sources[0].title == "Report A"
+    assert sources[1].content == summary
+    assert sources[1].confidence == 0.72
 
 
 def test_references_first_falls_back_without_leaking_attachment_commands_to_search() -> None:
@@ -561,6 +642,179 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
     assert len(fake_client.requests) == 1
     assert second is not None
     assert second.slides[0].title == "Original title"
+
+
+def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
+    payload = {
+        "title": "Repair plan",
+        "slides": [
+            slide_payload(
+                "Repair title",
+                "Repair message",
+                "수정된 발표자 노트입니다.",
+                slide_type="cover",
+                slot_preset="title_center",
+            )
+        ],
+    }
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Repair plan",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    plan = GeneratedDeckContentPlan.model_validate(payload)
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Repair title",
+        message="Repair message",
+        speaker_notes="짧은 노트",
+        keywords=[],
+        evidence=[],
+        target_seconds=60,
+        target_speaker_notes_chars=320,
+    )
+    fake_client = FakeOpenAIClient(payload)
+
+    repaired = repair_content_plan_with_llm(
+        raw_input,
+        plan,
+        [slide_plan],
+        ["slide 1: speaker notes 4 chars below target 320"],
+        client=fake_client,
+    )
+
+    assert repaired is not None
+    prompt = str(fake_client.requests[0]["input"])
+    assert '"currentNonWhitespaceChars": 4' in prompt
+    assert '"minimumNonWhitespaceChars": 288' in prompt
+    assert '"maximumNonWhitespaceChars": 352' in prompt
+
+
+def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Source IDs",
+            referenceContext=[
+                {
+                    "fileId": "file_reference_1",
+                    "title": "reference.pptx",
+                    "content": "Grounded reference content",
+                }
+            ],
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    records = initial_source_records(raw_input)
+
+    assert records[1].source_id == "uploaded:file_reference_1"
+    assert records[1].file_id == "file_reference_1"
+
+
+def test_multiple_uploaded_contexts_keep_unique_source_ids() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Source IDs",
+            referenceContext=[
+                {"fileId": "file_reference_1", "content": "First context"},
+                {"fileId": "file_reference_1", "content": "Second context"},
+            ],
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    source_ids = [
+        record.source_id
+        for record in initial_source_records(raw_input)
+        if record.source_type == "uploaded"
+    ]
+
+    assert source_ids == [
+        "uploaded:file_reference_1:context:1",
+        "uploaded:file_reference_1:context:2",
+    ]
+
+
+def test_direct_context_keeps_short_id_when_index_chunks_are_present() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Source IDs",
+            referenceContext=[
+                {"fileId": "file_reference_1", "content": "Direct context"},
+                {
+                    "fileId": "file_reference_1",
+                    "sourceId": "uploaded:file_reference_1:chunk_1",
+                    "chunkId": "chunk_1",
+                    "content": "Indexed context",
+                },
+            ],
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+
+    source_ids = [
+        record.source_id
+        for record in initial_source_records(raw_input)
+        if record.source_type == "uploaded"
+    ]
+
+    assert source_ids == [
+        "uploaded:file_reference_1",
+        "uploaded:file_reference_1:chunk_1",
+    ]
+
+
+def test_grounded_repair_notes_merge_distinct_plan_content_to_target() -> None:
+    original = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="회고",
+        message="검증 결과를 바탕으로 다음 실행 순서를 합의합니다",
+        speaker_notes=(
+            "먼저 1차 MVP에서 확인한 결과를 공유하겠습니다. "
+            "사용자 피드백과 구현 상태를 같은 기준으로 비교했습니다."
+        ),
+        keywords=["회고", "실행"],
+        evidence=[],
+        content_items=[
+            {"contentItemId": "original-1", "text": "핵심 기능의 실제 동작 범위"},
+            {"contentItemId": "original-2", "text": "사용자 피드백에서 반복된 요구"},
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=220,
+    )
+    repaired = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="회고",
+        message="다음 스프린트의 담당자와 검증 기준을 함께 확정합니다",
+        speaker_notes=(
+            "이번 회고의 목적은 잘된 점을 나열하는 데 있지 않습니다. "
+            "검증된 근거와 남은 위험을 연결해 바로 실행할 결정을 만드는 자리입니다."
+        ),
+        keywords=["회고", "실행"],
+        evidence=[],
+        content_items=[
+            {"contentItemId": "repaired-1", "text": "완료된 기능과 미완료 위험의 구분"},
+            {"contentItemId": "repaired-2", "text": "우선순위별 담당자와 다음 검증 시점"},
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=220,
+    )
+
+    merged = merge_grounded_repair_notes([repaired], [original])[0]
+
+    assert 198 <= len(merged.speaker_notes.replace(" ", "")) <= 253
+    assert "한 문장으로 정리하면" not in merged.speaker_notes
+    assert merged.speaker_notes.count("이번 회고의 목적") == 1
 
 
 def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
