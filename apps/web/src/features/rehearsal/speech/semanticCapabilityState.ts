@@ -32,9 +32,9 @@ export function createSemanticCapabilityState(options: {
   let sequence = 0;
   const statuses: SemanticCapabilityStatuses = {
     stt: "unavailable",
-    semantic_runtime: "unavailable",
-    embedding: "unavailable",
-    nli: "unavailable",
+    semantic_runtime: "available",
+    embedding: "available",
+    nli: "available",
     server_evaluation: "unavailable",
     cue_freshness: "available",
     transcript_evidence: "unavailable",
