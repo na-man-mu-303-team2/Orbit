@@ -62,6 +62,7 @@ type DeckValidationInput = {
         chunkId?: string;
         url?: string;
         title?: string;
+        authority?: string;
         confidence: number;
         usedInSlideId: string;
       }>;
@@ -1072,6 +1073,7 @@ describe("deckSchema validation", () => {
           sourceId: "web:https://example.com/report",
           url: "https://example.com/report",
           title: "Example report",
+          authority: "independent",
           confidence: 0.9,
           usedInSlideId: deck.slides[0].slideId
         }

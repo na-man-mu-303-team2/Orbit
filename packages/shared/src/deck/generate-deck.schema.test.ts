@@ -480,6 +480,9 @@ describe("generateDeckResponseSchema", () => {
       });
       expect(response.data.diagnostics).toMatchObject({
         referencePolicy: "topic-only",
+        researchAttempts: 0,
+        relevantWebSourceCount: 0,
+        officialWebSourceCount: 0,
         repairAttempted: false,
         validationIssueCount: 0
       });
@@ -592,6 +595,9 @@ describe("generateDeckResponseSchema", () => {
         referencePolicy: "research-first",
         uploadedSourceCount: 1,
         webSourceCount: 2,
+        researchAttempts: 2,
+        relevantWebSourceCount: 2,
+        officialWebSourceCount: 1,
         repairAttempted: true,
         repairReasons: ["SPEAKER_NOTES_SHORT"],
         uniqueCoreLayoutCount: 5,
@@ -602,6 +608,9 @@ describe("generateDeckResponseSchema", () => {
     expect(response.templateSelection?.[0]?.sourceSlideIndex).toBe(3);
     expect(response.diagnostics).toMatchObject({
       webSourceCount: 2,
+      researchAttempts: 2,
+      relevantWebSourceCount: 2,
+      officialWebSourceCount: 1,
       uniqueCoreLayoutCount: 5
     });
   });

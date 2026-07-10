@@ -187,6 +187,7 @@ export const slideSourceLedgerSchema = z.object({
   chunkId: z.string().min(1).optional(),
   url: z.string().url().optional(),
   title: z.string().min(1).optional(),
+  authority: z.enum(["official", "independent", "unknown"]).optional(),
   confidence: z.number().finite().min(0).max(1).default(0.5),
   usedInSlideId: deckSlideIdSchema
 });
