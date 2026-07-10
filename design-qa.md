@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production rehearsal active and completion T14 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/rehearsal` and `/mockup/rehearsal-complete`, including slide-first practice, glanceable timing/coach side rail and factual completion summary.
+- Browser implementation: actual `/rehearsal/project_demo_1`; active DOM state and completion DOM state were reached through `음성 없이 연습하기 → 리허설 마치기`. Captures: `artifacts/migration/t14/rehearsal-active.png`, `artifacts/migration/t14/rehearsal-complete.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth` in both states.
+
+### Required fidelity surfaces
+
+- Fonts and typography: timer, slide index, coach data and 40px completion title preserve glanceable hierarchy and the 12px operational floor.
+- Spacing and layout rhythm: the slide remains primary in a `1fr / 360px` layout, while the timer, keywords, Live STT and coach stack use restrained 14px panels.
+- Colors and visual tokens: Canvas/Surface frame practice, Lilac supports timer context, Lime highlights the factual completion duration and Ink holds the teleprompter/primary actions.
+- Image quality and asset fidelity: slides continue through the real `SlideshowRenderer`; no screenshot or fake slide asset replaces deck rendering.
+- Copy and content: timer, WPM, keyword coverage, slide timing, report job state and completion metrics all come from existing runtime/report state.
+
+### Interaction and findings
+
+- Start/pause/resume/finish, recording, Live STT, keyword detection, auto advance, upload, job polling and report navigation handlers are unchanged.
+- Completion text no longer promises unsupported `청중 반응`; pending copy names only time, keyword and speaking analysis that the report contract supports.
+- The completion summary distinguishes local-only practice from report-backed practice and keeps a single state-dependent final action beside `다시 연습`.
+- `RehearsalWorkspace.test.tsx`: 81 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production microphone preflight T13 QA
 
 ### Source and implementation

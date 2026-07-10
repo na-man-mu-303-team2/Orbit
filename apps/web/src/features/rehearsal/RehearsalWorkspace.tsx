@@ -204,6 +204,7 @@ import type {
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
 import "./rehearsal-preflight.css";
+import "./rehearsal-workspace-orbit.css";
 
 export {
   LiveSttAdapterError,
@@ -5061,13 +5062,7 @@ function RehearsalCompletionScreen(props: {
 
         <div className="rehearsal-completion-report-state" role="status">
           {props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />}
-          <p>
-            {props.isReportPending
-              ? "자세한 리포트 준비 중 — 잠시 후 청중 반응·페이스 분석이 도착해요"
-              : props.hasReportTarget
-                ? "자세한 리포트를 열어 더 깊은 분석을 확인할 수 있어요"
-                : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
-          </p>
+          <p>{getCompletionReportStateLabel(props)}</p>
         </div>
 
         <footer>
@@ -5085,6 +5080,18 @@ function RehearsalCompletionScreen(props: {
       </section>
     </main>
   );
+}
+
+export function getCompletionReportStateLabel(input: {
+  hasReportTarget: boolean;
+  isReportPending: boolean;
+}) {
+  if (input.isReportPending) {
+    return "자세한 리포트 준비 중 — 시간·키워드·말하기 분석을 정리하고 있어요";
+  }
+  return input.hasReportTarget
+    ? "자세한 리포트를 열어 공식 분석 내용을 확인할 수 있어요"
+    : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요";
 }
 
 function RehearsalTeleprompter(props: {

@@ -31,6 +31,7 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
+  getCompletionReportStateLabel,
   getHighlightedKeywordOccurrencesForSlide,
   getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
@@ -106,6 +107,12 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("describes only contract-backed completion analysis", () => {
+    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: true })).toContain("시간·키워드·말하기 분석");
+    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: true })).not.toContain("청중 반응");
+    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: false })).toContain("공식 분석");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
