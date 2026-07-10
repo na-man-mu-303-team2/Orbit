@@ -2522,6 +2522,8 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
     assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
     assert element_by_role(deck["slides"][0], "background")["props"]["fill"] == "#FFFFFF"
+    assert has_element(deck["slides"][0], "el_1_cover_summary_card_1_text")
+    assert not has_element(deck["slides"][0], "el_1_body")
 
 
 def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
@@ -2609,6 +2611,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     cover, overview, process, comparison, closing = response.deck["slides"]
     assert has_element(cover, "el_1_cover_trust_signal_panel")
     assert has_element(cover, "el_1_cover_summary_card_1")
+    assert has_element(cover, "el_1_body")
     assert not has_element(cover, "el_1_accent_rail")
     for index in range(1, 4):
         label = element_by_id(cover, f"el_1_cover_summary_card_{index}_label")

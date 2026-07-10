@@ -6382,22 +6382,25 @@ def design_pack_cover_elements(
             theme,
             line_height=1.04,
         ),
-        design_pack_text(
-            slide_plan.order,
-            "body",
-            "body",
-            slide_plan.message,
-            124,
-            452,
-            860,
-            130,
-            4,
-            colors["text_muted"],
-            25,
-            "normal",
-            theme,
-        ),
     ]
+    if len(cards) > 1:
+        elements.append(
+            design_pack_text(
+                slide_plan.order,
+                "body",
+                "body",
+                slide_plan.message,
+                124,
+                452,
+                860,
+                130,
+                4,
+                colors["text_muted"],
+                25,
+                "normal",
+                theme,
+            )
+        )
     for index, item in enumerate(cards):
         y = 278 + index * 168
         elements.extend(
