@@ -3672,7 +3672,7 @@ def repair_short_speaker_notes_with_llm(
                 "currentSpeakerNotes": slide.speaker_notes,
                 "sourceRefs": source_refs,
                 "minimumNonWhitespaceChars": round(
-                    slide.target_speaker_notes_chars * 0.8
+                    slide.target_speaker_notes_chars * 0.9
                 ),
                 "maximumNonWhitespaceChars": round(
                     slide.target_speaker_notes_chars * 1.25
@@ -3717,12 +3717,26 @@ def repair_short_speaker_notes_with_llm(
     repaired_by_order = {item.order: item for item in repaired.slides}
     for slide in short_slides:
         item = repaired_by_order[slide.order]
-        actual_chars = count_speaker_note_chars(item.speaker_notes)
-        if not round(slide.target_speaker_notes_chars * 0.8) <= actual_chars <= round(
-            slide.target_speaker_notes_chars * 1.25
-        ):
+        minimum_chars = round(slide.target_speaker_notes_chars * 0.8)
+        maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
+        speaker_notes = " ".join(item.speaker_notes.split())
+        actual_chars = count_speaker_note_chars(speaker_notes)
+        if actual_chars < minimum_chars:
+            speaker_notes = fit_grounded_speaker_note_candidates(
+                [
+                    *speaker_note_fragments(speaker_notes),
+                    *[content_item.text for content_item in slide.content_items],
+                    slide.message,
+                    *grounded_speaker_note_transitions(slide),
+                    *speaker_note_fragments(slide.speaker_notes),
+                ],
+                minimum_chars=minimum_chars,
+                preferred_max_chars=maximum_chars,
+            )
+            actual_chars = count_speaker_note_chars(speaker_notes)
+        if not minimum_chars <= actual_chars <= maximum_chars:
             continue
-        slide.speaker_notes = " ".join(item.speaker_notes.split())
+        slide.speaker_notes = speaker_notes
     return slide_plans
 
 

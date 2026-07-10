@@ -42,6 +42,7 @@ from app.ai.generate_deck import (
     merge_grounded_repair_notes,
     refine_design_issues,
     repair_content_plan_with_llm,
+    repair_short_speaker_notes_with_llm,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_design,
@@ -1038,6 +1039,73 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
     assert len(slide["speakerNotes"].replace(" ", "")) >= round(
         timing["targetSpeakerNotesChars"] * 0.8
     )
+
+
+def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Grounded update",
+            prompt="Explain verified release facts.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Verified release",
+        message=(
+            "The verified release date and platform define the announcement."
+        ),
+        speaker_notes=(
+            "The current script introduces the verified release date. "
+            "It also identifies the supported platform."
+        ),
+        keywords=["release", "platform"],
+        evidence=[],
+        content_items=[
+            {
+                "contentItemId": "fact-1",
+                "text": (
+                    "The official source confirms the exact release date for the game"
+                ),
+            },
+            {
+                "contentItemId": "fact-2",
+                "text": (
+                    "The product page identifies Nintendo Switch 2 as the platform"
+                ),
+            },
+            {
+                "contentItemId": "fact-3",
+                "text": (
+                    "The independent report describes the treasure exploration structure"
+                ),
+            },
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=400,
+    )
+    repaired_note = (
+        "The repaired script states the verified date clearly. "
+        "It connects that date to the official platform announcement."
+    )
+    fake_client = FakeOpenAIClient(
+        {"slides": [{"order": 1, "speakerNotes": repaired_note}]}
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    request_payload = json.loads(str(fake_client.requests[0]["input"]))
+    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 360
+    assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
+    assert "official source confirms" in repaired.speaker_notes
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
