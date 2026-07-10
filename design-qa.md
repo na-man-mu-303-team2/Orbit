@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production report hub T7 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/reports` for the heading, Lilac summary entry, restrained table shell and project-level navigation intent.
+- Browser implementation: `/reports` error state at `artifacts/migration/t7/reports-error-retry.png`.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the 60px report title, 22px summary statement and 12–14px table copy use the ORBIT scale.
+- Spacing and layout rhythm: the 1280px page, 126px Lilac summary, 14px table shell and 70px project rows preserve the approved report hierarchy.
+- Colors and visual tokens: Lilac marks the project summary entry while Canvas, Surface and Ink keep the report hub neutral. No score color or invented status is displayed.
+- Image quality and asset fidelity: file, microphone, refresh and chevron symbols use Tabler Icons.
+- Copy and content: row titles, latest dates and counts are derived from existing project and rehearsal-run APIs only.
+
+### Interaction and findings
+
+- Project rows navigate to `/reports/:projectId`; they are visually and semantically distinct from individual rehearsal-run rows.
+- Loading, API error, no-report and populated states share one stable table shell. Error retry re-runs the existing aggregation request.
+- The aggregation helper excludes projects without completed report runs and sorts remaining projects by the latest real run.
+- Targeted report-list and route tests: 51 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No derived 0–100 score or demo report value is rendered. No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production project access T6 QA
 
 ### Source and implementation
