@@ -373,13 +373,16 @@ function mergeExtractionResult(
         warnings.push(`protected-cue-id-collision:${slide.slideId}:${cue.cueId}`);
         return false;
       })
-      .map((cue) => ({
-        ...cue,
-        reviewStatus: "suggested" as const,
-        freshness: "current" as const,
-        origin: "ai" as const,
-        sourceDeckVersion: deck.version
-      }));
+      .map((cue) => {
+        const hasStableIdentity = cue.sourceFingerprint !== undefined;
+        return {
+          ...cue,
+          reviewStatus: hasStableIdentity ? cue.reviewStatus : ("suggested" as const),
+          freshness: "current" as const,
+          origin: hasStableIdentity ? cue.origin : ("ai" as const),
+          sourceDeckVersion: deck.version
+        };
+      });
 
     return { ...slide, semanticCues: [...preserved, ...generated] };
   });

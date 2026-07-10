@@ -25,7 +25,7 @@ def compact_texts(
     return [
         value[:max_length]
         for value in compact(values)
-        if value and len(value) <= max_length
+        if value
     ][:max_items]
 
 
