@@ -5,6 +5,7 @@ import {
 import {
   deriveKeywordOccurrences,
   demoIds,
+  createRehearsalEvaluationSnapshot,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
   type CreateRehearsalAudioUploadUrlResponse,
@@ -21,6 +22,7 @@ import {
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
   type RehearsalReport,
+  type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
   type Slide,
@@ -237,6 +239,7 @@ type RehearsalFlowStage =
   | "upload-url"
   | "storage-put"
   | "meta"
+  | "cancel"
   | "complete"
   | "job-poll"
   | "run-fetch"
@@ -334,6 +337,7 @@ export class RehearsalFlowError extends Error {
   constructor(
     readonly stage: RehearsalFlowStage,
     message: string,
+    readonly status?: number,
   ) {
     super(message);
     this.name = "RehearsalFlowError";
@@ -417,21 +421,113 @@ export async function createRehearsalRun(
   projectId: string,
   deckId: string,
   fetcher: Fetcher = fetch,
+  options: {
+    expectedDeckVersion?: number;
+    semanticEvaluationMode?: "full" | "delivery-only";
+  } = {},
 ) {
   const response = await fetcher(`/api/v1/projects/${projectId}/rehearsals`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deckId }),
+    body: JSON.stringify({
+      deckId,
+      ...(options.expectedDeckVersion === undefined
+        ? {}
+        : { expectedDeckVersion: options.expectedDeckVersion }),
+      ...(options.semanticEvaluationMode === undefined
+        ? {}
+        : { semanticEvaluationMode: options.semanticEvaluationMode }),
+    }),
   });
 
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run",
       await readErrorMessage(response, "由ы뿀??run??留뚮뱾吏 紐삵뻽?듬땲??"),
+      response.status,
     );
   }
 
   return (await response.json()) as CreateRehearsalRunResponse;
+}
+
+export async function cancelRehearsalRun(
+  runId: string,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(`/api/v1/rehearsals/${runId}/cancel`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "cancel",
+      await readErrorMessage(response, "리허설 실행을 취소하지 못했습니다."),
+      response.status,
+    );
+  }
+
+  return ((await response.json()) as { run: RehearsalRun }).run;
+}
+
+export async function createRehearsalRunForUpload(
+  projectId: string,
+  deckId: string,
+  expectedDeckVersion: number,
+  fetcher: Fetcher = fetch,
+) {
+  try {
+    const created = await createRehearsalRun(projectId, deckId, fetcher, {
+      expectedDeckVersion,
+      semanticEvaluationMode: "full",
+    });
+    return { run: created.run, evaluationSnapshotMismatch: false };
+  } catch (cause) {
+    if (!(cause instanceof RehearsalFlowError) || cause.status !== 409) {
+      throw cause;
+    }
+
+    const deliveryOnly = await createRehearsalRun(projectId, deckId, fetcher, {
+      expectedDeckVersion,
+      semanticEvaluationMode: "delivery-only",
+    });
+    return { run: deliveryOnly.run, evaluationSnapshotMismatch: true };
+  }
+}
+
+export async function prepareRehearsalEvaluationRun(
+  deck: Deck,
+  fetcher: Fetcher = fetch,
+): Promise<{
+  run: RehearsalRun | null;
+  evaluationSnapshot: RehearsalEvaluationSnapshot;
+  serverEvaluation:
+    | { state: "available" }
+    | { state: "unavailable"; reason: "network_error" };
+}> {
+  const provisionalSnapshot = createRehearsalEvaluationSnapshot(deck);
+  try {
+    const created = await createRehearsalRun(
+      deck.projectId,
+      deck.deckId,
+      fetcher,
+      {
+        expectedDeckVersion: deck.version,
+        semanticEvaluationMode: "full",
+      },
+    );
+    return {
+      run: created.run,
+      evaluationSnapshot: created.run.evaluationSnapshot ?? provisionalSnapshot,
+      serverEvaluation: { state: "available" },
+    };
+  } catch {
+    return {
+      run: null,
+      evaluationSnapshot: provisionalSnapshot,
+      serverEvaluation: { state: "unavailable", reason: "network_error" },
+    };
+  }
 }
 
 export async function requestRehearsalAudioUploadUrl(
@@ -714,8 +810,7 @@ export async function pollRehearsalJob(
 }
 
 export async function runRehearsalUploadFlow(options: {
-  projectId: string;
-  deckId: string;
+  runId: string;
   audioFile: File;
   fetcher?: Fetcher;
   onJobUpdate?: (job: Job) => void;
@@ -725,13 +820,8 @@ export async function runRehearsalUploadFlow(options: {
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
-  const created = await createRehearsalRun(
-    options.projectId,
-    options.deckId,
-    fetcher,
-  );
   const uploadResponse = await requestRehearsalAudioUploadUrl(
-    created.run.runId,
+    options.runId,
     options.audioFile,
     fetcher,
   );
@@ -757,17 +847,18 @@ export async function runRehearsalUploadFlow(options: {
       runMeta.missedKeywords.length > 0 ||
       runMeta.adviceEvents.length > 0 ||
       runMeta.utteranceOutcomes.length > 0 ||
-      runMeta.semanticCueDecisions.length > 0)
+      runMeta.semanticCueDecisions.length > 0 ||
+      runMeta.semanticCapabilityEvents.length > 0)
   ) {
     try {
-      await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
+      await updateRehearsalRunMeta(options.runId, runMeta, fetcher);
     } catch {
       // Report generation can continue without optional slide timing metadata.
     }
   }
 
   const completed = await completeRehearsalAudioUpload(
-    created.run.runId,
+    options.runId,
     uploadResponse.upload.fileId,
     fetcher,
   );
@@ -777,7 +868,7 @@ export async function runRehearsalUploadFlow(options: {
     timeoutMs: options.pollTimeoutMs,
     onUpdate: options.onJobUpdate,
   });
-  const run = await fetchRehearsalRun(created.run.runId, fetcher);
+  const run = await fetchRehearsalRun(options.runId, fetcher);
 
   return { run, job };
 }
@@ -1654,6 +1745,7 @@ export function RehearsalWorkspace(props: {
     "elapsed" | "duration" | null
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
+  const activeRunRef = useRef<RehearsalRun | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
@@ -1725,6 +1817,17 @@ export function RehearsalWorkspace(props: {
     () => () => {
       semanticCueNliProviderRef.current?.provider.dispose();
       semanticCueNliProviderRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      const pendingRun = activeRunRef.current;
+      if (pendingRun && ["created", "uploading"].includes(pendingRun.status)) {
+        void cancelRehearsalRun(pendingRun.runId).catch(() => undefined);
+      }
+      activeRunRef.current = null;
     },
     [],
   );
@@ -2214,6 +2317,7 @@ export function RehearsalWorkspace(props: {
     stopLiveDemo();
 
     setError("");
+    cancelPendingEvaluationRun();
     setRun(null);
     setJob(null);
     setHasLocalCompletion(false);
@@ -2234,6 +2338,7 @@ export function RehearsalWorkspace(props: {
     let stream: MediaStream | null = null;
     try {
       stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      const evaluationSnapshot = await prepareEvaluationSnapshot(activeDeck);
       const session = createRecordingSession(stream, {
         onError: (recordingError) => {
           stopMediaStream(stream);
@@ -2241,6 +2346,7 @@ export function RehearsalWorkspace(props: {
             streamRef.current = null;
           }
           sessionRef.current = null;
+          cancelPendingEvaluationRun();
           setError(recordingError.message);
           setPhase("failed");
         },
@@ -2260,13 +2366,14 @@ export function RehearsalWorkspace(props: {
       setIsTimerRunning(true);
       setRehearsalRuntimeStatus("running");
       rehearsalRuntimeStatusRef.current = "running";
-      void startP3Tracking(stream);
+      void startP3Tracking(stream, evaluationSnapshot);
     } catch (cause) {
       stopMediaStream(stream);
       if (streamRef.current === stream) {
         streamRef.current = null;
       }
       sessionRef.current = null;
+      cancelPendingEvaluationRun();
       setError(toMicrophoneErrorMessage(cause));
       setPhase("failed");
     }
@@ -2727,7 +2834,10 @@ export function RehearsalWorkspace(props: {
     return semanticEmbeddingServicePromiseRef.current;
   }
 
-  async function startP3Tracking(stream: MediaStream) {
+  async function startP3Tracking(
+    stream: MediaStream,
+    evaluationSnapshot?: RehearsalEvaluationSnapshot,
+  ) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
     if (!deckSnapshot?.slides[startSlideIndex]) {
@@ -2761,7 +2871,10 @@ export function RehearsalWorkspace(props: {
 
     let session: P3RehearsalSession | null = null;
     session = createP3RehearsalSession({
-      slides: buildP3SessionSlides(deckSnapshot),
+      slides: buildP3SessionSlides(
+        deckSnapshot,
+        evaluationSnapshot ?? createRehearsalEvaluationSnapshot(deckSnapshot),
+      ),
       port,
       threshold: presenterSettings.advancePolicy.threshold,
       config: {
@@ -3221,12 +3334,28 @@ export function RehearsalWorkspace(props: {
     setError("");
 
     try {
+      let uploadRun = activeRunRef.current;
+      if (!uploadRun) {
+        const recovered = await createRehearsalRunForUpload(
+          activeDeck.projectId,
+          activeDeck.deckId,
+          activeDeck.version,
+        );
+        uploadRun = recovered.run;
+        if (recovered.evaluationSnapshotMismatch) {
+          setLiveError(
+            "발표 자료가 변경되어 이번 회차는 전달 방식만 분석하고 의미 평가는 제외합니다.",
+          );
+        }
+        activeRunRef.current = uploadRun;
+        setRun(uploadRun);
+      }
+
       const runMeta = pendingP3RunMetaRef.current
         ? await pendingP3RunMetaRef.current
         : p3RunMetaRef.current;
       const result = await runRehearsalUploadFlow({
-        projectId: activeDeck.projectId,
-        deckId: activeDeck.deckId,
+        runId: uploadRun.runId,
         audioFile,
         runMeta,
         onJobUpdate: (nextJob) => {
@@ -3235,6 +3364,7 @@ export function RehearsalWorkspace(props: {
         },
       });
       setRun(result.run);
+      activeRunRef.current = result.run;
       setJob(result.job);
 
       if (result.job.status === "failed") {
@@ -3259,6 +3389,28 @@ export function RehearsalWorkspace(props: {
       setIsCompletionModalOpen(false);
       setPhase("failed");
     }
+  }
+
+  async function prepareEvaluationSnapshot(activeDeck: Deck) {
+    const prepared = await prepareRehearsalEvaluationRun(activeDeck);
+    activeRunRef.current = prepared.run;
+    setRun(prepared.run);
+    if (prepared.serverEvaluation.state === "unavailable") {
+      setLiveError(
+        "서버 의미 평가에 연결할 수 없습니다. 로컬 리허설은 계속되며 서버 리포트는 저장 전 다시 확인합니다.",
+      );
+    }
+    return prepared.evaluationSnapshot;
+  }
+
+  function cancelPendingEvaluationRun() {
+    const pendingRun = activeRunRef.current;
+    if (!pendingRun || !["created", "uploading"].includes(pendingRun.status)) {
+      return;
+    }
+
+    activeRunRef.current = null;
+    void cancelRehearsalRun(pendingRun.runId).catch(() => undefined);
   }
 
   async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
@@ -5764,17 +5916,29 @@ export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
   );
 }
 
-function buildP3SessionSlides(deck: Deck) {
-  return deck.slides.map((slide) => ({
-    slideId: slide.slideId,
-    speakerNotes: slide.speakerNotes,
-    keywords: slide.keywords ?? [],
-    semanticCues: slide.semanticCues ?? [],
-    controlPhrases: defaultRehearsalCommandConfig.flatMap(
-      (command) => command.phrases,
-    ),
-    legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean),
-  }));
+export function buildP3SessionSlides(
+  deck: Deck,
+  evaluationSnapshot?: RehearsalEvaluationSnapshot,
+) {
+  const deckSlidesById = new Map(deck.slides.map((slide) => [slide.slideId, slide]));
+  const evaluationSlides = evaluationSnapshot?.slides ?? deck.slides;
+
+  return evaluationSlides.map((evaluationSlide) => {
+    const slide = deckSlidesById.get(evaluationSlide.slideId);
+    return {
+      slideId: evaluationSlide.slideId,
+      speakerNotes: slide?.speakerNotes ?? "",
+      keywords: evaluationSlide.keywords ?? [],
+      semanticCues: evaluationSlide.semanticCues ?? [],
+      controlPhrases: defaultRehearsalCommandConfig.flatMap(
+        (command) => command.phrases,
+      ),
+      legacyPhrases: [
+        evaluationSlide.title,
+        ...(slide ? getSlideBodyTexts(slide) : []),
+      ].filter(Boolean),
+    };
+  });
 }
 
 export function getRemainingTriggerStepsFromPlan(

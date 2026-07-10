@@ -98,7 +98,6 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
@@ -269,7 +268,6 @@ describe("processRehearsalSttJob", () => {
           operations: updatedKeywordPatchOperations
         }
       ])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
@@ -344,6 +342,83 @@ describe("processRehearsalSttJob", () => {
     ]);
   });
 
+  it("uses the immutable run snapshot without reading the edited live deck", async () => {
+    const snapshot = evaluationSnapshot();
+    const query = createQueryMock()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow(runMetaRow().meta_json, snapshot)])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+    const storage = createStorage();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            projectId: "project-a",
+            fileId: "file-audio",
+            transcript: "snapshot keyword를 설명했습니다",
+            language: "ko-KR",
+            provider: "fake",
+            model: "fake-transcriber",
+            durationSeconds: 90,
+            segments: [{ text: "snapshot keyword를 설명했습니다" }]
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            wordsPerMinute: 120,
+            fillerWordCount: 0,
+            pauseCount: 0,
+            keywordCoverage: 1
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    const analyzeBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(analyzeBody.deckKeywords).toEqual([
+      {
+        slideId: "slide_1",
+        keywordId: "kw_snapshot",
+        text: "SNAPSHOT",
+        synonyms: ["고정 키워드"],
+        abbreviations: [],
+        required: true
+      }
+    ]);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM decks"))).toBe(
+      false
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"slideTimings":[{"slideId":"slide_1","targetSeconds":75,"actualSeconds":45}]'
+        ),
+        expect.stringContaining(
+          '"semanticEvaluation":{"state":"unavailable","measurementMode":"none","reasons":["evaluation_not_run"]'
+        )
+      ])
+    );
+  });
+
   it("builds slide timings from replayed deck patches", async () => {
     const addedSlide = {
       slideId: "slide_3",
@@ -359,7 +434,17 @@ describe("processRehearsalSttJob", () => {
     };
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
-      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        runRow({
+          slideTimeline: [
+            { slideId: "slide_1", enteredAt: "2026-06-27T00:00:00.000Z" },
+            { slideId: "slide_3", enteredAt: "2026-06-27T00:00:20.000Z" },
+            { slideId: "slide_2", enteredAt: "2026-06-27T00:00:50.000Z" }
+          ],
+          missedKeywords: [],
+          adviceEvents: []
+        })
+      ])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([
@@ -370,19 +455,6 @@ describe("processRehearsalSttJob", () => {
           after_version: 2,
           source: "user",
           operations: [{ type: "add_slide", slide: addedSlide }]
-        }
-      ])
-      .mockResolvedValueOnce([
-        {
-          meta_json: {
-            slideTimeline: [
-              { slideId: "slide_1", enteredAt: "2026-06-27T00:00:00.000Z" },
-              { slideId: "slide_3", enteredAt: "2026-06-27T00:00:20.000Z" },
-              { slideId: "slide_2", enteredAt: "2026-06-27T00:00:50.000Z" }
-            ],
-            missedKeywords: [],
-            adviceEvents: []
-          }
         }
       ])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
@@ -460,19 +532,16 @@ describe("processRehearsalSttJob", () => {
   it("does not re-add client-side missed keywords that transcript analysis matched", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
-      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        runRow({
+          slideTimeline: [],
+          missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
+          adviceEvents: []
+        })
+      ])
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          meta_json: {
-            slideTimeline: [],
-            missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
-            adviceEvents: []
-          }
-        }
-      ])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
@@ -533,7 +602,6 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
@@ -568,7 +636,6 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([])
@@ -621,7 +688,6 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
@@ -684,7 +750,6 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([assetRow])
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([runMetaRow()])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
@@ -818,8 +883,17 @@ function jobRow(
   };
 }
 
-function runRow() {
-  return { run_id: "run-a" };
+function runRow(
+  metaJson: Record<string, unknown> = runMetaRow().meta_json,
+  evaluationSnapshot: Record<string, unknown> | null = null,
+  semanticEvaluationMode: "full" | "delivery-only" = "full"
+) {
+  return {
+    run_id: "run-a",
+    meta_json: metaJson,
+    evaluation_snapshot_json: evaluationSnapshot,
+    semantic_evaluation_mode: semanticEvaluationMode
+  };
 }
 
 function runMetaRow() {
@@ -853,6 +927,60 @@ function runMetaRow() {
       ],
       semanticCapabilityEvents: []
     }
+  };
+}
+
+function evaluationSnapshot() {
+  return {
+    deckId: "deck-a",
+    deckVersion: 3,
+    capturedAt: "2026-06-27T00:00:00.000Z",
+    slides: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "snapshot slide",
+        estimatedSeconds: 75,
+        keywords: [
+          {
+            keywordId: "kw_snapshot",
+            text: "SNAPSHOT",
+            synonyms: ["고정 키워드"],
+            abbreviations: [],
+            required: true
+          }
+        ],
+        semanticCues: [
+          {
+            cueId: "scue_snapshot",
+            slideId: "slide_1",
+            meaning: "고정된 cue 의미",
+            importance: "core",
+            reviewStatus: "approved",
+            freshness: "current",
+            origin: "manual",
+            revision: 7,
+            required: true,
+            priority: 1,
+            candidateKeywords: ["SNAPSHOT"],
+            aliases: {},
+            requiredConcepts: ["고정 의미"],
+            nliHypotheses: ["발표자는 고정 의미를 설명했다"],
+            negativeHints: [],
+            targetElementIds: [],
+            triggerActionIds: []
+          }
+        ]
+      },
+      {
+        slideId: "slide_2",
+        order: 2,
+        title: "next snapshot slide",
+        estimatedSeconds: 45,
+        keywords: [],
+        semanticCues: []
+      }
+    ]
   };
 }
 

@@ -3,6 +3,7 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  rehearsalEvaluationSnapshotSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
   type Job,
@@ -44,8 +45,11 @@ const deckPatchRowSchema = z.object({
   operations: z.array(z.record(z.unknown()))
 });
 
-const rehearsalRunMetaRowSchema = z.object({
-  meta_json: z.record(z.unknown()).nullable().optional()
+const rehearsalRunInputRowSchema = z.object({
+  run_id: z.string().min(1),
+  meta_json: z.record(z.unknown()).nullable().optional(),
+  evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
+  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full")
 });
 
 const transcribeResponseSchema = z.object({
@@ -163,8 +167,9 @@ export async function processRehearsalSttJob(
     error: null
   });
 
+  let runInput: z.infer<typeof rehearsalRunInputRowSchema>;
   try {
-    await updateRun(dataSource, payload, {
+    runInput = await updateRun(dataSource, payload, {
       status: "processing",
       error: null,
       jobId: payload.jobId
@@ -185,8 +190,18 @@ export async function processRehearsalSttJob(
   let storageUrl: string;
   try {
     asset = await loadAudioAsset(dataSource, payload);
-    deckContext = await loadDeckAnalysisContext(dataSource, payload.projectId, payload.deckId);
-    runMeta = await loadRehearsalRunMeta(dataSource, payload);
+    deckContext = runInput.evaluation_snapshot_json
+      ? buildSnapshotAnalysisContext(
+          runInput.evaluation_snapshot_json,
+          runInput.semantic_evaluation_mode
+        )
+      : await loadDeckAnalysisContext(
+          dataSource,
+          payload.projectId,
+          payload.deckId,
+          runInput.semantic_evaluation_mode
+        );
+    runMeta = rehearsalRunMetaSchema.parse(runInput.meta_json ?? {});
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
   } catch (error) {
     return failJobAndRun(
@@ -358,7 +373,22 @@ function buildRehearsalReport(
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     utteranceOutcomes: runMeta.utteranceOutcomes,
     semanticCueDecisions: runMeta.semanticCueDecisions,
-    slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    semanticEvaluation:
+      deckContext.semanticEvaluationMode === "delivery-only"
+        ? {
+            state: "unavailable",
+            measurementMode: "none",
+            reasons: ["evaluation_snapshot_mismatch"],
+            retryable: false
+          }
+        : {
+            state: "unavailable",
+            measurementMode: "none",
+            reasons: ["evaluation_not_run"],
+            retryable: false
+          },
+    semanticCueOutcomes: [],
+    slideTimings: buildSlideTimings(deckContext, runMeta),
     slideInsights: analysis.slideInsights,
     qnaSummary: {
       questionCount: 0,
@@ -414,7 +444,7 @@ async function analyzeTranscript(
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
       deckKeywords: deckContext.deckKeywords,
-      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta)
+      slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -447,7 +477,8 @@ async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPaylo
 async function loadDeckAnalysisContext(
   dataSource: DataSource,
   projectId: string,
-  deckId: string
+  deckId: string,
+  semanticEvaluationMode: "full" | "delivery-only"
 ) {
   const rows = await dataSource.query(
     `SELECT deck_json, version FROM decks WHERE project_id = $1 AND deck_id = $2`,
@@ -506,10 +537,32 @@ async function loadDeckAnalysisContext(
   }
 
   return {
-    deck: workingDeck,
+    slides: workingDeck.slides.map((slide) => ({
+      slideId: slide.slideId,
+      targetSeconds: getSlideTargetSeconds(workingDeck, slide)
+    })),
     deckKeywords: workingDeck.slides.flatMap((slide) =>
       slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
-    )
+    ),
+    evaluationSnapshot: null,
+    semanticEvaluationMode
+  };
+}
+
+function buildSnapshotAnalysisContext(
+  snapshot: z.infer<typeof rehearsalEvaluationSnapshotSchema>,
+  semanticEvaluationMode: "full" | "delivery-only"
+): DeckAnalysisContext {
+  return {
+    slides: snapshot.slides.map((slide) => ({
+      slideId: slide.slideId,
+      targetSeconds: slide.estimatedSeconds
+    })),
+    deckKeywords: snapshot.slides.flatMap((slide) =>
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+    ),
+    evaluationSnapshot: snapshot,
+    semanticEvaluationMode
   };
 }
 
@@ -597,25 +650,6 @@ function applyReportDeckMetadataPatch(
   return nextMetadata;
 }
 
-async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSttPayload) {
-  const rows = await dataSource.query(
-    `
-      SELECT meta_json
-      FROM rehearsal_runs
-      WHERE run_id = $1 AND project_id = $2
-    `,
-    [payload.runId, payload.projectId]
-  );
-
-  const row = readFirstQueryRow<unknown>(rows);
-  if (!row) {
-    throw new Error(`Rehearsal run not found: ${payload.runId}`);
-  }
-
-  const parsedRow = rehearsalRunMetaRowSchema.parse(row);
-  return rehearsalRunMetaSchema.parse(parsedRow.meta_json ?? {});
-}
-
 function buildReportMissedKeywords(
   analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[]
 ) {
@@ -629,10 +663,10 @@ function buildReportMissedKeywords(
 }
 
 function buildSlideTimings(
-  deck: Deck,
+  deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta
 ): RehearsalReportSlideTiming[] {
-  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
 
@@ -657,14 +691,16 @@ function buildSlideTimings(
       continue;
     }
 
-    const slide = deck.slides.find((candidate) => candidate.slideId === entry.slideId);
+    const slide = deckContext.slides.find(
+      (candidate) => candidate.slideId === entry.slideId
+    );
     if (!slide) {
       continue;
     }
 
     timings.push({
       slideId: entry.slideId,
-      targetSeconds: getSlideTargetSeconds(deck, slide),
+      targetSeconds: slide.targetSeconds,
       actualSeconds: Math.round((exitedAt - enteredAt) / 1000)
     });
   }
@@ -673,10 +709,10 @@ function buildSlideTimings(
 }
 
 function buildAnalyzeSlideTimeline(
-  deck: Deck,
+  deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta
 ) {
-  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const firstValidEnteredAt = timeline
     .map((entry) => Date.parse(entry.enteredAt))
@@ -807,7 +843,7 @@ async function updateRun(
     rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
   }
-): Promise<void> {
+): Promise<z.infer<typeof rehearsalRunInputRowSchema>> {
   const rows = await dataSource.query(
     `
       UPDATE rehearsal_runs
@@ -819,7 +855,7 @@ async function updateRun(
           transcript_retained = COALESCE($7::boolean, transcript_retained),
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id
+      RETURNING run_id, meta_json, evaluation_snapshot_json, semantic_evaluation_mode
     `,
     [
       payload.runId,
@@ -833,9 +869,12 @@ async function updateRun(
     ]
   );
 
-  if (!readFirstQueryRow(rows)) {
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
     throw new Error(`Rehearsal run not found: ${payload.runId}`);
   }
+
+  return rehearsalRunInputRowSchema.parse(row);
 }
 
 async function progressJob(
@@ -963,8 +1002,10 @@ type DeckKeywordPayload = {
 };
 
 type DeckAnalysisContext = {
-  deck: Deck;
+  slides: { slideId: string; targetSeconds: number }[];
   deckKeywords: DeckKeywordPayload[];
+  evaluationSnapshot: z.infer<typeof rehearsalEvaluationSnapshotSchema> | null;
+  semanticEvaluationMode: "full" | "delivery-only";
 };
 
 function workerUrl(baseUrl: string, path: string): string {
