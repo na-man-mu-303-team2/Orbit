@@ -355,6 +355,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
     const storage = createStorage();
+    const events = vi.fn();
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -368,7 +369,13 @@ describe("processRehearsalSttJob", () => {
             provider: "fake",
             model: "fake-transcriber",
             durationSeconds: 90,
-            segments: [{ text: "snapshot keyword를 설명했습니다" }]
+            segments: [
+              {
+                text: "snapshot keyword를 설명했습니다",
+                startSeconds: 0,
+                endSeconds: 3.5
+              }
+            ]
           })
         )
       )
@@ -382,6 +389,19 @@ describe("processRehearsalSttJob", () => {
             keywordCoverage: 1
           })
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            semanticEvaluation: {
+              state: "succeeded",
+              measurementMode: "basic",
+              reasons: [],
+              retryable: false
+            },
+            semanticCueOutcomes: [semanticOutcome()]
+          })
+        )
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -389,7 +409,9 @@ describe("processRehearsalSttJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      payload
+      payload,
+      undefined,
+      events
     );
 
     const analyzeBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
@@ -406,6 +428,42 @@ describe("processRehearsalSttJob", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM decks"))).toBe(
       false
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:8000/rehearsal/analyze-semantic-cues",
+      expect.objectContaining({ method: "POST" })
+    );
+    const semanticBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(semanticBody).toMatchObject({
+      runId: "run-a",
+      evaluationSnapshot: snapshot,
+      segments: [
+        {
+          startMs: 0,
+          endMs: 3500,
+          text: "snapshot keyword를 설명했습니다"
+        }
+      ],
+      slideTimeline: [
+        { slideId: "slide_1", enteredAtMs: 0, exitedAtMs: 45000 },
+        { slideId: "slide_2", enteredAtMs: 45000 }
+      ]
+    });
+    expect(semanticBody.provisionalDecisions[0]).toMatchObject({
+      cueId: "scue_intro_1",
+      label: "covered"
+    });
+    expect(events).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ event: "rehearsal.semantic_evaluation.started" })
+    );
+    expect(events).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        event: "rehearsal.semantic_evaluation.succeeded",
+        reasons: []
+      })
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
       expect.arrayContaining([
@@ -413,8 +471,171 @@ describe("processRehearsalSttJob", () => {
           '"slideTimings":[{"slideId":"slide_1","targetSeconds":75,"actualSeconds":45}]'
         ),
         expect.stringContaining(
-          '"semanticEvaluation":{"state":"unavailable","measurementMode":"none","reasons":["evaluation_not_run"]'
+          '"semanticEvaluation":{"state":"succeeded","measurementMode":"basic","reasons":[],"retryable":false}'
+        ),
+        expect.stringContaining(
+          '"semanticCueOutcomes":[{"slideId":"slide_1","cueId":"scue_snapshot"'
         )
+      ])
+    );
+  });
+
+  it("semantic endpoint 실패에도 delivery report와 reason 있는 unmeasured outcome을 저장한다", async () => {
+    const snapshot = evaluationSnapshot();
+    snapshot.slides[0]!.keywords = [];
+    const query = createQueryMock()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow(runMetaRow().meta_json, snapshot)])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 85, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+    const storage = createStorage();
+    const events = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              projectId: "project-a",
+              fileId: "file-audio",
+              transcript: "전달 분석은 정상 완료됐습니다",
+              language: "ko-KR",
+              provider: "fake",
+              model: "fake-transcriber",
+              durationSeconds: 10,
+              segments: [
+                {
+                  text: "전달 분석은 정상 완료됐습니다",
+                  startSeconds: 0,
+                  endSeconds: 3
+                }
+              ]
+            })
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              runId: "run-a",
+              wordsPerMinute: 120,
+              fillerWordCount: 0,
+              pauseCount: 0,
+              keywordCoverage: 0,
+              coaching: { status: "succeeded", summary: "delivery ok" }
+            })
+          )
+        )
+        .mockResolvedValueOnce(new Response("semantic unavailable", { status: 503 }))
+    );
+
+    const job = await processRehearsalSttJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+      undefined,
+      events
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining('"coaching":{"status":"succeeded","summary":"delivery ok"'),
+        expect.stringContaining(
+          '"keywordCoverageMeasurement":{"state":"unmeasured","reason":"no-keywords"}'
+        ),
+        expect.stringContaining(
+          '"semanticEvaluation":{"state":"unavailable","measurementMode":"none","reasons":["server_evaluation_failed"],"retryable":true}'
+        ),
+        expect.stringContaining(
+          '"status":"unmeasured","measurementMode":"none","fallbackUsed":true,"fallbackReason":"server_evaluation_failed","unmeasuredReason":"server_evaluation_failed"'
+        ),
+        expect.not.stringContaining('"status":"missed"')
+      ])
+    );
+    expect(events).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        event: "rehearsal.semantic_evaluation.started",
+        runId: "run-a",
+        cueCount: 1,
+        slideCount: 2
+      })
+    );
+    expect(events).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        event: "rehearsal.semantic_evaluation.partial",
+        reasons: ["server_evaluation_failed"]
+      })
+    );
+    expect(JSON.stringify(events.mock.calls)).not.toContain("전달 분석은 정상 완료됐습니다");
+    expect(JSON.stringify(events.mock.calls)).not.toContain("고정된 cue 의미");
+  });
+
+  it("semantic endpoint 실패 시 transcript capability reason을 provider 오류보다 우선한다", async () => {
+    const meta = runMetaRow().meta_json;
+    const { job, query } = await runSnapshotJobWithSemanticResponse(
+      new Response("semantic unavailable", { status: 503 }),
+      {
+        ...meta,
+        semanticCapabilityEvents: [
+          {
+            eventId: "transcript-incomplete-1",
+            capability: "transcript_evidence",
+            fromState: "available",
+            toState: "degraded",
+            reason: "transcript_incomplete",
+            measurementMode: "none",
+            retryable: false,
+            slideId: "slide_1",
+            cueIds: ["scue_snapshot"],
+            at: "2026-06-27T00:00:04.000Z"
+          }
+        ]
+      }
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining('"reasons":["transcript_incomplete"]'),
+        expect.stringContaining('"unmeasuredReason":"transcript_incomplete"'),
+        expect.not.stringContaining('"fallbackReason":"server_evaluation_failed"')
+      ])
+    );
+  });
+
+  it("shared 계약과 다른 semantic response를 canonical outcome으로 저장하지 않는다", async () => {
+    const { job, query } = await runSnapshotJobWithSemanticResponse(
+      new Response(
+        JSON.stringify({
+          semanticEvaluation: {
+            state: "succeeded",
+            measurementMode: "basic",
+            reasons: [],
+            retryable: false
+          },
+          semanticCueOutcomes: [{ ...semanticOutcome(), cueRevision: 8 }]
+        })
+      )
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining('"unmeasuredReason":"server_evaluation_failed"'),
+        expect.not.stringContaining('"cueRevision":8')
       ])
     );
   });
@@ -982,6 +1203,91 @@ function evaluationSnapshot() {
       }
     ]
   };
+}
+
+function semanticOutcome() {
+  return {
+    slideId: "slide_1",
+    cueId: "scue_snapshot",
+    cueRevision: 7,
+    cueMeaningSnapshot: "고정된 cue 의미",
+    reportLabelSnapshot: "고정된 cue 의미",
+    importance: "core",
+    status: "covered",
+    confidence: 1,
+    matchedBy: "lexical",
+    measurementMode: "basic",
+    fallbackUsed: false,
+    evidence: {
+      excerpt: "snapshot keyword를 설명했습니다",
+      startMs: 0,
+      endMs: 3500
+    },
+    coveredConcepts: ["고정 의미"],
+    missingConcepts: []
+  };
+}
+
+async function runSnapshotJobWithSemanticResponse(
+  semanticResponse: Response,
+  metaJson: Record<string, unknown> = runMetaRow().meta_json
+) {
+  const snapshot = evaluationSnapshot();
+  const query = createQueryMock()
+    .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+    .mockResolvedValueOnce([runRow(metaJson, snapshot)])
+    .mockResolvedValueOnce([assetRow])
+    .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+    .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+    .mockResolvedValueOnce([jobRow("running", 85, null, null)])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([runRow()])
+    .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            projectId: "project-a",
+            fileId: "file-audio",
+            transcript: "snapshot keyword를 설명했습니다",
+            language: "ko-KR",
+            provider: "fake",
+            model: "fake-transcriber",
+            durationSeconds: 10,
+            segments: [
+              {
+                text: "snapshot keyword를 설명했습니다",
+                startSeconds: 0,
+                endSeconds: 3
+              }
+            ]
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            wordsPerMinute: 120,
+            fillerWordCount: 0,
+            pauseCount: 0,
+            keywordCoverage: 1
+          })
+        )
+      )
+      .mockResolvedValueOnce(semanticResponse)
+  );
+  const job = await processRehearsalSttJob(
+    { query } as unknown as DataSource,
+    createStorage(),
+    "http://localhost:8000",
+    payload
+  );
+  return { job, query };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
