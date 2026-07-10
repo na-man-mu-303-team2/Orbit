@@ -1,11 +1,13 @@
 import base64
 import json
 from copy import deepcopy
+from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pptx import Presentation
 
 import app.main as api_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
@@ -1149,9 +1151,17 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
 
     response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
     binary = base64.b64decode(response.content_base64)
+    presentation = Presentation(BytesIO(binary))
+    text_shapes = [
+        shape
+        for shape in presentation.slides[0].shapes
+        if getattr(shape, "has_text_frame", False)
+    ]
 
     assert binary.startswith(b"PK")
     assert response.warnings == []
+    assert text_shapes[0].text_frame.word_wrap is True
+    assert text_shapes[0].text_frame.paragraphs[0].font.size.pt == 22
 
 
 def test_generate_deck_endpoint_uses_payload_image_review_mode(

@@ -14,6 +14,10 @@ from pptx.util import Inches, Pt
 from pydantic import BaseModel, Field
 
 
+DECK_UNITS_PER_INCH = 144
+POINTS_PER_INCH = 72
+
+
 class DeckPptxExportRequest(BaseModel):
     deck: dict[str, Any]
     format: Literal["pptx"] = "pptx"
@@ -100,6 +104,7 @@ def add_text(slide: Any, element: dict[str, Any], deck: dict[str, Any]) -> None:
     )
     text_frame = shape.text_frame
     text_frame.clear()
+    text_frame.word_wrap = True
     inset = props.get("bodyInset") or {}
     text_frame.margin_left = Inches(float(inset.get("left", 0)) / 144)
     text_frame.margin_right = Inches(float(inset.get("right", 0)) / 144)
@@ -157,7 +162,11 @@ def apply_font(font: Any, props: dict[str, Any], deck: dict[str, Any]) -> None:
         or theme.get("typography", {}).get("bodyFontFamily")
         or "Pretendard"
     )
-    font.size = Pt(float(props.get("fontSize", 24)))
+    font.size = Pt(
+        float(props.get("fontSize", 24))
+        * POINTS_PER_INCH
+        / DECK_UNITS_PER_INCH
+    )
     font.bold = is_bold(props.get("fontWeight", "normal"))
     color = props.get("color") or theme.get("textColor") or "#111827"
     if is_hex_color(color):
