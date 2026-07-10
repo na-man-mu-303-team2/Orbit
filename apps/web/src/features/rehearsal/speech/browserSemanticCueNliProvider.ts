@@ -3,6 +3,7 @@ import type {
   BrowserSemanticCueNliWorkerRequest,
   BrowserSemanticCueNliWorkerResponse
 } from "./browserSemanticCueNliWorkerProtocol";
+import { resolveBrowserSemanticCueNliWorkerUrl } from "./browserSemanticCueNliWorkerAsset";
 import type {
   SemanticCueNliDecision,
   SemanticCueNliProvider,
@@ -169,7 +170,7 @@ export function createBrowserTransformersSemanticCueNliProvider(
 }
 
 export function createBrowserSemanticCueNliWorker(): BrowserSemanticCueNliWorker {
-  return new Worker(new URL("./browserSemanticCueNliWorker.ts", import.meta.url), {
+  return new Worker(resolveBrowserSemanticCueNliWorkerUrl(), {
     type: "module"
   });
 }
