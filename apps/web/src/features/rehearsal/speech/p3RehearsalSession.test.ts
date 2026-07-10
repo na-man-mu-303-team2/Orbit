@@ -1,3 +1,4 @@
+import type { SemanticCue } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveSttError, type LiveSttPort, type LiveSttResult } from "../stt/liveSttPort";
@@ -85,6 +86,93 @@ describe("p3RehearsalSession", () => {
       slideEnteredAtMs: 2_000
     });
     expect(session.getState().runMeta?.slideTimeline).toBeUndefined();
+  });
+
+  it("cue-only slide의 current와 adjacent approved core 용어로 STT bias를 갱신한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: [
+        {
+          slideId: "slide_1",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_rsp",
+              aliases: { RSP: ["알에스피"] }
+            }),
+            semanticCue({
+              cueId: "scue_unreviewed",
+              reviewStatus: "suggested",
+              aliases: { SECRET: ["시크릿"] }
+            })
+          ]
+        },
+        {
+          slideId: "slide_2",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_rox",
+              slideId: "slide_2",
+              aliases: { ROX: ["알오엑스"] }
+            })
+          ]
+        },
+        {
+          slideId: "slide_3",
+          speakerNotes: "",
+          keywords: [],
+          semanticCues: [
+            semanticCue({
+              cueId: "scue_far",
+              slideId: "slide_3",
+              aliases: { FAR_CODE: ["파 코드"] }
+            })
+          ]
+        }
+      ],
+      port,
+      now: createNow([2_000, 3_000])
+    });
+
+    await session.start({
+      audioSource: {} as MediaStream,
+      slideIndex: 0
+    });
+
+    expect(port.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biasPhrases: expect.arrayContaining([
+          expect.objectContaining({
+            text: "RSP",
+            source: "semantic-cue-term",
+            weight: 0.93
+          }),
+          expect.objectContaining({
+            text: "ROX",
+            source: "semantic-cue-term",
+            weight: 0.85
+          })
+        ])
+      })
+    );
+    const startConfig = (port.start as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const startBiasTexts = startConfig.biasPhrases.map(
+      (phrase: { text: string }) => phrase.text
+    );
+    expect(startBiasTexts).not.toContain("SECRET");
+    expect(startBiasTexts).not.toContain("FAR_CODE");
+
+    session.enterSlide(1);
+
+    expect(port.updateBiasPhrases).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ text: "ROX", weight: 0.93 }),
+        expect.objectContaining({ text: "RSP", weight: 0.85 })
+      ])
+    );
   });
 
   it("tracks final transcript events and finalizes meta without transcript text", async () => {
@@ -726,7 +814,7 @@ const semanticCueSlides: P3RehearsalSessionSlide[] = [
         slideId: "slide_1",
         meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
         importance: "supporting",
-        reviewStatus: "suggested",
+        reviewStatus: "approved",
         freshness: "current",
         origin: "imported",
         revision: 1,
@@ -747,6 +835,31 @@ const semanticCueSlides: P3RehearsalSessionSlide[] = [
     ]
   }
 ];
+
+function semanticCue(overrides: Partial<SemanticCue> = {}): SemanticCue {
+  return {
+    cueId: "scue_1",
+    slideId: "slide_1",
+    meaning: "기술 정책을 설명합니다",
+    importance: "core",
+    reviewStatus: "approved",
+    freshness: "current",
+    origin: "manual",
+    revision: 1,
+    sourceRefs: [],
+    qualityWarnings: [],
+    required: true,
+    priority: 1,
+    candidateKeywords: [],
+    aliases: {},
+    requiredConcepts: [],
+    nliHypotheses: ["발표자는 기술 정책을 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: [],
+    ...overrides
+  };
+}
 
 function createMockLiveSttPort(overrides: Partial<LiveSttPort> = {}) {
   const resultSubscribers = new Set<(result: LiveSttResult) => void>();

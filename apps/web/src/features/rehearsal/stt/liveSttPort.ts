@@ -20,6 +20,8 @@ export type LiveSttBiasPhraseSource =
   | "keyword"
   | "synonym"
   | "abbreviation"
+  | "semantic-cue-term"
+  | "semantic-cue-alias"
   | "representative-phrase"
   | "legacy"
   | "title"

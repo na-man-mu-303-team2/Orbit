@@ -141,7 +141,7 @@ export function createP3RehearsalSession(
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
-        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+        biasPhrases: buildBiasPhrasesForSlideIndex(slideIndex)
       });
     } catch (error) {
       status = "failed";
@@ -183,14 +183,13 @@ export function createP3RehearsalSession(
       return getState();
     }
 
-    const slide = getSlide(slideIndex);
     resultTimestampOffsetMs = lastAcceptedResultEndMs;
     status = "starting";
     try {
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
-        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+        biasPhrases: buildBiasPhrasesForSlideIndex(slideIndex)
       });
     } catch (error) {
       status = "failed";
@@ -222,7 +221,7 @@ export function createP3RehearsalSession(
     currentTracker.resetForSlideVisit();
     slideEnteredAtMs = getNowMs();
     collector.enterSlide(slide.slideId);
-    input.port.updateBiasPhrases(buildBiasPhrasesForSlide(slide, input.config));
+    input.port.updateBiasPhrases(buildBiasPhrasesForSlideIndex(slideIndex));
     semanticGeneration += 1;
     scheduleSemanticPrepare(slideIndex, semanticGeneration);
     applyEventsToLog(events, collector);
@@ -324,6 +323,14 @@ export function createP3RehearsalSession(
       throw new Error(`P3 rehearsal slide index is out of range: ${index}`);
     }
     return slide;
+  }
+
+  function buildBiasPhrasesForSlideIndex(index: number) {
+    return buildBiasPhrasesForSlide(getSlide(index), input.config, {
+      adjacentSlides: [input.slides[index - 1], input.slides[index + 1]].filter(
+        (slide): slide is P3RehearsalSessionSlide => slide !== undefined
+      )
+    });
   }
 
   function scheduleSemanticPrepare(index: number, generation: number) {
@@ -582,7 +589,8 @@ function calculateKeywordCoverage(
 
 export function buildBiasPhrasesForSlide(
   slide: P3RehearsalSessionSlide,
-  config: SpeechTrackingConfigOverride = {}
+  config: SpeechTrackingConfigOverride = {},
+  context: { adjacentSlides?: readonly P3RehearsalSessionSlide[] } = {}
 ): LiveSttBiasPhrase[] {
   const extractor = createDefaultPhraseExtractor({
     ...config,
@@ -607,6 +615,10 @@ export function buildBiasPhrasesForSlide(
     finalTriggerPhrases,
     cuePhrases: slide.cuePhrases,
     keywords: slide.keywords,
+    semanticCues: slide.semanticCues,
+    adjacentSemanticCues: context.adjacentSlides?.flatMap(
+      (adjacentSlide) => adjacentSlide.semanticCues ?? []
+    ),
     representativePhrases,
     legacyPhrases: slide.legacyPhrases
   }).map((term) => ({
