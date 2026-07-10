@@ -57,6 +57,7 @@ import {
   resolveAssetMimeType,
   uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
+import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
 import {
   RehearsalReportPage,
   RehearsalWorkspace
@@ -607,7 +608,7 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
   }
   if (route.name === "create-deck") return <GenerateDeckView />;
-  if (route.name === "project-list") return <ProjectListPage />;
+  if (route.name === "project-list") return <OrbitProjectExplorer onNavigate={navigateTo} />;
   if (route.name === "project-editor") {
     return (
       <ProjectAccessGate projectId={route.projectId}>
@@ -679,7 +680,8 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
   }
-  return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+  if (route.templateStyleId) return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+  return <OrbitWorkspaceHome onNavigate={navigateTo} userName={user?.displayName} />;
 }
 
 function parseRouteNonNegativeInteger(value: string | null) {
@@ -1621,7 +1623,7 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   );
 }
 
-function ProjectListPage() {
+export function ProjectListPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");

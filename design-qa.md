@@ -743,3 +743,29 @@
 - The in-app browser connection became temporarily unresponsive during the final auth-state recapture. The already captured desktop public comparison remains valid; login/signup mobile recapture is retained as a required final-rollout check in T19.
 
 final result: passed
+
+## Production workspace and project hub T4 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/home` for the recent-work strip, project-table hierarchy, quick-start blocks and single page-level primary action.
+- Browser implementation: `/project` at `artifacts/migration/t4/project-desktop-retry.png`; responsive state at `artifacts/migration/t4/project-mobile-retry.png`.
+- Desktop viewport: 1440×1024. Mobile viewport: 390×844. Both states reported `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the approved eyebrow, display heading, table labels and 12px minimum operational text use Pretendard/Inter tokens.
+- Spacing and layout rhythm: the 1280px page rhythm, 14px table shell, 44px search/sort controls, 66px rows and mobile priority columns follow the mockup hierarchy.
+- Colors and visual tokens: Ink is reserved for the single page-level AI creation action; Lilac, Navy, Lime and Ink thumbnail tones provide secondary project identity without adding unsupported status data.
+- Image quality and asset fidelity: the shared ORBIT header asset is unchanged and all project actions use Tabler Icons.
+- Copy and content: project titles, IDs and creation dates come only from the existing project query. Loading, error, empty and search-empty states do not invent project data.
+
+### Interaction and findings
+
+- `/` now prioritizes recent work, one page-level `AI 발표자료 만들기` action, all-project navigation and two quick-start paths. `/project` is the full search/sort table.
+- Search filters locally by real project title; sorting supports newest, oldest and name. Refresh, blank-project creation, edit, rehearsal and delete retain existing API/route behavior.
+- Mobile keeps the project identity and destructive icon action while hiding lower-priority date and text actions; all four app navigation targets remain available.
+- `App.test.tsx`: 48 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed

@@ -54,6 +54,10 @@ import {
   OrbitPublicLandingPage,
   submitOrbitAuth
 } from "./features/auth/OrbitAuthPage";
+import {
+  OrbitProjectExplorer,
+  OrbitWorkspaceHome
+} from "./features/projects/OrbitProjectHub";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -303,6 +307,34 @@ describe("public and authentication surfaces", () => {
         password: "password123"
       })
     ).rejects.toThrow("이메일 또는 비밀번호를 확인하세요.");
+  });
+});
+
+describe("workspace project surfaces", () => {
+  it("keeps a single AI presentation primary action on workspace home", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <OrbitWorkspaceHome onNavigate={() => undefined} userName="지윤" />
+      </QueryClientProvider>
+    );
+
+    expect(html).toContain("지윤님,");
+    expect(html.match(/<button class="orbit-ds-button/g)).toHaveLength(1);
+    expect(html).toContain("프로젝트를 불러오는 중입니다.");
+    expect(html).toContain("리허설 시작하기");
+  });
+
+  it("renders search, sorting, refresh and creation controls in project explorer", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <OrbitProjectExplorer onNavigate={() => undefined} />
+      </QueryClientProvider>
+    );
+
+    expect(html).toContain('aria-label="프로젝트 검색"');
+    expect(html).toContain('aria-label="프로젝트 정렬"');
+    expect(html).toContain('aria-label="프로젝트 새로고침"');
+    expect(html).toContain("빈 프로젝트");
   });
 });
 
