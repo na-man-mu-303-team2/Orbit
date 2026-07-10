@@ -168,6 +168,7 @@ import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
+import orbitLogo from "../../../assets/orbit-logo.png";
 import {
   ValidationPanel,
   type ValidationTextOverflowAction
@@ -4423,6 +4424,10 @@ export function EditorShell(props: { projectId?: string }) {
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <div className="menu-stack">
+            <div className="editor-document-title">
+              <button aria-label="ORBIT 홈으로 이동" onClick={handleExitToHome} type="button"><img alt="ORBIT" src={orbitLogo} /></button>
+              <span><strong>{deck.title}</strong><small>{saveStatusLabel}</small></span>
+            </div>
             <div className="menu-row">
               <button
                 aria-label="홈으로 이동"
@@ -4595,9 +4600,7 @@ export function EditorShell(props: { projectId?: string }) {
           </div>
         </div>
 
-        <div className="topbar-center">
-          <span className="deck-title">{deck.title}</span>
-        </div>
+        <div aria-hidden="true" className="topbar-center" />
 
         <div className="top-actions">
           {projectPresenceUsers.length > 0 ? (

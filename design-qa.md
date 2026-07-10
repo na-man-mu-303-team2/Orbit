@@ -744,6 +744,30 @@
 
 final result: passed
 
+## Production editor document chrome T10 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/editor` at the fixed editor review viewport `1984×1324`, including the Google Slides-like document/menu row and neutral tool dock.
+- Production implementation: the actual `EditorShell` document chrome. The guarded `/project/project_demo_1` route was exercised in the in-app browser and correctly retained its access-error boundary; authenticated chrome structure was verified through the production editor render test.
+
+### Required fidelity surfaces
+
+- Fonts and typography: 12px menu/save labels and a 14px document title improve dense-editor readability without dropping below the system floor.
+- Spacing and layout rhythm: a 78px document/menu row and fixed 48px neutral tool dock create the approved two-level chrome while preserving the slide rail, canvas and inspector below.
+- Colors and visual tokens: the previous blue-gray chrome is replaced by white, Surface, Border, Ink and Lilac focus semantics without gradients.
+- Image quality and asset fidelity: the official ORBIT raster logo appears in the document title row. Existing editor actions keep their installed icon components; no new drawn asset was introduced.
+- Copy and content: the real deck title, save state, file/edit menus, presence, share, rehearsal and presentation actions remain connected to existing state.
+
+### Interaction and findings
+
+- Autosave/manual save, undo/redo, home exit confirmation, file/resize/edit menus, presentation menu and share dialog handlers are unchanged.
+- The topbar now gives the document identity first-row priority; file/edit controls form the compact menu row; selection/text/shape/chart/image/animation tools occupy the neutral second row.
+- `EditorShell.test.tsx`: 51 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- Authenticated editor visual recapture remains part of the final T19 browser pass because the local project-access endpoint did not provide an accepted membership in this run. No code-level P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production rehearsal-run report T9 QA
 
 ### Source and implementation

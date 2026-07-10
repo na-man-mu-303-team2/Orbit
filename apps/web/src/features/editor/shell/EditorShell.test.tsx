@@ -402,6 +402,11 @@ describe("editor shell", () => {
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
+    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain("파일");
+    expect(html).toContain("편집 중");
+    expect(html).toContain("공유");
   });
 
   it("returns a warning for unreadable text overlap", () => {
