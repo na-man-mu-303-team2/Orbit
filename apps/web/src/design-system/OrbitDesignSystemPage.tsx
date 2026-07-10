@@ -2,6 +2,8 @@ import {
   IconArrowRight,
   IconBell,
   IconFileUpload,
+  IconInbox,
+  IconMail,
   IconPresentation,
   IconSearch,
   IconSparkles,
@@ -12,7 +14,18 @@ import {
 import { useState, type ReactNode } from "react";
 import orbitLogo from "../assets/orbit-logo.png";
 import orbitLogoWhite from "../assets/orbit-logo-white.png";
-import { OrbitButton, OrbitColorBlock, OrbitStatus } from "./components";
+import {
+  OrbitButton,
+  OrbitColorBlock,
+  OrbitDialog,
+  OrbitEmptyState,
+  OrbitField,
+  OrbitIconButton,
+  OrbitInput,
+  OrbitSelect,
+  OrbitStatus,
+  OrbitTabs
+} from "./components";
 import { orbitDesignTokens } from "./tokens";
 import "./orbit-design-system.css";
 
@@ -61,6 +74,8 @@ export function OrbitDesignSystemPage() {
   const [activeSection, setActiveSection] = useState<(typeof sectionLinks)[number]["id"]>(
     "foundations"
   );
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [sampleTab, setSampleTab] = useState("members");
   const [startMode, setStartMode] = useState("topic");
 
   function goToSection(id: (typeof sectionLinks)[number]["id"]) {
@@ -88,9 +103,9 @@ export function OrbitDesignSystemPage() {
           ))}
         </nav>
         <div className="orbit-ds-topbar-actions">
-          <button aria-label="알림" className="orbit-ds-icon-button" type="button">
+          <OrbitIconButton aria-label="알림">
             <IconBell size={19} stroke={1.8} />
-          </button>
+          </OrbitIconButton>
           <span aria-label="사용자 김지윤" className="orbit-ds-avatar">
             김
           </span>
@@ -198,9 +213,9 @@ export function OrbitDesignSystemPage() {
                 </OrbitButton>
                 <OrbitButton variant="quiet">초안 저장</OrbitButton>
                 <OrbitButton disabled>생성 중</OrbitButton>
-                <button aria-label="검색" className="orbit-ds-icon-button" type="button">
+                <OrbitIconButton aria-label="검색">
                   <IconSearch size={19} stroke={1.8} />
-                </button>
+                </OrbitIconButton>
               </div>
             </Specimen>
 
@@ -236,24 +251,28 @@ export function OrbitDesignSystemPage() {
 
             <Specimen code="field / default + invalid" title="Form fields">
               <div className="orbit-ds-form-grid">
-                <label className="orbit-ds-field orbit-ds-field-wide">
-                  <span>발표 주제</span>
-                  <input className="orbit-ds-input" defaultValue="2026 하반기 제품 전략" />
-                  <small>목적이 드러나는 구체적인 제목을 권장합니다.</small>
-                </label>
-                <label className="orbit-ds-field">
-                  <span>발표 톤</span>
-                  <select className="orbit-ds-select" defaultValue="professional">
+                <OrbitField
+                  className="orbit-ds-field-wide"
+                  hint="목적이 드러나는 구체적인 제목을 권장합니다."
+                  id="design-system-topic"
+                  label="발표 주제"
+                >
+                  <OrbitInput defaultValue="2026 하반기 제품 전략" />
+                </OrbitField>
+                <OrbitField id="design-system-tone" label="발표 톤">
+                  <OrbitSelect defaultValue="professional">
                     <option value="professional">Professional</option>
                     <option value="friendly">Friendly</option>
                     <option value="concise">Concise</option>
-                  </select>
-                </label>
-                <label className="orbit-ds-field">
-                  <span>오류 상태</span>
-                  <input aria-invalid="true" className="orbit-ds-input" defaultValue="0분" />
-                  <small>발표 시간은 1분 이상이어야 합니다.</small>
-                </label>
+                  </OrbitSelect>
+                </OrbitField>
+                <OrbitField
+                  error="발표 시간은 1분 이상이어야 합니다."
+                  id="design-system-duration"
+                  label="오류 상태"
+                >
+                  <OrbitInput defaultValue="0분" />
+                </OrbitField>
               </div>
             </Specimen>
 
@@ -265,6 +284,37 @@ export function OrbitDesignSystemPage() {
                   <span>PDF, DOCX, PPTX, 이미지 · 최대 50MB</span>
                 </div>
               </div>
+            </Specimen>
+
+            <Specimen code="tabs / controlled panel" title="Tabs">
+              <OrbitTabs
+                activeTab={sampleTab}
+                ariaLabel="프로젝트 공유 정보"
+                onChange={setSampleTab}
+                tabs={[
+                  { id: "members", label: "함께 작업 중" },
+                  { id: "requests", label: "승인 요청" }
+                ]}
+              >
+                <p className="orbit-ds-sample-panel-copy">
+                  {sampleTab === "members"
+                    ? "현재 프로젝트를 함께 편집하는 사용자 3명"
+                    : "검토가 필요한 접근 요청 1건"}
+                </p>
+              </OrbitTabs>
+            </Specimen>
+
+            <Specimen code="dialog + empty state" title="Feedback surfaces">
+              <OrbitEmptyState
+                action={
+                  <OrbitButton icon={<IconMail size={18} stroke={1.8} />} onClick={() => setDialogOpen(true)}>
+                    초대하기
+                  </OrbitButton>
+                }
+                description="이 프로젝트에 참여할 사용자를 초대해 보세요."
+                icon={<IconInbox size={26} stroke={1.6} />}
+                title="함께 작업 중인 사용자가 없습니다."
+              />
             </Specimen>
           </div>
         </section>
@@ -303,9 +353,9 @@ export function OrbitDesignSystemPage() {
                     <td>{project.duration}</td>
                     <td>{project.slides}</td>
                     <td>
-                      <button aria-label={`${project.title} 열기`} className="orbit-ds-icon-button" type="button">
+                      <OrbitIconButton aria-label={`${project.title} 열기`}>
                         <IconArrowRight size={18} stroke={1.8} />
-                      </button>
+                      </OrbitIconButton>
                     </td>
                   </tr>
                 ))}
@@ -361,6 +411,22 @@ export function OrbitDesignSystemPage() {
           </OrbitButton>
         </footer>
       </main>
+      <OrbitDialog
+        description="프로젝트 접근 권한과 참여자를 관리합니다."
+        footer={
+          <>
+            <OrbitButton onClick={() => setDialogOpen(false)} variant="quiet">취소</OrbitButton>
+            <OrbitButton onClick={() => setDialogOpen(false)}>초대 보내기</OrbitButton>
+          </>
+        }
+        onClose={() => setDialogOpen(false)}
+        open={dialogOpen}
+        title="프로젝트 공유"
+      >
+        <OrbitField id="design-system-invite-email" label="이메일">
+          <OrbitInput placeholder="name@company.com" type="email" />
+        </OrbitField>
+      </OrbitDialog>
     </div>
   );
 }

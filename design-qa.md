@@ -667,4 +667,30 @@
 - Browser console error count: 0. Targeted mockup and route tests: 56 passed. Production build and `git diff --check` passed; the existing large-bundle warning remains.
 - No actionable P0/P1/P2 findings remain.
 
+## Production UI primitives T1 QA
+
+### Source and implementation
+
+- Source visual truth: the canonical `/design-system` preview captured before the T1 extension at `artifacts/migration/t1/design-system-before.jpg`.
+- Browser implementation: `artifacts/migration/t1/design-system-after-retry.jpg` and the focused component view `artifacts/migration/t1/components-desktop.jpg`.
+- Desktop viewport: 1440×1024. Responsive dialog verification viewport: 390×844.
+- The before and after top-of-page captures were opened together in one comparison input. The Foundations composition, typography, palette, logo treatment, spacing and navigation remain visually unchanged; T1 adds specimens only inside the Components section.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the primitives inherit Pretendard/Inter and the existing semantic scale. Field labels, helper/error text, tabs, empty-state copy and dialog content do not introduce readable text below the 12px floor.
+- Spacing and layout rhythm: action controls retain the 44px minimum; form, tab and feedback surfaces follow the existing 8px grid and restrained one-pixel borders. Desktop width verification reported `clientWidth=1425`, `scrollWidth=1425`; the 390px dialog becomes a bottom sheet without horizontal overflow.
+- Colors and visual tokens: Ink, Lilac, Canvas, Surface, Success and Danger roles are reused without adding gradients or ad-hoc colors.
+- Image quality and asset fidelity: the official light/dark raster logos remain unchanged. `IconX` and all other symbols use Tabler Icons; no handcrafted SVG, CSS drawing or placeholder asset was added.
+- Copy and content: control examples use realistic ORBIT project-sharing and presentation copy, including default, disabled, invalid and empty states.
+
+### Interaction and findings
+
+- `OrbitField` links labels, controls, hints and errors through `htmlFor`, `aria-describedby`, `aria-invalid` and `role=alert`.
+- `OrbitTabs` exposes `tablist`/`tab`/`tabpanel` semantics and supports Arrow Left/Right plus Home/End keyboard selection. Browser verification moved `함께 작업 중` to `승인 요청` with Arrow Right and rendered `검토가 필요한 접근 요청 1건`.
+- `OrbitDialog` supports initial focus, Escape dismissal, Tab focus trapping, backdrop dismissal and trigger-focus restoration. Desktop and mobile open/close states were verified in the in-app browser.
+- `OrbitEmptyState` provides a named status region and optional action; icon-only actions require an accessible label.
+- Targeted design-system tests: 7 passed. Web TypeScript validation and production build passed; the existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
 final result: passed

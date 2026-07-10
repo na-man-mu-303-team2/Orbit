@@ -88,6 +88,31 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 - 기본 높이는 46px이며 textarea만 내용에 따라 확장한다.
 - validation은 border와 helper text를 함께 바꾼다. 색만으로 오류를 알리지 않는다.
 - 파일 업로드는 dashed border 한 개의 면으로 표현하고 허용 형식과 최대 용량을 항상 노출한다.
+- `OrbitField`는 label, hint/error, control의 접근성 연결을 소유한다. 실제 input/select/textarea는 `OrbitInput`, `OrbitSelect`, `OrbitTextarea`를 사용한다.
+
+### Icon button
+
+- `OrbitIconButton`은 visible text가 없는 44×44px action에 사용한다.
+- `aria-label`은 필수이며 `surface`, `plain`, `inverse` 중 배경 맥락에 맞는 variant를 사용한다.
+- 한 화면 안에서 icon family를 혼용하지 않고 신규 production UI는 Tabler outline icon을 사용한다.
+
+### Tabs
+
+- `OrbitTabs`는 같은 맥락 안의 panel 내용을 전환할 때만 사용한다.
+- 선택 상태는 `aria-selected`, keyboard focus, white active surface를 함께 제공한다.
+- 서로 다른 route로 이동하는 주 navigation에는 tabs를 사용하지 않는다.
+
+### Dialog
+
+- `OrbitDialog`는 현재 작업 맥락을 유지해야 하는 권한, 확인, 설정 flow에 사용한다.
+- 열릴 때 dialog 내부로 focus를 이동하고, `Tab` focus trap, `Escape` 닫기, 닫힌 뒤 trigger focus 복귀를 지원한다.
+- mobile에서는 viewport 하단 sheet로 전환하되 primary action이 viewport 밖으로 밀리지 않게 한다.
+
+### Empty state
+
+- `OrbitEmptyState`는 빈 화면을 icon, 제목, 짧은 설명, 선택적 단일 action으로 구성한다.
+- 빈 상태에서 사용할 수 없는 filter/table chrome을 그대로 남기지 않는다.
+- 실제 query의 empty state에만 사용하며 demo data를 fallback으로 채우지 않는다.
 
 ### Segmented control
 
