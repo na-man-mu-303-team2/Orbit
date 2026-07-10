@@ -2894,7 +2894,8 @@ def web_research_query(
             (
                 "Retry requirement: The previous result did not satisfy source quality. "
                 "Search the exact topic again and cite the missing official or independent "
-                "source explicitly."
+                "source and missing core facts explicitly, including release date or status, "
+                "platform or availability, and defining features when applicable."
                 if attempt > 1
                 else ""
             ),
@@ -2935,6 +2936,9 @@ def vet_web_sources(
                 "asks implied by the presentation type and success criteria. For a named "
                 "product or game, require an explicit current release date or availability "
                 "status, platform or availability, and a defining feature when applicable. "
+                "When the success criteria asks to announce or understand a release, require "
+                "the concrete release date when it is publicly scheduled; a generic coming "
+                "soon statement is insufficient. "
                 "Do not infer coverage from a URL or title alone. Return only supplied "
                 "sourceId values."
             ),
