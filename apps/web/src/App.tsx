@@ -731,7 +731,6 @@ function AppFrame(props: {
         <AppSidebar
           isAuthenticated={isAuthenticated}
           isCollapsed={isSidebarCollapsed}
-          isCreateDeckActive={route.name === "create-deck"}
           isHomeActive={route.name === "home"}
           isLoggingOut={isLoggingOut}
           isProjectActive={
@@ -740,7 +739,6 @@ function AppFrame(props: {
             route.name === "project-request"
           }
           isReportActive={route.name === "report-list" || route.name === "report-project-overview"}
-          onCreateDeckClick={() => navigateTo("/createdeck")}
           onHomeClick={() => navigateTo("/")}
           onLoginClick={() => navigateTo("/login")}
           onLogoutClick={() => void handleLogout()}
