@@ -33,6 +33,7 @@ from app.ai.generate_deck import (
     build_design_pack_content_manifest,
     core_geometry_fingerprint,
     deck_content_prompt,
+    deck_content_response_format_for,
     design_pack_insight_elements,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
@@ -1959,7 +1960,186 @@ def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
     ]
 
 
-def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
+def test_design_pack_content_response_format_uses_slide_range() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 5, "max": 8},
+        )
+    )
+
+    slides_schema = deck_content_response_format_for(raw_input)["format"]["schema"][
+        "properties"
+    ]["slides"]
+
+    assert slides_schema["minItems"] == 5
+    assert slides_schema["maxItems"] == 8
+
+
+def test_design_pack_repairs_exact_slide_count_once() -> None:
+    initial = {
+        "title": "Too short",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Message {index}",
+                f"Explain slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 13)
+        ],
+    }
+    repaired = {
+        "title": "Exact count",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Distinct message {index}",
+                f"Explain repaired slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 16)
+        ],
+    }
+    fake_client = FakeOpenAIClient([initial, repaired])
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+
+    assert plan is not None
+    assert len(plan.slides) == 15
+    assert len(fake_client.requests) == 2
+    assert raw_input.repair_attempted is True
+    assert raw_input.repair_reason_codes == ["SLIDE_COUNT_SHORT"]
+    for request in fake_client.requests:
+        slides_schema = request["text"]["format"]["schema"]["properties"]["slides"]
+        assert slides_schema["minItems"] == 15
+        assert slides_schema["maxItems"] == 15
+
+
+def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
+    payloads = [
+        {
+            "title": title,
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    f"Message {index}",
+                    f"Explain slide {index}.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, count + 1)
+            ],
+        }
+        for title, count in [("Initial", 12), ("Still short", 13)]
+    ]
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="requested 15, received 13",
+    ):
+        generate_content_plan_with_llm(
+            raw_input,
+            client=FakeOpenAIClient(payloads),
+        )
+
+    exact_payload = {
+        "title": "Fresh exact plan",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Fresh message {index}",
+                f"Explain fresh slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 16)
+        ],
+    }
+    fresh_client = FakeOpenAIClient(exact_payload)
+    fresh_plan = generate_content_plan_with_llm(
+        analyze_input(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                generationMode="design-pack",
+                topic="ORBIT",
+                prompt="Create an exact deck.",
+                targetDurationMinutes=15,
+                slideCountRange={"min": 15, "max": 15},
+            )
+        ),
+        client=fresh_client,
+    )
+
+    assert fresh_plan is not None
+    assert len(fresh_plan.slides) == 15
+    assert len(fresh_client.requests) == 1
+
+
+def test_design_pack_repairs_exact_slide_count_overflow() -> None:
+    payloads = [
+        {
+            "title": title,
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    f"Message {index}",
+                    f"Explain slide {index}.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, count + 1)
+            ],
+        }
+        for title, count in [("Too long", 16), ("Exact", 15)]
+    ]
+    fake_client = FakeOpenAIClient(payloads)
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+
+    assert plan is not None
+    assert len(plan.slides) == 15
+    assert len(fake_client.requests) == 2
+    assert raw_input.repair_attempted is True
+    assert raw_input.repair_reason_codes == []
+
+
+def test_legacy_rejects_llm_slide_count_below_minimum_without_repair() -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "Too short",
@@ -1987,6 +2167,8 @@ def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
             ),
             client=fake_client,
         )
+
+    assert len(fake_client.requests) == 1
 
 
 def test_generate_deck_clamps_llm_slide_count_to_upper_bound() -> None:

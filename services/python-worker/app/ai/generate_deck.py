@@ -786,7 +786,7 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v1"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
@@ -1747,6 +1747,19 @@ Rules:
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
 """.strip()
 
+DECK_CONTENT_COUNT_REPAIR_INSTRUCTIONS = """
+You repair the slide count of an existing Korean presentation content plan for ORBIT.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Return exactly the requested number of slides.
+- Preserve the topic, presentation profile, cover, closing, factual meaning, and source boundaries.
+- Expand missing evidence, examples, application, or execution beats instead of duplicating messages.
+- Keep one core message per slide and keep message distinct from contentItems.
+- Use only sourceRefs listed in the supplied source records.
+- Do not add unsupported claims, generic filler, coordinates, or final Deck JSON.
+""".strip()
+
 SPEAKER_NOTES_REPAIR_INSTRUCTIONS = """
 You repair only the Korean speakerNotes of selected ORBIT slides.
 Return only JSON that matches the requested schema.
@@ -1904,6 +1917,29 @@ def design_pack_content_response_format() -> dict[str, Any]:
 
 
 DESIGN_PACK_CONTENT_RESPONSE_FORMAT = design_pack_content_response_format()
+
+
+def deck_content_response_format_for(
+    raw_input: RawInput,
+    *,
+    exact_slide_count: int | None = None,
+) -> dict[str, Any]:
+    response_format = deepcopy(
+        DESIGN_PACK_CONTENT_RESPONSE_FORMAT
+        if raw_input.generation_mode == "design-pack"
+        else DECK_CONTENT_RESPONSE_FORMAT
+    )
+    if raw_input.generation_mode != "design-pack":
+        return response_format
+
+    slides_schema = response_format["format"]["schema"]["properties"]["slides"]
+    if exact_slide_count is not None:
+        slides_schema["minItems"] = exact_slide_count
+        slides_schema["maxItems"] = exact_slide_count
+    else:
+        slides_schema["minItems"] = raw_input.min_slide_count
+        slides_schema["maxItems"] = raw_input.max_slide_count
+    return response_format
 
 
 TEXT_OVERLAP_REVIEW_INSTRUCTIONS = """
@@ -3678,10 +3714,13 @@ def repair_content_plan_with_llm(
             model=model or "gpt-4.1-mini",
             instructions=DECK_CONTENT_REPAIR_INSTRUCTIONS,
             input=prompt,
-            text=(
-                DESIGN_PACK_CONTENT_RESPONSE_FORMAT
-                if raw_input.generation_mode == "design-pack"
-                else DECK_CONTENT_RESPONSE_FORMAT
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=(
+                    len(slide_plans)
+                    if raw_input.generation_mode == "design-pack"
+                    else None
+                ),
             ),
         )
         repaired = GeneratedDeckContentPlan.model_validate_json(
@@ -3926,11 +3965,7 @@ def generate_content_plan_with_llm(
                 "and sourceRefs containing only IDs listed in Source records."
             ),
             input=prompt,
-            text=(
-                DESIGN_PACK_CONTENT_RESPONSE_FORMAT
-                if raw_input.generation_mode == "design-pack"
-                else DECK_CONTENT_RESPONSE_FORMAT
-            ),
+            text=deck_content_response_format_for(raw_input),
         )
     except Exception as error:
         raise DeckContentGenerationError(
@@ -3949,7 +3984,33 @@ def generate_content_plan_with_llm(
             f"LLM returned invalid deck content: {error}"
         ) from error
 
-    if len(plan.slides) < raw_input.min_slide_count:
+    actual_slide_count = len(plan.slides)
+    exact_count_requested = raw_input.min_slide_count == raw_input.max_slide_count
+    needs_count_repair = actual_slide_count < raw_input.min_slide_count or (
+        raw_input.generation_mode == "design-pack"
+        and exact_count_requested
+        and actual_slide_count != raw_input.slide_count
+    )
+    if raw_input.generation_mode == "design-pack" and needs_count_repair:
+        raw_input.repair_attempted = True
+        if actual_slide_count < raw_input.slide_count:
+            raw_input.repair_reason_codes = unique_non_empty(
+                [*raw_input.repair_reason_codes, "SLIDE_COUNT_SHORT"]
+            )
+        repaired_plan = repair_slide_count_with_llm(
+            raw_input,
+            plan,
+            client=api_client,
+            model=resolved_model,
+        )
+        repaired_count = len(repaired_plan.slides) if repaired_plan is not None else 0
+        if repaired_plan is None or repaired_count != raw_input.slide_count:
+            raise DeckContentGenerationError(
+                "LLM slide count repair failed: "
+                f"requested {raw_input.slide_count}, received {repaired_count}."
+            )
+        plan = repaired_plan
+    elif actual_slide_count < raw_input.min_slide_count:
         raise DeckContentGenerationError(
             f"LLM returned fewer slides than the requested minimum ({raw_input.min_slide_count})."
         )
@@ -3963,6 +4024,39 @@ def generate_content_plan_with_llm(
     while len(DECK_CONTENT_PLAN_CACHE) > DECK_CONTENT_PLAN_CACHE_MAX:
         DECK_CONTENT_PLAN_CACHE.popitem(last=False)
     return generated_plan
+
+
+def repair_slide_count_with_llm(
+    raw_input: RawInput,
+    plan: GeneratedDeckContentPlan,
+    *,
+    client: Any,
+    model: str,
+) -> GeneratedDeckContentPlan | None:
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input),
+            f"Requested exact slide count: {raw_input.slide_count}",
+            f"Current slide count: {len(plan.slides)}",
+            "Current content plan:",
+            json.dumps(plan.model_dump(by_alias=True), ensure_ascii=False),
+        ]
+    )
+    try:
+        response = client.responses.create(
+            model=model,
+            instructions=DECK_CONTENT_COUNT_REPAIR_INSTRUCTIONS,
+            input=prompt,
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=raw_input.slide_count,
+            ),
+        )
+        return GeneratedDeckContentPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        )
+    except Exception:
+        return None
 
 
 def deck_content_plan_cache_key(model: str, prompt: str) -> tuple[str, str, str]:
@@ -3996,6 +4090,7 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"User prompt: {raw_input.prompt or '(none)'}",
         f"Design prompt: {narrative_design_prompt(raw_input) or '(none)'}",
         f"Slide count: {raw_input.slide_count}",
+        f"Slide count range: {raw_input.min_slide_count}-{raw_input.max_slide_count}",
         f"Audience: {raw_input.metadata.audience}",
         f"Purpose: {raw_input.metadata.purpose}",
         f"Tone: {raw_input.metadata.tone}",
