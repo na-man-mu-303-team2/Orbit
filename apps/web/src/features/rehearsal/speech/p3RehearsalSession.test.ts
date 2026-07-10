@@ -715,7 +715,7 @@ describe("p3RehearsalSession", () => {
       isFinal: true,
       timestampMs: [500, 1000]
     });
-    await flushSemanticQueue();
+    const meta = await session.stop();
 
     expect(session.getState().snapshot).toMatchObject({
       sentenceCoverage: 0
@@ -733,7 +733,6 @@ describe("p3RehearsalSession", () => {
       }
     });
 
-    const meta = await session.stop();
     expect(meta.semanticCueDecisions).toEqual([
       expect.objectContaining({
         slideId: "slide_1",
@@ -744,6 +743,133 @@ describe("p3RehearsalSession", () => {
           "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다"
       })
     ]);
+  });
+
+  it("두 final segment를 같은 의미 근거 window로 결합한다", async () => {
+    const port = createMockLiveSttPort();
+    const runtime = createSemanticCueRuntime({
+      provider: createMockSemanticCueNliProvider(),
+      enabled: true
+    });
+    const evaluate = vi.spyOn(runtime, "evaluateFinalResult");
+    const session = createP3RehearsalSession({
+      slides: semanticCueSlides,
+      port,
+      semanticCueRuntime: runtime,
+      isSemanticMatchingEnabled: () => true,
+      now: () => 99_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "CAC가 높은 원인은",
+      isFinal: true,
+      timestampMs: [0, 2_000]
+    });
+    port.emit({
+      text: "초기 영업 비용입니다.",
+      isFinal: true,
+      timestampMs: [2_100, 4_000]
+    });
+    await session.stop();
+
+    expect(evaluate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        transcript: "CAC가 높은 원인은 초기 영업 비용입니다.",
+        evidenceStartMs: 0,
+        evidenceEndMs: 4_000
+      })
+    );
+  });
+
+  it("슬라이드 전환 직전 대기 중인 의미 판정 근거를 보존한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: [semanticCueSlides[0]!, slides[1]!],
+      port,
+      semanticCueRuntime: createSemanticCueRuntime({
+        provider: createMockSemanticCueNliProvider({
+          scoresByCueId: {
+            scue_cac_reason: {
+              entailmentScore: 0.94,
+              neutralScore: 0.05,
+              contradictionScore: 0.01
+            }
+          }
+        }),
+        enabled: true,
+        embeddingIndex: {
+          prepareSlide: vi.fn(async (input) => ({
+            slideId: input.slideId,
+            signature: "test",
+            cueCount: input.cues.length,
+            vectorCount: input.cues.length
+          })),
+          retrieveScores: vi.fn(async () =>
+            new Map([["scue_cac_reason", 0.9]])
+          )
+        }
+      }),
+      isSemanticMatchingEnabled: () => true,
+      now: () => 100_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+      isFinal: true,
+      timestampMs: [500, 1_000]
+    });
+    session.enterSlide(1);
+    await flushSemanticQueue();
+
+    expect((await session.stop()).semanticCueDecisions).toEqual([
+      expect.objectContaining({
+        slideId: "slide_1",
+        cueId: "scue_cac_reason",
+        label: "covered"
+      })
+    ]);
+  });
+
+  it("의미 판정 queue timeout을 affected cue와 함께 구분해 기록한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides: semanticCueSlides,
+      port,
+      semanticCueRuntime: {
+        prepareSlide: vi.fn(async () => undefined),
+        evaluateFinalResult: vi.fn(
+          async () => await new Promise<never>(() => undefined)
+        )
+      },
+      isSemanticMatchingEnabled: () => true,
+      semanticQueueFlushTimeoutMs: 5,
+      now: () => 101_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "대기 중인 의미 근거",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+    const meta = await session.stop();
+
+    expect(meta.semanticCapabilityEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "semantic_runtime",
+          toState: "degraded",
+          reason: "queue_dropped",
+          slideId: "slide_1",
+          cueIds: ["scue_cac_reason"]
+        })
+      ])
+    );
+    expect(JSON.stringify(meta.semanticCapabilityEvents)).not.toContain(
+      "대기 중인 의미 근거"
+    );
   });
 
   it("notes와 keyword와 sentence matcher 없이 cue E5 top-k를 준비해 NLI 후보를 만든다", async () => {
