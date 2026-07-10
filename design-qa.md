@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production project access T6 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/project-request`, including the Lilac project-context panel, white approval card, native role choice hierarchy and explicit project-list escape path.
+- Browser implementation: `/project/project_demo_1/request` error state at `artifacts/migration/t6/access-error-desktop-retry2.png`; request and pending states are covered by the same production component and existing access query.
+- Desktop viewport: 1440×1024 with `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the 42px project title, 32px approval heading and 12–14px supporting labels use canonical tokens.
+- Spacing and layout rhythm: two balanced rounded panels, a 54px project mark, 44px controls and a single-column 390px layout follow the approved access mockup.
+- Colors and visual tokens: Lilac communicates private-project context; unselected native radios are white with a gray outline and selected radios alone receive the Lilac fill/check state.
+- Image quality and asset fidelity: project context uses a Tabler file icon and the shared application header keeps the official raster logo.
+- Copy and content: project title, ID and created date come from the existing access response. Request, pending, accepted redirect and fetch-error states use contract-backed data only.
+
+### Interaction and findings
+
+- The native radiogroup keeps a single `editor` or `viewer` selection and submits the existing access-request API payload.
+- Pending state localizes the requested role, supports status refresh and provides a project-list return; unsupported request cancellation is not shown.
+- Accepted membership still redirects to the editor. Fetch failure now renders an in-context retry state instead of an ungrounded request form.
+- `App.test.tsx`: 50 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production AI deck creation T5 QA
 
 ### Source and implementation

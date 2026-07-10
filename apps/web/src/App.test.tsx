@@ -23,6 +23,7 @@ import {
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
   getCreateDeckPhaseActionLabel,
+  getProjectAccessRoleLabel,
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
   buildHomeExtractFormData,
@@ -312,6 +313,12 @@ describe("public and authentication surfaces", () => {
 });
 
 describe("workspace project surfaces", () => {
+  it("uses localized project access roles", () => {
+    expect(getProjectAccessRoleLabel("owner")).toBe("소유자");
+    expect(getProjectAccessRoleLabel("editor")).toBe("편집 가능");
+    expect(getProjectAccessRoleLabel("viewer")).toBe("보기 전용");
+  });
+
   it("keeps a single AI presentation primary action on workspace home", () => {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>

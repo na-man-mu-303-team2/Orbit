@@ -18,6 +18,7 @@
   type RehearsalRun
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconFileText } from "@tabler/icons-react";
 import {
   ArrowRight,
   ChevronDown,
@@ -48,6 +49,7 @@ import {
   type OrbitAppNavigationItem
 } from "./components/OrbitAppHeader";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
+import { OrbitButton } from "./design-system";
 import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
@@ -59,6 +61,7 @@ import {
 } from "./features/projects/ProjectAssetWorkspace";
 import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
 import "./features/projects/orbit-create-deck.css";
+import "./features/projects/orbit-project-access.css";
 import {
   RehearsalReportPage,
   RehearsalWorkspace
@@ -913,12 +916,20 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 
   if (access.isLoading) return <EditorLoadingFallback />;
 
+  if (access.isError) {
+    return (
+      <ProjectAccessLayout projectId={props.projectId}>
+        <div className="orbit-access-message"><p className="orbit-ds-eyebrow">ACCESS CHECK</p><h1>권한 상태를 확인하지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해 주세요.</p><OrbitButton onClick={() => void access.refetch()}>다시 확인</OrbitButton></div>
+      </ProjectAccessLayout>
+    );
+  }
+
   if (membership?.status === "pending") {
     return (
-      <section className="project-request-page">
-        <article className="project-request-card">
-          <span className="eyebrow">Project access</span>
-          <h1>권한 요청을 보냈습니다.</h1>
+      <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+        <article className="orbit-access-message">
+          <span className="orbit-ds-eyebrow">APPROVAL PENDING</span>
+          <h1>승인을 기다리고 있어요.</h1>
           <p>
             프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
             접근할 수 있습니다.
@@ -926,23 +937,25 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
           <dl className="project-request-meta">
             <div>
               <dt>요청 권한</dt>
-              <dd>{membership.role}</dd>
+              <dd>{getProjectAccessRoleLabel(membership.role)}</dd>
             </div>
             <div>
               <dt>상태</dt>
               <dd>대기 중</dd>
             </div>
           </dl>
+          <OrbitButton onClick={() => void access.refetch()} variant="secondary">승인 상태 다시 확인</OrbitButton>
+          <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
         </article>
-      </section>
+      </ProjectAccessLayout>
     );
   }
 
   return (
-    <section className="project-request-page">
-      <form className="project-request-card" onSubmit={handleSubmit}>
-        <span className="eyebrow">Project access</span>
-        <h1>프로젝트 접근 권한이 필요합니다.</h1>
+    <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+      <form className="orbit-access-message" onSubmit={handleSubmit}>
+        <span className="orbit-ds-eyebrow">ACCESS REQUIRED</span>
+        <h1>이 프로젝트에 참여하려면<br />승인이 필요해요.</h1>
         <p>
           이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
           프로젝트 소유자에게 요청하세요.
@@ -956,7 +969,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
               type="radio"
               value="editor"
             />
-            <strong>editor</strong>
+            <strong>편집 가능</strong>
             <span>프로젝트를 열고 슬라이드를 수정할 수 있습니다.</span>
           </label>
           <label className={role === "viewer" ? "active" : ""}>
@@ -967,17 +980,42 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
               type="radio"
               value="viewer"
             />
-            <strong>viewer</strong>
+            <strong>보기 전용</strong>
             <span>프로젝트 내용을 읽고 확인할 수 있습니다.</span>
           </label>
         </div>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
+        {error ? <p className="orbit-access-error" role="alert">{error}</p> : null}
+        <OrbitButton disabled={isSubmitting} type="submit">
           {isSubmitting ? "요청 중..." : "권한 요청하기"}
-        </button>
+        </OrbitButton>
+        <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
       </form>
+    </ProjectAccessLayout>
+  );
+}
+
+function ProjectAccessLayout(props: {
+  children: ReactNode;
+  project?: Project;
+  projectId: string;
+}) {
+  return (
+    <section className="orbit-project-access">
+      <aside className="orbit-access-context">
+        <div className="orbit-access-icon"><IconFileText aria-hidden="true" size={26} /></div>
+        <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+        <h2>{props.project?.title ?? "비공개 프로젝트"}</h2>
+        <p>승인된 구성원만 발표자료를 열고 함께 작업할 수 있습니다.</p>
+        <dl><div><dt>프로젝트 ID</dt><dd>{props.project?.projectId ?? props.projectId}</dd></div><div><dt>생성일</dt><dd>{props.project ? new Date(props.project.createdAt).toLocaleDateString("ko-KR") : "확인 중"}</dd></div></dl>
+      </aside>
+      <div className="orbit-access-card">{props.children}</div>
     </section>
   );
+}
+
+export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
+  if (role === "owner") return "소유자";
+  return role === "editor" ? "편집 가능" : "보기 전용";
 }
 
 function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
