@@ -184,6 +184,9 @@ class WebSourceVettingResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     official_required: bool = Field(alias="officialRequired")
+    required_fact_coverage_satisfied: bool = Field(
+        alias="requiredFactCoverageSatisfied"
+    )
     sources: list[WebSourceAssessment]
 
 
@@ -1919,6 +1922,7 @@ WEB_SOURCE_VETTING_RESPONSE_FORMAT: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "officialRequired": {"type": "boolean"},
+                "requiredFactCoverageSatisfied": {"type": "boolean"},
                 "sources": {
                     "type": "array",
                     "items": {
@@ -1936,7 +1940,11 @@ WEB_SOURCE_VETTING_RESPONSE_FORMAT: dict[str, Any] = {
                     },
                 },
             },
-            "required": ["officialRequired", "sources"],
+            "required": [
+                "officialRequired",
+                "requiredFactCoverageSatisfied",
+                "sources",
+            ],
         },
     }
 }
@@ -2750,7 +2758,7 @@ def research_web_sources(
         if vetted is None:
             last_message = "웹 출처 관련성 검증에 실패했습니다."
             continue
-        official_required, relevant_sources = vetted
+        official_required, fact_coverage_satisfied, relevant_sources = vetted
         official_count = sum(
             source.authority == "official" for source in relevant_sources
         )
@@ -2767,6 +2775,7 @@ def research_web_sources(
             )
         if web_source_quality_satisfied(
             official_required,
+            fact_coverage_satisfied,
             relevant_sources,
         ):
             return WebResearchResult(
@@ -2783,6 +2792,8 @@ def research_web_sources(
         )
         if independent_count == 0:
             last_message += " 독립 출처가 없습니다."
+        if not fact_coverage_satisfied:
+            last_message += " 검증된 출처에 발표의 핵심 사실이 부족합니다."
 
     return WebResearchResult(
         status="failed",
@@ -2898,7 +2909,7 @@ def vet_web_sources(
     *,
     client: Any,
     model: str | None = None,
-) -> tuple[bool, list[SourceRecord]] | None:
+) -> tuple[bool, bool, list[SourceRecord]] | None:
     allowlist = {source.source_id: source for source in sources}
     payload = [
         {
@@ -2919,12 +2930,20 @@ def vet_web_sources(
                 "a source official only when it is the primary publisher, manufacturer, "
                 "company, or public body responsible for the named subject. Mark a separate "
                 "publisher or newsroom independent. Set officialRequired for a named product, "
-                "game, company, or public organization. Return only supplied sourceId values."
+                "game, company, or public organization. Set requiredFactCoverageSatisfied "
+                "true only when citedExcerpt values collectively cover the central factual "
+                "asks implied by the presentation type and success criteria. For a named "
+                "product or game, require an explicit current release date or availability "
+                "status, platform or availability, and a defining feature when applicable. "
+                "Do not infer coverage from a URL or title alone. Return only supplied "
+                "sourceId values."
             ),
             input=json.dumps(
                 {
                     "topic": raw_input.topic,
                     "presentationContext": raw_input.brief.presentation_context,
+                    "presentationType": raw_input.brief.presentation_type,
+                    "successCriteria": raw_input.brief.success_criteria,
                     "sources": payload,
                 },
                 ensure_ascii=False,
@@ -2944,13 +2963,20 @@ def vet_web_sources(
         if item is None or not item.relevant or item.authority == "unknown":
             continue
         relevant_sources.append(source.model_copy(update={"authority": item.authority}))
-    return assessment.official_required, relevant_sources
+    return (
+        assessment.official_required,
+        assessment.required_fact_coverage_satisfied,
+        relevant_sources,
+    )
 
 
 def web_source_quality_satisfied(
     official_required: bool,
+    required_fact_coverage_satisfied: bool,
     sources: list[SourceRecord],
 ) -> bool:
+    if not required_fact_coverage_satisfied:
+        return False
     distinct_urls = {source.url for source in sources if source.url}
     if len(distinct_urls) < 2:
         return False

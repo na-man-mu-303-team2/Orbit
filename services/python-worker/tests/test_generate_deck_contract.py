@@ -650,6 +650,67 @@ def test_research_first_retries_until_official_and_independent_sources_exist() -
     }
 
 
+def test_research_first_retries_until_required_fact_coverage_exists() -> None:
+    official_url = "https://publisher.example/products/new-game"
+    independent_url = "https://news.example/reviews/new-game"
+    citations = [
+        (official_url, "Official product page"),
+        (independent_url, "Independent report"),
+    ]
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "Verified release",
+            "slides": [
+                slide_payload(
+                    "Verified release",
+                    "The cited sources cover the release facts.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                    slot_preset="title_center",
+                )
+            ],
+        },
+        citations,
+        retry_citations=citations,
+        official_required=True,
+        authorities={
+            official_url: "official",
+            independent_url: "independent",
+        },
+        fact_coverage_satisfied=False,
+        retry_fact_coverage_satisfied=True,
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="New game release",
+            targetDurationMinutes=1,
+            referencePolicy="research-first",
+            brief={
+                "presentationType": "product launch",
+                "successCriteria": "Understand the release date and platform",
+                "referencePolicy": "research-first",
+            },
+            design={"mediaPolicy": "minimal"},
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    web_requests = [request for request in client.requests if request.get("tools")]
+    assert len(web_requests) == 2
+    assert response.diagnostics.research_attempts == 2
+    vet_request = next(
+        request
+        for request in client.requests
+        if "web_source_vetting" in str(request.get("text"))
+    )
+    assert "requiredFactCoverageSatisfied" in str(vet_request["text"])
+    assert "successCriteria" in str(vet_request["input"])
+
+
 def test_research_first_adds_official_search_aliases_for_non_ascii_topic() -> None:
     official_url = "https://publisher.example/products/splatoon-raiders"
     independent_url = "https://news.example/games/splatoon-raiders"
@@ -5957,6 +6018,8 @@ class FakeResearchOpenAIClient:
         authorities: dict[str, str] | None = None,
         search_aliases: list[str] | None = None,
         action_sources: list[str] | None = None,
+        fact_coverage_satisfied: bool = True,
+        retry_fact_coverage_satisfied: bool | None = None,
     ) -> None:
         self.requests: list[dict[str, object]] = []
         self.responses = FakeResearchResponses(
@@ -5969,6 +6032,8 @@ class FakeResearchOpenAIClient:
             authorities or {},
             search_aliases or [],
             action_sources or [],
+            fact_coverage_satisfied,
+            retry_fact_coverage_satisfied,
         )
 
 
@@ -5984,6 +6049,8 @@ class FakeResearchResponses:
         authorities: dict[str, str],
         search_aliases: list[str],
         action_sources: list[str],
+        fact_coverage_satisfied: bool,
+        retry_fact_coverage_satisfied: bool | None,
     ) -> None:
         self.parent = parent
         self.content_payload = content_payload
@@ -5994,6 +6061,8 @@ class FakeResearchResponses:
         self.authorities = authorities
         self.search_aliases = search_aliases
         self.action_sources = action_sources
+        self.fact_coverage_satisfied = fact_coverage_satisfied
+        self.retry_fact_coverage_satisfied = retry_fact_coverage_satisfied
         self.web_attempts = 0
         self.seen_citations: dict[str, str] = {}
 
@@ -6058,6 +6127,12 @@ class FakeResearchResponses:
         if "web_source_vetting" in str(kwargs.get("text")):
             payload = {
                 "officialRequired": self.official_required,
+                "requiredFactCoverageSatisfied": (
+                    self.retry_fact_coverage_satisfied
+                    if self.web_attempts > 1
+                    and self.retry_fact_coverage_satisfied is not None
+                    else self.fact_coverage_satisfied
+                ),
                 "sources": [
                     {
                         "sourceId": web_source_id(url),
