@@ -1,7 +1,7 @@
 import type { SemanticCue } from "@orbit/shared";
 
 import { normalizeSpeechText } from "./phraseExtractor";
-import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
+import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
 
 export type SemanticCueCandidate = {
   cue: SemanticCue;
@@ -19,7 +19,6 @@ export function selectSemanticCueCandidates(options: {
   transcript: string;
   cues: readonly SemanticCue[];
   coveredCueIds: ReadonlySet<string>;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
   retrievalScoresByCueId?: ReadonlyMap<string, number>;
   maxCandidates?: number;
 }): SemanticCueCandidate[] {
@@ -35,7 +34,6 @@ export function selectSemanticCueCandidates(options: {
       cue,
       transcript: options.transcript,
       covered: options.coveredCueIds.has(cue.cueId),
-      semanticDecisionReason: options.semanticDecisionReason,
       retrievalScore: options.retrievalScoresByCueId?.get(cue.cueId) ?? 0
     })
   );
@@ -56,7 +54,6 @@ function scoreSemanticCueCandidate(options: {
   cue: SemanticCue;
   transcript: string;
   covered: boolean;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
   retrievalScore: number;
 }): SemanticCueCandidate {
   const lexicalScore = scoreTermGroupCoverage(
@@ -72,16 +69,20 @@ function scoreSemanticCueCandidate(options: {
   );
   const priorityScore = priorityToScore(options.cue.priority, options.cue.required);
   const retrievalScore = clamp01(options.retrievalScore);
+  const weights = semanticCueRuntimeConfig.candidateWeights;
   const score = roundScore(
-    lexicalScore * 0.28 +
-      conceptCoverage * 0.32 +
-      retrievalScore * 0.25 +
-      priorityScore * 0.15
+    lexicalScore * weights.lexical +
+      conceptCoverage * weights.conceptCoverage +
+      retrievalScore * weights.retrieval +
+      priorityScore * weights.importance
   );
+  const eligible =
+    lexicalScore >= semanticCueRuntimeConfig.candidateEligibility.lexical ||
+    conceptCoverage > 0 ||
+    retrievalScore >= semanticCueRuntimeConfig.candidateEligibility.retrieval;
   const nliSkippedReason = getCandidateSkipReason({
     covered: options.covered,
-    score,
-    semanticDecisionReason: options.semanticDecisionReason
+    eligible
   });
 
   return {
@@ -98,19 +99,14 @@ function scoreSemanticCueCandidate(options: {
 
 function getCandidateSkipReason(options: {
   covered: boolean;
-  score: number;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
+  eligible: boolean;
 }) {
   if (options.covered) {
     return "already-covered";
   }
 
-  if (options.semanticDecisionReason === "no_match" && options.score < 0.4) {
+  if (!options.eligible) {
     return "no-meaningful-candidate";
-  }
-
-  if (options.score < 0.18) {
-    return "low-cue-score";
   }
 
   return undefined;

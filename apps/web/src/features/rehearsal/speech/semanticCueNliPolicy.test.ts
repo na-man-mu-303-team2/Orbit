@@ -78,4 +78,26 @@ describe("shouldRunSemanticCueNli", () => {
       reason: "not_final"
     });
   });
+
+  it("sentence match가 없어도 cue retrieval threshold를 넘으면 ambiguous NLI 후보로 제한한다", () => {
+    const base = {
+      nliFeatureEnabled: true,
+      semanticMatchingEnabled: true,
+      isFinal: true,
+      phraseMatched: false,
+      keywordCoverage: 0,
+      semanticDecisionReason: "no_match" as const,
+      cuePriority: 1 as const,
+      isRequired: true,
+      nowMs: 10_000,
+      lastNliRunAtMs: null
+    };
+
+    expect(
+      shouldRunSemanticCueNli({ ...base, cueRetrievalScore: 0.8 })
+    ).toEqual({ run: true, reason: "ambiguous_candidate" });
+    expect(
+      shouldRunSemanticCueNli({ ...base, cueRetrievalScore: 0.54 })
+    ).toEqual({ run: false, reason: "no_match" });
+  });
 });

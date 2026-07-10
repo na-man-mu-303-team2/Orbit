@@ -18,14 +18,12 @@ describe("selectSemanticCueCandidates", () => {
     const base = selectSemanticCueCandidates({
       slideId: "slide_1",
       transcript,
-      semanticDecisionReason: "ad-lib",
       cues: [baseCue],
       coveredCueIds: new Set()
     })[0];
     const withMoreAliases = selectSemanticCueCandidates({
       slideId: "slide_1",
       transcript,
-      semanticDecisionReason: "ad-lib",
       cues: [
         {
           ...baseCue,
@@ -51,7 +49,6 @@ describe("selectSemanticCueCandidates", () => {
       slideId: "slide_1",
       transcript:
         "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
-      semanticDecisionReason: "ad-lib",
       cues: [
         semanticCue({
           cueId: "scue_required",
@@ -96,7 +93,6 @@ describe("selectSemanticCueCandidates", () => {
     const candidates = selectSemanticCueCandidates({
       slideId: "slide_1",
       transcript: "전혀 관련 없는 발화",
-      semanticDecisionReason: "no_match",
       cues: [
         semanticCue({
           cueId: "scue_covered",
@@ -119,7 +115,6 @@ describe("selectSemanticCueCandidates", () => {
     const candidates = selectSemanticCueCandidates({
       slideId: "slide_1",
       transcript: "오늘 점심 메뉴를 소개합니다",
-      semanticDecisionReason: "ad-lib",
       cues: [
         semanticCue({
           cueId: "scue_priority_only",
@@ -137,6 +132,39 @@ describe("selectSemanticCueCandidates", () => {
     expect(candidates[0]).toMatchObject({
       cue: { cueId: "scue_priority_only" },
       selectedForNli: false
+    });
+  });
+
+  it("cue retrieval threshold를 넘는 후보만 lexical evidence 없이 선택한다", () => {
+    const cue = semanticCue({
+      cueId: "scue_retrieval",
+      candidateKeywords: [],
+      aliases: {},
+      requiredConcepts: []
+    });
+    const related = selectSemanticCueCandidates({
+      slideId: "slide_1",
+      transcript: "표현이 완전히 다른 관련 발화",
+      cues: [cue],
+      coveredCueIds: new Set(),
+      retrievalScoresByCueId: new Map([[cue.cueId, 0.8]])
+    });
+    const unrelated = selectSemanticCueCandidates({
+      slideId: "slide_1",
+      transcript: "전혀 관련 없는 발화",
+      cues: [cue],
+      coveredCueIds: new Set(),
+      retrievalScoresByCueId: new Map([[cue.cueId, 0.54]])
+    });
+
+    expect(related[0]).toMatchObject({
+      retrievalScore: 0.8,
+      selectedForNli: true
+    });
+    expect(unrelated[0]).toMatchObject({
+      retrievalScore: 0.54,
+      selectedForNli: false,
+      nliSkippedReason: "no-meaningful-candidate"
     });
   });
 });
