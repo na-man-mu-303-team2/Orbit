@@ -8422,20 +8422,41 @@ def design_pack_items(
     recipe: str,
 ) -> list[GeneratedContentItem]:
     items = list(slide_plan.content_items)
-    generated_fallback = not items
-    if not items:
-        items = content_items_from_message(slide_plan.message, slide_plan.order)
-
     minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
-    if generated_fallback and len(items) < minimum:
-        items.extend(
-            GeneratedContentItem(
-                contentItemId=f"content_{slide_plan.order}_{index}",
-                text=f"{slide_plan.title}의 다음 확인 항목",
-            )
-            for index in range(len(items) + 1, minimum + 1)
+    if len(items) < minimum:
+        existing_keys = {
+            normalize_structural_content_text(item.text) for item in items
+        }
+        candidates = unique_non_empty(
+            [
+                *[
+                    item.text
+                    for item in content_items_from_message(
+                        slide_plan.message,
+                        slide_plan.order,
+                    )
+                ],
+                *[evidence.note for evidence in slide_plan.evidence],
+                slide_plan.visual_intent.metric_card_caption,
+                *slide_plan.keywords,
+            ]
         )
-    if generated_fallback:
+        for candidate in candidates:
+            key = normalize_structural_content_text(candidate)
+            if len(key) < 2 or key in existing_keys:
+                continue
+            items.append(
+                GeneratedContentItem(
+                    contentItemId=(
+                        f"content_{slide_plan.order}_repair_{len(items) + 1}"
+                    ),
+                    text=candidate,
+                )
+            )
+            existing_keys.add(key)
+            if len(items) == minimum:
+                break
+    if items != slide_plan.content_items:
         slide_plan.content_items = items
     if not minimum <= len(items) <= maximum:
         raise DeckContentGenerationError(

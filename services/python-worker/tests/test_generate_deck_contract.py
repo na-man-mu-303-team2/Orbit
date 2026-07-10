@@ -38,6 +38,7 @@ from app.ai.generate_deck import (
     deck_content_prompt,
     deck_content_response_format_for,
     design_pack_insight_elements,
+    design_pack_items,
     design_pack_recipe_elements,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
@@ -896,6 +897,34 @@ def test_design_pack_recipes_hide_duplicated_primary_message(
     for item in items:
         assert normalize_structural_content_text(item.text) in rendered_keys
     build_design_pack_content_manifest(slide_plan, elements)
+
+
+@pytest.mark.parametrize(
+    ("recipe", "minimum"),
+    [("closing_summary", 2), ("process_steps", 3)],
+)
+def test_design_pack_capacity_fallback_uses_grounded_plan_content(
+    recipe: str,
+    minimum: int,
+) -> None:
+    slide_plan = SlidePlan(
+        order=4,
+        slide_type="summary" if recipe == "closing_summary" else "process",
+        title="출시 실행 기준",
+        message="공식 출시 정보와 신청 절차를 확인합니다.",
+        speaker_notes="출시 정보와 후속 행동을 설명합니다.",
+        keywords=["출시일", "사전 신청"],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="신청 링크 확인")
+        ],
+    )
+
+    items = design_pack_items(slide_plan, recipe)
+
+    assert len(items) == minimum
+    assert all("다음 확인 항목" not in item.text for item in items)
+    assert len({normalize_structural_content_text(item.text) for item in items}) == minimum
 
 
 def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
