@@ -137,7 +137,8 @@ def test_extract_semantic_cues_uses_openai_structured_output() -> None:
         {"text": "ARR 확장 매출", "synonyms": [], "abbreviations": []}
     ]
     cues = result.model_dump(by_alias=True)["slides"][0]["semanticCues"]
-    assert cues[0]["cueId"] == "scue_imported_1"
+    assert cues[0]["cueId"].startswith("scue_")
+    assert len(cues[0]["sourceFingerprint"]) == 64
     assert cues[0]["importance"] == "core"
     assert cues[0]["required"] is True
     assert cues[0]["priority"] == 1
