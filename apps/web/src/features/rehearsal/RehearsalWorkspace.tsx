@@ -4624,6 +4624,14 @@ export function RehearsalWorkspace(props: {
           state={semanticDebugState}
         />
       ) : null}
+      {showSemanticCueDebugPanel ? (
+        <SemanticCueDebugPanel
+          capabilityEvents={semanticCapabilityEvents}
+          events={semanticCueDebugEvents}
+          onCopyJson={copySemanticCueDebugJson}
+          onExportJson={exportSemanticCueDebugJson}
+        />
+      ) : null}
     </main>
   );
 }
