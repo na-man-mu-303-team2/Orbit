@@ -744,6 +744,31 @@
 
 final result: passed
 
+## Production editor share dialog T12 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/editor` share dialog, interpreted against the production member/request API boundary.
+- Production implementation: `ShareAccessModal` rendered through the shared `OrbitDialog`, `OrbitTabs`, field, select, button and empty-state primitives.
+
+### Required fidelity surfaces
+
+- Fonts and typography: 16px section headings and 12–13px participant, role and feedback copy follow the dense editor scale.
+- Spacing and layout rhythm: the 720px desktop dialog, 44px controls, two-tab hierarchy and 64px participant rows match the approved sharing flow; mobile becomes a bottom sheet.
+- Colors and visual tokens: Lilac Soft holds the invitation block, Mint identifies participant avatars, and Success/Danger surfaces carry API feedback.
+- Image quality and asset fidelity: user, approval and removal actions use Tabler Icons; no avatar image is fabricated.
+- Copy and content: participants and approval requests come only from the existing project-member API. Public-link and link-copy UI is absent.
+
+### Interaction and findings
+
+- Invite, role change, owner transfer confirmation, permission removal, request approval and rejection retain existing API handlers and owner-only gating.
+- Shared dialog behavior adds initial focus, focus trap, Escape/backdrop close and focus restoration. Shared tabs add Arrow Left/Right and Home/End keyboard operation.
+- Empty, loading, success and error states remain inside the dialog and are exposed through status/alert semantics.
+- Share modal and editor tests: 53 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- Authenticated editor dialog recapture remains in T19 because the local project-access guard did not provide an accepted membership. No code-level P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production editor three-area layout T11 QA
 
 ### Source and implementation
