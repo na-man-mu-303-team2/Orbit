@@ -1,4 +1,5 @@
 import { loadOrbitConfig } from "@orbit/config";
+import { rehearsalSemanticEvidenceCacheKey } from "@orbit/shared";
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import Redis from "ioredis";
 
@@ -6,6 +7,7 @@ export const REHEARSAL_TRANSCRIPT_TTL_SECONDS = 30 * 60;
 
 export interface RehearsalTranscriptCache {
   get(runId: string): Promise<string | null>;
+  hasSemanticEvidence(runId: string): Promise<boolean>;
 }
 
 @Injectable()
@@ -24,6 +26,10 @@ export class RedisRehearsalTranscriptCache
 
   async get(runId: string): Promise<string | null> {
     return this.redis.get(rehearsalTranscriptCacheKey(runId));
+  }
+
+  async hasSemanticEvidence(runId: string): Promise<boolean> {
+    return (await this.redis.exists(rehearsalSemanticEvidenceCacheKey(runId))) > 0;
   }
 
   async onModuleDestroy(): Promise<void> {

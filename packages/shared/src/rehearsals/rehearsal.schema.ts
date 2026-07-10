@@ -629,6 +629,10 @@ export const cancelRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
+  job: jobSchema
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable()
@@ -713,6 +717,9 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type RetryRehearsalSemanticEvaluationResponse = z.infer<
+  typeof retryRehearsalSemanticEvaluationResponseSchema
+>;
 
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),

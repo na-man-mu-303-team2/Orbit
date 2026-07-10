@@ -6,11 +6,13 @@ import {
   aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   semanticCueExtractionJobPayloadSchema,
+  rehearsalSemanticEvaluationJobPayloadSchema,
   nowIso,
   type AiTemplateDeckGenerationRequest,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
   type SemanticCueExtractionJobPayload,
+  type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -34,6 +36,10 @@ export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
 export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
+export const rehearsalSemanticEvaluationQueueName =
+  "rehearsal-semantic-evaluation";
+export const rehearsalSemanticEvaluationJobName =
+  "rehearsal-semantic-evaluation";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
@@ -79,6 +85,15 @@ export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
+
+export type RehearsalSemanticEvaluationBullMqPayload =
+  RehearsalSemanticEvaluationJobPayload;
+
+export type EnqueueRehearsalSemanticEvaluationJobInput =
+  RehearsalSemanticEvaluationBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export interface GenerateDeckBullMqPayload {
   jobId: string;
@@ -197,6 +212,31 @@ export async function enqueueRehearsalSttJob(
       deckId: input.deckId,
       audioFileId: input.audioFileId,
     } satisfies RehearsalSttBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueRehearsalSemanticEvaluationJob(
+  input: EnqueueRehearsalSemanticEvaluationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(rehearsalSemanticEvaluationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      rehearsalSemanticEvaluationJobName,
+      rehearsalSemanticEvaluationJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        runId: input.runId,
+      }),
+    );
   } finally {
     await queue.close();
   }

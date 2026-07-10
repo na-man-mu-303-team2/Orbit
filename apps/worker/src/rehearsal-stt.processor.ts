@@ -13,6 +13,7 @@ import {
   type RehearsalReport,
   type RehearsalReportSlideTiming,
   type RehearsalRunMeta,
+  type RehearsalSemanticEvidenceSegment,
   type RehearsalSemanticCueOutcome,
   type SemanticFallbackReason
 } from "@orbit/shared";
@@ -147,7 +148,7 @@ const analyzeSemanticResponseSchema = z
 
 type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
 type AudioAssetRow = z.infer<typeof audioAssetRowSchema>;
-type SemanticAnalysisResult = z.infer<typeof analyzeSemanticResponseSchema>;
+export type SemanticAnalysisResult = z.infer<typeof analyzeSemanticResponseSchema>;
 
 const transcriptBlockingReasons = new Set<SemanticFallbackReason>([
   "user_disabled",
@@ -381,6 +382,14 @@ export async function processRehearsalSttJob(
     // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
   }
 
+  try {
+    await transcriptCache?.setSemanticEvidence(payload.runId, {
+      segments: buildSemanticSegments(transcribePayload.segments)
+    });
+  } catch {
+    // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
+  }
+
   await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
@@ -561,30 +570,18 @@ async function analyzeSemanticCuesForReport(
   }
 
   const semanticRequest = buildSemanticAnalysisRequest(
-    payload,
+    payload.runId,
     snapshot,
-    transcription,
+    buildSemanticSegments(transcription.segments),
     runMeta
   );
   const startedAt = Date.now();
   try {
-    const response = await fetch(
-      workerUrl(pythonWorkerUrl, "/rehearsal/analyze-semantic-cues"),
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(semanticRequest),
-        signal: AbortSignal.timeout(120_000)
-      }
+    const result = await requestSemanticAnalysis(
+      pythonWorkerUrl,
+      snapshot,
+      semanticRequest
     );
-    if (!response.ok) {
-      throw new SemanticEndpointError(
-        response.status === 504 ? "timeout" : "server_evaluation_failed"
-      );
-    }
-
-    const result = analyzeSemanticResponseSchema.parse(await response.json());
-    validateSemanticOutcomeCoverage(snapshot, result.semanticCueOutcomes);
     const event =
       result.semanticEvaluation.state === "succeeded"
         ? "rehearsal.semantic_evaluation.succeeded"
@@ -615,7 +612,9 @@ class SemanticEndpointError extends Error {
   }
 }
 
-function semanticEndpointFailureReason(error: unknown): SemanticFallbackReason {
+export function semanticEndpointFailureReason(
+  error: unknown
+): SemanticFallbackReason {
   if (error instanceof SemanticEndpointError) {
     return error.reason;
   }
@@ -642,20 +641,45 @@ function unavailableSemanticResult(
   };
 }
 
-function buildSemanticAnalysisRequest(
-  payload: RehearsalSttPayload,
+export function buildSemanticAnalysisRequest(
+  runId: string,
   snapshot: RehearsalEvaluationSnapshot,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  segments: RehearsalSemanticEvidenceSegment[],
   runMeta: RehearsalRunMeta
 ) {
   return {
-    runId: payload.runId,
+    runId,
     evaluationSnapshot: snapshot,
-    segments: buildSemanticSegments(transcription.segments),
+    segments,
     slideTimeline: buildSemanticSlideTimeline(snapshot, runMeta),
     provisionalDecisions: runMeta.semanticCueDecisions,
     capabilityEvents: runMeta.semanticCapabilityEvents
   };
+}
+
+export async function requestSemanticAnalysis(
+  pythonWorkerUrl: string,
+  snapshot: RehearsalEvaluationSnapshot,
+  request: ReturnType<typeof buildSemanticAnalysisRequest>
+): Promise<SemanticAnalysisResult> {
+  const response = await fetch(
+    workerUrl(pythonWorkerUrl, "/rehearsal/analyze-semantic-cues"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(120_000)
+    }
+  );
+  if (!response.ok) {
+    throw new SemanticEndpointError(
+      response.status === 504 ? "timeout" : "server_evaluation_failed"
+    );
+  }
+
+  const result = analyzeSemanticResponseSchema.parse(await response.json());
+  validateSemanticOutcomeCoverage(snapshot, result.semanticCueOutcomes);
+  return result;
 }
 
 function buildSemanticSegments(

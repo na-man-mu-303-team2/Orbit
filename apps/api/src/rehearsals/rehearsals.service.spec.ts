@@ -18,7 +18,11 @@ import type {
   RehearsalTranscriptCache,
   RedisRehearsalTranscriptCache
 } from "./rehearsal-transcript-cache";
-import { RehearsalsService, type RehearsalSttEnqueueJob } from "./rehearsals.service";
+import {
+  RehearsalsService,
+  type RehearsalSemanticEvaluationEnqueueJob,
+  type RehearsalSttEnqueueJob
+} from "./rehearsals.service";
 
 const validEnv = {
   NODE_ENV: "test",
@@ -79,6 +83,12 @@ const job: Job = {
   error: null,
   createdAt: createdAt.toISOString(),
   updatedAt: createdAt.toISOString()
+};
+
+const semanticRetryJob: Job = {
+  ...job,
+  jobId: "job-semantic-retry",
+  type: "rehearsal-semantic-evaluation"
 };
 
 const upload: AssetUploadUrlResponse = {
@@ -577,7 +587,8 @@ describe("RehearsalsService", () => {
   it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
     const service = createService({
       transcriptCache: {
-        get: vi.fn(async () => "발표 전사본")
+        get: vi.fn(async () => "발표 전사본"),
+        hasSemanticEvidence: vi.fn(async () => false)
       }
     });
     const run = await createRun(service);
@@ -596,10 +607,174 @@ describe("RehearsalsService", () => {
     });
     expect(service.testTranscriptCache.get).toHaveBeenCalledWith(run.runId);
   });
+
+  it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
+    const enqueueSemanticEvaluationJob = vi.fn(async () => undefined);
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      enqueueSemanticEvaluationJob,
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: {
+        ...rehearsalReport,
+        semanticEvaluation: {
+          state: "partial",
+          measurementMode: "none",
+          reasons: ["timeout"],
+          retryable: true
+        },
+        semanticCueOutcomes: []
+      }
+    });
+
+    const result = await service.retrySemanticEvaluation(run.runId);
+
+    expect(result.job).toEqual(semanticRetryJob);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project-a",
+      type: "rehearsal-semantic-evaluation",
+      payload: { runId: run.runId }
+    });
+    expect(enqueueSemanticEvaluationJob).toHaveBeenCalledWith({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-retry",
+      projectId: "project-a",
+      runId: run.runId
+    });
+    expect(JSON.stringify(enqueueSemanticEvaluationJob.mock.calls)).not.toContain(
+      "transcript"
+    );
+  });
+
+  it("returns non-retryable evidence expired conflict without creating a job", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({ jobsService });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: retryableReport()
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+      response: {
+        code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+        retryable: false
+      }
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a delivery-only run without an evaluation snapshot", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = (
+      await service.createRun("project-a", {
+        deckId: "deck-a",
+        semanticEvaluationMode: "delivery-only"
+      })
+    ).run;
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+      response: {
+        code: "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY",
+        retryable: false
+      }
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("marks the retry job failed and logs a safe event when enqueue fails", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn(async () => ({ ...semanticRetryJob, status: "failed" }))
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      enqueueSemanticEvaluationJob: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: retryableReport()
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toThrow(
+      "redis down"
+    );
+
+    expect(jobsService.update).toHaveBeenCalledWith("job-semantic-retry", {
+      status: "failed",
+      progress: 0,
+      message: "Rehearsal semantic evaluation retry enqueue failed.",
+      error: {
+        code: "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_FAILED",
+        message: "redis down"
+      }
+    });
+    expect(service.testLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "rehearsal.semantic_evaluation.retry_failed",
+        projectId: "project-a",
+        runId: run.runId,
+        jobId: "job-semantic-retry",
+        reason: "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_FAILED"
+      }),
+      "Rehearsal semantic evaluation retry enqueue failed."
+    );
+    expect(JSON.stringify(vi.mocked(service.testLogger.error).mock.calls)).not.toContain(
+      "민감한"
+    );
+  });
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
   return (await service.createRun("project-a", { deckId: "deck-a" })).run;
+}
+
+function retryableReport() {
+  return {
+    ...rehearsalReport,
+    semanticEvaluation: {
+      state: "partial",
+      measurementMode: "none",
+      reasons: ["timeout"],
+      retryable: true
+    },
+    semanticCueOutcomes: []
+  };
 }
 
 async function saveRunPatch(
@@ -618,6 +793,7 @@ async function saveRunPatch(
 function createService(
   options: {
     enqueueJob?: RehearsalSttEnqueueJob;
+    enqueueSemanticEvaluationJob?: RehearsalSemanticEvaluationEnqueueJob;
     jobsService?: JobsService;
     filesServicePatch?: Partial<FilesService>;
     transcriptCache?: RehearsalTranscriptCache;
@@ -627,7 +803,8 @@ function createService(
   const logger = createLogger();
   const repository = createRunRepository();
   const transcriptCache = options.transcriptCache ?? {
-    get: vi.fn(async () => null)
+    get: vi.fn(async () => null),
+    hasSemanticEvidence: vi.fn(async () => false)
   };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
@@ -678,6 +855,7 @@ function createService(
         update: vi.fn()
       } as unknown as JobsService),
     options.enqueueJob ?? vi.fn(async () => undefined),
+    options.enqueueSemanticEvaluationJob ?? vi.fn(async () => undefined),
     transcriptCache as unknown as RedisRehearsalTranscriptCache,
     logger
   );
