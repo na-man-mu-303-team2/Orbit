@@ -8,6 +8,13 @@ import {
 
 const editorTextOverlapWarningRatio = 0.15;
 const editorDuplicateTextMinimumLength = 6;
+const presentationGridColumnCount = 12;
+const presentationGridColumnWidth = 118;
+const presentationGridGutter = 24;
+const presentationGridStep = presentationGridColumnWidth + presentationGridGutter;
+const presentationGridSafeX = 120;
+const presentationGridSpacing = 8;
+const presentationGridTolerance = 4;
 
 export type EditorValidationItem = {
   elementId?: string;
@@ -21,7 +28,15 @@ export type EditorValidationItem = {
     | "contrastUnverifiable"
     | "mediaSlotMissing"
     | "sourceLedgerMissing"
-    | "slideCountMismatch";
+    | "slideCountMismatch"
+    | "ACTION_TITLE_WEAK"
+    | "BODY_CONTENT_DENSE"
+    | "FONT_SIZE_BELOW_MINIMUM"
+    | "FONT_FAMILY_OVERUSED"
+    | "LINE_HEIGHT_OUT_OF_RANGE"
+    | "VISUAL_HIERARCHY_WEAK"
+    | "CTA_MISSING"
+    | "GRID_ALIGNMENT_INCONSISTENT";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -96,6 +111,8 @@ function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
       });
     }
   }
+
+  items.push(...getEditorPresentationDeckValidationItems(deck));
 
   return items;
 }
@@ -222,8 +239,371 @@ function getEditorSlideValidationItems(
 
   items.push(...getEditorTextOverlapValidationItems(deck, slide));
   items.push(...getEditorDuplicateTextValidationItems(slide));
+  items.push(...getEditorPresentationSlideValidationItems(deck, slide));
 
   return items;
+}
+
+const genericActionTitles = new Set([
+  "개요",
+  "배경",
+  "현황",
+  "시장 현황",
+  "문제",
+  "해결책",
+  "결과",
+  "성과",
+  "요약",
+  "결론",
+  "핵심 특징",
+  "주요 포인트"
+]);
+
+const actionClosingTokens = [
+  "다음",
+  "지금",
+  "시작",
+  "신청",
+  "참여",
+  "확인",
+  "선택",
+  "도입",
+  "실행",
+  "문의",
+  "출시",
+  "구매",
+  "예약",
+  "체험",
+  "next",
+  "start",
+  "join",
+  "contact",
+  "launch",
+  "pre-order"
+];
+
+const executiveClosingTokens = [
+  "결정",
+  "승인",
+  "확정",
+  "선택",
+  "검토",
+  "의사결정",
+  "decision",
+  "approve",
+  "approval"
+];
+
+function getEditorPresentationDeckValidationItems(
+  deck: Deck
+): EditorValidationItem[] {
+  const profile = deck.metadata.presentationProfile;
+  if (!profile) return [];
+
+  const items: EditorValidationItem[] = [];
+  const fontFamilies = new Set(
+    deck.slides.flatMap((slide) =>
+      slide.elements
+        .filter(
+          (element): element is Extract<DeckElement, { type: "text" }> =>
+            element.visible && element.type === "text"
+        )
+        .map((element) =>
+          (element.props as TextElementProps).fontFamily
+            ?.trim()
+            .toLocaleLowerCase()
+        )
+        .filter(Boolean)
+    )
+  );
+  if (fontFamilies.size > 2) {
+    items.push({
+      issue: "FONT_FAMILY_OVERUSED",
+      message: "발표 자료에는 최대 두 개의 글꼴 패밀리만 사용할 수 있습니다.",
+      severity: "warning"
+    });
+  }
+
+  if (["proposal", "product-launch", "executive-report"].includes(profile)) {
+    const closing = deck.slides.at(-1);
+    if (closing) {
+      const tokens =
+        profile === "executive-report"
+          ? executiveClosingTokens
+          : actionClosingTokens;
+      const closingText = getVisibleSlideText(closing).toLocaleLowerCase();
+      if (!tokens.some((token) => closingText.includes(token))) {
+        items.push({
+          issue: "CTA_MISSING",
+          message:
+            profile === "executive-report"
+              ? "마지막 슬라이드에 결정 또는 승인 요청이 필요합니다."
+              : "마지막 슬라이드에 구체적인 다음 행동이 필요합니다.",
+          severity: "warning",
+          slideId: closing.slideId
+        });
+      }
+    }
+  }
+  return items;
+}
+
+function getEditorPresentationSlideValidationItems(
+  deck: Deck,
+  slide: Slide
+): EditorValidationItem[] {
+  if (!deck.metadata.presentationProfile) return [];
+  const items: EditorValidationItem[] = [];
+  const slideIndex = deck.slides.findIndex(
+    (candidate) => candidate.slideId === slide.slideId
+  );
+  const visualType = slide.aiNotes?.visualPlan?.visualType ?? "";
+
+  if (
+    slideIndex > 0 &&
+    !["cover", "quote", "summary"].includes(visualType) &&
+    actionTitleRequiresAttention(slide.title)
+  ) {
+    items.push({
+      issue: "ACTION_TITLE_WEAK",
+      message: "본문 슬라이드 제목은 40자 이내의 결론형 문장이어야 합니다.",
+      severity: "warning",
+      slideId: slide.slideId
+    });
+  }
+
+  if (
+    !["cover", "quote"].includes(visualType) &&
+    slide.style.layout !== "chart-focus" &&
+    slide.style.layout !== "quote" &&
+    slide.elements.some(
+      (element) =>
+        element.visible &&
+        element.type === "text" &&
+        ["body", "highlight"].includes(element.role ?? "") &&
+        getEditorTextContentMetrics(
+          deck,
+          slide,
+          element,
+          getTextElementText(element.props as TextElementProps)
+        ).lineCount > 6
+    )
+  ) {
+    items.push({
+      issue: "BODY_CONTENT_DENSE",
+      message: "본문 텍스트 박스는 실제 렌더링 기준 6줄 이내여야 합니다.",
+      severity: "warning",
+      slideId: slide.slideId
+    });
+  }
+
+  items.push(...getEditorTypographyValidationItems(slide, slideIndex));
+  items.push(...getEditorVisualHierarchyValidationItems(slide, visualType));
+  items.push(...getEditorGridValidationItems(slide));
+  return items;
+}
+
+function actionTitleRequiresAttention(title: string) {
+  const normalized = title
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[ .,:;!?\-_]+|[ .,:;!?\-_]+$/g, "")
+    .toLocaleLowerCase();
+  return normalized.length > 40 || genericActionTitles.has(normalized);
+}
+
+function getEditorTypographyValidationItems(
+  slide: Slide,
+  slideIndex: number
+): EditorValidationItem[] {
+  return slide.elements.flatMap((element) => {
+    if (!element.visible || element.type !== "text") return [];
+    const role = element.role ?? "";
+    const minimumSize = minimumPresentationFontSize(slideIndex, role);
+    const items: EditorValidationItem[] = [];
+    if (element.props.fontSize < minimumSize) {
+      items.push({
+        elementId: element.elementId,
+        issue: "FONT_SIZE_BELOW_MINIMUM",
+        message: `${role || "text"} 텍스트는 최소 ${minimumSize}pt가 필요합니다.`,
+        severity: "warning" as const,
+        slideId: slide.slideId
+      });
+    }
+    const lineHeight = element.props.lineHeight;
+    const validLineHeight =
+      role === "title"
+        ? lineHeight >= 1.05 && lineHeight <= 1.2
+        : ["body", "highlight", "subtitle"].includes(role)
+          ? lineHeight >= 1.2 && lineHeight <= 1.3
+          : true;
+    if (!validLineHeight) {
+      items.push({
+        elementId: element.elementId,
+        issue: "LINE_HEIGHT_OUT_OF_RANGE",
+        message: "제목과 본문의 역할별 권장 행간 범위를 벗어났습니다.",
+        severity: "warning" as const,
+        slideId: slide.slideId
+      });
+    }
+    return items;
+  });
+}
+
+function minimumPresentationFontSize(slideIndex: number, role: string) {
+  if (role === "title") return slideIndex === 0 ? 44 : 32;
+  if (["body", "highlight", "subtitle"].includes(role)) return 18;
+  if (role === "caption") return 14;
+  if (role === "footer") return 12;
+  return 12;
+}
+
+function getEditorVisualHierarchyValidationItems(
+  slide: Slide,
+  visualType: string
+): EditorValidationItem[] {
+  if (["cover", "quote"].includes(visualType)) return [];
+  const visible = slide.elements.filter((element) => element.visible);
+  const contentElements = visible.filter(
+    (element) =>
+      (element.type === "text" &&
+        ["body", "highlight"].includes(element.role ?? "") &&
+        getTextElementText(element.props as TextElementProps).trim().length > 0) ||
+      element.type === "image" ||
+      element.type === "chart" ||
+      element.role === "media"
+  );
+  const primaryVisuals = visible.filter(
+    (element) =>
+      element.type === "image" || element.type === "chart" || element.role === "media"
+  );
+  if (contentElements.length > 0 && primaryVisuals.length <= 1) return [];
+  return [
+    {
+      issue: "VISUAL_HIERARCHY_WEAK",
+      message: "본문 슬라이드에는 하나의 명확한 시각적 중심 요소가 필요합니다.",
+      severity: "warning",
+      slideId: slide.slideId
+    }
+  ];
+}
+
+function getEditorGridValidationItems(slide: Slide): EditorValidationItem[] {
+  const element = slide.elements.find(
+    (candidate) =>
+      isPresentationGridElement(candidate, slide.elements) &&
+      !isPresentationGridAligned(candidate)
+  );
+  return element
+    ? [
+        {
+          elementId: element.elementId,
+          issue: "GRID_ALIGNMENT_INCONSISTENT",
+          message: "핵심 레이아웃 요소가 12열 grid와 8px 간격 기준에서 벗어났습니다.",
+          severity: "warning",
+          slideId: slide.slideId
+        }
+      ]
+    : [];
+}
+
+function isPresentationGridElement(
+  element: DeckElement,
+  elements: DeckElement[]
+) {
+  if (!element.visible || isFullBleedElement(element)) return false;
+  const role = element.role ?? "";
+  if (role === "background" || role === "footer" || isDesignPackChrome(element)) {
+    return false;
+  }
+  if (
+    ["_card_", "_accent", "_divider", "_number", "_label"].some((token) =>
+      element.elementId.includes(token)
+    )
+  ) {
+    return false;
+  }
+  if (role === "title" || role === "media" || element.type === "chart") return true;
+  if (role === "body" || role === "subtitle") {
+    return !isContainedByGridPanel(element, elements);
+  }
+  return (
+    role === "highlight" &&
+    element.type !== "text" &&
+    element.width >= 400 &&
+    element.height >= 120 &&
+    ["_panel", "_block"].some((token) => element.elementId.includes(token))
+  );
+}
+
+function isFullBleedElement(element: DeckElement) {
+  return (
+    element.x <= 0 &&
+    element.y <= 0 &&
+    element.width >= 1920 &&
+    element.height >= 1080
+  );
+}
+
+function isDesignPackChrome(element: DeckElement) {
+  return [
+    "_design_pack_section_number",
+    "_design_pack_section_label",
+    "_design_pack_page_marker"
+  ].some((token) => element.elementId.includes(token));
+}
+
+function isContainedByGridPanel(element: DeckElement, elements: DeckElement[]) {
+  return elements.some(
+    (candidate) =>
+      candidate.elementId !== element.elementId &&
+      candidate.visible &&
+      candidate.role === "highlight" &&
+      candidate.type !== "text" &&
+      getTextBackgroundCoverage(element, candidate) >= 0.9
+  );
+}
+
+function isPresentationGridAligned(element: DeckElement) {
+  const horizontal = Array.from({ length: presentationGridColumnCount }).some(
+    (_, column) =>
+      Array.from({ length: presentationGridColumnCount - column }).some((__, index) => {
+        const span = index + 1;
+        const x = presentationGridSafeX + column * presentationGridStep;
+        const width =
+          span * presentationGridColumnWidth + (span - 1) * presentationGridGutter;
+        return (
+          Math.abs(element.x - x) <= presentationGridTolerance &&
+          Math.abs(element.width - width) <= presentationGridTolerance
+        );
+      })
+  );
+  return (
+    horizontal &&
+    distanceToSpacing(element.y, presentationGridSpacing) <= presentationGridTolerance &&
+    distanceToSpacing(element.height, presentationGridSpacing) <=
+      presentationGridTolerance
+  );
+}
+
+function distanceToSpacing(value: number, spacing: number) {
+  return Math.abs(value - Math.round(value / spacing) * spacing);
+}
+
+function getVisibleSlideText(slide: Slide) {
+  return [
+    slide.title,
+    ...slide.elements
+      .filter(
+        (element): element is Extract<DeckElement, { type: "text" }> =>
+          element.visible &&
+          element.type === "text" &&
+          !["caption", "footer"].includes(element.role ?? "")
+      )
+      .map((element) => getTextElementText(element.props as TextElementProps))
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function shouldReportExportShapeRisk(element: DeckElement) {
