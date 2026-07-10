@@ -162,7 +162,8 @@ describe("p3RehearsalSession", () => {
           sentenceId: "sentence_1"
         }
       ],
-      semanticCueDecisions: []
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");
@@ -724,6 +725,13 @@ const semanticCueSlides: P3RehearsalSessionSlide[] = [
         cueId: "scue_cac_reason",
         slideId: "slide_1",
         meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
+        importance: "supporting",
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "imported",
+        revision: 1,
+        sourceRefs: [],
+        qualityWarnings: [],
         required: true,
         priority: 1,
         candidateKeywords: ["CAC", "세일즈"],

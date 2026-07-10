@@ -189,7 +189,8 @@ export function createRehearsalLogCollector(
       missedKeywords,
       adviceEvents: [...adviceEvents],
       utteranceOutcomes: [...utteranceOutcomes, ...missedSentenceOutcomes],
-      semanticCueDecisions: [...semanticCueDecisions]
+      semanticCueDecisions: [...semanticCueDecisions],
+      semanticCapabilityEvents: []
     };
   }
 
