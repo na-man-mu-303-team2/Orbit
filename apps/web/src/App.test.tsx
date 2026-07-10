@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Job, Project } from "@orbit/shared";
 import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -48,6 +49,11 @@ import {
   TemplateStyleOptionsPanel
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
+import {
+  OrbitAuthPage,
+  OrbitPublicLandingPage,
+  submitOrbitAuth
+} from "./features/auth/OrbitAuthPage";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -107,6 +113,7 @@ describe("App shell routing", () => {
 
   it("keeps the login page outside the shared navigation shell", () => {
     expect(shouldRenderAppFrame({ name: "login" })).toBe(false);
+    expect(shouldRenderAppFrame({ name: "signup" })).toBe(false);
     expect(
       shouldRenderAppFrame({
         name: "project-editor",
@@ -169,6 +176,11 @@ describe("App shell routing", () => {
     expect(shouldRenderAppFrame({ name: "mockup", screen: "public" })).toBe(false);
   });
 
+  it("exposes separate production login and signup routes", () => {
+    expect(getRoute("/login")).toEqual({ name: "login" });
+    expect(getRoute("/signup")).toEqual({ name: "signup" });
+  });
+
   it("parses presenter slide-window routes with an optional session id", () => {
     expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
       name: "present",
@@ -225,6 +237,72 @@ describe("App shell routing", () => {
     expect(getHomeTemplateStylePath("submission-document")).toBe(
       "/?templateStyle=submission-document"
     );
+  });
+});
+
+describe("public and authentication surfaces", () => {
+  it("renders the public landing conversion path without unsupported auth actions", () => {
+    const html = renderToStaticMarkup(
+      <OrbitPublicLandingPage onNavigate={() => undefined} />
+    );
+
+    expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
+    expect(html).toContain("무료로 발표 만들기");
+    expect(html).toContain("생성");
+    expect(html).toContain("편집");
+    expect(html).toContain("리허설");
+    expect(html).not.toContain("Google");
+    expect(html).not.toContain("비밀번호를 잊으셨나요");
+  });
+
+  it("renders email/password-only login and signup forms", () => {
+    const queryClient = new QueryClient();
+    const loginHtml = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <OrbitAuthPage isAuthenticated={false} mode="login" onNavigate={() => undefined} />
+      </QueryClientProvider>
+    );
+    const signupHtml = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <OrbitAuthPage isAuthenticated={false} mode="register" onNavigate={() => undefined} />
+      </QueryClientProvider>
+    );
+
+    expect(loginHtml).toContain("다시 만나서 반가워요.");
+    expect(signupHtml).toContain("첫 발표를 시작해 볼까요?");
+    expect(loginHtml).toContain('type="email"');
+    expect(loginHtml).toContain('type="password"');
+    expect(signupHtml).not.toContain("Google");
+    expect(signupHtml).not.toContain('autocomplete="name"');
+  });
+
+  it("submits the existing auth contract and surfaces API errors", async () => {
+    const successFetcher = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    await submitOrbitAuth({
+      email: "kim@orbit.test",
+      fetcher: successFetcher,
+      mode: "login",
+      password: "password123"
+    });
+
+    expect(successFetcher).toHaveBeenCalledWith(
+      "/api/v1/auth/login",
+      expect.objectContaining({ method: "POST", credentials: "include" })
+    );
+
+    const errorFetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "이메일 또는 비밀번호를 확인하세요." }), {
+        status: 401
+      })
+    );
+    await expect(
+      submitOrbitAuth({
+        email: "kim@orbit.test",
+        fetcher: errorFetcher,
+        mode: "register",
+        password: "password123"
+      })
+    ).rejects.toThrow("이메일 또는 비밀번호를 확인하세요.");
   });
 });
 

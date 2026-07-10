@@ -43,12 +43,12 @@ import type {
 } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
-import orbitLogo from "./assets/orbit-logo.png";
 import {
   OrbitAppHeader,
   type OrbitAppNavigationItem
 } from "./components/OrbitAppHeader";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
+import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
@@ -202,6 +202,7 @@ export type Route =
   | { name: "design-system" }
   | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
+  | { name: "signup" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
   | { name: "project-list" }
@@ -443,6 +444,7 @@ export function getRoute(
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
   if (normalized === "/login") return { name: "login" };
+  if (normalized === "/signup") return { name: "signup" };
   if (normalized === "/design-system") return { name: "design-system" };
   if (normalized === "/mockup") return { name: "mockup", screen: "public" };
   if (normalized === "/mockup/home") return { name: "mockup", screen: "home" };
@@ -556,12 +558,9 @@ export function App() {
     retry: false
   });
 
-  useEffect(() => {
-    if (route.name === "home" && auth.isError) {
-      window.history.replaceState({}, "", "/login");
-      setRoute({ name: "login" });
-    }
-  }, [auth.isError, route.name]);
+  if (route.name === "home" && !auth.isSuccess) {
+    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+  }
 
   if (!shouldRenderAppFrame(route)) {
     return renderRoute(route, auth.data);
@@ -581,6 +580,7 @@ export function App() {
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "signup" &&
     route.name !== "design-system" &&
     route.name !== "mockup" &&
     route.name !== "project-editor" &&
@@ -600,7 +600,12 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "mockup") {
     return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
   }
-  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
+  if (route.name === "login") {
+    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="login" onNavigate={navigateTo} />;
+  }
+  if (route.name === "signup") {
+    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
+  }
   if (route.name === "create-deck") return <GenerateDeckView />;
   if (route.name === "project-list") return <ProjectListPage />;
   if (route.name === "project-editor") {
@@ -812,146 +817,6 @@ function getUserInitial(user: AuthUser) {
 
 function getUserLabel(user: AuthUser) {
   return user.email?.trim() || user.userId;
-}
-
-function LoginPage(props: { isAuthenticated: boolean }) {
-  const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmitting) return;
-
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(`/api/v1/auth/${mode}`, {
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        method: "POST"
-      });
-
-      if (!response.ok) {
-        throw new Error(await readAuthError(response));
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      navigateTo("/");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : mode === "register"
-            ? "회원가입에 실패했습니다."
-            : "로그인에 실패했습니다."
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <section className="login-page">
-      <form className="login-card" onSubmit={handleLogin}>
-        <img alt="Orbit" src={orbitLogo} />
-        <h1>{mode === "register" ? "회원가입" : "로그인"}</h1>
-        <p>
-          {mode === "register"
-            ? "처음 사용하는 환경이라면 계정을 먼저 생성하세요."
-            : "계정으로 로그인하면 Orbit 작업 공간으로 이동합니다."}
-        </p>
-        <div className="login-mode-switch" role="tablist" aria-label="인증 방식">
-          <button
-            type="button"
-            className={mode === "login" ? "active" : ""}
-            onClick={() => {
-              setMode("login");
-              setError(null);
-            }}
-          >
-            로그인
-          </button>
-          <button
-            type="button"
-            className={mode === "register" ? "active" : ""}
-            onClick={() => {
-              setMode("register");
-              setError(null);
-            }}
-          >
-            회원가입
-          </button>
-        </div>
-        <label>
-          <span>이메일</span>
-          <input
-            autoComplete="email"
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@orbit.dev"
-            required
-            type="email"
-            value={email}
-          />
-        </label>
-        <label>
-          <span>비밀번호</span>
-          <input
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
-            minLength={8}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="비밀번호"
-            required
-            type="password"
-            value={password}
-          />
-        </label>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting
-            ? mode === "register"
-              ? "가입 중..."
-              : "로그인 중..."
-            : mode === "register"
-              ? "계정 만들기"
-              : "로그인"}
-        </button>
-      </form>
-      {props.isAuthenticated ? (
-        <button
-          className="login-next-button"
-          type="button"
-          onClick={() => navigateTo("/")}
-          aria-label="다음 화면으로 이동"
-          title="다음 화면으로 이동"
-        >
-          <ArrowRight size={34} strokeWidth={2.4} />
-        </button>
-      ) : null}
-    </section>
-  );
-}
-
-async function readAuthError(response: Response) {
-  const fallback = "로그인에 실패했습니다.";
-  const text = await response.text();
-  if (!text) return fallback;
-
-  try {
-    const body = JSON.parse(text) as { message?: unknown };
-    if (typeof body.message === "string") return body.message;
-    if (Array.isArray(body.message)) return body.message.join(", ");
-  } catch {
-    return text;
-  }
-
-  return fallback;
 }
 
 async function readApiError(response: Response, fallback: string) {

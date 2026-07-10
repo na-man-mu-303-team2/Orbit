@@ -718,4 +718,28 @@
 - The account trigger exposes menu semantics, closes on outside pointer or Escape, and delegates logout to the existing `/api/v1/auth/logout` handler. Focus states use the canonical ORBIT focus token.
 - `App.test.tsx`: 42 passed. Web TypeScript validation passed. No actionable T2 P0/P1/P2 findings remain; the existing project-page title/refresh wrapping at 390px is scoped to the T4 page migration rather than the shared header.
 
+## Production public and auth T3 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup`, `/mockup/login`, and `/mockup/signup` at the fixed desktop `1440×1024` target.
+- Browser implementation: `/`, `/login`, and `/signup`, using the same ORBIT logo, editorial rehearsal image, Ink/Lilac/Lime/Cream palette, and approved two-column authentication composition.
+- The public source and implementation captures were opened together in one comparison input. The implementation preserves the source hero split, four-item public navigation, product preview hierarchy, black process strip, two support cards, and final CTA.
+
+### Required fidelity surfaces
+
+- Fonts and typography: Pretendard/Inter, the approved eyebrow, display, body, UI and caption scales are inherited from the canonical tokens. Text below 12px exists only inside the intentionally scaled slide-preview simulation.
+- Spacing and layout rhythm: the 72px public header, asymmetric hero, 510px desktop stage, 18px support-card gap, 44px controls, and mobile single-column form follow the source composition without horizontal overflow.
+- Colors and visual tokens: Canvas, Surface, Ink, Lilac, Lime, Cream, Muted, Success and Danger roles are reused. No gradients or replacement palette were added.
+- Image quality and asset fidelity: the official ORBIT raster logo and the source editorial rehearsal image are reused. All interface symbols use Tabler Icons; no placeholder, handcrafted SVG, or CSS illustration was introduced.
+- Copy and content: the public value proposition and auth benefit hierarchy match the approved mockups. Production exposes only the supported email/password contract; Google login and password-reset actions are absent.
+
+### Interaction and findings
+
+- Authentication submit preserves `/api/v1/auth/login` and `/api/v1/auth/register`, `credentials: include`, query invalidation, loading, success navigation, and server-error rendering.
+- Mobile collapses the value proposition while keeping the form, mode switch and primary submit action in the first interaction flow.
+- [P2 resolved] The first implementation omitted the source slide rail and editorial support image; both source assets and the four-item public menu are now restored.
+- `App.test.tsx`: 46 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- The in-app browser connection became temporarily unresponsive during the final auth-state recapture. The already captured desktop public comparison remains valid; login/signup mobile recapture is retained as a required final-rollout check in T19.
+
 final result: passed
