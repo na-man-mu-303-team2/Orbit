@@ -23,4 +23,10 @@ describe("jobTypeSchema", () => {
   it("accepts PPTX OOXML sync jobs", () => {
     expect(jobTypeSchema.parse("pptx-ooxml-sync")).toBe("pptx-ooxml-sync");
   });
+
+  it("accepts rehearsal semantic evaluation retry jobs", () => {
+    expect(jobTypeSchema.parse("rehearsal-semantic-evaluation")).toBe(
+      "rehearsal-semantic-evaluation"
+    );
+  });
 });

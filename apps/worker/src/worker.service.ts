@@ -6,6 +6,7 @@ import {
   pptxOoxmlSyncQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
+  rehearsalSemanticEvaluationQueueName,
   rehearsalSttQueueName,
   semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
@@ -25,6 +26,7 @@ import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
 import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-evaluation.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
@@ -36,6 +38,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly queueNames = [
     referenceExtractQueueName,
     rehearsalSttQueueName,
+    rehearsalSemanticEvaluationQueueName,
     generateDeckQueueName,
     aiTemplateDeckGenerationQueueName,
     semanticCueExtractionQueueName,
@@ -88,6 +91,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.logger[level](event, "Rehearsal semantic evaluation updated.");
           },
         ),
+      ),
+      this.createWorker(rehearsalSemanticEvaluationQueueName, (job) =>
+        processRehearsalSemanticEvaluationJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+          this.transcriptCache!,
+          (event) => {
+            const level = event.event.endsWith(".retry_failed")
+              ? "error"
+              : "info";
+            this.logger[level](
+              event,
+              "Rehearsal semantic evaluation retry updated."
+            );
+          }
+        )
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(

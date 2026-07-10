@@ -7,9 +7,12 @@ import {
   enqueueAiTemplateDeckGenerationJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
+  enqueueRehearsalSemanticEvaluationJob,
   enqueueWorkerHealthCheckJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
+  rehearsalSemanticEvaluationJobName,
+  rehearsalSemanticEvaluationQueueName,
   semanticCueExtractionJobName,
   semanticCueExtractionQueueName,
   workerHealthCheckJobName,
@@ -36,6 +39,28 @@ beforeEach(() => {
     add: queueMock.add,
     close: queueMock.close
   }));
+});
+
+describe("enqueueRehearsalSemanticEvaluationJob", () => {
+  it("adds an ID-only semantic evaluation retry job to BullMQ", async () => {
+    await enqueueRehearsalSemanticEvaluationJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-retry",
+      projectId: "project-a",
+      runId: "run-1"
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      rehearsalSemanticEvaluationQueueName,
+      { connection: expect.objectContaining({ host: "localhost", port: 6379 }) }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(
+      rehearsalSemanticEvaluationJobName,
+      { jobId: "job-semantic-retry", projectId: "project-a", runId: "run-1" }
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain("transcript");
+  });
 });
 
 describe("InMemoryJobQueue", () => {

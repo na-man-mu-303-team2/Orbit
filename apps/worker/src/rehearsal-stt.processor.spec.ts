@@ -356,6 +356,12 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
     const storage = createStorage();
     const events = vi.fn();
+    const transcriptCache = {
+      set: vi.fn(async () => undefined),
+      setSemanticEvidence: vi.fn(async () => undefined),
+      getSemanticEvidence: vi.fn(async () => null),
+      close: vi.fn(async () => undefined)
+    };
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -410,7 +416,7 @@ describe("processRehearsalSttJob", () => {
       storage,
       "http://localhost:8000",
       payload,
-      undefined,
+      transcriptCache,
       events
     );
 
@@ -457,6 +463,15 @@ describe("processRehearsalSttJob", () => {
       1,
       expect.objectContaining({ event: "rehearsal.semantic_evaluation.started" })
     );
+    expect(transcriptCache.setSemanticEvidence).toHaveBeenCalledWith("run-a", {
+      segments: [
+        {
+          startMs: 0,
+          endMs: 3500,
+          text: "snapshot keyword를 설명했습니다"
+        }
+      ]
+    });
     expect(events).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
