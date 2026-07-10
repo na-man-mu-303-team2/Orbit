@@ -744,6 +744,31 @@
 
 final result: passed
 
+## Production editor three-area layout T11 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/editor`, with slide rail, dominant canvas and secondary `AI 제안 / 디자인 / 메모` inspector.
+- Production implementation: the actual `EditorShell` three-area markup and inspector render contract, verified together with the T10 document chrome in the editor test fixture.
+
+### Required fidelity surfaces
+
+- Fonts and typography: dense inspector controls stay at 12px or above; section headings use 16–18px hierarchy.
+- Spacing and layout rhythm: the 184px slide rail and 332px inspector leave the canvas as the visual focal point. Resizers and collapse controls preserve the existing adjustable layout.
+- Colors and visual tokens: the neutral editor workspace, white rail/inspector, Lilac active slide/tab and restrained canvas shadow replace blue-heavy emphasis.
+- Image quality and asset fidelity: no new image is required. Existing slide thumbnails remain generated from actual deck state.
+- Copy and content: AI validation/suggestions, actual slide theme colors and current speaker notes populate the three inspector tabs.
+
+### Interaction and findings
+
+- AI suggestion application and validation handlers are unchanged. Design tab reflects the selected element and actual slide/theme colors. Notes tab shares the existing draft, cancel and save handlers.
+- The original canvas-bottom notes surface remains available on desktop; mobile prioritizes the sheet-like inspector and hides the duplicate lower notes region.
+- Slide selection, rail collapse/resize, inspector collapse/resize, canvas editing and animation pane behavior remain connected to the existing store.
+- `EditorShell.test.tsx`: 51 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- Authenticated editor visual recapture remains in T19 for the same local access-boundary limitation. No code-level P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production editor document chrome T10 QA
 
 ### Source and implementation

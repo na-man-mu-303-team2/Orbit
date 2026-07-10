@@ -1175,6 +1175,7 @@ export function EditorShell(props: { projectId?: string }) {
     (state) => state.setElementContextMenu
   );
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
+  const [rightInspectorTab, setRightInspectorTab] = useState<"ai" | "design" | "notes">("ai");
   const [pptxImportState, setPptxImportState] = useState<PptxImportState>({
     status: "idle",
     warnings: [],
@@ -5342,7 +5343,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>AI</h2>
+                <h2>인스펙터</h2>
                 <div>
                   <button
                     className="collapse-right-pane-button"
@@ -5354,21 +5355,16 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 </div>
               </div>
-              <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel
-                  items={editorValidationItems}
-                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                  onHighlightElementIds={setValidationHighlightElementIds}
-                  onTextOverflowAction={handleValidationTextOverflowAction}
-                />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+              <div aria-label="에디터 인스펙터" className="right-panel-tabs" role="tablist">
+                {([ ["ai", "AI 제안"], ["design", "디자인"], ["notes", "메모"] ] as const).map(([tab, label]) => <button aria-selected={rightInspectorTab === tab} className={rightInspectorTab === tab ? "active" : ""} key={tab} onClick={() => setRightInspectorTab(tab)} role="tab" type="button">{label}</button>)}
               </div>
+              {rightInspectorTab === "ai" ? <div className="assistant-panel-slot" role="tabpanel">
+                  <PptxImportQualityPanel state={pptxImportState} />
+                  <ValidationPanel items={editorValidationItems} onApplyAllTextOverflow={handleApplyAllValidationTextOverflow} onHighlightElementIds={setValidationHighlightElementIds} onTextOverflowAction={handleValidationTextOverflowAction} />
+                  <SuggestionPanel deck={deck} projectId={projectId} slideId={currentSlide?.slideId ?? null} onApplySuccess={handleAiSuggestionApplied} />
+                </div> : null}
+              {rightInspectorTab === "design" ? <section className="orbit-design-inspector" role="tabpanel"><p className="orbit-ds-eyebrow">DESIGN</p><h3>{selectedElement ? "선택한 요소" : "슬라이드 디자인"}</h3><p>{selectedElement ? `${selectedElement.type} 요소의 위치와 스타일은 캔버스 상단 빠른 도구에서 편집할 수 있습니다.` : "요소를 선택하면 정렬, 색상, 크기와 애니메이션 도구가 활성화됩니다."}</p><dl><div><dt>배경</dt><dd><i style={{ background: currentSlide?.style.backgroundColor ?? deck.theme.backgroundColor }} />{currentSlide?.style.backgroundColor ?? deck.theme.backgroundColor}</dd></div><div><dt>강조색</dt><dd><i style={{ background: currentSlide?.style.accentColor ?? deck.theme.accentColor }} />{currentSlide?.style.accentColor ?? deck.theme.accentColor}</dd></div></dl></section> : null}
+              {rightInspectorTab === "notes" ? <section className="orbit-notes-inspector" role="tabpanel"><p className="orbit-ds-eyebrow">SPEAKER NOTES</p><h3>발표 메모</h3>{isSpeakerNotesEditing ? <><textarea aria-label="인스펙터 발표 메모 수정" onChange={(event) => setSpeakerNotesDraft(event.target.value)} value={speakerNotesDraft} /><div><button onClick={handleCancelSpeakerNotesEdit} type="button">취소</button><button className="primary" onClick={handleSaveSpeakerNotesEdit} type="button">저장</button></div></> : <><p>{currentSlide?.speakerNotes || "이 슬라이드에 발표 메모가 없습니다."}</p><button onClick={handleStartSpeakerNotesEdit} type="button">메모 수정</button></>}</section> : null}
             </>
           ) : (
             <div className="collapsed-right-rail">

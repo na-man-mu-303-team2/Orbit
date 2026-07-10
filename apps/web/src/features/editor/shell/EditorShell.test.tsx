@@ -407,6 +407,10 @@ describe("editor shell", () => {
     expect(html).toContain("파일");
     expect(html).toContain("편집 중");
     expect(html).toContain("공유");
+    expect(html).toContain('aria-label="에디터 인스펙터"');
+    expect(html).toContain("AI 제안");
+    expect(html).toContain("디자인");
+    expect(html).toContain("메모");
   });
 
   it("returns a warning for unreadable text overlap", () => {
