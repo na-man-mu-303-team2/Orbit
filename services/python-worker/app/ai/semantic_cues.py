@@ -4,15 +4,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.semantic_cue_filters import (
-    compact as _compact,
     compact_meaningful_phrases as _compact_meaningful_phrases,
     compact_texts as _compact_texts,
-    important_terms as _important_terms,
     is_generic_imported_title as _is_generic_imported_title,
     is_meaningful_explicit_keyword as _is_meaningful_explicit_keyword,
     is_meaningful_phrase as _is_meaningful_phrase,
 )
-from app.ai.semantic_cue_llm import generate_semantic_cue_payload
+from app.ai.semantic_cue_llm import SemanticCueLlmError, generate_semantic_cue_payload
 
 
 class SemanticCueKeyword(BaseModel):
@@ -119,6 +117,10 @@ class LlmSemanticCueExtractionResponse(BaseModel):
     slides: list[LlmSemanticCueSlideResult] = Field(default_factory=list)
 
 
+class SemanticCueExtractionError(RuntimeError):
+    pass
+
+
 def extract_semantic_cues(
     payload: SemanticCueExtractionRequest,
     *,
@@ -126,24 +128,11 @@ def extract_semantic_cues(
     model: str | None = None,
     api_key: str | None = None,
 ) -> SemanticCueExtractionResponse:
-    llm_response = _extract_semantic_cues_with_llm(
+    return _extract_semantic_cues_with_llm(
         payload,
         client=client,
         model=model,
         api_key=api_key,
-    )
-    if llm_response is not None:
-        return llm_response
-
-    return SemanticCueExtractionResponse(
-        deckId=payload.deck.deck_id,
-        slides=[
-            SemanticCueSlideResult(
-                slideId=slide.slide_id,
-                semanticCues=_extract_slide_cues(slide),
-            )
-            for slide in payload.deck.slides
-        ],
     )
 
 
@@ -153,20 +142,23 @@ def _extract_semantic_cues_with_llm(
     client: Any | None,
     model: str | None,
     api_key: str | None,
-) -> SemanticCueExtractionResponse | None:
-    generated_payload = generate_semantic_cue_payload(
-        _llm_input_payload(payload),
-        client=client,
-        model=model,
-        api_key=api_key,
-    )
-    if generated_payload is None:
-        return None
+) -> SemanticCueExtractionResponse:
+    try:
+        generated_payload = generate_semantic_cue_payload(
+            _llm_input_payload(payload),
+            client=client,
+            model=model,
+            api_key=api_key,
+        )
+    except SemanticCueLlmError as error:
+        raise SemanticCueExtractionError(str(error)) from error
 
     try:
         generated = LlmSemanticCueExtractionResponse.model_validate(generated_payload)
-    except Exception:
-        return None
+    except Exception as error:
+        raise SemanticCueExtractionError(
+            "OpenAI semantic cue response did not match the semantic cue schema."
+        ) from error
 
     slides_by_id = {slide.slide_id: slide for slide in payload.deck.slides}
     generated_by_slide_id = {
@@ -185,7 +177,9 @@ def _extract_semantic_cues_with_llm(
 
     unknown_slide_ids = set(generated_by_slide_id) - set(slides_by_id)
     if unknown_slide_ids:
-        return None
+        raise SemanticCueExtractionError(
+            "OpenAI semantic cue response included unknown slide IDs."
+        )
 
     return SemanticCueExtractionResponse(deckId=payload.deck.deck_id, slides=results)
 
@@ -315,65 +309,6 @@ def _llm_input_payload(payload: SemanticCueExtractionRequest) -> dict[str, Any]:
     }
 
 
-def _extract_slide_cues(slide: SemanticCueSlide) -> list[SemanticCue]:
-    terms = _collect_terms(slide)
-    if not terms:
-        return []
-
-    cues: list[SemanticCue] = []
-    for index, term in enumerate(terms[:3], start=1):
-        aliases = _aliases_for_term(slide, term)
-        meaning = _meaning_for_term(slide, term)
-        cues.append(
-            SemanticCue(
-                cueId=f"scue_{_safe_id(slide.slide_id)}_{index}",
-                slideId=slide.slide_id,
-                meaning=meaning,
-                required=True,
-                priority=1 if index == 1 else 2,
-                candidateKeywords=[term],
-                aliases={term: aliases} if aliases else {},
-                requiredConcepts=_compact([term, *aliases]),
-                nliHypotheses=[meaning],
-            )
-        )
-    return cues
-
-
-def _collect_terms(slide: SemanticCueSlide) -> list[str]:
-    keyword_terms = [
-        keyword.text.strip()
-        for keyword in slide.keywords
-        if _is_meaningful_explicit_keyword(keyword.text)
-    ]
-    title_terms = (
-        []
-        if _is_generic_imported_title(slide.title)
-        else _important_terms(slide.title)
-    )
-    note_terms = _important_terms(slide.speaker_notes)
-    element_terms = _important_terms(
-        " ".join(_element_text(element) for element in slide.elements)
-    )
-    return _compact([*keyword_terms, *title_terms, *note_terms, *element_terms])
-
-
-def _aliases_for_term(slide: SemanticCueSlide, term: str) -> list[str]:
-    aliases: list[str] = []
-    for keyword in slide.keywords:
-        if _same_term(keyword.text, term):
-            aliases.extend(keyword.synonyms)
-            aliases.extend(keyword.abbreviations)
-    return _compact(aliases)
-
-
-def _meaning_for_term(slide: SemanticCueSlide, term: str) -> str:
-    title = slide.title.strip()
-    if title and not _is_generic_imported_title(title):
-        return f"{title}에서 {term}의 핵심 의미를 설명했다"
-    return f"{term}의 핵심 의미를 설명했다"
-
-
 def _element_text(element: dict[str, Any]) -> str:
     values: list[str] = []
     for key in ("text", "title", "label", "alt"):
@@ -419,10 +354,6 @@ def _slide_action_ids(slide: SemanticCueSlide) -> list[str]:
         max_items=200,
         max_length=80,
     )
-
-
-def _same_term(left: str, right: str) -> bool:
-    return left.strip().casefold() == right.strip().casefold()
 
 
 def _safe_id(value: str) -> str:

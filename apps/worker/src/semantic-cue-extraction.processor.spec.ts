@@ -69,7 +69,7 @@ describe("processSemanticCueExtractionJob", () => {
                   candidateKeywords: ["문제 정의"],
                   aliases: {},
                   requiredConcepts: ["문제 정의"],
-                  nliHypotheses: ["문제 정의의 핵심 의미를 설명했다"],
+                  nliHypotheses: ["발표자가 문제 정의와 고객 문제를 설명했다"],
                   negativeHints: [],
                   targetElementIds: [],
                   triggerActionIds: []
@@ -142,6 +142,62 @@ describe("processSemanticCueExtractionJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("SEMANTIC_CUE_DECK_UNAVAILABLE");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails without saving a checkpoint when Python semantic cue extraction fails", async () => {
+    const deck = createDeck();
+    const savedDecks: Deck[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      const normalized = normalizeSql(sql);
+      if (normalized.startsWith("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as Job["status"],
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as Job["error"]
+          )
+        ];
+      }
+      if (normalized.includes("FROM decks")) {
+        return [
+          {
+            deck_id: deck.deckId,
+            deck_json: deck,
+            version: deck.version
+          }
+        ];
+      }
+      if (normalized.includes("FROM deck_patches")) {
+        return [];
+      }
+      if (normalized.startsWith("UPDATE decks")) {
+        savedDecks.push(params[2] as Deck);
+        return [];
+      }
+      throw new Error(`Unhandled query: ${normalized}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            detail: "OpenAI API key is required for semantic cue extraction."
+          },
+          { status: 503 }
+        )
+      )
+    );
+
+    const job = await processSemanticCueExtractionJob(
+      { query } as unknown as DataSource,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PYTHON_WORKER_SEMANTIC_CUE_FAILED");
+    expect(savedDecks).toEqual([]);
   });
 });
 

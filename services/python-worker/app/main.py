@@ -43,6 +43,7 @@ from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
 from app.ai.semantic_cues import (
+    SemanticCueExtractionError,
     SemanticCueExtractionRequest,
     SemanticCueExtractionResponse,
     extract_semantic_cues,
@@ -597,11 +598,14 @@ def extract_semantic_cues_endpoint(
     request: Request,
 ) -> SemanticCueExtractionResponse:
     config = _config(request)
-    return extract_semantic_cues(
-        payload,
-        model=config.openai_model,
-        api_key=config.openai_api_key,
-    )
+    try:
+        return extract_semantic_cues(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SemanticCueExtractionError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
