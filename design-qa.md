@@ -744,6 +744,33 @@
 
 final result: passed
 
+## Selected ORBIT mockup logo QA
+
+### Source and implementation
+
+- Source visual truth: the user-selected navy ORBIT wordmark with the purple orbital sweep and star at `/var/folders/rg/k27jblsn7sn4qsddc_5ckkvw0000gn/T/codex-clipboard-06eca4fa-ecbf-498d-9160-4d0e772bcf51.png`.
+- Mockup-owned asset: `apps/web/src/features/mockups/assets/orbit-logo-selected.png`, cropped to the selected mark's usable bounds without redrawing it.
+- Browser implementations: `/mockup/home`, `/mockup/editor`, `/mockup/reports`, and `/mockup/login`; screenshots at `artifacts/mockup-logo/home.png`, `artifacts/mockup-logo/editor.png`, and `artifacts/mockup-logo/reports.png`.
+- Combined source/implementation review input: `artifacts/mockup-logo/comparison.png`, pairing the selected source mark with the rendered workspace-header crop.
+- Desktop viewport: the current in-app Browser viewport. All inspected logo instances remained inside their headers without overflow.
+
+### Required fidelity surfaces
+
+- Image quality and asset fidelity: the supplied raster mark is used directly at a 3:1 natural aspect ratio. Header instances preserve that ratio at 96–108px wide.
+- Colors and contrast: light mockup surfaces use the selected navy/purple mark with `mix-blend-mode: multiply` so the white raster background integrates with white and tinted headers. Dark presenter surfaces retain the existing official white logo.
+- Spacing and layout rhythm: the new mark fits the established 32–36px header height across workspace, editor, report, authentication, delivery, microphone-check, and project mockups.
+- Scope: production routes and the canonical production logo asset remain unchanged; this pass affects `/mockup/*` only.
+
+### Findings
+
+- The selected mark is visible and correctly loaded from the mockup-owned asset on every checked light route.
+- The editor's dense top bar and the report/workspace document headers keep their existing alignment after the wider wordmark replacement.
+- The live presenter route continues to load `orbit-logo-white.png`, preserving dark-mode contrast.
+- Web test suite: 702 passed. Web TypeScript validation and `git diff --check` passed.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production rehearsal display and presenter mode T15 QA
 
 ### Source and implementation

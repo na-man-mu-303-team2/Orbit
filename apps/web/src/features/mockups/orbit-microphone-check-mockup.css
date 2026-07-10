@@ -5,7 +5,7 @@
 .microphone-check-header > div { align-items: center; display: flex; gap: 12px; }
 .microphone-check-header > div:first-child > button { align-items: center; background: transparent; border: 0; border-radius: var(--orbit-ds-radius-control); display: flex; height: 38px; justify-content: center; width: 38px; }
 .microphone-check-header > div:first-child > button:hover { background: var(--orbit-ds-surface); }
-.microphone-check-header img { height: 30px; object-fit: contain; width: auto; }
+.microphone-check-header img { height: 30px; mix-blend-mode: multiply; object-fit: contain; width: auto; }
 .microphone-check-header > div:first-child > span { background: var(--orbit-ds-border); height: 26px; width: 1px; }
 .microphone-check-header strong { font-size: 15px; }
 .microphone-check-header > div:last-child > span:first-child { color: var(--orbit-ds-text-muted); font-size: 12px; }

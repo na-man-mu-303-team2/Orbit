@@ -34,7 +34,7 @@
   width: 38px;
 }
 .delivery-header > div:first-child > button:hover { background: var(--orbit-ds-surface); }
-.delivery-header img { height: 30px; object-fit: contain; width: auto; }
+.delivery-header img { height: 30px; mix-blend-mode: multiply; object-fit: contain; width: auto; }
 .delivery-header > div:first-child > span:not(.orbit-ds-status) { background: var(--orbit-ds-border); height: 26px; width: 1px; }
 .delivery-header strong { font-size: 15px; }
 .delivery-header .orbit-ds-button { min-height: 40px; padding-inline: 16px; }

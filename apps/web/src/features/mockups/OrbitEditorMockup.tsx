@@ -33,7 +33,7 @@ import {
   IconZoomOut
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
-import orbitLogo from "../../assets/orbit-logo.png";
+import orbitLogo from "./assets/orbit-logo-selected.png";
 import { OrbitButton } from "../../design-system";
 import "./orbit-editor-mockup.css";
 

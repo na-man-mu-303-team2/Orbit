@@ -3,7 +3,7 @@
 .orbit-auth-mockup button, .orbit-auth-mockup input { font: inherit; }
 .auth-brand-panel { background: var(--orbit-ds-lilac); display: flex; flex-direction: column; min-height: 100vh; overflow: hidden; padding: 34px 46px 38px; position: relative; }
 .auth-brand-panel > button { align-items: center; align-self: flex-start; background: transparent; border: 0; display: inline-flex; gap: 10px; padding: 0; }
-.auth-brand-panel > button img { height: 35px; object-fit: contain; width: auto; }
+.auth-brand-panel > button img { height: 35px; mix-blend-mode: multiply; object-fit: contain; width: auto; }
 .auth-brand-copy { margin-top: auto; max-width: 560px; }
 .auth-brand-copy h1 { font-size: clamp(48px, 4.3vw, 72px); font-weight: 650; letter-spacing: -0.06em; line-height: 0.98; margin: 0; }
 .auth-brand-copy > p:last-child { font-size: 16px; line-height: 1.65; margin: 22px 0 0; max-width: 460px; }

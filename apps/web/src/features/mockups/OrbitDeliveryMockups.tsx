@@ -20,7 +20,7 @@ import {
   IconX
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import orbitLogo from "../../assets/orbit-logo.png";
+import orbitLogo from "./assets/orbit-logo-selected.png";
 import orbitLogoWhite from "../../assets/orbit-logo-white.png";
 import { OrbitButton, OrbitStatus } from "../../design-system";
 import "./orbit-delivery-mockups.css";

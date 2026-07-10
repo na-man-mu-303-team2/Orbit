@@ -13,7 +13,7 @@ import {
   IconVolume
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
-import orbitLogo from "../../assets/orbit-logo.png";
+import orbitLogo from "./assets/orbit-logo-selected.png";
 import { OrbitButton, OrbitStatus } from "../../design-system";
 import "./orbit-microphone-check-mockup.css";
 

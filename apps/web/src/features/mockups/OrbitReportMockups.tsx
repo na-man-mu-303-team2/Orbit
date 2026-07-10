@@ -18,7 +18,7 @@ import {
   IconVolume
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
-import orbitLogo from "../../assets/orbit-logo.png";
+import orbitLogo from "./assets/orbit-logo-selected.png";
 import { OrbitButton, OrbitStatus } from "../../design-system";
 import "./orbit-report-mockups.css";
 

@@ -30,7 +30,7 @@
 }
 
 .mockup-logo-button { justify-self: start; padding: 0; }
-.mockup-logo-button img { display: block; height: 36px; width: auto; }
+.mockup-logo-button img { display: block; height: 36px; mix-blend-mode: multiply; width: auto; }
 .mockup-header nav { align-items: center; display: flex; gap: 28px; justify-content: center; }
 .mockup-header nav button { color: var(--orbit-ds-ink); font-size: 14px; min-height: 42px; padding: 0 5px; position: relative; }
 .mockup-header nav button[aria-current="page"]::after { background: var(--orbit-ds-ink); bottom: -15px; content: ""; height: 2px; left: 3px; position: absolute; right: 3px; }

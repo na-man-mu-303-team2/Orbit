@@ -60,7 +60,7 @@
 .editor-mockup-document-icon:hover,
 .editor-mockup-toolbar-history button:hover:not(:disabled),
 .editor-mockup-canvas-footer button:hover { background: var(--orbit-ds-surface); }
-.editor-mockup-brand img { height: 32px; object-fit: contain; width: auto; }
+.editor-mockup-brand img { height: 32px; mix-blend-mode: multiply; object-fit: contain; width: auto; }
 .editor-mockup-document { display: flex; flex-direction: column; min-width: 0; }
 .editor-mockup-document-title-row { gap: 4px; min-height: 32px; }
 .editor-mockup-title { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 6px; display: flex; font-size: 16px; font-weight: 650; gap: 5px; min-width: 0; padding: 4px 7px; white-space: nowrap; }
