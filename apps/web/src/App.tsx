@@ -58,6 +58,7 @@ import {
   uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
 import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
+import "./features/projects/orbit-create-deck.css";
 import {
   RehearsalReportPage,
   RehearsalWorkspace
@@ -2193,6 +2194,7 @@ function GenerateDeckView() {
   const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
+  const [phase, setPhase] = useState<"input" | "review">("input");
   const projectsQuery = useQuery({
     queryKey: ["projects", "generate-deck"],
     queryFn: () => fetchProjects(),
@@ -2256,6 +2258,7 @@ function GenerateDeckView() {
     setGenerateError("");
     setGenerateJob(null);
     setResult(null);
+    setPhase("input");
   };
 
   const generateDeck = async () => {
@@ -2333,36 +2336,45 @@ function GenerateDeckView() {
   };
 
   return (
-    <main className="app-shell generate-app-shell">
+    <main className="orbit-create-deck">
+      <div className="orbit-create-breadcrumb"><button onClick={() => navigateTo("/")} type="button">홈</button><span>/</span><strong>AI 발표자료 만들기</strong></div>
+      <header className="orbit-create-heading">
+        <div><p className="orbit-ds-eyebrow">AI PRESENTATION</p><h1>{phase === "review" ? "이 구성으로 만들까요?" : "어떤 발표를 만들까요?"}</h1><p>{phase === "review" ? "입력한 프로젝트와 자료를 확인한 뒤 생성을 시작하세요." : "PPTX 자료와 핵심 지시사항을 바탕으로 편집 가능한 발표자료를 만듭니다."}</p></div>
+        <ol className="orbit-create-steps" aria-label="발표자료 생성 단계"><li className={phase === "input" ? "active" : "complete"}><span>1</span>입력</li><li className={phase === "review" ? "active" : ""}><span>2</span>구성 확인</li><li><span>3</span>생성</li></ol>
+      </header>
       <section className="generate-layout" aria-labelledby="generate-title">
         <form
           className="generate-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void generateDeck();
+            if (phase === "input") {
+              setPhase("review");
+            } else {
+              void generateDeck();
+            }
           }}
         >
           <div className="panel-copy">
-            <span className="eyebrow">PPTX OOXML</span>
-            <h1 id="generate-title">PPTX로 덱 생성</h1>
+            <span className="eyebrow">PPTX SOURCE</span>
+            <h2 id="generate-title">원본 자료와 발표 맥락</h2>
           </div>
 
           <section className="generate-reference-panel" aria-labelledby="generate-project-title">
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-project-title">
-                Target project
+                저장할 프로젝트
               </span>
-              <p>생성된 덱을 저장하고 바로 에디터에서 열 프로젝트</p>
+              <p>생성된 발표자료를 저장하고 에디터에서 이어서 편집합니다.</p>
             </div>
 
             <label>
-              <span>Project</span>
+              <span>기존 프로젝트 선택</span>
               <select
                 value={selectedProjectId}
                 onChange={(event) => setSelectedProjectId(event.target.value)}
                 disabled={isGenerating || projectsQuery.isLoading}
               >
-                <option value="">프로젝트 선택</option>
+                  <option value="">새 프로젝트로 만들기</option>
                 {(projectsQuery.data ?? []).map((project) => (
                   <option key={project.projectId} value={project.projectId}>
                     {project.title}
@@ -2373,7 +2385,7 @@ function GenerateDeckView() {
 
             <div className="form-grid">
               <label>
-                <span>New project</span>
+                  <span>새 프로젝트 이름</span>
                 <input
                   value={newProjectTitle}
                   onChange={(event) => setNewProjectTitle(event.target.value)}
@@ -2389,7 +2401,7 @@ function GenerateDeckView() {
               onClick={() => void handleCreateProject()}
               disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
             >
-              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트 만들고 선택"}
+              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트를 먼저 만들기"}
             </button>
 
             {projectsQuery.isError ? (
@@ -2406,12 +2418,12 @@ function GenerateDeckView() {
           </section>
 
           <label>
-            <span>Topic</span>
+            <span>발표 주제</span>
             <input value={topic} onChange={(event) => setTopic(event.target.value)} />
           </label>
 
           <label>
-            <span>Prompt</span>
+            <span>핵심 메시지와 지시사항</span>
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
@@ -2425,9 +2437,9 @@ function GenerateDeckView() {
           >
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-reference-title">
-                PPTX source
+                참고자료
               </span>
-              <p>원본 OOXML package를 보존할 PPTX 파일</p>
+              <p>원본 레이아웃과 편집 구조를 보존할 PPTX 파일 1개</p>
             </div>
 
             <label
@@ -2486,13 +2498,9 @@ function GenerateDeckView() {
             )}
           </section>
 
-          <button
-            className="extract-button"
-            type="submit"
-            disabled={isGenerating || !selectedPptx}
-          >
-            {isGenerating ? "덱 생성 중..." : "덱 생성"}
-          </button>
+          {phase === "review" ? <section className="orbit-create-review" aria-live="polite"><strong>구성 확인</strong><dl><div><dt>프로젝트</dt><dd>{selectedProjectId || newProjectTitle}</dd></div><div><dt>주제</dt><dd>{topic || "PPTX 파일명 기준"}</dd></div><div><dt>자료</dt><dd>{selectedPptx?.name}</dd></div></dl><button onClick={() => setPhase("input")} type="button">입력 수정</button></section> : null}
+
+          <button className="extract-button" type="submit" disabled={isGenerating || !selectedPptx}>{getCreateDeckPhaseActionLabel(phase, isGenerating)}</button>
 
           {generateJob && (
             <div className="job-status" aria-live="polite">
@@ -2517,6 +2525,14 @@ function GenerateDeckView() {
       </section>
     </main>
   );
+}
+
+export function getCreateDeckPhaseActionLabel(
+  phase: "input" | "review",
+  isGenerating: boolean
+) {
+  if (isGenerating) return "발표자료 생성 중...";
+  return phase === "input" ? "구성 확인" : "발표자료 생성 시작";
 }
 
 

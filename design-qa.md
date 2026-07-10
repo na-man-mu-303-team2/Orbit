@@ -744,6 +744,32 @@
 
 final result: passed
 
+## Production AI deck creation T5 QA
+
+### Source and implementation
+
+- Source visual truth: `/mockup/create`, including breadcrumb, large creation heading, three-step progress, Lilac workspace, split input/preview hierarchy and one state-dependent final action.
+- Browser implementation: `/createdeck` at `artifacts/migration/t5/create-desktop-retry.png`; responsive state at `artifacts/migration/t5/create-mobile.png`.
+- Desktop viewport: 1440×1024. Mobile viewport: 390×844. Both reported `scrollWidth === clientWidth`.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the display heading, mono eyebrow, 12–16px form labels and 22px section heading use canonical ORBIT tokens.
+- Spacing and layout rhythm: the 1280px page, 16px Lilac workspace, split form/preview, 44px controls, dashed upload target and three-step line retain the approved source hierarchy.
+- Colors and visual tokens: Lilac Soft holds the work area, Lime previews the deck output and Ink is reserved for the state-dependent project/create actions.
+- Image quality and asset fidelity: no image asset is required in this task. Upload and deck-preview symbols use the installed icon system rather than placeholder drawings.
+- Copy and content: labels explain the actual PPTX OOXML behavior, target-project selection and source-file constraint; the UI does not claim unsupported arbitrary document generation.
+
+### Interaction and findings
+
+- The existing target-project create/select, PPTX validation, upload, payload, job polling, failure and editor-navigation behavior remains intact.
+- The form now exposes `입력 → 구성 확인 → 생성`; the action label changes from `구성 확인` to `발표자료 생성 시작`, then `발표자료 생성 중...` without creating a second competing primary action.
+- Loading and API error content remains inside the same work surface. Mobile stacks the preview after the form and keeps the final action accessible without horizontal overflow.
+- `App.test.tsx`: 49 passed. Web TypeScript validation, production build and `git diff --check` passed. The existing large-bundle warning remains.
+- No actionable P0/P1/P2 findings remain.
+
+final result: passed
+
 ## Production workspace and project hub T4 QA
 
 ### Source and implementation

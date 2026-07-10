@@ -22,6 +22,7 @@ import {
   deckRenderPayloadStorageKey,
   getGeneratedDeckProjectPath,
   getGeneratedDeckProjectTitle,
+  getCreateDeckPhaseActionLabel,
   getAiTemplateDeckGenerationJobResult,
   getGenerateDeckJobResult,
   buildHomeExtractFormData,
@@ -553,6 +554,12 @@ describe("reference extraction upload flow", () => {
 });
 
 describe("AI deck generation flow", () => {
+  it("uses the input, review, and generating action hierarchy", () => {
+    expect(getCreateDeckPhaseActionLabel("input", false)).toBe("구성 확인");
+    expect(getCreateDeckPhaseActionLabel("review", false)).toBe("발표자료 생성 시작");
+    expect(getCreateDeckPhaseActionLabel("review", true)).toBe("발표자료 생성 중...");
+  });
+
   it("builds a PPTX OOXML generation payload without old generate-deck fields", () => {
     expect(
       buildPptxOoxmlGenerationPayload({
