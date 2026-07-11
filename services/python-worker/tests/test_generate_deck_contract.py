@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import app.main as api_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
@@ -2770,6 +2771,31 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
                             "strokeWidth": 2,
                         },
                     },
+                    {
+                        "elementId": "el_image",
+                        "type": "image",
+                        "role": "media",
+                        "x": 1120,
+                        "y": 320,
+                        "width": 480,
+                        "height": 270,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 3,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "src": (
+                                "data:image/png;base64,"
+                                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC"
+                                "AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+                            ),
+                            "alt": "Product visual",
+                            "fit": "contain",
+                            "focusX": 0.5,
+                            "focusY": 0.5,
+                        },
+                    },
                 ],
                 "keywords": [],
                 "animations": [],
@@ -2791,6 +2817,10 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
     assert response.warnings == []
     assert text_shapes[0].text_frame.word_wrap is True
     assert text_shapes[0].text_frame.paragraphs[0].font.size.pt == 22
+    assert any(
+        shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+        for shape in presentation.slides[0].shapes
+    )
 
 
 def test_export_deck_pptx_preserves_more_than_twenty_editor_slides() -> None:
