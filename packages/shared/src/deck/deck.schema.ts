@@ -190,7 +190,17 @@ export const slideVisualPlanSchema = z.object({
   visualType: z.string().min(1),
   imageNeeded: z.boolean().default(false),
   imageSourcePolicy: z.string().min(1).default("minimal"),
-  reason: z.string().min(1)
+  reason: z.string().min(1),
+  asset: z
+    .object({
+      fileId: z.string().min(1),
+      provider: z.string().min(1),
+      sourceUrl: z.string().url().optional(),
+      author: z.string().min(1).optional(),
+      license: z.string().min(1).optional(),
+      checkedAt: z.string().datetime().optional()
+    })
+    .optional()
 });
 
 export const slideSourceLedgerSchema = z.object({

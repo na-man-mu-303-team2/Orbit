@@ -20,6 +20,7 @@ import type { DataSource } from "typeorm";
 import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
 import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
+import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
 import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
@@ -91,6 +92,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           storage,
           this.config.PYTHON_WORKER_URL,
           job.data,
+          createImageAssetRuntime(this.config),
         ),
       ),
       this.createWorker(deckExportQueueName, (job) =>

@@ -18,13 +18,23 @@ import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import {
+  resolveDeckImageAssets,
+  type ImageAssetRuntime
+} from "./image-asset-pipeline";
 
 const generateDeckPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
   request: generateDeckRequestSchema,
   designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  brandKitSnapshot: brandKitSnapshotSchema.optional()
+  brandKitSnapshot: brandKitSnapshotSchema.optional(),
+  imageAssetScope: z
+    .object({
+      userId: z.string().min(1),
+      organizationId: z.string().min(1).optional()
+    })
+    .optional()
 });
 
 const designImportResponseSchema = z.object({
@@ -95,7 +105,8 @@ export async function processGenerateDeckJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown
+  rawPayload: unknown,
+  imageRuntime?: ImageAssetRuntime
 ): Promise<Job> {
   const payloadResult = generateDeckPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -208,16 +219,41 @@ export async function processGenerateDeckJob(
         }
       );
     }
-    const deck = markDeckForInitialThumbnailRefresh(
+    let deck = markDeckForInitialThumbnailRefresh(
       workerPayload.deck,
       payload.designPackSnapshot,
       payload.brandKitSnapshot
     );
+    let imageWarnings: string[] = [];
+    if (
+      imageRuntime &&
+      payload.imageAssetScope &&
+      payload.request.generationMode === "design-pack"
+    ) {
+      try {
+        const resolvedImages = await resolveDeckImageAssets(
+          dataSource,
+          storage,
+          deck,
+          imageRuntime,
+          payload.imageAssetScope
+        );
+        deck = resolvedImages.deck;
+        imageWarnings = resolvedImages.warnings;
+      } catch (error) {
+        imageWarnings = [
+          `Image asset pipeline fallback retained placeholders: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`
+        ];
+      }
+    }
 
     await saveDeck(dataSource, deck);
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
+      warnings: [...workerPayload.warnings, ...imageWarnings],
       deck
     });
 

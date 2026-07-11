@@ -82,7 +82,17 @@ export class GenerateDeckService {
       payload: {
         request,
         ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {})
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId,
+                ...(brandResolved.snapshot
+                  ? { organizationId: brandResolved.snapshot.organizationId }
+                  : {})
+              }
+            }
+          : {})
       }
     });
 
@@ -94,7 +104,17 @@ export class GenerateDeckService {
         projectId,
         request,
         ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {})
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId,
+                ...(brandResolved.snapshot
+                  ? { organizationId: brandResolved.snapshot.organizationId }
+                  : {})
+              }
+            }
+          : {})
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {

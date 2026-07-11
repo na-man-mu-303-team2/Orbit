@@ -2,9 +2,13 @@ import type { StoragePort } from "@orbit/storage";
 import type { Deck, Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processDeckExportJob } from "./deck-export.processor";
+import {
+  embedDeckImageAssets,
+  processDeckExportJob
+} from "./deck-export.processor";
 
-const storage: Pick<StoragePort, "putObject"> = {
+const storage: Pick<StoragePort, "putObject" | "getSignedReadUrl"> = {
+  getSignedReadUrl: vi.fn(async () => "http://storage.local/image.png"),
   putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
     key: input.key,
     url: "http://storage.local/export.pptx",
@@ -87,6 +91,62 @@ describe("processDeckExportJob", () => {
       format: "pptx",
       warnings: [],
     });
+  });
+
+  it("embeds internal image assets only in the PPTX export payload", async () => {
+    const deck = createDeck();
+    deck.slides[0].elements.push({
+      elementId: "el_image",
+      type: "image",
+      role: "media",
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 240,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 2,
+      locked: false,
+      visible: true,
+      props: {
+        src: "/api/v1/projects/project-a/assets/file_image/content",
+        alt: "Product",
+        fit: "cover",
+        focusX: 0.5,
+        focusY: 0.5
+      }
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" }
+        })
+      )
+    );
+    const query = vi.fn(async () => [
+      {
+        file_id: "file_image",
+        storage_key: "projects/project-a/assets/file_image.png",
+        mime_type: "image/png"
+      }
+    ]);
+
+    const embedded = await embedDeckImageAssets(
+      { query } as unknown as DataSource,
+      storage,
+      "project-a",
+      deck
+    );
+    const image = embedded.slides[0].elements.find(
+      (element) => element.type === "image"
+    );
+
+    expect(image?.props.src).toBe("data:image/png;base64,AQID");
+    expect(deck.slides[0].elements.find((element) => element.type === "image")?.props.src).toBe(
+      "/api/v1/projects/project-a/assets/file_image/content"
+    );
   });
 });
 

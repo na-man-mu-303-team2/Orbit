@@ -28,6 +28,7 @@ import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/20260
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 import { CreateSavedDesignPacks2026071101000 } from "./migrations/2026071101000-CreateSavedDesignPacks";
 import { CreateOrganizationsAndBrandKits2026071102000 } from "./migrations/2026071102000-CreateOrganizationsAndBrandKits";
+import { AddImageAssetProvenance2026071103000 } from "./migrations/2026071103000-AddImageAssetProvenance";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -67,7 +68,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateProjectRehearsalSummaries2026070801000,
     ReplaceRehearsalSummaryWithProjectComment2026070802000,
     CreateSavedDesignPacks2026071101000,
-    CreateOrganizationsAndBrandKits2026071102000
+    CreateOrganizationsAndBrandKits2026071102000,
+    AddImageAssetProvenance2026071103000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

@@ -1,5 +1,7 @@
 import { Deck, RehearsalMetrics } from "@orbit/shared";
 
+export * from "./image-providers";
+
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -30,6 +32,32 @@ export interface DeckGenerationProvider {
     referenceText: string;
     title: string;
   }): Promise<Deck>;
+}
+
+export type ImageAssetCandidate = {
+  body: Uint8Array;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  fileName: string;
+  provider: string;
+  sourceUrl?: string;
+  author?: string;
+  license?: string;
+  checkedAt?: string;
+  generationPrompt?: string;
+};
+
+export interface GeneratedImageProvider {
+  generate(input: {
+    prompt: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ImageAssetCandidate>;
+}
+
+export interface PublicImageSearchProvider {
+  search(input: {
+    query: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ImageAssetCandidate>;
 }
 
 export interface RehearsalAnalyzer {

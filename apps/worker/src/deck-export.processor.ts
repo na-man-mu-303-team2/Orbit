@@ -40,7 +40,7 @@ const pptxMimeType =
 
 export async function processDeckExportJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "putObject">,
+  storage: Pick<StoragePort, "putObject" | "getSignedReadUrl">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
 ): Promise<Job> {
@@ -74,10 +74,16 @@ export async function processDeckExportJob(
 
   let response: Response;
   try {
+    const exportDeck = await embedDeckImageAssets(
+      dataSource,
+      storage,
+      payload.projectId,
+      payload.deck
+    );
     response = await fetch(workerUrl(pythonWorkerUrl, "/ai/export-deck-pptx"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deck: payload.deck, format: payload.format }),
+      body: JSON.stringify({ deck: exportDeck, format: payload.format }),
       signal: AbortSignal.timeout(120_000),
     });
   } catch (error) {
@@ -129,6 +135,64 @@ export async function processDeckExportJob(
         : "Python worker returned invalid deck export response.",
     );
   }
+}
+
+export async function embedDeckImageAssets(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  projectId: string,
+  deck: z.infer<typeof deckSchema>
+) {
+  const fileIds = Array.from(
+    new Set(
+      deck.slides.flatMap((slide) =>
+        slide.elements.flatMap((element) => {
+          if (element.type !== "image") return [];
+          const fileId = internalAssetFileId(element.props.src, projectId);
+          return fileId ? [fileId] : [];
+        })
+      )
+    )
+  );
+  if (fileIds.length === 0) return deck;
+
+  const rows = (await dataSource.query(
+    `
+      SELECT file_id, storage_key, mime_type
+      FROM project_assets
+      WHERE project_id = $1
+        AND file_id = ANY($2)
+        AND status = 'uploaded'
+    `,
+    [projectId, fileIds]
+  )) as Array<{ file_id: string; storage_key: string; mime_type: string }>;
+  const dataUrls = new Map<string, string>();
+  for (const row of rows) {
+    const readUrl = await storage.getSignedReadUrl(row.storage_key);
+    const response = await fetch(readUrl);
+    if (!response.ok) continue;
+    const content = Buffer.from(await response.arrayBuffer()).toString("base64");
+    dataUrls.set(row.file_id, `data:${row.mime_type};base64,${content}`);
+  }
+
+  return deckSchema.parse({
+    ...deck,
+    slides: deck.slides.map((slide) => ({
+      ...slide,
+      elements: slide.elements.map((element) => {
+        if (element.type !== "image") return element;
+        const fileId = internalAssetFileId(element.props.src, projectId);
+        const src = fileId ? dataUrls.get(fileId) : undefined;
+        return src ? { ...element, props: { ...element.props, src } } : element;
+      })
+    }))
+  });
+}
+
+function internalAssetFileId(src: string, projectId: string) {
+  const match = src.match(/^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/);
+  if (!match || decodeURIComponent(match[1]) !== projectId) return null;
+  return decodeURIComponent(match[2]);
 }
 
 async function saveExportFile(

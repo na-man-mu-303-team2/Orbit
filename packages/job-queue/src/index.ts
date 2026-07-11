@@ -90,6 +90,10 @@ export interface GenerateDeckBullMqPayload {
   request: GenerateDeckRequest;
   designPackSnapshot?: SavedDesignPackSnapshot;
   brandKitSnapshot?: BrandKitSnapshot;
+  imageAssetScope?: {
+    userId: string;
+    organizationId?: string;
+  };
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
@@ -232,6 +236,7 @@ export async function enqueueGenerateDeckJob(
         ? { designPackSnapshot: input.designPackSnapshot }
         : {}),
       ...(input.brandKitSnapshot ? { brandKitSnapshot: input.brandKitSnapshot } : {}),
+      ...(input.imageAssetScope ? { imageAssetScope: input.imageAssetScope } : {}),
     } satisfies GenerateDeckBullMqPayload);
   } finally {
     await queue.close();

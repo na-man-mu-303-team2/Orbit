@@ -723,6 +723,27 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - `packages/shared/src/projects/organization.schema.ts`
 - `packages/shared/src/deck/brand-kit.schema.ts`
 
+### AI PPT 이미지 asset 계약
+
+`design-pack` 생성에서 `mediaPolicy`가 `ai-generated` 또는 `public-assets`이고 `visualPlan.imageNeeded=true`인 슬라이드만 실제 이미지 asset 후보가 된다.
+
+- AI 생성 provider와 공개 이미지 검색 provider는 `@orbit/ai` interface 뒤에 둔다.
+- 생성·검색 결과는 MIME, byte size, 공개 이미지 source URL과 license를 검증한 뒤 기존 `StoragePort`에 `design-asset`으로 저장한다.
+- `project_assets`에는 provider, source URL, author, license, 확인 시각, 생성 prompt와 비용 scope를 기록한다.
+- Deck의 placeholder는 내부 `/api/v1/projects/:projectId/assets/:fileId/content` URL을 쓰는 editable image element로 교체한다.
+- `aiNotes.visualPlan.asset`에는 file ID와 공개 가능한 provenance를 기록한다.
+- provider timeout, 제한된 재시도 실패, deck·user·organization 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
+- 기본 한도는 deck 4개, user 일 30개, organization 일 100개이며 환경변수로 조정한다.
+- PPTX export worker는 저장된 내부 image asset을 일시적인 data URL로 hydrate해 Python exporter에 전달한다. 원본 Deck JSON의 내부 URL은 변경하지 않는다.
+- Side AI는 구조화 capability 상태를 받아 실제 provider가 사용 가능한 경우에만 실제 이미지 삽입을 안내한다.
+
+구현 위치:
+
+- `packages/ai/src/image-providers.ts`
+- `apps/worker/src/image-asset-pipeline.ts`
+- `apps/worker/src/deck-export.processor.ts`
+- `apps/api/src/database/migrations/2026071103000-AddImageAssetProvenance.ts`
+
 ## PPTX import, Template Blueprint, Quality Report 계약
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
