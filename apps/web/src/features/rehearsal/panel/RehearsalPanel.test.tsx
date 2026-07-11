@@ -20,6 +20,18 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("WPM");
   });
 
+  it("marks unmatched keywords as currently unmentioned before slide exit", () => {
+    const html = renderPanel({
+      snapshot: {
+        ...snapshot,
+        hitKeywordIds: [],
+        provisionalMissingKeywordIds: []
+      }
+    });
+
+    expect(html).toContain("미언급");
+  });
+
   it("hides rehearsal-only advice in live mode without adding a mode toggle", () => {
     const html = renderPanel({ mode: "live" });
 
