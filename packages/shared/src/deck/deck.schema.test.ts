@@ -232,6 +232,26 @@ describe("deckSchema validation", () => {
     expectValidDeck(createValidDeck());
   });
 
+  it("accepts decks with more than 20 editor-managed slides", () => {
+    const deck = createValidDeck();
+    const templateSlide = deck.slides[0];
+
+    deck.slides = Array.from({ length: 21 }, (_, index) => ({
+      ...templateSlide,
+      slideId: `slide_${index + 1}`,
+      order: index + 1,
+      title: `Slide ${index + 1}`,
+      elements: templateSlide.elements.map((element) => ({
+        ...element,
+        elementId: `el_${index + 1}`
+      })),
+      animations: [],
+      actions: []
+    }));
+
+    expect(deckSchema.parse(deck).slides).toHaveLength(21);
+  });
+
   it("defaults deck targetDurationMinutes to the generation request default", () => {
     const deck = deckSchema.parse(createValidDeck());
 

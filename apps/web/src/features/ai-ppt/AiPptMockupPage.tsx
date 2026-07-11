@@ -1288,7 +1288,7 @@ function parsePositiveInteger(value: string, fallback: number) {
 function resolveSlideCountRange(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
   if (requested > 0) {
-    return { min: Math.max(1, requested - 2), max: requested + 2 };
+    return { min: Math.max(1, requested - 2), max: Math.min(20, requested + 2) };
   }
   const derived = deriveSlideCountFromState(state);
   return { min: derived, max: derived };

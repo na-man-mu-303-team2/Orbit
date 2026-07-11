@@ -141,6 +141,32 @@ describe("AI PPT wizard payload", () => {
     expect(payload.slideCountRange).toEqual({ min: 1, max: 3 });
   });
 
+  it.each([
+    ["19", { min: 17, max: 20 }],
+    ["20", { min: 18, max: 20 }]
+  ])("keeps a %s-slide request within the valid upper bound", (slides, expected) => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Large deck",
+        purpose: "Detailed review",
+        context: "workshop",
+        audience: "team",
+        presentationType: "training",
+        successCriteria: "shared understanding",
+        duration: "20",
+        slides,
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual(expected);
+  });
+
   it("derives design-pack constraints and slide count from natural language intent", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {

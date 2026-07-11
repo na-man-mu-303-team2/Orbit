@@ -2793,6 +2793,33 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
     assert text_shapes[0].text_frame.paragraphs[0].font.size.pt == 22
 
 
+def test_export_deck_pptx_preserves_more_than_twenty_editor_slides() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Editor slide limit contract",
+            generationMode="design-pack",
+            slideCountRange={"min": 8, "max": 8},
+        )
+    ).deck
+    template_slide = deck["slides"][0]
+    deck["slides"] = []
+
+    for index in range(21):
+        slide = deepcopy(template_slide)
+        slide["slideId"] = f"slide_{index + 1}"
+        slide["order"] = index + 1
+        slide["title"] = f"Slide {index + 1}"
+        for element_index, element in enumerate(slide["elements"]):
+            element["elementId"] = f"el_{index + 1}_{element_index + 1}"
+        deck["slides"].append(slide)
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+
+    assert len(presentation.slides) == 21
+
+
 def test_generate_deck_endpoint_uses_payload_image_review_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
