@@ -3573,16 +3573,38 @@ def fit_grounded_speaker_note_candidates(
 def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
     target = slide_plan.target_speaker_notes_chars
     actual = count_speaker_note_chars(slide_plan.speaker_notes)
-    if target <= 0 or actual <= round(target * 1.1):
+    minimum_chars = round(target * 0.9)
+    maximum_chars = round(target * 1.1)
+    if target <= 0 or actual <= maximum_chars:
         return
     compacted = fit_grounded_speaker_note_candidates(
         speaker_note_fragments(slide_plan.speaker_notes),
-        minimum_chars=round(target * 0.9),
-        preferred_max_chars=round(target * 1.1),
+        minimum_chars=minimum_chars,
+        preferred_max_chars=maximum_chars,
     )
     compacted_chars = count_speaker_note_chars(compacted)
-    if round(target * 0.9) <= compacted_chars < actual:
+    if minimum_chars <= compacted_chars <= maximum_chars and compacted_chars < actual:
         slide_plan.speaker_notes = compacted
+        return
+    trim_source = compacted if compacted_chars >= minimum_chars else slide_plan.speaker_notes
+    trimmed = trim_speaker_notes_to_chars(
+        trim_source,
+        maximum_chars,
+    )
+    if minimum_chars <= count_speaker_note_chars(trimmed) < actual:
+        slide_plan.speaker_notes = trimmed
+
+
+def trim_speaker_notes_to_chars(text: str, maximum_chars: int) -> str:
+    words = text.split()
+    while words and count_speaker_note_chars(" ".join(words)) > maximum_chars:
+        words.pop()
+    trimmed = " ".join(words).rstrip(" ,;:")
+    if trimmed and trimmed[-1] not in ".!?":
+        candidate = f"{trimmed}."
+        if count_speaker_note_chars(candidate) <= maximum_chars:
+            trimmed = candidate
+    return trimmed
 
 
 def speaker_note_sentence(text: str) -> str:
@@ -6568,7 +6590,10 @@ def fit_design_pack_recipe_to_media_frame(
     if not media_intent_needs_slot(slide_plan.media_intent):
         return
 
-    if slide_plan.slide_type in {"title", "cover"}:
+    if any(
+        "_cover_trust_signal_panel" in str(element.get("elementId", ""))
+        for element in elements
+    ):
         fit_design_pack_cover_to_media_frame(elements)
         return
 

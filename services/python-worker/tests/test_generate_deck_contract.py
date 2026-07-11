@@ -768,6 +768,24 @@ def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
     assert slide.speaker_notes.count("Distinct evidence sentence") == 4
 
 
+def test_dense_single_sentence_speaker_notes_are_trimmed_to_upper_bound() -> None:
+    slide = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Dense single sentence",
+        message="Evidence supports the decision.",
+        speaker_notes=" ".join(f"evidence-{index}" for index in range(40)),
+        keywords=[],
+        evidence=[],
+        target_speaker_notes_chars=170,
+    )
+
+    compact_dense_speaker_notes(slide)
+
+    compacted_chars = len("".join(slide.speaker_notes.split()))
+    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
+
+
 def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -4790,7 +4808,7 @@ def test_generate_deck_preserves_media_intent_for_image_provider() -> None:
                         "communication rituals, and measurable outcomes that support both "
                         "work modes without interrupting concentration or delaying decisions."
                     ),
-                    slide_type="cover",
+                    slide_type="problem",
                     slot_preset="title_left_visual_right",
                     media_intent={
                         "kind": "generate",
@@ -4845,6 +4863,13 @@ def test_generate_deck_preserves_media_intent_for_image_provider() -> None:
     assert placeholder["x"] == 1114
     assert placeholder["width"] == 686
     assert placeholder["height"] >= 560
+    title = element_by_id(response.deck["slides"][0], "el_1_title")
+    label = element_by_id(
+        response.deck["slides"][0],
+        "el_1_cover_summary_card_1_label",
+    )
+    assert title["width"] == 970
+    assert label["x"] == 152
 
 
 def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
