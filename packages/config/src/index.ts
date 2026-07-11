@@ -180,11 +180,17 @@ const localDefaults = {
   S3_BUCKET: "orbit-local"
 } as const;
 
+const defaultApiJsonBodyLimitBytes = 5_000_000;
+
 export const orbitEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
   APP_ENV: appEnvSchema,
   WEB_PORT: requiredPort("WEB_PORT"),
   API_PORT: requiredPort("API_PORT"),
+  API_JSON_BODY_LIMIT_BYTES: optionalPositiveInteger(
+    "API_JSON_BODY_LIMIT_BYTES",
+    defaultApiJsonBodyLimitBytes
+  ),
   WORKER_PORT: requiredPort("WORKER_PORT"),
   PYTHON_WORKER_PORT: requiredPort("PYTHON_WORKER_PORT"),
   WEB_ORIGIN: requiredUrl("WEB_ORIGIN"),

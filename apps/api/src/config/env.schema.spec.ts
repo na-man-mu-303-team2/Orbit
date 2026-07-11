@@ -6,6 +6,7 @@ const validEnv = {
   APP_ENV: "local",
   WEB_PORT: "5173",
   API_PORT: "3000",
+  API_JSON_BODY_LIMIT_BYTES: "5000000",
   WORKER_PORT: "3001",
   PYTHON_WORKER_PORT: "8000",
   WEB_ORIGIN: "http://localhost:5173",
@@ -126,14 +127,31 @@ describe("ORBIT env validation", () => {
     const env = { ...validEnv } as Partial<typeof validEnv>;
     delete env.LOG_LEVEL;
     delete env.LOG_PRETTY;
+    delete env.API_JSON_BODY_LIMIT_BYTES;
 
     expect(loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" })).toMatchObject({
+      API_JSON_BODY_LIMIT_BYTES: 5000000,
       LOG_LEVEL: "info",
       LOG_PRETTY: false
     });
     expect(() =>
       loadOrbitConfig({ ...validEnv, LOG_LEVEL: "verbose" }, { service: "api" })
     ).toThrow(/LOG_LEVEL/);
+  });
+
+  it("validates API JSON body limit", () => {
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, API_JSON_BODY_LIMIT_BYTES: "1000000" },
+        { service: "api" }
+      ).API_JSON_BODY_LIMIT_BYTES
+    ).toBe(1000000);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, API_JSON_BODY_LIMIT_BYTES: "0" },
+        { service: "api" }
+      )
+    ).toThrow(/API_JSON_BODY_LIMIT_BYTES/);
   });
 
   it("keeps live STT and report STT provider contracts separate", () => {

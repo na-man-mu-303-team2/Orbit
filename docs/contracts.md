@@ -388,6 +388,18 @@ Semantic Cue cascade 규칙:
 - `delete_element`는 `targetElementIds`와 같은 element를 가리키는 `sourceRefs`를 제거하고, `delete_slide_action` 및 연쇄 삭제된 action은 `triggerActionIds`에서 제거한다.
 - element/action reference가 제거된 cue는 stale이 되며, 최종 Deck은 다시 `deckSchema`로 검증한다.
 
+Semantic Cue extraction 동시성 계약:
+
+- public request는 `{ deckId?, force }`를 유지하고 `baseVersion`은 client 입력으로 받지 않는다.
+- API는 enqueue transaction에서 deck row와 pending patch를 잠그고 patch를 replay한 checkpoint를 저장한 뒤, queue payload의 `request.baseVersion`에 materialized deck version을 고정한다.
+- queue payload는 `{ jobId, projectId, request: { deckId, force, baseVersion } }` 구조를 사용한다.
+- extraction slide result는 `succeeded | skipped | failed` 상태와 `semanticCues`, `warnings`를 포함하며 전체 result는 `sourceDeckVersion`을 포함한다.
+- worker는 `succeeded` slide만 병합하고 skipped/failed/누락 slide의 기존 Cue를 보존한다.
+- `force=false`는 manual/approved Cue 및 current imported Cue를 보존하고 stale 또는 AI suggested 후보만 교체한다. `force=true`도 manual/approved Cue는 보존한다.
+- 저장은 deck `version=baseVersion`이고 `after_version > baseVersion`인 pending patch가 없을 때만 성공하는 compare-and-set을 사용한다.
+- compare-and-set이 실패하면 job을 `SEMANTIC_CUE_DECK_VERSION_CONFLICT`로 종료하며 최신 사용자 편집을 덮어쓰지 않는다.
+- 업무 이벤트 `semantic_cue.extraction.queued|succeeded|failed|version_conflict`에는 ID, version, count, reason만 기록하고 Cue 문구나 speaker notes는 기록하지 않는다.
+
 patch 적용 규칙:
 
 - `update_theme`, `update_slide_style`, `update_element_frame`, `update_animation`은 전달된 필드만 기존 값에 병합한다.

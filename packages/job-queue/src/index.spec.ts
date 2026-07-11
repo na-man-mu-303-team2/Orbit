@@ -3,12 +3,15 @@ import {
   InMemoryJobQueue,
   aiTemplateDeckGenerationJobName,
   aiTemplateDeckGenerationQueueName,
+  enqueueSemanticCueExtractionJob,
   enqueueAiTemplateDeckGenerationJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
   enqueueWorkerHealthCheckJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
+  semanticCueExtractionJobName,
+  semanticCueExtractionQueueName,
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
@@ -163,6 +166,42 @@ describe("enqueueAiTemplateDeckGenerationJob", () => {
         topic: "ORBIT",
         assets: [{ fileId: "file_design", role: "design" }]
       })
+    });
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueSemanticCueExtractionJob", () => {
+  it("adds a semantic cue extraction job to BullMQ", async () => {
+    await enqueueSemanticCueExtractionJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-cues",
+      projectId: "project-a",
+      request: {
+        deckId: "deck_demo_1",
+        force: false,
+        baseVersion: 3
+      }
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      semanticCueExtractionQueueName,
+      {
+        connection: expect.objectContaining({
+          host: "localhost",
+          port: 6379
+        })
+      }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(semanticCueExtractionJobName, {
+      jobId: "job-semantic-cues",
+      projectId: "project-a",
+      request: {
+        deckId: "deck_demo_1",
+        force: false,
+        baseVersion: 3
+      }
     });
     expect(queueMock.close).toHaveBeenCalled();
   });

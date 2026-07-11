@@ -195,6 +195,8 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining('"reportId":"report_run-a"'),
         expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
         expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
+        expect.stringContaining('"utteranceOutcomes":[{"slideId":"slide_1","kind":"paraphrased","sentenceId":"sentence_1","similarity":0.93}]'),
+        expect.stringContaining('"semanticCueDecisions":[{"slideId":"slide_1","cueId":"scue_intro_1"'),
         expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
         false
       ])
@@ -222,7 +224,14 @@ describe("processRehearsalSttJob", () => {
                 ]
               },
               fillerWordDetails: [{ word: "음", count: 1 }],
-              pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }]
+              pauseDetails: [{ startSecond: 1, endSecond: 2.2, durationSeconds: 1.2 }],
+              semanticCueDecisions: [
+                expect.objectContaining({
+                  slideId: "slide_1",
+                  cueId: "scue_intro_1",
+                  label: "covered"
+                })
+              ]
             })
         }),
         null
@@ -821,7 +830,28 @@ function runMetaRow() {
         { slideId: "slide_2", enteredAt: "2026-06-27T00:00:45.000Z" }
       ],
       missedKeywords: [],
-      adviceEvents: []
+      adviceEvents: [],
+      utteranceOutcomes: [
+        {
+          slideId: "slide_1",
+          kind: "paraphrased",
+          sentenceId: "sentence_1",
+          similarity: 0.93
+        }
+      ],
+      semanticCueDecisions: [
+        {
+          slideId: "slide_1",
+          cueId: "scue_intro_1",
+          label: "covered",
+          provider: "mock",
+          finalScore: 0.91,
+          premise: "문제 정의를 설명했습니다.",
+          hypothesis: "문제 정의의 핵심 의미를 설명했다",
+          reasonCodes: ["semantic-cue-coverage-evidence"]
+        }
+      ],
+      semanticCapabilityEvents: []
     }
   };
 }

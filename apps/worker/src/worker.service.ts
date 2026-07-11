@@ -8,6 +8,7 @@ import {
   redisConnectionOptions,
   referenceExtractQueueName,
   rehearsalSttQueueName,
+  semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
@@ -27,6 +28,7 @@ import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 
@@ -39,6 +41,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     generateDeckQueueName,
     deckExportQueueName,
     aiTemplateDeckGenerationQueueName,
+    semanticCueExtractionQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
@@ -105,6 +108,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         processAiTemplateDeckGenerationJob(
           this.dataSource,
           storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(semanticCueExtractionQueueName, (job) =>
+        processSemanticCueExtractionJob(
+          this.dataSource,
           this.config.PYTHON_WORKER_URL,
           job.data,
         ),
@@ -225,6 +235,31 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
         "Job finished.",
       );
+      if (queueName === semanticCueExtractionQueueName) {
+        const versionConflict =
+          result.error?.code === "SEMANTIC_CUE_DECK_VERSION_CONFLICT";
+        const semanticEvent =
+          result.status === "succeeded"
+            ? "semantic_cue.extraction.succeeded"
+            : versionConflict
+              ? "semantic_cue.extraction.version_conflict"
+              : "semantic_cue.extraction.failed";
+        const semanticLevel =
+          result.status === "succeeded" ? "info" : versionConflict ? "warn" : "error";
+        this.logger[semanticLevel](
+          {
+            event: semanticEvent,
+            ...baseFields,
+            jobId: result.jobId,
+            jobType: result.type,
+            projectId: result.projectId,
+            status: result.status,
+            durationMs,
+            reason: result.error?.code,
+          },
+          "Semantic cue extraction finished.",
+        );
+      }
       return result;
     } catch (error) {
       this.logger.error(
@@ -243,12 +278,15 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
 function jobPayloadFields(data: unknown) {
   const payload = isRecord(data) ? data : {};
+  const request = isRecord(payload.request) ? payload.request : {};
   return {
     jobId: readString(payload, "jobId"),
     jobType: readString(payload, "type"),
     projectId: readString(payload, "projectId"),
     runId: readString(payload, "runId"),
-    deckId: readString(payload, "deckId"),
+    deckId: readString(payload, "deckId") ?? readString(request, "deckId"),
+    deckVersion: readNumber(request, "baseVersion"),
+    force: readBoolean(request, "force"),
     audioFileId: readString(payload, "audioFileId"),
     fileId: readString(payload, "fileId"),
     fileCount: Array.isArray(payload.files) ? payload.files.length : undefined,
@@ -284,6 +322,16 @@ function readNonNegativeNumber(value: Record<string, unknown>, key: string) {
 function readString(value: Record<string, unknown>, key: string) {
   const raw = value[key];
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
+function readNumber(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function readBoolean(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  return typeof raw === "boolean" ? raw : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

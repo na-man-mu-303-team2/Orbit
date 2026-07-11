@@ -7,12 +7,14 @@ import {
   generateDeckRequestSchema,
   aiTemplateDeckGenerationRequestSchema,
   jobSchema,
+  semanticCueExtractionJobPayloadSchema,
   nowIso,
   type AiTemplateDeckGenerationRequest,
   type Deck,
   type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
+  type SemanticCueExtractionJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -42,6 +44,8 @@ export const deckExportQueueName = "deck-export";
 export const deckExportJobName = "deck-export";
 export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
 export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
+export const semanticCueExtractionQueueName = "semantic-cue-extraction";
+export const semanticCueExtractionJobName = "semantic-cue-extraction";
 export const pptxImportQueueName = "pptx-import";
 export const pptxImportJobName = "pptx-import";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
@@ -110,6 +114,14 @@ export interface AiTemplateDeckGenerationBullMqPayload {
   projectId: string;
   request: AiTemplateDeckGenerationRequest;
 }
+
+export type SemanticCueExtractionBullMqPayload = SemanticCueExtractionJobPayload;
+
+export type EnqueueSemanticCueExtractionJobInput =
+  SemanticCueExtractionBullMqPayload & {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+};
 
 export interface EnqueueAiTemplateDeckGenerationJobInput
   extends AiTemplateDeckGenerationBullMqPayload {
@@ -270,6 +282,28 @@ export async function enqueueAiTemplateDeckGenerationJob(
       projectId: input.projectId,
       request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
     } satisfies AiTemplateDeckGenerationBullMqPayload);
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueSemanticCueExtractionJob(
+  input: EnqueueSemanticCueExtractionJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(semanticCueExtractionQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(semanticCueExtractionJobName, semanticCueExtractionJobPayloadSchema.parse({
+      jobId: input.jobId,
+      projectId: input.projectId,
+      request: input.request,
+    }));
   } finally {
     await queue.close();
   }
