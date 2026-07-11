@@ -59,6 +59,7 @@ import {
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { ReportMockupPage } from "./features/report-mockup/ReportMockupPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -213,6 +214,7 @@ export type Route =
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "report-mockup" }
+  | { name: "report-mockup-v2" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
   | { name: "deck-render" };
@@ -443,6 +445,7 @@ export function getRoute(
     return { name: "report-project-overview", projectId: decodeURIComponent(reportProjectMatch[1]) };
   }
   if (normalized === "/report_mockup") return { name: "report-mockup" };
+  if (normalized === "/report_mockup_v2") return { name: "report-mockup-v2" };
   if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
     return { name: "deck-render" };
   }
@@ -554,6 +557,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal-report" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
+    route.name !== "report-mockup-v2" &&
     route.name !== "audience-session" &&
     route.name !== "deck-render"
   );
@@ -623,6 +627,9 @@ function renderRoute(route: Route, user?: AuthUser) {
         runId={reportMockupRunId}
       />
     );
+  }
+  if (route.name === "report-mockup-v2") {
+    return <ReportMockupPage />;
   }
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
