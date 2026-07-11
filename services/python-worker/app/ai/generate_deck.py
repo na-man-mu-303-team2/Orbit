@@ -3456,12 +3456,16 @@ def merge_grounded_repair_notes(
 ) -> list[SlidePlan]:
     original_by_order = {slide.order: slide for slide in original_slide_plans}
     for repaired in repaired_slide_plans:
+        original = original_by_order.get(repaired.order)
+        if original is not None:
+            repaired.visual_intent = original.visual_intent
+            repaired.media_intent = original.media_intent
+
         target = repaired.target_speaker_notes_chars
         if target <= 0 or count_speaker_note_chars(repaired.speaker_notes) >= round(
             target * 0.9
         ):
             continue
-        original = original_by_order.get(repaired.order)
         candidates = speaker_note_fragments(repaired.speaker_notes)
         if original is not None:
             candidates.extend(speaker_note_fragments(original.speaker_notes))
@@ -4477,6 +4481,8 @@ def apply_design_pack_media_plan(
 
 
 def design_pack_media_score(slide_plan: SlidePlan, total_slides: int) -> int:
+    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
+        return 100
     if slide_plan.order == total_slides or slide_plan.slide_type in {
         "process",
         "comparison",
@@ -4484,8 +4490,6 @@ def design_pack_media_score(slide_plan: SlidePlan, total_slides: int) -> int:
         "architecture",
     }:
         return -1
-    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
-        return 100
 
     context = " ".join(
         [
@@ -5931,12 +5935,32 @@ def design_pack_visual_plan(
         "comparison_split": "comparison",
         "closing_summary": "summary",
     }.get(recipe, "layout")
-    return {
+    plan = {
         "visualType": visual_type,
         "imageNeeded": image_needed,
         "imageSourcePolicy": media_policy,
         "reason": visual_plan_reason(media_policy, image_needed, visual_type),
     }
+    image_prompt = " ".join(
+        part.strip()
+        for part in [
+            slide_plan.media_intent.prompt,
+            slide_plan.visual_intent.media_style,
+        ]
+        if part.strip()
+    )
+    image_alt = (
+        slide_plan.media_intent.alt.strip()
+        or slide_plan.media_intent.caption.strip()
+    )
+    image_placement = slide_plan.media_intent.placement.strip()
+    if image_prompt:
+        plan["imagePrompt"] = image_prompt
+    if image_alt:
+        plan["imageAlt"] = image_alt
+    if image_placement:
+        plan["imagePlacement"] = image_placement
+    return plan
 
 
 def visual_plan_reason(

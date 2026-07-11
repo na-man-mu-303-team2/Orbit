@@ -123,7 +123,11 @@ describe("image asset pipeline", () => {
     const result = await resolveDeckImageAssets(
       { query } as unknown as DataSource,
       { putObject } as Pick<StoragePort, "putObject">,
-      imageDeck("ai-generated"),
+      imageDeck("ai-generated", {
+        imagePrompt: "A focused hybrid workspace with calm editorial lighting",
+        imageAlt: "A hybrid team working in a focused workspace",
+        imagePlacement: "right"
+      }),
       {
         generated: { generate },
         maxPerDeck: 4,
@@ -134,6 +138,12 @@ describe("image asset pipeline", () => {
     );
 
     expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        prompt:
+          "A focused hybrid workspace with calm editorial lighting. Presentation visual, no text, clear focal subject."
+      })
+    );
     expect(putObject).toHaveBeenCalledOnce();
     expect(query.mock.calls[1]?.[0]).toContain("INSERT INTO project_assets");
     expect(result.warnings).toEqual([]);
@@ -142,6 +152,9 @@ describe("image asset pipeline", () => {
     );
     expect(image?.props.src).toMatch(
       /^\/api\/v1\/projects\/project_1\/assets\/file_.*\/content$/
+    );
+    expect(image?.type === "image" ? image.props.alt : "").toBe(
+      "A hybrid team working in a focused workspace"
     );
     expect(result.deck.slides[0].aiNotes?.visualPlan?.asset).toMatchObject({
       provider: "openai"
@@ -230,7 +243,10 @@ describe("image asset pipeline", () => {
   });
 });
 
-function imageDeck(policy: "ai-generated" | "public-assets") {
+function imageDeck(
+  policy: "ai-generated" | "public-assets",
+  visualPlan: Record<string, string> = {}
+) {
   return deckSchema.parse({
     deckId: "deck_1",
     projectId: "project_1",
@@ -276,7 +292,8 @@ function imageDeck(policy: "ai-generated" | "public-assets") {
             visualType: "image",
             imageNeeded: true,
             imageSourcePolicy: policy,
-            reason: "Show the product in use"
+            reason: "Show the product in use",
+            ...visualPlan
           }
         }
       }

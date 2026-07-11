@@ -191,6 +191,9 @@ export const slideVisualPlanSchema = z.object({
   imageNeeded: z.boolean().default(false),
   imageSourcePolicy: z.string().min(1).default("minimal"),
   reason: z.string().min(1),
+  imagePrompt: z.string().trim().min(1).optional(),
+  imageAlt: z.string().trim().min(1).optional(),
+  imagePlacement: z.string().trim().min(1).optional(),
   asset: z
     .object({
       fileId: z.string().min(1),

@@ -731,6 +731,9 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 
 `design-pack` 생성에서 `mediaPolicy`가 `ai-generated` 또는 `public-assets`이고 `visualPlan.imageNeeded=true`인 슬라이드만 실제 이미지 asset 후보가 된다.
 
+- `aiNotes.visualPlan.imagePrompt`, `imageAlt`, `imagePlacement`는 선택 필드다. Python content plan의 `mediaIntent`와 `visualIntent.mediaStyle`을 실제 이미지 provider와 최종 image element까지 전달한다.
+- 기존 Deck은 세 필드 없이 정상 parse되며, provider는 `imagePrompt`가 없을 때만 slide title과 `reason` 기반 prompt로 fallback한다.
+
 - AI 생성 provider와 공개 이미지 검색 provider는 `@orbit/ai` interface 뒤에 둔다.
 - 생성·검색 결과는 MIME, byte size, 공개 이미지 source URL과 license를 검증한 뒤 기존 `StoragePort`에 `design-asset`으로 저장한다.
 - `project_assets`에는 provider, source URL, author, license, 확인 시각, 생성 prompt와 비용 scope를 기록한다.

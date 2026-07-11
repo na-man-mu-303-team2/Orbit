@@ -449,7 +449,7 @@ function replaceSlideImagePlaceholder(
             y: Math.max(88, placeholder.y - Math.max(0, 180 - placeholder.height)),
             props: {
               src: url,
-              alt: plan?.reason ?? slide.title,
+              alt: plan?.imageAlt ?? plan?.reason ?? slide.title,
               fit: "cover" as const,
               focusX: 0.5,
               focusY: 0.5
@@ -480,7 +480,11 @@ function replaceSlideImagePlaceholder(
 }
 
 function imagePrompt(deck: Deck, slide: Slide) {
-  const reason = slide.aiNotes?.visualPlan?.reason ?? "support the key message";
+  const plan = slide.aiNotes?.visualPlan;
+  if (plan?.imagePrompt?.trim()) {
+    return `${plan.imagePrompt.trim()}. Presentation visual, no text, clear focal subject.`;
+  }
+  const reason = plan?.reason ?? "support the key message";
   return `${deck.title}. ${slide.title}. ${reason}. Presentation visual, no text, clear focal subject.`;
 }
 
@@ -521,6 +525,8 @@ function publicImageQueries(deck: Deck, slide: Slide) {
       summary: "business team success"
     }[visualType] ?? "professional business presentation";
   return [
+    slide.aiNotes?.visualPlan?.imagePrompt ?? "",
+    slide.aiNotes?.visualPlan?.imageAlt ?? "",
     slide.title,
     `${deck.title} ${slide.title}`,
     asciiKeywords ? `${asciiKeywords} ${visualType}` : "",

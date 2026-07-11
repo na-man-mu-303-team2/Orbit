@@ -4692,6 +4692,70 @@ def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
     assert not has_element(response.deck["slides"][0], "el_1_media_placeholder")
 
 
+def test_generate_deck_preserves_media_intent_for_image_provider() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Hybrid workspace",
+            "slides": [
+                slide_payload(
+                    "Focus and collaboration",
+                    "A hybrid workspace separates focus and collaboration zones.",
+                    (
+                        "Explain how the spatial strategy separates quiet focus work "
+                        "from live collaboration, then connect each zone to the team tools, "
+                        "communication rituals, and measurable outcomes that support both "
+                        "work modes without interrupting concentration or delaying decisions."
+                    ),
+                    slide_type="cover",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "A focused hybrid workspace with human collaboration",
+                        "alt": "Hybrid team workspace",
+                        "caption": "Focus and collaboration zones",
+                        "rationale": "Show the proposed work environment",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                    visual_intent={
+                        "emphasis": "workspace",
+                        "mood": "calm",
+                        "structure": "split",
+                        "paletteHint": "blue",
+                        "emphasisStyle": "editorial",
+                        "composition": "hero",
+                        "decorationDensity": "low",
+                        "mediaStyle": "clean editorial photography",
+                    },
+                    content_items=["Focus zone", "Collaboration zone"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Hybrid workspace",
+            prompt="Propose a workspace strategy.",
+            slideCountRange={"min": 1, "max": 1},
+            visualPlanPolicy={"mediaPolicy": "ai-generated"},
+            design={"mediaPolicy": "ai-generated"},
+        ),
+        client=fake_client,
+    )
+
+    visual_plan = response.deck["slides"][0]["aiNotes"]["visualPlan"]
+    assert visual_plan["imagePrompt"] == (
+        "A focused hybrid workspace with human collaboration "
+        "clean editorial photography"
+    )
+    assert visual_plan["imageAlt"] == "Hybrid team workspace"
+    assert visual_plan["imagePlacement"] == "right"
+
+
 def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     fake_client = FakeOpenAIClient(
         {

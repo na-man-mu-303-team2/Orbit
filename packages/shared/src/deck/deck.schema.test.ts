@@ -53,6 +53,9 @@ type DeckValidationInput = {
         imageNeeded: boolean;
         imageSourcePolicy: string;
         reason: string;
+        imagePrompt?: string;
+        imageAlt?: string;
+        imagePlacement?: string;
       };
       sourceLedger?: Array<{
         claim: string;
@@ -1087,7 +1090,10 @@ describe("deckSchema validation", () => {
         visualType: "diagram",
         imageNeeded: false,
         imageSourcePolicy: "minimal",
-        reason: "Shapes and typography explain the message."
+        reason: "Shapes and typography explain the message.",
+        imagePrompt: "A precise system diagram with a clear focal flow",
+        imageAlt: "System flow diagram",
+        imagePlacement: "right"
       },
       sourceLedger: [
         {
@@ -1127,6 +1133,11 @@ describe("deckSchema validation", () => {
     };
 
     expectValidDeck(deck);
+    expect(deckSchema.parse(deck).slides[0].aiNotes?.visualPlan).toMatchObject({
+      imagePrompt: "A precise system diagram with a clear focal flow",
+      imageAlt: "System flow diagram",
+      imagePlacement: "right"
+    });
   });
 
   it("defaults AI metadata design references to an empty list", () => {
