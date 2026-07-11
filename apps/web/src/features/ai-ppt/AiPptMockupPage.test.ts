@@ -81,8 +81,8 @@ describe("AI PPT wizard payload", () => {
         referencePolicy: "references-first"
       },
       slideCountRange: {
-        min: 8,
-        max: 8
+        min: 6,
+        max: 10
       },
       design: {
         stylePackId: "brandlogy-modern",
@@ -116,6 +116,29 @@ describe("AI PPT wizard payload", () => {
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
     expect(payload.referencePolicy).toBe("references-first");
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
+  });
+
+  it("keeps a one-slide request within the valid lower bound", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Short update",
+        purpose: "Share one update",
+        context: "standup",
+        audience: "team",
+        presentationType: "briefing",
+        successCriteria: "understand the update",
+        duration: "1",
+        slides: "1",
+        tone: "concise",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual({ min: 1, max: 3 });
   });
 
   it("derives design-pack constraints and slide count from natural language intent", () => {
