@@ -42,6 +42,7 @@ from app.ai.generate_deck import (
     design_pack_insight_elements,
     design_pack_items,
     design_pack_recipe_elements,
+    design_pack_recipe_variant_for,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
@@ -65,6 +66,8 @@ from app.ai.generate_deck import (
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
     speaker_note_fragments,
+    text_color_for_background,
+    contrast_ratio,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_content,
@@ -1047,6 +1050,52 @@ def test_single_insight_content_item_is_rendered_once() -> None:
     assert build_design_pack_content_manifest(slide_plan, elements)["item-1"] == [
         "el_2_insight_single_text"
     ]
+
+
+def test_single_insight_content_item_alternates_geometry() -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Single insight",
+        generationMode="design-pack",
+    )
+    raw_input = analyze_input(request)
+    even_plan = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Concept",
+        message="One concept",
+        speaker_notes="Explain the concept.",
+        keywords=[],
+        evidence=[],
+        content_items=[GeneratedContentItem(contentItemId="item-1", text="One concept")],
+    )
+    odd_plan = even_plan.model_copy(
+        update={
+            "order": 3,
+            "content_items": [
+                GeneratedContentItem(contentItemId="item-2", text="One example")
+            ],
+        }
+    )
+
+    assert design_pack_recipe_variant_for(raw_input, even_plan, "insight_evidence") == "insight_evidence"
+    assert design_pack_recipe_variant_for(raw_input, odd_plan, "insight_evidence") == "insight_callout"
+
+    theme = generate_deck(request).deck["theme"]
+    even_elements = design_pack_insight_elements(even_plan, theme, "insight_evidence")
+    odd_elements = design_pack_insight_elements(odd_plan, theme, "insight_callout")
+    assert element_by_id(
+        {"elements": even_elements}, "el_2_insight_single_block"
+    )["x"] != element_by_id(
+        {"elements": odd_elements}, "el_3_insight_single_block"
+    )["x"]
+
+
+def test_text_color_fallback_always_meets_contrast_floor() -> None:
+    background = "#4A7DBE"
+    foreground = text_color_for_background(background)
+
+    assert contrast_ratio(background, foreground) >= 4.5
 
 
 @pytest.mark.parametrize(

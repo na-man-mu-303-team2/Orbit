@@ -5448,12 +5448,15 @@ def is_neutral_color(color: str) -> bool:
 
 
 def text_color_for_background(color: str) -> str:
-    dark = "#111827"
-    light = "#f8fafc"
-    return (
-        dark
-        if contrast_ratio(color, dark) >= contrast_ratio(color, light)
-        else light
+    preferred = max(
+        ("#111827", "#f8fafc"),
+        key=lambda candidate: contrast_ratio(color, candidate),
+    )
+    if contrast_ratio(color, preferred) >= 4.5:
+        return preferred
+    return max(
+        ("#000000", "#FFFFFF"),
+        key=lambda candidate: contrast_ratio(color, candidate),
     )
 
 
@@ -6925,6 +6928,8 @@ def design_pack_recipe_variant_for(
             return "comparison_matrix"
         return "comparison_split"
     if recipe == "insight_evidence":
+        if design_pack_content_item_count(slide_plan) == 1:
+            return "insight_callout" if slide_plan.order % 2 == 1 else "insight_evidence"
         if slide_plan.evidence or raw_input.reference_context or slide_plan.order % 2 == 0:
             return "insight_evidence"
         return "insight_callout"
@@ -7433,6 +7438,11 @@ def design_pack_insight_elements(
     items = design_pack_items(slide_plan, "insight_evidence")
     if len(items) == 1:
         item = items[0]
+        offset_variant = variant == "insight_callout"
+        block_x = 360 if offset_variant else 120
+        block_width = 1210 if offset_variant else 1450
+        text_x = block_x + 54
+        text_width = block_width - 110
         return [
             design_pack_text(
                 slide_plan.order,
@@ -7453,9 +7463,9 @@ def design_pack_insight_elements(
                 slide_plan.order,
                 "insight_single_block",
                 "highlight",
-                120,
+                block_x,
                 292,
-                1450,
+                block_width,
                 380,
                 3,
                 colors["primary"],
@@ -7468,9 +7478,9 @@ def design_pack_insight_elements(
                     "insight_single_text",
                     "body",
                     item.text,
-                    174,
+                    text_x,
                     350,
-                    1340,
+                    text_width,
                     210,
                     5,
                     "#FFFFFF",
