@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createSpeechTracker } from "./speechTracker";
 
 describe("SpeechTracker", () => {
-  it("partial 전사는 정확 문장 진행만 갱신하고 키워드는 final에서 확정한다", () => {
+  it("partial 전사에서도 키워드를 즉시 체크하고 final 문장 진행과 함께 유지한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
       speakerNotes:
@@ -18,13 +18,12 @@ describe("SpeechTracker", () => {
       ]
     });
 
-    expect(
-      tracker.acceptResult({
+    const partialEvents = tracker.acceptResult({
         text: "오르빗 리허설 화면",
         isFinal: false,
         timestampMs: [0, 500]
-      })
-    ).toEqual(
+      });
+    expect(partialEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "sentence-covered",
@@ -33,9 +32,15 @@ describe("SpeechTracker", () => {
         })
       ])
     );
+    expect(partialEvents).toContainEqual({
+      type: "keyword-hit",
+      slideId: "slide_1",
+      keywordId: "kw_orbit",
+      atMs: 500
+    });
     expect(tracker.snapshot()).toMatchObject({
       effectiveCoverage: 0.5,
-      hitKeywordIds: []
+      hitKeywordIds: ["kw_orbit"]
     });
 
     const events = tracker.acceptResult({
@@ -44,12 +49,7 @@ describe("SpeechTracker", () => {
       timestampMs: [500, 1500]
     });
 
-    expect(events).toContainEqual({
-      type: "keyword-hit",
-      slideId: "slide_1",
-      keywordId: "kw_orbit",
-      atMs: 1500
-    });
+    expect(events.map((event) => event.type)).not.toContain("keyword-hit");
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 0.5,
       finalSentenceSpoken: false,
