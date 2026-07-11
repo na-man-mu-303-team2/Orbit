@@ -98,11 +98,17 @@ describe("semantic QA", () => {
         y: 88,
         width: 200,
         height: 64,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
         locked: true,
         visible: true,
         props: {
           src: `/api/v1/projects/project_1/assets/file_logo/content`,
-          alt: "ORBIT logo"
+          alt: "ORBIT logo",
+          fit: "contain",
+          focusX: 0.5,
+          focusY: 0.5
         }
       });
     }
