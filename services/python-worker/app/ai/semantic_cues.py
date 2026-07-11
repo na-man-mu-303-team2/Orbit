@@ -225,12 +225,16 @@ def extract_semantic_cues(
     if not should_retry_quality(first_warnings):
         return first
 
-    retry_input = {**llm_input, "qualityFeedback": first_warnings}
+    retry_input = {
+        **llm_input,
+        "qualityFeedback": first_warnings,
+        "qualityDetails": _result_quality_details(first),
+    }
     try:
         retried = _generate_results(payload, retry_input, client, model, api_key)
     except SemanticCueExtractionError:
         return first
-    if len(_result_warnings(retried)) <= len(first_warnings):
+    if _result_warning_score(retried) <= _result_warning_score(first):
         return retried
     return first
 
@@ -335,10 +339,10 @@ def _semantic_cues_from_llm(
 
     for cue in generated_cues:
         candidate_keywords = _compact_meaningful_phrases(
-            cue.candidate_keywords, max_items=6, max_length=80
+            cue.candidate_keywords, max_items=4, max_length=80
         )
         required_concepts = _compact_meaningful_phrases(
-            cue.required_concepts, max_items=8, max_length=80
+            cue.required_concepts, max_items=4, max_length=80
         )
         meaning = cue.meaning.strip()[:240]
         nli_hypotheses = _compact_texts(
@@ -364,6 +368,9 @@ def _semantic_cues_from_llm(
             )
             if key and values and _is_meaningful_phrase(key, max_length=80)
         }
+        negative_hints = _compact_texts(
+            cue.negative_hints, max_items=3, max_length=160
+        )
         target_element_ids = [
             element_id
             for element_id in _compact_texts(
@@ -384,7 +391,9 @@ def _semantic_cues_from_llm(
             meaning=meaning,
             candidate_keywords=candidate_keywords,
             aliases=aliases,
+            required_concepts=required_concepts,
             hypotheses=nli_hypotheses,
+            negative_hints=negative_hints,
             has_source_refs=bool(source_refs),
             image_source_unverified=image_source_unverified,
         )
@@ -409,9 +418,7 @@ def _semantic_cues_from_llm(
                 aliases=aliases,
                 requiredConcepts=required_concepts,
                 nliHypotheses=nli_hypotheses,
-                negativeHints=_compact_texts(
-                    cue.negative_hints, max_items=5, max_length=160
-                ),
+                negativeHints=negative_hints,
                 targetElementIds=target_element_ids,
                 triggerActionIds=[
                     action_id
@@ -714,6 +721,47 @@ def _result_warnings(result: SemanticCueExtractionResponse) -> list[str]:
             ),
         ]
     )
+
+
+def _result_quality_details(
+    result: SemanticCueExtractionResponse,
+) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for slide in result.slides:
+        for cue_index, cue in enumerate(slide.semantic_cues):
+            if not cue.quality_warnings:
+                continue
+            details.append(
+                {
+                    "slideId": slide.slide_id,
+                    "cueIndex": cue_index,
+                    "meaning": cue.meaning,
+                    "warnings": cue.quality_warnings,
+                }
+            )
+    return details
+
+
+def _result_warning_score(result: SemanticCueExtractionResponse) -> int:
+    weights = {
+        "inconsistent-numeric-claim": 8,
+        "hypothesis-missing-required-concept": 5,
+        "weak-negative-hint": 5,
+        "missing-technical-alias": 3,
+        "broad-cue": 3,
+        "slide-centric-hypothesis": 3,
+        "content-rich-slide-too-few-cues": 2,
+        "all-cues-priority-one": 1,
+    }
+    warnings = [
+        warning
+        for slide in result.slides
+        for warning in [
+            *slide.warnings,
+            *(warning for cue in slide.semantic_cues for warning in cue.quality_warnings),
+        ]
+    ]
+    return sum(weights.get(warning, 1) for warning in warnings)
 
 
 def _dedupe(values: list[str]) -> list[str]:

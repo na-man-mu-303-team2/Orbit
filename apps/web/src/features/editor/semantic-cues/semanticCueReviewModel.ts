@@ -321,6 +321,11 @@ const qualityWarningLabels: Record<string, string> = {
   "broad-cue": "한 메시지에 여러 주장이 섞여 있습니다.",
   "missing-technical-alias": "기술 용어의 발음·의미 별칭이 필요합니다.",
   "slide-centric-hypothesis": "발표자 중심 문장으로 다시 확인해야 합니다.",
+  "hypothesis-missing-required-concept":
+    "NLI 판단 문장에 필수 개념이 모두 포함되지 않았습니다.",
+  "inconsistent-numeric-claim":
+    "메시지와 NLI 판단 문장의 수치가 서로 일치하지 않습니다.",
+  "weak-negative-hint": "반대 의미 예시가 완전한 문장이 아니거나 구별력이 약합니다.",
   "ungrounded-source": "확인 가능한 원본 근거가 없습니다.",
   "image-source-unverified": "이미지 분석 근거가 확인되지 않았습니다.",
   "all-cues-priority-one": "모든 메시지가 핵심으로 제안되었습니다.",

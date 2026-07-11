@@ -8,6 +8,9 @@ SemanticCueQualityWarning = Literal[
     "broad-cue",
     "missing-technical-alias",
     "slide-centric-hypothesis",
+    "hypothesis-missing-required-concept",
+    "inconsistent-numeric-claim",
+    "weak-negative-hint",
     "ungrounded-source",
     "image-source-unverified",
     "all-cues-priority-one",
@@ -21,17 +24,41 @@ def cue_quality_warnings(
     meaning: str,
     candidate_keywords: list[str],
     aliases: dict[str, list[str]],
+    required_concepts: list[str],
     hypotheses: list[str],
+    negative_hints: list[str],
     has_source_refs: bool,
     image_source_unverified: bool,
 ) -> list[SemanticCueQualityWarning]:
     warnings: list[SemanticCueQualityWarning] = []
     if _looks_broad(meaning, hypotheses):
         warnings.append("broad-cue")
-    if _missing_technical_alias(candidate_keywords, aliases):
+    if _missing_technical_alias(
+        [*candidate_keywords, *required_concepts], aliases
+    ):
         warnings.append("missing-technical-alias")
     if any(not _is_speaker_centric(hypothesis) for hypothesis in hypotheses):
         warnings.append("slide-centric-hypothesis")
+    if any(
+        not _hypothesis_covers_required_concepts(
+            hypothesis, required_concepts, aliases
+        )
+        for hypothesis in hypotheses
+    ):
+        warnings.append("hypothesis-missing-required-concept")
+    if _has_conflicting_positive_numeric_claims(
+        [meaning, *candidate_keywords, *required_concepts, *hypotheses]
+    ):
+        warnings.append("inconsistent-numeric-claim")
+    if any(
+        not _is_speaker_centric(hint)
+        or not _negative_hint_has_cue_specific_overlap(
+            hint,
+            [meaning, *candidate_keywords, *required_concepts, *hypotheses],
+        )
+        for hint in negative_hints
+    ):
+        warnings.append("weak-negative-hint")
     if not has_source_refs:
         warnings.append("ungrounded-source")
     if image_source_unverified:
@@ -60,11 +87,50 @@ def should_retry_quality(warnings: list[str]) -> bool:
             "broad-cue",
             "missing-technical-alias",
             "slide-centric-hypothesis",
+            "hypothesis-missing-required-concept",
+            "inconsistent-numeric-claim",
+            "weak-negative-hint",
             "all-cues-priority-one",
             "content-rich-slide-too-few-cues",
         }
         for warning in warnings
     )
+
+
+def _has_conflicting_positive_numeric_claims(texts: list[str]) -> bool:
+    ratios: set[tuple[int, int]] = set()
+    for text in texts:
+        ratios.update(
+            (int(numerator), int(denominator))
+            for numerator, denominator in re.findall(
+                r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)", text
+            )
+        )
+        ratios.update(
+            (int(passed), int(total))
+            for total, passed in re.findall(
+                r"(?<!\d)(\d+)\s*개[^.\d]{0,24}?중\s*(\d+)\s*개", text
+            )
+        )
+    return len(ratios) > 1
+
+
+def _negative_hint_has_cue_specific_overlap(
+    hint: str, positive_texts: list[str]
+) -> bool:
+    normalized_hint = _normalize_for_coverage(hint)
+    tokens = {
+        token
+        for text in positive_texts
+        for token in re.findall(
+            r"[a-z0-9*_-]{2,}|[가-힣]{2,}", _normalize_for_coverage(text)
+        )
+        if token not in _GENERIC_NEGATIVE_HINT_TOKENS
+    }
+    overlaps = [token for token in tokens if token in normalized_hint]
+    return any(re.search(r"[a-z0-9*_-]", token) for token in overlaps) or len(
+        overlaps
+    ) >= 2
 
 
 def is_content_rich(*texts: str) -> bool:
@@ -101,7 +167,12 @@ def _looks_broad(meaning: str, hypotheses: list[str]) -> bool:
 def _missing_technical_alias(
     candidate_keywords: list[str], aliases: dict[str, list[str]]
 ) -> bool:
-    alias_terms = {term.casefold() for term, values in aliases.items() if values}
+    alias_terms = {
+        term.casefold()
+        for canonical, values in aliases.items()
+        if values
+        for term in (canonical, *values)
+    }
     return any(
         _is_technical_term(keyword) and keyword.casefold() not in alias_terms
         for keyword in candidate_keywords
@@ -112,6 +183,10 @@ def _is_technical_term(value: str) -> bool:
     return bool(
         re.search(r"\b[A-Z][A-Z0-9]{1,}\b", value)
         or re.search(r"[a-z]+_[a-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|\w+\(\)", value)
+        or re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*)+",
+            value.strip(),
+        )
         or (re.search(r"[A-Za-z]{3,}", value) and re.search(r"[가-힣]", value))
     )
 
@@ -121,3 +196,74 @@ def _is_speaker_centric(hypothesis: str) -> bool:
     return not normalized.startswith("이 슬라이드는") and bool(
         re.match(r"발표자(?:는|가|께서는)\s+.+", normalized)
     )
+
+
+def _hypothesis_covers_required_concepts(
+    hypothesis: str,
+    required_concepts: list[str],
+    aliases: dict[str, list[str]],
+) -> bool:
+    if not required_concepts:
+        return True
+    normalized_hypothesis = _normalize_for_coverage(hypothesis)
+    covered = 0
+    for concept in required_concepts:
+        terms = [concept, *aliases.get(concept, [])]
+        if any(
+            _term_has_distinctive_overlap(normalized_hypothesis, term)
+            for term in terms
+        ):
+            covered += 1
+    return covered / len(required_concepts) >= 0.8
+
+
+def _term_has_distinctive_overlap(hypothesis: str, term: str) -> bool:
+    normalized_term = _normalize_for_coverage(term)
+    if normalized_term and normalized_term in hypothesis:
+        return True
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9_-]{2,}|[가-힣]{2,}", normalized_term)
+        if token not in _GENERIC_CONCEPT_TOKENS
+    ]
+    return bool(tokens) and any(token in hypothesis for token in tokens)
+
+
+def _normalize_for_coverage(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold()).strip()
+
+
+_GENERIC_CONCEPT_TOKENS = {
+    "결과",
+    "관계",
+    "도입",
+    "문제",
+    "방식",
+    "설명",
+    "원인",
+    "의미",
+    "이유",
+    "필요",
+    "효과",
+    "개선",
+}
+
+
+_GENERIC_NEGATIVE_HINT_TOKENS = {
+    "과제",
+    "과정",
+    "내용",
+    "다른",
+    "말했다",
+    "문제",
+    "발표자가",
+    "발표자는",
+    "설명했다",
+    "언급했다",
+    "이번",
+    "이야기한다",
+    "주제나",
+    "진행",
+    "프로젝트",
+    "공유한다",
+}

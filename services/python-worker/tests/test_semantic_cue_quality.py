@@ -6,6 +6,87 @@ from app.ai.semantic_cues import (
     _llm_input_payload,
     extract_semantic_cues,
 )
+from app.ai.semantic_cue_quality import cue_quality_warnings
+
+
+def test_quality_validator_rejects_empty_aliases_split_hypotheses_and_fragment_hints() -> None:
+    warnings = cue_quality_warnings(
+        meaning="PintOS의 Fake Return Address 필요성과 의미를 설명한다",
+        candidate_keywords=["Fake Return Address", "Entry Point"],
+        aliases={},
+        required_concepts=["가짜 복귀 주소", "스택 프레임", "프로그램 시작점"],
+        hypotheses=[
+            "발표자는 유저 프로세스에 가짜 복귀 주소가 필요하다고 설명했다",
+            "발표자는 스택 프레임 규격을 설명했다",
+        ],
+        negative_hints=["실제 CALL 명령어와 동일 처리"],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert set(warnings) >= {
+        "missing-technical-alias",
+        "hypothesis-missing-required-concept",
+        "weak-negative-hint",
+    }
+
+
+def test_quality_validator_accepts_english_terms_as_alias_values_of_canonical_concepts() -> None:
+    warnings = cue_quality_warnings(
+        meaning="PintOS의 가짜 복귀 주소가 스택 프레임 규격을 유지하는 이유를 설명한다",
+        candidate_keywords=["Fake Return Address"],
+        aliases={
+            "가짜 복귀 주소": ["Fake Return Address", "페이크 리턴 어드레스"],
+            "프로그램 시작점": ["Entry Point", "엔트리 포인트"],
+        },
+        required_concepts=["가짜 복귀 주소", "스택 프레임", "프로그램 시작점"],
+        hypotheses=[
+            "발표자는 프로그램 시작점에는 호출자가 없어 가짜 복귀 주소를 두며 이것이 스택 프레임 규격을 유지한다고 설명했다"
+        ],
+        negative_hints=[
+            "발표자는 가짜 복귀 주소가 실제 CALL 명령이 저장한 주소라고 설명했다"
+        ],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert "missing-technical-alias" not in warnings
+    assert "hypothesis-missing-required-concept" not in warnings
+    assert "weak-negative-hint" not in warnings
+
+
+def test_quality_validator_rejects_conflicting_positive_numeric_claims() -> None:
+    warnings = cue_quality_warnings(
+        meaning="프로젝트는 94% 완료되었고 62개 테스트 중 62개가 통과했다",
+        candidate_keywords=["94% 완료", "62/66 테스트"],
+        aliases={},
+        required_concepts=["프로젝트 진행률", "테스트 통과 현황"],
+        hypotheses=[
+            "발표자는 프로젝트가 94% 완료되었고 66개 테스트 중 62개가 통과했다고 설명한다"
+        ],
+        negative_hints=["발표자는 테스트 통과율이 100%라고 설명한다"],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert "inconsistent-numeric-claim" in warnings
+
+
+def test_quality_validator_rejects_negative_hint_without_cue_specific_overlap() -> None:
+    warnings = cue_quality_warnings(
+        meaning="User Programs 과제의 고민과 트러블슈팅 과정을 공유한다",
+        candidate_keywords=["User Programs 과제", "트러블슈팅 과정"],
+        aliases={"User Programs 과제": ["유저 프로그램 과제"]},
+        required_concepts=["User Programs 과제", "트러블슈팅 과정"],
+        hypotheses=[
+            "발표자는 User Programs 과제의 고민과 트러블슈팅 과정을 공유한다고 말했다"
+        ],
+        negative_hints=["발표자는 다른 주제나 과제에 대해 이야기한다"],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert "weak-negative-hint" in warnings
 
 
 def test_quality_golden_splits_compound_slide_into_atomic_cues() -> None:
@@ -180,6 +261,8 @@ def test_quality_validator_warns_and_retries_only_once() -> None:
     assert len(client.requests) == 2
     retry_input = json.loads(client.requests[1]["input"])
     assert "missing-technical-alias" in retry_input["qualityFeedback"]
+    assert retry_input["qualityDetails"][0]["slideId"] == "slide_growth"
+    assert "missing-technical-alias" in retry_input["qualityDetails"][0]["warnings"]
     assert set(cue["qualityWarnings"]) >= {
         "broad-cue",
         "missing-technical-alias",
