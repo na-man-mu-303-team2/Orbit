@@ -4030,6 +4030,34 @@ def repair_short_speaker_notes_with_llm(
             slide.target_speaker_notes_chars * 0.9
         ):
             repair_batch([slide])
+    for slide in short_slides:
+        minimum_chars = round(slide.target_speaker_notes_chars * 0.9)
+        maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
+        if count_speaker_note_chars(slide.speaker_notes) >= minimum_chars:
+            continue
+        source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
+        source_fragments = [
+            fragment
+            for source_id in source_refs
+            if (source := source_records.get(source_id)) is not None
+            for fragment in speaker_note_fragments(source.content)
+        ]
+        if not source_fragments:
+            continue
+        grounded_notes = fit_grounded_speaker_note_candidates(
+            [
+                *speaker_note_fragments(slide.speaker_notes),
+                *source_fragments,
+                *[content_item.text for content_item in slide.content_items],
+                slide.message,
+                *grounded_speaker_note_transitions(slide),
+            ],
+            minimum_chars=minimum_chars,
+            preferred_max_chars=maximum_chars,
+        )
+        grounded_chars = count_speaker_note_chars(grounded_notes)
+        if minimum_chars <= grounded_chars <= maximum_chars:
+            slide.speaker_notes = grounded_notes
     return slide_plans
 
 

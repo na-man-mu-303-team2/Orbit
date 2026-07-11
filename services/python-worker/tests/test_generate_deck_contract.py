@@ -2290,6 +2290,67 @@ def test_short_speaker_note_repair_retries_remaining_slide_individually() -> Non
     assert 140 <= len("".join(repaired.speaker_notes.split())) <= 230
 
 
+def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="교체형 배터리 모델",
+            prompt="검증된 출시 일정을 설명합니다.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:verified",
+            url="https://example.com/verified",
+            title="Verified product update",
+            content=(
+                "유럽의 배터리 규정은 소비자가 일반 공구로 배터리를 교체할 수 있게 요구합니다. "
+                "교체형 설계는 제품 수명을 늘리고 전자 폐기물 감소에 기여합니다. "
+                "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다."
+            ),
+            authority="independent",
+        )
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="data",
+        title="교체형 배터리 모델 출시",
+        message="2026년 여름부터 유럽에 교체형 배터리 모델이 출시됩니다.",
+        speaker_notes="2026년 여름 유럽 출시 일정을 소개합니다.",
+        keywords=["배터리", "유럽"],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="item-1",
+                text="기존 모델 판매 종료 일정과 구분",
+            )
+        ],
+        source_refs=["web:verified"],
+        target_seconds=60,
+        target_speaker_notes_chars=180,
+    )
+    fake_client = FakeOpenAIClient(
+        [
+            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
+            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
+        ]
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    actual_chars = len("".join(repaired.speaker_notes.split()))
+    assert round(180 * 0.9) <= actual_chars <= round(180 * 1.1)
+    assert "전자 폐기물" in repaired.speaker_notes
+
+
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
