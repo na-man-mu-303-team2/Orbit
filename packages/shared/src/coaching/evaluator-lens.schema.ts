@@ -35,7 +35,7 @@ export const evaluatorLensDefinitionSchema = z
 
 export const evaluatorLensRegistryResponseSchema = z
   .object({
-    lenses: z.array(evaluatorLensDefinitionSchema).length(3),
+    items: z.array(evaluatorLensDefinitionSchema).length(3),
   })
   .strict();
 
@@ -71,4 +71,3 @@ export type EvaluatorLensDefinition = z.infer<
 export type RehearsalEvaluationPlan = z.infer<
   typeof rehearsalEvaluationPlanSchema
 >;
-

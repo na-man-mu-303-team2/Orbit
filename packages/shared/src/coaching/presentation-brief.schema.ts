@@ -105,6 +105,14 @@ export const putPresentationBriefRequestSchema = z
     );
   });
 
+export const getPresentationBriefResponseSchema = z
+  .object({ brief: presentationBriefSchema.nullable() })
+  .strict();
+
+export const putPresentationBriefResponseSchema = z
+  .object({ brief: presentationBriefSchema })
+  .strict();
+
 function validateBriefCollections(
   brief: {
     requirements: Array<{ kind: string }>;

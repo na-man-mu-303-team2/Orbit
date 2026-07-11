@@ -67,9 +67,9 @@
 
 ### Gate G0
 
-- [ ] shared schema·문서·enum compatibility test 통과
-- [ ] migration A up/down/up 통과
-- [ ] public Job/private asset 경계 test 통과
+- [x] shared schema·문서·enum compatibility test 통과 (shared 231 tests)
+- [x] migration A up/down/up 통과 (local PostgreSQL)
+- [x] public Job/private asset 경계 test 통과 (API 213 tests)
 
 ## C1/C1W — Brief·Lens vertical slice
 
@@ -430,10 +430,9 @@
 | 기준 문서 조사 | 완료 | source headings/contract/design/code inspection |
 | 브랜치 안전성 | 완료 | `feature/adaptive-rehearsal-coach`, 기존 untracked product direction 보존 |
 | 디자인 baseline | 완료 | `docs/qa/adaptive-coaching/baseline/` |
-| G0 | 대기 | - |
+| G0 | 완료 | shared 231 tests, API 213 tests, migration A up/down/up |
 | G1 | 대기 | - |
 | G2 | 대기 | - |
 | G3 | 대기 | - |
 | G4 | 대기 | - |
 | G5 | 대기 | - |
-

@@ -22,6 +22,8 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
+import { EvaluatorLensesModule } from "./evaluator-lenses/evaluator-lenses.module";
+import { PresentationBriefsModule } from "./presentation-briefs/presentation-briefs.module";
 
 @Module({
   imports: [
@@ -44,7 +46,9 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     ReferencesModule,
     RuntimeConfigModule,
     RealtimeTranscriptionModule,
-    RehearsalsModule
+    RehearsalsModule,
+    EvaluatorLensesModule,
+    PresentationBriefsModule
   ],
   providers: [RealtimeGateway]
 })
