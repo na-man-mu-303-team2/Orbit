@@ -193,4 +193,3 @@ export type FocusedPracticeAttempt = z.infer<typeof focusedPracticeAttemptSchema
 export type CreateFocusedPracticeSessionRequest = z.infer<
   typeof createFocusedPracticeSessionRequestSchema
 >;
-

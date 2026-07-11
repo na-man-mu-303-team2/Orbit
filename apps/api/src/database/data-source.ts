@@ -27,6 +27,7 @@ import { CreateDesignAgentTables2026071101000 } from "./migrations/2026071101000
 import { AddRehearsalEvaluationSnapshot2026071001000 } from "./migrations/2026071001000-AddRehearsalEvaluationSnapshot";
 import { DropAiSuggestions2026071102000 } from "./migrations/2026071102000-DropAiSuggestions";
 import { CreateAdaptiveCoachingCore2026071103000 } from "./migrations/2026071103000-CreateAdaptiveCoachingCore";
+import { CreateFocusedPractice2026071104000 } from "./migrations/2026071104000-CreateFocusedPractice";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -65,7 +66,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalEvaluationSnapshot2026071001000,
     CreateDesignAgentTables2026071101000,
     DropAiSuggestions2026071102000,
-    CreateAdaptiveCoachingCore2026071103000
+    CreateAdaptiveCoachingCore2026071103000,
+    CreateFocusedPractice2026071104000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

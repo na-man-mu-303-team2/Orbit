@@ -11,6 +11,7 @@ import {
   rehearsalSttQueueName,
   semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
+  focusedPracticeAnalysisQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -33,6 +34,7 @@ import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
+import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
 import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
 
 @Injectable()
@@ -50,6 +52,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
     workerHealthCheckQueueName,
+    focusedPracticeAnalysisQueueName,
   ];
   private workers: BullMqWorker[] = [];
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
@@ -184,6 +187,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       this.createWorker(workerHealthCheckQueueName, (job) =>
         processWorkerHealthCheckJob(
           this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(focusedPracticeAnalysisQueueName, (job) =>
+        processFocusedPracticeAnalysisJob(
+          this.dataSource,
+          storage,
           this.config.PYTHON_WORKER_URL,
           job.data,
         ),

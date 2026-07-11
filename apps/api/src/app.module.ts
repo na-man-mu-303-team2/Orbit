@@ -25,6 +25,7 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
 import { EvaluatorLensesModule } from "./evaluator-lenses/evaluator-lenses.module";
 import { PresentationBriefsModule } from "./presentation-briefs/presentation-briefs.module";
 import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
+import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
 
 @Module({
   imports: [
@@ -50,7 +51,8 @@ import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
     RehearsalsModule,
     EvaluatorLensesModule,
     PresentationBriefsModule,
-    PracticeGoalsModule
+    PracticeGoalsModule,
+    FocusedPracticeModule
   ],
   providers: [RealtimeGateway]
 })

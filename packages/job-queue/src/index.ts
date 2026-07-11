@@ -9,6 +9,7 @@ import {
   jobSchema,
   semanticCueExtractionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
+  focusedPracticeAnalysisJobPayloadSchema,
   nowIso,
   type AiTemplateDeckGenerationRequest,
   type Deck,
@@ -44,6 +45,8 @@ export const rehearsalSemanticEvaluationQueueName =
   "rehearsal-semantic-evaluation";
 export const rehearsalSemanticEvaluationJobName =
   "rehearsal-semantic-evaluation";
+export const focusedPracticeAnalysisQueueName = "focused-practice-analysis";
+export const focusedPracticeAnalysisJobName = "focused-practice-analysis";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const deckExportQueueName = "deck-export";
@@ -100,6 +103,16 @@ export type EnqueueRehearsalSemanticEvaluationJobInput =
     driver: "bullmq" | "sqs";
     redisUrl: string;
   };
+
+export type EnqueueFocusedPracticeAnalysisJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  practiceSessionId: string;
+  attemptId: string;
+  audioFileId: string;
+};
 
 export interface GenerateDeckBullMqPayload {
   jobId: string;
@@ -278,6 +291,28 @@ export async function enqueueGenerateDeckJob(
       projectId: input.projectId,
       request: generateDeckRequestSchema.parse(input.request),
     } satisfies GenerateDeckBullMqPayload, canonicalJobOptions(input.jobId));
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueFocusedPracticeAnalysisJob(
+  input: EnqueueFocusedPracticeAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(focusedPracticeAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      focusedPracticeAnalysisJobName,
+      focusedPracticeAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        attemptId: input.attemptId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
