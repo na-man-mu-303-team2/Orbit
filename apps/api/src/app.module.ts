@@ -26,6 +26,7 @@ import { EvaluatorLensesModule } from "./evaluator-lenses/evaluator-lenses.modul
 import { PresentationBriefsModule } from "./presentation-briefs/presentation-briefs.module";
 import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
 import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
+import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
 
 @Module({
   imports: [
@@ -52,7 +53,8 @@ import { FocusedPracticeModule } from "./focused-practice/focused-practice.modul
     EvaluatorLensesModule,
     PresentationBriefsModule,
     PracticeGoalsModule,
-    FocusedPracticeModule
+    FocusedPracticeModule,
+    ChallengeQnaModule
   ],
   providers: [RealtimeGateway]
 })
