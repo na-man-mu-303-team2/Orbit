@@ -20,12 +20,14 @@ from app.ai.generate_deck import (
     GenerateDeckResponse,
     GeneratedDeckContentPlan,
     GeneratedContentItem,
+    MediaIntent,
     ReferenceContext,
     SlidePlan,
     SlideCountRange,
     SourceRecord,
     ValidationIssue,
     ValidationResult,
+    VisualIntent,
     allocate_weighted_integers,
     analyze_input,
     apply_design_options,
@@ -953,6 +955,54 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     actual_chars = len("".join(slide.speaker_notes.split()))
     assert round(70 * 0.9) <= actual_chars <= round(70 * 1.1)
     assert any("승인" in item.text for item in slide.content_items)
+
+
+def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Git 브랜치 전략 설명",
+            generationMode="design-pack",
+            design={"mediaPolicy": "public-assets"},
+        )
+    )
+    diagram = SlidePlan(
+        order=2,
+        slide_type="feature-grid",
+        title="Git 브랜치 전략의 기본 원칙",
+        message="각 브랜치는 특정 목적을 수행합니다.",
+        speaker_notes="브랜치 역할을 구분하는 원칙을 설명합니다.",
+        keywords=["Git", "branch"],
+        evidence=[],
+        visual_intent=VisualIntent(mediaStyle="diagram"),
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Diagram showing roles of Git branches",
+            alt="Git 브랜치 역할 개념도",
+            required=True,
+        ),
+    )
+    photo = SlidePlan(
+        order=3,
+        slide_type="solution",
+        title="팀이 브랜치 전략을 적용하는 현장",
+        message="개발자가 함께 변경 사항을 검토합니다.",
+        speaker_notes="실제 협업 장면을 통해 적용 맥락을 설명합니다.",
+        keywords=["developer", "team"],
+        evidence=[],
+        visual_intent=VisualIntent(mediaStyle="editorial photo"),
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Software developers reviewing code together in an office",
+            alt="코드를 검토하는 개발팀",
+            required=True,
+        ),
+    )
+
+    apply_design_options(raw_input, [diagram, photo])
+
+    assert diagram.media_intent.kind == "none"
+    assert photo.media_intent.kind == "generate"
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:

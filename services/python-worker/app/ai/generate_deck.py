@@ -1711,6 +1711,9 @@ Rules:
 - Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
   or "... 함께 언급합니다". Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
+- For public image search, use a concrete English noun phrase in mediaIntent.prompt.
+- Use mediaIntent.kind=none for diagrams, architecture, processes, comparisons,
+  flows, timelines, and concept maps because ORBIT renders them with native shapes.
 - visualIntent must include paletteHint, emphasisStyle, composition,
   decorationDensity, mediaStyle, and metricCardCaption. Prefer concise values such as
   keyword-chips, split, poster, data, media, process, radial, bubble,
@@ -4690,6 +4693,11 @@ def apply_design_pack_media_plan(
             slide_plan.media_intent = MediaIntent()
         return
 
+    if media_policy == "public-assets":
+        for slide_plan in slide_plans:
+            if is_structured_media_intent(slide_plan):
+                slide_plan.media_intent = MediaIntent()
+
     ranked = sorted(
         (
             (design_pack_media_score(slide_plan, len(slide_plans)), slide_plan)
@@ -4704,6 +4712,42 @@ def apply_design_pack_media_plan(
     for slide_plan in slide_plans:
         if slide_plan.order not in selected_orders:
             slide_plan.media_intent = MediaIntent()
+
+
+STRUCTURED_MEDIA_TERMS = (
+    "architecture",
+    "comparison",
+    "concept map",
+    "diagram",
+    "flow",
+    "process",
+    "system map",
+    "timeline",
+    "workflow",
+    "개념도",
+    "구조도",
+    "단계",
+    "비교",
+    "순서",
+    "타임라인",
+    "흐름",
+)
+
+
+def is_structured_media_intent(slide_plan: SlidePlan) -> bool:
+    if slide_plan.slide_type in {"architecture", "chart", "comparison", "process"}:
+        return True
+    context = " ".join(
+        [
+            slide_plan.visual_intent.structure,
+            slide_plan.visual_intent.composition,
+            slide_plan.visual_intent.media_style,
+            slide_plan.media_intent.prompt,
+            slide_plan.media_intent.alt,
+            slide_plan.media_intent.rationale,
+        ]
+    ).casefold()
+    return has_any(context, STRUCTURED_MEDIA_TERMS)
 
 
 def design_pack_media_score(slide_plan: SlidePlan, total_slides: int) -> int:
