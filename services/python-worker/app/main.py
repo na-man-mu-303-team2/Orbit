@@ -283,6 +283,32 @@ class FocusedPracticeAnalyzeResponse(BaseModel):
     outcomes: list[dict[str, Any]]
 
 
+class ChallengeQnaGenerateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    source: dict[str, Any]
+    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
+    grounding_snapshot: dict[str, Any] | None = Field(alias="groundingSnapshot")
+
+
+class ChallengeQnaGenerateResponse(BaseModel):
+    questions: list[dict[str, Any]] = Field(min_length=1, max_length=3)
+
+
+class ChallengeQnaAnalyzeAnswerRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    answer_text: str = Field(alias="answerText", min_length=1, max_length=8_000)
+    question_text: str = Field(alias="questionText", min_length=1, max_length=500)
+    answer_guide: dict[str, Any] = Field(alias="answerGuide")
+    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
+
+
+class ChallengeQnaAnalyzeAnswerResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    concept_outcomes: list[dict[str, str]] = Field(alias="conceptOutcomes", max_length=8)
+    clarity: str
+    audience_fit: str = Field(alias="audienceFit")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.config = load_config()
@@ -636,6 +662,98 @@ def analyze_focused_practice(
             "reasonCode": reason_code,
         })
     return FocusedPracticeAnalyzeResponse(outcomes=outcomes)
+
+
+@app.post("/challenge-qna/generate", response_model=ChallengeQnaGenerateResponse)
+def generate_challenge_qna(
+    payload: ChallengeQnaGenerateRequest,
+) -> ChallengeQnaGenerateResponse:
+    question_count = int(payload.source.get("questionCount", 1))
+    slides = cast(dict[str, Any], payload.source_snapshot.get("deck", {})).get("slides", [])
+    chunks = (payload.grounding_snapshot or {}).get("chunks", [])
+    linked_goals = payload.source_snapshot.get("linkedGoalRefs", [])
+    source_ref: dict[str, Any] | None = None
+    concept_label = "핵심 주장"
+    if chunks:
+        chunk = chunks[0]
+        source_ref = {
+            "type": "reference",
+            "fileId": chunk["fileId"],
+            "fileContentHash": chunk["fileContentHash"],
+            "chunkId": chunk["chunkId"],
+            "contentHash": chunk["contentHash"],
+        }
+        concept_label = str(chunk["content"])[:80]
+    elif slides:
+        slide = slides[0]
+        source_ref = {
+            "type": "slide",
+            "slideId": slide["slideId"],
+            "deckVersion": payload.source_snapshot["deck"]["deckVersion"],
+            "slideOrder": slide["order"],
+            "title": slide["title"],
+            "contentHash": slide["contentHash"],
+        }
+        concept_label = str(slide.get("visibleText") or slide["title"])[:80]
+    question_types = ["evidence", "objection", "decision"]
+    questions: list[dict[str, Any]] = []
+    for index in range(question_count):
+        grounded = source_ref is not None and bool(concept_label.strip())
+        questions.append({
+            "questionType": question_types[index],
+            "difficulty": "challenging" if index > 0 else "standard",
+            "questionText": (
+                f"{concept_label}에 대해 어떤 근거와 판단 기준으로 설명하시겠습니까?"
+                if grounded
+                else "이 주장을 뒷받침할 승인된 근거를 어디에 추가하시겠습니까?"
+            ),
+            "linkedGoalIds": [item["goalId"] for item in linked_goals[:3]],
+            "sourceRefs": [source_ref] if source_ref else [],
+            "answerGuide": {
+                "supportState": "grounded" if grounded else "insufficient",
+                "mustIncludeConcepts": ([{
+                    "conceptId": f"concept-{index + 1}",
+                    "label": concept_label,
+                    "sourceRefs": [source_ref],
+                }] if grounded else []),
+                "suggestedStructure": ["결론", "근거", "판단 또는 다음 행동"],
+                "caveats": [],
+                "remediation": (None if grounded else {
+                    "message": "승인된 참고자료나 장표 근거를 추가한 뒤 다시 질문을 생성하세요.",
+                    "suggestedSlideIds": [slide["slideId"] for slide in slides[:3]],
+                    "action": "add-reference",
+                }),
+            },
+        })
+    return ChallengeQnaGenerateResponse(questions=questions)
+
+
+@app.post(
+    "/challenge-qna/analyze-answer",
+    response_model=ChallengeQnaAnalyzeAnswerResponse,
+)
+def analyze_challenge_qna_answer(
+    payload: ChallengeQnaAnalyzeAnswerRequest,
+) -> ChallengeQnaAnalyzeAnswerResponse:
+    normalized = payload.answer_text.casefold()
+    concepts = cast(list[dict[str, Any]], payload.answer_guide.get("mustIncludeConcepts", []))
+    outcomes = []
+    for concept in concepts[:8]:
+        label = str(concept.get("label", "")).casefold().strip()
+        tokens = [token for token in label.split() if len(token) > 1]
+        matches = sum(1 for token in tokens if token in normalized)
+        outcome = "covered" if tokens and matches == len(tokens) else "partial" if matches else "missed"
+        outcomes.append({"conceptId": str(concept.get("conceptId", "concept")), "outcome": outcome})
+    if not concepts:
+        outcomes = []
+    answer_length = len(payload.answer_text.strip())
+    clarity = "clear" if answer_length >= 30 else "needs-focus"
+    audience_fit = "too-vague" if answer_length < 15 else "too-technical" if answer_length > 500 else "appropriate"
+    return ChallengeQnaAnalyzeAnswerResponse(
+        conceptOutcomes=outcomes,
+        clarity=clarity,
+        audienceFit=audience_fit,
+    )
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
