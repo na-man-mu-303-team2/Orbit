@@ -165,6 +165,10 @@ import {
 } from "./panel/semanticCapabilityStatusModel";
 import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
+  SemanticCueDebugPanel,
+  shouldShowSemanticCueDebugPanel,
+} from "./panel/SemanticCueDebugPanel";
+import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
 } from "./panel/SemanticSpeechDebugPanel";
@@ -4275,6 +4279,23 @@ export function RehearsalWorkspace(props: {
     isDevelopment: import.meta.env.DEV,
     storage: getSemanticDebugPanelStorage(),
   });
+  const showSemanticCueDebugPanel = shouldShowSemanticCueDebugPanel({
+    flagEnabled: getSemanticCueRuntimeFlags(import.meta.env).debugPanelEnabled,
+    locationSearch: window.location.search,
+  });
+  const copySemanticCueDebugJson = (json: string) => {
+    void navigator.clipboard?.writeText(json);
+  };
+  const exportSemanticCueDebugJson = (json: string) => {
+    const url = URL.createObjectURL(
+      new Blob([json], { type: "application/json" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "semantic-cue-debug.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <main className="rehearsal-presenter-shell">
