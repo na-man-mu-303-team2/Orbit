@@ -66,6 +66,20 @@ describe("semantic QA", () => {
     );
   });
 
+  it("detects a Korean product feature restatement", () => {
+    const deck = semanticDeck();
+    deck.slides[0].speakerNotes =
+      "Nintendo Switch 2는 도킹 모드에서 4K 60fps를 지원하며, " +
+      "휴대용 모드에서는 120fps 화면을 제공합니다. " +
+      "더 큰 Joy-Con은 다양한 조작 방식을 지원합니다. " +
+      "Nintendo Switch 2는 4K 60fps 도킹 모드와 휴대 모드의 " +
+      "120fps 화면으로 게임 몰입감을 높입니다.";
+
+    expect(getSemanticQaIssues(deck)).toContainEqual(
+      expect.objectContaining({ code: "SPEAKER_NOTES_REPEATED" })
+    );
+  });
+
   it("accepts a distinct claim that supports the primary message", () => {
     const deck = semanticDeck();
     for (const slide of deck.slides) {

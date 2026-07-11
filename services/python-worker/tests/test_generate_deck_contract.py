@@ -451,6 +451,17 @@ def test_timing_validation_detects_repeated_speaker_note_sentences() -> None:
             ),
             2,
         ),
+        (
+            (
+                "Nintendo Switch 2는 도킹 모드에서 4K 60fps를 지원하며, "
+                "휴대용 모드에서는 120fps 화면을 제공합니다. "
+                "더 큰 Joy-Con은 다양한 조작 방식을 지원합니다. "
+                "Nintendo Switch 2는 4K 60fps 도킹 모드와 휴대 모드의 "
+                "120fps 화면으로 게임 몰입감을 높입니다. "
+                "더 큰 Joy-Con은 다양한 조작 방식을 지원합니다."
+            ),
+            2,
+        ),
     ],
 )
 def test_redundant_speaker_note_restatements_are_removed(

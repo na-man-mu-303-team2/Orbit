@@ -284,7 +284,7 @@ function speakerNoteRepeatsPrior(sentence: string, priorSentences: string[]) {
   }
   if (
     priorSentences.some(
-      (prior) => characterPairSimilarity(sentence, prior) >= 0.65
+      (prior) => characterPairSimilarity(sentence, prior) >= 0.6
     )
   ) {
     return true;

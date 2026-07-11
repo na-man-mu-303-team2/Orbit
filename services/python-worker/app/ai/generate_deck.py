@@ -3549,9 +3549,17 @@ def speaker_note_token_overlap(left: str, right: str) -> float:
 def speaker_note_repeats_prior(sentence: str, prior_sentences: list[str]) -> bool:
     if not prior_sentences or re.search(r"[가-힣]", sentence) is None:
         return False
-    sentence_tokens = set(re.findall(r"[0-9A-Za-z가-힣]+", sentence.casefold()))
+    sentence_tokens = {
+        token
+        for token in re.findall(r"[0-9A-Za-z가-힣]+", sentence.casefold())
+        if len(token) >= 2
+    }
     prior_tokens = set(
-        re.findall(r"[0-9A-Za-z가-힣]+", " ".join(prior_sentences).casefold())
+        token
+        for token in re.findall(
+            r"[0-9A-Za-z가-힣]+", " ".join(prior_sentences).casefold()
+        )
+        if len(token) >= 2
     )
     if len(sentence_tokens) >= 6:
         novel_ratio = len(sentence_tokens - prior_tokens) / len(sentence_tokens)
@@ -3559,7 +3567,7 @@ def speaker_note_repeats_prior(sentence: str, prior_sentences: list[str]) -> boo
             return True
     sentence_key = normalize_structural_content_text(sentence)
     if any(
-        speaker_note_character_similarity(sentence_key, prior) >= 0.65
+        speaker_note_character_similarity(sentence_key, prior) >= 0.6
         for prior in prior_sentences
     ):
         return True
