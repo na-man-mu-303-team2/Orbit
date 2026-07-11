@@ -275,6 +275,8 @@ export const templateSelectionItemSchema = z.object({
 });
 
 export const generateDeckRepairReasonSchema = z.enum([
+  "SLIDE_COUNT_SHORT",
+  "CONTENT_DUPLICATED",
   "CONTENT_CAPACITY",
   "SPEAKER_NOTES_SHORT",
   "SPEAKER_NOTES_LONG",

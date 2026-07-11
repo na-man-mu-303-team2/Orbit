@@ -307,4 +307,124 @@ describe("editor design-pack validation", () => {
       })
     );
   });
+
+  it("uses synchronized design-pack speaker-note density codes", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    if (!slide.aiNotes?.timingPlan) throw new Error("timing plan missing");
+    slide.aiNotes.timingPlan.targetSpeakerNotesChars = 100;
+
+    slide.speakerNotes = "가".repeat(69);
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "SPEAKER_NOTES_SHORT" })
+    );
+
+    slide.speakerNotes = "가".repeat(116);
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "SPEAKER_NOTES_DENSE" })
+    );
+  });
+
+  it("detects structural body duplication without matching distinct support", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    const body = slide.elements.find(
+      (element) => element.type === "text" && element.role === "body"
+    );
+    if (!body || body.type !== "text") throw new Error("body missing");
+    body.props.text = "Alpha evidence and beta evidence";
+    for (const [index, text] of ["Alpha evidence", "beta evidence"].entries()) {
+      slide.elements.push({
+        ...structuredClone(body),
+        elementId: `el_1_duplicate_${index + 1}`,
+        y: body.y + (index + 1) * 80,
+        props: { ...body.props, text }
+      });
+    }
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "CONTENT_DUPLICATED" })
+    );
+
+    body.props.text = "Evidence supports the decision";
+    expect(
+      getEditorValidationItems(deck, slide).filter(
+        (item) => item.issue === "CONTENT_DUPLICATED"
+      )
+    ).toHaveLength(0);
+  });
+
+  it("mirrors presentation profile quality issue codes", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "proposal";
+    const slide = structuredClone(deck.slides[0]);
+    slide.slideId = "slide_2";
+    slide.order = 2;
+    slide.title = "현황";
+    slide.aiNotes = structuredClone(slide.aiNotes);
+    if (!slide.aiNotes?.visualPlan) throw new Error("visual plan missing");
+    slide.aiNotes.visualPlan.visualType = "layout";
+    for (const element of slide.elements) {
+      element.elementId = element.elementId.replace("el_1_", "el_2_");
+      if (element.type !== "text") continue;
+      if (element.role === "title") {
+        element.x = 133;
+        element.props.text = "현황";
+        element.props.fontFamily = "Heading Test";
+      }
+      if (element.role === "body") {
+        element.props.text = Array.from(
+          { length: 7 },
+          (_, index) => `항목 ${index + 1}`
+        ).join("\n");
+        element.props.fontFamily = "Body Test";
+        element.props.fontSize = 17;
+        element.props.lineHeight = 1.1;
+      }
+    }
+    const title = slide.elements.find(
+      (element) => element.type === "text" && element.role === "title"
+    );
+    const media = slide.elements.find((element) => element.role === "media");
+    if (!title || title.type !== "text" || !media) {
+      throw new Error("fixture elements missing");
+    }
+    slide.elements.push({
+      ...structuredClone(title),
+      elementId: "el_2_caption_test",
+      role: "caption",
+      props: {
+        ...title.props,
+        text: "보조 설명",
+        fontFamily: "Caption Test",
+        fontSize: 16,
+        lineHeight: 1.1
+      }
+    });
+    slide.elements.push({
+      ...structuredClone(media),
+      elementId: "el_2_secondary_media",
+      x: media.x + 120
+    });
+    deck.slides.push(slide);
+
+    const issues = new Set(
+      getEditorValidationItems(deck).map((item) => item.issue)
+    );
+
+    for (const issue of [
+      "ACTION_TITLE_WEAK",
+      "BODY_CONTENT_DENSE",
+      "FONT_SIZE_BELOW_MINIMUM",
+      "FONT_FAMILY_OVERUSED",
+      "LINE_HEIGHT_OUT_OF_RANGE",
+      "VISUAL_HIERARCHY_WEAK",
+      "CTA_MISSING",
+      "GRID_ALIGNMENT_INCONSISTENT"
+    ] as const) {
+      expect(issues.has(issue)).toBe(true);
+    }
+  });
 });

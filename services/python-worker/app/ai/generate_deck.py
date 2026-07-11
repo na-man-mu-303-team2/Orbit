@@ -4,8 +4,10 @@ import base64
 from collections import OrderedDict
 import hashlib
 import json
+import math
 import re
 import textwrap
+import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date
@@ -47,6 +49,8 @@ SourceType = Literal["topic", "uploaded", "web", "generated", "none"]
 SourceAuthority = Literal["official", "independent", "unknown"]
 GenerationMode = Literal["legacy", "design-pack"]
 RepairReasonCode = Literal[
+    "SLIDE_COUNT_SHORT",
+    "CONTENT_DUPLICATED",
     "CONTENT_CAPACITY",
     "SPEAKER_NOTES_SHORT",
     "SPEAKER_NOTES_LONG",
@@ -85,6 +89,15 @@ DesignProfile = Literal[
     "editorial",
     "technical",
     "training",
+]
+PresentationProfile = Literal[
+    "proposal",
+    "executive-report",
+    "product-launch",
+    "education",
+    "technical",
+    "research",
+    "general-inform",
 ]
 SlideType = Literal[
     "title",
@@ -375,7 +388,9 @@ class PresentationTimingPlan(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     chars_per_minute: int = Field(alias="charsPerMinute")
+    speaking_time_ratio: float = Field(default=0.8, alias="speakingTimeRatio")
     target_total_chars: int = Field(alias="targetTotalChars")
+    target_spoken_seconds: int = Field(default=0, alias="targetSpokenSeconds")
     target_slide_count: int = Field(alias="targetSlideCount")
     target_seconds_per_slide: int = Field(alias="targetSecondsPerSlide")
     target_speaker_notes_chars_per_slide: int = Field(
@@ -400,6 +415,7 @@ class RawInput(BaseModel):
     template: Template
     metadata: GenerateDeckMetadata
     design: DesignOptions
+    presentation_profile: PresentationProfile = "general-inform"
     visual_plan_policy: VisualPlanPolicy | None = None
     reference_policy: ReferencePolicy | None = None
     reference_file_ids: list[str] = Field(default_factory=list)
@@ -517,6 +533,7 @@ class SlidePlan(BaseModel):
     visual_intent: VisualIntent = Field(default_factory=VisualIntent)
     media_intent: MediaIntent = Field(default_factory=MediaIntent)
     target_seconds: int = 0
+    target_spoken_seconds: int = 0
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
@@ -763,9 +780,15 @@ def load_icon_map(path: Path) -> dict[str, str]:
 
 
 CANVAS = Canvas()
+GRID_COLUMN_COUNT = 12
+GRID_GUTTER = 24
+GRID_COLUMN_WIDTH = 118
+GRID_STEP = GRID_COLUMN_WIDTH + GRID_GUTTER
+GRID_SPACING = 8
+GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v1"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
@@ -1706,6 +1729,10 @@ Rules:
 - Do not describe a fact as unannounced, unknown, or speculative when a supplied source
   confirms it. Omit unsupported details instead of guessing.
 - Keep messages concise enough for slide body text.
+- Treat message as the slide's concise conclusion. Treat contentItems as distinct
+  evidence, steps, comparisons, or actions that support that conclusion.
+- Never repeat message verbatim in an individual contentItem or reconstruct the
+  complete message by joining contentItems.
 """.strip()
 
 DECK_CONTENT_REPAIR_INSTRUCTIONS = """
@@ -1723,7 +1750,22 @@ Rules:
   transitions. Never use generic or repeated filler to reach the range.
 - A short script is invalid even when the JSON shape is otherwise correct.
 - Do not add unsupported claims or source references.
+- Keep message as the conclusion and contentItems as distinct supporting evidence,
+  steps, comparisons, or actions. Remove structural duplication between them.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
+""".strip()
+
+DECK_CONTENT_COUNT_REPAIR_INSTRUCTIONS = """
+You repair the slide count of an existing Korean presentation content plan for ORBIT.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Return exactly the requested number of slides.
+- Preserve the topic, presentation profile, cover, closing, factual meaning, and source boundaries.
+- Expand missing evidence, examples, application, or execution beats instead of duplicating messages.
+- Keep one core message per slide and keep message distinct from contentItems.
+- Use only sourceRefs listed in the supplied source records.
+- Do not add unsupported claims, generic filler, coordinates, or final Deck JSON.
 """.strip()
 
 SPEAKER_NOTES_REPAIR_INSTRUCTIONS = """
@@ -1883,6 +1925,29 @@ def design_pack_content_response_format() -> dict[str, Any]:
 
 
 DESIGN_PACK_CONTENT_RESPONSE_FORMAT = design_pack_content_response_format()
+
+
+def deck_content_response_format_for(
+    raw_input: RawInput,
+    *,
+    exact_slide_count: int | None = None,
+) -> dict[str, Any]:
+    response_format = deepcopy(
+        DESIGN_PACK_CONTENT_RESPONSE_FORMAT
+        if raw_input.generation_mode == "design-pack"
+        else DECK_CONTENT_RESPONSE_FORMAT
+    )
+    if raw_input.generation_mode != "design-pack":
+        return response_format
+
+    slides_schema = response_format["format"]["schema"]["properties"]["slides"]
+    if exact_slide_count is not None:
+        slides_schema["minItems"] = exact_slide_count
+        slides_schema["maxItems"] = exact_slide_count
+    else:
+        slides_schema["minItems"] = raw_input.min_slide_count
+        slides_schema["maxItems"] = raw_input.max_slide_count
+    return response_format
 
 
 TEXT_OVERLAP_REVIEW_INSTRUCTIONS = """
@@ -2302,32 +2367,36 @@ class DeckGenerationOrchestrator:
         theme: dict[str, Any],
         slides: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "language": "ko",
+            "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "audience": raw_input.metadata.audience,
+            "purpose": raw_input.metadata.purpose,
+            "tone": raw_input.metadata.tone,
+            "createdFrom": {
+                "topic": raw_input.topic,
+                "references": [
+                    {"fileId": reference.file_id}
+                    for reference in raw_input.references
+                ],
+                "designReferences": [
+                    {"fileId": reference.file_id}
+                    for reference in raw_input.design_references
+                ],
+            },
+        }
+        if raw_input.generation_mode == "design-pack":
+            metadata["presentationProfile"] = raw_input.presentation_profile
+
         return {
             "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
             "projectId": raw_input.project_id,
             "title": outline.title,
             "version": 1,
             "targetDurationMinutes": raw_input.target_duration_minutes,
-            "metadata": {
-                "language": "ko",
-                "locale": "ko-KR",
-                "sourceType": "ai",
-                "generatedBy": "ai",
-                "audience": raw_input.metadata.audience,
-                "purpose": raw_input.metadata.purpose,
-                "tone": raw_input.metadata.tone,
-                "createdFrom": {
-                    "topic": raw_input.topic,
-                    "references": [
-                        {"fileId": reference.file_id}
-                        for reference in raw_input.references
-                    ],
-                    "designReferences": [
-                        {"fileId": reference.file_id}
-                        for reference in raw_input.design_references
-                    ],
-                },
-            },
+            "metadata": metadata,
             "canvas": {
                 "preset": "wide-16-9",
                 "width": CANVAS.width,
@@ -2482,20 +2551,25 @@ def presentation_timing_plan_for_request(
     slide_count: int,
 ) -> PresentationTimingPlan:
     chars_per_minute = chars_per_minute_for_request(request)
-    target_total_chars = request.target_duration_minutes * chars_per_minute
+    speaking_time_ratio = 0.8
+    target_spoken_seconds = round(
+        request.target_duration_minutes * 60 * speaking_time_ratio
+    )
+    target_total_chars = round(
+        request.target_duration_minutes * speaking_time_ratio * chars_per_minute
+    )
     safe_slide_count = max(1, slide_count)
     return PresentationTimingPlan(
         charsPerMinute=chars_per_minute,
+        speakingTimeRatio=speaking_time_ratio,
         targetTotalChars=target_total_chars,
+        targetSpokenSeconds=target_spoken_seconds,
         targetSlideCount=slide_count,
         targetSecondsPerSlide=max(
             15,
             round(request.target_duration_minutes * 60 / safe_slide_count),
         ),
-        targetSpeakerNotesCharsPerSlide=max(
-            90,
-            round(target_total_chars / safe_slide_count),
-        ),
+        targetSpeakerNotesCharsPerSlide=max(1, round(target_total_chars / safe_slide_count)),
     )
 
 
@@ -2513,44 +2587,29 @@ def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
         ]
         if part
     ).casefold()
-    if request.metadata.audience == "executive" or has_any(
-        source,
-        ["executive", "board", "임원", "경영진", "이사회"],
-    ):
+    if has_any(source, ["fast", "quick", "빠른", "속도감"]):
         return 300
-    if has_any(
-        source,
-        ["child", "children", "elementary", "education", "어린이", "초등", "교육"],
-    ):
-        return 280
-    if has_any(
+    profile = presentation_profile_for_request(request)
+    if request.metadata.audience == "executive" or profile in {
+        "executive-report",
+        "education",
+    } or has_any(
         source,
         [
-            "friendly",
-            "funny",
-            "easy",
-            "casual",
             "discussion",
             "workshop",
             "토의",
             "토론",
             "자유롭게",
-            "쉽게",
-            "재미",
         ],
     ):
-        return 320
-    if request.metadata.tone == "concise" or has_any(
+        return 240
+    if profile in {"product-launch", "proposal"} or has_any(
         source,
-        ["fast", "quick", "빠른", "속도감"],
+        ["product", "proposal", "pitch", "제품", "제안", "피치"],
     ):
-        return 440
-    if has_any(
-        source,
-        ["product", "planning", "proposal", "pitch", "제품", "기획", "제안", "피치"],
-    ):
-        return 400
-    return 350
+        return 280
+    return 260
 
 
 def analyze_input(
@@ -2607,6 +2666,10 @@ def analyze_input(
         reference_context=resolved_reference_context,
         template_blueprint=normalize_template_blueprint(request.template_blueprint),
         design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
+    ).model_copy(
+        update={
+            "presentation_profile": presentation_profile_for_request(request),
+        }
     )
 
 
@@ -3259,7 +3322,7 @@ def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
     if order == 1:
         return raw_input.topic
     if order == total:
-        return f"{raw_input.topic} 핵심 정리"
+        return closing_title_for_profile(raw_input)
 
     focus_terms = reference_keywords_for(raw_input.reference_keywords)
     middle_titles = [f"{term}" for term in focus_terms] or [
@@ -3270,6 +3333,14 @@ def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
         f"{raw_input.topic}를 기억하는 방법",
     ]
     return middle_titles[(order - 2) % len(middle_titles)]
+
+
+def closing_title_for_profile(raw_input: RawInput) -> str:
+    return {
+        "proposal": f"{raw_input.topic}의 다음 실행을 결정하세요",
+        "product-launch": f"{raw_input.topic}의 출시 정보를 확인하세요",
+        "executive-report": f"{raw_input.topic}의 다음 결정을 요청합니다",
+    }.get(raw_input.presentation_profile, f"{raw_input.topic}의 핵심을 정리합니다")
 
 
 def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
@@ -3315,25 +3386,37 @@ def apply_timing_to_slide_plans(
     raw_input.timing_plan.target_speaker_notes_chars_per_slide = round(
         raw_input.timing_plan.target_total_chars / len(slide_plans)
     )
+    raw_input.timing_plan.target_spoken_seconds = round(
+        raw_input.target_duration_minutes
+        * 60
+        * raw_input.timing_plan.speaking_time_ratio
+    )
     weights = [slide_timing_weight(slide_plan) for slide_plan in slide_plans]
     seconds = allocate_weighted_integers(
         raw_input.target_duration_minutes * 60,
         weights,
         minimum_each=15,
     )
+    spoken_seconds = allocate_weighted_integers(
+        raw_input.timing_plan.target_spoken_seconds,
+        weights,
+    )
     note_chars = allocate_weighted_integers(
         raw_input.timing_plan.target_total_chars,
         weights,
     )
-    for slide_plan, target_seconds, target_chars in zip(
+    for slide_plan, target_seconds, target_spoken_seconds, target_chars in zip(
         slide_plans,
         seconds,
+        spoken_seconds,
         note_chars,
         strict=True,
     ):
         slide_plan.target_seconds = target_seconds
+        slide_plan.target_spoken_seconds = target_spoken_seconds
         slide_plan.target_speaker_notes_chars = target_chars
         slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
+        compact_dense_speaker_notes(slide_plan)
     if raw_input.generation_mode == "design-pack":
         ensure_research_first_web_source_coverage(raw_input, slide_plans)
     return slide_plans
@@ -3456,6 +3539,21 @@ def fit_grounded_speaker_note_candidates(
     return " ".join(selected)
 
 
+def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
+    target = slide_plan.target_speaker_notes_chars
+    actual = count_speaker_note_chars(slide_plan.speaker_notes)
+    if target <= 0 or actual <= round(target * 1.15):
+        return
+    compacted = fit_grounded_speaker_note_candidates(
+        speaker_note_fragments(slide_plan.speaker_notes),
+        minimum_chars=round(target * 0.7),
+        preferred_max_chars=round(target * 1.15),
+    )
+    compacted_chars = count_speaker_note_chars(compacted)
+    if round(target * 0.7) <= compacted_chars < actual:
+        slide_plan.speaker_notes = compacted
+
+
 def speaker_note_sentence(text: str) -> str:
     sentence = " ".join(text.split()).strip()
     if not sentence or sentence.endswith((".", "!", "?")):
@@ -3523,6 +3621,32 @@ def count_speaker_note_chars(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+def normalize_structural_content_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def message_duplicates_content_items(
+    message: str,
+    content_items: list[GeneratedContentItem],
+) -> bool:
+    message_key = normalize_structural_content_text(message)
+    item_keys = [
+        normalized
+        for item in content_items
+        if (normalized := normalize_structural_content_text(item.text))
+    ]
+    if not message_key or not item_keys:
+        return False
+    if any(item_key == message_key for item_key in item_keys):
+        return True
+    if "".join(item_keys) == message_key:
+        return True
+    return all(item_key in message_key for item_key in item_keys) and sum(
+        len(item_key) for item_key in item_keys
+    ) >= len(message_key) * 0.8
+
+
 def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     reasons: list[str] = []
     normalized_notes: dict[str, int] = {}
@@ -3537,13 +3661,20 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
                 f"slide {slide_plan.order}: content item count "
                 f"{len(slide_plan.content_items)} must be {minimum_items}-{maximum_items}"
             )
+        if message_duplicates_content_items(
+            slide_plan.message,
+            slide_plan.content_items,
+        ):
+            reasons.append(
+                f"slide {slide_plan.order}: message duplicates content items"
+            )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
-        if target > 0 and actual < round(target * 0.8):
+        if target > 0 and actual < round(target * 0.7):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
             )
-        elif target > 0 and actual > round(target * 1.25):
+        elif target > 0 and actual > round(target * 1.15):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
             )
@@ -3561,6 +3692,8 @@ def repair_reason_codes(reasons: list[str]) -> list[RepairReasonCode]:
         code: RepairReasonCode
         if "content item count" in reason:
             code = "CONTENT_CAPACITY"
+        elif "message duplicates content items" in reason:
+            code = "CONTENT_DUPLICATED"
         elif "below target" in reason:
             code = "SPEAKER_NOTES_SHORT"
         elif "above target" in reason:
@@ -3641,10 +3774,13 @@ def repair_content_plan_with_llm(
             model=model or "gpt-4.1-mini",
             instructions=DECK_CONTENT_REPAIR_INSTRUCTIONS,
             input=prompt,
-            text=(
-                DESIGN_PACK_CONTENT_RESPONSE_FORMAT
-                if raw_input.generation_mode == "design-pack"
-                else DECK_CONTENT_RESPONSE_FORMAT
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=(
+                    len(slide_plans)
+                    if raw_input.generation_mode == "design-pack"
+                    else None
+                ),
             ),
         )
         repaired = GeneratedDeckContentPlan.model_validate_json(
@@ -3670,7 +3806,7 @@ def repair_short_speaker_notes_with_llm(
         for slide in slide_plans
         if slide.target_speaker_notes_chars > 0
         and count_speaker_note_chars(slide.speaker_notes)
-        < round(slide.target_speaker_notes_chars * 0.8)
+        < round(slide.target_speaker_notes_chars * 0.7)
     ]
     if not short_slides:
         return slide_plans
@@ -3687,8 +3823,8 @@ def repair_short_speaker_notes_with_llm(
         source.source_id: source
         for source in (raw_input.source_records or initial_source_records(raw_input))
     }
-    for batch_start in range(0, len(short_slides), 3):
-        batch = short_slides[batch_start : batch_start + 3]
+
+    def repair_batch(batch: list[SlidePlan]) -> None:
         requested_orders = {slide.order for slide in batch}
         slide_payloads: list[dict[str, Any]] = []
         referenced_source_ids: list[str] = []
@@ -3704,10 +3840,10 @@ def repair_short_speaker_notes_with_llm(
                     "currentSpeakerNotes": slide.speaker_notes,
                     "sourceRefs": source_refs,
                     "minimumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 1.4
+                        slide.target_speaker_notes_chars * 0.9
                     ),
                     "maximumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 1.6
+                        slide.target_speaker_notes_chars * 1.1
                     ),
                 }
             )
@@ -3742,15 +3878,15 @@ def repair_short_speaker_notes_with_llm(
                 str(getattr(response, "output_text", "")).strip()
             )
         except Exception:
-            continue
+            return
 
         if {item.order for item in repaired.slides} != requested_orders:
-            continue
+            return
         repaired_by_order = {item.order: item for item in repaired.slides}
         for slide in batch:
             item = repaired_by_order[slide.order]
-            minimum_chars = round(slide.target_speaker_notes_chars * 0.8)
-            maximum_chars = round(slide.target_speaker_notes_chars * 1.25)
+            minimum_chars = round(slide.target_speaker_notes_chars * 0.7)
+            maximum_chars = round(slide.target_speaker_notes_chars * 1.15)
             speaker_notes = " ".join(item.speaker_notes.split())
             actual_chars = count_speaker_note_chars(speaker_notes)
             if not minimum_chars <= actual_chars <= maximum_chars:
@@ -3769,6 +3905,14 @@ def repair_short_speaker_notes_with_llm(
             if not minimum_chars <= actual_chars <= maximum_chars:
                 continue
             slide.speaker_notes = speaker_notes
+
+    for batch_start in range(0, len(short_slides), 3):
+        repair_batch(short_slides[batch_start : batch_start + 3])
+    for slide in short_slides:
+        if count_speaker_note_chars(slide.speaker_notes) < round(
+            slide.target_speaker_notes_chars * 0.7
+        ):
+            repair_batch([slide])
     return slide_plans
 
 
@@ -3881,11 +4025,7 @@ def generate_content_plan_with_llm(
                 "and sourceRefs containing only IDs listed in Source records."
             ),
             input=prompt,
-            text=(
-                DESIGN_PACK_CONTENT_RESPONSE_FORMAT
-                if raw_input.generation_mode == "design-pack"
-                else DECK_CONTENT_RESPONSE_FORMAT
-            ),
+            text=deck_content_response_format_for(raw_input),
         )
     except Exception as error:
         raise DeckContentGenerationError(
@@ -3904,7 +4044,33 @@ def generate_content_plan_with_llm(
             f"LLM returned invalid deck content: {error}"
         ) from error
 
-    if len(plan.slides) < raw_input.min_slide_count:
+    actual_slide_count = len(plan.slides)
+    exact_count_requested = raw_input.min_slide_count == raw_input.max_slide_count
+    needs_count_repair = actual_slide_count < raw_input.min_slide_count or (
+        raw_input.generation_mode == "design-pack"
+        and exact_count_requested
+        and actual_slide_count != raw_input.slide_count
+    )
+    if raw_input.generation_mode == "design-pack" and needs_count_repair:
+        raw_input.repair_attempted = True
+        if actual_slide_count < raw_input.slide_count:
+            raw_input.repair_reason_codes = unique_non_empty(
+                [*raw_input.repair_reason_codes, "SLIDE_COUNT_SHORT"]
+            )
+        repaired_plan = repair_slide_count_with_llm(
+            raw_input,
+            plan,
+            client=api_client,
+            model=resolved_model,
+        )
+        repaired_count = len(repaired_plan.slides) if repaired_plan is not None else 0
+        if repaired_plan is None or repaired_count != raw_input.slide_count:
+            raise DeckContentGenerationError(
+                "LLM slide count repair failed: "
+                f"requested {raw_input.slide_count}, received {repaired_count}."
+            )
+        plan = repaired_plan
+    elif actual_slide_count < raw_input.min_slide_count:
         raise DeckContentGenerationError(
             f"LLM returned fewer slides than the requested minimum ({raw_input.min_slide_count})."
         )
@@ -3918,6 +4084,39 @@ def generate_content_plan_with_llm(
     while len(DECK_CONTENT_PLAN_CACHE) > DECK_CONTENT_PLAN_CACHE_MAX:
         DECK_CONTENT_PLAN_CACHE.popitem(last=False)
     return generated_plan
+
+
+def repair_slide_count_with_llm(
+    raw_input: RawInput,
+    plan: GeneratedDeckContentPlan,
+    *,
+    client: Any,
+    model: str,
+) -> GeneratedDeckContentPlan | None:
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input),
+            f"Requested exact slide count: {raw_input.slide_count}",
+            f"Current slide count: {len(plan.slides)}",
+            "Current content plan:",
+            json.dumps(plan.model_dump(by_alias=True), ensure_ascii=False),
+        ]
+    )
+    try:
+        response = client.responses.create(
+            model=model,
+            instructions=DECK_CONTENT_COUNT_REPAIR_INSTRUCTIONS,
+            input=prompt,
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=raw_input.slide_count,
+            ),
+        )
+        return GeneratedDeckContentPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        )
+    except Exception:
+        return None
 
 
 def deck_content_plan_cache_key(model: str, prompt: str) -> tuple[str, str, str]:
@@ -3951,6 +4150,7 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"User prompt: {raw_input.prompt or '(none)'}",
         f"Design prompt: {narrative_design_prompt(raw_input) or '(none)'}",
         f"Slide count: {raw_input.slide_count}",
+        f"Slide count range: {raw_input.min_slide_count}-{raw_input.max_slide_count}",
         f"Audience: {raw_input.metadata.audience}",
         f"Purpose: {raw_input.metadata.purpose}",
         f"Tone: {raw_input.metadata.tone}",
@@ -3962,6 +4162,8 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
         f"Reference policy: {raw_input.brief.reference_policy}",
     ]
+    if raw_input.generation_mode == "design-pack":
+        lines.extend(presentation_rule_prompt(raw_input))
     if uses_conversational_design_flow(raw_input):
         lines.append(
             "Tone guidance: use short keywords, discussion questions, consensus points, and next actions."
@@ -4181,6 +4383,9 @@ def apply_design_options(
             raw_input.design.media_policy,
         )
     if raw_input.generation_mode == "design-pack":
+        for slide_plan in slide_plans:
+            compact_dense_speaker_notes(slide_plan)
+        ensure_profile_closing_action(raw_input, slide_plans)
         apply_design_pack_media_plan(raw_input, slide_plans)
 
     previous_preset: SlotPreset | None = None
@@ -4198,6 +4403,50 @@ def apply_design_options(
         previous_preset = selected_preset
 
     return slide_plans
+
+
+def ensure_profile_closing_action(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> None:
+    if not slide_plans or raw_input.presentation_profile not in {
+        "proposal",
+        "product-launch",
+        "executive-report",
+    }:
+        return
+    closing = slide_plans[-1]
+    required_tokens = (
+        EXECUTIVE_CLOSING_TOKENS
+        if raw_input.presentation_profile == "executive-report"
+        else ACTION_CLOSING_TOKENS
+    )
+    closing_text = " ".join(
+        [closing.title, closing.message, *[item.text for item in closing.content_items]]
+    ).casefold()
+    if has_any(closing_text, required_tokens):
+        return
+
+    success_criteria = raw_input.brief.success_criteria.strip()
+    fallback = {
+        "proposal": "다음 실행을 결정하고 시작하세요.",
+        "product-launch": "출시 정보를 확인하고 다음 행동을 선택하세요.",
+        "executive-report": "다음 단계의 결정과 승인을 요청합니다.",
+    }[raw_input.presentation_profile]
+    action = (
+        success_criteria
+        if has_any(success_criteria.casefold(), required_tokens)
+        else fallback
+    )
+    action_item = GeneratedContentItem(
+        contentItemId=f"content_{closing.order}_profile_action",
+        text=action,
+    )
+    _, maximum = DESIGN_PACK_RECIPE_CAPACITIES["closing_summary"]
+    if len(closing.content_items) >= maximum:
+        closing.content_items[-1] = action_item
+    else:
+        closing.content_items.append(action_item)
 
 
 def apply_design_pack_media_plan(
@@ -5539,13 +5788,13 @@ DESIGN_PACK_RECIPE_LAYOUTS: dict[str, DeckLayout] = {
 DESIGN_PACK_RECIPE_CAPACITIES: dict[str, tuple[int, int]] = {
     "cover_trust_signal": (1, 3),
     "insight_evidence": (1, 3),
-    "overview_cards": (2, 6),
-    "decision_actions": (2, 6),
-    "priority_stack": (2, 6),
-    "decision_agenda": (2, 6),
+    "overview_cards": (2, 5),
+    "decision_actions": (2, 5),
+    "priority_stack": (2, 5),
+    "decision_agenda": (2, 5),
     "process_steps": (3, 6),
     "comparison_split": (2, 4),
-    "closing_summary": (2, 4),
+    "closing_summary": (2, 3),
 }
 
 DESIGN_PACK_ARCHETYPE_RECIPE_SEQUENCES: dict[str, tuple[str, ...]] = {
@@ -5566,6 +5815,7 @@ def assemble_design_pack_slide(
 ) -> dict[str, Any]:
     recipe = recipe or design_pack_recipe_for(raw_input, slide_plan, slide_plans)
     elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
+    align_design_pack_core_geometry(elements)
     elements = cap_elements(elements, limit=48)
     build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
@@ -5635,6 +5885,7 @@ def design_pack_timing_plan(
 ) -> dict[str, Any]:
     return {
         "charsPerMinute": raw_input.timing_plan.chars_per_minute,
+        "speakingTimeRatio": raw_input.timing_plan.speaking_time_ratio,
         "targetTotalChars": raw_input.timing_plan.target_total_chars,
         "targetSlideCount": raw_input.timing_plan.target_slide_count,
         "targetSecondsPerSlide": raw_input.timing_plan.target_seconds_per_slide,
@@ -5644,6 +5895,10 @@ def design_pack_timing_plan(
         "targetSeconds": (
             slide_plan.target_seconds
             or raw_input.timing_plan.target_seconds_per_slide
+        ),
+        "targetSpokenSeconds": (
+            slide_plan.target_spoken_seconds
+            or raw_input.timing_plan.target_spoken_seconds
         ),
         "targetSpeakerNotesChars": target_speaker_notes_chars_for_slide(
             raw_input,
@@ -5954,6 +6209,116 @@ def uses_conversational_design_flow(raw_input: RawInput) -> bool:
     )
 
 
+PRESENTATION_PROFILE_BEATS: dict[PresentationProfile, tuple[str, ...]] = {
+    "proposal": ("context", "problem", "question", "solution", "evidence", "execution", "CTA"),
+    "executive-report": ("conclusion", "evidence", "impact", "risk", "decision request"),
+    "product-launch": ("anticipation", "differentiator", "experience", "evidence", "release information", "CTA"),
+    "education": ("objective", "concept", "example", "application", "summary", "questions"),
+    "technical": ("problem", "principle", "architecture", "flow", "trade-off", "result"),
+    "research": ("research question", "method", "result", "interpretation", "limitation", "conclusion"),
+    "general-inform": ("context", "key information", "evidence", "meaning", "summary"),
+}
+
+PRESENTATION_PROFILE_TIE_ORDER: tuple[PresentationProfile, ...] = (
+    "research",
+    "product-launch",
+    "executive-report",
+    "proposal",
+    "education",
+    "technical",
+    "general-inform",
+)
+
+PRESENTATION_PROFILE_KEYWORDS: dict[PresentationProfile, tuple[str, ...]] = {
+    "research": ("research", "study", "paper", "thesis", "학술", "연구", "논문"),
+    "product-launch": ("product launch", "new product", "launch", "reveal", "신상품", "신제품", "출시", "신작", "공개"),
+    "executive-report": ("executive", "board", "leadership", "performance report", "임원", "경영진", "성과 보고", "보고"),
+    "proposal": ("proposal", "pitch", "planning", "sales", "investor", "제안", "피치", "기획", "영업", "설득", "투자", "아이디어"),
+    "education": ("education", "lesson", "lecture", "class", "training", "교육", "강의", "수업", "학습"),
+    "technical": ("technical", "architecture", "system", "engineering", "api", "기술", "아키텍처", "시스템", "개발"),
+    "general-inform": (),
+}
+
+
+def presentation_profile_for_request(
+    request: GenerateDeckRequest,
+) -> PresentationProfile:
+    explicit_profiles: dict[DesignProfile, PresentationProfile] = {
+        "startup-pitch": "proposal",
+        "executive-report": "executive-report",
+        "training": "education",
+        "technical": "technical",
+    }
+    if request.design.profile in explicit_profiles:
+        return explicit_profiles[request.design.profile]
+
+    scores = {profile: 0 for profile in PRESENTATION_PROFILE_TIE_ORDER}
+    primary_text = " ".join(
+        [
+            request.brief.presentation_type,
+            request.brief.presentation_context,
+        ]
+    ).casefold()
+    secondary_text = " ".join(
+        [
+            request.topic,
+            request.prompt,
+            request.brief.audience_text,
+            request.brief.success_criteria,
+        ]
+    ).casefold()
+    for profile, keywords in PRESENTATION_PROFILE_KEYWORDS.items():
+        if any(keyword in primary_text for keyword in keywords):
+            scores[profile] += 3
+        if any(keyword in secondary_text for keyword in keywords):
+            scores[profile] += 1
+
+    if request.metadata.audience == "executive" or request.metadata.purpose == "report":
+        scores["executive-report"] += 3
+    if request.metadata.audience == "sales" or request.metadata.purpose == "persuade":
+        scores["proposal"] += 3
+    if request.metadata.purpose == "teach":
+        scores["education"] += 3
+    if request.metadata.audience == "technical":
+        scores["technical"] += 3
+
+    highest_score = max(scores.values())
+    if highest_score == 0:
+        return "general-inform"
+    return next(
+        profile
+        for profile in PRESENTATION_PROFILE_TIE_ORDER
+        if scores[profile] == highest_score
+    )
+
+
+def presentation_rule_prompt(raw_input: RawInput) -> list[str]:
+    profile = raw_input.presentation_profile
+    beats = " -> ".join(PRESENTATION_PROFILE_BEATS[profile])
+    agenda = (
+        "Include an agenda only when useful for 8+ slide report, education, technical, or research decks."
+        if raw_input.slide_count >= 8
+        and profile in {"executive-report", "education", "technical", "research"}
+        else "Do not add an agenda unless the user explicitly requested one."
+    )
+    closing = {
+        "proposal": "End with a concrete next action.",
+        "product-launch": "End with release information and a concrete next action.",
+        "executive-report": "End with a decision or approval request.",
+    }.get(profile, "End with a concise summary or question appropriate to the profile.")
+    return [
+        f"Presentation profile: {profile}",
+        f"Required narrative beats: {beats}",
+        "Use one core message per slide and make each body title state its conclusion.",
+        "Use 1-5 supporting content items per body slide; process slides may use up to 6.",
+        "Keep body content within six rendered lines and move detail into speakerNotes.",
+        "Preserve cover and closing; merge adjacent beats for short decks, expand evidence, examples, or execution for long decks, and never repeat a message to fill slide count.",
+        "Ground every factual claim and number in the supplied sources.",
+        agenda,
+        closing,
+    ]
+
+
 def design_pack_deck_archetype(
     raw_input: RawInput,
     slide_plan: SlidePlan | None = None,
@@ -6141,7 +6506,33 @@ def design_pack_recipe_elements(
             variant,
         )
     )
-    return elements
+    return remove_duplicate_primary_message_elements(slide_plan, elements)
+
+
+def remove_duplicate_primary_message_elements(
+    slide_plan: SlidePlan,
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not message_duplicates_content_items(
+        slide_plan.message,
+        slide_plan.content_items,
+    ):
+        return elements
+
+    message_key = normalize_structural_content_text(slide_plan.message)
+    return [
+        element
+        for element in elements
+        if not (
+            element.get("type") == "text"
+            and element.get("role") in {"subtitle", "body", "highlight"}
+            and not element.get("_contentItemIds")
+            and normalize_structural_content_text(
+                str(element.get("props", {}).get("text", ""))
+            )
+            == message_key
+        )
+    ]
 
 
 def design_pack_recipe_variant_for(
@@ -6709,6 +7100,56 @@ def design_pack_insight_elements(
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "insight_evidence")
+    if len(items) == 1:
+        item = items[0]
+        return [
+            design_pack_text(
+                slide_plan.order,
+                "title",
+                "title",
+                slide_plan.title,
+                120,
+                120,
+                1260,
+                110,
+                4,
+                colors["text"],
+                50,
+                "bold",
+                theme,
+            ),
+            shape_element(
+                slide_plan.order,
+                "insight_single_block",
+                "highlight",
+                120,
+                292,
+                1450,
+                380,
+                3,
+                colors["primary"],
+                "transparent",
+                8,
+            ),
+            mark_design_pack_content_element(
+                design_pack_text(
+                    slide_plan.order,
+                    "insight_single_text",
+                    "body",
+                    item.text,
+                    174,
+                    350,
+                    1340,
+                    210,
+                    5,
+                    "#FFFFFF",
+                    32,
+                    "medium",
+                    theme,
+                ),
+                item,
+            ),
+        ]
     if variant == "insight_callout":
         elements = [
             design_pack_text(
@@ -7962,7 +8403,7 @@ def design_pack_text(
         if role == "title"
         else theme["typography"]["bodyFontFamily"]
     )
-    font_size = design_pack_safe_font_size(theme, role, font_size)
+    font_size = design_pack_safe_font_size(theme, role, font_size, order - 1)
     line_height = design_pack_safe_line_height(theme, role, line_height)
     element = text_element(
         order,
@@ -7980,7 +8421,11 @@ def design_pack_text(
         font_family,
     )
     element["props"]["lineHeight"] = line_height
-    shrink_text_to_fit(element)
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=design_pack_minimum_font_size(order - 1, role),
+        minimum_line_height=design_pack_minimum_line_height(role),
+    )
     return element
 
 
@@ -7988,14 +8433,20 @@ def design_pack_safe_font_size(
     theme: dict[str, Any],
     role: str,
     requested_size: int,
+    slide_index: int,
 ) -> int:
     typography = theme.get("typography", {})
     if role == "title":
-        return min(requested_size, int(typography.get("titleSize", requested_size)))
+        minimum = design_pack_minimum_font_size(slide_index, role)
+        return max(
+            minimum,
+            min(requested_size, int(typography.get("titleSize", requested_size))),
+        )
     if role in {"body", "highlight"}:
-        return min(requested_size, int(typography.get("bodySize", requested_size)))
+        return max(18, min(requested_size, int(typography.get("bodySize", requested_size))))
     if role in {"caption", "footer"}:
-        return min(requested_size, int(typography.get("captionSize", requested_size)))
+        minimum = 12 if role == "footer" else 14
+        return max(minimum, min(requested_size, int(typography.get("captionSize", requested_size))))
     return requested_size
 
 
@@ -8007,7 +8458,10 @@ def design_pack_safe_line_height(
     if role in {"caption", "footer"}:
         return requested_line_height
     typography = theme.get("typography", {})
-    return max(requested_line_height, float(typography.get("lineHeight", 1.15)))
+    requested = max(requested_line_height, float(typography.get("lineHeight", 1.15)))
+    if role == "title":
+        return min(1.2, max(1.05, requested))
+    return min(1.3, max(1.2, requested))
 
 
 def design_pack_items(
@@ -8015,11 +8469,42 @@ def design_pack_items(
     recipe: str,
 ) -> list[GeneratedContentItem]:
     items = list(slide_plan.content_items)
-    if not items:
-        items = content_items_from_message(slide_plan.message, slide_plan.order)
-        slide_plan.content_items = items
-
     minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
+    if len(items) < minimum:
+        existing_keys = {
+            normalize_structural_content_text(item.text) for item in items
+        }
+        candidates = unique_non_empty(
+            [
+                *[
+                    item.text
+                    for item in content_items_from_message(
+                        slide_plan.message,
+                        slide_plan.order,
+                    )
+                ],
+                *[evidence.note for evidence in slide_plan.evidence],
+                slide_plan.visual_intent.metric_card_caption,
+                *slide_plan.keywords,
+            ]
+        )
+        for candidate in candidates:
+            key = normalize_structural_content_text(candidate)
+            if len(key) < 2 or key in existing_keys:
+                continue
+            items.append(
+                GeneratedContentItem(
+                    contentItemId=(
+                        f"content_{slide_plan.order}_repair_{len(items) + 1}"
+                    ),
+                    text=candidate,
+                )
+            )
+            existing_keys.add(key)
+            if len(items) == minimum:
+                break
+    if items != slide_plan.content_items:
+        slide_plan.content_items = items
     if not minimum <= len(items) <= maximum:
         raise DeckContentGenerationError(
             f"slide {slide_plan.order}: recipe {recipe} requires {minimum}-{maximum} "
@@ -10977,6 +11462,7 @@ def preview_color(value: Any, fallback: str) -> str | None:
 
 def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    presentation_rules = bool(deck.get("metadata", {}).get("presentationProfile"))
     topic = deck["metadata"]["createdFrom"]["topic"]
     if topic not in deck["title"]:
         issues.append(
@@ -11003,22 +11489,61 @@ def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
                     message="발표자 노트가 필요합니다.",
                 )
             )
-        issues.extend(validate_slide_timing_plan(slide, slide_index))
+        issues.extend(
+            validate_slide_timing_plan(
+                slide,
+                slide_index,
+                presentation_rules=presentation_rules,
+            )
+        )
         issues.extend(validate_slide_source_ledger(slide, slide_index))
         issues.extend(validate_slide_visual_slot(slide, slide_index))
-    issues.extend(validate_deck_timing_summary(deck))
+    issues.extend(
+        validate_deck_timing_summary(
+            deck,
+            presentation_rules=presentation_rules,
+        )
+    )
     return issues
 
 
 def validate_slide_timing_plan(
     slide: dict[str, Any],
     slide_index: int,
+    *,
+    presentation_rules: bool = False,
 ) -> list[ValidationIssue]:
     timing_plan = slide.get("aiNotes", {}).get("timingPlan")
     if not isinstance(timing_plan, dict):
         return []
     target_chars = int(timing_plan.get("targetSpeakerNotesChars") or 0)
     actual_chars = count_speaker_note_chars(str(slide.get("speakerNotes", "")))
+    if presentation_rules and target_chars > 0:
+        if actual_chars < round(target_chars * 0.7):
+            return [
+                ValidationIssue(
+                    code="SPEAKER_NOTES_SHORT",
+                    scope="slide",
+                    path=f"slides.{slide_index}.speakerNotes",
+                    message=(
+                        "발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. "
+                        f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
+                    ),
+                )
+            ]
+        if actual_chars > round(target_chars * 1.15):
+            return [
+                ValidationIssue(
+                    code="SPEAKER_NOTES_DENSE",
+                    scope="slide",
+                    path=f"slides.{slide_index}.speakerNotes",
+                    message=(
+                        "발표자 메모가 장표별 발화 목표의 115%를 초과합니다. "
+                        f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
+                    ),
+                )
+            ]
+        return []
     if target_chars > 0 and actual_chars < round(target_chars * 0.8):
         return [
             ValidationIssue(
@@ -11085,7 +11610,11 @@ def validate_slide_visual_slot(
     ]
 
 
-def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
+def validate_deck_timing_summary(
+    deck: dict[str, Any],
+    *,
+    presentation_rules: bool = False,
+) -> list[ValidationIssue]:
     slides = deck.get("slides", [])
     timing_plans = [
         slide.get("aiNotes", {}).get("timingPlan")
@@ -11103,7 +11632,36 @@ def validate_deck_timing_summary(deck: dict[str, Any]) -> list[ValidationIssue]:
         for slide in slides
     )
     issues: list[ValidationIssue] = []
-    if target_total > 0 and actual_total < round(target_total * 0.8):
+    if presentation_rules:
+        chars_per_minute = int(timing_plans[0].get("charsPerMinute") or 0)
+        duration_minutes = int(deck.get("targetDurationMinutes") or 0)
+        minimum_total = round(duration_minutes * chars_per_minute * 0.75)
+        maximum_total = round(duration_minutes * chars_per_minute * 0.85)
+        if minimum_total > 0 and actual_total < minimum_total:
+            issues.append(
+                ValidationIssue(
+                    code="SPEAKER_NOTES_SHORT",
+                    scope="deck",
+                    path="slides",
+                    message=(
+                        "전체 실제 발화 시간이 발표 제한 시간의 75%보다 짧습니다. "
+                        f"최소 {minimum_total}자 대비 현재 {actual_total}자입니다."
+                    ),
+                )
+            )
+        elif maximum_total > 0 and actual_total > maximum_total:
+            issues.append(
+                ValidationIssue(
+                    code="SPEAKER_NOTES_DENSE",
+                    scope="deck",
+                    path="slides",
+                    message=(
+                        "전체 실제 발화 시간이 발표 제한 시간의 85%를 초과합니다. "
+                        f"최대 {maximum_total}자 대비 현재 {actual_total}자입니다."
+                    ),
+                )
+            )
+    elif target_total > 0 and actual_total < round(target_total * 0.8):
         issues.append(
             ValidationIssue(
                 scope="deck",
@@ -11587,7 +12145,453 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
                 message="덱에는 슬라이드가 최소 1장 필요합니다.",
             )
         ]
+    profile = deck.get("metadata", {}).get("presentationProfile")
+    if profile not in PRESENTATION_PROFILE_BEATS:
+        return []
+
+    issues: list[ValidationIssue] = []
+    for slide_index, slide in enumerate(deck["slides"]):
+        visual_type = str(
+            slide.get("aiNotes", {}).get("visualPlan", {}).get("visualType", "")
+        )
+        if slide_index > 0 and visual_type not in {"cover", "quote", "summary"}:
+            if action_title_requires_attention(str(slide.get("title", ""))):
+                issues.append(
+                    ValidationIssue(
+                        code="ACTION_TITLE_WEAK",
+                        scope="slide",
+                        path=f"slides.{slide_index}.title",
+                        message="본문 슬라이드 제목은 40자 이내의 결론형 문장이어야 합니다.",
+                    )
+                )
+        issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
+        issues.extend(validate_slide_content_duplication(slide, slide_index))
+        issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
+        issues.extend(validate_slide_typography(slide, slide_index))
+        issues.extend(validate_slide_grid_alignment(slide, slide_index))
+
+    font_families = {
+        str(element.get("props", {}).get("fontFamily", "")).strip().casefold()
+        for slide in deck["slides"]
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and str(element.get("props", {}).get("fontFamily", "")).strip()
+    }
+    if len(font_families) > 2:
+        issues.append(
+            ValidationIssue(
+                code="FONT_FAMILY_OVERUSED",
+                scope="deck",
+                path="slides",
+                message="발표 자료에는 최대 두 개의 글꼴 패밀리만 사용할 수 있습니다.",
+            )
+        )
+
+    if profile in {"proposal", "product-launch", "executive-report"}:
+        closing = deck["slides"][-1]
+        closing_text = visible_slide_text(closing)
+        required_tokens = (
+            EXECUTIVE_CLOSING_TOKENS
+            if profile == "executive-report"
+            else ACTION_CLOSING_TOKENS
+        )
+        if not has_any(closing_text.casefold(), required_tokens):
+            issues.append(
+                ValidationIssue(
+                    code="CTA_MISSING",
+                    scope="slide",
+                    path=f"slides.{len(deck['slides']) - 1}",
+                    message=(
+                        "마지막 슬라이드에 결정 또는 승인 요청이 필요합니다."
+                        if profile == "executive-report"
+                        else "마지막 슬라이드에 구체적인 다음 행동이 필요합니다."
+                    ),
+                )
+            )
+    return issues
+
+
+GENERIC_ACTION_TITLES = {
+    "개요",
+    "배경",
+    "현황",
+    "시장 현황",
+    "문제",
+    "해결책",
+    "결과",
+    "성과",
+    "요약",
+    "결론",
+    "핵심 특징",
+    "주요 포인트",
+}
+ACTION_CLOSING_TOKENS = (
+    "다음",
+    "지금",
+    "시작",
+    "신청",
+    "참여",
+    "확인",
+    "선택",
+    "도입",
+    "실행",
+    "문의",
+    "출시",
+    "구매",
+    "예약",
+    "체험",
+    "next",
+    "start",
+    "join",
+    "contact",
+    "launch",
+    "pre-order",
+)
+EXECUTIVE_CLOSING_TOKENS = (
+    "결정",
+    "승인",
+    "확정",
+    "선택",
+    "검토",
+    "의사결정",
+    "decision",
+    "approve",
+    "approval",
+)
+
+
+def action_title_requires_attention(title: str) -> bool:
+    normalized = " ".join(title.split()).strip(" .,:;!?-_").casefold()
+    return len(normalized) > 40 or normalized in GENERIC_ACTION_TITLES
+
+
+def validate_slide_content_duplication(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    candidates = [
+        element
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") in {"subtitle", "body", "highlight"}
+        and len(
+            normalize_structural_content_text(
+                str(element.get("props", {}).get("text", ""))
+            )
+        )
+        >= 6
+    ]
+    keys = {
+        str(element.get("elementId", "")): normalize_structural_content_text(
+            str(element.get("props", {}).get("text", ""))
+        )
+        for element in candidates
+    }
+    duplicate_ids: set[str] = set()
+    grouped: dict[str, list[str]] = {}
+    for element_id, key in keys.items():
+        grouped.setdefault(key, []).append(element_id)
+    for element_ids in grouped.values():
+        if len(element_ids) > 1:
+            duplicate_ids.update(element_ids)
+
+    for primary_id, primary_key in keys.items():
+        supporting = [
+            (element_id, key)
+            for element_id, key in keys.items()
+            if element_id != primary_id and key in primary_key
+        ]
+        if len(supporting) < 2 or sum(len(key) for _, key in supporting) < len(
+            primary_key
+        ) * 0.8:
+            continue
+        duplicate_ids.add(primary_id)
+        duplicate_ids.update(element_id for element_id, _ in supporting)
+
+    if not duplicate_ids:
+        return []
+    return [
+        ValidationIssue(
+            code="CONTENT_DUPLICATED",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="같은 핵심 내용이 본문 요소에 구조적으로 반복되어 있습니다.",
+        )
+    ]
+
+
+def validate_slide_content_density(
+    slide: dict[str, Any],
+    slide_index: int,
+    visual_type: str,
+) -> list[ValidationIssue]:
+    if visual_type in {"cover", "quote"} or slide.get("style", {}).get("layout") in {
+        "chart-focus",
+        "quote",
+    }:
+        return []
+    body_elements = visible_text_elements_for_roles(slide, {"body", "highlight"})
+    too_many_lines = any(estimated_text_line_count(element) > 6 for element in body_elements)
+    if not too_many_lines:
+        return []
+    return [
+        ValidationIssue(
+            code="BODY_CONTENT_DENSE",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="본문 텍스트 박스는 실제 렌더링 기준 6줄 이내여야 합니다.",
+        )
+    ]
+
+
+def validate_slide_visual_hierarchy(
+    slide: dict[str, Any],
+    slide_index: int,
+    visual_type: str,
+) -> list[ValidationIssue]:
+    if visual_type in {"cover", "quote"}:
+        return []
+    visible_elements = [
+        element for element in slide.get("elements", []) if element.get("visible", True)
+    ]
+    content_elements = [
+        element
+        for element in visible_elements
+        if (
+            element.get("type") == "text"
+            and element.get("role") in {"body", "highlight"}
+            and str(element.get("props", {}).get("text", "")).strip()
+        )
+        or element.get("type") in {"image", "chart"}
+        or element.get("role") == "media"
+    ]
+    primary_visuals = [
+        element
+        for element in visible_elements
+        if element.get("type") in {"image", "chart"} or element.get("role") == "media"
+    ]
+    if content_elements and len(primary_visuals) <= 1:
+        return []
+    return [
+        ValidationIssue(
+            code="VISUAL_HIERARCHY_WEAK",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message="본문 슬라이드에는 하나의 명확한 시각적 중심 요소가 필요합니다.",
+        )
+    ]
+
+
+def visible_text_elements_for_roles(
+    slide: dict[str, Any],
+    roles: set[str],
+) -> list[dict[str, Any]]:
+    return [
+        element
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") in roles
+        and str(element.get("props", {}).get("text", "")).strip()
+    ]
+
+
+def validate_slide_typography(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for element_index, element in enumerate(slide.get("elements", [])):
+        if not element.get("visible", True) or element.get("type") != "text":
+            continue
+        role = str(element.get("role", ""))
+        props = element.get("props", {})
+        font_size = float(props.get("fontSize", 24))
+        minimum_size = design_pack_minimum_font_size(slide_index, role)
+        if font_size < minimum_size:
+            issues.append(
+                ValidationIssue(
+                    code="FONT_SIZE_BELOW_MINIMUM",
+                    scope="element",
+                    path=f"slides.{slide_index}.elements.{element_index}.props.fontSize",
+                    message=f"{role or 'text'} 텍스트는 최소 {minimum_size}pt가 필요합니다.",
+                )
+            )
+        line_height = float(props.get("lineHeight", 1.2))
+        if role == "title":
+            valid_line_height = 1.05 <= line_height <= 1.2
+        elif role in {"body", "highlight", "subtitle"}:
+            valid_line_height = 1.2 <= line_height <= 1.3
+        else:
+            valid_line_height = True
+        if not valid_line_height:
+            issues.append(
+                ValidationIssue(
+                    code="LINE_HEIGHT_OUT_OF_RANGE",
+                    scope="element",
+                    path=f"slides.{slide_index}.elements.{element_index}.props.lineHeight",
+                    message="제목과 본문의 역할별 권장 행간 범위를 벗어났습니다.",
+                )
+            )
+    return issues
+
+
+def estimated_text_line_count(element: dict[str, Any]) -> int:
+    props = element.get("props", {})
+    line_height = max(0.1, float(props.get("lineHeight", 1.2)))
+    font_size = max(1.0, float(props.get("fontSize", 24)))
+    return max(
+        1,
+        math.ceil(estimated_text_content_height(element) / (font_size * line_height)),
+    )
+
+
+def visible_slide_text(slide: dict[str, Any]) -> str:
+    parts = [str(slide.get("title", ""))]
+    parts.extend(
+        str(element.get("props", {}).get("text", ""))
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+        and element.get("type") == "text"
+        and element.get("role") not in {"caption", "footer"}
+    )
+    return " ".join(part for part in parts if part.strip())
+
+
+def align_design_pack_core_geometry(elements: list[dict[str, Any]]) -> None:
+    for element in elements:
+        if not is_design_pack_grid_element(element, elements):
+            continue
+        x, width = nearest_grid_slot(
+            float(element.get("x", 0)),
+            float(element.get("width", 1)),
+        )
+        element["x"] = x
+        element["width"] = width
+        element["y"] = round(float(element.get("y", 0)) / GRID_SPACING) * GRID_SPACING
+        element["height"] = max(
+            GRID_SPACING,
+            math.ceil(float(element.get("height", 1)) / GRID_SPACING)
+            * GRID_SPACING,
+        )
+
+
+def nearest_grid_slot(x: float, width: float) -> tuple[int, int]:
+    candidates = [
+        (
+            CANVAS.safe_x + column * GRID_STEP,
+            span * GRID_COLUMN_WIDTH + (span - 1) * GRID_GUTTER,
+        )
+        for column in range(GRID_COLUMN_COUNT)
+        for span in range(1, GRID_COLUMN_COUNT - column + 1)
+    ]
+    non_shrinking = [candidate for candidate in candidates if candidate[1] >= width]
+    return min(
+        non_shrinking or candidates,
+        key=lambda candidate: abs(candidate[0] - x) + abs(candidate[1] - width),
+    )
+
+
+def is_design_pack_grid_element(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> bool:
+    if not element.get("visible", True) or is_full_bleed_element(element):
+        return False
+    role = str(element.get("role", ""))
+    element_id = str(element.get("elementId", ""))
+    if role in {"background", "footer"} or is_design_pack_chrome_text(element):
+        return False
+    if any(
+        token in element_id
+        for token in ("_card_", "_accent", "_divider", "_number", "_label")
+    ):
+        return False
+    if role in {"title", "media"} or element.get("type") == "chart":
+        return True
+    if role in {"body", "subtitle"}:
+        return not is_contained_by_grid_panel(element, elements)
+    return (
+        role == "highlight"
+        and element.get("type") != "text"
+        and float(element.get("width", 0)) >= 400
+        and float(element.get("height", 0)) >= 120
+        and any(token in element_id for token in ("_panel", "_block"))
+    )
+
+
+def is_full_bleed_element(element: dict[str, Any]) -> bool:
+    return (
+        float(element.get("x", 0)) <= 0
+        and float(element.get("y", 0)) <= 0
+        and float(element.get("width", 0)) >= CANVAS.width
+        and float(element.get("height", 0)) >= CANVAS.height
+    )
+
+
+def is_contained_by_grid_panel(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> bool:
+    return any(
+        candidate is not element
+        and candidate.get("visible", True)
+        and candidate.get("role") == "highlight"
+        and candidate.get("type") != "text"
+        and text_background_coverage(element, candidate) >= 0.9
+        for candidate in elements
+    )
+
+
+def validate_slide_grid_alignment(
+    slide: dict[str, Any],
+    slide_index: int,
+) -> list[ValidationIssue]:
+    elements = slide.get("elements", [])
+    for element_index, element in enumerate(elements):
+        if not is_design_pack_grid_element(element, elements):
+            continue
+        if is_grid_aligned(element):
+            continue
+        return [
+            ValidationIssue(
+                code="GRID_ALIGNMENT_INCONSISTENT",
+                scope="element",
+                path=f"slides.{slide_index}.elements.{element_index}",
+                message="핵심 레이아웃 요소가 12열 grid와 8px 간격 기준에서 벗어났습니다.",
+            )
+        ]
     return []
+
+
+def is_grid_aligned(element: dict[str, Any]) -> bool:
+    x = float(element.get("x", 0))
+    width = float(element.get("width", 1))
+    horizontal = any(
+        abs(candidate_x - x) <= GRID_TOLERANCE
+        and abs(candidate_width - width) <= GRID_TOLERANCE
+        for candidate_x, candidate_width in (
+            (
+                CANVAS.safe_x + column * GRID_STEP,
+                span * GRID_COLUMN_WIDTH + (span - 1) * GRID_GUTTER,
+            )
+            for column in range(GRID_COLUMN_COUNT)
+            for span in range(1, GRID_COLUMN_COUNT - column + 1)
+        )
+    )
+    y = float(element.get("y", 0))
+    height = float(element.get("height", 1))
+    vertical = (
+        distance_to_spacing(y, GRID_SPACING) <= GRID_TOLERANCE
+        and distance_to_spacing(height, GRID_SPACING) <= GRID_TOLERANCE
+    )
+    return horizontal and vertical
+
+
+def distance_to_spacing(value: float, spacing: int) -> float:
+    return abs(value - round(value / spacing) * spacing)
 
 
 def patch_deck(deck: dict[str, Any]) -> dict[str, Any]:
@@ -11622,21 +12626,34 @@ def repair_design_pack_text_element(element: dict[str, Any]) -> None:
     if not str(props.get("text", "")).strip():
         return
 
-    shrink_text_to_fit(element)
+    minimum_font_size = design_pack_minimum_font_size_for_element(element)
+    minimum_line_height = design_pack_minimum_line_height(str(element.get("role", "")))
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=minimum_font_size,
+        minimum_line_height=minimum_line_height,
+    )
     for _ in range(6):
         if not is_text_editor_overflow_risk(element):
             return
         font_size = float(props.get("fontSize", 24))
-        if font_size <= 12:
+        if font_size <= minimum_font_size:
             break
-        props["fontSize"] = max(12, round(font_size * 0.94))
-        props["lineHeight"] = max(1.0, round(float(props.get("lineHeight", 1.2)) - 0.03, 2))
+        props["fontSize"] = max(minimum_font_size, round(font_size * 0.94))
+        props["lineHeight"] = max(
+            minimum_line_height,
+            round(float(props.get("lineHeight", 1.2)) - 0.03, 2),
+        )
 
     expand_design_pack_text_box(element)
     if not is_text_editor_overflow_risk(element):
         return
 
-    shrink_text_to_fit(element)
+    shrink_text_to_fit(
+        element,
+        minimum_font_size=minimum_font_size,
+        minimum_line_height=minimum_line_height,
+    )
     expand_design_pack_text_box(element)
 
 
@@ -11685,7 +12702,19 @@ def refine_design_issues(
             "backgroundColor",
             refined.get("theme", {}).get("backgroundColor", "#ffffff"),
         )
-        shrink_text_to_fit(element)
+        if refined.get("metadata", {}).get("presentationProfile"):
+            shrink_text_to_fit(
+                element,
+                minimum_font_size=design_pack_minimum_font_size(
+                    slide_index,
+                    str(element.get("role", "")),
+                ),
+                minimum_line_height=design_pack_minimum_line_height(
+                    str(element.get("role", ""))
+                ),
+            )
+        else:
+            shrink_text_to_fit(element)
         if should_clamp_text_to_safe_area(element):
             clamp_text_to_safe_area(element)
         contrast_kind, effective_background = effective_text_background(
@@ -11712,16 +12741,50 @@ def design_issue_element_paths(
     return paths
 
 
-def shrink_text_to_fit(element: dict[str, Any]) -> None:
+def shrink_text_to_fit(
+    element: dict[str, Any],
+    *,
+    minimum_font_size: float = 12,
+    minimum_line_height: float = 1.0,
+) -> None:
     props = element.get("props", {})
     for _ in range(8):
         if not is_text_overflowing(element):
             return
         font_size = float(props.get("fontSize", 24))
-        if font_size <= 12:
+        if font_size <= minimum_font_size:
             return
-        props["fontSize"] = max(12, round(font_size * 0.9))
-        props["lineHeight"] = max(1.0, round(float(props.get("lineHeight", 1.2)) - 0.05, 2))
+        props["fontSize"] = max(minimum_font_size, round(font_size * 0.9))
+        props["lineHeight"] = max(
+            minimum_line_height,
+            round(float(props.get("lineHeight", 1.2)) - 0.05, 2),
+        )
+
+
+def design_pack_minimum_font_size(slide_index: int, role: str) -> int:
+    if role == "title":
+        return 44 if slide_index == 0 else 32
+    if role in {"body", "highlight", "subtitle"}:
+        return 18
+    if role == "caption":
+        return 14
+    if role == "footer":
+        return 12
+    return 12
+
+
+def design_pack_minimum_font_size_for_element(element: dict[str, Any]) -> int:
+    element_id = str(element.get("elementId", ""))
+    slide_index = 0 if element_id.startswith("el_1_") else 1
+    return design_pack_minimum_font_size(slide_index, str(element.get("role", "")))
+
+
+def design_pack_minimum_line_height(role: str) -> float:
+    if role == "title":
+        return 1.05
+    if role in {"body", "highlight", "subtitle"}:
+        return 1.2
+    return 1.0
 
 
 def clamp_text_to_safe_area(element: dict[str, Any]) -> None:

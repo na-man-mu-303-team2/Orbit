@@ -19,6 +19,7 @@ type DeckValidationInput = {
     audience?: string;
     purpose?: string;
     tone?: string;
+    presentationProfile?: string;
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
@@ -66,6 +67,18 @@ type DeckValidationInput = {
         confidence: number;
         usedInSlideId: string;
       }>;
+      timingPlan?: {
+        charsPerMinute?: number;
+        speakingTimeRatio?: number;
+        targetTotalChars?: number;
+        targetSlideCount?: number;
+        targetSecondsPerSlide?: number;
+        targetSpeakerNotesCharsPerSlide?: number;
+        targetSeconds: number;
+        targetSpokenSeconds?: number;
+        targetSpeakerNotesChars: number;
+        actualSpeakerNotesChars: number;
+      };
     };
     keywords: Array<{
       keywordId: string;
@@ -1035,6 +1048,7 @@ describe("deckSchema validation", () => {
       audience: "technical",
       purpose: "inform",
       tone: "professional",
+      presentationProfile: "technical",
       createdFrom: {
         topic: "AI 발표 자동화",
         references: [{ fileId: "file_1" }]
@@ -1077,7 +1091,19 @@ describe("deckSchema validation", () => {
           confidence: 0.9,
           usedInSlideId: deck.slides[0].slideId
         }
-      ]
+      ],
+      timingPlan: {
+        charsPerMinute: 260,
+        speakingTimeRatio: 0.8,
+        targetTotalChars: 2080,
+        targetSlideCount: 10,
+        targetSecondsPerSlide: 60,
+        targetSpeakerNotesCharsPerSlide: 208,
+        targetSeconds: 60,
+        targetSpokenSeconds: 48,
+        targetSpeakerNotesChars: 208,
+        actualSpeakerNotesChars: 201
+      }
     };
 
     expectValidDeck(deck);
@@ -1099,6 +1125,31 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.metadata.createdFrom?.designReferences).toEqual([]);
+  });
+
+  it("accepts every supported AI presentation profile", () => {
+    for (const presentationProfile of [
+      "proposal",
+      "executive-report",
+      "product-launch",
+      "education",
+      "technical",
+      "research",
+      "general-inform"
+    ]) {
+      const deck = createValidDeck();
+      deck.metadata.presentationProfile = presentationProfile;
+
+      expect(deckSchema.parse(deck).metadata.presentationProfile).toBe(
+        presentationProfile
+      );
+    }
+  });
+
+  it("keeps presentation profile optional for existing decks", () => {
+    expect(
+      deckSchema.parse(createValidDeck()).metadata.presentationProfile
+    ).toBeUndefined();
   });
 
   it("accepts imported deck thumbnail source metadata", () => {
