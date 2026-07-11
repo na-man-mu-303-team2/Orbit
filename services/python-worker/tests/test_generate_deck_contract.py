@@ -4009,7 +4009,8 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     )
 
     cover, overview, process, comparison, closing = response.deck["slides"]
-    assert has_element(cover, "el_1_cover_trust_signal_panel")
+    assert not has_element(cover, "el_1_cover_trust_signal_panel")
+    assert not has_element(cover, "el_1_cover_trust_signal_accent")
     assert has_element(cover, "el_1_cover_summary_card_1")
     assert not has_element(cover, "el_1_body")
     assert not has_element(cover, "el_1_accent_rail")
@@ -4018,8 +4019,9 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
         props = label["props"]
         assert label["height"] - 8 >= props["fontSize"] * props.get("lineHeight", 1.2)
     cover_title = element_by_id(cover, "el_1_title")
-    assert cover_title["width"] >= 1000
+    assert cover_title["width"] == 1680
     assert cover_title["props"]["fontSize"] <= 50
+    assert element_by_id(cover, "el_1_cover_summary_card_1")["width"] == 544
     assert has_element(overview, "el_2_overview_card_1")
     assert has_element(process, "el_3_process_step_card_1")
     assert has_element(process, "el_3_process_step_connector_1")
@@ -4029,7 +4031,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     assert not has_element(closing, "el_5_closing_summary_accent_block")
     assert element_by_id(closing, "el_5_closing_summary_card_1")["width"] == 1680
 
-    assert element_by_id(cover, "el_1_cover_trust_signal_accent")["props"]["fill"] == "#001F3F"
+    assert element_by_id(cover, "el_1_design_pack_top_rule")["props"]["fill"] == "#001F3F"
     assert element_by_id(process, "el_3_process_step_connector_1")["props"]["fill"] == "#001F3F"
     assert element_by_id(overview, "el_2_overview_card_1")["props"]["stroke"] == "#D1D5DB"
     for slide in response.deck["slides"]:
@@ -5028,6 +5030,29 @@ def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     slide = response.deck["slides"][0]
     assert slide["style"]["layout"] == "title"
     assert not has_element(slide, "el_1_media_placeholder")
+
+
+def test_design_pack_cover_without_media_uses_full_width_information_card() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Executive report",
+            slideCountRange={"min": 1, "max": 1},
+            design={"mediaPolicy": "avoid"},
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    assert not has_element(slide, "el_1_cover_trust_signal_panel")
+    assert not has_element(slide, "el_1_cover_trust_signal_accent")
+    title = element_by_id(slide, "el_1_title")
+    card = element_by_id(slide, "el_1_cover_summary_card_1")
+    card_text = element_by_id(slide, "el_1_cover_summary_card_1_text")
+    assert title["width"] == 1680
+    assert card["width"] == 1680
+    assert card["height"] == 232
+    assert card_text["props"]["fontSize"] == 28
 
 
 def test_text_overlap_candidates_ignore_empty_and_footer_text() -> None:

@@ -6732,13 +6732,16 @@ def fit_design_pack_recipe_to_media_frame(
     elements: list[dict[str, Any]],
     slide_plan: SlidePlan,
 ) -> None:
-    if not media_intent_needs_slot(slide_plan.media_intent):
-        return
-
-    if any(
+    has_cover_panel = any(
         "_cover_trust_signal_panel" in str(element.get("elementId", ""))
         for element in elements
-    ):
+    )
+    if not media_intent_needs_slot(slide_plan.media_intent):
+        if has_cover_panel:
+            fit_design_pack_cover_without_media(elements)
+        return
+
+    if has_cover_panel:
         fit_design_pack_cover_to_media_frame(elements)
         return
 
@@ -6794,6 +6797,48 @@ def fit_design_pack_cover_to_media_frame(elements: list[dict[str, Any]]) -> None
             element.update(x=300, y=y + 22, width=740, height=56)
         else:
             element.update(x=CANVAS.safe_x, y=y, width=970, height=104)
+
+
+def fit_design_pack_cover_without_media(elements: list[dict[str, Any]]) -> None:
+    elements[:] = [
+        element
+        for element in elements
+        if not any(
+            token in str(element.get("elementId", ""))
+            for token in ("_cover_trust_signal_panel", "_cover_trust_signal_accent")
+        )
+    ]
+    cards = [
+        element
+        for element in elements
+        if re.search(r"_cover_summary_card_\d+$", str(element.get("elementId", "")))
+    ]
+    card_count = max(1, len(cards))
+    card_width = int(
+        (CANVAS.safe_width - GRID_GUTTER * (card_count - 1)) / card_count
+    )
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if element.get("role") == "title":
+            element.update(x=CANVAS.safe_x, y=214, width=CANVAS.safe_width, height=160)
+            continue
+        if element_id.endswith("_body"):
+            element.update(x=CANVAS.safe_x, y=398, width=CANVAS.safe_width, height=96)
+            continue
+        match = re.search(r"_cover_summary_card_(\d+)(?:_(label|text))?$", element_id)
+        if match is None:
+            continue
+        index = int(match.group(1)) - 1
+        part = match.group(2)
+        x = CANVAS.safe_x + index * (card_width + GRID_GUTTER)
+        if part == "label":
+            element.update(x=x + 32, y=564, width=140, height=36)
+            element.get("props", {})["fontSize"] = 18
+        elif part == "text":
+            element.update(x=x + 32, y=620, width=card_width - 64, height=112)
+            element.get("props", {})["fontSize"] = 28 if card_count == 1 else 22
+        else:
+            element.update(x=x, y=532, width=card_width, height=232)
 
 
 def remove_duplicate_primary_message_elements(
