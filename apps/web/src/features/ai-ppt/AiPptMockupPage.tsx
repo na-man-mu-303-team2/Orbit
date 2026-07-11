@@ -236,8 +236,22 @@ export function buildAiPptGenerateDeckPayload(
       fontOverride,
       referencePolicy: state.referencePolicy
     },
-    ...(savedDesignPack ? { savedDesignPack } : {}),
-    ...(brandKit ? { brandKit } : {}),
+    ...(savedDesignPack
+      ? {
+          savedDesignPack: {
+            id: savedDesignPack.id,
+            version: savedDesignPack.version
+          }
+        }
+      : {}),
+    ...(brandKit
+      ? {
+          brandKit: {
+            id: brandKit.id,
+            version: brandKit.version
+          }
+        }
+      : {}),
     visualPlanPolicy: {
       mediaPolicy: state.mediaPolicy
     },

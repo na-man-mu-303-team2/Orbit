@@ -120,6 +120,16 @@ describe("AI PPT wizard payload", () => {
   });
 
   it("pins the selected Saved Design Pack version in the generation request", () => {
+    const savedSelection = {
+      id: "design_pack_user_1",
+      version: 4,
+      name: "Must not leak"
+    };
+    const brandSelection = {
+      id: "brand_kit_org_1",
+      version: 2,
+      values: { mustNotLeak: true }
+    };
     const payload = buildAiPptGenerateDeckPayload(
       {
         topic: "Reusable report",
@@ -140,8 +150,8 @@ describe("AI PPT wizard payload", () => {
       [],
       undefined,
       undefined,
-      { id: "design_pack_user_1", version: 4 },
-      { id: "brand_kit_org_1", version: 2 }
+      savedSelection,
+      brandSelection
     );
 
     expect(payload.savedDesignPack).toEqual({
@@ -152,6 +162,8 @@ describe("AI PPT wizard payload", () => {
       id: "brand_kit_org_1",
       version: 2
     });
+    expect(Object.keys(payload.savedDesignPack ?? {})).toEqual(["id", "version"]);
+    expect(Object.keys(payload.brandKit ?? {})).toEqual(["id", "version"]);
   });
 
   it("builds a locked Brand Kit from the current session style", () => {
