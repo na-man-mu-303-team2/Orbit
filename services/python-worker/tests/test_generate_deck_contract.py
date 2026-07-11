@@ -50,6 +50,7 @@ from app.ai.generate_deck import (
     is_text_overflowing,
     merge_grounded_repair_notes,
     message_duplicates_content_items,
+    normalize_design_pack_slide_title,
     normalize_structural_content_text,
     remove_redundant_speaker_note_sentences,
     presentation_profile_for_request,
@@ -121,6 +122,23 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("커버: 2026 상반기 AI PPT 고도화 보고", "2026 상반기 AI PPT 고도화 보고"),
+        ("표지：제품 공개", "제품 공개"),
+        ("Cover: Product launch", "Product launch"),
+        ("2026 상반기 경영 보고", "2026 상반기 경영 보고"),
+    ],
+)
+def test_design_pack_cover_title_hides_structural_role_label(
+    title: str,
+    expected: str,
+) -> None:
+    assert normalize_design_pack_slide_title(title, "cover") == expected
+    assert normalize_design_pack_slide_title(title, "data") == title
 
 
 @pytest.mark.parametrize(

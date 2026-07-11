@@ -4489,7 +4489,7 @@ def slide_plans_from_generated_content(
             SlidePlan(
                 order=index,
                 slide_type=slide_type,
-                title=slide.title,
+                title=normalize_design_pack_slide_title(slide.title, slide_type),
                 message=message,
                 speaker_notes=slide.speaker_notes,
                 keywords=slide_keywords[:6],
@@ -4554,6 +4554,19 @@ def normalize_slide_type(value: SlideType | None, fallback: SlideType) -> SlideT
     if value in SLIDE_TYPES:
         return value
     return fallback
+
+
+def normalize_design_pack_slide_title(title: str, slide_type: SlideType) -> str:
+    if slide_type not in {"title", "cover"}:
+        return title
+
+    normalized = re.sub(
+        r"^\s*(?:cover|title|커버|표지)\s*[:：]\s*",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    ).strip()
+    return normalized or title
 
 
 def normalize_slot_preset(
