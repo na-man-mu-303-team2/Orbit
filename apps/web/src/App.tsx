@@ -46,6 +46,7 @@ import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import { AppSidebar } from "./components/AppSidebar";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
+import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { AiPptMockupPage } from "./features/ai-ppt/AiPptMockupPage";
 import {
   createProject,
@@ -213,9 +214,12 @@ export type Route =
       presenterInitialStepIndex?: number;
       presenterSessionId?: string;
       presenterWindow?: boolean;
+      sourceFullRunId?: string;
+      sourceGoalSetId?: string;
       projectId: string;
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
+  | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
@@ -304,6 +308,8 @@ const reportMockupRun: RehearsalRun = {
   deckVersion: null,
   evaluationSnapshot: null,
   semanticEvaluationMode: "full",
+  analysisRevision: 1,
+  analysisFinalizedAt: reportMockupGeneratedAt,
   status: "succeeded",
   error: null,
   rawAudioDeletedAt: null,
@@ -500,6 +506,15 @@ export function getRoute(
     };
   }
 
+  const practicePlanMatch = normalized.match(/^\/rehearsal\/([^/]+)\/plan\/([^/]+)$/);
+  if (practicePlanMatch) {
+    return {
+      name: "practice-plan",
+      projectId: decodeURIComponent(practicePlanMatch[1]),
+      sourceFullRunId: decodeURIComponent(practicePlanMatch[2])
+    };
+  }
+
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     const searchParams = new URLSearchParams(currentSearch);
@@ -509,6 +524,8 @@ export function getRoute(
       presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
+      sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
+      sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
       projectId: decodeURIComponent(rehearsalMatch[1])
     };
   }
@@ -580,6 +597,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
+    route.name !== "practice-plan" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -625,6 +643,8 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
+        sourceFullRunId={route.sourceFullRunId}
+        sourceGoalSetId={route.sourceGoalSetId}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
       />
     );
@@ -635,6 +655,14 @@ function renderRoute(route: Route, user?: AuthUser) {
         key={`${route.projectId}:${route.runId}`}
         projectId={route.projectId}
         runId={route.runId}
+      />
+    );
+  }
+  if (route.name === "practice-plan") {
+    return (
+      <PracticePlanPage
+        projectId={route.projectId}
+        sourceFullRunId={route.sourceFullRunId}
       />
     );
   }

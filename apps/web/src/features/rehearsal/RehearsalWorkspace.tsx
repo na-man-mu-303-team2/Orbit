@@ -30,6 +30,8 @@ import {
   type SemanticCapabilityEvent,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
+  type BriefRef,
+  type EvaluatorLensRef,
 } from "@orbit/shared";
 import {
   ArrowLeft,
@@ -235,6 +237,9 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
+import { PracticeGoalSummary } from "../coaching/PracticeGoalSummary";
+import { PracticeGoalReminder } from "../coaching/PracticeGoalReminder";
+import { fetchPresentationBrief } from "../coaching/presentationBriefApi";
 
 export {
   LiveSttAdapterError,
@@ -455,6 +460,11 @@ export async function createRehearsalRun(
   options: {
     expectedDeckVersion?: number;
     semanticEvaluationMode?: "full" | "delivery-only";
+    coachingContext?: {
+      briefRef: BriefRef;
+      evaluatorLensRef: EvaluatorLensRef;
+      sourceGoalSetId: string | null;
+    };
   } = {},
 ) {
   const response = await fetcher(`/api/v1/projects/${projectId}/rehearsals`, {
@@ -468,6 +478,7 @@ export async function createRehearsalRun(
       ...(options.semanticEvaluationMode === undefined
         ? {}
         : { semanticEvaluationMode: options.semanticEvaluationMode }),
+      ...(options.coachingContext ?? {}),
     }),
   });
 
@@ -506,11 +517,17 @@ export async function createRehearsalRunForUpload(
   deckId: string,
   expectedDeckVersion: number,
   fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
 ) {
   try {
     const created = await createRehearsalRun(projectId, deckId, fetcher, {
       expectedDeckVersion,
       semanticEvaluationMode: "full",
+      coachingContext,
     });
     return { run: created.run, evaluationSnapshotMismatch: false };
   } catch (cause) {
@@ -529,6 +546,11 @@ export async function createRehearsalRunForUpload(
 export async function prepareRehearsalEvaluationRun(
   deck: Deck,
   fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
 ): Promise<{
   run: RehearsalRun | null;
   evaluationSnapshot: RehearsalEvaluationSnapshot;
@@ -545,6 +567,7 @@ export async function prepareRehearsalEvaluationRun(
       {
         expectedDeckVersion: deck.version,
         semanticEvaluationMode: "full",
+        coachingContext,
       },
     );
     return {
@@ -559,6 +582,33 @@ export async function prepareRehearsalEvaluationRun(
       serverEvaluation: { state: "unavailable", reason: "network_error" },
     };
   }
+}
+
+async function resolveRehearsalCoachingContext(
+  projectId: string,
+  sourceGoalSetId?: string,
+) {
+  try {
+    const brief = await fetchPresentationBrief(projectId);
+    if (brief) {
+      return {
+        briefRef: {
+          mode: "briefed" as const,
+          briefId: brief.briefId,
+          expectedRevision: brief.revision,
+        },
+        evaluatorLensRef: brief.evaluatorLensRef,
+        sourceGoalSetId: sourceGoalSetId ?? null,
+      };
+    }
+  } catch {
+    // Brief 조회 실패 시에도 일반 모드 리허설은 계속할 수 있다.
+  }
+  return {
+    briefRef: { mode: "generic" as const },
+    evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const },
+    sourceGoalSetId: sourceGoalSetId ?? null,
+  };
 }
 
 export async function requestRehearsalAudioUploadUrl(
@@ -1721,6 +1771,8 @@ export function RehearsalWorkspace(props: {
   presenterSessionId?: string;
   presenterWindow?: boolean;
   projectId?: string;
+  sourceFullRunId?: string;
+  sourceGoalSetId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(
@@ -3516,6 +3568,8 @@ export function RehearsalWorkspace(props: {
           activeDeck.projectId,
           activeDeck.deckId,
           activeDeck.version,
+          fetch,
+          await resolveRehearsalCoachingContext(activeDeck.projectId, props.sourceGoalSetId),
         );
         uploadRun = recovered.run;
         if (recovered.evaluationSnapshotMismatch) {
@@ -3568,7 +3622,11 @@ export function RehearsalWorkspace(props: {
   }
 
   async function prepareEvaluationSnapshot(activeDeck: Deck) {
-    const prepared = await prepareRehearsalEvaluationRun(activeDeck);
+    const coachingContext = await resolveRehearsalCoachingContext(
+      activeDeck.projectId,
+      props.sourceGoalSetId,
+    );
+    const prepared = await prepareRehearsalEvaluationRun(activeDeck, fetch, coachingContext);
     activeRunRef.current = prepared.run;
     setRun(prepared.run);
     if (prepared.serverEvaluation.state === "unavailable") {
@@ -4482,6 +4540,12 @@ export function RehearsalWorkspace(props: {
         </button>
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
+
+      <PracticeGoalReminder
+        projectId={props.projectId ?? demoIds.projectId}
+        sourceFullRunId={props.sourceFullRunId}
+        slideId={currentSlide?.slideId}
+      />
 
       <section className="rehearsal-presenter-layout">
         <PresenterStageSection
@@ -5744,6 +5808,12 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
+          {report ? (
+            <PracticeGoalSummary
+              projectId={props.projectId}
+              sourceFullRunId={props.runId}
+            />
+          ) : null}
           {status === "loading" ? (
             <RehearsalReportLoadingShell />
           ) : report ? (

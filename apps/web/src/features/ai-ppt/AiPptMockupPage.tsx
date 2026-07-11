@@ -10,6 +10,7 @@ import type {
   PptAdvisorSuggestion,
   ReferenceExtractionResult
 } from "@orbit/shared";
+import type { EvaluatorLensRef, FrozenBriefRef } from "@orbit/shared";
 import {
   pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
@@ -34,6 +35,7 @@ import {
   createProject,
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
+import { putPresentationBrief } from "../coaching/presentationBriefApi";
 
 type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
@@ -167,7 +169,8 @@ export function buildAiPptGenerateDeckPayload(
   referenceGrounding: ReferenceGrounding = {
     referenceContext: [],
     referenceKeywords: []
-  }
+  },
+  coachingContext?: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCountRange = resolveSlideCountRange(state);
@@ -230,7 +233,8 @@ export function buildAiPptGenerateDeckPayload(
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
-    referenceContext: referenceGrounding.referenceContext
+    referenceContext: referenceGrounding.referenceContext,
+    coachingContext: coachingContext ?? null
   };
 }
 
@@ -291,6 +295,7 @@ export function buildAiPptAdvisorSuggestions(
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
   const [form, setForm] = useState(initialState);
+  const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
@@ -447,6 +452,38 @@ export function AiPptMockupPage() {
         }
       }
 
+      let coachingContext: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef };
+      if (briefMode === "custom") {
+        setStatus("맞춤 Brief 저장 중...");
+        const presentationBrief = await putPresentationBrief(project.projectId, {
+          expectedRevision: 0,
+          audience: "decision-maker",
+          purpose: "persuade",
+          evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+          targetDurationMinutes: parsePositiveInteger(form.duration, 10),
+          desiredOutcome: form.successCriteria.trim() || form.purpose.trim(),
+          requirements: form.successCriteria.trim()
+            ? [{ kind: "must-cover", text: form.successCriteria.trim(), reviewStatus: "approved" }]
+            : [],
+          terminology: [],
+          challengeTopics: [],
+          approvedReferenceFileIds: referenceFileIds
+        });
+        coachingContext = {
+          briefRef: {
+            mode: "briefed",
+            briefId: presentationBrief.briefId,
+            revision: presentationBrief.revision
+          },
+          evaluatorLensRef: presentationBrief.evaluatorLensRef
+        };
+      } else {
+        coachingContext = {
+          briefRef: { mode: "generic" },
+          evaluatorLensRef: { lensId: "general-novice", revision: 1 }
+        };
+      }
+
       setStatus("Deck JSON 생성 job 시작 중...");
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
@@ -460,7 +497,8 @@ export function AiPptMockupPage() {
               selectedPalette,
               referenceFileIds,
               selectedFont,
-              referenceGrounding
+              referenceGrounding,
+              coachingContext
             )
           )
         }
@@ -532,7 +570,12 @@ export function AiPptMockupPage() {
         <main className="ai-ppt-workspace">
           <section className="ai-ppt-panel">
             {currentStep === "brief" ? (
-              <BriefStep form={form} onChange={updateForm} />
+              <BriefStep
+                briefMode={briefMode}
+                form={form}
+                onBriefModeChange={setBriefMode}
+                onChange={updateForm}
+              />
             ) : null}
             {currentStep === "style" ? (
               <StyleStep
@@ -631,7 +674,9 @@ export function AiPptMockupPage() {
 }
 
 function BriefStep(props: {
+  briefMode: "custom" | "generic";
   form: AiPptWizardState;
+  onBriefModeChange: (value: "custom" | "generic") => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
@@ -643,6 +688,11 @@ function BriefStep(props: {
         kicker="1. Brief"
         title="발표 상황과 청중을 먼저 고정"
       />
+      <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
+        <button className={props.briefMode === "custom" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("custom")}>맞춤 Brief</button>
+        <button className={props.briefMode === "generic" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("generic")}>일반 모드</button>
+      </div>
+      {props.briefMode === "generic" ? <p className="ai-ppt-status">일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.</p> : null}
       <div className="ai-ppt-field-grid">
         <TextField label="발표 주제" value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
         <TextField label="발표 목적" value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />

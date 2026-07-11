@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { evaluatorLensRefSchema, frozenBriefRefSchema } from "../coaching/coaching-common.schema";
 
 import {
   aiDeckAudienceSchema,
@@ -214,7 +215,15 @@ export const generateDeckRequestSchema = z.object({
   designReferences: z.array(generateDeckReferenceSchema).default([]),
   templateBlueprintId: templateBlueprintIdSchema.optional(),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([]),
-  referenceContext: z.array(generateDeckReferenceContextSchema).default([])
+  referenceContext: z.array(generateDeckReferenceContextSchema).default([]),
+  coachingContext: z
+    .object({
+      briefRef: frozenBriefRefSchema,
+      evaluatorLensRef: evaluatorLensRefSchema,
+    })
+    .strict()
+    .nullable()
+    .default(null)
 });
 
 export const deckColorOptionRequestSchema = z.object({
@@ -308,7 +317,15 @@ export const generateDeckResponseSchema = z.object({
 
 export const generateDeckJobResultSchema = generateDeckResponseSchema
   .extend({
-    deckId: deckIdSchema
+    deckId: deckIdSchema,
+    coachingProvenance: z
+      .object({
+        briefRef: frozenBriefRefSchema,
+        evaluatorLensRef: evaluatorLensRefSchema,
+      })
+      .strict()
+      .nullable()
+      .default(null)
   })
   .superRefine((result, ctx) => {
     if (result.deckId !== result.deck.deckId) {

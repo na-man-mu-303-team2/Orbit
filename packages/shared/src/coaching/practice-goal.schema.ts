@@ -176,8 +176,9 @@ export const practicePlanGoalSchema = z
   .strict()
   .superRefine(validatePracticeGoal);
 
-export const practicePlanResponseSchema = z
+const readyPracticePlanResponseSchema = z
   .object({
+    status: z.literal("ready"),
     sourceFullRunId: coachingIdSchema,
     goalSet: practiceGoalSetSchema,
     goals: z.array(practicePlanGoalSchema).max(3),
@@ -189,6 +190,26 @@ export const practicePlanResponseSchema = z
       .strict(),
   })
   .strict();
+
+export const practicePlanResponseSchema = z.discriminatedUnion("status", [
+  readyPracticePlanResponseSchema,
+  z.object({ status: z.literal("processing"), sourceFullRunId: coachingIdSchema }).strict(),
+  z.object({ status: z.literal("no-goal"), sourceFullRunId: coachingIdSchema }).strict(),
+  z
+    .object({
+      status: z.literal("stale"),
+      sourceFullRunId: coachingIdSchema,
+      reason: z.enum(["SOURCE_STALE", "SOURCE_INCOMPATIBLE"]),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("error"),
+      sourceFullRunId: coachingIdSchema,
+      code: z.enum(["SOURCE_NOT_FOUND", "SOURCE_FAILED", "INTERNAL_ERROR"]),
+    })
+    .strict(),
+]);
 
 export type PracticeGoal = z.infer<typeof practiceGoalSchema>;
 export type PracticeGoalSet = z.infer<typeof practiceGoalSetSchema>;

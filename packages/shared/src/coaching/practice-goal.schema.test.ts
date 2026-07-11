@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { practiceGoalSchema, practiceGoalSetSchema } from "./practice-goal.schema";
+import {
+  practiceGoalSchema,
+  practiceGoalSetSchema,
+  practicePlanResponseSchema,
+} from "./practice-goal.schema";
 
 const goal = {
   goalId: "goal_1",
@@ -58,3 +62,19 @@ describe("practiceGoalSetSchema", () => {
   });
 });
 
+describe("practicePlanResponseSchema", () => {
+  it("keeps processing, no-goal, stale, and error distinct", () => {
+    for (const state of [
+      { status: "processing", sourceFullRunId: "run_1" },
+      { status: "no-goal", sourceFullRunId: "run_1" },
+      { status: "stale", sourceFullRunId: "run_1", reason: "SOURCE_STALE" },
+      { status: "error", sourceFullRunId: "run_1", code: "SOURCE_FAILED" },
+    ]) {
+      expect(practicePlanResponseSchema.safeParse(state).success).toBe(true);
+    }
+    expect(
+      practicePlanResponseSchema.safeParse({ status: "no-history", sourceFullRunId: "run_1" })
+        .success,
+    ).toBe(false);
+  });
+});

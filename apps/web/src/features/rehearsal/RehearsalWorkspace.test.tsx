@@ -2652,6 +2652,8 @@ function runFixture(
     createdAt,
     updatedAt: createdAt,
     ...patch,
+    analysisRevision: patch.analysisRevision ?? 0,
+    analysisFinalizedAt: patch.analysisFinalizedAt ?? null,
   };
 }
 
