@@ -165,13 +165,13 @@ import {
 } from "./panel/semanticCapabilityStatusModel";
 import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
-  SemanticSpeechDebugPanel,
-  shouldShowSemanticSpeechDebugPanel,
-} from "./panel/SemanticSpeechDebugPanel";
-import {
   SemanticCueDebugPanel,
   shouldShowSemanticCueDebugPanel,
 } from "./panel/SemanticCueDebugPanel";
+import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "./panel/SemanticSpeechDebugPanel";
 import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
