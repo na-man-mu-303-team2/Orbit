@@ -139,12 +139,17 @@ describe("AI PPT wizard payload", () => {
       [],
       undefined,
       undefined,
-      { id: "design_pack_user_1", version: 4 }
+      { id: "design_pack_user_1", version: 4 },
+      { id: "brand_kit_org_1", version: 2 }
     );
 
     expect(payload.savedDesignPack).toEqual({
       id: "design_pack_user_1",
       version: 4
+    });
+    expect(payload.brandKit).toEqual({
+      id: "brand_kit_org_1",
+      version: 2
     });
   });
 

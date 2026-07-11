@@ -1,4 +1,5 @@
 import type {
+  BrandKit,
   DeckColorOptionsResponse,
   GenerateDeckFontOption,
   GenerateDeckMediaPolicy,
@@ -174,7 +175,8 @@ export function buildAiPptGenerateDeckPayload(
     referenceContext: [],
     referenceKeywords: []
   },
-  savedDesignPack?: Pick<SavedDesignPack, "id" | "version">
+  savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
+  brandKit?: Pick<BrandKit, "id" | "version">
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCountRange = resolveSlideCountRange(state);
@@ -230,6 +232,7 @@ export function buildAiPptGenerateDeckPayload(
       referencePolicy: state.referencePolicy
     },
     ...(savedDesignPack ? { savedDesignPack } : {}),
+    ...(brandKit ? { brandKit } : {}),
     visualPlanPolicy: {
       mediaPolicy: state.mediaPolicy
     },
@@ -315,6 +318,8 @@ export function AiPptMockupPage() {
   const [designPacks, setDesignPacks] = useState<SavedDesignPack[]>([]);
   const [selectedDesignPackId, setSelectedDesignPackId] = useState("");
   const [isSavingDesignPack, setIsSavingDesignPack] = useState(false);
+  const [brandKits, setBrandKits] = useState<BrandKit[]>([]);
+  const [selectedBrandKitId, setSelectedBrandKitId] = useState("");
   const colorRequestKey = [
     form.topic,
     form.purpose,
@@ -341,13 +346,23 @@ export function AiPptMockupPage() {
         [],
         selectedFont,
         undefined,
-        designPacks.find((pack) => pack.id === selectedDesignPackId)
+        designPacks.find((pack) => pack.id === selectedDesignPackId),
+        brandKits.find((kit) => kit.id === selectedBrandKitId)
       ),
-    [designPacks, form, selectedDesignPackId, selectedFont, selectedPalette]
+    [
+      brandKits,
+      designPacks,
+      form,
+      selectedBrandKitId,
+      selectedDesignPackId,
+      selectedFont,
+      selectedPalette
+    ]
   );
 
   useEffect(() => {
     void loadDesignPacks();
+    void loadBrandKits();
   }, []);
 
   useEffect(() => {
@@ -384,6 +399,18 @@ export function AiPptMockupPage() {
         loadError instanceof Error
           ? loadError.message
           : "Saved Design Pack 목록을 불러오지 못했습니다."
+      );
+    }
+  }
+
+  async function loadBrandKits() {
+    try {
+      setBrandKits(await fetchAvailableBrandKits());
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Brand Kit 목록을 불러오지 못했습니다."
       );
     }
   }
@@ -594,7 +621,8 @@ export function AiPptMockupPage() {
               referenceFileIds,
               selectedFont,
               referenceGrounding,
-              designPacks.find((pack) => pack.id === selectedDesignPackId)
+              designPacks.find((pack) => pack.id === selectedDesignPackId),
+              brandKits.find((kit) => kit.id === selectedBrandKitId)
             )
           )
         }
@@ -671,10 +699,12 @@ export function AiPptMockupPage() {
             {currentStep === "style" ? (
               <StyleStep
                 designPacks={designPacks}
+                brandKits={brandKits}
                 fontOptions={fontOptions}
                 form={form}
                 isSavingDesignPack={isSavingDesignPack}
                 onApplyDesignPack={applyDesignPack}
+                onApplyBrandKit={setSelectedBrandKitId}
                 onChange={updateForm}
                 onDeleteDesignPack={() => void deleteCurrentDesignPack()}
                 onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
@@ -682,6 +712,7 @@ export function AiPptMockupPage() {
                 onSaveDesignPack={() => void saveCurrentDesignPack()}
                 onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
                 selectedDesignPackId={selectedDesignPackId}
+                selectedBrandKitId={selectedBrandKitId}
                 selectedFontId={selectedFont.fontId}
               />
             ) : null}
@@ -800,10 +831,12 @@ function BriefStep(props: {
 }
 
 function StyleStep(props: {
+  brandKits: BrandKit[];
   designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
   isSavingDesignPack: boolean;
+  onApplyBrandKit: (brandKitId: string) => void;
   onApplyDesignPack: (packId: string) => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
@@ -814,6 +847,7 @@ function StyleStep(props: {
   onFontSelect: (fontId: string) => void;
   onSaveDesignPack: () => void;
   onSetDefaultDesignPack: () => void;
+  selectedBrandKitId: string;
   selectedDesignPackId: string;
   selectedFontId: string;
 }) {
@@ -878,6 +912,20 @@ function StyleStep(props: {
           </button>
         </div>
       </div>
+      <label className="ai-ppt-brand-kit-select">
+        <span>Organization Brand Kit</span>
+        <select
+          value={props.selectedBrandKitId}
+          onChange={(event) => props.onApplyBrandKit(event.target.value)}
+        >
+          <option value="">Brand Kit 사용 안 함</option>
+          {props.brandKits.map((kit) => (
+            <option key={kit.id} value={kit.id}>
+              {kit.name} · v{kit.version}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
           <button
@@ -1434,6 +1482,31 @@ export async function fetchSavedDesignPacks(): Promise<SavedDesignPack[]> {
   }
   const payload = (await response.json()) as { packs: SavedDesignPack[] };
   return payload.packs;
+}
+
+export async function fetchAvailableBrandKits(): Promise<BrandKit[]> {
+  const organizationResponse = await fetch("/api/v1/organizations", {
+    credentials: "include"
+  });
+  if (!organizationResponse.ok) {
+    throw new Error(await readResponseText(organizationResponse, "조직 목록을 불러오지 못했습니다."));
+  }
+  const organizationPayload = (await organizationResponse.json()) as {
+    organizations: Array<{ id: string }>;
+  };
+  const responses = await Promise.all(
+    organizationPayload.organizations.map(async (organization) => {
+      const response = await fetch(
+        `/api/v1/organizations/${encodeURIComponent(organization.id)}/brand-kits`,
+        { credentials: "include" }
+      );
+      if (!response.ok) {
+        throw new Error(await readResponseText(response, "Brand Kit 목록을 불러오지 못했습니다."));
+      }
+      return ((await response.json()) as { brandKits: BrandKit[] }).brandKits;
+    })
+  );
+  return responses.flat();
 }
 
 async function createSavedDesignPack(

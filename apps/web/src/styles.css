@@ -1435,6 +1435,26 @@ button:disabled {
   opacity: 0.4;
 }
 
+.ai-ppt-brand-kit-select {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-ppt-brand-kit-select span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-ppt-brand-kit-select select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #0f172a;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 .ai-ppt-tone-grid,
 .ai-ppt-choice-list {
   display: grid;
