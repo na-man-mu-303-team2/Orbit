@@ -64,7 +64,6 @@ describe("p3RehearsalSession", () => {
     });
 
     await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
-    await session.resume({ audioSource: {} as MediaStream });
     port.emitError(new LiveSttError("permission_denied", "permission denied"));
 
     expect(capabilityEvents).toMatchObject([

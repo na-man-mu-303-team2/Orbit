@@ -167,7 +167,6 @@ import {
 } from "./speech/semanticCueFeatureFlags";
 import {
   createSemanticCueDebugRingBuffer,
-  type SemanticCueDebugEvent,
 } from "./speech/semanticCueDebugEvents";
 import {
   createSemanticCueEmbeddingIndex,
@@ -744,6 +743,7 @@ export async function runRehearsalUploadFlow(options: {
             adviceEvents: [],
             utteranceOutcomes: [],
             semanticCueDecisions: [],
+            semanticCapabilityEvents: [],
           }
         : null);
 
@@ -2644,9 +2644,7 @@ export function RehearsalWorkspace(props: {
       semanticCueRuntime:
         import.meta.env.MODE === "test"
           ? undefined
-          : createSemanticCueRuntimeFromFlags(
-              evaluationSnapshot === undefined ? "presentation" : "rehearsal",
-            ),
+          : createSemanticCueRuntimeFromFlags("rehearsal"),
       isSemanticMatchingEnabled: () =>
         presenterSettings.advancePolicy.semanticMatching,
       onSemanticDebugState: setSemanticDebugState,
@@ -2828,7 +2826,6 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
-    setIsTimerRunning(false);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
