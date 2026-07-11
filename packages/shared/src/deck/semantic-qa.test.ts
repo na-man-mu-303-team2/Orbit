@@ -12,19 +12,21 @@ describe("semantic QA", () => {
     expect(codes).toContain("EVIDENCE_MISMATCH");
   });
 
-  it("performs only deterministic message and image-alt repair", () => {
+  it("repairs only deterministic message multiplicity", () => {
     const deck = semanticDeck();
     if (!deck.slides[0].aiNotes?.visualPlan) {
       throw new Error("semantic fixture visual plan missing");
     }
-    deck.slides[0].aiNotes.visualPlan.imageAlt = "고객 전환 퍼널 다이어그램";
+    const originalAlt = deck.slides[0].elements.find(
+      (element) => element.type === "image"
+    )?.props.alt;
     const repaired = repairSemanticQaOnce(deck);
 
     expect(repaired.slides[0].aiNotes?.emphasisPoints).toHaveLength(1);
     const image = repaired.slides[0].elements.find(
       (element) => element.type === "image"
     );
-    expect(image?.props.alt).toBe("고객 전환 퍼널 다이어그램");
+    expect(image?.props.alt).toBe(originalAlt);
   });
 
   it("does not apply phase-three semantic QA to legacy decks", () => {

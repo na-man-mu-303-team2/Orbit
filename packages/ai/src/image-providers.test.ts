@@ -82,7 +82,8 @@ describe("image providers", () => {
                 width: 320,
                 height: 180,
                 license: "cc-by",
-                foreign_landing_url: "https://example.com/small"
+                foreign_landing_url: "https://example.com/small",
+                title: "Small wide product"
               },
               {
                 url: "https://images.example.com/large.jpg",
@@ -90,7 +91,8 @@ describe("image providers", () => {
                 height: 720,
                 creator: "Large Creator",
                 license: "cc-by",
-                foreign_landing_url: "https://example.com/large"
+                foreign_landing_url: "https://example.com/large",
+                title: "Large wide product"
               }
             ]
           }),
@@ -129,14 +131,15 @@ describe("image providers", () => {
               {
                 url: "https://images.example.com/unavailable.jpg",
                 license: "cc-by",
-                foreign_landing_url: "https://example.com/unavailable"
+                foreign_landing_url: "https://example.com/unavailable",
+                title: "Unavailable product"
               },
               {
                 url: "https://images.example.com/available.jpg",
                 creator: "Second Creator",
                 license: "cc0",
                 foreign_landing_url: "https://example.com/available",
-                title: "Available"
+                title: "Available product"
               }
             ]
           }),
@@ -162,5 +165,82 @@ describe("image providers", () => {
       sourceUrl: "https://example.com/available"
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips an unrelated laptop and selects a Git branching candidate", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/laptop.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/laptop",
+                title: "Eee PC HackBook screen side",
+                tags: [{ name: "linux" }, { name: "laptop" }]
+              },
+              {
+                url: "https://images.example.com/branching.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/branching",
+                title: "Git branching workflow",
+                tags: [{ name: "repository" }]
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "Git branching workflow diagram"
+    });
+
+    expect(result.sourceUrl).toBe("https://example.com/branching");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://images.example.com/branching.jpg"
+    );
+  });
+
+  it("rejects candidates that match only generic presentation words", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/generic.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/generic",
+                title: "Presentation visual diagram"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      new OpenversePublicImageSearchProvider().search({
+        query: "Git branching presentation diagram"
+      })
+    ).rejects.toThrow("no licensed image candidate");
   });
 });

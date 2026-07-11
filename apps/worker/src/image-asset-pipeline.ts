@@ -516,30 +516,11 @@ async function searchPublicImage(
 }
 
 function publicImageQueries(deck: Deck, slide: Slide) {
-  const visualType = slide.aiNotes?.visualPlan?.visualType ?? "presentation";
-  const asciiKeywords = `${slide.title} ${deck.title}`
-    .match(/[a-zA-Z][a-zA-Z0-9-]{1,}/g)
-    ?.slice(0, 6)
-    .join(" ");
-  const genericQuery =
-    {
-      cover: "modern technology presentation hero",
-      cards: "business teamwork planning",
-      decision: "business decision meeting",
-      priority: "business priorities planning",
-      agenda: "business strategy planning",
-      diagram: "technology system architecture",
-      process: "workflow process team",
-      comparison: "product comparison",
-      summary: "business team success"
-    }[visualType] ?? "professional business presentation";
   return [
     slide.aiNotes?.visualPlan?.imagePrompt ?? "",
     slide.aiNotes?.visualPlan?.imageAlt ?? "",
     slide.title,
-    `${deck.title} ${slide.title}`,
-    asciiKeywords ? `${asciiKeywords} ${visualType}` : "",
-    genericQuery
+    `${deck.title} ${slide.title}`
   ]
     .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query, index, values) => query && values.indexOf(query) === index);

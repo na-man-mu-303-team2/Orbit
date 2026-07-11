@@ -249,21 +249,10 @@ describe("image asset pipeline", () => {
     );
   });
 
-  it("uses a concise fallback query when the first public image searches fail", async () => {
+  it("does not use a generic fallback query when specific searches fail", async () => {
     const search = vi
       .fn<PublicImageSearchProvider["search"]>()
-      .mockRejectedValueOnce(new Error("no result"))
-      .mockRejectedValueOnce(new Error("no result"))
-      .mockResolvedValueOnce({
-        body: pngHeader(1280, 720),
-        mimeType: "image/png",
-        fileName: "public.png",
-        provider: "openverse",
-        sourceUrl: "https://example.com/image",
-        author: "Creator",
-        license: "cc-by",
-        checkedAt: "2026-07-11T00:00:00.000Z"
-      });
+      .mockRejectedValue(new Error("no result"));
     const query = vi
       .fn()
       .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
@@ -289,16 +278,17 @@ describe("image asset pipeline", () => {
       { userId: "user_1" }
     );
 
-    expect(search).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenCalledTimes(4);
     expect(search.mock.calls.map(([input]) => input.query)).toEqual([
       "Visual evidence",
       "Image deck Visual evidence",
-      "Visual evidence Image deck image"
+      "Visual evidence",
+      "Image deck Visual evidence"
     ]);
-    expect(result.warnings).toEqual([]);
-    expect(result.deck.slides[0].elements).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "image" })])
-    );
+    expect(result.warnings[0]).toContain("no result");
+    expect(result.deck.slides[0].elements.some((element) =>
+      element.elementId.endsWith("_media_placeholder")
+    )).toBe(true);
   });
 });
 

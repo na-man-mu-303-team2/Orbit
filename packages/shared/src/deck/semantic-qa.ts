@@ -30,32 +30,11 @@ export function repairSemanticQaOnce(deck: Deck): Deck {
     ...deck,
     slides: deck.slides.map((slide) => {
       const emphasisPoints = slide.aiNotes?.emphasisPoints ?? [];
-      const visualPlan = slide.aiNotes?.visualPlan;
-      const repairedElements = slide.elements.map((element) => {
-        if (element.type !== "image" || !visualPlan?.reason) return element;
-        const desiredAlt = visualPlan.imageAlt?.trim() || visualPlan.reason;
-        const imageContext = [
-          slide.title,
-          visualPlan.reason,
-          visualPlan.imageAlt,
-          visualPlan.imagePrompt
-        ]
-          .filter(Boolean)
-          .join(" ");
-        if (hasTokenOverlap(element.props.alt, imageContext)) {
-          return element;
-        }
-        return {
-          ...element,
-          props: { ...element.props, alt: desiredAlt }
-        };
-      });
       if (!slide.aiNotes || emphasisPoints.length <= 1) {
-        return { ...slide, elements: repairedElements };
+        return slide;
       }
       return {
         ...slide,
-        elements: repairedElements,
         aiNotes: {
           ...slide.aiNotes,
           emphasisPoints: emphasisPoints.slice(0, 1)

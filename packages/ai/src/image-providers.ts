@@ -62,6 +62,7 @@ type OpenverseImage = {
   license_url?: string;
   foreign_landing_url?: string;
   title?: string;
+  tags?: Array<string | { name?: string }>;
 };
 
 export class OpenversePublicImageSearchProvider
@@ -86,7 +87,8 @@ export class OpenversePublicImageSearchProvider
         (item.url || item.thumbnail) &&
         item.license &&
         item.foreign_landing_url &&
-        (!item.width || !item.height || (item.width >= 640 && item.height >= 360))
+        (!item.width || !item.height || (item.width >= 640 && item.height >= 360)) &&
+        isRelevantOpenverseCandidate(input.query, item)
     );
     if (candidates.length === 0) {
       throw new Error("Openverse returned no licensed image candidate");
@@ -127,6 +129,51 @@ export class OpenversePublicImageSearchProvider
     }
     throw lastError ?? new Error("Openverse image candidates were unavailable");
   }
+}
+
+const relevanceStopWords = new Set([
+  "and",
+  "clear",
+  "diagram",
+  "image",
+  "media",
+  "presentation",
+  "showing",
+  "the",
+  "visual",
+  "with"
+]);
+
+function isRelevantOpenverseCandidate(query: string, candidate: OpenverseImage) {
+  const queryTokens = relevantTokens(query);
+  const candidateTokens = relevantTokens(
+    [
+      candidate.title,
+      ...(candidate.tags ?? []).map((tag) =>
+        typeof tag === "string" ? tag : tag.name
+      )
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  return queryTokens.some((queryToken) =>
+    candidateTokens.some(
+      (candidateToken) =>
+        queryToken === candidateToken ||
+        (queryToken.length >= 4 &&
+          candidateToken.length >= 4 &&
+          (queryToken.startsWith(candidateToken) ||
+            candidateToken.startsWith(queryToken)))
+    )
+  );
+}
+
+function relevantTokens(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token.length >= 3 && !relevanceStopWords.has(token));
 }
 
 function uniqueUrls(...values: Array<string | undefined>) {
