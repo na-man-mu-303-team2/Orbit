@@ -210,7 +210,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                       .join(" ")}
                     key={keyword.keywordId}
                   >
-                    <em>{hit ? "체크" : provisionalMissing ? "미확인" : "대기"}</em>
+                    <em>
+                      {hit ? "체크" : provisionalMissing ? "미확인" : "미언급"}
+                    </em>
                     <span>{keyword.text}</span>
                   </li>
                 );
