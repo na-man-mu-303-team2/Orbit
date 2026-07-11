@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const projectId = "project_demo_1";
 const runId = "run_demo_coaching_baseline";
@@ -58,7 +60,7 @@ const focusedSession = {
   sourceGoalSetId: goal.goalSetId,
   goalIds: [goalId],
   targetScope: goal.targetScope,
-  snapshot: { deckVersion: 1, briefRef: null, evaluatorLensRef: null, criterionRefs: [goal.criterionRef] },
+  snapshot: { deckVersion: 1, briefRef: { mode: "generic" as const }, evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const }, criterionRefs: [goal.criterionRef] },
   compatibilityState: "current" as const,
   status: "active" as const,
   dataOrigin: "fixture" as const,
@@ -77,8 +79,8 @@ function qnaSession(activeQuestionOrder: number | null, status: "active" | "comp
       snapshotVersion: 1 as const,
       projectId,
       deck: { deckId: "deck_demo_1", deckVersion: 1, deckContentHash: hash, slides: [{ slideId: "slide_demo_1", order: 1, title: "시장 진입 전략", visibleText: "시장과 실행 근거", contentHash: hash }] },
-      briefRef: null,
-      evaluatorLensRef: null,
+      briefRef: { mode: "generic" as const },
+      evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const },
       linkedGoalRefs: [{ goalId, criterionId: goal.criterionRef.criterionId, criterionRevision: 1 }],
       approvedReferences: [],
       capturedAt: now,
@@ -152,7 +154,8 @@ async function mockAdaptiveCoaching(page: Page) {
   const answered = new Set<number>();
   let activeOrder = 1;
 
-  await page.route(`**/api/v1/projects/${projectId}/rehearsals/${runId}/practice-plan`, (route) => route.fulfill({ json: plan }));
+  await page.route("**/api/v1/auth/me", (route) => route.fulfill({ json: { userId: "user_demo_1", email: "demo@example.com" } }));
+  await page.route(`**/api/v1/projects/${projectId}/practice-plan?sourceFullRunId=${runId}`, (route) => route.fulfill({ json: plan }));
   await page.route(`**/api/v1/projects/${projectId}/coaching-capabilities`, (route) => route.fulfill({ json: { adaptiveRehearsalCoachEnabled: true, focusedPracticeEnabled: true, challengeQnaEnabled: true } }));
   await page.route(`**/api/v1/projects/${projectId}/focused-practice-sessions`, async (route) => {
     focusedRequestIds.push((await route.request().postDataJSON()).clientRequestId);
@@ -178,18 +181,31 @@ async function mockAdaptiveCoaching(page: Page) {
   return { focusedRequestIds, qnaRequestIds };
 }
 
+async function expectNoSeriousAxeViolations(page: Page) {
+  await page.addScriptTag({ content: readFileSync(resolve("node_modules/axe-core/axe.min.js"), "utf8") });
+  const violations = await page.evaluate(async () => {
+    const axe = (window as typeof window & { axe: { run: (root: Document, options: object) => Promise<{ violations: Array<{ id: string; impact: string | null }> }> } }).axe;
+    const result = await axe.run(document, { resultTypes: ["violations"] });
+    return result.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical");
+  });
+  expect(violations).toEqual([]);
+}
+
 test("adaptive coaching plan, focused practice, and three-question flow", async ({ page }) => {
   const requests = await mockAdaptiveCoaching(page);
 
   await page.goto(`/rehearsal/${projectId}/plan/${runId}`);
   await expect(page.getByRole("heading", { name: "다음 연습은 이 세 가지에 집중하세요." })).toBeVisible();
+  await expectNoSeriousAxeViolations(page);
   await page.getByRole("button", { name: "선택한 구간 연습" }).click();
   await expect(page.getByRole("heading", { name: "한 구간만 짧게 반복하세요." })).toBeVisible();
   await expect(page.getByText("연습 가능")).toBeVisible();
+  await expectNoSeriousAxeViolations(page);
   expect(new Set(requests.focusedRequestIds).size).toBe(1);
 
   await page.goto(`/rehearsal/${projectId}/challenge/${runId}`);
   await expect(page.getByRole("heading", { name: "질문 하나에 집중해 답해 보세요." })).toBeVisible();
+  await expectNoSeriousAxeViolations(page);
   expect(new Set(requests.qnaRequestIds).size).toBe(1);
 
   await expect(page.getByText("전체 가이드는 첫 답변 후 열립니다.")).toBeVisible();
@@ -198,7 +214,7 @@ test("adaptive coaching plan, focused practice, and three-question flow", async 
   for (let order = 1; order <= 3; order += 1) {
     await expect(page.getByRole("heading", { name: `${order}번째 도전 질문에 답해 주세요.` })).toBeVisible();
     await page.getByRole("tab", { name: "텍스트" }).click();
-    await page.getByLabel("답변").fill(`결론 ${order}: 근거를 바탕으로 다음 행동을 제안합니다.`);
+    await page.getByRole("textbox", { name: "답변" }).fill(`결론 ${order}: 근거를 바탕으로 다음 행동을 제안합니다.`);
     await page.getByRole("button", { name: "답변 제출" }).click();
     await expect(page.getByRole("heading", { name: "답변 피드백" })).toBeVisible();
     if (order === 1) {
@@ -213,4 +229,20 @@ test("adaptive coaching plan, focused practice, and three-question flow", async 
   }
 
   await expect(page).toHaveURL(new RegExp(`/rehearsal/${projectId}/plan/${runId}$`));
+});
+
+test("adaptive coaching Q&A has no horizontal overflow at supported viewports", async ({ page }) => {
+  await mockAdaptiveCoaching(page);
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 768, height: 1024 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/rehearsal/${projectId}/challenge/${runId}`);
+    await expect(page.getByRole("heading", { name: "질문 하나에 집중해 답해 보세요." })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await expectNoSeriousAxeViolations(page);
+  }
 });
