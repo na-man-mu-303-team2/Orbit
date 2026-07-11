@@ -961,6 +961,7 @@ describe("DecksService", () => {
       dataSource as unknown as DataSource,
       jobsService as never,
       enqueueSyncJob,
+      undefined,
       enqueueSemanticCueJob,
       logger,
     );
