@@ -147,6 +147,7 @@ function createDeck(): Deck {
         speakerNotes: "",
         elements: [],
         keywords: [],
+        semanticCues: [],
         animations: [],
         actions: [],
       },
