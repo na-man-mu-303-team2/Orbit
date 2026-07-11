@@ -1888,6 +1888,16 @@ describe("RehearsalWorkspace", () => {
     });
   });
 
+  it("uses E5 script alignment in rehearsal while keeping the NLI runtime out of the live path", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("const ENABLE_REHEARSAL_NLI = false");
+    expect(source).toContain("showScriptPanel={true}");
+    expect(source).toContain(
+      'import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI'
+    );
+  });
+
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleLivePartialTranscript");

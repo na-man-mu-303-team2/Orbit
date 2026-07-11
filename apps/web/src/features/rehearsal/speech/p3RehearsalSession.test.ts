@@ -247,10 +247,10 @@ describe("p3RehearsalSession", () => {
 
     expect(events.map((event) => event.type)).toEqual([
       "sentence-covered",
+      "keyword-hit",
       "coverage-updated",
       "sentence-covered",
       "last-sentence-spoken",
-      "keyword-hit",
       "coverage-updated"
     ]);
     expect(session.getState().snapshot).toMatchObject({

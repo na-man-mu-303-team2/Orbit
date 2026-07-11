@@ -51,7 +51,7 @@ export function AutoAdvanceSettings(props: {
             updatePolicy({ semanticMatching: event.target.checked })
           }
         />
-        <span>의미 매칭 반영</span>
+        <span>E5 대본 따라가기</span>
       </label>
       <div className="auto-advance-threshold-stepper">
         <span>전환 기준</span>

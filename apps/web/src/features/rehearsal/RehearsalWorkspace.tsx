@@ -327,6 +327,8 @@ type LiveTranscriptBuffer = {
 
 type BiasTermDraft = Omit<LiveSttBiasTerm, "text"> & { text: string };
 
+const ENABLE_REHEARSAL_NLI = false;
+
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -1861,7 +1863,7 @@ export function RehearsalWorkspace(props: {
     usePresenterSettings();
 
   useEffect(() => {
-    if (import.meta.env.MODE === "test") {
+    if (import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI) {
       return;
     }
 
@@ -3043,7 +3045,7 @@ export function RehearsalWorkspace(props: {
       semanticMatcher:
         import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
       semanticCueRuntime:
-        import.meta.env.MODE === "test"
+        import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI
           ? undefined
           : createSemanticCueRuntimeFromFlags("rehearsal"),
       isSemanticMatchingEnabled: () =>
@@ -4281,21 +4283,23 @@ export function RehearsalWorkspace(props: {
   });
   const showSemanticCueDebugPanel = shouldShowSemanticCueDebugPanel({
     flagEnabled: getSemanticCueRuntimeFlags(import.meta.env).debugPanelEnabled,
-    locationSearch: window.location.search,
+    locationSearch:
+      typeof window === "undefined" ? "" : window.location.search,
   });
-  const copySemanticCueDebugJson = (json: string) => {
+
+  function copySemanticCueDebugJson(json: string) {
     void navigator.clipboard?.writeText(json);
-  };
-  const exportSemanticCueDebugJson = (json: string) => {
-    const url = URL.createObjectURL(
-      new Blob([json], { type: "application/json" }),
-    );
+  }
+
+  function exportSemanticCueDebugJson(json: string) {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "semantic-cue-debug.json";
+    anchor.download = "semantic-cue-debug-events.json";
     anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -4585,11 +4589,12 @@ export function RehearsalWorkspace(props: {
             scriptAutoFollowKey={scriptAutoFollowKey}
             sentences={p3Sentences}
             showAdvicePanel={false}
-            showScriptPanel={false}
+            showScriptPanel={true}
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             semanticCapabilityItems={semanticCapabilityItems}
             semanticCueItems={
+              ENABLE_REHEARSAL_NLI &&
               p3SessionState?.slideIndex === currentSlideIndex
                 ? p3SessionState.semanticCueProgress
                 : []
