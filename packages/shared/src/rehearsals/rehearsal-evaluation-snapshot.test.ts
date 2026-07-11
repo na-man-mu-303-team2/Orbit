@@ -28,6 +28,8 @@ describe("createRehearsalEvaluationSnapshot", () => {
     expect(serialized).not.toContain("슬라이드 요소 원문");
     expect(serialized).not.toContain("speakerNotes");
     expect(serialized).not.toContain("elements");
+    expect(snapshot.deckContentHash).toBeNull();
+    expect(snapshot.evaluationPlan).toBeNull();
   });
 
   it("rejects suggested cues in persisted snapshots", () => {

@@ -16,6 +16,8 @@ import {
   semanticCueImportanceSchema,
   semanticCueSchema
 } from "../deck/semantic-cue.schema";
+import { briefRefSchema, evaluatorLensRefSchema } from "../coaching/coaching-common.schema";
+import { rehearsalEvaluationPlanSchema } from "../coaching/evaluator-lens.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -75,6 +77,8 @@ export const rehearsalEvaluationSnapshotSchema = z
   .object({
     deckId: z.string().trim().min(1),
     deckVersion: z.number().int().positive(),
+    deckContentHash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().default(null),
+    evaluationPlan: rehearsalEvaluationPlanSchema.nullable().default(null),
     capturedAt: isoDateTimeSchema,
     slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
   })
@@ -95,6 +99,8 @@ export const rehearsalRunSchema = z.object({
   deckVersion: z.number().int().positive().nullable().default(null),
   evaluationSnapshot: rehearsalEvaluationSnapshotSchema.nullable().default(null),
   semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full"),
+  analysisRevision: z.number().int().nonnegative().default(0),
+  analysisFinalizedAt: isoDateTimeSchema.nullable().default(null),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
@@ -508,9 +514,30 @@ export const createRehearsalRunRequestSchema = z
   .object({
     deckId: z.string().min(1),
     expectedDeckVersion: z.number().int().positive().optional(),
+    briefRef: briefRefSchema.optional(),
+    evaluatorLensRef: evaluatorLensRefSchema.optional(),
+    sourceGoalSetId: z.string().trim().min(1).max(128).nullable().optional(),
     semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
   })
-  .strict();
+  .strict()
+  .superRefine((request, context) => {
+    const adaptiveFields = [
+      request.briefRef,
+      request.evaluatorLensRef,
+      request.sourceGoalSetId
+    ];
+    const suppliedCount = adaptiveFields.filter((value) => value !== undefined).length;
+    if (
+      suppliedCount > 0 &&
+      (suppliedCount < adaptiveFields.length || request.expectedDeckVersion === undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "adaptive rehearsal evaluation context must be supplied as a complete set.",
+        path: ["briefRef"]
+      });
+    }
+  });
 
 export const createRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema

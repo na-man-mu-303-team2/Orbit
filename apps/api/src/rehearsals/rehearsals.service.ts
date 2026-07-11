@@ -58,7 +58,8 @@ export const REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB =
 export class RehearsalsService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
   private readonly rehearsalAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
-    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "rehearsal-audio"
   });
 
   constructor(
@@ -651,6 +652,8 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     deckVersion: run.deckVersion,
     evaluationSnapshot: run.evaluationSnapshot,
     semanticEvaluationMode: run.semanticEvaluationMode,
+    analysisRevision: run.analysisRevision ?? 0,
+    analysisFinalizedAt: run.analysisFinalizedAt?.toISOString() ?? null,
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,

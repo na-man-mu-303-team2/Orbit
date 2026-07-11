@@ -2,6 +2,11 @@
 
 `packages/shared/src`는 ORBIT의 공통 런타임 계약을 담는다. 프론트엔드, API, worker, editor-core, realtime 패키지는 여기서 export된 Zod schema와 TypeScript type을 재사용한다.
 
+`coaching/`은 Adaptive Rehearsal Coach의 Brief/Lens, immutable Goal/Resolution,
+Focused Practice, Challenge Q&A, identifier-only internal Job과 private audio
+cleanup 계약을 소유한다. raw audio, transcript, typed answer, speaker notes는
+canonical coaching result나 Job payload/result에 포함하지 않는다.
+
 ## 원칙
 
 - `index.ts`는 public export만 담당한다.
@@ -18,6 +23,7 @@
 | `auth/auth.schema.ts` | 회원가입, 로그인, 로그아웃, 현재 사용자 조회 API의 request/response와 session schema. |
 | `common/demo-ids.ts` | 1차 스프린트 데모용 고정 사용자, 워크스페이스, 프로젝트, 덱, 세션 ID. |
 | `common/time.schema.ts` | ISO datetime schema와 현재 시각 생성 유틸리티. |
+| `coaching/*.schema.ts` | Adaptive Coaching aggregate, bounded result, private evidence 경계 계약. |
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/generate-deck.schema.ts` | AI 덱 생성 request, response, validation issue, job result 계약. API, worker, web이 같은 generate-deck payload를 검증할 때 사용한다. |
 | `deck/deck-export.schema.ts` | Deck JSON을 PPTX로 export하는 request와 job result 계약. API, worker, web이 같은 export 결과 payload를 검증할 때 사용한다. |

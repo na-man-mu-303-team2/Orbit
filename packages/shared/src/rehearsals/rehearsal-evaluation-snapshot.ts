@@ -3,10 +3,15 @@ import {
   rehearsalEvaluationSnapshotSchema,
   type RehearsalEvaluationSnapshot
 } from "./rehearsal.schema";
+import type { RehearsalEvaluationPlan } from "../coaching/evaluator-lens.schema";
 
 export function createRehearsalEvaluationSnapshot(
   deck: Deck,
-  capturedAt: string = new Date().toISOString()
+  capturedAt: string = new Date().toISOString(),
+  options: {
+    deckContentHash?: string | null;
+    evaluationPlan?: RehearsalEvaluationPlan | null;
+  } = {}
 ): RehearsalEvaluationSnapshot {
   const fallbackEstimatedSeconds = Math.max(
     1,
@@ -16,6 +21,8 @@ export function createRehearsalEvaluationSnapshot(
   return rehearsalEvaluationSnapshotSchema.parse({
     deckId: deck.deckId,
     deckVersion: deck.version,
+    deckContentHash: options.deckContentHash ?? null,
+    evaluationPlan: options.evaluationPlan ?? null,
     capturedAt,
     slides: deck.slides.map((slide) => ({
       slideId: slide.slideId,

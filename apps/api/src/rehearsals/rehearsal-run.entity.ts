@@ -39,6 +39,12 @@ export class RehearsalRunEntity {
   @Column({ name: "semantic_evaluation_mode", default: "full", type: "text" })
   semanticEvaluationMode!: RehearsalSemanticEvaluationMode;
 
+  @Column({ name: "analysis_revision", default: 0, type: "integer" })
+  analysisRevision!: number;
+
+  @Column({ name: "analysis_finalized_at", nullable: true, type: "timestamptz" })
+  analysisFinalizedAt!: Date | null;
+
   @Column({ type: "text" })
   status!: RehearsalRunStatus;
 
