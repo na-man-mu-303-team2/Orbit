@@ -187,6 +187,44 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("speaker notes 줄 단위로 script coverage를 갱신한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: [
+        "첫 줄은 제품 맥락을 설명합니다. 같은 줄 보충 설명입니다.",
+        "둘째 줄은 리허설 흐름을 보여줍니다.",
+        "다음 슬라이드"
+      ].join("\n"),
+      controlPhrases: ["다음 슬라이드"],
+      keywords: []
+    });
+
+    expect(tracker.snapshot().matchableSentenceCount).toBe(2);
+
+    tracker.acceptResult({
+      text: "제품 맥락을 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 800]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: ["sentence_1"],
+      sentenceCoverage: 0.5
+    });
+
+    tracker.acceptResult({
+      text: "리허설 흐름을 보여줍니다",
+      isFinal: true,
+      timestampMs: [800, 1600]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: ["sentence_1", "sentence_2"],
+      sentenceCoverage: 1,
+      finalSentenceSpoken: false
+    });
+  });
+
   it("semantic sentence match는 중복 없이 sentence coverage와 마지막 문장 이벤트를 만든다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

@@ -41,6 +41,7 @@ export type AdvanceControllerSnapshot = {
   policy: AutoAdvancePolicy;
   remainingTriggerSteps: number;
   slideId: string;
+  semanticAutoActionAllowed?: boolean;
 };
 
 export type AdvanceControllerResult = {
@@ -119,6 +120,19 @@ export function evaluateAdvanceController(
         manualGuidanceShown: false,
         remainingTriggerSteps: 0,
         status: "disabled"
+      }
+    };
+  }
+
+  if (snapshot.semanticAutoActionAllowed === false) {
+    return {
+      commands,
+      state: {
+        ...nextBaseState,
+        countdownStartedAtMs: null,
+        manualGuidanceShown: false,
+        remainingTriggerSteps: 0,
+        status: "tracking"
       }
     };
   }

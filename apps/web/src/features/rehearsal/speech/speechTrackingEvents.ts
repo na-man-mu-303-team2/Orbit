@@ -19,9 +19,17 @@ export type ExtractedSentence = {
   candidates: PhraseCandidate[];
 };
 
+export type ScriptProgressSnapshot = {
+  charOffset: number;
+  totalChars: number;
+  ratio: number;
+  confidence: "none" | "candidate" | "confirmed";
+};
+
 export type SpeechTrackerSnapshot = {
   slideId: string;
   coveredSentenceIds: string[];
+  coveredSentenceMatchKinds: Record<string, "covered" | "paraphrased">;
   matchableSentenceCount: number;
   sentenceCoverage: number;
   wordCoverage: number;
@@ -29,6 +37,7 @@ export type SpeechTrackerSnapshot = {
   finalSentenceSpoken: boolean;
   hitKeywordIds: string[];
   provisionalMissingKeywordIds: string[];
+  scriptProgress?: ScriptProgressSnapshot;
 };
 
 export type SentenceCoveredEvent = {

@@ -252,6 +252,8 @@ describe("createPresentationPublisherController", () => {
       "if (!enabled || !identity || !channelRef.current)",
     );
     expect(source).toContain("if (!enabled || !deck || !state)");
+    expect(source).toContain("getPresenterRemoteChannelName(identity)");
+    expect(source).toContain("createPresenterRemoteStateMessage");
   });
 
   it("keeps presenter remote commands bound to the latest owner state", () => {

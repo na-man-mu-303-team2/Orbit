@@ -1,7 +1,10 @@
 import type {
   RehearsalRunMeta,
+  RehearsalSemanticCueDecision,
   SemanticCapabilityEvent,
-  SemanticCue
+  SemanticCue,
+  SemanticCueImportance,
+  SemanticMeasurementMode
 } from "@orbit/shared";
 
 import type {
@@ -50,7 +53,7 @@ export type P3RehearsalSessionSlide = {
 };
 
 export type P3RehearsalSessionState = {
-  status: "idle" | "starting" | "running" | "stopped" | "failed";
+  status: "idle" | "starting" | "running" | "paused" | "stopped" | "failed";
   slideIndex: number;
   startedAtMs: number | null;
   slideEnteredAtMs: number | null;
@@ -58,6 +61,23 @@ export type P3RehearsalSessionState = {
   finalSegments: LiveSttResult[];
   runMeta: RehearsalRunMeta | null;
   capabilityStatuses: SemanticCapabilityStatuses;
+  semanticCueProgress: P3SemanticCueProgressItem[];
+};
+
+export type P3SemanticCueProgressStatus =
+  | "waiting"
+  | "covered"
+  | "needs-review"
+  | "unmeasured";
+
+export type P3SemanticCueProgressItem = {
+  cueId: string;
+  slideId: string;
+  label: string;
+  importance: SemanticCueImportance;
+  status: P3SemanticCueProgressStatus;
+  measurementMode: SemanticMeasurementMode;
+  matchedBy?: RehearsalSemanticCueDecision["matchedBy"];
 };
 
 export type CreateP3RehearsalSessionInput = {
@@ -82,6 +102,8 @@ export type P3RehearsalSession = {
     audioSource: MediaStream;
     slideIndex?: number;
   }) => Promise<P3RehearsalSessionState>;
+  pause: () => Promise<P3RehearsalSessionState>;
+  resume: (options: { audioSource: MediaStream }) => Promise<P3RehearsalSessionState>;
   enterSlide: (slideIndex: number) => SpeechTrackingEvent[];
   acceptResult: (result: LiveSttResult) => SpeechTrackingEvent[];
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
@@ -125,8 +147,14 @@ export function createP3RehearsalSession(
   let semanticQueue: Promise<void> = Promise.resolve();
   const closingSemanticGenerations = new Set<number>();
   const semanticEvidenceWindow = createSemanticEvidenceWindow();
+  const semanticCueProgressBySlideId = new Map<
+    string,
+    Map<string, P3SemanticCueProgressItem>
+  >();
   const semanticPrepareBySlideId = new Map<string, Promise<void>>();
   const semanticCuePrepareBySlideId = new Map<string, Promise<void>>();
+  let resultTimestampOffsetMs = 0;
+  let lastAcceptedResultEndMs = 0;
 
   async function start(options: {
     audioSource: MediaStream;
@@ -138,6 +166,8 @@ export function createP3RehearsalSession(
     runMeta = null;
     finalSegments.length = 0;
     const startRequestedAt = getNowMs();
+    resultTimestampOffsetMs = 0;
+    lastAcceptedResultEndMs = 0;
     scheduleSemanticCuePrewarm(slideIndex);
     transitionCapability({
       capability: "stt",
@@ -214,6 +244,47 @@ export function createP3RehearsalSession(
     return getState();
   }
 
+  async function pause(): Promise<P3RehearsalSessionState> {
+    if (status !== "running") {
+      return getState();
+    }
+
+    semanticGeneration += 1;
+    await input.port.stop();
+    status = "paused";
+    emitSnapshot();
+    return getState();
+  }
+
+  async function resume(options: {
+    audioSource: MediaStream;
+  }): Promise<P3RehearsalSessionState> {
+    if (status !== "paused") {
+      return getState();
+    }
+
+    const slide = getSlide(slideIndex);
+    resultTimestampOffsetMs = lastAcceptedResultEndMs;
+    status = "starting";
+    try {
+      await input.port.start({
+        language: "ko",
+        audioSource: options.audioSource,
+        biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
+      });
+    } catch (error) {
+      status = "failed";
+      cleanupSubscriptions?.();
+      throw error;
+    }
+
+    status = "running";
+    semanticGeneration += 1;
+    scheduleSemanticPrepare(slideIndex, semanticGeneration);
+    emitSnapshot();
+    return getState();
+  }
+
   function enterSlide(nextSlideIndex: number): SpeechTrackingEvent[] {
     if (status !== "running") {
       return [];
@@ -254,8 +325,9 @@ export function createP3RehearsalSession(
       return [];
     }
 
+    const normalizedResult = normalizeResultTimestamp(result);
     if (result.isFinal) {
-      finalSegments.push(result);
+      finalSegments.push(normalizedResult);
       transitionCapability({
         capability: "transcript_evidence",
         toState: "available",
@@ -266,7 +338,7 @@ export function createP3RehearsalSession(
       });
     }
 
-    const events = currentTracker.acceptResult(result);
+    const events = currentTracker.acceptResult(normalizedResult);
     applyEventsToLog(events, collector);
     if (events.length > 0) {
       input.onEvents?.(events);
@@ -274,11 +346,11 @@ export function createP3RehearsalSession(
     if (result.isFinal) {
       const evidence = semanticEvidenceWindow.accept(
         getSlide(slideIndex).slideId,
-        result
+        normalizedResult
       );
       enqueueSemanticFinalResult({
         result: {
-          ...result,
+          ...normalizedResult,
           text: evidence.transcript,
           timestampMs: [evidence.startMs, evidence.endMs]
         },
@@ -316,8 +388,64 @@ export function createP3RehearsalSession(
       snapshot: currentTracker?.snapshot() ?? null,
       finalSegments: [...finalSegments],
       runMeta,
-      capabilityStatuses: capabilityState.snapshot()
+      capabilityStatuses: capabilityState.snapshot(),
+      semanticCueProgress: getSemanticCueProgress(getSlide(slideIndex))
     };
+  }
+
+  function getSemanticCueProgress(slide: P3RehearsalSessionSlide) {
+    let progress = semanticCueProgressBySlideId.get(slide.slideId);
+    if (!progress) {
+      progress = new Map(
+        (slide.semanticCues ?? [])
+          .filter(
+            (cue) =>
+              cue.reviewStatus === "approved" && cue.freshness === "current"
+          )
+          .map((cue) => [cue.cueId, createWaitingSemanticCueProgress(cue)])
+      );
+      semanticCueProgressBySlideId.set(slide.slideId, progress);
+    }
+    return [...progress.values()];
+  }
+
+  function applySemanticCueDecisions(
+    slide: P3RehearsalSessionSlide,
+    decisions: readonly RehearsalSemanticCueDecision[]
+  ) {
+    const progress = new Map(
+      getSemanticCueProgress(slide).map((item) => [item.cueId, item])
+    );
+    for (const decision of decisions) {
+      const current = progress.get(decision.cueId);
+      if (!current || current.status === "covered") {
+        continue;
+      }
+      progress.set(decision.cueId, {
+        ...current,
+        status: semanticCueProgressStatus(decision),
+        measurementMode: decision.measurementMode,
+        matchedBy: decision.matchedBy
+      });
+    }
+    semanticCueProgressBySlideId.set(slide.slideId, progress);
+  }
+
+  function markSemanticCueProgressUnmeasured(slide: P3RehearsalSessionSlide) {
+    const progress = new Map(
+      getSemanticCueProgress(slide).map((item) => [
+        item.cueId,
+        item.status === "covered"
+          ? item
+          : {
+              ...item,
+              status: "unmeasured" as const,
+              measurementMode: "none" as const,
+              matchedBy: undefined
+            }
+      ])
+    );
+    semanticCueProgressBySlideId.set(slide.slideId, progress);
   }
 
   function getTracker(index: number) {
@@ -379,6 +507,7 @@ export function createP3RehearsalSession(
       transcript: "",
       isFinal: false,
       topMatches: [],
+      decision: null,
       error: null
     });
 
@@ -395,6 +524,7 @@ export function createP3RehearsalSession(
             transcript: "",
             isFinal: false,
             topMatches: [],
+            decision: null,
             error: null
           });
         }
@@ -407,6 +537,7 @@ export function createP3RehearsalSession(
             transcript: "",
             isFinal: false,
             topMatches: [],
+            decision: null,
             error: semanticDebugErrorMessage(error)
           });
         }
@@ -533,6 +664,7 @@ export function createP3RehearsalSession(
       transcript: options.result.text,
       isFinal: true,
       topMatches: [],
+      decision: null,
       error: null
     });
 
@@ -579,6 +711,7 @@ export function createP3RehearsalSession(
         transcript: options.result.text,
         isFinal: true,
         topMatches: match.topMatches,
+        decision: match.decision,
         error: null
       });
 
@@ -632,6 +765,7 @@ export function createP3RehearsalSession(
           transcript: options.result.text,
           isFinal: true,
           topMatches: [],
+          decision: null,
           error: semanticDebugErrorMessage(error)
         });
       }
@@ -699,6 +833,7 @@ export function createP3RehearsalSession(
         (options.allowClosingGeneration &&
           closingSemanticGenerations.has(options.generation))
       ) {
+        markSemanticCueProgressUnmeasured(options.slide);
         transitionCapability({
           capability: "semantic_runtime",
           toState: "unavailable",
@@ -708,6 +843,14 @@ export function createP3RehearsalSession(
           slideId: options.slide.slideId,
           cueIds: (options.slide.semanticCues ?? []).map((cue) => cue.cueId)
         });
+        if (
+          isSemanticGenerationCurrent(
+            options.generation,
+            options.resultSlideIndex
+          )
+        ) {
+          emitSnapshot();
+        }
       }
       throw error;
     }
@@ -725,8 +868,12 @@ export function createP3RehearsalSession(
     for (const capabilityUpdate of cueResult.capabilityUpdates) {
       transitionCapability(capabilityUpdate);
     }
+    applySemanticCueDecisions(options.slide, cueResult.decisions);
     collector.recordSemanticCueDecisions(cueResult.decisions);
     input.onSemanticCueDebugEvent?.(cueResult.debugEvent);
+    if (isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
+      emitSnapshot();
+    }
   }
 
   async function flushSemanticQueueForSlide(targetSlideIndex: number) {
@@ -747,6 +894,7 @@ export function createP3RehearsalSession(
     }
 
     const slide = getSlide(targetSlideIndex);
+    markSemanticCueProgressUnmeasured(slide);
     transitionCapability({
       capability: "semantic_runtime",
       toState: "degraded",
@@ -760,12 +908,28 @@ export function createP3RehearsalSession(
 
   return {
     start,
+    pause,
+    resume,
     enterSlide,
     acceptResult,
     setAdviceState,
     stop,
     getState
   };
+
+  function normalizeResultTimestamp(result: LiveSttResult): LiveSttResult {
+    const startMs = Math.max(result.timestampMs[0] + resultTimestampOffsetMs, 0);
+    const endMs = Math.max(
+      result.timestampMs[1] + resultTimestampOffsetMs,
+      startMs,
+      lastAcceptedResultEndMs
+    );
+    lastAcceptedResultEndMs = endMs;
+    return {
+      ...result,
+      timestampMs: [startMs, endMs]
+    };
+  }
 }
 
 function calculateKeywordCoverage(
@@ -777,6 +941,28 @@ function calculateKeywordCoverage(
   }
 
   return snapshot.hitKeywordIds.length / slide.keywords.length;
+}
+
+function createWaitingSemanticCueProgress(
+  cue: SemanticCue
+): P3SemanticCueProgressItem {
+  return {
+    cueId: cue.cueId,
+    slideId: cue.slideId,
+    label: cue.presenterTag ?? cue.reportLabel ?? cue.meaning,
+    importance: cue.importance,
+    status: "waiting",
+    measurementMode: "none"
+  };
+}
+
+function semanticCueProgressStatus(
+  decision: RehearsalSemanticCueDecision
+): P3SemanticCueProgressStatus {
+  if (decision.fallbackUsed && decision.measurementMode === "none") {
+    return "unmeasured";
+  }
+  return decision.label === "covered" ? "covered" : "needs-review";
 }
 
 export function buildBiasPhrasesForSlide(

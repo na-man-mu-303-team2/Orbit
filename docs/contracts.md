@@ -307,6 +307,14 @@ API:
 - `sourceRefs`: 최대 16개의 `{ kind, refId?, sourceHash }`
 - `qualityWarnings`: 최대 12개의 80자 이하 warning
 
+의미 판정 보조 필드는 다음 책임을 가진다.
+
+- `candidateKeywords`: cue 후보 검색을 위한 1~4개의 구별력 있는 표면 표현이며, 단독으로 의미 전달 완료를 증명하지 않는다.
+- `aliases`: 하나의 canonical term에 대한 발음, 약어, 번역, STT 변형의 any-of 그룹이다. 기술 용어, 코드 식별자, 약어, 영문 용어는 대체 표현이 있으면 반드시 같은 그룹에 둔다.
+- `requiredConcepts`: 발표자가 모두 전달해야 하는 1~4개의 중복 없는 canonical concept이다. 번역어나 약어를 별도 concept으로 중복 저장하지 않는다.
+- `nliHypotheses`: 같은 cue 전체를 동등하게 표현하는 1~3개의 발표자 중심 문장이다. 각 문장은 모든 required concept과 그 관계를 독립적으로 포함해야 하며 cue 일부를 hypothesis별로 나누지 않는다.
+- `negativeHints`: cue의 핵심 관계를 뒤집거나 대체하는 0~3개의 완전한 hard-negative 문장이다. live pairwise NLI와 post-run semantic evaluator의 close false-positive 방지 문맥으로 사용하며, 단순 단어 조각이나 관련 없는 주제를 저장하지 않는다.
+
 `sourceRefs[].kind`는 `slide-title | speaker-notes | element | table | chart | image-analysis`이며 `sourceHash`는 8~128자다. source text는 NFC 정규화, 연속 공백 축소, trim 후 SHA-256을 계산한다. `sourceFingerprint`는 정렬된 `(kind, refId, sourceHash)` 목록과 cue type, normalized required concept의 stable JSON SHA-256이다.
 
 legacy cue는 parse 시 `suggested/current/imported/revision=1`로 정규화한다. 기존 `required=true`만으로 `approved`로 승격하지 않으며 승인 전 최종 coverage 분모에 포함하지 않는다. 검토 UI 저장 시 호환값은 `core → required=true, priority=1`, `supporting → required=false, priority=2`, `optional → required=false, priority=3`으로 함께 기록한다. 표시 label fallback은 `reportLabel ?? meaning`, presenter tag fallback은 `presenterTag ?? reportLabel ?? meaning`이며 AI 분석 결과가 아닌 UI 표시 fallback이다.
@@ -1160,6 +1168,15 @@ API:
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+- `GET /api/v1/projects/:projectId/rehearsals/:runId/comparison`
+  - 현재 run과 같은 프로젝트의 직전 `succeeded` run을 비교하며, 프로젝트 read 권한과 run 소속을 모두 검증한다.
+  - response: `RehearsalRunComparison`
+  - 현재 report가 준비되지 않았으면 `REHEARSAL_COMPARISON_NOT_READY`, 현재 report 계약이 유효하지 않으면 `REHEARSAL_COMPARISON_REPORT_INVALID` 충돌을 반환한다.
+- `POST /api/v1/rehearsals/:runId/semantic-evaluation/retry`
+  - response: `{ "job": Job }`
+  - 성공한 `full` run에 retryable semantic report, immutable evaluation snapshot, Redis semantic evidence cache가 모두 있을 때만 `rehearsal-semantic-evaluation` Job을 enqueue한다.
+  - cache가 만료됐으면 HTTP 409 `{ "code": "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED", "retryable": false }`를 반환한다.
+  - Job payload에는 `jobId`, `projectId`, `runId`만 포함하고 transcript/segment 원문은 넣지 않는다.
 - `PATCH /api/v1/rehearsals/:runId/meta`
   - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
   - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
@@ -1280,6 +1297,31 @@ Report 응답 구조:
 - 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
 
+### 리허설 회차 비교와 브리핑 계약
+
+`RehearsalRunComparison`은 owner-only report 파생 응답이며 별도 DB 원본으로 저장하지 않는다.
+
+```json
+{
+  "currentRunId": "run_2",
+  "previousRunId": "run_1",
+  "improved": [],
+  "repeated": [],
+  "newIssues": [],
+  "incomparable": [],
+  "briefing": []
+}
+```
+
+각 배열 항목은 `{ category, slideId, cueId?, cueRevision?, label, severity, reason }` 구조다. `category`는 `semantic-cue | timing | delivery`, `severity`는 `high | medium | low`이며 `briefing`은 최대 3개다.
+
+- Semantic Cue는 동일한 `cueId + cueRevision`일 때만 직접 비교한다. revision이 다르거나 어느 회차라도 `unmeasured | excluded`이면 `incomparable`로 분류하고 부정적 결과나 브리핑 우선순위에 포함하지 않는다.
+- 직전 `missed | partial`이 현재 `covered`이면 `improved`, 두 회차 모두 `missed | partial`인 core Cue이면 `repeated`, 현재 이슈 중 반복 core가 아닌 항목은 `newIssues`다.
+- 첫 성공 run은 `previousRunId=null`이며 현재 측정 이슈를 `newIssues`, 측정 불가 항목을 `incomparable`로 설명한다.
+- 브리핑 우선순위는 반복 core 의미 누락, 현재 core 의미 누락, 반복 시간 초과, 반복 전달 이슈 순서이며 최대 3개만 제공한다.
+- 응답에는 transcript, Semantic Cue evidence excerpt, speaker notes, raw audio, presenter script를 포함하지 않는다. 서버 로그와 audience channel에도 비교/브리핑 내용을 전송하지 않는다.
+- 슬라이드 진입 알림은 `repeated`의 high-severity `semantic-cue`만 대상으로 하며 한 리허설 세션에서 항목별 한 번만 표시하고 사용자가 닫을 수 있다.
+
 ### Semantic Cue 측정·fallback 계약
 
 live `semanticCueDecisions`는 provisional/debug 호환 필드이며 canonical report 결과는 `semanticCueOutcomes`다. legacy decision은 `matchedBy=nli`, `measurementMode=full`, `fallbackUsed=false`로 정규화하고 기존 required `provider`는 optional로 완화한다.
@@ -1303,6 +1345,9 @@ live `semanticCueDecisions`는 provisional/debug 호환 필드이며 canonical r
 - `basic` mode는 positive evidence가 있는 `covered/partial`만 허용하며 absence를 `missed`로 바꾸지 않는다.
 - legacy report는 `semanticEvaluation=unavailable/none/evaluation_not_run`, `semanticCueOutcomes=[]`, `keywordCoverageMeasurement.state=measured`로 parse한다.
 - 새 report의 keyword 분모가 0이면 숫자 `keywordCoverage=0`은 계산 placeholder로만 두고 `keywordCoverageMeasurement={ state: "unmeasured", reason: "no-keywords" }`를 저장한다. UI는 숫자 대신 `N/A`를 표시한다.
+- timestamped transcript segment는 DB나 Job payload에 저장하지 않고 `rehearsal:semantic-evidence:<runId>` Redis key에 최대 30분만 보존한다. cache key와 server log에는 segment text를 넣지 않는다.
+- semantic retry worker는 cache와 run snapshot으로 Python semantic endpoint만 다시 호출하며 `report_json.semanticEvaluation`과 `report_json.semanticCueOutcomes`만 멱등 교체한다. 기존 metrics, coaching, delivery 분석, generatedAt은 변경하지 않는다.
+- retry가 다시 실패하거나 partial/unavailable이면 기존 report를 유지하고 Job을 실패 처리하며 `rehearsal.semantic_evaluation.retry_failed`에 ID와 reason만 기록한다.
 
 구현 위치:
 
@@ -1348,6 +1393,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `pptx-ooxml-sync`
 - `worker-health-check`
 - `rehearsal-stt`
+- `rehearsal-semantic-evaluation`
 - `final-report-generation`
 - `report-pdf-export`
 

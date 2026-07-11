@@ -1,7 +1,7 @@
 import { loadOrbitConfig, type OrbitConfig } from "@orbit/config";
 import type { Params } from "nestjs-pino";
 
-const redactedPaths = [
+export const redactedPaths = [
   "password",
   "*.password",
   "body.password",

@@ -29,6 +29,17 @@ export type PresenterStateMessage = {
   type: "presenter-state";
 };
 
+export type PresenterRemoteSnapshotMessage = Omit<
+  PresenterSnapshotMessage,
+  "type"
+> & {
+  type: "presenter-remote-snapshot";
+};
+
+export type PresenterRemoteStateMessage = Omit<PresenterStateMessage, "type"> & {
+  type: "presenter-remote-state";
+};
+
 export type PresenterHeartbeatMessage = {
   deckId: string;
   sentAt: number;
@@ -83,6 +94,8 @@ export type PresenterCommandMessage = {
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
+  | PresenterRemoteSnapshotMessage
+  | PresenterRemoteStateMessage
   | PresenterHeartbeatMessage
   | SlideWindowReadyMessage
   | SlideWindowHeartbeatMessage
@@ -120,6 +133,12 @@ export function getPresentationChannelName(
     encodeURIComponent(identity.deckId),
     encodeURIComponent(identity.sessionId),
   ].join(":");
+}
+
+export function getPresenterRemoteChannelName(
+  identity: PresentationChannelIdentity
+) {
+  return `${getPresentationChannelName(identity)}:owner`;
 }
 
 export function createSlideWindowDeckSnapshot(
@@ -185,6 +204,17 @@ export function isPresentationChannelMessage(
         isPresenterSlideshowState(value.state) &&
         isStringArray(value.triggerAnimationIds)
       );
+    case "presenter-remote-snapshot":
+      return (
+        isRecord(value.deck) &&
+        isPresenterSlideshowState(value.state) &&
+        isStringArray(value.triggerAnimationIds)
+      );
+    case "presenter-remote-state":
+      return (
+        isPresenterSlideshowState(value.state) &&
+        isStringArray(value.triggerAnimationIds)
+      );
     case "presenter-heartbeat":
     case "slide-window-ready":
     case "slide-window-heartbeat":
@@ -220,7 +250,7 @@ export function createPresenterSnapshotMessage(args: {
     deckId: args.identity.deckId,
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
-    state: args.state,
+    state: createAudiencePresenterState(args.state),
     triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
     type: "presenter-snapshot",
   };
@@ -236,10 +266,51 @@ export function createPresenterStateMessage(args: {
     deckId: args.identity.deckId,
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
-    state: args.state,
+    state: createAudiencePresenterState(args.state),
     triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
     type: "presenter-state",
   };
+}
+
+export function createPresenterRemoteSnapshotMessage(args: {
+  deck: Deck;
+  identity: PresentationChannelIdentity;
+  sentAt?: number;
+  state: PresenterSlideshowState;
+  triggerAnimationIds?: Iterable<string>;
+}): PresenterRemoteSnapshotMessage {
+  return {
+    deck: createSlideWindowDeckSnapshot(args.deck),
+    deckId: args.identity.deckId,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    state: args.state,
+    triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
+    type: "presenter-remote-snapshot"
+  };
+}
+
+export function createPresenterRemoteStateMessage(args: {
+  identity: PresentationChannelIdentity;
+  sentAt?: number;
+  state: PresenterSlideshowState;
+  triggerAnimationIds?: Iterable<string>;
+}): PresenterRemoteStateMessage {
+  return {
+    deckId: args.identity.deckId,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    state: args.state,
+    triggerAnimationIds: Array.from(args.triggerAnimationIds ?? []),
+    type: "presenter-remote-state"
+  };
+}
+
+export function createAudiencePresenterState(
+  state: PresenterSlideshowState
+): PresenterSlideshowState {
+  const { speech: _presenterSpeech, ...audienceState } = state;
+  return audienceState;
 }
 
 export function createPresenterHeartbeatMessage(
@@ -334,7 +405,127 @@ function isPresenterSlideshowState(
         typeof highlight.elementId === "string" &&
         typeof highlight.active === "boolean",
     ) &&
+    (value.speech === undefined || isPresenterSpeechState(value.speech)) &&
     (value.timing === undefined || isPresenterTimingState(value.timing))
+  );
+}
+
+function isPresenterSpeechState(value: unknown) {
+  return (
+    isRecord(value) &&
+    isStringArray(value.coveredSentenceIds) &&
+    isCoveredSentenceMatchKindRecord(value.coveredSentenceMatchKinds) &&
+    typeof value.matchableSentenceCount === "number" &&
+    isSemanticUtteranceDebugState(value.semanticDebug) &&
+    typeof value.semanticMatchingEnabled === "boolean" &&
+    (value.snapshot === null || isSpeechTrackerSnapshot(value.snapshot)) &&
+    (value.semanticCapabilityItems === undefined ||
+      (Array.isArray(value.semanticCapabilityItems) &&
+        value.semanticCapabilityItems.every(isSemanticCapabilityStatusItem)))
+  );
+}
+
+function isSemanticCapabilityStatusItem(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.key === "string" &&
+    (value.severity === "info" ||
+      value.severity === "warning" ||
+      value.severity === "error") &&
+    typeof value.shortLabel === "string" &&
+    typeof value.detail === "string" &&
+    typeof value.retryable === "boolean" &&
+    typeof value.affectedCount === "number" &&
+    value.source === "system-status" &&
+    typeof value.recovered === "boolean" &&
+    (value.measurementMode === "full" ||
+      value.measurementMode === "basic" ||
+      value.measurementMode === "none")
+  );
+}
+
+function isSemanticUtteranceDebugState(value: unknown) {
+  return (
+    isRecord(value) &&
+    isSemanticDebugStatus(value.status) &&
+    (value.slideId === null || typeof value.slideId === "string") &&
+    typeof value.transcript === "string" &&
+    typeof value.isFinal === "boolean" &&
+    Array.isArray(value.topMatches) &&
+    value.topMatches.every(isSemanticUtteranceMatch) &&
+    (value.decision === null || isSemanticUtteranceDecision(value.decision)) &&
+    (value.error === null || typeof value.error === "string")
+  );
+}
+
+function isSemanticDebugStatus(value: unknown) {
+  return (
+    value === "idle" ||
+    value === "loading-model" ||
+    value === "model-ready" ||
+    value === "indexing-script" ||
+    value === "matching" ||
+    value === "ready" ||
+    value === "error"
+  );
+}
+
+function isSemanticUtteranceDecision(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.accepted === "boolean" &&
+    (value.acceptedMatch === null || isSemanticUtteranceMatch(value.acceptedMatch)) &&
+    typeof value.ambiguousMargin === "number" &&
+    typeof value.isFinal === "boolean" &&
+    typeof value.lexicalOverlap === "number" &&
+    (value.outcome === null ||
+      value.outcome === "covered" ||
+      value.outcome === "paraphrased" ||
+      value.outcome === "ad-lib" ||
+      value.outcome === "missed") &&
+    typeof value.reason === "string" &&
+    typeof value.scoreThreshold === "number" &&
+    typeof value.slideId === "string" &&
+    Array.isArray(value.topMatches) &&
+    value.topMatches.every(isSemanticUtteranceMatch) &&
+    typeof value.transcript === "string"
+  );
+}
+
+function isSemanticUtteranceMatch(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.rank === "number" &&
+    typeof value.sentenceId === "string" &&
+    typeof value.sentenceIndex === "number" &&
+    typeof value.text === "string" &&
+    typeof value.similarity === "number" &&
+    typeof value.covered === "boolean"
+  );
+}
+
+function isSpeechTrackerSnapshot(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.slideId === "string" &&
+    isStringArray(value.coveredSentenceIds) &&
+    isCoveredSentenceMatchKindRecord(value.coveredSentenceMatchKinds) &&
+    typeof value.matchableSentenceCount === "number" &&
+    typeof value.sentenceCoverage === "number" &&
+    typeof value.wordCoverage === "number" &&
+    typeof value.effectiveCoverage === "number" &&
+    typeof value.finalSentenceSpoken === "boolean" &&
+    isStringArray(value.hitKeywordIds) &&
+    isStringArray(value.provisionalMissingKeywordIds)
+  );
+}
+
+function isCoveredSentenceMatchKindRecord(value: unknown) {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (kind) => kind === "covered" || kind === "paraphrased"
+    )
   );
 }
 

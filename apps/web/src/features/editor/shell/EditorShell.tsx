@@ -187,7 +187,10 @@ import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
-import { SemanticCueReviewPanel } from "../semantic-cues/SemanticCueReviewPanel";
+import {
+  SemanticCueReviewPanel,
+  type SemanticCueExtractionUiState
+} from "../semantic-cues/SemanticCueReviewPanel";
 import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
@@ -758,6 +761,11 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToPresentation(projectId: string) {
+  window.history.pushState({}, "", `/presentation/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToHome() {
   window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -1020,6 +1028,58 @@ export async function createPptxImportJob(
 
   const payload = (await response.json()) as { job?: unknown };
   return jobSchema.parse(payload.job);
+}
+
+export async function createSemanticCueExtractionJob(
+  projectId: string,
+  force: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/semantic-cues`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readPlainError(response, "Semantic Cue extraction job creation failed")
+    );
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForSemanticCueExtractionJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(
+        await readPlainError(response, "Semantic Cue extraction job fetch failed")
+      );
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Semantic Cue extraction job timed out.");
+    }
+    await delay(pollIntervalMs);
+  }
 }
 
 export async function waitForPptxImportJob(
@@ -1305,7 +1365,11 @@ export function EditorShell(props: { projectId?: string }) {
     qualityReport: null,
     message: ""
   });
-  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
+  const [semanticCueExtractionState, setSemanticCueExtractionState] =
+    useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [activePresentationAction, setActivePresentationAction] = useState<
+    "presentation" | "rehearsal" | null
+  >(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -1335,6 +1399,7 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     resetProjectUiState();
     setRightPanelView("ai");
+    setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -1527,11 +1592,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartRehearsal =
+  const canStartPresentation =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
     !isDeckError &&
-    !isRehearsalPreparing;
+    !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -2176,16 +2241,23 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleStartRehearsal() {
+  async function handleStartPresentationAction(
+    destination: "presentation" | "rehearsal"
+  ) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveError(
+        "rehearsal-blocked",
+        destination === "presentation"
+          ? "발표 자료를 불러온 뒤 발표를 시작할 수 있습니다."
+          : "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다."
+      );
       return;
     }
 
-    if (isRehearsalPreparing) {
+    if (activePresentationAction) {
       return;
     }
 
@@ -2199,7 +2271,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setIsRehearsalPreparing(true);
+    setActivePresentationAction(destination);
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -2233,7 +2305,11 @@ export function EditorShell(props: { projectId?: string }) {
           currentDeck: workingDeckRef.current
         })
       ) {
-        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+        throw new Error(
+          destination === "presentation"
+            ? "발표 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+            : "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+        );
       }
 
       const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
@@ -2243,19 +2319,37 @@ export function EditorShell(props: { projectId?: string }) {
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
-      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setLastPatchLabel(
+        `${
+          destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
+        } · v${finalDeck.version}`
+      );
       setSaveState("manual-saved");
       setSaveError(null, null);
-      navigateToRehearsal(activeProjectId);
+      if (destination === "presentation") {
+        navigateToPresentation(activeProjectId);
+      } else {
+        navigateToRehearsal(activeProjectId);
+      }
     } catch (error) {
       const message = toEditorErrorMessage(error);
 
-      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setLastPatchLabel(
+        `${destination === "presentation" ? "발표 준비 실패" : "리허설 준비 실패"} · ${message}`
+      );
       setSaveState("error");
       setSaveError("rehearsal-save-failed", message);
     } finally {
-      setIsRehearsalPreparing(false);
+      setActivePresentationAction(null);
     }
+  }
+
+  async function handleStartPresentation() {
+    await handleStartPresentationAction("presentation");
+  }
+
+  async function handleStartRehearsal() {
+    await handleStartPresentationAction("rehearsal");
   }
 
   async function flushPendingSavesBeforeManualAction() {
@@ -2576,6 +2670,69 @@ export function EditorShell(props: { projectId?: string }) {
     commitPatch((currentDeck) =>
       createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
     );
+  }
+
+  async function handleSemanticCueExtraction(force: boolean) {
+    if (semanticCueExtractionState.status === "running") {
+      return;
+    }
+
+    setSemanticCueExtractionState({
+      status: "running",
+      message: "슬라이드와 발표 대본의 의미를 분석하는 중입니다."
+    });
+
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current
+      });
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const queuedJob = await createSemanticCueExtractionJob(
+        activeProjectId,
+        force
+      );
+      const completedJob = await waitForSemanticCueExtractionJob(queuedJob.jobId);
+      if (completedJob.status === "failed") {
+        throw new Error(
+          completedJob.error?.message ?? "Semantic Cue extraction failed."
+        );
+      }
+
+      const selectedSlideId = currentSlide?.slideId;
+      const refetchResult = await deckQuery.refetch();
+      const extractedDeck = refetchResult.data;
+      if (extractedDeck) {
+        queryClient.setQueryData(["deck", projectId], extractedDeck);
+        markHydratedPersistedDeck(extractedDeck, setDeck);
+        const nextSlideIndex = selectedSlideId
+          ? extractedDeck.slides.findIndex(
+              (slide) => slide.slideId === selectedSlideId
+            )
+          : -1;
+        if (nextSlideIndex >= 0) {
+          setCurrentSlideIndex(nextSlideIndex);
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+        setLastPatchLabel(`발표 메시지 AI 분석 · v${extractedDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      }
+
+      setSemanticCueExtractionState({
+        status: "succeeded",
+        message: "AI 분석이 완료되었습니다. 제안된 메시지를 검토해 주세요."
+      });
+    } catch (error) {
+      setSemanticCueExtractionState({
+        status: "error",
+        message: toEditorErrorMessage(error)
+      });
+    }
   }
 
   function handleRightPanelTabKeyDown(
@@ -4852,13 +5009,14 @@ export function EditorShell(props: { projectId?: string }) {
             </span>
           ) : null}
           <PresentationMenu
-            canStartRehearsal={canStartRehearsal}
+            activeStartAction={activePresentationAction}
+            canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
-            isRehearsalPreparing={isRehearsalPreparing}
             onOpenAudienceLink={() => {
               setIsAudienceLinkModalOpen(true);
               setActiveTopMenu(null);
             }}
+            onStartPresentation={() => void handleStartPresentation()}
             onStartRehearsal={() => void handleStartRehearsal()}
             onToggle={() =>
               setActiveTopMenu((current) =>
@@ -5627,10 +5785,12 @@ export function EditorShell(props: { projectId?: string }) {
                   role="tabpanel"
                 >
                   <SemanticCueReviewPanel
+                    extractionState={semanticCueExtractionState}
                     slide={currentSlide}
                     onChange={handleSemanticCueReviewChange}
-                   />
-                 </div>
+                    onExtract={(force) => void handleSemanticCueExtraction(force)}
+                  />
+                </div>
               </div>
             </>
           ) : (

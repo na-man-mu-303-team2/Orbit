@@ -629,10 +629,41 @@ export const cancelRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
+  job: jobSchema
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable()
 });
+
+export const rehearsalComparisonIssueSchema = z
+  .object({
+    category: z.enum(["semantic-cue", "timing", "delivery"]),
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema.optional(),
+    cueRevision: z.number().int().positive().optional(),
+    label: z.string().trim().min(1).max(120),
+    severity: z.enum(["high", "medium", "low"]),
+    reason: z.string().trim().min(1).max(300)
+  })
+  .strict();
+
+export const rehearsalRunComparisonSchema = z
+  .object({
+    currentRunId: z.string().min(1),
+    previousRunId: z.string().min(1).nullable(),
+    improved: z.array(rehearsalComparisonIssueSchema).max(500),
+    repeated: z.array(rehearsalComparisonIssueSchema).max(500),
+    newIssues: z.array(rehearsalComparisonIssueSchema).max(500),
+    incomparable: z.array(rehearsalComparisonIssueSchema).max(500),
+    briefing: z.array(rehearsalComparisonIssueSchema).max(3)
+  })
+  .strict();
+
+export const getRehearsalRunComparisonResponseSchema =
+  rehearsalRunComparisonSchema;
 
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
 export type RehearsalSemanticEvaluationMode = z.infer<
@@ -713,6 +744,18 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type RetryRehearsalSemanticEvaluationResponse = z.infer<
+  typeof retryRehearsalSemanticEvaluationResponseSchema
+>;
+export type RehearsalComparisonIssue = z.infer<
+  typeof rehearsalComparisonIssueSchema
+>;
+export type RehearsalRunComparison = z.infer<
+  typeof rehearsalRunComparisonSchema
+>;
+export type GetRehearsalRunComparisonResponse = z.infer<
+  typeof getRehearsalRunComparisonResponseSchema
+>;
 
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),

@@ -43,7 +43,7 @@ describe("AutoAdvanceSettings", () => {
 
     expect(applySettingsUpdater(saveSettings.mock.calls[0]![0])).toMatchObject({
       advancePolicy: {
-        live: true,
+        live: false,
         rehearsal: false
       }
     });

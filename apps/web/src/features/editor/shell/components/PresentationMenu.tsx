@@ -6,7 +6,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 
-type PresentationMenuAction = "presenter-view" | "rehearsal" | "audience-link";
+type PresentationMenuAction = "presentation" | "rehearsal" | "audience-link";
 
 type PresentationMenuItem = {
   action: PresentationMenuAction;
@@ -16,20 +16,21 @@ type PresentationMenuItem = {
 };
 
 type PresentationMenuProps = {
-  canStartRehearsal: boolean;
+  activeStartAction?: "presentation" | "rehearsal" | null;
+  canStartPresentation: boolean;
   isOpen: boolean;
-  isRehearsalPreparing: boolean;
   onOpenAudienceLink: () => void;
+  onStartPresentation: () => void;
   onStartRehearsal: () => void;
   onToggle: () => void;
 };
 
 const presentationItems: PresentationMenuItem[] = [
   {
-    action: "presenter-view",
+    action: "presentation",
     icon: MonitorPlay,
-    label: "발표자 보기",
-    meta: "스크립트와 타이머"
+    label: "발표 시작",
+    meta: "발표용 화면 열기"
   },
   {
     action: "rehearsal",
@@ -47,15 +48,21 @@ const presentationItems: PresentationMenuItem[] = [
 
 export function PresentationMenu(props: PresentationMenuProps) {
   const {
-    canStartRehearsal,
+    activeStartAction = null,
+    canStartPresentation,
     isOpen,
-    isRehearsalPreparing,
     onOpenAudienceLink,
+    onStartPresentation,
     onStartRehearsal,
     onToggle
   } = props;
 
   function handleSelect(action: PresentationMenuAction) {
+    if (action === "presentation") {
+      onStartPresentation();
+      return;
+    }
+
     if (action === "rehearsal") {
       onStartRehearsal();
       return;
@@ -81,12 +88,17 @@ export function PresentationMenu(props: PresentationMenuProps) {
         <div className="file-menu-popover action-popover" role="menu">
           <div className="file-menu-list">
             {presentationItems.map(({ action, icon: Icon, label, meta }) => {
-              const isRehearsalItem = action === "rehearsal";
+              const isStartAction =
+                action === "presentation" || action === "rehearsal";
+              const busyLabel =
+                action === "presentation"
+                  ? "발표 화면 준비 중..."
+                  : "리허설 준비 중...";
 
               return (
                 <button
                   className="file-menu-item"
-                  disabled={isRehearsalItem && !canStartRehearsal}
+                  disabled={isStartAction && !canStartPresentation}
                   key={label}
                   role="menuitem"
                   type="button"
@@ -98,7 +110,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
                   </span>
                   <span className="file-menu-meta">
                     <small>
-                      {isRehearsalItem && isRehearsalPreparing ? "리허설 준비 중..." : meta}
+                      {activeStartAction === action ? busyLabel : meta}
                     </small>
                   </span>
                 </button>

@@ -16,6 +16,7 @@ import {
   matchKeywordAliases,
   matchPhraseCandidate
 } from "./speechMatcher";
+import { createScriptProgressTracker } from "./scriptProgressTracker";
 
 export type SpeechTrackerKeyword = {
   keywordId: string;
@@ -66,8 +67,10 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
 
   const sessionKeywordHits = new Set<string>();
   const visit = createVisitState();
+  const scriptProgressTracker = createScriptProgressTracker(input.speakerNotes);
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
+    scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
     const finalWindow = createFinalSegmentWindow({
@@ -181,19 +184,24 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   function resetForSlideVisit() {
     const nextVisit = createVisitState();
     Object.assign(visit, nextVisit);
+    scriptProgressTracker.reset();
   }
 
   function snapshot(): SpeechTrackerSnapshot {
     return {
       slideId: input.slideId,
       coveredSentenceIds: Array.from(visit.coveredSentenceIds),
+      coveredSentenceMatchKinds: Object.fromEntries(
+        visit.coveredSentenceMatchKinds.entries()
+      ),
       matchableSentenceCount: matchableSentenceIds.length,
       sentenceCoverage: visit.sentenceCoverage,
       wordCoverage: visit.wordCoverage,
       effectiveCoverage: visit.effectiveCoverage,
       finalSentenceSpoken: visit.finalSentenceSpoken,
       hitKeywordIds: Array.from(sessionKeywordHits),
-      provisionalMissingKeywordIds: Array.from(visit.provisionalMissingKeywordIds)
+      provisionalMissingKeywordIds: Array.from(visit.provisionalMissingKeywordIds),
+      scriptProgress: scriptProgressTracker.snapshot()
     };
   }
 
@@ -216,6 +224,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   ): SpeechTrackingEvent[] {
     const events: SpeechTrackingEvent[] = [];
     visit.coveredSentenceIds.add(sentence.sentenceId);
+    visit.coveredSentenceMatchKinds.set(sentence.sentenceId, match.matchKind);
     events.push({
       type: "sentence-covered",
       slideId: input.slideId,
@@ -269,6 +278,7 @@ function createVisitState() {
   return {
     finalTranscript: "",
     coveredSentenceIds: new Set<string>(),
+    coveredSentenceMatchKinds: new Map<string, "covered" | "paraphrased">(),
     provisionalMissingKeywordIds: new Set<string>(),
     sentenceCoverage: 0,
     wordCoverage: 0,
