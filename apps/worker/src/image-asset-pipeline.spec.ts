@@ -196,6 +196,59 @@ describe("image asset pipeline", () => {
     expect(result.warnings[0]).toContain("source and license are required");
   });
 
+  it("continues public search after a low-resolution candidate", async () => {
+    const search = vi
+      .fn<PublicImageSearchProvider["search"]>()
+      .mockResolvedValueOnce({
+        body: pngHeader(320, 180),
+        mimeType: "image/png",
+        fileName: "small.png",
+        provider: "openverse",
+        sourceUrl: "https://example.com/small",
+        author: "Creator",
+        license: "cc-by"
+      })
+      .mockResolvedValueOnce({
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: "large.png",
+        provider: "openverse",
+        sourceUrl: "https://example.com/large",
+        author: "Creator",
+        license: "cc-by"
+      });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([]);
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      imageDeck("public-assets"),
+      {
+        publicSearch: { search },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" }
+    );
+
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.warnings).toEqual([]);
+    expect(result.deck.slides[0].elements).toContainEqual(
+      expect.objectContaining({ type: "image" })
+    );
+  });
+
   it("uses a concise fallback query when the first public image searches fail", async () => {
     const search = vi
       .fn<PublicImageSearchProvider["search"]>()

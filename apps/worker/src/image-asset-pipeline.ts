@@ -134,19 +134,22 @@ export async function resolveDeckImageAssets(
     try {
       const prompt = imagePrompt(deck, slide);
       const asset = await retryImageRequest(
-        () =>
-          policy === "ai-generated"
-            ? (provider as GeneratedImageProvider).generate({
-                prompt,
-                abortSignal: AbortSignal.timeout(60_000)
-              })
-            : searchPublicImage(
-                provider as PublicImageSearchProvider,
-                publicImageQueries(deck, slide)
-              ),
+        async () => {
+          const candidate =
+            policy === "ai-generated"
+              ? await (provider as GeneratedImageProvider).generate({
+                  prompt,
+                  abortSignal: AbortSignal.timeout(60_000)
+                })
+              : await searchPublicImage(
+                  provider as PublicImageSearchProvider,
+                  publicImageQueries(deck, slide)
+                );
+          assertCandidate(candidate, policy);
+          return candidate;
+        },
         1
       );
-      assertCandidate(asset, policy);
       const stored = await storeImageAsset(
         dataSource,
         storage,
@@ -499,10 +502,12 @@ async function searchPublicImage(
   let lastError: unknown;
   for (const query of queries) {
     try {
-      return await provider.search({
+      const candidate = await provider.search({
         query,
         abortSignal: AbortSignal.timeout(30_000)
       });
+      assertCandidate(candidate, "public-assets");
+      return candidate;
     } catch (error) {
       lastError = error;
     }
