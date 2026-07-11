@@ -98,23 +98,21 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
     }
 
-    if (result.isFinal) {
-      for (const match of matchKeywordAliases({
-        transcript: result.text,
-        keywords: keywordAliases
-      })) {
-        if (sessionKeywordHits.has(match.keywordId)) {
-          continue;
-        }
-
-        sessionKeywordHits.add(match.keywordId);
-        events.push({
-          type: "keyword-hit",
-          slideId: input.slideId,
-          keywordId: match.keywordId,
-          atMs
-        });
+    for (const match of matchKeywordAliases({
+      transcript: result.text,
+      keywords: keywordAliases
+    })) {
+      if (sessionKeywordHits.has(match.keywordId)) {
+        continue;
       }
+
+      sessionKeywordHits.add(match.keywordId);
+      events.push({
+        type: "keyword-hit",
+        slideId: input.slideId,
+        keywordId: match.keywordId,
+        atMs
+      });
     }
 
     const coverage = computeCoverage({

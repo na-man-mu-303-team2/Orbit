@@ -327,6 +327,8 @@ type LiveTranscriptBuffer = {
 
 type BiasTermDraft = Omit<LiveSttBiasTerm, "text"> & { text: string };
 
+const ENABLE_REHEARSAL_NLI = false;
+
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -1861,7 +1863,7 @@ export function RehearsalWorkspace(props: {
     usePresenterSettings();
 
   useEffect(() => {
-    if (import.meta.env.MODE === "test") {
+    if (import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI) {
       return;
     }
 
@@ -3043,7 +3045,7 @@ export function RehearsalWorkspace(props: {
       semanticMatcher:
         import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
       semanticCueRuntime:
-        import.meta.env.MODE === "test"
+        import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI
           ? undefined
           : createSemanticCueRuntimeFromFlags(
               evaluationSnapshot === undefined ? "presentation" : "rehearsal",
@@ -4589,11 +4591,12 @@ export function RehearsalWorkspace(props: {
             scriptAutoFollowKey={scriptAutoFollowKey}
             sentences={p3Sentences}
             showAdvicePanel={false}
-            showScriptPanel={false}
+            showScriptPanel={true}
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             semanticCapabilityItems={semanticCapabilityItems}
             semanticCueItems={
+              ENABLE_REHEARSAL_NLI &&
               p3SessionState?.slideIndex === currentSlideIndex
                 ? p3SessionState.semanticCueProgress
                 : []

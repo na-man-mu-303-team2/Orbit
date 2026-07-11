@@ -3668,6 +3668,7 @@ button:disabled {
 
 .presenter-script-row--covered {
   color: #94a3b8;
+  opacity: 0.45;
 }
 
 .presenter-script-row--covered p {
@@ -3678,6 +3679,7 @@ button:disabled {
   background: transparent;
   border-color: transparent;
   color: #94a3b8;
+  opacity: 0.45;
 }
 
 .presenter-script-row--paraphrased p {
