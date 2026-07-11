@@ -21,6 +21,7 @@ describe("slide operation helpers", () => {
       speakerNotes: "",
       elements: [],
       keywords: [],
+      semanticCues: [],
       animations: [],
       actions: []
     });
