@@ -441,7 +441,9 @@ describe("editor shell", () => {
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
-    expect(html).toContain("AI 제안 검토");
+    expect(html).toContain("AI 채팅");
+    expect(html).toContain("AI 도구");
+    expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
