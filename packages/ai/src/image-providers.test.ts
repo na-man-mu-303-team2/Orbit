@@ -66,4 +66,49 @@ describe("image providers", () => {
       provider: "openverse"
     });
   });
+
+  it("falls back to another licensed Openverse candidate when download fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/unavailable.jpg",
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/unavailable"
+              },
+              {
+                url: "https://images.example.com/available.jpg",
+                creator: "Second Creator",
+                license: "cc0",
+                foreign_landing_url: "https://example.com/available",
+                title: "Available"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "product"
+    });
+
+    expect(result).toMatchObject({
+      author: "Second Creator",
+      license: "cc0",
+      sourceUrl: "https://example.com/available"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

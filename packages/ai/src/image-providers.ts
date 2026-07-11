@@ -71,42 +71,61 @@ export class OpenversePublicImageSearchProvider
   }): Promise<ImageAssetCandidate> {
     const searchUrl = new URL("https://api.openverse.org/v1/images/");
     searchUrl.searchParams.set("q", input.query);
-    searchUrl.searchParams.set("page_size", "10");
-    searchUrl.searchParams.set("license_type", "commercial");
+    searchUrl.searchParams.set("page_size", "20");
     const response = await fetch(searchUrl, { signal: input.abortSignal });
     if (!response.ok) {
       throw new Error(`Openverse image search failed with status ${response.status}`);
     }
     const payload = (await response.json()) as { results?: OpenverseImage[] };
-    const candidate = payload.results?.find(
-      (item) => item.url && item.license && item.foreign_landing_url
+    const candidates = (payload.results ?? []).filter(
+      (item) =>
+        (item.url || item.thumbnail) &&
+        item.license &&
+        item.foreign_landing_url
     );
-    if (!candidate?.url || !candidate.license || !candidate.foreign_landing_url) {
+    if (candidates.length === 0) {
       throw new Error("Openverse returned no licensed image candidate");
     }
-    const imageResponse = await fetch(candidate.url, {
-      signal: input.abortSignal,
-      headers: { accept: "image/*" }
-    });
-    if (!imageResponse.ok) {
-      throw new Error(`Public image download failed with status ${imageResponse.status}`);
+
+    let lastError: unknown;
+    for (const candidate of candidates.slice(0, 5)) {
+      for (const imageUrl of uniqueUrls(candidate.url, candidate.thumbnail)) {
+        try {
+          const imageResponse = await fetch(imageUrl, {
+            signal: input.abortSignal,
+            headers: { accept: "image/*" }
+          });
+          if (!imageResponse.ok) {
+            throw new Error(
+              `Public image download failed with status ${imageResponse.status}`
+            );
+          }
+          const mimeType = supportedImageMimeType(
+            imageResponse.headers.get("content-type")
+          );
+          const body = new Uint8Array(await imageResponse.arrayBuffer());
+          assertImageSize(body);
+          return {
+            body,
+            mimeType,
+            fileName: fileNameForMime(candidate.title || "public-image", mimeType),
+            provider: "openverse",
+            sourceUrl: candidate.foreign_landing_url,
+            author: candidate.creator?.trim() || "Unknown creator",
+            license: candidate.license_url || candidate.license,
+            checkedAt: new Date().toISOString()
+          };
+        } catch (error) {
+          lastError = error;
+        }
+      }
     }
-    const mimeType = supportedImageMimeType(
-      imageResponse.headers.get("content-type")
-    );
-    const body = new Uint8Array(await imageResponse.arrayBuffer());
-    assertImageSize(body);
-    return {
-      body,
-      mimeType,
-      fileName: fileNameForMime(candidate.title || "public-image", mimeType),
-      provider: "openverse",
-      sourceUrl: candidate.foreign_landing_url,
-      author: candidate.creator?.trim() || "Unknown creator",
-      license: candidate.license_url || candidate.license,
-      checkedAt: new Date().toISOString()
-    };
+    throw lastError ?? new Error("Openverse image candidates were unavailable");
   }
+}
+
+function uniqueUrls(...values: Array<string | undefined>) {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function supportedImageMimeType(

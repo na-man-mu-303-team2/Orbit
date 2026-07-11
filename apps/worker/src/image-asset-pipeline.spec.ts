@@ -176,6 +176,58 @@ describe("image asset pipeline", () => {
     expect(result.deck.slides[0].elements.some((element) => element.elementId.endsWith("_media_placeholder"))).toBe(true);
     expect(result.warnings[0]).toContain("source and license are required");
   });
+
+  it("uses a concise fallback query when the first public image searches fail", async () => {
+    const search = vi
+      .fn<PublicImageSearchProvider["search"]>()
+      .mockRejectedValueOnce(new Error("no result"))
+      .mockRejectedValueOnce(new Error("no result"))
+      .mockResolvedValueOnce({
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: "public.png",
+        provider: "openverse",
+        sourceUrl: "https://example.com/image",
+        author: "Creator",
+        license: "cc-by",
+        checkedAt: "2026-07-11T00:00:00.000Z"
+      });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([]);
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      imageDeck("public-assets"),
+      {
+        publicSearch: { search },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" }
+    );
+
+    expect(search).toHaveBeenCalledTimes(3);
+    expect(search.mock.calls.map(([input]) => input.query)).toEqual([
+      "Visual evidence",
+      "Image deck Visual evidence",
+      "Visual evidence Image deck image"
+    ]);
+    expect(result.warnings).toEqual([]);
+    expect(result.deck.slides[0].elements).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "image" })])
+    );
+  });
 });
 
 function imageDeck(policy: "ai-generated" | "public-assets") {

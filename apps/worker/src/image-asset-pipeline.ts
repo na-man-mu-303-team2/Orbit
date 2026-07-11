@@ -140,10 +140,10 @@ export async function resolveDeckImageAssets(
                 prompt,
                 abortSignal: AbortSignal.timeout(60_000)
               })
-            : (provider as PublicImageSearchProvider).search({
-                query: prompt,
-                abortSignal: AbortSignal.timeout(30_000)
-              }),
+            : searchPublicImage(
+                provider as PublicImageSearchProvider,
+                publicImageQueries(deck, slide)
+              ),
         1
       );
       assertCandidate(asset, policy);
@@ -482,6 +482,52 @@ function replaceSlideImagePlaceholder(
 function imagePrompt(deck: Deck, slide: Slide) {
   const reason = slide.aiNotes?.visualPlan?.reason ?? "support the key message";
   return `${deck.title}. ${slide.title}. ${reason}. Presentation visual, no text, clear focal subject.`;
+}
+
+async function searchPublicImage(
+  provider: PublicImageSearchProvider,
+  queries: string[]
+) {
+  let lastError: unknown;
+  for (const query of queries) {
+    try {
+      return await provider.search({
+        query,
+        abortSignal: AbortSignal.timeout(30_000)
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("Public image search produced no query");
+}
+
+function publicImageQueries(deck: Deck, slide: Slide) {
+  const visualType = slide.aiNotes?.visualPlan?.visualType ?? "presentation";
+  const asciiKeywords = `${slide.title} ${deck.title}`
+    .match(/[a-zA-Z][a-zA-Z0-9-]{1,}/g)
+    ?.slice(0, 6)
+    .join(" ");
+  const genericQuery =
+    {
+      cover: "modern technology presentation hero",
+      cards: "business teamwork planning",
+      decision: "business decision meeting",
+      priority: "business priorities planning",
+      agenda: "business strategy planning",
+      diagram: "technology system architecture",
+      process: "workflow process team",
+      comparison: "product comparison",
+      summary: "business team success"
+    }[visualType] ?? "professional business presentation";
+  return [
+    slide.title,
+    `${deck.title} ${slide.title}`,
+    asciiKeywords ? `${asciiKeywords} ${visualType}` : "",
+    genericQuery
+  ]
+    .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
+    .filter((query, index, values) => query && values.indexOf(query) === index);
 }
 
 function safeStorageName(value: string) {
