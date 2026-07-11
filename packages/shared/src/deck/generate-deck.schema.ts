@@ -7,6 +7,7 @@ import {
   deckSchema
 } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
+import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
 import { templateBlueprintIdSchema } from "./template-blueprint.schema";
 import { themeColorSchema } from "./theme.schema";
 
@@ -207,6 +208,7 @@ export const generateDeckRequestSchema = z.object({
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
+  savedDesignPack: savedDesignPackSelectionSchema.optional(),
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
   referenceFileIds: z.array(z.string().min(1)).default([]),

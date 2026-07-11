@@ -10,6 +10,7 @@ import {
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
+import { savedDesignPackSnapshotSchema } from "./saved-design-pack.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
 export const deckSourceTypeSchema = z.enum(["manual", "import", "ai"]);
@@ -70,6 +71,7 @@ export const deckMetadataSchema = z.object({
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
+  designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 

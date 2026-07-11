@@ -61,6 +61,22 @@ describe("generateDeckRequestSchema", () => {
     });
   });
 
+  it("accepts an optional saved design pack selection", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Reusable report",
+      generationMode: "design-pack",
+      savedDesignPack: {
+        id: "design_pack_user_1",
+        version: 3
+      }
+    });
+
+    expect(request.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 3
+    });
+  });
+
   it("accepts a one-shot palette override without changing the theme contract", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "Travel product strategy",

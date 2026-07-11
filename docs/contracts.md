@@ -688,6 +688,24 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `apps/api/src/generate-deck`
 - `apps/worker/src/generate-deck.processor.ts`
 
+### Saved Design Pack 계약
+
+Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
+
+- 저장 필드: `palette`, `typography`, `tone`, `density`, `titleStyle`, `layoutPreference`, `imageDensity`, `mediaPolicy`, `referencePolicy`, `qaStrictness`
+- 소유권: `ownerType`은 `system`, `user`, `organization` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
+- 버전: 수정할 때마다 `version`을 증가시키며 생성 요청은 `savedDesignPack: { id, version }`으로 선택 버전을 고정한다.
+- 재현성: `design-pack` 생성 결과의 `metadata.designPackSnapshot`에는 최종 적용된 pack 이름, version, base style pack과 preferences를 기록한다.
+- Hard Rule 보호: contrast, overflow, safe area, 최소 본문 크기, visible font family 최대 개수는 Saved Design Pack에 저장하지 않으며 platform validator가 항상 적용한다.
+- 적용 우선순위: `schema fallback < base Design Pack < Saved Design Pack < Session override < Brand Kit locked fields < platform Hard Rules`
+- legacy/import Deck은 `savedDesignPack`과 `metadata.designPackSnapshot` 없이 기존 계약으로 정상 parse된다.
+
+구현 위치:
+
+- `packages/shared/src/deck/saved-design-pack.schema.ts`
+- `packages/shared/src/deck/generate-deck.schema.ts`
+- `packages/shared/src/deck/deck.schema.ts`
+
 ## PPTX import, Template Blueprint, Quality Report 계약
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
