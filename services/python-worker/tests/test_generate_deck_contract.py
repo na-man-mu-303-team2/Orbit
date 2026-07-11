@@ -1186,6 +1186,13 @@ def test_dynamic_recipe_frames_fill_the_available_grid() -> None:
     assert process_cards[0]["x"] == 120
     assert process_cards[-1]["x"] + process_cards[-1]["width"] == 1800
     assert all(card["height"] >= 360 for card in process_cards)
+    meeting_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1", topic="Workflow", generationMode="design-pack",
+            brief={"presentationContext": "team planning meeting"},
+        )
+    )
+    assert design_pack_recipe_variant_for(meeting_input, plan("process", ["Prepare", "Publish", "Measure"]), "process_steps") == "process_horizontal"
 
     comparison = design_pack_comparison_elements(
         plan("comparison", ["Git Flow", "GitHub Flow", "선택 기준"]),

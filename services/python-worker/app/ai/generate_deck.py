@@ -7181,6 +7181,8 @@ def design_pack_recipe_variant_for(
             return "overview_rail"
         return "overview_2x2"
     if recipe == "process_steps":
+        if design_pack_content_item_count(slide_plan) <= 3:
+            return "process_horizontal"
         if wants_vertical or is_discussion or slide_plan.order % 2 == 0:
             return "process_vertical"
         return "process_horizontal"
