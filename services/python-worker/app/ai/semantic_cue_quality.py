@@ -9,6 +9,7 @@ SemanticCueQualityWarning = Literal[
     "missing-technical-alias",
     "slide-centric-hypothesis",
     "hypothesis-missing-required-concept",
+    "inconsistent-numeric-claim",
     "weak-negative-hint",
     "ungrounded-source",
     "image-source-unverified",
@@ -45,7 +46,18 @@ def cue_quality_warnings(
         for hypothesis in hypotheses
     ):
         warnings.append("hypothesis-missing-required-concept")
-    if any(not _is_speaker_centric(hint) for hint in negative_hints):
+    if _has_conflicting_positive_numeric_claims(
+        [meaning, *candidate_keywords, *required_concepts, *hypotheses]
+    ):
+        warnings.append("inconsistent-numeric-claim")
+    if any(
+        not _is_speaker_centric(hint)
+        or not _negative_hint_has_cue_specific_overlap(
+            hint,
+            [meaning, *candidate_keywords, *required_concepts, *hypotheses],
+        )
+        for hint in negative_hints
+    ):
         warnings.append("weak-negative-hint")
     if not has_source_refs:
         warnings.append("ungrounded-source")
@@ -76,12 +88,49 @@ def should_retry_quality(warnings: list[str]) -> bool:
             "missing-technical-alias",
             "slide-centric-hypothesis",
             "hypothesis-missing-required-concept",
+            "inconsistent-numeric-claim",
             "weak-negative-hint",
             "all-cues-priority-one",
             "content-rich-slide-too-few-cues",
         }
         for warning in warnings
     )
+
+
+def _has_conflicting_positive_numeric_claims(texts: list[str]) -> bool:
+    ratios: set[tuple[int, int]] = set()
+    for text in texts:
+        ratios.update(
+            (int(numerator), int(denominator))
+            for numerator, denominator in re.findall(
+                r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)", text
+            )
+        )
+        ratios.update(
+            (int(passed), int(total))
+            for total, passed in re.findall(
+                r"(?<!\d)(\d+)\s*개[^.\d]{0,24}?중\s*(\d+)\s*개", text
+            )
+        )
+    return len(ratios) > 1
+
+
+def _negative_hint_has_cue_specific_overlap(
+    hint: str, positive_texts: list[str]
+) -> bool:
+    normalized_hint = _normalize_for_coverage(hint)
+    tokens = {
+        token
+        for text in positive_texts
+        for token in re.findall(
+            r"[a-z0-9*_-]{2,}|[가-힣]{2,}", _normalize_for_coverage(text)
+        )
+        if token not in _GENERIC_NEGATIVE_HINT_TOKENS
+    }
+    overlaps = [token for token in tokens if token in normalized_hint]
+    return any(re.search(r"[a-z0-9*_-]", token) for token in overlaps) or len(
+        overlaps
+    ) >= 2
 
 
 def is_content_rich(*texts: str) -> bool:
@@ -197,4 +246,24 @@ _GENERIC_CONCEPT_TOKENS = {
     "필요",
     "효과",
     "개선",
+}
+
+
+_GENERIC_NEGATIVE_HINT_TOKENS = {
+    "과제",
+    "과정",
+    "내용",
+    "다른",
+    "말했다",
+    "문제",
+    "발표자가",
+    "발표자는",
+    "설명했다",
+    "언급했다",
+    "이번",
+    "이야기한다",
+    "주제나",
+    "진행",
+    "프로젝트",
+    "공유한다",
 }

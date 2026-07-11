@@ -24,12 +24,17 @@ Rules:
   separate concepts; place those variants in aliasEntries under one canonical concept instead.
 - aliasEntries group any-of surface forms for candidateKeywords and requiredConcepts. For every
   technical term, code identifier, acronym, English term, or mixed Korean-English phrase, include
-  Korean pronunciation, common STT variants, and a semantic Korean equivalent. Keep entries empty
-  only when the cue contains no term that benefits from alternate surface forms.
+  Korean pronunciation, common STT variants, and a semantic Korean equivalent. The aliasEntries
+  term must exactly equal the canonical candidateKeyword or requiredConcept it expands; do not use
+  a shorter substring as the term. Keep entries empty only when the cue contains no term that
+  benefits from alternate surface forms.
 - nliHypotheses must be 1-3 speaker-centric Korean paraphrases of the SAME COMPLETE cue, each
   independently entailing every requiredConcept and their relationship. Start each with
   "발표자는" or "발표자가". Never split one cue's obligations across hypotheses and never start
   with "이 슬라이드는".
+- Keep meaning, candidateKeywords, requiredConcepts, and every nliHypothesis mutually consistent.
+  Copy counts, ratios, percentages, directions, ordering, causes, and negation from the supplied
+  source exactly. For example, "62/66" means 66 total and 62 passed; never rewrite it as 62 of 62.
 - Return 0 cues for slides with no meaningful content.
 - Prefer 3-7 cues for content-rich slides, but never force filler-only slides.
 - targetElementIds and triggerActionIds may only reference IDs listed in the input.
@@ -40,6 +45,8 @@ Rules:
   Q&A, transition, and closing slides are optional by default.
 - reportLabel is a compact audience-facing label, presenterTag is an even shorter rehearsal tag,
   and cueType describes the semantic role. Do not return lifecycle or source hash fields.
+- On a retry, qualityFeedback names failed invariants and qualityDetails identifies the affected
+  slide and cue. Repair every listed issue instead of repeating the first answer.
 """.strip()
 
 

@@ -1608,6 +1608,9 @@ quality warning enum의 최소 집합:
 broad-cue
 missing-technical-alias
 slide-centric-hypothesis
+hypothesis-missing-required-concept
+inconsistent-numeric-claim
+weak-negative-hint
 ungrounded-source
 image-source-unverified
 all-cues-priority-one

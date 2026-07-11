@@ -225,12 +225,16 @@ def extract_semantic_cues(
     if not should_retry_quality(first_warnings):
         return first
 
-    retry_input = {**llm_input, "qualityFeedback": first_warnings}
+    retry_input = {
+        **llm_input,
+        "qualityFeedback": first_warnings,
+        "qualityDetails": _result_quality_details(first),
+    }
     try:
         retried = _generate_results(payload, retry_input, client, model, api_key)
     except SemanticCueExtractionError:
         return first
-    if len(_result_warnings(retried)) <= len(first_warnings):
+    if _result_warning_score(retried) <= _result_warning_score(first):
         return retried
     return first
 
@@ -717,6 +721,47 @@ def _result_warnings(result: SemanticCueExtractionResponse) -> list[str]:
             ),
         ]
     )
+
+
+def _result_quality_details(
+    result: SemanticCueExtractionResponse,
+) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for slide in result.slides:
+        for cue_index, cue in enumerate(slide.semantic_cues):
+            if not cue.quality_warnings:
+                continue
+            details.append(
+                {
+                    "slideId": slide.slide_id,
+                    "cueIndex": cue_index,
+                    "meaning": cue.meaning,
+                    "warnings": cue.quality_warnings,
+                }
+            )
+    return details
+
+
+def _result_warning_score(result: SemanticCueExtractionResponse) -> int:
+    weights = {
+        "inconsistent-numeric-claim": 8,
+        "hypothesis-missing-required-concept": 5,
+        "weak-negative-hint": 5,
+        "missing-technical-alias": 3,
+        "broad-cue": 3,
+        "slide-centric-hypothesis": 3,
+        "content-rich-slide-too-few-cues": 2,
+        "all-cues-priority-one": 1,
+    }
+    warnings = [
+        warning
+        for slide in result.slides
+        for warning in [
+            *slide.warnings,
+            *(warning for cue in slide.semantic_cues for warning in cue.quality_warnings),
+        ]
+    ]
+    return sum(weights.get(warning, 1) for warning in warnings)
 
 
 def _dedupe(values: list[str]) -> list[str]:

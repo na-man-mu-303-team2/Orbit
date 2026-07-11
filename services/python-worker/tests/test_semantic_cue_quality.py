@@ -55,6 +55,40 @@ def test_quality_validator_accepts_english_terms_as_alias_values_of_canonical_co
     assert "weak-negative-hint" not in warnings
 
 
+def test_quality_validator_rejects_conflicting_positive_numeric_claims() -> None:
+    warnings = cue_quality_warnings(
+        meaning="프로젝트는 94% 완료되었고 62개 테스트 중 62개가 통과했다",
+        candidate_keywords=["94% 완료", "62/66 테스트"],
+        aliases={},
+        required_concepts=["프로젝트 진행률", "테스트 통과 현황"],
+        hypotheses=[
+            "발표자는 프로젝트가 94% 완료되었고 66개 테스트 중 62개가 통과했다고 설명한다"
+        ],
+        negative_hints=["발표자는 테스트 통과율이 100%라고 설명한다"],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert "inconsistent-numeric-claim" in warnings
+
+
+def test_quality_validator_rejects_negative_hint_without_cue_specific_overlap() -> None:
+    warnings = cue_quality_warnings(
+        meaning="User Programs 과제의 고민과 트러블슈팅 과정을 공유한다",
+        candidate_keywords=["User Programs 과제", "트러블슈팅 과정"],
+        aliases={"User Programs 과제": ["유저 프로그램 과제"]},
+        required_concepts=["User Programs 과제", "트러블슈팅 과정"],
+        hypotheses=[
+            "발표자는 User Programs 과제의 고민과 트러블슈팅 과정을 공유한다고 말했다"
+        ],
+        negative_hints=["발표자는 다른 주제나 과제에 대해 이야기한다"],
+        has_source_refs=True,
+        image_source_unverified=False,
+    )
+
+    assert "weak-negative-hint" in warnings
+
+
 def test_quality_golden_splits_compound_slide_into_atomic_cues() -> None:
     client = FakeOpenAIClient(
         {
@@ -227,6 +261,8 @@ def test_quality_validator_warns_and_retries_only_once() -> None:
     assert len(client.requests) == 2
     retry_input = json.loads(client.requests[1]["input"])
     assert "missing-technical-alias" in retry_input["qualityFeedback"]
+    assert retry_input["qualityDetails"][0]["slideId"] == "slide_growth"
+    assert "missing-technical-alias" in retry_input["qualityDetails"][0]["warnings"]
     assert set(cue["qualityWarnings"]) >= {
         "broad-cue",
         "missing-technical-alias",

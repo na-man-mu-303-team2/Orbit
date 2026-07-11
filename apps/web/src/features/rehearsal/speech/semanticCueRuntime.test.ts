@@ -263,6 +263,8 @@ describe("semanticCueRuntime fallback", () => {
       runtimeInput({
         cues: [
           cue({
+            candidateKeywords: ["Fake Return Address"],
+            requiredConcepts: ["Fake Return Address"],
             nliHypotheses: [
               "발표자는 가짜 복귀 주소가 스택 프레임 규격을 유지한다고 설명했다"
             ],
@@ -280,6 +282,107 @@ describe("semanticCueRuntime fallback", () => {
         cueId: "scue_1",
         label: "contradicted",
         reasonCodes: ["nli-contradiction"]
+      })
+    ]);
+  });
+
+  it("관계가 뒤집힌 발화는 핵심 용어를 모두 포함해도 basic covered로 단정하지 않고 NLI로 검증한다", async () => {
+    const evaluate = vi.fn(
+      async (input: Parameters<SemanticCueNliProvider["evaluate"]>[0]) =>
+        input.hypotheses.map((hypothesis) => ({
+          ...hypothesis,
+          entailmentScore: hypothesis.cueId.includes("::negative::") ? 0.94 : 0.08,
+          neutralScore: 0.04,
+          contradictionScore: hypothesis.cueId.includes("::negative::") ? 0.02 : 0.88,
+          provider: "mock" as const
+        }))
+    );
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      provider: {
+        load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+        evaluate
+      },
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.94]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(
+      runtimeInput({
+        transcript:
+          "데이터 복사 순서는 데이터를 먼저 복사한 다음 rsp 감소로 메모리 공간 확보를 하는 것입니다.",
+        cues: [
+          cue({
+            meaning:
+              "스택에 데이터를 넣을 때 먼저 rsp 값을 감소시켜 공간을 확보한 후 데이터를 복사한다",
+            candidateKeywords: ["rsp 감소", "데이터 복사 순서"],
+            requiredConcepts: ["rsp 감소", "메모리 공간 확보", "데이터 복사 순서"],
+            nliHypotheses: [
+              "발표자는 먼저 rsp를 감소시켜 공간을 확보한 후 데이터를 복사한다고 설명한다"
+            ],
+            negativeHints: [
+              "발표자는 데이터를 먼저 복사한 다음 rsp를 감소시킨다고 설명한다"
+            ]
+          })
+        ]
+      })
+    );
+
+    expect(evaluate).toHaveBeenCalledOnce();
+    expect(result.decisions).toEqual([
+      expect.objectContaining({
+        cueId: "scue_1",
+        label: "contradicted",
+        measurementMode: "full",
+        reasonCodes: ["nli-contradiction"]
+      })
+    ]);
+  });
+
+  it("큐 고유 개념과 겹치지 않는 약한 negative hint는 NLI contradiction 근거로 보내지 않는다", async () => {
+    const evaluate = vi.fn(
+      async (input: Parameters<SemanticCueNliProvider["evaluate"]>[0]) =>
+        input.hypotheses.map((hypothesis) => ({
+          ...hypothesis,
+          entailmentScore: 0.92,
+          neutralScore: 0.06,
+          contradictionScore: 0.02,
+          provider: "mock" as const
+        }))
+    );
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      provider: {
+        load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+        evaluate
+      },
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.9]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(
+      runtimeInput({
+        transcript:
+          "User Programs 과제를 수행하며 겪은 고민과 트러블슈팅 과정을 공유합니다.",
+        cues: [
+          cue({
+            meaning:
+              "팀이 User Programs 과제를 진행하며 겪은 고민과 트러블슈팅 과정을 공유한다",
+            candidateKeywords: ["User Programs 과제", "트러블슈팅 과정"],
+            requiredConcepts: ["User Programs 과제", "트러블슈팅 과정"],
+            nliHypotheses: [
+              "발표자는 User Programs 과제의 고민과 트러블슈팅 과정을 공유한다"
+            ],
+            negativeHints: ["발표자는 다른 주제나 과제에 대해 이야기한다"]
+          })
+        ]
+      })
+    );
+
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(result.decisions).toEqual([
+      expect.objectContaining({
+        cueId: "scue_1",
+        label: "covered",
+        measurementMode: "basic"
       })
     ]);
   });
