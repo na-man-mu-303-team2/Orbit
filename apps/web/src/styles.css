@@ -9144,6 +9144,83 @@ button:disabled {
   outline-offset: 2px;
 }
 
+.semantic-cue-checklist {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.semantic-cue-checklist-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.semantic-cue-checklist-heading span,
+.semantic-cue-checklist-heading strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.semantic-cue-checklist ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.semantic-cue-checklist-row {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.semantic-cue-checklist-row small {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.semantic-cue-checklist-row--covered > svg,
+.semantic-cue-checklist-row--covered small {
+  color: #15803d;
+}
+
+.semantic-cue-checklist-row--needs-review > svg,
+.semantic-cue-checklist-row--needs-review small {
+  color: #b45309;
+}
+
+.semantic-cue-checklist-row--unmeasured > svg,
+.semantic-cue-checklist-row--unmeasured small {
+  color: #64748b;
+}
+
+.semantic-cue-checklist-supporting {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.semantic-cue-checklist-supporting summary {
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
 .rehearsal-presenter-side > .rehearsal-panel {
   overflow: auto;
   padding: 14px;

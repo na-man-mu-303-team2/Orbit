@@ -36,6 +36,8 @@ import {
 import { SemanticCapabilityStatus } from "./SemanticCapabilityStatus";
 import type { SemanticCapabilityStatusItem } from "./semanticCapabilityStatusModel";
 import type { ComparisonReminder } from "../rehearsalRunComparisonModel";
+import type { P3SemanticCueProgressItem } from "../speech/p3RehearsalSession";
+import { SemanticCueChecklist } from "./SemanticCueChecklist";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -56,6 +58,7 @@ export type RehearsalPanelProps = {
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
   semanticCapabilityItems?: readonly SemanticCapabilityStatusItem[];
+  semanticCueItems?: readonly P3SemanticCueProgressItem[];
   onSemanticCapabilityAction?: (item: SemanticCapabilityStatusItem) => void;
   comparisonReminder?: ComparisonReminder | null;
   onDismissComparisonReminder?: () => void;
@@ -177,6 +180,8 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
           </button>
         </section>
       ) : null}
+
+      <SemanticCueChecklist items={props.semanticCueItems ?? []} />
 
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">

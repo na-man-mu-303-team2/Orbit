@@ -4568,6 +4568,11 @@ export function RehearsalWorkspace(props: {
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
             semanticCapabilityItems={semanticCapabilityItems}
+            semanticCueItems={
+              p3SessionState?.slideIndex === currentSlideIndex
+                ? p3SessionState.semanticCueProgress
+                : []
+            }
             onSemanticCapabilityAction={handleSemanticCapabilityAction}
             comparisonReminder={comparisonReminderState.active}
             onDismissComparisonReminder={() =>

@@ -319,6 +319,7 @@ class SemanticGraderInput:
     meaning: str
     required_concepts: list[str]
     hypotheses: list[str]
+    negative_hints: list[str]
     segments: list[SemanticTranscriptSegment]
 
 
@@ -362,8 +363,10 @@ Evaluate only whether the speaker conveyed each requested cue using the supplied
 segments. Return one outcome for every cueId. Use covered when the required meaning is
 clearly conveyed, partial when only part is conveyed, missed only when evaluation is
 complete and evidence is absent, and needs_confirmation when evidence conflicts or is
-too ambiguous. Select at most one supplied segment index as best evidence. Do not add
-coaching or change cue identity.
+too ambiguous. negativeHints are plausible incompatible claims: use them to reject close
+false positives, but do not penalize a complete correct explanation merely because it mentions
+the same topic. Select at most one supplied segment index as best evidence. Do not add coaching
+or change cue identity.
 """.strip()
 
 SEMANTIC_GRADER_RESPONSE_FORMAT: dict[str, Any] = {
@@ -452,6 +455,7 @@ class OpenAISemanticGrader:
                 "meaning": item.meaning,
                 "requiredConcepts": item.required_concepts,
                 "hypotheses": item.hypotheses,
+                "negativeHints": item.negative_hints,
                 "segments": [
                     {"index": index, "text": segment.text}
                     for index, segment in enumerate(item.segments)
@@ -602,6 +606,7 @@ def analyze_semantic_cues(
                 meaning=item.cue.meaning,
                 required_concepts=_concepts(item.cue),
                 hypotheses=item.cue.nli_hypotheses,
+                negative_hints=item.cue.negative_hints,
                 segments=item.segments,
             )
             for item in pending

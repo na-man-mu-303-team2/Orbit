@@ -187,7 +187,10 @@ import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
 import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
-import { SemanticCueReviewPanel } from "../semantic-cues/SemanticCueReviewPanel";
+import {
+  SemanticCueReviewPanel,
+  type SemanticCueExtractionUiState
+} from "../semantic-cues/SemanticCueReviewPanel";
 import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
@@ -1027,6 +1030,58 @@ export async function createPptxImportJob(
   return jobSchema.parse(payload.job);
 }
 
+export async function createSemanticCueExtractionJob(
+  projectId: string,
+  force: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/semantic-cues`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readPlainError(response, "Semantic Cue extraction job creation failed")
+    );
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForSemanticCueExtractionJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(
+        await readPlainError(response, "Semantic Cue extraction job fetch failed")
+      );
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Semantic Cue extraction job timed out.");
+    }
+    await delay(pollIntervalMs);
+  }
+}
+
 export async function waitForPptxImportJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
@@ -1310,6 +1365,8 @@ export function EditorShell(props: { projectId?: string }) {
     qualityReport: null,
     message: ""
   });
+  const [semanticCueExtractionState, setSemanticCueExtractionState] =
+    useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
   const [activePresentationAction, setActivePresentationAction] = useState<
     "presentation" | "rehearsal" | null
   >(null);
@@ -1342,6 +1399,7 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     resetProjectUiState();
     setRightPanelView("ai");
+    setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -2612,6 +2670,69 @@ export function EditorShell(props: { projectId?: string }) {
     commitPatch((currentDeck) =>
       createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
     );
+  }
+
+  async function handleSemanticCueExtraction(force: boolean) {
+    if (semanticCueExtractionState.status === "running") {
+      return;
+    }
+
+    setSemanticCueExtractionState({
+      status: "running",
+      message: "슬라이드와 발표 대본의 의미를 분석하는 중입니다."
+    });
+
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current
+      });
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const queuedJob = await createSemanticCueExtractionJob(
+        activeProjectId,
+        force
+      );
+      const completedJob = await waitForSemanticCueExtractionJob(queuedJob.jobId);
+      if (completedJob.status === "failed") {
+        throw new Error(
+          completedJob.error?.message ?? "Semantic Cue extraction failed."
+        );
+      }
+
+      const selectedSlideId = currentSlide?.slideId;
+      const refetchResult = await deckQuery.refetch();
+      const extractedDeck = refetchResult.data;
+      if (extractedDeck) {
+        queryClient.setQueryData(["deck", projectId], extractedDeck);
+        markHydratedPersistedDeck(extractedDeck, setDeck);
+        const nextSlideIndex = selectedSlideId
+          ? extractedDeck.slides.findIndex(
+              (slide) => slide.slideId === selectedSlideId
+            )
+          : -1;
+        if (nextSlideIndex >= 0) {
+          setCurrentSlideIndex(nextSlideIndex);
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+        setLastPatchLabel(`발표 메시지 AI 분석 · v${extractedDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      }
+
+      setSemanticCueExtractionState({
+        status: "succeeded",
+        message: "AI 분석이 완료되었습니다. 제안된 메시지를 검토해 주세요."
+      });
+    } catch (error) {
+      setSemanticCueExtractionState({
+        status: "error",
+        message: toEditorErrorMessage(error)
+      });
+    }
   }
 
   function handleRightPanelTabKeyDown(
@@ -5664,10 +5785,12 @@ export function EditorShell(props: { projectId?: string }) {
                   role="tabpanel"
                 >
                   <SemanticCueReviewPanel
+                    extractionState={semanticCueExtractionState}
                     slide={currentSlide}
                     onChange={handleSemanticCueReviewChange}
-                   />
-                 </div>
+                    onExtract={(force) => void handleSemanticCueExtraction(force)}
+                  />
+                </div>
               </div>
             </>
           ) : (

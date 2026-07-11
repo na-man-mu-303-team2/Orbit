@@ -13,7 +13,9 @@ import { SemanticCueReviewCard } from "./SemanticCueReviewCard";
 
 export function SemanticCueReviewPanel(props: {
   createCueId?: () => string;
+  extractionState?: SemanticCueExtractionUiState;
   onChange: (semanticCues: SemanticCue[]) => void;
+  onExtract?: (force: boolean) => void;
   slide: Slide | null;
 }) {
   if (!props.slide) {
@@ -27,6 +29,11 @@ export function SemanticCueReviewPanel(props: {
 
   const { slide } = props;
   const model = buildSemanticCueReviewModel(slide);
+  const extractionState = props.extractionState ?? {
+    status: "idle" as const,
+    message: ""
+  };
+  const isExtracting = extractionState.status === "running";
 
   function changeReviewChoice(
     cueId: string,
@@ -82,6 +89,32 @@ export function SemanticCueReviewPanel(props: {
       <p className="semantic-cue-review-description">
         리허설에서 확인할 메시지를 핵심·보조로 승인하거나 평가에서 제외하세요.
       </p>
+
+      {props.onExtract ? (
+        <div className="semantic-cue-extraction-action">
+          <button
+            className="semantic-cue-extract-button"
+            disabled={isExtracting}
+            type="button"
+            onClick={() => props.onExtract?.(slide.semanticCues.length > 0)}
+          >
+            {slide.semanticCues.length > 0
+              ? "AI로 전체 덱 다시 분석"
+              : "AI로 발표 메시지 만들기"}
+          </button>
+          <small>
+            슬라이드 내용과 발표 대본을 함께 분석해 전체 덱의 메시지 후보를 만듭니다.
+          </small>
+          {extractionState.message ? (
+            <p
+              className={`semantic-cue-extraction-status semantic-cue-extraction-status--${extractionState.status}`}
+              role="status"
+            >
+              {extractionState.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <dl className="semantic-cue-review-summary" aria-label="검토 현황">
         <div>
@@ -148,6 +181,11 @@ export function SemanticCueReviewPanel(props: {
     </section>
   );
 }
+
+export type SemanticCueExtractionUiState = {
+  status: "idle" | "running" | "succeeded" | "error";
+  message: string;
+};
 
 function readNamedInput(form: HTMLFormElement, name: string): string {
   const control = form.elements.namedItem(name);

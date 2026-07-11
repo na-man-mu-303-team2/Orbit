@@ -46,6 +46,7 @@ describe("p3RehearsalSession", () => {
       snapshot: null,
       finalSegments: [],
       runMeta: null,
+      semanticCueProgress: [],
       capabilityStatuses: expect.objectContaining({
         stt: "unavailable",
         transcript_evidence: "unavailable"
@@ -748,6 +749,14 @@ describe("p3RehearsalSession", () => {
     await flushSemanticQueue();
 
     expect(evaluate).not.toHaveBeenCalled();
+    expect(session.getState().semanticCueProgress).toEqual([
+      expect.objectContaining({
+        cueId: "scue_cac_reason",
+        status: "covered",
+        measurementMode: "basic",
+        matchedBy: "lexical"
+      })
+    ]);
     expect((await session.stop()).semanticCueDecisions).toEqual([
       expect.objectContaining({
         cueId: "scue_cac_reason",
@@ -945,6 +954,14 @@ describe("p3RehearsalSession", () => {
     });
     const meta = await session.stop();
 
+    expect(session.getState().semanticCueProgress).toEqual([
+      expect.objectContaining({
+        cueId: "scue_cac_reason",
+        status: "unmeasured",
+        measurementMode: "none"
+      })
+    ]);
+
     expect(meta.semanticCapabilityEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1018,6 +1035,7 @@ describe("p3RehearsalSession", () => {
     const meta = await session.stop();
 
     expect(meta.semanticCueDecisions).toEqual([]);
+    expect(session.getState().semanticCueProgress).toEqual([]);
     expect(meta.semanticCapabilityEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

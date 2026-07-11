@@ -27,6 +27,7 @@ import {
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  createSemanticCueExtractionJob,
   createDistributeSelectionPatch,
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
@@ -493,6 +494,7 @@ describe("editor shell", () => {
     expect(html).toContain('id="editor-semantic-cue-tab"');
     expect(html).toContain('id="editor-semantic-cue-panel"');
     expect(html).toContain("발표 메시지");
+    expect(html).toContain("AI로 전체 덱 다시 분석");
     expect(html).toContain("도입 효과");
     expect(html).toContain("슬라이드 제목");
   });
@@ -734,6 +736,21 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a semantic cue extraction job with the requested regeneration policy", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ force: true });
+      return new Response(JSON.stringify({ job: jobPayload("queued") }));
+    });
+
+    await expect(
+      createSemanticCueExtractionJob("project-a", true, fetcher)
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(
+      "/api/v1/projects/project-a/deck/semantic-cues"
+    );
   });
 
   it("renders stored slide thumbnail images in the slide list", () => {
