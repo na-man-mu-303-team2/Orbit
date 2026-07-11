@@ -48,6 +48,7 @@ from app.ai.generate_deck import (
     icon_name_for_keyword,
     initial_source_records,
     is_text_overflowing,
+    is_short_label_text_box_too_narrow,
     merge_grounded_repair_notes,
     message_duplicates_content_items,
     normalize_design_pack_slide_title,
@@ -139,6 +140,28 @@ def test_design_pack_cover_title_hides_structural_role_label(
 ) -> None:
     assert normalize_design_pack_slide_title(title, "cover") == expected
     assert normalize_design_pack_slide_title(title, "data") == title
+
+
+def test_worker_detects_editor_short_label_width_risk() -> None:
+    label = {
+        "elementId": "el_2_priority_stack_number_1",
+        "type": "text",
+        "role": "caption",
+        "x": 137,
+        "y": 348,
+        "width": 14,
+        "height": 28,
+        "props": {
+            "text": "1",
+            "fontSize": 17,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.15,
+        },
+    }
+
+    assert is_short_label_text_box_too_narrow(label)
+    label["width"] = 18
+    assert not is_short_label_text_box_too_narrow(label)
 
 
 @pytest.mark.parametrize(

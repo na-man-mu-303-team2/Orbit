@@ -6779,6 +6779,7 @@ def fit_design_pack_recipe_to_media_frame(
         right = CANVAS.safe_x + round((x + width - CANVAS.safe_x) * scale)
         element["x"] = left
         element["width"] = max(GRID_SPACING, right - left)
+        expand_design_pack_short_label_width(element, max_x=CANVAS.safe_x + content_width)
 
 
 def fit_design_pack_cover_to_media_frame(elements: list[dict[str, Any]]) -> None:
@@ -12078,7 +12079,9 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                     )
                 )
             if element["type"] == "text":
-                if is_text_overflowing(element):
+                if is_text_overflowing(element) or is_short_label_text_box_too_narrow(
+                    element
+                ):
                     issues.append(
                         ValidationIssue(
                             code="TEXT_OVERFLOW",
@@ -12270,6 +12273,54 @@ def is_text_overflowing(element: dict[str, Any]) -> bool:
 def is_text_editor_overflow_risk(element: dict[str, Any]) -> bool:
     height = float(element.get("height", 1))
     return estimated_text_content_height(element, width_padding=8) > max(1, height - 8)
+
+
+def estimated_single_line_text_width(element: dict[str, Any]) -> float:
+    props = element.get("props", {})
+    text = re.sub(r"\s+", " ", str(props.get("text", ""))).strip()
+    font_size = float(props.get("fontSize", 24))
+    width_factor = font_width_factor_from_element(element)
+    width = 0.0
+    for character in text:
+        if character.isspace():
+            width += font_size * 0.33
+        elif re.match(r"[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af]", character):
+            width += font_size
+        else:
+            width += font_size * 0.55
+    return width * width_factor
+
+
+def is_short_label_text_box_too_narrow(element: dict[str, Any]) -> bool:
+    if element.get("type") != "text" or element.get("role") not in {
+        "caption",
+        "highlight",
+    }:
+        return False
+    text = re.sub(r"\s+", " ", str(element.get("props", {}).get("text", ""))).strip()
+    if not text or len(text) > 36 or len(text.split()) > 5:
+        return False
+    return estimated_single_line_text_width(element) + 8 > float(element.get("width", 1))
+
+
+def expand_design_pack_short_label_width(
+    element: dict[str, Any],
+    *,
+    max_x: float = CANVAS.safe_x + CANVAS.safe_width,
+) -> None:
+    if is_design_pack_chrome_text(element) or not is_short_label_text_box_too_narrow(
+        element
+    ):
+        return
+    required_width = math.ceil(estimated_single_line_text_width(element) + 8)
+    current_x = float(element.get("x", 0))
+    current_width = float(element.get("width", 1))
+    center_x = current_x + current_width / 2
+    width = min(required_width, max_x - CANVAS.safe_x)
+    element["width"] = width
+    element["x"] = round(
+        min(max(center_x - width / 2, CANVAS.safe_x), max_x - width)
+    )
 
 
 def font_width_factor_from_element(element: dict[str, Any]) -> float:
@@ -13065,6 +13116,8 @@ def repair_design_pack_text_element(element: dict[str, Any]) -> None:
     props = element.get("props", {})
     if not str(props.get("text", "")).strip():
         return
+
+    expand_design_pack_short_label_width(element)
 
     minimum_font_size = design_pack_minimum_font_size_for_element(element)
     minimum_line_height = design_pack_minimum_line_height(str(element.get("role", "")))
