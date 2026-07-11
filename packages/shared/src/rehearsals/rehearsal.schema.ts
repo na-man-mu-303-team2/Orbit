@@ -568,25 +568,6 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
   job: jobSchema
 });
 
-export const rehearsalUtteranceOutcomeKindSchema = z.enum([
-  "covered",
-  "paraphrased",
-  "ad-lib",
-  "missed"
-]);
-
-export const rehearsalUtteranceOutcomeSchema = z
-  .object({
-    slideId: deckSlideIdSchema,
-    kind: rehearsalUtteranceOutcomeKindSchema,
-    sentenceId: z.string().trim().min(1).optional(),
-    text: z.string().trim().min(1).max(600).optional(),
-    similarity: z.number().min(-1).max(1).optional(),
-    lexicalOverlap: z.number().min(0).max(1).optional(),
-    at: isoDateTimeSchema.optional()
-  })
-  .strict();
-
 export const rehearsalRunMetaSchema = z
   .object({
     slideTimeline: z
