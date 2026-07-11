@@ -3849,7 +3849,7 @@ def content_item_capacity_for_slide(
         return DESIGN_PACK_RECIPE_CAPACITIES["process_steps"]
     if slide_plan.slide_type == "comparison":
         return DESIGN_PACK_RECIPE_CAPACITIES["comparison_split"]
-    return 1, 6
+    return 1, 5
 
 
 def repair_content_plan_with_llm(
@@ -6377,6 +6377,11 @@ def select_design_pack_recipes(
                 candidate
                 for candidate in DESIGN_PACK_SEMANTIC_RECIPE_ORDER
                 if design_pack_recipe_supports(candidate, item_count)
+                and design_pack_recipe_semantically_allowed(
+                    raw_input,
+                    slide_plan,
+                    candidate,
+                )
             ]
             if not candidates:
                 raise DeckContentGenerationError(
@@ -6412,6 +6417,64 @@ def design_pack_content_item_count(slide_plan: SlidePlan) -> int:
 def design_pack_recipe_supports(recipe: str, item_count: int) -> bool:
     minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
     return minimum <= item_count <= maximum
+
+
+PROCESS_RECIPE_TERMS = (
+    "process",
+    "roadmap",
+    "sequence",
+    "steps",
+    "timeline",
+    "workflow",
+    "단계",
+    "순서",
+    "절차",
+    "타임라인",
+    "흐름",
+)
+COMPARISON_RECIPE_TERMS = (
+    "compare",
+    "comparison",
+    "trade-off",
+    "versus",
+    "대안",
+    "비교",
+    "장단점",
+    "차이",
+)
+DECISION_RECIPE_TERMS = (
+    "action",
+    "approval",
+    "decision",
+    "execution",
+    "priority",
+    "결정",
+    "승인",
+    "실행",
+    "우선순위",
+    "행동",
+)
+
+
+def design_pack_recipe_semantically_allowed(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    recipe: str,
+) -> bool:
+    context = design_pack_archetype_text(raw_input, slide_plan).casefold()
+    if recipe == "process_steps":
+        return slide_plan.slide_type == "process" or has_any(
+            context,
+            PROCESS_RECIPE_TERMS,
+        )
+    if recipe == "comparison_split":
+        return slide_plan.slide_type == "comparison" or has_any(
+            context,
+            COMPARISON_RECIPE_TERMS,
+        )
+    if recipe == "decision_actions":
+        return has_any(context, DECISION_RECIPE_TERMS)
+    return True
 
 
 def design_pack_semantic_recipe_score(
@@ -6795,7 +6858,7 @@ def design_pack_recipe_elements(
         elements.extend(design_pack_closing_elements(slide_plan, theme, variant))
     else:
         elements.extend(design_pack_insight_elements(slide_plan, theme, variant))
-    fit_design_pack_recipe_to_media_frame(elements, slide_plan)
+    fit_design_pack_recipe_to_media_frame(elements, slide_plan, recipe, variant)
     elements.extend(
         design_pack_media_placeholder_elements(
             raw_input,
@@ -6811,6 +6874,8 @@ def design_pack_recipe_elements(
 def fit_design_pack_recipe_to_media_frame(
     elements: list[dict[str, Any]],
     slide_plan: SlidePlan,
+    recipe: str,
+    variant: str,
 ) -> None:
     has_cover_panel = any(
         "_cover_trust_signal_panel" in str(element.get("elementId", ""))
@@ -6823,6 +6888,10 @@ def fit_design_pack_recipe_to_media_frame(
 
     if has_cover_panel:
         fit_design_pack_cover_to_media_frame(elements)
+        return
+
+    if recipe == "overview_cards" and variant == "overview_rail":
+        fit_design_pack_overview_to_media_frame(elements)
         return
 
     content_width = 7 * GRID_COLUMN_WIDTH + 6 * GRID_GUTTER
@@ -6847,6 +6916,44 @@ def fit_design_pack_recipe_to_media_frame(
         element["x"] = left
         element["width"] = max(GRID_SPACING, right - left)
         expand_design_pack_short_label_width(element, max_x=CANVAS.safe_x + content_width)
+
+
+def fit_design_pack_overview_to_media_frame(elements: list[dict[str, Any]]) -> None:
+    item_count = sum(
+        1
+        for element in elements
+        if re.search(
+            r"_overview_rail_item_\d+_text$",
+            str(element.get("elementId", "")),
+        )
+    )
+    item_height = 76 if item_count > 4 else 88
+    item_stride = item_height + 20
+    panel_y = 304
+    panel_height = 72 + item_count * item_height + max(0, item_count - 1) * 20
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if element.get("role") == "title":
+            element.update(x=CANVAS.safe_x, y=120, width=970, height=112)
+            continue
+        if element_id.endswith("_body"):
+            element.update(x=CANVAS.safe_x, y=236, width=970, height=60)
+            continue
+        if element_id.endswith("_overview_rail_panel"):
+            element.update(x=CANVAS.safe_x, y=panel_y, width=970, height=panel_height)
+            continue
+        match = re.search(r"_overview_rail_item_(\d+)(?:_(marker|text))?$", element_id)
+        if match is None:
+            continue
+        index = int(match.group(1)) - 1
+        part = match.group(2)
+        y = panel_y + 36 + index * item_stride
+        if part == "marker":
+            element.update(x=176, y=y + (item_height - 30) // 2, width=30, height=30)
+        elif part == "text":
+            element.update(x=224, y=y + 15, width=790, height=item_height - 30)
+        else:
+            element.update(x=152, y=y, width=906, height=item_height)
 
 
 def fit_design_pack_cover_to_media_frame(elements: list[dict[str, Any]]) -> None:
@@ -6977,7 +7084,7 @@ def design_pack_recipe_variant_for(
         ["matrix", "table", "criteria", "dense", "executive"],
     )
     wants_vertical = has_any(context, ["timeline", "sequence", "roadmap", "workflow"])
-    wants_media = raw_input.design.media_policy in {"ai-generated", "public-assets"}
+    wants_media = media_intent_needs_slot(slide_plan.media_intent)
 
     if recipe == "overview_cards":
         if wants_media or is_discussion or slide_plan.order % 2 == 1:
@@ -7420,13 +7527,22 @@ def design_pack_overview_elements(
             theme,
         ),
     ]
-    row_count = max(1, (len(items) + 1) // 2)
+    column_count = 3 if len(items) == 3 else 2
+    row_count = max(1, math.ceil(len(items) / column_count))
+    card_gap_x = GRID_GUTTER
     card_gap_y = 24
-    card_height = min(176, int((510 - card_gap_y * (row_count - 1)) / row_count))
+    card_width = int(
+        (CANVAS.safe_width - card_gap_x * (column_count - 1)) / column_count
+    )
+    card_height = min(320, int((510 - card_gap_y * (row_count - 1)) / row_count))
     for index, item in enumerate(items):
-        row = index // 2
-        column = index % 2
-        x = 120 + column * 860
+        row = index // column_count
+        column = index % column_count
+        is_single_last_row = (
+            len(items) % column_count == 1 and index == len(items) - 1
+        )
+        x = 120 + column * (card_width + card_gap_x)
+        width = CANVAS.safe_width if is_single_last_row else card_width
         y = 350 + row * (card_height + card_gap_y)
         elements.extend(
             [
@@ -7436,7 +7552,7 @@ def design_pack_overview_elements(
                     "highlight",
                     x,
                     y,
-                    760,
+                    width,
                     card_height,
                     3,
                     colors["surface"],
@@ -7478,7 +7594,7 @@ def design_pack_overview_elements(
                         item.text,
                         x + 112,
                         y + 24,
-                        584,
+                        width - 176,
                         max(54, card_height - 48),
                         5,
                         colors["text"],
@@ -7773,6 +7889,9 @@ def design_pack_decision_actions_elements(
     lead, *actions = items
     action_count = max(1, len(actions))
     row_height = min(102, int((500 - 20 * (action_count - 1)) / action_count))
+    action_stack_height = action_count * row_height + max(0, action_count - 1) * 20
+    focus_height = max(240, min(500, action_stack_height))
+    short_focus = len(lead.text.strip()) <= 24
     elements = [
         design_pack_text(
             slide_plan.order,
@@ -7796,7 +7915,7 @@ def design_pack_decision_actions_elements(
             120,
             292,
             570,
-            500,
+            focus_height,
             3,
             colors["primary"],
             "transparent",
@@ -7824,18 +7943,27 @@ def design_pack_decision_actions_elements(
                 "body",
                 lead.text,
                 172,
-                414,
+                392 if short_focus else 414,
                 466,
-                250,
+                max(100, focus_height - 140),
                 5,
                 "#FFFFFF",
-                30,
+                42 if short_focus else 30,
                 "medium",
                 theme,
             ),
             lead,
         ),
     ]
+    if short_focus:
+        focus_text = next(
+            element
+            for element in elements
+            if str(element.get("elementId", "")).endswith(
+                "_decision_actions_focus_text"
+            )
+        )
+        focus_text["props"]["fontSize"] = 42
     for index, item in enumerate(actions):
         y = 292 + index * (row_height + 20)
         elements.extend(
@@ -8355,9 +8483,12 @@ def design_pack_process_elements(
             theme,
         ),
     ]
-    card_width = 360
-    card_gap = 48
-    card_y = 420
+    card_gap = GRID_GUTTER
+    card_width = int(
+        (CANVAS.safe_width - card_gap * (len(items) - 1)) / len(items)
+    )
+    card_y = 376
+    card_height = 360
     for index, item in enumerate(items):
         x = 120 + index * (card_width + card_gap)
         elements.extend(
@@ -8369,7 +8500,7 @@ def design_pack_process_elements(
                     x,
                     card_y,
                     card_width,
-                    260,
+                    card_height,
                     3,
                     colors["surface"],
                     colors["border"],
@@ -8412,7 +8543,7 @@ def design_pack_process_elements(
                         x + 28,
                         card_y + 116,
                         card_width - 56,
-                        96,
+                        184,
                         5,
                         colors["text"],
                         23,
@@ -8450,6 +8581,13 @@ def design_pack_comparison_elements(
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "comparison_split")
     if variant == "comparison_matrix":
+        column_count = 3 if len(items) == 3 else 2
+        row_count = max(1, math.ceil(len(items) / column_count))
+        card_gap = GRID_GUTTER
+        card_width = int(
+            (CANVAS.safe_width - card_gap * (column_count - 1)) / column_count
+        )
+        card_height = 320 if row_count == 1 else 210
         elements = [
             design_pack_text(
                 slide_plan.order,
@@ -8483,10 +8621,10 @@ def design_pack_comparison_elements(
             ),
         ]
         for index, item in enumerate(items):
-            row = index // 2
-            column = index % 2
-            x = 120 + column * 850
-            y = 358 + row * 226
+            row = index // column_count
+            column = index % column_count
+            x = 120 + column * (card_width + card_gap)
+            y = 358 + row * (card_height + card_gap)
             elements.extend(
                 [
                     shape_element(
@@ -8495,8 +8633,8 @@ def design_pack_comparison_elements(
                         "highlight",
                         x,
                         y,
-                        760,
-                        174,
+                        card_width,
+                        card_height,
                         3,
                         colors["surface"],
                         colors["border"],
@@ -8508,7 +8646,7 @@ def design_pack_comparison_elements(
                         "decoration",
                         x,
                         y,
-                        760,
+                        card_width,
                         10,
                         4,
                         colors["primary"] if index % 2 == 0 else colors["secondary"],
@@ -8537,8 +8675,8 @@ def design_pack_comparison_elements(
                             item.text,
                             x + 36,
                             y + 76,
-                            650,
-                            62,
+                            card_width - 72,
+                            max(62, card_height - 112),
                             5,
                             colors["text"],
                             22,

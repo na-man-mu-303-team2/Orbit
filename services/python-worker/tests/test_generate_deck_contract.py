@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from copy import deepcopy
 from io import BytesIO
 from types import SimpleNamespace
@@ -42,7 +43,12 @@ from app.ai.generate_deck import (
     deck_content_prompt,
     deck_content_response_format_for,
     design_pack_insight_elements,
+    design_pack_comparison_elements,
+    design_pack_decision_actions_elements,
     design_pack_items,
+    design_pack_overview_elements,
+    design_pack_process_elements,
+    design_pack_recipe_for,
     design_pack_recipe_elements,
     design_pack_recipe_variant_for,
     detect_text_overlap_candidates,
@@ -1003,6 +1009,207 @@ def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
 
     assert diagram.media_intent.kind == "none"
     assert photo.media_intent.kind == "generate"
+
+
+def test_recipe_selector_prioritizes_slide_meaning_over_variety() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Git 브랜치 전략 설명",
+            generationMode="design-pack",
+        )
+    )
+
+    def plan(order: int, slide_type: str, title: str, message: str) -> SlidePlan:
+        return SlidePlan(
+            order=order,
+            slide_type=slide_type,
+            title=title,
+            message=message,
+            speaker_notes="발표 내용을 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId=f"item-{order}-{index}",
+                    text=text,
+                )
+                for index, text in enumerate(
+                    ["첫 번째 핵심", "두 번째 핵심", "세 번째 핵심"],
+                    start=1,
+                )
+            ],
+        )
+
+    slides = [
+        plan(1, "cover", "Git 브랜치 전략", "전략을 소개합니다."),
+        plan(2, "architecture", "Git Flow의 특징", "브랜치별 역할이 다릅니다."),
+        plan(3, "solution", "GitHub Flow의 특징", "구조가 단순합니다."),
+        plan(4, "comparison", "Git Flow와 GitHub Flow 비교", "두 전략의 차이입니다."),
+        plan(5, "summary", "적합한 전략 선택", "팀에 맞는 전략을 선택합니다."),
+    ]
+
+    assert design_pack_recipe_for(raw_input, slides[1], slides) != "process_steps"
+    assert design_pack_recipe_for(raw_input, slides[2], slides) != "decision_actions"
+    assert design_pack_recipe_for(raw_input, slides[3], slides) == "comparison_split"
+
+
+def test_dynamic_recipe_frames_fill_the_available_grid() -> None:
+    theme = {
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#111827",
+        "accentColor": "#2563EB",
+        "palette": {
+            "primary": "#2563EB",
+            "secondary": "#0F766E",
+            "surface": "#FFFFFF",
+            "muted": "#F3F4F6",
+            "border": "#D1D5DB",
+        },
+        "typography": {
+            "headingFontFamily": "Pretendard",
+            "bodyFontFamily": "Pretendard",
+            "titleSize": 50,
+            "bodySize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    def plan(slide_type: str, items: list[str]) -> SlidePlan:
+        return SlidePlan(
+            order=2,
+            slide_type=slide_type,
+            title="동적 레이아웃",
+            message="각 항목을 명확히 보여줍니다.",
+            speaker_notes="각 항목을 순서대로 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+                for index, text in enumerate(items, start=1)
+            ],
+        )
+
+    process = design_pack_process_elements(
+        plan("process", ["준비", "실행", "검증"]),
+        theme,
+        "process_horizontal",
+    )
+    process_cards = [
+        element
+        for element in process
+        if re.search(r"_process_step_card_\d+$", element["elementId"])
+    ]
+    assert len(process_cards) == 3
+    assert process_cards[0]["x"] == 120
+    assert process_cards[-1]["x"] + process_cards[-1]["width"] == 1800
+    assert all(card["height"] == 360 for card in process_cards)
+
+    comparison = design_pack_comparison_elements(
+        plan("comparison", ["Git Flow", "GitHub Flow", "선택 기준"]),
+        theme,
+        "comparison_matrix",
+    )
+    comparison_cells = [
+        element
+        for element in comparison
+        if re.search(r"_comparison_matrix_cell_\d+$", element["elementId"])
+    ]
+    assert len(comparison_cells) == 3
+    assert len({cell["y"] for cell in comparison_cells}) == 1
+    assert comparison_cells[-1]["x"] + comparison_cells[-1]["width"] == 1800
+
+    overview = design_pack_overview_elements(
+        plan("feature-grid", ["원칙", "역할", "통합"]),
+        theme,
+        "overview_2x2",
+    )
+    overview_cards = [
+        element
+        for element in overview
+        if re.search(r"_overview_card_\d+$", element["elementId"])
+    ]
+    assert len({card["y"] for card in overview_cards}) == 1
+    assert overview_cards[-1]["x"] + overview_cards[-1]["width"] == 1800
+
+    decision = design_pack_decision_actions_elements(
+        plan("solution", ["지금 시작", "담당자 지정", "일정 확정"]),
+        theme,
+    )
+    focus_panel = next(
+        element
+        for element in decision
+        if element["elementId"].endswith("_decision_actions_focus_panel")
+    )
+    focus_text = next(
+        element
+        for element in decision
+        if element["elementId"].endswith("_decision_actions_focus_text")
+    )
+    assert focus_panel["height"] == 240
+    assert focus_text["props"]["fontSize"] == 42
+
+
+def test_media_overview_uses_explicit_seven_five_column_frames() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="제품 협업 현장",
+            generationMode="design-pack",
+            design={"mediaPolicy": "public-assets"},
+        )
+    )
+    slide = SlidePlan(
+        order=2,
+        slide_type="feature-grid",
+        title="팀 협업의 핵심",
+        message="역할과 피드백 흐름을 정리합니다.",
+        speaker_notes="팀 협업 현장을 설명합니다.",
+        keywords=[],
+        evidence=[],
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Software developers collaborating in an office",
+            alt="협업하는 개발팀",
+            required=True,
+        ),
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(["역할", "피드백", "통합"], start=1)
+        ],
+    )
+    theme = {
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#111827",
+        "accentColor": "#2563EB",
+        "palette": {},
+        "typography": {
+            "headingFontFamily": "Pretendard",
+            "bodyFontFamily": "Pretendard",
+            "titleSize": 50,
+            "bodySize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    elements = design_pack_recipe_elements(
+        raw_input,
+        slide,
+        "overview_cards",
+        theme,
+    )
+
+    title = next(element for element in elements if element["role"] == "title")
+    panel = next(
+        element
+        for element in elements
+        if element["elementId"].endswith("_overview_rail_panel")
+    )
+    media = next(element for element in elements if element["role"] == "media")
+    assert (title["x"], title["width"]) == (120, 970)
+    assert (panel["x"], panel["width"]) == (120, 970)
+    assert (media["x"], media["width"]) == (1114, 686)
+    assert media["height"] >= 420
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:
