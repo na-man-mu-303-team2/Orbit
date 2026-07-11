@@ -4,9 +4,11 @@ import {
   buildAiPptGenerateDeckPayload,
   buildBrandKitValues,
   buildReferenceGrounding,
+  briefFieldPlaceholders,
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
   miniSlideFontStyles,
+  initialAiPptWizardState,
   pollJob,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
@@ -34,6 +36,50 @@ const palette: PaletteOption = {
 describe("AI PPT wizard payload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps Brief examples as placeholders instead of submitted state", () => {
+    expect(initialAiPptWizardState).toMatchObject({
+      topic: "",
+      purpose: "",
+      context: "",
+      audience: "",
+      presentationType: "",
+      successCriteria: "",
+      duration: "",
+      slides: ""
+    });
+    expect(Object.values(briefFieldPlaceholders).every(Boolean)).toBe(true);
+    expect(JSON.stringify(initialAiPptWizardState)).not.toContain(
+      briefFieldPlaceholders.successCriteria
+    );
+  });
+
+  it.each([
+    ["purpose", "발표 목적을 입력하세요."],
+    ["context", "발표 맥락을 입력하세요."],
+    ["audience", "청중을 입력하세요."],
+    ["presentationType", "발표 유형을 입력하세요."],
+    ["successCriteria", "성공 기준을 입력하세요."]
+  ] as const)("requires the %s Brief field", (field, expected) => {
+    expect(
+      getAiPptWizardValidationMessage({
+        topic: "AI PPT",
+        purpose: "목적",
+        context: "맥락",
+        audience: "청중",
+        presentationType: "제안",
+        successCriteria: "합의",
+        duration: "10",
+        slides: "",
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only",
+        [field]: ""
+      })
+    ).toBe(expected);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {

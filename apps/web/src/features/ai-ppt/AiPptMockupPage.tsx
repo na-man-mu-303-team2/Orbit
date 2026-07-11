@@ -146,7 +146,7 @@ const fallbackPaletteOptions: PaletteOption[] = [
   }
 ];
 
-const initialState: AiPptWizardState = {
+export const briefFieldPlaceholders = {
   topic: "Design Pack 기반 AI PPT 생성 구조 제안",
   purpose: "템플릿 덮어쓰기에서 벗어나 Deck JSON 기반 생성 MVP를 설명",
   context: "제품/개발 리드 대상 15분 의사결정 회의",
@@ -154,6 +154,17 @@ const initialState: AiPptWizardState = {
   presentationType: "기획 발표",
   successCriteria: "1차 구현 범위와 다음 스프린트 우선순위 합의",
   duration: "15",
+  slides: "15"
+} as const;
+
+export const initialAiPptWizardState: AiPptWizardState = {
+  topic: "",
+  purpose: "",
+  context: "",
+  audience: "",
+  presentationType: "",
+  successCriteria: "",
+  duration: "",
   slides: "",
   tone: "professional",
   colorMood: "전문가스럽고 차분한 파란색, Brandlogy다운 포인트 컬러",
@@ -183,7 +194,7 @@ export function buildAiPptGenerateDeckPayload(
   savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
   brandKit?: Pick<BrandKit, "id" | "version">
 ): GenerateDeckRequest {
-  const durationMinutes = parsePositiveInteger(state.duration, 10);
+  const durationMinutes = parsePositiveInteger(state.duration, 0);
   const slideCountRange = resolveSlideCountRange(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
@@ -269,6 +280,11 @@ export function getAiPptWizardValidationMessage(
   referenceFiles: File[] = []
 ) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
+  if (!state.purpose.trim()) return "발표 목적을 입력하세요.";
+  if (!state.context.trim()) return "발표 맥락을 입력하세요.";
+  if (!state.audience.trim()) return "청중을 입력하세요.";
+  if (!state.presentationType.trim()) return "발표 유형을 입력하세요.";
+  if (!state.successCriteria.trim()) return "성공 기준을 입력하세요.";
   if (parsePositiveInteger(state.duration, 0) < 1) {
     return "발표 시간은 1분 이상이어야 합니다.";
   }
@@ -320,13 +336,13 @@ export function buildAiPptAdvisorSuggestions(
 
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
-  const [form, setForm] = useState(initialState);
+  const [form, setForm] = useState(initialAiPptWizardState);
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
   );
   const [selectedFontId, setSelectedFontId] = useState(
-    recommendGenerateDeckFonts(initialState.fontMood)[0].fontId
+    recommendGenerateDeckFonts(initialAiPptWizardState.fontMood)[0].fontId
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
@@ -606,6 +622,13 @@ export function AiPptMockupPage() {
   }
 
   function goNext() {
+    if (currentStep === "brief") {
+      const validationMessage = getAiPptWizardValidationMessage(form);
+      if (validationMessage) {
+        setError(validationMessage);
+        return;
+      }
+    }
     if (currentStep === "review") {
       void submitGeneration();
       return;
@@ -877,7 +900,11 @@ export function AiPptMockupPage() {
         </button>
         <button
           className="ai-ppt-primary"
-          disabled={currentStep === "preview" || isGenerating}
+          disabled={
+            currentStep === "preview" ||
+            isGenerating ||
+            (currentStep === "brief" && Boolean(getAiPptWizardValidationMessage(form)))
+          }
           type="button"
           onClick={goNext}
         >
@@ -917,14 +944,14 @@ function BriefStep(props: {
         title="발표 상황과 청중을 먼저 고정"
       />
       <div className="ai-ppt-field-grid">
-        <TextField label="발표 주제" value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
-        <TextField label="발표 목적" value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
-        <TextField label="발표 맥락" value={props.form.context} onChange={(value) => props.onChange("context", value)} />
-        <TextField label="청중" value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
-        <TextField label="발표 유형" value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
-        <TextField label="성공 기준" value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
-        <TextField label="발표 시간" value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-        <TextField label="슬라이드 수" value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+        <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+        <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
+        <TextField label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
+        <TextField label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
+        <TextField label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
+        <TextField label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
+        <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+        <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
       </div>
     </>
   );
@@ -1558,6 +1585,7 @@ function SummaryCard(props: {
 function TextField(props: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   suffix?: string;
   value: string;
 }) {
@@ -1565,7 +1593,11 @@ function TextField(props: {
     <label className="ai-ppt-field">
       <span>{props.label}</span>
       <div>
-        <input value={props.value} onChange={(event) => props.onChange(event.target.value)} />
+        <input
+          placeholder={props.placeholder}
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
         {props.suffix ? <em>{props.suffix}</em> : null}
       </div>
     </label>
