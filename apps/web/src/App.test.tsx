@@ -107,7 +107,15 @@ describe("App shell routing", () => {
         sessionId: "session_demo_1"
       })
     ).toBe(false);
+    expect(shouldRenderAppFrame({ name: "design-system" })).toBe(false);
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+
+  it("parses the design system route outside the shared navigation shell", () => {
+    const route = getRoute("/design-system");
+
+    expect(route).toEqual({ name: "design-system" });
+    expect(shouldRenderAppFrame(route)).toBe(false);
   });
 
   it("parses presenter slide-window routes with an optional session id", () => {

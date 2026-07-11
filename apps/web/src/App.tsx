@@ -45,6 +45,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import orbitLogo from "./assets/orbit-logo.png";
 import { AppSidebar } from "./components/AppSidebar";
+import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { AiPptMockupPage } from "./features/ai-ppt/AiPptMockupPage";
 import {
   createProject,
@@ -195,6 +196,7 @@ type RejectedFile = {
 };
 
 export type Route =
+  | { name: "design-system" }
   | { name: "login" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "ai-ppt" }
@@ -450,6 +452,7 @@ export function getRoute(
 
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/ai-ppt") return { name: "ai-ppt" };
+  if (normalized === "/design-system") return { name: "design-system" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/reports") return { name: "report-list" };
@@ -571,6 +574,7 @@ export function App() {
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "design-system" &&
     route.name !== "project-editor" &&
     route.name !== "presentation" &&
     route.name !== "present" &&
@@ -584,6 +588,7 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
+  if (route.name === "design-system") return <OrbitDesignSystemPage />;
   if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
   if (route.name === "ai-ppt") return <AiPptMockupPage />;
   if (route.name === "create-deck") return <GenerateDeckView />;
