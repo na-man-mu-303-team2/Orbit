@@ -1,6 +1,5 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
-import { IconPresentation } from "@tabler/icons-react";
-import orbitLogoWhite from "../../assets/orbit-logo-white.png";
+import { Presentation } from "lucide-react";
 import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
@@ -12,7 +11,6 @@ import {
   type PresenterTimeMode,
   type PresenterInfoCardItem,
 } from "../presenter-shell/PresenterScaffold";
-import "./orbit-live-presentation.css";
 
 export function PresentationScreen(props: {
   adviceState: TimingAdviceState;
@@ -62,11 +60,11 @@ export function PresentationScreen(props: {
     : "다음 슬라이드 없음";
 
   return (
-    <main className="rehearsal-presenter-shell orbit-live-presenter-shell">
+    <main className="rehearsal-presenter-shell">
       <PresenterTopbar
         exitButtonContent={
           <>
-            <IconPresentation size={17} stroke={1.8} />
+            <Presentation size={16} />
             발표 종료
           </>
         }
@@ -89,13 +87,6 @@ export function PresentationScreen(props: {
         timeMode={props.timeMode}
         timerDurationInput={props.timerDurationInput}
         title="발표"
-        toolbar={
-          <img
-            className="orbit-live-presenter-logo"
-            src={orbitLogoWhite}
-            alt="ORBIT"
-          />
-        }
         totalElapsedInput={props.elapsedTimeInput}
       />
 

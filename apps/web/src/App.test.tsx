@@ -60,7 +60,6 @@ import {
   OrbitProjectExplorer,
   OrbitWorkspaceHome
 } from "./features/projects/OrbitProjectHub";
-import { getProjectReportDataLevel } from "./features/rehearsal/RehearsalProjectOverviewPage";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -344,15 +343,6 @@ describe("workspace project surfaces", () => {
     expect(html).toContain('aria-label="프로젝트 정렬"');
     expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
-  });
-});
-
-describe("project report information levels", () => {
-  it("separates empty, single-run, and trend states", () => {
-    expect(getProjectReportDataLevel(0)).toBe("empty");
-    expect(getProjectReportDataLevel(1)).toBe("single");
-    expect(getProjectReportDataLevel(2)).toBe("trend");
-    expect(getProjectReportDataLevel(8)).toBe("trend");
   });
 });
 

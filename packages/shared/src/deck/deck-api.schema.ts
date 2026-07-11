@@ -163,20 +163,65 @@ export const putDeckResponseSchema = z
     );
   });
 
-export const appendDeckPatchRequestSchema = z.object({
+export const appendDeckPatchRequestSchema: z.ZodObject<{
+  patch: typeof deckPatchSchema;
+  responseMode: z.ZodOptional<z.ZodLiteral<"ack">>;
+  snapshotReason: z.ZodOptional<typeof deckSnapshotReasonSchema>;
+}> = z.object({
   patch: deckPatchSchema,
+  responseMode: z.literal("ack").optional(),
   snapshotReason: deckSnapshotReasonSchema.optional(),
 });
 
-export const appendDeckPatchResponseSchema = z
+export const appendDeckPatchAckResponseSchema = z
   .object({
-    deck: deckSchema,
+    deckId: deckIdSchema,
+    version: z.number().int().positive(),
     changeRecord: deckChangeRecordSchema,
-    snapshot: deckSnapshotSchema.nullable(),
+    snapshot: deckSnapshotSchema.optional(),
     ooxmlSyncJob: jobSchema.optional(),
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
+    requireMatchingDeckId(ctx, response.deckId, response.changeRecord.deckId, [
+      "changeRecord",
+      "deckId",
+    ]);
+    requireMatchingVersion(
+      ctx,
+      response.version,
+      response.changeRecord.afterVersion,
+      ["changeRecord", "afterVersion"],
+    );
+    if (response.snapshot) {
+      requireMatchingDeckId(ctx, response.deckId, response.snapshot.deckId, [
+        "snapshot",
+        "deckId",
+      ]);
+      requireMatchingVersion(ctx, response.version, response.snapshot.version, [
+        "snapshot",
+        "version",
+      ]);
+    }
+  });
+
+const appendDeckPatchResponseObjectSchema: z.ZodObject<{
+  deck: typeof deckSchema;
+  changeRecord: typeof deckChangeRecordSchema;
+  snapshot: z.ZodNullable<typeof deckSnapshotSchema>;
+  ooxmlSyncJob: z.ZodOptional<typeof jobSchema>;
+  updatedAt: typeof isoDateTimeSchema;
+}> = z.object({
+  deck: deckSchema,
+  changeRecord: deckChangeRecordSchema,
+  snapshot: deckSnapshotSchema.nullable(),
+  ooxmlSyncJob: jobSchema.optional(),
+  updatedAt: isoDateTimeSchema,
+});
+
+export const appendDeckPatchResponseSchema: z.ZodEffects<
+  typeof appendDeckPatchResponseObjectSchema
+> = appendDeckPatchResponseObjectSchema.superRefine((response, ctx) => {
     requireMatchingDeckId(
       ctx,
       response.changeRecord.deckId,
@@ -209,7 +254,7 @@ export const appendDeckPatchResponseSchema = z
         ["snapshot", "version"],
       );
     }
-  });
+});
 
 export const listDeckSnapshotsResponseSchema = z
   .object({
@@ -268,6 +313,17 @@ export type PutDeckRequest = z.infer<typeof putDeckRequestSchema>;
 export type PutDeckResponse = z.infer<typeof putDeckResponseSchema>;
 export type AppendDeckPatchRequest = z.infer<
   typeof appendDeckPatchRequestSchema
+>;
+export type AppendDeckPatchAckRequest = Omit<
+  AppendDeckPatchRequest,
+  "responseMode"
+> & { responseMode: "ack" };
+export type AppendDeckPatchFullRequest = Omit<
+  AppendDeckPatchRequest,
+  "responseMode"
+> & { responseMode?: undefined };
+export type AppendDeckPatchAckResponse = z.infer<
+  typeof appendDeckPatchAckResponseSchema
 >;
 export type AppendDeckPatchResponse = z.infer<
   typeof appendDeckPatchResponseSchema

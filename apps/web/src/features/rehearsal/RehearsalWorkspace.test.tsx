@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { createDemoDeck } from "@orbit/editor-core";
 import {
   createKeywordOccurrenceId,
+  createRehearsalEvaluationSnapshot,
   type Job,
   type RehearsalReport,
   type RehearsalRun,
@@ -20,8 +21,12 @@ import {
   SherpaLiveSttAdapter,
   applyLiveTranscriptBias,
   applyLiveTranscriptEvent,
+  buildP3SessionSlides,
   buildLiveSttBiasContext,
+  cancelRehearsalRun,
   confirmKeywordOccurrenceMatches,
+  createRehearsalRun,
+  createRehearsalRunForUpload,
   createKeywordOccurrenceAnimationCueEvent,
   createLiveKeywordOccurrenceState,
   createLiveTranscriptBuffer,
@@ -31,7 +36,6 @@ import {
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
-  getCompletionReportStateLabel,
   getHighlightedKeywordOccurrencesForSlide,
   getRehearsalPresenterWindowPath,
   getRehearsalReportPath,
@@ -43,13 +47,14 @@ import {
   getRehearsalPrompterRows,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
+  prepareRehearsalEvaluationRun,
   rehearsalMicrophoneAudioConstraints,
-  rehearsalMicrophoneDeviceStorageKey,
   rehearsalRawMicrophoneAudioConstraints,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
   resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
+  retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   shouldRenderRehearsalThumbnailImage,
@@ -107,12 +112,6 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
-  it("describes only contract-backed completion analysis", () => {
-    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: true })).toContain("시간·키워드·말하기 분석");
-    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: true })).not.toContain("청중 반응");
-    expect(getCompletionReportStateLabel({ hasReportTarget: true, isReportPending: false })).toContain("공식 분석");
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -501,6 +500,17 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("Live STT runtime 오류가 나도 수동 발표와 타이머는 계속 유지한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const errorStart = source.indexOf("function handleLiveSttError");
+    const resultStart = source.indexOf("function handleLiveSttResult");
+    const errorBody = source.slice(errorStart, resultStart);
+
+    expect(errorBody).not.toContain("setIsTimerRunning(false)");
+    expect(errorBody).not.toContain('setRehearsalRuntimeStatus("idle")');
+    expect(errorBody).toContain("resetAutoAdvanceRuntimeState");
+  });
+
   it("requests Window Management screens for automatic slide-window placement", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const requestStart = source.indexOf("const requestDisplayScreens =");
@@ -770,7 +780,15 @@ describe("RehearsalWorkspace", () => {
     const stopEnd = source.indexOf("function handleTimePrimaryAction");
     const stopRecordingBody = source.slice(stopStart, stopEnd);
 
-    expect(startRecordingBody).toContain("void startP3Tracking(stream)");
+    expect(startRecordingBody).toContain(
+      "const evaluationSnapshot = await prepareEvaluationSnapshot(activeDeck)",
+    );
+    expect(startRecordingBody).toContain(
+      "void startP3Tracking(stream, evaluationSnapshot)",
+    );
+    expect(startRecordingBody.indexOf("prepareEvaluationSnapshot")).toBeLessThan(
+      startRecordingBody.indexOf("startP3Tracking"),
+    );
     expect(startRecordingBody).not.toContain("startLiveStt(stream)");
     expect(stopRecordingBody).toContain(
       "const p3Session = p3SessionRef.current",
@@ -859,6 +877,19 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("P3 capability event를 bounded 상태 UI로 연결한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("session = createP3RehearsalSession");
+    const end = source.indexOf("p3SessionRef.current = session", start);
+    const sessionBody = source.slice(start, end);
+
+    expect(sessionBody).toContain("onSemanticCapabilityEvent");
+    expect(sessionBody).toContain("slice(-100)");
+    expect(source).toContain("createSemanticCapabilityStatusItems");
+    expect(source).toContain("semanticCapabilityItems={semanticCapabilityItems}");
+    expect(source).toContain("capabilityEvents={semanticCapabilityEvents}");
+  });
+
   it("requests microphone audio with live STT input quality constraints", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);
@@ -894,19 +925,6 @@ describe("RehearsalWorkspace", () => {
     );
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalRawMicrophoneAudioConstraints,
-    });
-  });
-
-  it("applies the preferred microphone device to rehearsal capture", () => {
-    const storage = {
-      getItem: vi.fn((key: string) =>
-        key === rehearsalMicrophoneDeviceStorageKey ? "mic_external" : null,
-      ),
-    };
-
-    expect(getRehearsalMicrophoneAudioConstraints(storage)).toEqual({
-      ...rehearsalMicrophoneAudioConstraints,
-      deviceId: { exact: "mic_external" },
     });
   });
 
@@ -1108,6 +1126,7 @@ describe("RehearsalWorkspace", () => {
               fillerWordCount: 0,
               pauseCount: 1,
               keywordCoverage: 0.75,
+              keywordCoverageMeasurement: { state: "measured" },
             },
           }),
         ]}
@@ -1119,6 +1138,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 18,
             pauseCount: 1,
             keywordCoverage: 0.75,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         run={runFixture("succeeded")}
@@ -1210,7 +1230,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("report-page-state");
   });
 
-  it("shows retained transcript download controls during the 30 minute window", () => {
+  it("does not render private transcript controls even when legacy input contains transcript data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -1226,9 +1246,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("발표 전사본");
-    expect(html).toContain("DOCX 내려받기");
-    expect(html).toContain("펼치기");
+    expect(html).not.toContain("발표 전사본");
+    expect(html).not.toContain("DOCX 내려받기");
+    expect(html).not.toContain("펼치기");
     expect(html).not.toContain("민감한 전사 원문");
   });
 
@@ -1269,6 +1289,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 0,
             pauseCount: 0,
             keywordCoverage: 1,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         projectId="project-a"
@@ -1294,6 +1315,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 0,
             pauseCount: 0,
             keywordCoverage: 1,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         projectId="project-a"
@@ -1866,6 +1888,16 @@ describe("RehearsalWorkspace", () => {
     });
   });
 
+  it("uses E5 script alignment in rehearsal while keeping the NLI runtime out of the live path", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("const ENABLE_REHEARSAL_NLI = false");
+    expect(source).toContain("showScriptPanel={true}");
+    expect(source).toContain(
+      'import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI'
+    );
+  });
+
   it("delegates auto-advance policy to the P4 controller instead of keyword coverage timers", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleLivePartialTranscript");
@@ -2237,17 +2269,139 @@ describe("RehearsalWorkspace", () => {
   });
 });
 
+describe("rehearsal evaluation run lifecycle", () => {
+  it("creates a full run with the client deck version before tracking", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        run: runFixture("created", {
+          deckVersion: 3,
+          evaluationSnapshot: createRehearsalEvaluationSnapshot(createDemoDeck()),
+        }),
+      }),
+    );
+
+    await createRehearsalRun("project-a", "deck-a", fetcher, {
+      expectedDeckVersion: 3,
+      semanticEvaluationMode: "full",
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-a/rehearsals",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          deckId: "deck-a",
+          expectedDeckVersion: 3,
+          semanticEvaluationMode: "full",
+        }),
+      }),
+    );
+  });
+
+  it("cancels a run that exits before upload processing", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ run: runFixture("cancelled") }),
+    );
+
+    const run = await cancelRehearsalRun("run-1", fetcher);
+
+    expect(run.status).toBe("cancelled");
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/rehearsals/run-1/cancel",
+      { method: "POST" },
+    );
+  });
+
+  it("creates a delivery-only run after an offline rehearsal deck version mismatch", async () => {
+    const bodies: unknown[] = [];
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      if (bodies.length === 1) {
+        return new Response("deck version mismatch", { status: 409 });
+      }
+      return jsonResponse({
+        run: runFixture("created", {
+          semanticEvaluationMode: "delivery-only",
+          deckVersion: null,
+          evaluationSnapshot: null,
+        }),
+      });
+    });
+
+    const result = await createRehearsalRunForUpload(
+      "project-a",
+      "deck-a",
+      3,
+      fetcher,
+    );
+
+    expect(result).toMatchObject({
+      evaluationSnapshotMismatch: true,
+      run: { semanticEvaluationMode: "delivery-only" },
+    });
+    expect(bodies).toEqual([
+      {
+        deckId: "deck-a",
+        expectedDeckVersion: 3,
+        semanticEvaluationMode: "full",
+      },
+      {
+        deckId: "deck-a",
+        expectedDeckVersion: 3,
+        semanticEvaluationMode: "delivery-only",
+      },
+    ]);
+  });
+
+  it("continues with a provisional snapshot when initial server run creation is offline", async () => {
+    const deck = createDemoDeck();
+    const result = await prepareRehearsalEvaluationRun(
+      deck,
+      vi.fn(async () => {
+        throw new TypeError("network offline");
+      }),
+    );
+
+    expect(result.run).toBeNull();
+    expect(result.evaluationSnapshot).toMatchObject({
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+    });
+    expect(result.serverEvaluation).toEqual({
+      state: "unavailable",
+      reason: "network_error",
+    });
+  });
+
+  it("builds P3 cue and keyword inputs from the immutable snapshot", () => {
+    const deck = createDemoDeck();
+    deck.slides[0]!.speakerNotes = "현재 로컬 발표자 노트";
+    deck.slides[0]!.keywords = [
+      {
+        keywordId: "kw_snapshot",
+        text: "SNAPSHOT",
+        synonyms: ["고정 키워드"],
+        abbreviations: [],
+        required: true,
+      },
+    ];
+    const snapshot = createRehearsalEvaluationSnapshot(deck);
+    deck.slides[0]!.keywords[0]!.text = "LIVE EDIT";
+
+    const slides = buildP3SessionSlides(deck, snapshot);
+
+    expect(slides[0]?.keywords[0]?.text).toBe("SNAPSHOT");
+    expect(slides[0]?.speakerNotes).toBe("현재 로컬 발표자 노트");
+  });
+});
+
 describe("runRehearsalUploadFlow", () => {
-  it("creates a run, uploads audio, completes it, polls the job, and fetches final run", async () => {
+  it("reuses the pre-created run while uploading, completing, and polling", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         calls.push({ url, init });
-
-        if (url === "/api/v1/projects/project-a/rehearsals") {
-          return jsonResponse({ run: runFixture("created") });
-        }
 
         if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
           return jsonResponse({
@@ -2311,8 +2465,7 @@ describe("runRehearsalUploadFlow", () => {
     });
 
     const result = await runRehearsalUploadFlow({
-      projectId: "project-a",
-      deckId: "deck-a",
+      runId: "run-1",
       audioFile,
       slideTimeline: [
         { slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" },
@@ -2324,7 +2477,6 @@ describe("runRehearsalUploadFlow", () => {
     expect(result.run.status).toBe("succeeded");
     expect(result.job.status).toBe("succeeded");
     expect(calls.map((call) => call.url)).toEqual([
-      "/api/v1/projects/project-a/rehearsals",
       "/api/v1/rehearsals/run-1/audio/upload-url",
       "http://storage.local/rehearsal.webm",
       "/api/v1/rehearsals/run-1/meta",
@@ -2333,15 +2485,12 @@ describe("runRehearsalUploadFlow", () => {
       "/api/jobs/job-1",
       "/api/v1/rehearsals/run-1",
     ]);
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
-      deckId: "deck-a",
-    });
-    expect(calls[2]?.init).toMatchObject({
+    expect(calls[1]?.init).toMatchObject({
       method: "PUT",
       headers: { "content-type": "audio/webm" },
       body: audioFile,
     });
-    expect(calls[3]?.init).toMatchObject({
+    expect(calls[2]?.init).toMatchObject({
       method: "PATCH",
       headers: { "content-type": "application/json" },
     });
@@ -2352,10 +2501,6 @@ describe("runRehearsalUploadFlow", () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       calls.push(url);
-
-      if (url === "/api/v1/projects/project-a/rehearsals") {
-        return jsonResponse({ run: runFixture("created") });
-      }
 
       if (url === "/api/v1/rehearsals/run-1/audio/upload-url") {
         return jsonResponse({
@@ -2381,8 +2526,7 @@ describe("runRehearsalUploadFlow", () => {
 
     await expect(
       runRehearsalUploadFlow({
-        projectId: "project-a",
-        deckId: "deck-a",
+        runId: "run-1",
         audioFile: new File(["audio"], "rehearsal.webm", {
           type: "audio/webm",
         }),
@@ -2394,7 +2538,6 @@ describe("runRehearsalUploadFlow", () => {
     } satisfies Partial<RehearsalFlowError>);
 
     expect(calls).toEqual([
-      "/api/v1/projects/project-a/rehearsals",
       "/api/v1/rehearsals/run-1/audio/upload-url",
       "http://storage.local/rehearsal.webm",
     ]);
@@ -2415,6 +2558,40 @@ describe("fetchRehearsalReport", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/v1/rehearsals/run-1/report");
     expect(result.report?.transcriptRetained).toBe(false);
     expect(result.report?.transcript).toBeNull();
+  });
+
+  it("queues a semantic evaluation retry without sending report data", async () => {
+    const job = jobFixture("queued", 0);
+    const fetcher = vi.fn(async () => jsonResponse({ job }));
+
+    const result = await retryRehearsalSemanticEvaluation("run-1", fetcher);
+
+    expect(result).toEqual(job);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/rehearsals/run-1/semantic-evaluation/retry",
+      { method: "POST" },
+    );
+  });
+
+  it("uses presenter-facing copy when retry evidence has expired", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse(
+        {
+          code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+          message: "internal retry detail",
+          retryable: false,
+        },
+        409,
+      ),
+    );
+
+    await expect(
+      retryRehearsalSemanticEvaluation("run-1", fetcher),
+    ).rejects.toMatchObject({
+      message: "재평가 가능 시간이 지났습니다. 새 리허설을 시작해 주세요.",
+      stage: "semantic-retry",
+      status: 409,
+    });
   });
 });
 
@@ -2466,12 +2643,17 @@ function runFixture(
     deckId: "deck-a",
     audioFileId: null,
     jobId: null,
+    deckVersion: null,
+    evaluationSnapshot: null,
+    semanticEvaluationMode: "full",
     status,
     error: null,
     rawAudioDeletedAt: null,
     createdAt,
     updatedAt: createdAt,
     ...patch,
+    analysisRevision: patch.analysisRevision ?? 0,
+    analysisFinalizedAt: patch.analysisFinalizedAt ?? null,
   };
 }
 
@@ -2504,6 +2686,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       fillerWordCount: 2,
       pauseCount: 1,
       keywordCoverage: 0.75,
+      keywordCoverageMeasurement: { state: "measured" },
     },
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
@@ -2511,6 +2694,13 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     utteranceOutcomes: [],
     semanticCueDecisions: [],
+    semanticEvaluation: {
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false,
+    },
+    semanticCueOutcomes: [],
     slideTimings: [
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],
@@ -2535,8 +2725,9 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
   };
 }
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     headers: { "content-type": "application/json" },
+    status,
   });
 }

@@ -3,7 +3,23 @@ import { describe, expect, it } from "vitest";
 import { buildProjectReportItems } from "./RehearsalReportListPage";
 
 const project = (projectId: string): Project => ({ createdAt: "2026-07-01T00:00:00.000Z", createdBy: "user_1", projectId, title: projectId, workspaceId: "workspace_1" });
-const run = (runId: string, createdAt: string): RehearsalRun => ({ audioFileId: null, createdAt, deckId: "deck_1", error: null, jobId: null, projectId: "project_1", rawAudioDeletedAt: null, runId, status: "succeeded", updatedAt: createdAt });
+const run = (runId: string, createdAt: string): RehearsalRun => ({
+  analysisFinalizedAt: createdAt,
+  analysisRevision: 1,
+  audioFileId: null,
+  createdAt,
+  deckId: "deck_1",
+  deckVersion: null,
+  error: null,
+  evaluationSnapshot: null,
+  jobId: null,
+  projectId: "project_1",
+  rawAudioDeletedAt: null,
+  runId,
+  semanticEvaluationMode: "full",
+  status: "succeeded",
+  updatedAt: createdAt
+});
 
 describe("buildProjectReportItems", () => {
   it("keeps only projects with reports and orders by the latest run", () => {

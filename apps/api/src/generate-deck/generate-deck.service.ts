@@ -2,13 +2,26 @@ import {
   enqueueGenerateDeckJob,
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
-import { generateDeckRequestSchema, jobSchema } from "@orbit/shared";
+import {
+  deckColorOptionRequestSchema,
+  deckColorOptionsResponseSchema,
+  generateDeckRequestSchema,
+  jobSchema,
+  type DeckColorOptionsResponse
+} from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, Injectable, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Optional,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
 const generateDeckJobResponseSchema = z.object({
   job: jobSchema
@@ -30,7 +43,9 @@ export class GenerateDeckService {
       input: EnqueueGenerateDeckJobInput
     ) => Promise<void> = enqueueGenerateDeckJob,
     @Optional()
-    private readonly filesService?: FilesService
+    private readonly filesService?: FilesService,
+    @Optional()
+    private readonly presentationBriefs?: PresentationBriefsService
   ) {}
 
   async createJob(
@@ -40,6 +55,7 @@ export class GenerateDeckService {
     await this.projectsService.getAccessibleProject(projectId);
 
     const request = generateDeckRequestSchema.parse(body);
+    await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertDesignReferences(projectId, request.designReferences);
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -74,6 +90,45 @@ export class GenerateDeckService {
     return generateDeckJobResponseSchema.parse({ job: queuedJob });
   }
 
+  async createColorOptions(body: unknown): Promise<DeckColorOptionsResponse> {
+    const request = deckColorOptionRequestSchema.parse(body);
+    let response: Response;
+
+    try {
+      response = await fetch(
+        workerUrl(this.config.PYTHON_WORKER_URL, "/ai/deck-color-options"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(30_000)
+        }
+      );
+    } catch (error) {
+      throw new ServiceUnavailableException(
+        error instanceof Error
+          ? error.message
+          : "Python worker color option generation unavailable."
+      );
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        (await response.text()) || "Python worker color option generation failed."
+      );
+    }
+
+    try {
+      return deckColorOptionsResponseSchema.parse(await response.json());
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error
+          ? error.message
+          : "Python worker returned invalid color options."
+      );
+    }
+  }
+
   private async assertDesignReferences(
     projectId: string,
     designReferences: Array<{ fileId: string }>
@@ -94,4 +149,34 @@ export class GenerateDeckService {
       }
     }
   }
+
+  private async assertCoachingContext(
+    projectId: string,
+    context: ReturnType<typeof generateDeckRequestSchema.parse>["coachingContext"]
+  ) {
+    if (!context) return;
+    if (context.briefRef.mode === "generic") {
+      if (context.evaluatorLensRef.lensId !== "general-novice") {
+        throw new BadRequestException("Generic generation must use the general novice lens.");
+      }
+      return;
+    }
+    const brief = await this.presentationBriefs?.getCurrent(projectId);
+    if (
+      !brief ||
+      brief.briefId !== context.briefRef.briefId ||
+      brief.revision !== context.briefRef.revision ||
+      brief.evaluatorLensRef.lensId !== context.evaluatorLensRef.lensId ||
+      brief.evaluatorLensRef.revision !== context.evaluatorLensRef.revision
+    ) {
+      throw new BadRequestException("Brief generation context is no longer current.");
+    }
+  }
+}
+
+function workerUrl(baseUrl: string, path: string): string {
+  return new URL(
+    path,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+  ).toString();
 }

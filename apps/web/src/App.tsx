@@ -49,6 +49,9 @@ import {
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { OrbitButton } from "./design-system";
 import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
+import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
+import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
+import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
@@ -219,9 +222,14 @@ export type Route =
       presenterInitialStepIndex?: number;
       presenterSessionId?: string;
       presenterWindow?: boolean;
+      sourceFullRunId?: string;
+      sourceGoalSetId?: string;
       projectId: string;
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
+  | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
+  | { name: "focused-practice"; projectId: string; goalId: string; sourceFullRunId: string }
+  | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
@@ -307,6 +315,11 @@ const reportMockupRun: RehearsalRun = {
   deckId: demoIds.deckId,
   audioFileId: "file_report_mockup_audio",
   jobId: "job_report_mockup_stt",
+  deckVersion: null,
+  evaluationSnapshot: null,
+  semanticEvaluationMode: "full",
+  analysisRevision: 1,
+  analysisFinalizedAt: reportMockupGeneratedAt,
   status: "succeeded",
   error: null,
   rawAudioDeletedAt: null,
@@ -325,7 +338,8 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
+    keywordCoverageMeasurement: { state: "measured" }
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
@@ -337,6 +351,13 @@ const reportMockupReport: RehearsalReport = {
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
   utteranceOutcomes: [],
   semanticCueDecisions: [],
+  semanticEvaluation: {
+    state: "unavailable",
+    measurementMode: "none",
+    reasons: ["evaluation_not_run"],
+    retryable: false
+  },
+  semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {
@@ -511,6 +532,35 @@ export function getRoute(
     };
   }
 
+  const practicePlanMatch = normalized.match(/^\/rehearsal\/([^/]+)\/plan\/([^/]+)$/);
+  if (practicePlanMatch) {
+    return {
+      name: "practice-plan",
+      projectId: decodeURIComponent(practicePlanMatch[1]),
+      sourceFullRunId: decodeURIComponent(practicePlanMatch[2])
+    };
+  }
+
+  const focusedPracticeMatch = normalized.match(/^\/rehearsal\/([^/]+)\/focus\/([^/]+)$/);
+  if (focusedPracticeMatch) {
+    const searchParams = new URLSearchParams(currentSearch);
+    return {
+      name: "focused-practice",
+      projectId: decodeURIComponent(focusedPracticeMatch[1]),
+      goalId: decodeURIComponent(focusedPracticeMatch[2]),
+      sourceFullRunId: searchParams.get("sourceFullRunId") ?? ""
+    };
+  }
+
+  const challengeQnaMatch = normalized.match(/^\/rehearsal\/([^/]+)\/challenge\/([^/]+)$/);
+  if (challengeQnaMatch) {
+    return {
+      name: "challenge-qna",
+      projectId: decodeURIComponent(challengeQnaMatch[1]),
+      sourceFullRunId: decodeURIComponent(challengeQnaMatch[2])
+    };
+  }
+
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     const searchParams = new URLSearchParams(currentSearch);
@@ -520,6 +570,8 @@ export function getRoute(
       presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
+      sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
+      sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
       projectId: decodeURIComponent(rehearsalMatch[1])
     };
   }
@@ -590,6 +642,9 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
+    route.name !== "practice-plan" &&
+    route.name !== "focused-practice" &&
+    route.name !== "challenge-qna" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -642,6 +697,8 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
+        sourceFullRunId={route.sourceFullRunId}
+        sourceGoalSetId={route.sourceGoalSetId}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
       />
     );
@@ -654,6 +711,21 @@ function renderRoute(route: Route, user?: AuthUser) {
         runId={route.runId}
       />
     );
+  }
+  if (route.name === "practice-plan") {
+    return <PracticePlanPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
+  }
+  if (route.name === "focused-practice") {
+    return (
+      <FocusedPracticePage
+        projectId={route.projectId}
+        goalId={route.goalId}
+        sourceFullRunId={route.sourceFullRunId}
+      />
+    );
+  }
+  if (route.name === "challenge-qna") {
+    return <ChallengeQnaPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
   }
   if (route.name === "report-project-overview") {
     return (

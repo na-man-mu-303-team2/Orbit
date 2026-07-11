@@ -28,14 +28,18 @@ import {
   normalizeElementFrameDraft
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
+  appendDeckPatchAckResponseSchema,
+  appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   createKeywordOccurrenceId,
   deckApiErrorSchema,
+  deckExportJobResultSchema,
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
   meResponseSchema,
-  putDeckResponseSchema
+  putDeckResponseSchema,
+  type DeckExportJobResult
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import {
@@ -87,6 +91,7 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
+import { AiChatPanel } from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -118,7 +123,8 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
-  ApplyAiSuggestionResponse,
+  ApplyDesignAgentProposalResponse,
+  AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
   Deck,
@@ -130,6 +136,7 @@ import type {
   DeckPatch,
   GroupElementProps,
   ImageElementProps,
+  SemanticCue,
   ShapeElementProps,
   Slide,
   DeckApiErrorCode
@@ -162,20 +169,29 @@ import {
   Wand2,
   Home,
 } from "lucide-react";
-import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
-import orbitLogo from "../../../assets/orbit-logo.png";
 import {
   ValidationPanel,
   type ValidationTextOverflowAction
 } from "../ai/quality/ValidationPanel";
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
-import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
+import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
+import {
+  SemanticCueReviewPanel,
+  type SemanticCueExtractionUiState
+} from "../semantic-cues/SemanticCueReviewPanel";
+import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -923,6 +939,57 @@ async function appendProjectDeckPatch(
   return payload.deck;
 }
 
+export function applyDeckPatchAcknowledgement(
+  baseDeck: Deck,
+  patch: DeckPatch,
+  acknowledgement: AppendDeckPatchAckResponse
+): Deck {
+  const matchesRequest =
+    acknowledgement.deckId === patch.deckId &&
+    acknowledgement.changeRecord.deckId === patch.deckId &&
+    acknowledgement.changeRecord.beforeVersion === patch.baseVersion &&
+    acknowledgement.changeRecord.source === patch.source &&
+    JSON.stringify(acknowledgement.changeRecord.operations) ===
+      JSON.stringify(patch.operations);
+
+  if (!matchesRequest) {
+    throw new Error("Deck patch acknowledgement does not match the request");
+  }
+
+  const result = applyDeckPatch(baseDeck, patch, {
+    createdAt: acknowledgement.changeRecord.createdAt
+  });
+
+  if (!result.ok || result.deck.version !== acknowledgement.version) {
+    throw new Error("Deck patch acknowledgement version does not match the local result");
+  }
+
+  return result.deck;
+}
+
+async function appendProjectDeckPatchAck(
+  projectId: string,
+  baseDeck: Deck,
+  patch: DeckPatch
+): Promise<Deck> {
+  const request = appendDeckPatchRequestSchema.parse({ patch, responseMode: "ack" });
+  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(request)
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Deck save failed");
+  }
+
+  const acknowledgement = appendDeckPatchAckResponseSchema.parse(await response.json());
+  emitOoxmlSyncJob(acknowledgement.ooxmlSyncJob);
+  return applyDeckPatchAcknowledgement(baseDeck, request.patch, acknowledgement);
+}
+
 function emitOoxmlSyncJob(job: Job | undefined) {
   if (!job || typeof window === "undefined") {
     return;
@@ -963,6 +1030,58 @@ export async function createPptxImportJob(
   return jobSchema.parse(payload.job);
 }
 
+export async function createSemanticCueExtractionJob(
+  projectId: string,
+  force: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/semantic-cues`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readPlainError(response, "Semantic Cue extraction job creation failed")
+    );
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForSemanticCueExtractionJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(
+        await readPlainError(response, "Semantic Cue extraction job fetch failed")
+      );
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Semantic Cue extraction job timed out.");
+    }
+    await delay(pollIntervalMs);
+  }
+}
+
 export async function waitForPptxImportJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
@@ -990,6 +1109,68 @@ export async function waitForPptxImportJob(
 
     await delay(pollIntervalMs);
   }
+}
+
+export async function createDeckExportJob(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/exports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ format: "pptx" })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readPlainError(response, "Deck export job creation failed"));
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForDeckExportJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+
+    if (!response.ok) {
+      throw new Error(await readPlainError(response, "Deck export job fetch failed"));
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Deck export job timed out.");
+    }
+
+    await delay(pollIntervalMs);
+  }
+}
+
+export async function exportDeckToPptx(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<DeckExportJobResult> {
+  const queuedJob = await createDeckExportJob(projectId, fetcher);
+  const job = await waitForDeckExportJob(queuedJob.jobId, fetcher);
+  if (job.status === "failed") {
+    throw new Error(job.error?.message ?? "Deck export failed.");
+  }
+  return deckExportJobResultSchema.parse(job.result);
 }
 
 export async function uploadAndImportPptxTemplate(
@@ -1071,6 +1252,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const [rightPanelView, setRightPanelView] = useState<
+    "ai-chat" | "ai-tools" | "semantic-cues"
+  >("ai-chat");
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1175,13 +1359,14 @@ export function EditorShell(props: { projectId?: string }) {
     (state) => state.setElementContextMenu
   );
   const [isImageUploadPending, setIsImageUploadPending] = useState(false);
-  const [rightInspectorTab, setRightInspectorTab] = useState<"ai" | "design" | "notes">("ai");
   const [pptxImportState, setPptxImportState] = useState<PptxImportState>({
     status: "idle",
     warnings: [],
     qualityReport: null,
     message: ""
   });
+  const [semanticCueExtractionState, setSemanticCueExtractionState] =
+    useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
   const [activePresentationAction, setActivePresentationAction] = useState<
     "presentation" | "rehearsal" | null
   >(null);
@@ -1213,6 +1398,8 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
+    setRightPanelView("ai-chat");
+    setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -1370,6 +1557,9 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveState,
     workingDeckRef
   } = useEditorPersistenceState(loadedDeck);
+  const [isPptxExporting, setIsPptxExporting] = useState(false);
+  const [pptxExportStatus, setPptxExportStatus] = useState("");
+  const [pptxExportError, setPptxExportError] = useState("");
   const {
     canManageShare,
     handleShareInvite,
@@ -1619,6 +1809,22 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: Download, label: "PNG 내보내기" },
     { icon: Download, label: "JSON 백업 내보내기" }
   ];
+  const resolvedExportMenuItems = exportMenuItems.map((item, index) =>
+    index === 0
+      ? {
+          ...item,
+          action: "pptx" as const,
+          disabled: isPptxExporting,
+          label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+          meta: pptxExportError || pptxExportStatus
+        }
+      : {
+          ...item,
+          action: "pending" as const,
+          disabled: true,
+          meta: "준비 중"
+        }
+  );
   const resizeMenuItems = [
     {
       label: "와이드 16:9",
@@ -1801,7 +2007,9 @@ export function EditorShell(props: { projectId?: string }) {
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
 
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
+  function handleDesignAgentProposalApplied(
+    response: ApplyDesignAgentProposalResponse
+  ) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
@@ -1811,9 +2019,7 @@ export function EditorShell(props: { projectId?: string }) {
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
+    setLastPatchLabel(`AI design · v${response.deck.version}`);
     setSaveState("auto-saved");
     setSaveError(null, null);
   }
@@ -1998,6 +2204,43 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  async function handleExportPptx() {
+    if (isPptxExporting) return;
+
+    const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
+    if (!activeProjectId) {
+      setPptxExportError("내보낼 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setIsPptxExporting(true);
+    setPptxExportError("");
+    setPptxExportStatus("저장 중...");
+
+    try {
+      const saved = await handleSaveDeck();
+      if (!saved) {
+        throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
+      }
+
+      setPptxExportStatus("PPTX 내보내기 중...");
+      const result = await exportDeckToPptx(activeProjectId);
+      setPptxExportStatus(
+        result.warnings.length
+          ? `PPTX 생성 완료, ${result.warnings.length}개 경고`
+          : "PPTX 생성 완료"
+      );
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setPptxExportStatus("");
+      setPptxExportError(
+        error instanceof Error ? error.message : "PPTX 내보내기에 실패했습니다."
+      );
+    } finally {
+      setIsPptxExporting(false);
+    }
+  }
+
   async function handleStartPresentationAction(
     destination: "presentation" | "rehearsal"
   ) {
@@ -2042,6 +2285,15 @@ export function EditorShell(props: { projectId?: string }) {
           new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
           "missing-persisted-base"
         );
+      }
+
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
       }
 
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
@@ -2142,7 +2394,11 @@ export function EditorShell(props: { projectId?: string }) {
       let persistedDeck: Deck;
 
       try {
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          basePersistedDeck,
+          buildResult.patch
+        );
       } catch (error) {
         if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
           throw error;
@@ -2157,7 +2413,11 @@ export function EditorShell(props: { projectId?: string }) {
         recoveredConflict = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          latestDeck,
+          buildResult.patch
+        );
       }
 
       let finalPersistedDeck = persistedDeck;
@@ -2192,8 +2452,9 @@ export function EditorShell(props: { projectId?: string }) {
               currentDeck: workingDeckRef.current
             })
           ) {
-            finalPersistedDeck = await appendProjectDeckPatch(
+            finalPersistedDeck = await appendProjectDeckPatchAck(
               activeProjectId,
+              persistedDeck,
               thumbnailPatch
             );
           }
@@ -2399,6 +2660,98 @@ export function EditorShell(props: { projectId?: string }) {
           setSaveState("auto-pending");
         }
       });
+  }
+
+  function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
+    if (!currentSlide) {
+      return;
+    }
+    const slideId = currentSlide.slideId;
+    commitPatch((currentDeck) =>
+      createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
+    );
+  }
+
+  async function handleSemanticCueExtraction(force: boolean) {
+    if (semanticCueExtractionState.status === "running") {
+      return;
+    }
+
+    setSemanticCueExtractionState({
+      status: "running",
+      message: "슬라이드와 발표 대본의 의미를 분석하는 중입니다."
+    });
+
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current
+      });
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const queuedJob = await createSemanticCueExtractionJob(
+        activeProjectId,
+        force
+      );
+      const completedJob = await waitForSemanticCueExtractionJob(queuedJob.jobId);
+      if (completedJob.status === "failed") {
+        throw new Error(
+          completedJob.error?.message ?? "Semantic Cue extraction failed."
+        );
+      }
+
+      const selectedSlideId = currentSlide?.slideId;
+      const refetchResult = await deckQuery.refetch();
+      const extractedDeck = refetchResult.data;
+      if (extractedDeck) {
+        queryClient.setQueryData(["deck", projectId], extractedDeck);
+        markHydratedPersistedDeck(extractedDeck, setDeck);
+        const nextSlideIndex = selectedSlideId
+          ? extractedDeck.slides.findIndex(
+              (slide) => slide.slideId === selectedSlideId
+            )
+          : -1;
+        if (nextSlideIndex >= 0) {
+          setCurrentSlideIndex(nextSlideIndex);
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+        setLastPatchLabel(`발표 메시지 AI 분석 · v${extractedDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      }
+
+      setSemanticCueExtractionState({
+        status: "succeeded",
+        message: "AI 분석이 완료되었습니다. 제안된 메시지를 검토해 주세요."
+      });
+    } catch (error) {
+      setSemanticCueExtractionState({
+        status: "error",
+        message: toEditorErrorMessage(error)
+      });
+    }
+  }
+
+  function handleRightPanelTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const views = ["ai-chat", "ai-tools", "semantic-cues"] as const;
+    const currentIndex = views.indexOf(rightPanelView);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextView = views[(currentIndex + direction + views.length) % views.length];
+    setRightPanelView(nextView);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`editor-${nextView === "semantic-cues" ? "semantic-cue" : nextView}-tab`)
+        ?.focus();
+    });
   }
 
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
@@ -4425,13 +4778,9 @@ export function EditorShell(props: { projectId?: string }) {
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <div className="menu-stack">
-            <div className="editor-document-title">
-              <button aria-label="ORBIT 홈으로 이동" onClick={handleExitToHome} type="button"><img alt="ORBIT" src={orbitLogo} /></button>
-              <span><strong>{deck.title}</strong><small>{saveStatusLabel}</small></span>
-            </div>
             <div className="menu-row">
               <button
-                aria-label="홈으로 이동"
+                aria-label="ORBIT 홈으로 이동"
                 className="top-icon-button"
                 title="홈으로 이동"
                 type="button"
@@ -4532,11 +4881,25 @@ export function EditorShell(props: { projectId?: string }) {
                     </button>
                   ))}
                   <span className="menu-section-label">내보내기</span>
-                  {exportMenuItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                  {resolvedExportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
+                    <button
+                      className="file-menu-item"
+                      disabled={disabled}
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (action === "pptx") {
+                          void handleExportPptx();
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
+                      </span>
+                      <span className="file-menu-meta">
+                        {meta ? <small>{meta}</small> : null}
                       </span>
                     </button>
                   ))}
@@ -4601,7 +4964,11 @@ export function EditorShell(props: { projectId?: string }) {
           </div>
         </div>
 
-        <div aria-hidden="true" className="topbar-center" />
+        <div className="topbar-center">
+          <span className="editor-document-title">
+            <span className="deck-title">{deck.title}</span>
+          </span>
+        </div>
 
         <div className="top-actions">
           {projectPresenceUsers.length > 0 ? (
@@ -5343,7 +5710,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>인스펙터</h2>
+                <h2>도구</h2>
                 <div>
                   <button
                     className="collapse-right-pane-button"
@@ -5355,16 +5722,101 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 </div>
               </div>
-              <div aria-label="에디터 인스펙터" className="right-panel-tabs" role="tablist">
-                {([ ["ai", "AI 제안"], ["design", "디자인"], ["notes", "메모"] ] as const).map(([tab, label]) => <button aria-selected={rightInspectorTab === tab} className={rightInspectorTab === tab ? "active" : ""} key={tab} onClick={() => setRightInspectorTab(tab)} role="tab" type="button">{label}</button>)}
+              <div
+                aria-label="오른쪽 패널 보기"
+                className="right-panel-tabs"
+                role="tablist"
+              >
+                <button
+                  aria-controls="editor-ai-chat-panel"
+                  aria-selected={rightPanelView === "ai-chat"}
+                  className={rightPanelView === "ai-chat" ? "active" : ""}
+                  id="editor-ai-chat-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-chat" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-chat")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 채팅
+                </button>
+                <button
+                  aria-controls="editor-ai-tools-panel"
+                  aria-selected={rightPanelView === "ai-tools"}
+                  className={rightPanelView === "ai-tools" ? "active" : ""}
+                  id="editor-ai-tools-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-tools" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-tools")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 도구
+                </button>
+                <button
+                  aria-controls="editor-semantic-cue-panel"
+                  aria-selected={rightPanelView === "semantic-cues"}
+                  className={rightPanelView === "semantic-cues" ? "active" : ""}
+                  id="editor-semantic-cue-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("semantic-cues")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  발표 메시지
+                  {currentSlide?.semanticCues.length
+                    ? ` ${currentSlide.semanticCues.length}`
+                    : ""}
+                </button>
               </div>
-              {rightInspectorTab === "ai" ? <div className="assistant-panel-slot" role="tabpanel">
+              <div className="assistant-panel-slot">
+                <div
+                  aria-labelledby="editor-ai-chat-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-chat"}
+                  id="editor-ai-chat-panel"
+                  role="tabpanel"
+                >
+                  <AiChatPanel
+                    projectId={projectId}
+                    deck={deck}
+                    currentSlide={currentSlide}
+                    selectedElementIds={selectedElementIds}
+                    onProposalApplied={handleDesignAgentProposalApplied}
+                  />
+                </div>
+                <div
+                  aria-labelledby="editor-ai-tools-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-tools"}
+                  id="editor-ai-tools-panel"
+                  role="tabpanel"
+                >
                   <PptxImportQualityPanel state={pptxImportState} />
-                  <ValidationPanel items={editorValidationItems} onApplyAllTextOverflow={handleApplyAllValidationTextOverflow} onHighlightElementIds={setValidationHighlightElementIds} onTextOverflowAction={handleValidationTextOverflowAction} />
-                  <SuggestionPanel deck={deck} projectId={projectId} slideId={currentSlide?.slideId ?? null} onApplySuccess={handleAiSuggestionApplied} />
-                </div> : null}
-              {rightInspectorTab === "design" ? <section className="orbit-design-inspector" role="tabpanel"><p className="orbit-ds-eyebrow">DESIGN</p><h3>{selectedElement ? "선택한 요소" : "슬라이드 디자인"}</h3><p>{selectedElement ? `${selectedElement.type} 요소의 위치와 스타일은 캔버스 상단 빠른 도구에서 편집할 수 있습니다.` : "요소를 선택하면 정렬, 색상, 크기와 애니메이션 도구가 활성화됩니다."}</p><dl><div><dt>배경</dt><dd><i style={{ background: currentSlide?.style.backgroundColor ?? deck.theme.backgroundColor }} />{currentSlide?.style.backgroundColor ?? deck.theme.backgroundColor}</dd></div><div><dt>강조색</dt><dd><i style={{ background: currentSlide?.style.accentColor ?? deck.theme.accentColor }} />{currentSlide?.style.accentColor ?? deck.theme.accentColor}</dd></div></dl></section> : null}
-              {rightInspectorTab === "notes" ? <section className="orbit-notes-inspector" role="tabpanel"><p className="orbit-ds-eyebrow">SPEAKER NOTES</p><h3>발표 메모</h3>{isSpeakerNotesEditing ? <><textarea aria-label="인스펙터 발표 메모 수정" onChange={(event) => setSpeakerNotesDraft(event.target.value)} value={speakerNotesDraft} /><div><button onClick={handleCancelSpeakerNotesEdit} type="button">취소</button><button className="primary" onClick={handleSaveSpeakerNotesEdit} type="button">저장</button></div></> : <><p>{currentSlide?.speakerNotes || "이 슬라이드에 발표 메모가 없습니다."}</p><button onClick={handleStartSpeakerNotesEdit} type="button">메모 수정</button></>}</section> : null}
+                  <ValidationPanel
+                    items={editorValidationItems}
+                    onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                    onHighlightElementIds={setValidationHighlightElementIds}
+                    onTextOverflowAction={handleValidationTextOverflowAction}
+                  />
+                  <SourceLedgerPanel slide={currentSlide ?? null} />
+                </div>
+                <div
+                  aria-labelledby="editor-semantic-cue-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "semantic-cues"}
+                  id="editor-semantic-cue-panel"
+                  role="tabpanel"
+                >
+                  <SemanticCueReviewPanel
+                    extractionState={semanticCueExtractionState}
+                    slide={currentSlide}
+                    onChange={handleSemanticCueReviewChange}
+                    onExtract={(force) => void handleSemanticCueExtraction(force)}
+                  />
+                </div>
+              </div>
             </>
           ) : (
             <div className="collapsed-right-rail">
@@ -5376,7 +5828,7 @@ export function EditorShell(props: { projectId?: string }) {
               >
                 <PanelRightOpen size={16} />
               </button>
-              <span>AI</span>
+              <span>도구</span>
             </div>
           )}
         </aside>

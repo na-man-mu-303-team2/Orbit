@@ -157,6 +157,51 @@ describe("FilesService", () => {
     ]);
   });
 
+  it("hides private audio from generic complete, get, list, and content boundaries", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_private_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/private/file_private_1.webm",
+        originalName: "focused-attempt.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "internal://private-audio",
+        purpose: "focused-practice-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+        deletedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage(),
+    );
+
+    await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
+    await expect(
+      service.getUploadedAsset(demoProject.projectId, "file_private_1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.completeUpload(demoProject.projectId, { fileId: "file_private_1" }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readUploadedAssetContent(demoProject.projectId, "file_private_1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        "file_private_1",
+        "focused-practice-audio",
+      ),
+    ).resolves.toMatchObject({ fileId: "file_private_1" });
+  });
+
   it("uses the request origin for local upload proxy URLs", async () => {
     const { service } = createService(
       {

@@ -1,4 +1,5 @@
 import type { Job } from "@orbit/shared";
+import { PATH_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it, vi } from "vitest";
 import { authSessionCookieName } from "../auth/auth.constants";
 import type { AuthService } from "../auth/auth.service";
@@ -21,6 +22,13 @@ const job: Job = {
 };
 
 describe("JobsController", () => {
+  it("exposes the generic and v1 job polling routes", () => {
+    expect(Reflect.getMetadata(PATH_METADATA, JobsController)).toEqual([
+      "jobs",
+      "api/v1/jobs",
+    ]);
+  });
+
   it("requires project write permission before creating a generic job", async () => {
     const { controller, jobsService, projectsService } = createController();
 
@@ -37,6 +45,22 @@ describe("JobsController", () => {
       projectId: "project-a",
       type: "worker-health-check",
     });
+  });
+
+  it("rejects internal coaching job types on the public endpoint", async () => {
+    const { controller, jobsService } = createController();
+
+    await expect(
+      controller.createJob(
+        {
+          projectId: "project-a",
+          type: "focused-practice-analysis",
+          payload: { attemptId: "attempt-1" },
+        },
+        signedRequest(),
+      ),
+    ).rejects.toThrow();
+    expect(jobsService.create).not.toHaveBeenCalled();
   });
 
   it("requires project read permission before returning a job result", async () => {

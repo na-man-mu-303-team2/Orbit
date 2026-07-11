@@ -1,7 +1,10 @@
 import type { SemanticCue } from "@orbit/shared";
 
 import { normalizeSpeechText } from "./phraseExtractor";
-import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
+import {
+  semanticCueRuntimeConfig,
+  type SemanticCueRuntimeConfig
+} from "./semanticCueRuntimeConfig";
 
 export type SemanticCueCandidate = {
   cue: SemanticCue;
@@ -19,19 +22,25 @@ export function selectSemanticCueCandidates(options: {
   transcript: string;
   cues: readonly SemanticCue[];
   coveredCueIds: ReadonlySet<string>;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
   retrievalScoresByCueId?: ReadonlyMap<string, number>;
   maxCandidates?: number;
+  config?: SemanticCueRuntimeConfig;
 }): SemanticCueCandidate[] {
+  const config = options.config ?? semanticCueRuntimeConfig;
   const maxCandidates = options.maxCandidates ?? 3;
-  const slideCues = options.cues.filter((cue) => cue.slideId === options.slideId);
+  const slideCues = options.cues.filter(
+    (cue) =>
+      cue.slideId === options.slideId &&
+      cue.reviewStatus === "approved" &&
+      cue.freshness === "current"
+  );
   const candidates = slideCues.map((cue) =>
     scoreSemanticCueCandidate({
       cue,
       transcript: options.transcript,
       covered: options.coveredCueIds.has(cue.cueId),
-      semanticDecisionReason: options.semanticDecisionReason,
-      retrievalScore: options.retrievalScoresByCueId?.get(cue.cueId) ?? 0
+      retrievalScore: options.retrievalScoresByCueId?.get(cue.cueId) ?? 0,
+      config
     })
   );
 
@@ -51,30 +60,37 @@ function scoreSemanticCueCandidate(options: {
   cue: SemanticCue;
   transcript: string;
   covered: boolean;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
   retrievalScore: number;
+  config: SemanticCueRuntimeConfig;
 }): SemanticCueCandidate {
-  const lexicalScore = scoreTermCoverage(options.transcript, [
-    ...options.cue.candidateKeywords,
-    ...Object.keys(options.cue.aliases),
-    ...Object.values(options.cue.aliases).flat()
-  ]);
-  const conceptCoverage = scoreTermCoverage(
+  const config = options.config;
+  const lexicalScore = scoreTermGroupCoverage(
     options.transcript,
-    options.cue.requiredConcepts
+    buildSemanticCueTermGroups(options.cue, [
+      ...options.cue.candidateKeywords,
+      ...Object.keys(options.cue.aliases)
+    ])
+  );
+  const conceptCoverage = scoreTermGroupCoverage(
+    options.transcript,
+    buildSemanticCueTermGroups(options.cue, options.cue.requiredConcepts)
   );
   const priorityScore = priorityToScore(options.cue.priority, options.cue.required);
   const retrievalScore = clamp01(options.retrievalScore);
+  const weights = config.candidateWeights;
   const score = roundScore(
-    lexicalScore * 0.28 +
-      conceptCoverage * 0.32 +
-      retrievalScore * 0.25 +
-      priorityScore * 0.15
+    lexicalScore * weights.lexical +
+      conceptCoverage * weights.conceptCoverage +
+      retrievalScore * weights.retrieval +
+      priorityScore * weights.importance
   );
+  const eligible =
+    lexicalScore >= config.candidateEligibility.lexical ||
+    conceptCoverage > 0 ||
+    retrievalScore >= config.candidateEligibility.retrieval;
   const nliSkippedReason = getCandidateSkipReason({
     covered: options.covered,
-    score,
-    semanticDecisionReason: options.semanticDecisionReason
+    eligible
   });
 
   return {
@@ -91,19 +107,14 @@ function scoreSemanticCueCandidate(options: {
 
 function getCandidateSkipReason(options: {
   covered: boolean;
-  score: number;
-  semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
+  eligible: boolean;
 }) {
   if (options.covered) {
     return "already-covered";
   }
 
-  if (options.semanticDecisionReason === "no_match" && options.score < 0.4) {
+  if (!options.eligible) {
     return "no-meaningful-candidate";
-  }
-
-  if (options.score < 0.18) {
-    return "low-cue-score";
   }
 
   return undefined;
@@ -124,34 +135,64 @@ function compareSemanticCueCandidates(
   return left.cue.priority - right.cue.priority;
 }
 
-function scoreTermCoverage(transcript: string, terms: readonly string[]) {
+function scoreTermGroupCoverage(
+  transcript: string,
+  groups: readonly (readonly string[])[]
+) {
   const normalizedTranscript = normalizeSpeechText(transcript);
-  const normalizedTerms = uniqueTerms(terms);
-  if (!normalizedTranscript || normalizedTerms.length === 0) {
+  if (!normalizedTranscript || groups.length === 0) {
     return 0;
   }
 
-  const matched = normalizedTerms.filter((term) =>
-    normalizedTranscript.includes(term)
+  const matched = groups.filter((group) =>
+    group.some((term) => normalizedTranscript.includes(term))
   ).length;
 
-  return roundScore(matched / normalizedTerms.length);
+  return roundScore(matched / groups.length);
 }
 
-function uniqueTerms(terms: readonly string[]) {
-  const seen = new Set<string>();
-  const result: string[] = [];
+function buildSemanticCueTermGroups(
+  cue: SemanticCue,
+  terms: readonly string[]
+): string[][] {
+  const aliasGroups = Object.entries(cue.aliases)
+    .map(([canonical, aliases]) => uniqueTerms([canonical, ...aliases]))
+    .filter((group) => group.length > 0);
+  const aliasGroupByTerm = new Map<string, string[]>();
+  for (const group of aliasGroups) {
+    for (const term of group) {
+      aliasGroupByTerm.set(term, group);
+    }
+  }
+
+  const seenGroups = new Set<string>();
+  const result: string[][] = [];
 
   for (const term of terms) {
     const normalized = normalizeSpeechText(term);
-    if (!normalized || seen.has(normalized)) {
+    if (!normalized) {
       continue;
     }
-    seen.add(normalized);
-    result.push(normalized);
+    const group = aliasGroupByTerm.get(normalized) ?? [normalized];
+    const key = [...group].sort().join("\u0000");
+    if (seenGroups.has(key)) {
+      continue;
+    }
+    seenGroups.add(key);
+    result.push(group);
   }
 
   return result;
+}
+
+function uniqueTerms(terms: readonly string[]) {
+  return Array.from(
+    new Set(
+      terms
+        .map((term) => normalizeSpeechText(term))
+        .filter((term) => term.length > 0)
+    )
+  );
 }
 
 function priorityToScore(priority: 1 | 2 | 3, required: boolean) {

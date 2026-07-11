@@ -1,3 +1,5 @@
+import type { SemanticCue } from "@orbit/shared";
+
 import { defaultSpeechTrackingConfig } from "./speechTrackingConfig";
 import { normalizeSpeechText } from "./phraseExtractor";
 
@@ -8,6 +10,8 @@ export type SpeechBiasSource =
   | "keyword"
   | "synonym"
   | "abbreviation"
+  | "semantic-cue-term"
+  | "semantic-cue-alias"
   | "representative-phrase"
   | "legacy";
 
@@ -34,7 +38,12 @@ export type BuildSpeechTrackingBiasPhrasesInput = {
   keywords?: readonly SpeechBiasKeyword[];
   representativePhrases?: readonly string[];
   legacyPhrases?: readonly string[];
+  semanticCues?: readonly SemanticCue[];
+  adjacentSemanticCues?: readonly SemanticCue[];
+  semanticCueTermBudget?: number;
 };
+
+export const DEFAULT_SEMANTIC_CUE_BIAS_TERM_BUDGET = 12;
 
 export function buildSpeechTrackingBiasPhrases(
   input: BuildSpeechTrackingBiasPhrasesInput
@@ -48,17 +57,18 @@ export function buildSpeechTrackingBiasPhrases(
 
   const addTerm = (term: SpeechBiasTerm) => {
     if (terms.length >= budget) {
-      return;
+      return false;
     }
 
     const text = normalizeDisplayText(term.text);
     const key = normalizeSpeechText(text);
     if (!text || !key || seen.has(key)) {
-      return;
+      return false;
     }
 
     seen.add(key);
     terms.push({ ...term, text });
+    return true;
   };
 
   // P3-D13 우선순위: 명령/종결/큐/키워드는 레거시 slide context보다 먼저 예산을 확보한다.
@@ -102,6 +112,65 @@ export function buildSpeechTrackingBiasPhrases(
     }
   }
 
+  const semanticCueTermBudget = Math.max(
+    0,
+    input.semanticCueTermBudget ?? DEFAULT_SEMANTIC_CUE_BIAS_TERM_BUDGET
+  );
+  let semanticCueTermCount = 0;
+  const addSemanticCueTerms = (
+    cues: readonly SemanticCue[],
+    weights: { canonical: number; alias: number }
+  ) => {
+    for (const cue of cues) {
+      if (
+        cue.reviewStatus !== "approved" ||
+        cue.freshness !== "current" ||
+        cue.importance !== "core"
+      ) {
+        continue;
+      }
+      for (const group of technicalCueTermGroups(cue)) {
+        if (semanticCueTermCount >= semanticCueTermBudget) {
+          return;
+        }
+        if (
+          addTerm({
+            text: group.canonical,
+            source: "semantic-cue-term",
+            weight: weights.canonical,
+            canonicalText: group.canonical
+          })
+        ) {
+          semanticCueTermCount += 1;
+        }
+        for (const alias of group.aliases) {
+          if (semanticCueTermCount >= semanticCueTermBudget) {
+            return;
+          }
+          if (
+            addTerm({
+              text: alias,
+              source: "semantic-cue-alias",
+              weight: weights.alias,
+              canonicalText: group.canonical
+            })
+          ) {
+            semanticCueTermCount += 1;
+          }
+        }
+      }
+    }
+  };
+
+  addSemanticCueTerms(input.semanticCues ?? [], {
+    canonical: 0.93,
+    alias: 0.91
+  });
+  addSemanticCueTerms(input.adjacentSemanticCues ?? [], {
+    canonical: 0.85,
+    alias: 0.82
+  });
+
   for (const phrase of input.representativePhrases ?? []) {
     addTerm({ text: phrase, source: "representative-phrase", weight: 0.75 });
   }
@@ -111,6 +180,44 @@ export function buildSpeechTrackingBiasPhrases(
   }
 
   return terms;
+}
+
+function technicalCueTermGroups(cue: SemanticCue) {
+  const groups: Array<{ canonical: string; aliases: string[] }> = [];
+  const seenCanonical = new Set<string>();
+  const addGroup = (canonical: string, aliases: readonly string[]) => {
+    const normalizedCanonical = normalizeDisplayText(canonical);
+    const key = normalizeSpeechText(normalizedCanonical);
+    if (
+      !isTechnicalCanonicalTerm(normalizedCanonical) ||
+      !key ||
+      seenCanonical.has(key)
+    ) {
+      return;
+    }
+    seenCanonical.add(key);
+    const uniqueAliases = Array.from(
+      new Map(
+        aliases
+          .map(normalizeDisplayText)
+          .filter(Boolean)
+          .map((alias) => [normalizeSpeechText(alias), alias] as const)
+      ).values()
+    ).filter((alias) => normalizeSpeechText(alias) !== key);
+    groups.push({ canonical: normalizedCanonical, aliases: uniqueAliases });
+  };
+
+  for (const [canonical, aliases] of Object.entries(cue.aliases)) {
+    addGroup(canonical, aliases);
+  }
+  for (const keyword of cue.candidateKeywords) {
+    addGroup(keyword, cue.aliases[keyword] ?? []);
+  }
+  return groups;
+}
+
+function isTechnicalCanonicalTerm(value: string) {
+  return value.length >= 2 && value.length <= 64 && /[A-Za-z0-9_-]/.test(value);
 }
 
 function normalizeDisplayText(value: string) {

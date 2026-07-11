@@ -14,10 +14,10 @@ describe("autoAdvanceConfig", () => {
   it("uses P4 default timing and detector values", () => {
     expect(defaultAutoAdvancePolicy).toEqual({
       countdownMs: 2000,
-      live: true,
+      live: false,
       pauseMs: 700,
       rehearsal: true,
-      semanticMatching: false,
+      semanticMatching: true,
       threshold: 0.7
     });
     expect(defaultPauseDetectorConfig).toEqual({

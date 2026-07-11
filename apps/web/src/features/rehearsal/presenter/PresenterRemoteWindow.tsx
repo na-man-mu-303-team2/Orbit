@@ -1,19 +1,20 @@
 import type { Deck } from "@orbit/shared";
 import {
-  IconCircleCheck as CheckCircle2,
-  IconChevronLeft as ChevronLeft,
-  IconChevronRight as ChevronRight,
-  IconCircle as Circle,
-  IconEyeOff as EyeOff,
-  IconListCheck as ListChecks,
-  IconMaximize as Maximize2,
-  IconDeviceDesktop as Monitor,
-  IconPlayerPause as PauseCircle,
-  IconPlayerPlay as PlayCircle,
-  IconPower as Power,
-  IconRefresh as RotateCcw,
-  IconClock as Timer,
-} from "@tabler/icons-react";
+  AlertCircle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  EyeOff,
+  ListChecks,
+  Maximize2,
+  Monitor,
+  PauseCircle,
+  PlayCircle,
+  Power,
+  RotateCcw,
+  Timer,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   SemanticSpeechDebugPanel,
@@ -24,7 +25,7 @@ import {
   createPresenterCommandMessage,
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
-  getPresentationChannelName,
+  getPresenterRemoteChannelName,
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
   type PresentationChannelIdentity,
@@ -35,7 +36,7 @@ import type { PresenterSlideshowState } from "./presenterStateStore";
 import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScriptList";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
-import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
+import { getPresenterAidPolicy } from "./presenterAidPolicy";
 
 type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
@@ -66,7 +67,7 @@ export function PresenterRemoteWindow(props: {
   useEffect(() => {
     let channel: ChannelLike;
     try {
-      channel = channelFactory(getPresentationChannelName(identity));
+      channel = channelFactory(getPresenterRemoteChannelName(identity));
     } catch {
       setChannelError("발표자 제어 채널을 열 수 없습니다.");
       return;
@@ -178,11 +179,23 @@ export function PresenterRemoteWindow(props: {
     isDevelopment: import.meta.env.DEV,
     storage: typeof window === "undefined" ? null : window.localStorage,
   });
+  const capabilityItems = state.speech?.semanticCapabilityItems ?? [];
+  const liveAidPolicy = getPresenterAidPolicy("live");
+  const visibleCapabilityItems = [...capabilityItems]
+    .sort(
+      (left, right) =>
+        getCapabilitySeverityRank(right.severity) -
+        getCapabilitySeverityRank(left.severity),
+    )
+    .slice(0, liveAidPolicy.maxCapabilityItems);
+  const hiddenCapabilityCount = Math.max(
+    capabilityItems.length - visibleCapabilityItems.length,
+    0,
+  );
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
       <header className="presenter-remote-header">
-        <img alt="ORBIT" src={orbitLogoWhite} />
         <span>
           <Monitor size={16} />
           발표자 제어
@@ -192,6 +205,19 @@ export function PresenterRemoteWindow(props: {
           {channelError ? "채널 오류" : "팝업 연결됨"}
         </span>
       </header>
+      {visibleCapabilityItems.map((item) => (
+        <section
+          aria-label="발표자 시스템 상태"
+          className={`presenter-semantic-status presenter-semantic-status--${item.severity}`}
+          key={item.key}
+          tabIndex={0}
+        >
+          <AlertCircle aria-hidden="true" size={15} />
+          <strong>{item.shortLabel}</strong>
+          {hiddenCapabilityCount > 0 ? <span>+{hiddenCapabilityCount}</span> : null}
+          <p>{item.detail}</p>
+        </section>
+      ))}
       {channelError ? (
         <section className="presenter-remote-status" role="status">
           {channelError}
@@ -474,11 +500,24 @@ export function PresenterRemoteWindow(props: {
   );
 }
 
+function getCapabilitySeverityRank(severity: "info" | "warning" | "error") {
+  switch (severity) {
+    case "error":
+      return 2;
+    case "warning":
+      return 1;
+    case "info":
+      return 0;
+  }
+}
+
 export function applyPresenterRemoteMessage(
   current: PresenterSlideshowState,
   message: PresentationChannelMessage,
 ): PresenterSlideshowState {
   if (
+    message.type === "presenter-remote-snapshot" ||
+    message.type === "presenter-remote-state" ||
     message.type === "presenter-snapshot" ||
     message.type === "presenter-state"
   ) {

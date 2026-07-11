@@ -1,12 +1,14 @@
 import type { SemanticCueNliHypothesisInput } from "./semanticCueNliProvider";
 
 export type BrowserSemanticCueNliDevice = "webgpu" | "wasm";
+export type BrowserSemanticCueNliDtype = "fp32";
 
 export type BrowserSemanticCueNliLoadMessage = {
   type: "load";
   requestId: string;
   modelId: string;
   device: BrowserSemanticCueNliDevice;
+  dtype: BrowserSemanticCueNliDtype;
 };
 
 export type BrowserSemanticCueNliInferMessage = {
@@ -33,6 +35,12 @@ export type BrowserSemanticCueNliWorkerResponse =
       provider: "browser-transformersjs";
       modelId: string;
       device: BrowserSemanticCueNliDevice;
+      dtype: BrowserSemanticCueNliDtype;
+      labelMapping: {
+        entailment: number;
+        neutral: number;
+        contradiction: number;
+      };
       loadedAtMs: number;
     }
   | {

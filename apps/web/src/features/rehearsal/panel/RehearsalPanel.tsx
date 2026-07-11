@@ -2,7 +2,8 @@ import {
   AlertTriangle,
   Clock3,
   Gauge,
-  Timer
+  Timer,
+  X
 } from "lucide-react";
 import {
   useCallback,
@@ -32,6 +33,11 @@ import {
   createRehearsalScriptPrompterRows,
   getRehearsalScriptFocusSentenceId
 } from "./rehearsalScriptPrompter";
+import { SemanticCapabilityStatus } from "./SemanticCapabilityStatus";
+import type { SemanticCapabilityStatusItem } from "./semanticCapabilityStatusModel";
+import type { ComparisonReminder } from "../rehearsalRunComparisonModel";
+import type { P3SemanticCueProgressItem } from "../speech/p3RehearsalSession";
+import { SemanticCueChecklist } from "./SemanticCueChecklist";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -51,6 +57,11 @@ export type RehearsalPanelProps = {
   speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
+  semanticCapabilityItems?: readonly SemanticCapabilityStatusItem[];
+  semanticCueItems?: readonly P3SemanticCueProgressItem[];
+  onSemanticCapabilityAction?: (item: SemanticCapabilityStatusItem) => void;
+  comparisonReminder?: ComparisonReminder | null;
+  onDismissComparisonReminder?: () => void;
 };
 
 export function RehearsalPanel(props: RehearsalPanelProps) {
@@ -86,6 +97,12 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     [coveredSentenceIds, props.sentences, props.snapshot.coveredSentenceMatchKinds]
   );
   const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
+  const semanticCoveragePercent = Math.round(
+    props.snapshot.effectiveCoverage * 100
+  );
+  const scriptProgressPercent = Math.round(
+    (props.snapshot.scriptProgress?.ratio ?? 0) * 100
+  );
 
   const scrollScriptToFocus = useCallback(
     (behavior: ScrollBehavior) => {
@@ -138,6 +155,34 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
         />
       </div>
 
+      <SemanticCapabilityStatus
+        items={props.semanticCapabilityItems ?? []}
+        onAction={props.onSemanticCapabilityAction}
+      />
+
+      {props.comparisonReminder ? (
+        <section
+          className="rehearsal-comparison-reminder"
+          aria-label="지난 회차 반복 이슈"
+          role="status"
+        >
+          <AlertTriangle size={16} aria-hidden="true" />
+          <strong>지난 회차 반복</strong>
+          <span>
+            {props.comparisonReminder.label}: {props.comparisonReminder.reason}
+          </span>
+          <button
+            type="button"
+            aria-label="반복 이슈 알림 닫기"
+            onClick={props.onDismissComparisonReminder}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </section>
+      ) : null}
+
+      <SemanticCueChecklist items={props.semanticCueItems ?? []} />
+
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
           <div className="rehearsal-panel-section-heading">
@@ -165,7 +210,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                       .join(" ")}
                     key={keyword.keywordId}
                   >
-                    <em>{hit ? "체크" : provisionalMissing ? "미확인" : "대기"}</em>
+                    <em>
+                      {hit ? "체크" : provisionalMissing ? "미확인" : "미언급"}
+                    </em>
                     <span>{keyword.text}</span>
                   </li>
                 );
@@ -220,7 +267,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   따라가기
                 </button>
               ) : null}
-              <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+              <strong title="의미 커버리지와 원문 기준 실시간 진행률">
+                의미 {semanticCoveragePercent}% · 원문 {scriptProgressPercent}%
+              </strong>
             </div>
           </div>
           <div

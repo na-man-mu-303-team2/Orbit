@@ -1,7 +1,8 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
-import { AiSuggestionEntity } from "../ai-suggestions/ai-suggestion.entity";
+import { DesignAgentMessageEntity } from "../design-agent/design-agent-message.entity";
+import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
@@ -22,6 +23,12 @@ import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
 import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
+import { CreateDesignAgentTables2026071101000 } from "./migrations/2026071101000-CreateDesignAgentTables";
+import { AddRehearsalEvaluationSnapshot2026071001000 } from "./migrations/2026071001000-AddRehearsalEvaluationSnapshot";
+import { DropAiSuggestions2026071102000 } from "./migrations/2026071102000-DropAiSuggestions";
+import { CreateAdaptiveCoachingCore2026071103000 } from "./migrations/2026071103000-CreateAdaptiveCoachingCore";
+import { CreateFocusedPractice2026071104000 } from "./migrations/2026071104000-CreateFocusedPractice";
+import { CreateChallengeQna2026071105000 } from "./migrations/2026071105000-CreateChallengeQna";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -37,7 +44,8 @@ export const databaseOptions: DataSourceOptions = {
     ProjectMemberEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
-    AiSuggestionEntity
+    DesignAgentMessageEntity,
+    DesignAgentProposalEntity
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -55,11 +63,17 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalRunMetaJson2026070301000,
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
-    ReplaceRehearsalSummaryWithProjectComment2026070802000
+    ReplaceRehearsalSummaryWithProjectComment2026070802000,
+    AddRehearsalEvaluationSnapshot2026071001000,
+    CreateDesignAgentTables2026071101000,
+    DropAiSuggestions2026071102000,
+    CreateAdaptiveCoachingCore2026071103000,
+    CreateFocusedPractice2026071104000,
+    CreateChallengeQna2026071105000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
-  logging: config.NODE_ENV === "development"
+  logging: false
 };
 
 export default new DataSource(databaseOptions);

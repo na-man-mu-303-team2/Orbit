@@ -1,23 +1,37 @@
+import type { SemanticCapabilityEvent } from "@orbit/shared";
+
 import type { SemanticCueDebugEvent } from "../speech/semanticCueDebugEvents";
+import {
+  createSemanticCueDebugTimeline,
+  serializeSemanticCueDebugTimeline,
+  type SemanticCueDebugTimelineEntry
+} from "./semanticCueDebugTimeline";
 
 export const semanticCueDebugPanelQueryKey = "semanticCueDebug";
 
 export function SemanticCueDebugPanel(props: {
+  capabilityEvents?: readonly SemanticCapabilityEvent[];
   events: readonly SemanticCueDebugEvent[];
   onCopyJson?: (json: string) => void;
   onExportJson?: (json: string) => void;
 }) {
-  const latest = props.events.at(-1) ?? null;
-  const json = serializeSemanticCueDebugEvents(props.events);
+  const timeline = createSemanticCueDebugTimeline({
+    capabilityEvents: props.capabilityEvents,
+    decisionEvents: props.events
+  });
+  const json = serializeSemanticCueDebugTimeline({
+    capabilityEvents: props.capabilityEvents,
+    decisionEvents: props.events
+  });
 
   return (
     <aside
       className="semantic-speech-debug-panel semantic-cue-debug-panel"
-      aria-label="Semantic cue NLI debug panel"
+      aria-label="Semantic cue fallback debug panel"
     >
       <header>
-        <strong>Semantic Cue NLI</strong>
-        <span>{props.events.length} events</span>
+        <strong>Semantic Cue NLI fallback timeline</strong>
+        <span>{timeline.length} events</span>
       </header>
 
       <div className="semantic-cue-debug-actions">
@@ -29,60 +43,82 @@ export function SemanticCueDebugPanel(props: {
         </button>
       </div>
 
-      {latest ? (
-        <>
-          <section>
-            <span>Decision</span>
-            <p>
-              {latest.decision.label} · score{" "}
-              {latest.decision.finalScore.toFixed(3)} ·{" "}
-              {latest.decision.reasonCodes.join(", ")}
-            </p>
-          </section>
-
-          <section>
-            <span>NLI</span>
-            <p>
-              {latest.nli
-                ? `${latest.nli.provider} · ${latest.nli.latencyMs}ms · ${latest.nli.hypotheses.length} hypotheses`
-                : "not run"}
-            </p>
-          </section>
-
-          <ol>
-            {latest.candidates.map((candidate) => (
-              <li key={candidate.cueId}>
-                <div>
-                  <strong>{candidate.cueId}</strong>
-                  <span>{candidate.selectedForNli ? "NLI" : "skip"}</span>
-                </div>
-                <p>{candidate.meaning}</p>
-                <small>
-                  lexical {formatOptionalScore(candidate.lexicalScore)} · concept{" "}
-                  {formatOptionalScore(candidate.conceptCoverage)}
-                  {candidate.nliSkippedReason
-                    ? ` · ${candidate.nliSkippedReason}`
-                    : ""}
-                </small>
-              </li>
-            ))}
-          </ol>
-
-          <section>
-            <span>Action gate</span>
-            <p>
-              {latest.actionGate?.allowed ? "allowed" : "blocked"} ·{" "}
-              {latest.actionGate?.blockedReasons.join(", ") || "none"}
-            </p>
-          </section>
-        </>
+      {timeline.length > 0 ? (
+        <ol className="semantic-cue-debug-timeline">
+          {timeline.map((entry) => (
+            <li key={`${entry.kind}:${entry.eventId}`}>
+              {entry.kind === "capability" ? (
+                <CapabilityTimelineEntry entry={entry} />
+              ) : (
+                <DecisionTimelineEntry entry={entry} />
+              )}
+            </li>
+          ))}
+        </ol>
       ) : (
         <section>
-          <span>Decision</span>
-          <p>아직 semantic cue NLI 이벤트가 없습니다.</p>
+          <span>Timeline</span>
+          <p>아직 semantic cue fallback 이벤트가 없습니다.</p>
         </section>
       )}
     </aside>
+  );
+}
+
+function CapabilityTimelineEntry(props: {
+  entry: Extract<SemanticCueDebugTimelineEntry, { kind: "capability" }>;
+}) {
+  const { entry } = props;
+  return (
+    <>
+      <div>
+        <strong>{entry.capability}</strong>
+        <span>{entry.toState === "available" ? "복구" : "상태 변경"}</span>
+      </div>
+      <p>
+        {entry.fromState ?? "unknown"} → {entry.toState}
+        {entry.reason ? ` · ${entry.reason}` : ""}
+      </p>
+      <small>
+        {entry.measurementMode}
+        {entry.provider ? ` · ${entry.provider}` : ""}
+        {entry.latencyMs === undefined ? "" : ` · ${entry.latencyMs}ms`}
+        {entry.affectedCueIds.length > 0
+          ? ` · cues ${entry.affectedCueIds.join(", ")}`
+          : ""}
+      </small>
+    </>
+  );
+}
+
+function DecisionTimelineEntry(props: {
+  entry: Extract<SemanticCueDebugTimelineEntry, { kind: "decision" }>;
+}) {
+  const { entry } = props;
+  return (
+    <>
+      <div>
+        <strong>{entry.decisionLabel}</strong>
+        <span>{entry.fallbackUsed ? "fallback" : "decision"}</span>
+      </div>
+      <p>
+        {entry.decisionReasonCodes.join(", ") || "no reason"}
+        {entry.fallbackReason ? ` · ${entry.fallbackReason}` : ""}
+      </p>
+      <small>
+        {entry.provider ?? "provider not run"}
+        {entry.latencyMs === undefined ? "" : ` · ${entry.latencyMs}ms`}
+        {entry.skippedReasons.length > 0
+          ? ` · skipped ${entry.skippedReasons.join(", ")}`
+          : ""}
+        {entry.affectedCueIds.length > 0
+          ? ` · cues ${entry.affectedCueIds.join(", ")}`
+          : ""}
+        {entry.actionAllowed
+          ? " · action allowed"
+          : ` · action blocked ${entry.actionBlockedReasons.join(", ") || "unknown"}`}
+      </small>
+    </>
   );
 }
 
@@ -105,9 +141,5 @@ export function shouldShowSemanticCueDebugPanel(options: {
 export function serializeSemanticCueDebugEvents(
   events: readonly SemanticCueDebugEvent[]
 ) {
-  return JSON.stringify({ events }, null, 2);
-}
-
-function formatOptionalScore(score: number | undefined) {
-  return typeof score === "number" ? score.toFixed(3) : "n/a";
+  return serializeSemanticCueDebugTimeline({ decisionEvents: events });
 }

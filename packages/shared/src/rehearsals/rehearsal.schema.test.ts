@@ -4,13 +4,76 @@ import {
   beginRehearsalAudioUploadRequestSchema,
   completeRehearsalAudioChunkUploadRequestSchema,
   completeRehearsalAudioUploadRequestSchema,
+  createRehearsalRunRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  rehearsalRunComparisonSchema,
+  rehearsalSemanticCueOutcomeSchema,
+  rehearsalSemanticCueDecisionSchema,
   rehearsalRunMetaSchema,
   rehearsalReportSchema,
   rehearsalRunSchema,
   uploadRehearsalAudioChunkParamsSchema
 } from "./rehearsal.schema";
+
+describe("rehearsalRunComparisonSchema", () => {
+  it("accepts a bounded owner-only comparison without report evidence", () => {
+    const issue = {
+      category: "semantic-cue" as const,
+      slideId: "slide_1",
+      cueId: "scue_1",
+      cueRevision: 2,
+      label: "고객 가치",
+      severity: "high" as const,
+      reason: "두 회차 연속 핵심 의미를 충분히 전달하지 못했습니다."
+    };
+
+    const comparison = rehearsalRunComparisonSchema.parse({
+      currentRunId: "run_2",
+      previousRunId: "run_1",
+      improved: [],
+      repeated: [issue],
+      newIssues: [],
+      incomparable: [],
+      briefing: [issue]
+    });
+
+    expect(comparison.briefing).toEqual([issue]);
+    expect(JSON.stringify(comparison)).not.toContain("evidence");
+    expect(JSON.stringify(comparison)).not.toContain("transcript");
+  });
+
+  it("rejects more than three briefing items and unknown evidence fields", () => {
+    const issue = {
+      category: "timing",
+      slideId: "slide_1",
+      label: "도입부 시간 초과",
+      severity: "medium",
+      reason: "두 회차 연속 목표 시간을 초과했습니다."
+    };
+    const base = {
+      currentRunId: "run_2",
+      previousRunId: "run_1",
+      improved: [],
+      repeated: [],
+      newIssues: [],
+      incomparable: []
+    };
+
+    expect(
+      rehearsalRunComparisonSchema.safeParse({
+        ...base,
+        briefing: [issue, issue, issue, issue]
+      }).success
+    ).toBe(false);
+    expect(
+      rehearsalRunComparisonSchema.safeParse({
+        ...base,
+        briefing: [{ ...issue, evidence: "민감한 발화 근거" }]
+      }).success
+    ).toBe(false);
+  });
+});
 
 describe("rehearsalRunSchema", () => {
   it("accepts deleted raw audio tracking on completed runs", () => {
@@ -29,6 +92,72 @@ describe("rehearsalRunSchema", () => {
 
     expect(run.status).toBe("succeeded");
     expect(run.rawAudioDeletedAt).toBe("2026-06-29T00:00:10.000Z");
+    expect(run.deckVersion).toBeNull();
+    expect(run.evaluationSnapshot).toBeNull();
+    expect(run.semanticEvaluationMode).toBe("full");
+    expect(run.analysisRevision).toBe(0);
+    expect(run.analysisFinalizedAt).toBeNull();
+  });
+
+  it("accepts cancelled runs without report processing fields", () => {
+    const run = rehearsalRunSchema.parse({
+      runId: "run_cancelled",
+      projectId: "project_demo_1",
+      deckId: "deck_demo_1",
+      audioFileId: null,
+      jobId: null,
+      status: "cancelled",
+      error: null,
+      rawAudioDeletedAt: null,
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:10.000Z"
+    });
+
+    expect(run.status).toBe("cancelled");
+  });
+});
+
+describe("createRehearsalRunRequestSchema", () => {
+  it("defaults semantic evaluation to full and accepts an expected deck version", () => {
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7
+      })
+    ).toEqual({
+      deckId: "deck_demo_1",
+      expectedDeckVersion: 7,
+      semanticEvaluationMode: "full"
+    });
+  });
+
+  it("accepts an explicit delivery-only run", () => {
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        semanticEvaluationMode: "delivery-only"
+      }).semanticEvaluationMode
+    ).toBe("delivery-only");
+  });
+
+  it("requires a complete adaptive evaluation context", () => {
+    expect(
+      createRehearsalRunRequestSchema.safeParse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7,
+        briefRef: { mode: "generic" }
+      }).success
+    ).toBe(false);
+
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7,
+        briefRef: { mode: "generic" },
+        evaluatorLensRef: { lensId: "general-novice", revision: 1 },
+        sourceGoalSetId: null
+      }).sourceGoalSetId
+    ).toBeNull();
   });
 });
 
@@ -136,6 +265,16 @@ describe("rehearsalReportSchema", () => {
     expect(report.missedKeywords).toEqual([]);
     expect(report.utteranceOutcomes).toEqual([]);
     expect(report.semanticCueDecisions).toEqual([]);
+    expect(report.semanticCueOutcomes).toEqual([]);
+    expect(report.semanticEvaluation).toEqual({
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false
+    });
+    expect(report.metrics.keywordCoverageMeasurement).toEqual({
+      state: "measured"
+    });
     expect(report.slideTimings).toEqual([]);
     expect(report.slideInsights).toEqual([]);
     expect(report.qnaSummary).toEqual({
@@ -144,6 +283,131 @@ describe("rehearsalReportSchema", () => {
       unclearTopics: []
     });
     expect(report.aiSummary).toBeUndefined();
+  });
+
+  it("accepts a canonical measured semantic cue outcome", () => {
+    const report = rehearsalReportSchema.parse({
+      ...rehearsalReportFixture(),
+      semanticEvaluation: {
+        state: "succeeded",
+        measurementMode: "full",
+        reasons: [],
+        retryable: false
+      },
+      semanticCueOutcomes: [
+        semanticCueOutcome({
+          status: "covered",
+          measurementMode: "full",
+          matchedBy: "post_run_semantic",
+          evidence: {
+            excerpt: "  고객 획득 비용은\n초기 영업 비용 때문에 높았습니다.  ",
+            startMs: 1200,
+            endMs: 4800
+          }
+        })
+      ]
+    });
+
+    expect(report.semanticCueOutcomes[0]?.evidence?.excerpt).toBe(
+      "고객 획득 비용은 초기 영업 비용 때문에 높았습니다."
+    );
+  });
+});
+
+describe("rehearsalSemanticCueOutcomeSchema", () => {
+  it("requires an explicit reason for unmeasured outcomes", () => {
+    const missingReason = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ status: "unmeasured", measurementMode: "none" })
+    );
+    const measuredUnmeasured = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({
+        status: "unmeasured",
+        measurementMode: "full",
+        unmeasuredReason: "no_transcript"
+      })
+    );
+
+    expect(missingReason.success).toBe(false);
+    expect(measuredUnmeasured.success).toBe(false);
+  });
+
+  it("allows missed only after full measurement", () => {
+    const none = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ status: "missed", measurementMode: "none" })
+    );
+    const basic = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ status: "missed", measurementMode: "basic" })
+    );
+    const full = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ status: "missed", measurementMode: "full" })
+    );
+
+    expect(none.success).toBe(false);
+    expect(basic.success).toBe(false);
+    expect(full.success).toBe(true);
+  });
+
+  it("allows basic mode only for positive covered or partial evidence", () => {
+    expect(
+      rehearsalSemanticCueOutcomeSchema.safeParse(
+        semanticCueOutcome({ status: "covered", measurementMode: "basic" })
+      ).success
+    ).toBe(true);
+    expect(
+      rehearsalSemanticCueOutcomeSchema.safeParse(
+        semanticCueOutcome({ status: "partial", measurementMode: "basic" })
+      ).success
+    ).toBe(true);
+    expect(
+      rehearsalSemanticCueOutcomeSchema.safeParse(
+        semanticCueOutcome({ status: "excluded", measurementMode: "basic" })
+      ).success
+    ).toBe(false);
+  });
+
+  it("requires fallback reasons and keeps excluded outcomes evidence-free", () => {
+    const fallbackWithoutReason = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ fallbackUsed: true })
+    );
+    const excludedWithEvidence = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({
+        status: "excluded",
+        measurementMode: "none",
+        evidence: { excerpt: "저장하면 안 되는 근거", startMs: 0, endMs: 10 }
+      })
+    );
+    const excluded = rehearsalSemanticCueOutcomeSchema.safeParse(
+      semanticCueOutcome({ status: "excluded", measurementMode: "none" })
+    );
+
+    expect(fallbackWithoutReason.success).toBe(false);
+    expect(excludedWithEvidence.success).toBe(false);
+    expect(excluded.success).toBe(true);
+  });
+});
+
+describe("rehearsalSemanticCueDecisionSchema", () => {
+  it("normalizes legacy NLI decisions and requires a visible fallback reason", () => {
+    const legacy = rehearsalSemanticCueDecisionSchema.parse({
+      slideId: "slide_1",
+      cueId: "scue_1",
+      label: "covered",
+      finalScore: 0.9,
+      provider: "mock",
+      reasonCodes: ["nli-entailment"]
+    });
+    const invalidFallback = rehearsalSemanticCueDecisionSchema.safeParse({
+      ...legacy,
+      fallbackUsed: true,
+      fallbackReason: undefined
+    });
+
+    expect(legacy).toMatchObject({
+      matchedBy: "nli",
+      measurementMode: "full",
+      fallbackUsed: false
+    });
+    expect(invalidFallback.success).toBe(false);
   });
 });
 
@@ -404,6 +668,81 @@ describe("rehearsalRunMetaSchema", () => {
 
     expect(meta.utteranceOutcomes).toEqual([]);
     expect(meta.semanticCueDecisions).toEqual([]);
+    expect(meta.semanticCapabilityEvents).toEqual([]);
+  });
+
+  it("deduplicates bounded capability cue IDs without accepting sensitive fields", () => {
+    const meta = rehearsalRunMetaSchema.parse({
+      semanticCapabilityEvents: [
+        {
+          eventId: "cap_1",
+          capability: "nli",
+          fromState: "available",
+          toState: "degraded",
+          reason: "timeout",
+          measurementMode: "basic",
+          retryable: true,
+          slideId: "slide_1",
+          cueIds: ["scue_1", "scue_1"],
+          provider: "browser-transformersjs",
+          latencyMs: 1500,
+          at: "2026-07-02T00:00:30.000Z"
+        }
+      ]
+    });
+    const sensitive = rehearsalRunMetaSchema.safeParse({
+      semanticCapabilityEvents: [
+        {
+          eventId: "cap_2",
+          capability: "nli",
+          fromState: "available",
+          toState: "unavailable",
+          reason: "runtime_error",
+          measurementMode: "none",
+          retryable: false,
+          cueIds: [],
+          at: "2026-07-02T00:00:30.000Z",
+          transcript: "민감한 전사 원문"
+        }
+      ]
+    });
+
+    expect(meta.semanticCapabilityEvents[0]?.cueIds).toEqual(["scue_1"]);
+    expect(sensitive.success).toBe(false);
+  });
+
+  it("requires capability failure reasons and an explicit recovery source state", () => {
+    const noFailureReason = rehearsalRunMetaSchema.safeParse({
+      semanticCapabilityEvents: [
+        {
+          eventId: "cap_1",
+          capability: "stt",
+          fromState: "available",
+          toState: "unavailable",
+          measurementMode: "none",
+          retryable: true,
+          cueIds: [],
+          at: "2026-07-02T00:00:30.000Z"
+        }
+      ]
+    });
+    const noRecoverySource = rehearsalRunMetaSchema.safeParse({
+      semanticCapabilityEvents: [
+        {
+          eventId: "cap_2",
+          capability: "stt",
+          fromState: null,
+          toState: "available",
+          measurementMode: "full",
+          retryable: false,
+          cueIds: [],
+          at: "2026-07-02T00:00:31.000Z"
+        }
+      ]
+    });
+
+    expect(noFailureReason.success).toBe(false);
+    expect(noRecoverySource.success).toBe(false);
   });
 
   it("rejects oversized semantic cue premise and hypothesis evidence", () => {
@@ -479,5 +818,24 @@ function rehearsalReportFixture() {
       message: ""
     },
     generatedAt: "2026-06-29T00:00:10.000Z"
+  };
+}
+
+function semanticCueOutcome(
+  patch: Partial<Parameters<typeof rehearsalSemanticCueOutcomeSchema.parse>[0]> = {}
+) {
+  return {
+    slideId: "slide_1",
+    cueId: "scue_1",
+    cueRevision: 1,
+    cueMeaningSnapshot: "고객 획득 비용이 초기 영업 비용 때문에 높다",
+    reportLabelSnapshot: "초기 영업 비용이 높인 CAC",
+    importance: "core",
+    status: "covered",
+    measurementMode: "full",
+    fallbackUsed: false,
+    coveredConcepts: ["고객 획득 비용", "초기 영업 비용"],
+    missingConcepts: [],
+    ...patch
   };
 }

@@ -82,6 +82,8 @@ type TemplateBlueprintRow = {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const legacyGenerateDeckTimeoutMs = 120_000;
+const designPackGenerateDeckTimeoutMs = 300_000;
 
 export async function processGenerateDeckJob(
   dataSource: DataSource,
@@ -154,7 +156,11 @@ export async function processGenerateDeckJob(
           ? { templateBlueprint: designTemplate.templateBlueprint }
           : {})
       }),
-      signal: AbortSignal.timeout(120_000)
+      signal: AbortSignal.timeout(
+        payload.request.generationMode === "design-pack"
+          ? designPackGenerateDeckTimeoutMs
+          : legacyGenerateDeckTimeoutMs
+      )
     });
   } catch (error) {
     return failJob(
@@ -179,13 +185,31 @@ export async function processGenerateDeckJob(
 
   try {
     const workerPayload = generateDeckResponseSchema.parse(await response.json());
+    const blockingIssues = allValidationIssues(workerPayload.validation).filter(
+      (issue) => issue.blocking
+    );
+    if (blockingIssues.length > 0) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        75,
+        "GENERATE_DECK_VALIDATION_BLOCKING",
+        `Deck generation retained ${blockingIssues.length} blocking validation issue(s).`,
+        {
+          warnings: workerPayload.warnings,
+          validation: workerPayload.validation,
+          diagnostics: workerPayload.diagnostics
+        }
+      );
+    }
     const deck = markDeckForInitialThumbnailRefresh(workerPayload.deck);
 
     await saveDeck(dataSource, deck);
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
-      deck
+      deck,
+      coachingProvenance: payload.request.coachingContext
     });
 
     return updateJob(dataSource, payload.jobId, {
@@ -206,6 +230,17 @@ export async function processGenerateDeckJob(
         : "Python worker returned invalid deck generation response."
     );
   }
+}
+
+function allValidationIssues(
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"]
+) {
+  return [
+    ...validation.layoutIssues,
+    ...validation.contentIssues,
+    ...validation.designIssues,
+    ...validation.presentationIssues
+  ];
 }
 
 function markDeckForInitialThumbnailRefresh(deck: Deck): Deck {

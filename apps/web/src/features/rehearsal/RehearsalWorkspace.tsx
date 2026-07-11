@@ -5,6 +5,7 @@ import {
 import {
   deriveKeywordOccurrences,
   demoIds,
+  createRehearsalEvaluationSnapshot,
   type AssetUploadUrlResponse,
   type CompleteRehearsalAudioUploadResponse,
   type CreateRehearsalAudioUploadUrlResponse,
@@ -21,10 +22,16 @@ import {
   type LiveSttSlideAdvanceEvent,
   type PutDeckResponse,
   type RehearsalReport,
+  type RehearsalRunComparison,
+  type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type RetryRehearsalSemanticEvaluationResponse,
+  type SemanticCapabilityEvent,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
+  type BriefRef,
+  type EvaluatorLensRef,
 } from "@orbit/shared";
 import {
   ArrowLeft,
@@ -53,6 +60,19 @@ import {
 import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
+import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import {
+  fetchProjectRehearsalReportRuns,
+  fetchRehearsalRunComparison,
+} from "./reportApi";
+import {
+  buildRehearsalRunComparisonViewModel,
+  createComparisonReminderState,
+  dismissComparisonReminder,
+  enterComparisonSlide,
+  type ComparisonReminderState,
+  type RehearsalRunComparisonViewModel,
+} from "./rehearsalRunComparisonModel";
 import {
   getRehearsalRunNumber,
   sortRehearsalRunsByCreatedAt,
@@ -122,6 +142,7 @@ import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import {
+  createAudiencePresenterState,
   createSlideWindowDeckSnapshot,
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
@@ -138,15 +159,21 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
-import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
-  SemanticSpeechDebugPanel,
-  shouldShowSemanticSpeechDebugPanel,
-} from "./panel/SemanticSpeechDebugPanel";
+  createSemanticCapabilityStatusItems,
+  getNextSemanticCapabilityRecoveryDelay,
+  isSemanticAutoActionAllowed,
+  type SemanticCapabilityStatusItem,
+} from "./panel/semanticCapabilityStatusModel";
+import { createRehearsalScriptPrompterRows } from "./panel/rehearsalScriptPrompter";
 import {
   SemanticCueDebugPanel,
   shouldShowSemanticCueDebugPanel,
 } from "./panel/SemanticCueDebugPanel";
+import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "./panel/SemanticSpeechDebugPanel";
 import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
@@ -160,11 +187,18 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
-import { getSemanticCueRuntimeFlags } from "./speech/semanticCueFeatureFlags";
+import {
+  getSemanticCueRuntimeFlags,
+  isSemanticCueNliEnabledForMode,
+} from "./speech/semanticCueFeatureFlags";
 import {
   createSemanticCueDebugRingBuffer,
   type SemanticCueDebugEvent,
 } from "./speech/semanticCueDebugEvents";
+import {
+  createSemanticCueEmbeddingIndex,
+  type SemanticCueEmbeddingIndex,
+} from "./speech/semanticCueEmbeddingIndex";
 import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
 import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
@@ -203,8 +237,9 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
-import "./rehearsal-preflight.css";
-import "./rehearsal-workspace-orbit.css";
+import { PracticeGoalSummary } from "../coaching/PracticeGoalSummary";
+import { PracticeGoalReminder } from "../coaching/PracticeGoalReminder";
+import { fetchPresentationBrief } from "../coaching/presentationBriefApi";
 
 export {
   LiveSttAdapterError,
@@ -237,10 +272,12 @@ type RehearsalFlowStage =
   | "upload-url"
   | "storage-put"
   | "meta"
+  | "cancel"
   | "complete"
   | "job-poll"
   | "run-fetch"
-  | "report-fetch";
+  | "report-fetch"
+  | "semantic-retry";
 type LiveSttStatus =
   | "idle"
   | "starting"
@@ -295,6 +332,8 @@ type LiveTranscriptBuffer = {
 
 type BiasTermDraft = Omit<LiveSttBiasTerm, "text"> & { text: string };
 
+const ENABLE_REHEARSAL_NLI = false;
+
 const preferredAudioMimeTypes = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -334,6 +373,7 @@ export class RehearsalFlowError extends Error {
   constructor(
     readonly stage: RehearsalFlowStage,
     message: string,
+    readonly status?: number,
   ) {
     super(message);
     this.name = "RehearsalFlowError";
@@ -417,21 +457,158 @@ export async function createRehearsalRun(
   projectId: string,
   deckId: string,
   fetcher: Fetcher = fetch,
+  options: {
+    expectedDeckVersion?: number;
+    semanticEvaluationMode?: "full" | "delivery-only";
+    coachingContext?: {
+      briefRef: BriefRef;
+      evaluatorLensRef: EvaluatorLensRef;
+      sourceGoalSetId: string | null;
+    };
+  } = {},
 ) {
   const response = await fetcher(`/api/v1/projects/${projectId}/rehearsals`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deckId }),
+    body: JSON.stringify({
+      deckId,
+      ...(options.expectedDeckVersion === undefined
+        ? {}
+        : { expectedDeckVersion: options.expectedDeckVersion }),
+      ...(options.semanticEvaluationMode === undefined
+        ? {}
+        : { semanticEvaluationMode: options.semanticEvaluationMode }),
+      ...(options.coachingContext ?? {}),
+    }),
   });
 
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run",
       await readErrorMessage(response, "由ы뿀??run??留뚮뱾吏 紐삵뻽?듬땲??"),
+      response.status,
     );
   }
 
   return (await response.json()) as CreateRehearsalRunResponse;
+}
+
+export async function cancelRehearsalRun(
+  runId: string,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(`/api/v1/rehearsals/${runId}/cancel`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "cancel",
+      await readErrorMessage(response, "리허설 실행을 취소하지 못했습니다."),
+      response.status,
+    );
+  }
+
+  return ((await response.json()) as { run: RehearsalRun }).run;
+}
+
+export async function createRehearsalRunForUpload(
+  projectId: string,
+  deckId: string,
+  expectedDeckVersion: number,
+  fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
+) {
+  try {
+    const created = await createRehearsalRun(projectId, deckId, fetcher, {
+      expectedDeckVersion,
+      semanticEvaluationMode: "full",
+      coachingContext,
+    });
+    return { run: created.run, evaluationSnapshotMismatch: false };
+  } catch (cause) {
+    if (!(cause instanceof RehearsalFlowError) || cause.status !== 409) {
+      throw cause;
+    }
+
+    const deliveryOnly = await createRehearsalRun(projectId, deckId, fetcher, {
+      expectedDeckVersion,
+      semanticEvaluationMode: "delivery-only",
+    });
+    return { run: deliveryOnly.run, evaluationSnapshotMismatch: true };
+  }
+}
+
+export async function prepareRehearsalEvaluationRun(
+  deck: Deck,
+  fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
+): Promise<{
+  run: RehearsalRun | null;
+  evaluationSnapshot: RehearsalEvaluationSnapshot;
+  serverEvaluation:
+    | { state: "available" }
+    | { state: "unavailable"; reason: "network_error" };
+}> {
+  const provisionalSnapshot = createRehearsalEvaluationSnapshot(deck);
+  try {
+    const created = await createRehearsalRun(
+      deck.projectId,
+      deck.deckId,
+      fetcher,
+      {
+        expectedDeckVersion: deck.version,
+        semanticEvaluationMode: "full",
+        coachingContext,
+      },
+    );
+    return {
+      run: created.run,
+      evaluationSnapshot: created.run.evaluationSnapshot ?? provisionalSnapshot,
+      serverEvaluation: { state: "available" },
+    };
+  } catch {
+    return {
+      run: null,
+      evaluationSnapshot: provisionalSnapshot,
+      serverEvaluation: { state: "unavailable", reason: "network_error" },
+    };
+  }
+}
+
+async function resolveRehearsalCoachingContext(
+  projectId: string,
+  sourceGoalSetId?: string,
+) {
+  try {
+    const brief = await fetchPresentationBrief(projectId);
+    if (brief) {
+      return {
+        briefRef: {
+          mode: "briefed" as const,
+          briefId: brief.briefId,
+          expectedRevision: brief.revision,
+        },
+        evaluatorLensRef: brief.evaluatorLensRef,
+        sourceGoalSetId: sourceGoalSetId ?? null,
+      };
+    }
+  } catch {
+    // Brief 조회 실패 시에도 일반 모드 리허설은 계속할 수 있다.
+  }
+  return {
+    briefRef: { mode: "generic" as const },
+    evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const },
+    sourceGoalSetId: sourceGoalSetId ?? null,
+  };
 }
 
 export async function requestRehearsalAudioUploadUrl(
@@ -565,6 +742,27 @@ export async function fetchRehearsalReport(
   }
 
   return (await response.json()) as GetRehearsalReportResponse;
+}
+
+export async function retryRehearsalSemanticEvaluation(
+  runId: string,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/rehearsals/${runId}/semantic-evaluation/retry`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new RehearsalFlowError(
+      "semantic-retry",
+      await readSemanticRetryError(response),
+      response.status,
+    );
+  }
+
+  const payload =
+    (await response.json()) as RetryRehearsalSemanticEvaluationResponse;
+  return payload.job;
 }
 
 export function resolveRehearsalReportLoadState(
@@ -714,8 +912,7 @@ export async function pollRehearsalJob(
 }
 
 export async function runRehearsalUploadFlow(options: {
-  projectId: string;
-  deckId: string;
+  runId: string;
   audioFile: File;
   fetcher?: Fetcher;
   onJobUpdate?: (job: Job) => void;
@@ -725,13 +922,8 @@ export async function runRehearsalUploadFlow(options: {
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
-  const created = await createRehearsalRun(
-    options.projectId,
-    options.deckId,
-    fetcher,
-  );
   const uploadResponse = await requestRehearsalAudioUploadUrl(
-    created.run.runId,
+    options.runId,
     options.audioFile,
     fetcher,
   );
@@ -747,6 +939,7 @@ export async function runRehearsalUploadFlow(options: {
             adviceEvents: [],
             utteranceOutcomes: [],
             semanticCueDecisions: [],
+            semanticCapabilityEvents: [],
           }
         : null);
 
@@ -756,17 +949,18 @@ export async function runRehearsalUploadFlow(options: {
       runMeta.missedKeywords.length > 0 ||
       runMeta.adviceEvents.length > 0 ||
       runMeta.utteranceOutcomes.length > 0 ||
-      runMeta.semanticCueDecisions.length > 0)
+      runMeta.semanticCueDecisions.length > 0 ||
+      runMeta.semanticCapabilityEvents.length > 0)
   ) {
     try {
-      await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
+      await updateRehearsalRunMeta(options.runId, runMeta, fetcher);
     } catch {
       // Report generation can continue without optional slide timing metadata.
     }
   }
 
   const completed = await completeRehearsalAudioUpload(
-    created.run.runId,
+    options.runId,
     uploadResponse.upload.fileId,
     fetcher,
   );
@@ -776,7 +970,7 @@ export async function runRehearsalUploadFlow(options: {
     timeoutMs: options.pollTimeoutMs,
     onUpdate: options.onJobUpdate,
   });
-  const run = await fetchRehearsalRun(created.run.runId, fetcher);
+  const run = await fetchRehearsalRun(options.runId, fetcher);
 
   return { run, job };
 }
@@ -1250,21 +1444,9 @@ export function requestRehearsalMicrophoneStream(
 export function getRehearsalMicrophoneAudioConstraints(
   storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
 ) {
-  const base = isLiveSttRawMicDebugEnabled(storage)
+  return isLiveSttRawMicDebugEnabled(storage)
     ? rehearsalRawMicrophoneAudioConstraints
     : rehearsalMicrophoneAudioConstraints;
-  const deviceId = readPreferredRehearsalMicrophoneDevice(storage);
-  return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
-}
-
-export const rehearsalMicrophoneDeviceStorageKey = "orbit.rehearsal.microphoneDevice";
-
-export function readPreferredRehearsalMicrophoneDevice(storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage()) {
-  try { return storage?.getItem(rehearsalMicrophoneDeviceStorageKey)?.trim() || ""; } catch { return ""; }
-}
-
-export function setPreferredRehearsalMicrophoneDevice(deviceId: string, storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage()) {
-  try { storage?.setItem(rehearsalMicrophoneDeviceStorageKey, deviceId); } catch { /* Browser storage is optional. */ }
 }
 
 export function isLiveSttRawMicDebugEnabled(
@@ -1589,6 +1771,8 @@ export function RehearsalWorkspace(props: {
   presenterSessionId?: string;
   presenterWindow?: boolean;
   projectId?: string;
+  sourceFullRunId?: string;
+  sourceGoalSetId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(
@@ -1622,6 +1806,15 @@ export function RehearsalWorkspace(props: {
   const [semanticCueDebugEvents, setSemanticCueDebugEvents] = useState<
     SemanticCueDebugEvent[]
   >([]);
+  const [semanticCapabilityEvents, setSemanticCapabilityEvents] = useState<
+    SemanticCapabilityEvent[]
+  >([]);
+  const [semanticCapabilityNowMs, setSemanticCapabilityNowMs] = useState(() =>
+    Date.now(),
+  );
+  const [practiceWithoutVoiceAt, setPracticeWithoutVoiceAt] = useState<
+    number | null
+  >(null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -1632,6 +1825,11 @@ export function RehearsalWorkspace(props: {
           )
         : null,
     );
+  const [runComparison, setRunComparison] =
+    useState<RehearsalRunComparison | null>(null);
+  const [comparisonRefreshVersion, setComparisonRefreshVersion] = useState(0);
+  const [comparisonReminderState, setComparisonReminderState] =
+    useState<ComparisonReminderState>(createComparisonReminderState);
   const [hasLocalCompletion, setHasLocalCompletion] = useState(false);
   const [slidePlaybackState, setSlidePlaybackState] = useState(
     createSlidePlaybackState,
@@ -1668,6 +1866,7 @@ export function RehearsalWorkspace(props: {
     "elapsed" | "duration" | null
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
+  const activeRunRef = useRef<RehearsalRun | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
@@ -1676,6 +1875,8 @@ export function RehearsalWorkspace(props: {
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
   const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
+  const semanticCueEmbeddingIndexRef =
+    useRef<SemanticCueEmbeddingIndex | null>(null);
   const semanticCueDebugBufferRef = useRef(createSemanticCueDebugRingBuffer());
   const semanticCueNliProviderRef = useRef<{
     key: string;
@@ -1714,17 +1915,40 @@ export function RehearsalWorkspace(props: {
     usePresenterSettings();
 
   useEffect(() => {
-    if (import.meta.env.MODE === "test") {
+    if (import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI) {
       return;
     }
 
     getOrCreateSemanticMatcher();
   }, []);
 
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+    const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    if (!flags.nliEnabled || flags.provider !== "browser-transformersjs") {
+      return;
+    }
+
+    void getOrCreateBrowserSemanticCueNliProvider(flags).load();
+  }, []);
+
   useEffect(
     () => () => {
       semanticCueNliProviderRef.current?.provider.dispose();
       semanticCueNliProviderRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      const pendingRun = activeRunRef.current;
+      if (pendingRun && ["created", "uploading"].includes(pendingRun.status)) {
+        void cancelRehearsalRun(pendingRun.runId).catch(() => undefined);
+      }
+      activeRunRef.current = null;
     },
     [],
   );
@@ -1763,6 +1987,37 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     deckRef.current = deck;
   }, [deck]);
+
+  useEffect(() => {
+    const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    let isCancelled = false;
+    setRunComparison(null);
+
+    void fetchProjectRehearsalReportRuns(projectId)
+      .then(({ runs }) => {
+        const succeededRuns = sortRehearsalRunsByCreatedAt(
+          runs,
+        );
+        const latestRun = succeededRuns[succeededRuns.length - 1];
+        return latestRun
+          ? fetchRehearsalRunComparison(projectId, latestRun.runId)
+          : null;
+      })
+      .then((comparison) => {
+        if (!isCancelled) setRunComparison(comparison);
+      })
+      .catch(() => {
+        if (!isCancelled) setRunComparison(null);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [comparisonRefreshVersion, deck?.projectId, props.projectId]);
+
+  useEffect(() => {
+    setComparisonReminderState(createComparisonReminderState());
+  }, [runComparison?.currentRunId]);
 
   useEffect(() => {
     if (!deck) {
@@ -1950,6 +2205,49 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+  const visibleSemanticCapabilityEvents = useMemo(() => {
+    if (practiceWithoutVoiceAt === null) {
+      return semanticCapabilityEvents;
+    }
+
+    return [
+      ...semanticCapabilityEvents,
+      {
+        eventId: `semantic_cap_voice_disabled_${practiceWithoutVoiceAt}`,
+        capability: "stt" as const,
+        fromState: "available" as const,
+        toState: "unavailable" as const,
+        reason: "user_disabled" as const,
+        measurementMode: "none" as const,
+        retryable: false,
+        cueIds: [],
+        at: new Date(practiceWithoutVoiceAt).toISOString(),
+      },
+    ];
+  }, [practiceWithoutVoiceAt, semanticCapabilityEvents]);
+  const semanticCapabilityItems = useMemo(
+    () =>
+      createSemanticCapabilityStatusItems(visibleSemanticCapabilityEvents, {
+        nowMs: semanticCapabilityNowMs,
+      }).slice(0, 6),
+    [semanticCapabilityNowMs, visibleSemanticCapabilityEvents],
+  );
+
+  useEffect(() => {
+    const delay = getNextSemanticCapabilityRecoveryDelay(
+      visibleSemanticCapabilityEvents,
+      semanticCapabilityNowMs,
+    );
+    if (delay === null) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setSemanticCapabilityNowMs(Date.now()),
+      delay + 1,
+    );
+    return () => window.clearTimeout(timer);
+  }, [semanticCapabilityNowMs, visibleSemanticCapabilityEvents]);
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
   const canRecord =
@@ -2005,6 +2303,7 @@ export function RehearsalWorkspace(props: {
               semanticDebug: semanticDebugState,
               semanticMatchingEnabled:
                 presenterSettings.advancePolicy.semanticMatching,
+              semanticCapabilityItems,
               snapshot: p3SessionState?.snapshot ?? null,
             },
             stepIndex: presenterStepIndex,
@@ -2039,6 +2338,7 @@ export function RehearsalWorkspace(props: {
       presenterSettings.advancePolicy.semanticMatching,
       rehearsalRuntimeStatus,
       semanticDebugState,
+      semanticCapabilityItems,
       slideElapsedSeconds,
       timeMode,
       timerDurationSeconds,
@@ -2211,9 +2511,11 @@ export function RehearsalWorkspace(props: {
   async function startRecording() {
     if (!deck || !canRecord) return;
     const activeDeck = deck;
+    setPracticeWithoutVoiceAt(null);
     stopLiveDemo();
 
     setError("");
+    cancelPendingEvaluationRun();
     setRun(null);
     setJob(null);
     setHasLocalCompletion(false);
@@ -2234,6 +2536,7 @@ export function RehearsalWorkspace(props: {
     let stream: MediaStream | null = null;
     try {
       stream = await requestRehearsalMicrophoneStream(navigator.mediaDevices);
+      const evaluationSnapshot = await prepareEvaluationSnapshot(activeDeck);
       const session = createRecordingSession(stream, {
         onError: (recordingError) => {
           stopMediaStream(stream);
@@ -2241,6 +2544,7 @@ export function RehearsalWorkspace(props: {
             streamRef.current = null;
           }
           sessionRef.current = null;
+          cancelPendingEvaluationRun();
           setError(recordingError.message);
           setPhase("failed");
         },
@@ -2260,13 +2564,14 @@ export function RehearsalWorkspace(props: {
       setIsTimerRunning(true);
       setRehearsalRuntimeStatus("running");
       rehearsalRuntimeStatusRef.current = "running";
-      void startP3Tracking(stream);
+      void startP3Tracking(stream, evaluationSnapshot);
     } catch (cause) {
       stopMediaStream(stream);
       if (streamRef.current === stream) {
         streamRef.current = null;
       }
       sessionRef.current = null;
+      cancelPendingEvaluationRun();
       setError(toMicrophoneErrorMessage(cause));
       setPhase("failed");
     }
@@ -2623,33 +2928,36 @@ export function RehearsalWorkspace(props: {
     return semanticMatcherRef.current;
   }
 
-  function createSemanticCueRuntimeFromFlags() {
+  function createSemanticCueRuntimeFromFlags(
+    mode: "rehearsal" | "presentation",
+  ) {
     const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    const embeddingIndex = getOrCreateSemanticCueEmbeddingIndex();
 
-    if (!flags.nliEnabled || flags.provider === "off") {
-      return undefined;
+    if (
+      !isSemanticCueNliEnabledForMode(flags, mode) ||
+      flags.provider === "off"
+    ) {
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
     }
 
     if (flags.provider === "browser-transformersjs") {
-      const key = `${flags.provider}:${flags.modelId}`;
-      if (semanticCueNliProviderRef.current?.key !== key) {
-        semanticCueNliProviderRef.current?.provider.dispose();
-        semanticCueNliProviderRef.current = {
-          key,
-          provider: createBrowserTransformersSemanticCueNliProvider({
-            modelId: flags.modelId,
-          }),
-        };
-      }
-
       return createSemanticCueRuntime({
-        provider: semanticCueNliProviderRef.current.provider,
+        provider: getOrCreateBrowserSemanticCueNliProvider(flags),
         enabled: true,
+        nliMode: "shadow",
+        embeddingIndex,
       });
     }
 
     if (flags.provider !== "mock") {
-      return undefined;
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
     }
 
     return createSemanticCueRuntime({
@@ -2657,7 +2965,43 @@ export function RehearsalWorkspace(props: {
         modelId: flags.modelId,
       }),
       enabled: true,
+      embeddingIndex,
     });
+  }
+
+  function getOrCreateBrowserSemanticCueNliProvider(
+    flags: ReturnType<typeof getSemanticCueRuntimeFlags>,
+  ) {
+    const key = `${flags.provider}:${flags.modelId}:${flags.nliDevice ?? "none"}`;
+    if (semanticCueNliProviderRef.current?.key !== key) {
+      semanticCueNliProviderRef.current?.provider.dispose();
+      semanticCueNliProviderRef.current = {
+        key,
+        provider: createBrowserTransformersSemanticCueNliProvider({
+          modelId: flags.modelId,
+          loadOnEvaluate: false,
+          ...(flags.nliDevice === null
+            ? {}
+            : { deviceOverride: flags.nliDevice }),
+        }),
+      };
+    }
+    return semanticCueNliProviderRef.current.provider;
+  }
+
+  function getOrCreateSemanticCueEmbeddingIndex() {
+    if (semanticCueEmbeddingIndexRef.current) {
+      return semanticCueEmbeddingIndexRef.current;
+    }
+    semanticCueEmbeddingIndexRef.current = createSemanticCueEmbeddingIndex({
+      embeddingService: {
+        embedQuery: async (text) =>
+          (await getOrCreateSemanticEmbeddingService()).embedQuery(text),
+        embedPassages: async (texts) =>
+          (await getOrCreateSemanticEmbeddingService()).embedPassages(texts),
+      },
+    });
+    return semanticCueEmbeddingIndexRef.current;
   }
 
   function getOrCreateSemanticEmbeddingService() {
@@ -2688,7 +3032,10 @@ export function RehearsalWorkspace(props: {
     return semanticEmbeddingServicePromiseRef.current;
   }
 
-  async function startP3Tracking(stream: MediaStream) {
+  async function startP3Tracking(
+    stream: MediaStream,
+    evaluationSnapshot?: RehearsalEvaluationSnapshot,
+  ) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
     if (!deckSnapshot?.slides[startSlideIndex]) {
@@ -2722,7 +3069,10 @@ export function RehearsalWorkspace(props: {
 
     let session: P3RehearsalSession | null = null;
     session = createP3RehearsalSession({
-      slides: buildP3SessionSlides(deckSnapshot),
+      slides: buildP3SessionSlides(
+        deckSnapshot,
+        evaluationSnapshot ?? createRehearsalEvaluationSnapshot(deckSnapshot),
+      ),
       port,
       threshold: presenterSettings.advancePolicy.threshold,
       config: {
@@ -2747,15 +3097,21 @@ export function RehearsalWorkspace(props: {
       semanticMatcher:
         import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
       semanticCueRuntime:
-        import.meta.env.MODE === "test"
+        import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI
           ? undefined
-          : createSemanticCueRuntimeFromFlags(),
+          : createSemanticCueRuntimeFromFlags("rehearsal"),
       isSemanticMatchingEnabled: () =>
         presenterSettings.advancePolicy.semanticMatching,
       onSemanticDebugState: setSemanticDebugState,
       onSemanticCueDebugEvent: (event) => {
         semanticCueDebugBufferRef.current.push(event);
         setSemanticCueDebugEvents(semanticCueDebugBufferRef.current.snapshot());
+      },
+      onSemanticCapabilityEvent: (event) => {
+        setSemanticCapabilityEvents((current) =>
+          [...current, event].slice(-100),
+        );
+        setSemanticCapabilityNowMs(Date.now());
       },
     });
     p3SessionRef.current = session;
@@ -2810,6 +3166,26 @@ export function RehearsalWorkspace(props: {
       "pace-too-slow",
       p3AdviceState.pace === "too-slow",
     );
+  }
+
+  function handleSemanticCapabilityAction(item: SemanticCapabilityStatusItem) {
+    if (item.actionLabel === "Cue 검토로 이동" && deck) {
+      window.location.assign(`/project/${encodeURIComponent(deck.projectId)}`);
+      return;
+    }
+
+    if (item.actionLabel === "서버 재평가" && run) {
+      window.location.assign(getRehearsalReportPath(run.projectId, run.runId));
+      return;
+    }
+
+    if (
+      item.actionLabel === "마이크 권한 확인" ||
+      item.actionLabel === "재시도"
+    ) {
+      setPracticeWithoutVoiceAt(null);
+      void startLiveDemo();
+    }
   }
 
   function ensurePauseDetector() {
@@ -2902,6 +3278,9 @@ export function RehearsalWorkspace(props: {
         },
         policy: presenterSettings.advancePolicy,
         remainingTriggerSteps: input.remainingTriggerSteps,
+        semanticAutoActionAllowed: isSemanticAutoActionAllowed(
+          semanticCapabilityItems,
+        ),
         slideId: currentSlide.slideId,
       },
       defaultAutoAdvanceConfig,
@@ -2944,9 +3323,6 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
-    setIsTimerRunning(false);
-    setRehearsalRuntimeStatus("idle");
-    rehearsalRuntimeStatusRef.current = "idle";
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
@@ -3186,12 +3562,30 @@ export function RehearsalWorkspace(props: {
     setError("");
 
     try {
+      let uploadRun = activeRunRef.current;
+      if (!uploadRun) {
+        const recovered = await createRehearsalRunForUpload(
+          activeDeck.projectId,
+          activeDeck.deckId,
+          activeDeck.version,
+          fetch,
+          await resolveRehearsalCoachingContext(activeDeck.projectId, props.sourceGoalSetId),
+        );
+        uploadRun = recovered.run;
+        if (recovered.evaluationSnapshotMismatch) {
+          setLiveError(
+            "발표 자료가 변경되어 이번 회차는 전달 방식만 분석하고 의미 평가는 제외합니다.",
+          );
+        }
+        activeRunRef.current = uploadRun;
+        setRun(uploadRun);
+      }
+
       const runMeta = pendingP3RunMetaRef.current
         ? await pendingP3RunMetaRef.current
         : p3RunMetaRef.current;
       const result = await runRehearsalUploadFlow({
-        projectId: activeDeck.projectId,
-        deckId: activeDeck.deckId,
+        runId: uploadRun.runId,
         audioFile,
         runMeta,
         onJobUpdate: (nextJob) => {
@@ -3200,6 +3594,7 @@ export function RehearsalWorkspace(props: {
         },
       });
       setRun(result.run);
+      activeRunRef.current = result.run;
       setJob(result.job);
 
       if (result.job.status === "failed") {
@@ -3224,6 +3619,32 @@ export function RehearsalWorkspace(props: {
       setIsCompletionModalOpen(false);
       setPhase("failed");
     }
+  }
+
+  async function prepareEvaluationSnapshot(activeDeck: Deck) {
+    const coachingContext = await resolveRehearsalCoachingContext(
+      activeDeck.projectId,
+      props.sourceGoalSetId,
+    );
+    const prepared = await prepareRehearsalEvaluationRun(activeDeck, fetch, coachingContext);
+    activeRunRef.current = prepared.run;
+    setRun(prepared.run);
+    if (prepared.serverEvaluation.state === "unavailable") {
+      setLiveError(
+        "서버 의미 평가에 연결할 수 없습니다. 로컬 리허설은 계속되며 서버 리포트는 저장 전 다시 확인합니다.",
+      );
+    }
+    return prepared.evaluationSnapshot;
+  }
+
+  function cancelPendingEvaluationRun() {
+    const pendingRun = activeRunRef.current;
+    if (!pendingRun || !["created", "uploading"].includes(pendingRun.status)) {
+      return;
+    }
+
+    activeRunRef.current = null;
+    void cancelRehearsalRun(pendingRun.runId).catch(() => undefined);
   }
 
   async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
@@ -3574,6 +3995,13 @@ export function RehearsalWorkspace(props: {
     isLiveSttActive ||
     isTimerRunning ||
     rehearsalRuntimeStatus === "paused";
+  const comparisonModel = runComparison
+    ? buildRehearsalRunComparisonViewModel(
+        runComparison,
+        deck,
+        deck?.projectId ?? props.projectId ?? demoIds.projectId,
+      )
+    : null;
   const rehearsalRuntimeStatusLabel =
     rehearsalRuntimeStatus === "paused"
       ? "일시정지됨"
@@ -3620,6 +4048,19 @@ export function RehearsalWorkspace(props: {
         !isLiveSttActive &&
         !isTimerRunning &&
         phase !== "recording"));
+  useEffect(() => {
+    if (!isRehearsalRuntimeActive || !currentSlide) {
+      setComparisonReminderState((state) =>
+        state.active ? { ...state, active: null } : state,
+      );
+      return;
+    }
+
+    setComparisonReminderState((state) =>
+      enterComparisonSlide(state, runComparison, currentSlide.slideId),
+    );
+  }, [currentSlide?.slideId, isRehearsalRuntimeActive, runComparison]);
+
   const returnToPreflight = () => {
     setIsLiveStopModalOpen(false);
     setP3RunMeta(null);
@@ -3630,6 +4071,10 @@ export function RehearsalWorkspace(props: {
     setHasLocalCompletion(false);
     setLiveStatus("idle");
     setLiveError("");
+    setPracticeWithoutVoiceAt(null);
+    setSemanticCapabilityEvents([]);
+    setComparisonReminderState(createComparisonReminderState());
+    setComparisonRefreshVersion((version) => version + 1);
     resetRehearsalTimerState({
       setElapsedSeconds,
       setSlideElapsedSeconds,
@@ -3741,7 +4186,7 @@ export function RehearsalWorkspace(props: {
       deck && presentationChannelState
         ? {
             deck: createSlideWindowDeckSnapshot(deck),
-            state: presentationChannelState,
+            state: createAudiencePresenterState(presentationChannelState),
             triggerAnimationIds,
           }
         : null,
@@ -3865,6 +4310,7 @@ export function RehearsalWorkspace(props: {
     return (
       <RehearsalPreflightScreen
         canStart={canRecord}
+        comparisonModel={comparisonModel}
         createLiveSttPort={(engineId) =>
           createDefaultLiveSttPort({
             engineId,
@@ -3876,10 +4322,13 @@ export function RehearsalWorkspace(props: {
         previousSummary={previousPracticeSummary}
         resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
         onPracticeWithoutVoice={() => {
+          const disabledAt = Date.now();
           setElapsedSeconds(0);
           setSlideElapsedSeconds(0);
           setHasLocalCompletion(false);
           setIsTimerRunning(true);
+          setPracticeWithoutVoiceAt(disabledAt);
+          setSemanticCapabilityNowMs(disabledAt);
         }}
         onStart={() => void startRecording()}
       />
@@ -4092,6 +4541,12 @@ export function RehearsalWorkspace(props: {
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
 
+      <PracticeGoalReminder
+        projectId={props.projectId ?? demoIds.projectId}
+        sourceFullRunId={props.sourceFullRunId}
+        slideId={currentSlide?.slideId}
+      />
+
       <section className="rehearsal-presenter-layout">
         <PresenterStageSection
           currentIndex={currentSlideIndex}
@@ -4198,9 +4653,21 @@ export function RehearsalWorkspace(props: {
             scriptAutoFollowKey={scriptAutoFollowKey}
             sentences={p3Sentences}
             showAdvicePanel={false}
-            showScriptPanel={false}
+            showScriptPanel={true}
             speakerNotes={currentSlide?.speakerNotes ?? ""}
             snapshot={p3PanelSnapshot}
+            semanticCapabilityItems={semanticCapabilityItems}
+            semanticCueItems={
+              ENABLE_REHEARSAL_NLI &&
+              p3SessionState?.slideIndex === currentSlideIndex
+                ? p3SessionState.semanticCueProgress
+                : []
+            }
+            onSemanticCapabilityAction={handleSemanticCapabilityAction}
+            comparisonReminder={comparisonReminderState.active}
+            onDismissComparisonReminder={() =>
+              setComparisonReminderState(dismissComparisonReminder)
+            }
             liveSlot={
               <section className="rehearsal-assist-card checklist-card">
                 <header>
@@ -4341,6 +4808,9 @@ export function RehearsalWorkspace(props: {
           nowMs={autoAdvanceNowMs}
           onCancel={cancelAutoAdvanceForManualCommand}
           rows={prompterRows}
+          scriptProgressPercent={Math.round(
+            (p3PanelSnapshot.scriptProgress?.ratio ?? 0) * 100,
+          )}
           state={advanceControllerState}
         />
       </section>
@@ -4354,6 +4824,7 @@ export function RehearsalWorkspace(props: {
       ) : null}
       {showSemanticCueDebugPanel ? (
         <SemanticCueDebugPanel
+          capabilityEvents={semanticCapabilityEvents}
           events={semanticCueDebugEvents}
           onCopyJson={copySemanticCueDebugJson}
           onExportJson={exportSemanticCueDebugJson}
@@ -4365,6 +4836,7 @@ export function RehearsalWorkspace(props: {
 
 function RehearsalPreflightScreen(props: {
   canStart: boolean;
+  comparisonModel: RehearsalRunComparisonViewModel | null;
   createLiveSttPort: (engineId: LiveSttEngineId) => LiveSttPort;
   deck: Deck;
   onPracticeWithoutVoice: () => void;
@@ -4401,10 +4873,6 @@ function RehearsalPreflightScreen(props: {
     null,
   );
   const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
-  const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState(() =>
-    readPreferredRehearsalMicrophoneDevice(),
-  );
   const preflightStreamRef = useRef<MediaStream | null>(null);
   const preflightLiveSttPortRef = useRef<LiveSttPort | null>(null);
   const preflightLiveSttCleanupRef = useRef<(() => void) | null>(null);
@@ -4465,31 +4933,6 @@ function RehearsalPreflightScreen(props: {
       stopPreflightVoiceResources();
     };
   }, []);
-
-  useEffect(() => {
-    if (
-      microphonePermission !== "granted" ||
-      typeof navigator.mediaDevices?.enumerateDevices !== "function"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    void navigator.mediaDevices
-      .enumerateDevices()
-      .then((devices) => {
-        if (cancelled) return;
-        const microphones = devices.filter((device) => device.kind === "audioinput");
-        setMicrophoneDevices(microphones);
-        if (!selectedMicrophoneId && microphones[0]?.deviceId) {
-          setSelectedMicrophoneId(microphones[0].deviceId);
-          setPreferredRehearsalMicrophoneDevice(microphones[0].deviceId);
-        }
-      })
-      .catch(() => setMicrophoneDevices([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [microphonePermission, selectedMicrophoneId]);
 
   const permissionStatus = getPreflightMicrophoneStatus(microphonePermission);
   const voiceStatus = getPreflightVoiceStatus(
@@ -4682,6 +5125,13 @@ function RehearsalPreflightScreen(props: {
         <span>{preflightBanner}</span>
       </div>
 
+      {props.comparisonModel ? (
+        <RehearsalRunComparisonOverview
+          compact
+          model={props.comparisonModel}
+        />
+      ) : null}
+
       <section className="rehearsal-preflight-card">
         <div className="rehearsal-preflight-mic" aria-hidden="true">
           <span>
@@ -4711,30 +5161,6 @@ function RehearsalPreflightScreen(props: {
             status={permissionStatus}
             value={permissionStatus.value}
           />
-          {isMicrophoneGranted ? (
-            <label className="rehearsal-preflight-device">
-              <span>사용할 마이크</span>
-              <select
-                aria-label="사용할 마이크"
-                onChange={(event) => {
-                  setSelectedMicrophoneId(event.currentTarget.value);
-                  setPreferredRehearsalMicrophoneDevice(event.currentTarget.value);
-                }}
-                value={selectedMicrophoneId}
-              >
-                {microphoneDevices.length ? (
-                  microphoneDevices.map((device, index) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `마이크 ${index + 1}`}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">브라우저 기본 마이크</option>
-                )}
-              </select>
-              <small>선택한 장치는 실제 리허설 녹음에도 사용됩니다.</small>
-            </label>
-          ) : null}
           {isMicrophoneGranted ? (
             <PreflightStatusRow
               details={
@@ -5062,7 +5488,13 @@ function RehearsalCompletionScreen(props: {
 
         <div className="rehearsal-completion-report-state" role="status">
           {props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />}
-          <p>{getCompletionReportStateLabel(props)}</p>
+          <p>
+            {props.isReportPending
+              ? "자세한 리포트 준비 중 — 잠시 후 청중 반응·페이스 분석이 도착해요"
+              : props.hasReportTarget
+                ? "자세한 리포트를 열어 더 깊은 분석을 확인할 수 있어요"
+                : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
+          </p>
         </div>
 
         <footer>
@@ -5082,23 +5514,12 @@ function RehearsalCompletionScreen(props: {
   );
 }
 
-export function getCompletionReportStateLabel(input: {
-  hasReportTarget: boolean;
-  isReportPending: boolean;
-}) {
-  if (input.isReportPending) {
-    return "자세한 리포트 준비 중 — 시간·키워드·말하기 분석을 정리하고 있어요";
-  }
-  return input.hasReportTarget
-    ? "자세한 리포트를 열어 공식 분석 내용을 확인할 수 있어요"
-    : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요";
-}
-
 function RehearsalTeleprompter(props: {
   countdownMs: number;
   nowMs: number;
   onCancel: () => void;
   rows: RehearsalPrompterRows;
+  scriptProgressPercent: number;
   state: AdvanceControllerState;
 }) {
   const countdownSeconds = getAutoAdvanceCountdownSeconds(
@@ -5114,6 +5535,12 @@ function RehearsalTeleprompter(props: {
         {props.rows.current}
       </p>
       <p>{props.rows.next}</p>
+      <output
+        aria-label="원문 기준 실시간 진행률"
+        className="rehearsal-teleprompter-progress"
+      >
+        원문 진행 {props.scriptProgressPercent}%
+      </output>
 
       {countdownSeconds !== null ? (
         <div className="rehearsal-auto-advance-card" role="status">
@@ -5155,6 +5582,10 @@ export function RehearsalReportPage(props: {
   );
   const [error, setError] = useState("");
   const [reportJob, setReportJob] = useState<Job | null>(null);
+  const [semanticRetryState, setSemanticRetryState] = useState<{
+    message?: string;
+    status: "idle" | "running" | "succeeded" | "failed";
+  }>({ status: "idle" });
   const [allSucceededRuns, setAllSucceededRuns] = useState<RehearsalRun[]>(() =>
     props.initialRun?.status === "succeeded" ? [props.initialRun] : [],
   );
@@ -5170,6 +5601,7 @@ export function RehearsalReportPage(props: {
     setStatus(props.initialReport ? "ready" : "loading");
     setError("");
     setReportJob(null);
+    setSemanticRetryState({ status: "idle" });
     setPrevReports([]);
   }, [props.initialRun, props.initialReport, props.runId]);
 
@@ -5297,6 +5729,56 @@ export function RehearsalReportPage(props: {
 
   const currentRunNumber = getRehearsalRunNumber(allSucceededRuns, props.runId);
 
+  const handleSemanticRetry = useCallback(async () => {
+    setSemanticRetryState({
+      message: "서버에서 의미 전달을 다시 평가하고 있어요.",
+      status: "running",
+    });
+
+    try {
+      const job = await retryRehearsalSemanticEvaluation(props.runId);
+      const completedJob = await pollRehearsalJob(job.jobId);
+      if (completedJob.status !== "succeeded") {
+        setSemanticRetryState({
+          message:
+            "서버 재평가를 완료하지 못했습니다. 발표 결과는 기존 상태로 유지됩니다.",
+          status: "failed",
+        });
+        return;
+      }
+
+      const response = await fetchRehearsalReport(props.runId);
+      const nextState = resolveRehearsalReportLoadState(
+        response,
+        props.projectId,
+      );
+      if (nextState.status !== "ready" || response.report === null) {
+        setSemanticRetryState({
+          message:
+            "재평가는 끝났지만 새 결과를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.",
+          status: "failed",
+        });
+        return;
+      }
+
+      setRun(response.run);
+      setReport(response.report);
+      setSemanticRetryState({
+        message: "서버 재평가 결과를 반영했습니다.",
+        status: "succeeded",
+      });
+    } catch (cause) {
+      setSemanticRetryState({
+        message:
+          cause instanceof RehearsalFlowError &&
+          cause.stage === "semantic-retry"
+            ? cause.message
+            : "서버 재평가 중 문제가 발생했습니다. 발표 결과는 기존 상태로 유지됩니다.",
+        status: "failed",
+      });
+    }
+  }, [props.projectId, props.runId]);
+
   return (
     <main className="rehearsal-report-page">
       <header className="rehearsal-report-topbar">
@@ -5326,17 +5808,25 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
+          {report ? (
+            <PracticeGoalSummary
+              projectId={props.projectId}
+              sourceFullRunId={props.runId}
+            />
+          ) : null}
           {status === "loading" ? (
             <RehearsalReportLoadingShell />
           ) : report ? (
             <RehearsalReportDocument
               report={report}
               deck={deck}
+              onSemanticRetry={handleSemanticRetry}
               run={run}
               runNumber={currentRunNumber}
               projectId={props.projectId}
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
+              semanticRetryState={semanticRetryState}
             />
           ) : (
             <div
@@ -5814,17 +6304,29 @@ export function getHighlightedKeywordOccurrencesForSlide(slide: Slide | null) {
   );
 }
 
-function buildP3SessionSlides(deck: Deck) {
-  return deck.slides.map((slide) => ({
-    slideId: slide.slideId,
-    speakerNotes: slide.speakerNotes,
-    keywords: slide.keywords ?? [],
-    semanticCues: slide.semanticCues ?? [],
-    controlPhrases: defaultRehearsalCommandConfig.flatMap(
-      (command) => command.phrases,
-    ),
-    legacyPhrases: [slide.title, ...getSlideBodyTexts(slide)].filter(Boolean),
-  }));
+export function buildP3SessionSlides(
+  deck: Deck,
+  evaluationSnapshot?: RehearsalEvaluationSnapshot,
+) {
+  const deckSlidesById = new Map(deck.slides.map((slide) => [slide.slideId, slide]));
+  const evaluationSlides = evaluationSnapshot?.slides ?? deck.slides;
+
+  return evaluationSlides.map((evaluationSlide) => {
+    const slide = deckSlidesById.get(evaluationSlide.slideId);
+    return {
+      slideId: evaluationSlide.slideId,
+      speakerNotes: slide?.speakerNotes ?? "",
+      keywords: evaluationSlide.keywords ?? [],
+      semanticCues: evaluationSlide.semanticCues ?? [],
+      controlPhrases: defaultRehearsalCommandConfig.flatMap(
+        (command) => command.phrases,
+      ),
+      legacyPhrases: [
+        evaluationSlide.title,
+        ...(slide ? getSlideBodyTexts(slide) : []),
+      ].filter(Boolean),
+    };
+  });
 }
 
 export function getRemainingTriggerStepsFromPlan(
@@ -6029,6 +6531,25 @@ function stopMediaStream(stream: MediaStream | null) {
 async function readErrorMessage(response: Response, fallback: string) {
   const message = await response.text();
   return message || fallback;
+}
+
+async function readSemanticRetryError(response: Response) {
+  const raw = await response.text();
+  let code = "";
+  try {
+    const payload = JSON.parse(raw) as { code?: unknown };
+    code = typeof payload.code === "string" ? payload.code : "";
+  } catch {
+    // The report UI intentionally does not expose raw server error details.
+  }
+
+  if (code === "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED") {
+    return "재평가 가능 시간이 지났습니다. 새 리허설을 시작해 주세요.";
+  }
+  if (code === "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY") {
+    return "현재 리포트는 서버 재평가를 시작할 수 없습니다.";
+  }
+  return "서버 재평가를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
 function toMicrophoneErrorMessage(cause: unknown) {

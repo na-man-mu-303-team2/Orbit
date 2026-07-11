@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SemanticCue } from "@orbit/shared";
 
 import { buildSpeechTrackingBiasPhrases } from "./speechBiasPhrases";
 
@@ -93,4 +94,107 @@ describe("buildSpeechTrackingBiasPhrases", () => {
       "legacy"
     ]);
   });
+
+  it("approved current core cue의 code term과 alias를 제한된 예산에 추가한다", () => {
+    const terms = buildSpeechTrackingBiasPhrases({
+      budget: 12,
+      semanticCueTermBudget: 4,
+      semanticCues: [
+        semanticCue({
+          cueId: "scue_rsp",
+          aliases: {
+            RSP: ["알에스피", "런타임 보안 정책"]
+          },
+          candidateKeywords: ["RSP", "일반 정책"]
+        }),
+        semanticCue({
+          cueId: "scue_suggested",
+          reviewStatus: "suggested",
+          aliases: { ROX: ["알오엑스"] }
+        }),
+        semanticCue({
+          cueId: "scue_stale",
+          freshness: "stale",
+          aliases: { file_deny_write: ["파일 쓰기 차단"] }
+        })
+      ]
+    });
+
+    expect(terms).toEqual([
+      expect.objectContaining({
+        text: "RSP",
+        source: "semantic-cue-term",
+        weight: 0.93,
+        canonicalText: "RSP"
+      }),
+      expect.objectContaining({
+        text: "알에스피",
+        source: "semantic-cue-alias",
+        weight: 0.91,
+        canonicalText: "RSP"
+      }),
+      expect.objectContaining({
+        text: "런타임 보안 정책",
+        source: "semantic-cue-alias",
+        weight: 0.91,
+        canonicalText: "RSP"
+      })
+    ]);
+    expect(terms.map((term) => term.text)).not.toContain("일반 정책");
+    expect(terms.map((term) => term.text)).not.toContain("ROX");
+    expect(terms.map((term) => term.text)).not.toContain("file_deny_write");
+  });
+
+  it("current cue를 우선하고 인접 slide core cue를 낮은 가중치로 dedupe한다", () => {
+    const terms = buildSpeechTrackingBiasPhrases({
+      budget: 12,
+      semanticCueTermBudget: 4,
+      semanticCues: [
+        semanticCue({
+          cueId: "scue_current",
+          aliases: { RSP: ["알에스피"] }
+        })
+      ],
+      adjacentSemanticCues: [
+        semanticCue({
+          cueId: "scue_adjacent",
+          slideId: "slide_2",
+          aliases: { RSP: ["알에스피"], ROX: ["알오엑스"] }
+        })
+      ]
+    });
+
+    expect(terms.map((term) => term.text)).toEqual([
+      "RSP",
+      "알에스피",
+      "ROX",
+      "알오엑스"
+    ]);
+    expect(terms.map((term) => term.weight)).toEqual([0.93, 0.91, 0.85, 0.82]);
+  });
 });
+
+function semanticCue(overrides: Partial<SemanticCue> = {}): SemanticCue {
+  return {
+    cueId: "scue_1",
+    slideId: "slide_1",
+    meaning: "RSP가 쓰기 작업을 제한합니다",
+    importance: "core",
+    reviewStatus: "approved",
+    freshness: "current",
+    origin: "manual",
+    revision: 1,
+    sourceRefs: [],
+    qualityWarnings: [],
+    required: true,
+    priority: 1,
+    candidateKeywords: [],
+    aliases: {},
+    requiredConcepts: ["RSP"],
+    nliHypotheses: ["발표자는 RSP 정책을 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: [],
+    ...overrides
+  };
+}

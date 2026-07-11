@@ -16,6 +16,7 @@ import {
   matchKeywordAliases,
   matchPhraseCandidate
 } from "./speechMatcher";
+import { createScriptProgressTracker } from "./scriptProgressTracker";
 
 export type SpeechTrackerKeyword = {
   keywordId: string;
@@ -66,8 +67,10 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
 
   const sessionKeywordHits = new Set<string>();
   const visit = createVisitState();
+  const scriptProgressTracker = createScriptProgressTracker(input.speakerNotes);
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
+    scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
     const finalWindow = createFinalSegmentWindow({
@@ -95,23 +98,21 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
     }
 
-    if (result.isFinal) {
-      for (const match of matchKeywordAliases({
-        transcript: result.text,
-        keywords: keywordAliases
-      })) {
-        if (sessionKeywordHits.has(match.keywordId)) {
-          continue;
-        }
-
-        sessionKeywordHits.add(match.keywordId);
-        events.push({
-          type: "keyword-hit",
-          slideId: input.slideId,
-          keywordId: match.keywordId,
-          atMs
-        });
+    for (const match of matchKeywordAliases({
+      transcript: result.text,
+      keywords: keywordAliases
+    })) {
+      if (sessionKeywordHits.has(match.keywordId)) {
+        continue;
       }
+
+      sessionKeywordHits.add(match.keywordId);
+      events.push({
+        type: "keyword-hit",
+        slideId: input.slideId,
+        keywordId: match.keywordId,
+        atMs
+      });
     }
 
     const coverage = computeCoverage({
@@ -181,6 +182,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   function resetForSlideVisit() {
     const nextVisit = createVisitState();
     Object.assign(visit, nextVisit);
+    scriptProgressTracker.reset();
   }
 
   function snapshot(): SpeechTrackerSnapshot {
@@ -196,7 +198,8 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       effectiveCoverage: visit.effectiveCoverage,
       finalSentenceSpoken: visit.finalSentenceSpoken,
       hitKeywordIds: Array.from(sessionKeywordHits),
-      provisionalMissingKeywordIds: Array.from(visit.provisionalMissingKeywordIds)
+      provisionalMissingKeywordIds: Array.from(visit.provisionalMissingKeywordIds),
+      scriptProgress: scriptProgressTracker.snapshot()
     };
   }
 

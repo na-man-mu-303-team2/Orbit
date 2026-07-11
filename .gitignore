@@ -22,6 +22,7 @@ playwright-report/
 *.tsbuildinfo
 
 .venv/
+services/python-worker/pkcs11.txt
 __pycache__/
 .pytest_cache/
 .pytest-tmp/

@@ -20,6 +20,18 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("WPM");
   });
 
+  it("marks unmatched keywords as currently unmentioned before slide exit", () => {
+    const html = renderPanel({
+      snapshot: {
+        ...snapshot,
+        hitKeywordIds: [],
+        provisionalMissingKeywordIds: []
+      }
+    });
+
+    expect(html).toContain("미언급");
+  });
+
   it("hides rehearsal-only advice in live mode without adding a mode toggle", () => {
     const html = renderPanel({ mode: "live" });
 
@@ -35,6 +47,103 @@ describe("RehearsalPanel", () => {
 
     expect(html).not.toContain("This transcript should stay out");
     expect(html).not.toContain("transcript");
+  });
+
+  it("shows a dismissible one-line reminder for a repeated high-severity cue", () => {
+    const html = renderPanel({
+      comparisonReminder: {
+        key: "run_2:slide_1:cue_1:1",
+        label: "고객 가치",
+        reason: "두 회차 연속 핵심 의미를 충분히 전달하지 못했습니다.",
+        slideId: "slide_1"
+      }
+    });
+
+    expect(html).toContain("지난 회차 반복");
+    expect(html).toContain("고객 가치");
+    expect(html).toContain("두 회차 연속 핵심 의미");
+    expect(html).toContain("반복 이슈 알림 닫기");
+  });
+
+  it("debug flag와 무관하게 시스템 capability 상태를 조언과 분리해 표시한다", () => {
+    const html = renderPanel({
+      semanticCapabilityItems: [
+        {
+          key: "semantic_runtime",
+          severity: "error",
+          shortLabel: "의미 체크 오프라인",
+          detail: "수동 발표는 계속할 수 있습니다.",
+          retryable: true,
+          affectedCount: 2,
+          source: "system-status",
+          actionLabel: "재시도",
+          recovered: false,
+          measurementMode: "none"
+        }
+      ]
+    });
+
+    expect(html).toContain("시스템 상태");
+    expect(html).toContain("의미 체크 오프라인");
+    expect(html).not.toContain("AI 코칭");
+  });
+
+  it("현재 슬라이드의 승인된 핵심 메시지 전달 상태를 표시한다", () => {
+    const html = renderPanel({
+      semanticCueItems: [
+        {
+          cueId: "scue_covered",
+          slideId: "slide_1",
+          label: "고객 획득 비용의 원인",
+          importance: "core",
+          status: "covered",
+          measurementMode: "basic",
+          matchedBy: "lexical"
+        },
+        {
+          cueId: "scue_waiting",
+          slideId: "slide_1",
+          label: "개선 방안",
+          importance: "core",
+          status: "waiting",
+          measurementMode: "none"
+        }
+      ]
+    });
+
+    expect(html).toContain("핵심 메시지");
+    expect(html).toContain("1/2");
+    expect(html).toContain("고객 획득 비용의 원인");
+    expect(html).toContain("전달됨");
+    expect(html).toContain("개선 방안");
+    expect(html).toContain("확인 대기");
+    expect(html).not.toContain("lexical");
+  });
+
+  it("핵심 메시지가 없으면 빈 체크리스트를 렌더링하지 않는다", () => {
+    const html = renderPanel({ semanticCueItems: [] });
+
+    expect(html).not.toContain("핵심 메시지");
+  });
+
+  it("보조 메시지만 있으면 0/0 핵심 메시지 대신 발표 메시지로 표시한다", () => {
+    const html = renderPanel({
+      semanticCueItems: [
+        {
+          cueId: "scue_supporting",
+          slideId: "slide_1",
+          label: "보조 근거",
+          importance: "supporting",
+          status: "needs-review",
+          measurementMode: "basic"
+        }
+      ]
+    });
+
+    expect(html).toContain("발표 메시지");
+    expect(html).toContain("0/1");
+    expect(html).toContain("검토 필요");
+    expect(html).not.toContain("0/0");
   });
 
   it("marks the script region as auto-following by default", () => {
@@ -168,6 +277,9 @@ function renderPanel(
     speakerNotes?: string;
     sentences?: ExtractedSentence[];
     snapshot?: SpeechTrackerSnapshot;
+    semanticCapabilityItems?: import("./semanticCapabilityStatusModel").SemanticCapabilityStatusItem[];
+    semanticCueItems?: import("../speech/p3RehearsalSession").P3SemanticCueProgressItem[];
+    comparisonReminder?: import("../rehearsalRunComparisonModel").ComparisonReminder;
   } = {}
 ) {
   void overrides.transcriptText;
@@ -183,6 +295,9 @@ function renderPanel(
       sentences={overrides.sentences ?? sentences}
       speakerNotes={overrides.speakerNotes}
       snapshot={overrides.snapshot ?? snapshot}
+      semanticCapabilityItems={overrides.semanticCapabilityItems}
+      semanticCueItems={overrides.semanticCueItems}
+      comparisonReminder={overrides.comparisonReminder}
     />
   );
 }

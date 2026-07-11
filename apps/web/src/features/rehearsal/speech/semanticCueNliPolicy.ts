@@ -1,4 +1,5 @@
 import type { SemanticMatchDecisionReason } from "./semanticUtteranceDecision";
+import { semanticCueRuntimeConfig } from "./semanticCueRuntimeConfig";
 
 export type SemanticCueNliRunReason =
   | "ad_lib_candidate"
@@ -28,6 +29,7 @@ export function shouldRunSemanticCueNli(options: {
   keywordCoverage: number;
   semanticDecisionReason: SemanticMatchDecisionReason | "no_match";
   cuePriority: 1 | 2 | 3;
+  cueRetrievalScore?: number;
   isRequired: boolean;
   nowMs: number;
   lastNliRunAtMs: number | null;
@@ -84,6 +86,16 @@ export function shouldRunSemanticCueNli(options: {
     options.semanticDecisionReason === "accepted-paraphrase"
   ) {
     return { run: false, reason: "semantic_embedding_match" };
+  }
+
+  if (
+    (options.cueRetrievalScore ?? 0) >=
+    semanticCueRuntimeConfig.candidateEligibility.retrieval
+  ) {
+    if (options.isRequired || options.cuePriority <= 2) {
+      return { run: true, reason: "ambiguous_candidate" };
+    }
+    return { run: false, reason: "low_priority" };
   }
 
   return { run: false, reason: "no_match" };

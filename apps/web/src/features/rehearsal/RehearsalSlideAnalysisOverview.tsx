@@ -1,7 +1,8 @@
 import { ChevronLeft, ChevronRight, FileText, Layers } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Deck, RehearsalReport } from "@orbit/shared";
 import { buildRehearsalSlideAnalysisCards } from "./rehearsalSlideAnalysisModel";
+import { getSlideAnalysisAnchor } from "./rehearsalRunComparisonModel";
 
 const PAGE_SIZE = 3;
 
@@ -33,6 +34,20 @@ export function RehearsalSlideAnalysisOverview({
     currentPage * PAGE_SIZE + PAGE_SIZE,
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location.hash) return;
+    const targetIndex = problemCards.findIndex(
+      (card) => `#${getSlideAnalysisAnchor(card.slideId)}` === window.location.hash,
+    );
+    if (targetIndex < 0) return;
+
+    setPage(Math.floor(targetIndex / PAGE_SIZE));
+    const targetId = window.location.hash.slice(1);
+    window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+  }, [problemCards]);
+
   return (
     <section className="rrd-card">
       <header className="rrd-card-head">
@@ -51,7 +66,11 @@ export function RehearsalSlideAnalysisOverview({
         <>
           <div className="rrd-slide-analysis-list">
             {visibleCards.map((card) => (
-              <div key={card.slideId} className="rrd-slide-analysis-item">
+              <div
+                key={card.slideId}
+                className="rrd-slide-analysis-item"
+                id={getSlideAnalysisAnchor(card.slideId)}
+              >
                 <div className="rrd-slide-analysis-thumb">
                   {card.thumbnailUrl ? (
                     <img

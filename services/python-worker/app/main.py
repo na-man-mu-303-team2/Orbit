@@ -9,6 +9,22 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.color_options import (
+    DeckColorOptionsRequest,
+    DeckColorOptionsResponse,
+    generate_deck_color_options,
+)
+from app.ai.deck_pptx_export import (
+    DeckPptxExportRequest,
+    DeckPptxExportResponse,
+    export_deck_pptx,
+)
+from app.ai.design_agent import (
+    DesignAgentGenerationError,
+    DesignAgentRequest,
+    DesignAgentResponse,
+    generate_design_proposal,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -68,6 +84,12 @@ from app.rehearsal import (
     analyze_rehearsal_metrics,
     generate_progress_comment,
     generate_rehearsal_coaching,
+)
+from app.semantic_rehearsal import (
+    AnalyzeSemanticCuesRequest,
+    AnalyzeSemanticCuesResponse,
+    OpenAISemanticGrader,
+    analyze_semantic_cues,
 )
 
 
@@ -241,6 +263,50 @@ class RehearsalAnalyzeResponse(BaseModel):
     )
     ai_summary: RehearsalAiSummaryResponse = Field(alias="aiSummary")
     coaching: RehearsalCoachingResponse
+
+
+class FocusedPracticeGoalRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    goal_id: str = Field(alias="goalId")
+    criterion_ref: dict[str, Any] = Field(alias="criterionRef")
+    criterion: dict[str, Any] | None = None
+
+
+class FocusedPracticeAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    transcript: str
+    duration_ms: int = Field(alias="durationMs", ge=1, le=300_000)
+    goals: list[FocusedPracticeGoalRequest] = Field(min_length=1, max_length=3)
+
+
+class FocusedPracticeAnalyzeResponse(BaseModel):
+    outcomes: list[dict[str, Any]]
+
+
+class ChallengeQnaGenerateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    source: dict[str, Any]
+    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
+    grounding_snapshot: dict[str, Any] | None = Field(alias="groundingSnapshot")
+
+
+class ChallengeQnaGenerateResponse(BaseModel):
+    questions: list[dict[str, Any]] = Field(min_length=1, max_length=3)
+
+
+class ChallengeQnaAnalyzeAnswerRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    answer_text: str = Field(alias="answerText", min_length=1, max_length=8_000)
+    question_text: str = Field(alias="questionText", min_length=1, max_length=500)
+    answer_guide: dict[str, Any] = Field(alias="answerGuide")
+    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
+
+
+class ChallengeQnaAnalyzeAnswerResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    concept_outcomes: list[dict[str, str]] = Field(alias="conceptOutcomes", max_length=8)
+    clarity: str
+    audience_fit: str = Field(alias="audienceFit")
 
 
 @asynccontextmanager
@@ -534,6 +600,7 @@ async def apply_pptx_ooxml_slot_texts_endpoint(
 
 
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
+@app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
     provider: ReportSttProviderDependency,
@@ -542,6 +609,151 @@ def transcribe_audio(
         return transcribe_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/focused-practice/analyze", response_model=FocusedPracticeAnalyzeResponse)
+def analyze_focused_practice(
+    payload: FocusedPracticeAnalyzeRequest,
+) -> FocusedPracticeAnalyzeResponse:
+    outcomes: list[dict[str, Any]] = []
+    for goal in payload.goals:
+        criterion = goal.criterion or {}
+        measurement = cast(dict[str, Any], criterion.get("measurement", {}))
+        measurement_type = str(measurement.get("type", ""))
+        if not payload.transcript.strip() or not criterion:
+            observation: dict[str, Any] = {"kind": "none"}
+            threshold: dict[str, Any] = {"kind": "none"}
+            outcome = "unmeasured"
+            reason_code = "TRANSCRIPT_INCOMPLETE"
+            measurement_state = "unmeasured"
+        elif measurement_type == "max-duration-seconds":
+            maximum = float(measurement.get("maximum", 0))
+            actual = payload.duration_ms / 1000
+            passed = actual <= maximum
+            observation = {"kind": "duration-seconds", "value": actual}
+            threshold = {"kind": "max-duration-seconds", "value": maximum}
+            outcome = "passed" if passed else "failed"
+            reason_code = "PASSED" if passed else "THRESHOLD_EXCEEDED"
+            measurement_state = "measured"
+        elif measurement_type == "max-count":
+            metric = str(measurement.get("metric"))
+            count = payload.transcript.count("음")
+            maximum = int(measurement.get("maximum", 0))
+            passed = count <= maximum
+            observation = {"kind": "count", "metric": metric, "value": count}
+            threshold = {"kind": "max-count", "metric": metric, "value": maximum}
+            outcome = "passed" if passed else "failed"
+            reason_code = "PASSED" if passed else "THRESHOLD_EXCEEDED"
+            measurement_state = "measured"
+        else:
+            passed = len(payload.transcript.strip()) >= 12
+            observation = {"kind": "semantic", "value": "covered" if passed else "missed"}
+            threshold = {"kind": "semantic-required", "minimum": "partial"}
+            outcome = "passed" if passed else "failed"
+            reason_code = "PASSED" if passed else "CONCEPT_MISSED"
+            measurement_state = "measured"
+        outcomes.append({
+            "goalId": goal.goal_id,
+            "criterionRef": goal.criterion_ref,
+            "measurementState": measurement_state,
+            "outcome": outcome,
+            "observation": observation,
+            "threshold": threshold,
+            "reasonCode": reason_code,
+        })
+    return FocusedPracticeAnalyzeResponse(outcomes=outcomes)
+
+
+@app.post("/challenge-qna/generate", response_model=ChallengeQnaGenerateResponse)
+def generate_challenge_qna(
+    payload: ChallengeQnaGenerateRequest,
+) -> ChallengeQnaGenerateResponse:
+    question_count = int(payload.source.get("questionCount", 1))
+    slides = cast(dict[str, Any], payload.source_snapshot.get("deck", {})).get("slides", [])
+    chunks = (payload.grounding_snapshot or {}).get("chunks", [])
+    linked_goals = payload.source_snapshot.get("linkedGoalRefs", [])
+    source_ref: dict[str, Any] | None = None
+    concept_label = "핵심 주장"
+    if chunks:
+        chunk = chunks[0]
+        source_ref = {
+            "type": "reference",
+            "fileId": chunk["fileId"],
+            "fileContentHash": chunk["fileContentHash"],
+            "chunkId": chunk["chunkId"],
+            "contentHash": chunk["contentHash"],
+        }
+        concept_label = str(chunk["content"])[:80]
+    elif slides:
+        slide = slides[0]
+        source_ref = {
+            "type": "slide",
+            "slideId": slide["slideId"],
+            "deckVersion": payload.source_snapshot["deck"]["deckVersion"],
+            "slideOrder": slide["order"],
+            "title": slide["title"],
+            "contentHash": slide["contentHash"],
+        }
+        concept_label = str(slide.get("visibleText") or slide["title"])[:80]
+    question_types = ["evidence", "objection", "decision"]
+    questions: list[dict[str, Any]] = []
+    for index in range(question_count):
+        grounded = source_ref is not None and bool(concept_label.strip())
+        questions.append({
+            "questionType": question_types[index],
+            "difficulty": "challenging" if index > 0 else "standard",
+            "questionText": (
+                f"{concept_label}에 대해 어떤 근거와 판단 기준으로 설명하시겠습니까?"
+                if grounded
+                else "이 주장을 뒷받침할 승인된 근거를 어디에 추가하시겠습니까?"
+            ),
+            "linkedGoalIds": [item["goalId"] for item in linked_goals[:3]],
+            "sourceRefs": [source_ref] if source_ref else [],
+            "answerGuide": {
+                "supportState": "grounded" if grounded else "insufficient",
+                "mustIncludeConcepts": ([{
+                    "conceptId": f"concept-{index + 1}",
+                    "label": concept_label,
+                    "sourceRefs": [source_ref],
+                }] if grounded else []),
+                "suggestedStructure": ["결론", "근거", "판단 또는 다음 행동"],
+                "caveats": [],
+                "remediation": (None if grounded else {
+                    "message": "승인된 참고자료나 장표 근거를 추가한 뒤 다시 질문을 생성하세요.",
+                    "suggestedSlideIds": [slide["slideId"] for slide in slides[:3]],
+                    "action": "add-reference",
+                }),
+            },
+        })
+    return ChallengeQnaGenerateResponse(questions=questions)
+
+
+@app.post(
+    "/challenge-qna/analyze-answer",
+    response_model=ChallengeQnaAnalyzeAnswerResponse,
+)
+def analyze_challenge_qna_answer(
+    payload: ChallengeQnaAnalyzeAnswerRequest,
+) -> ChallengeQnaAnalyzeAnswerResponse:
+    normalized = payload.answer_text.casefold()
+    concepts = cast(list[dict[str, Any]], payload.answer_guide.get("mustIncludeConcepts", []))
+    outcomes = []
+    for concept in concepts[:8]:
+        label = str(concept.get("label", "")).casefold().strip()
+        tokens = [token for token in label.split() if len(token) > 1]
+        matches = sum(1 for token in tokens if token in normalized)
+        outcome = "covered" if tokens and matches == len(tokens) else "partial" if matches else "missed"
+        outcomes.append({"conceptId": str(concept.get("conceptId", "concept")), "outcome": outcome})
+    if not concepts:
+        outcomes = []
+    answer_length = len(payload.answer_text.strip())
+    clarity = "clear" if answer_length >= 30 else "needs-focus"
+    audience_fit = "too-vague" if answer_length < 15 else "too-technical" if answer_length > 500 else "appropriate"
+    return ChallengeQnaAnalyzeAnswerResponse(
+        conceptOutcomes=outcomes,
+        clarity=clarity,
+        audienceFit=audience_fit,
+    )
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
@@ -562,6 +774,44 @@ def generate_ai_deck(
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
+def generate_ai_deck_color_options(
+    payload: DeckColorOptionsRequest,
+    request: Request,
+) -> DeckColorOptionsResponse:
+    config = _config(request)
+    return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post(
+    "/ai/design-agent/propose",
+    response_model=DesignAgentResponse,
+    response_model_exclude_none=True,
+)
+def propose_slide_design(
+    payload: DesignAgentRequest,
+    request: Request,
+) -> DesignAgentResponse:
+    config = _config(request)
+    try:
+        return generate_design_proposal(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DesignAgentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
+def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
+    return export_deck_pptx(payload)
 
 
 @app.post("/ai/extract-semantic-cues", response_model=SemanticCueExtractionResponse)
@@ -684,6 +934,24 @@ def analyze_rehearsal(
             improvements=coaching.improvements,
             nextPracticeFocus=coaching.next_practice_focus,
             message=coaching.message,
+        ),
+    )
+
+
+@app.post(
+    "/rehearsal/analyze-semantic-cues",
+    response_model=AnalyzeSemanticCuesResponse,
+)
+def analyze_rehearsal_semantic_cues(
+    payload: AnalyzeSemanticCuesRequest,
+    request: Request,
+) -> AnalyzeSemanticCuesResponse:
+    config = _config(request)
+    return analyze_semantic_cues(
+        payload,
+        grader=OpenAISemanticGrader(
+            model=config.openai_model,
+            api_key=config.openai_api_key,
         ),
     )
 
@@ -881,6 +1149,7 @@ def _generate_deck_reference_context(
             project_id=payload.project_id,
             query=query or payload.topic,
             limit=20,
+            file_ids=sorted(file_ids),
             model=config.openai_embedding_model,
             api_key=config.openai_api_key,
         )
@@ -890,6 +1159,8 @@ def _generate_deck_reference_context(
     searched_context = [
         ReferenceContext(
             fileId=result.file_id,
+            sourceId=f"uploaded:{result.file_id}:{result.chunk_id}",
+            chunkId=result.chunk_id,
             title=str(result.metadata.get("fileName", "")),
             content=result.content,
         )
