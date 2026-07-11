@@ -118,6 +118,36 @@ describe("AI PPT wizard payload", () => {
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
   });
 
+  it("pins the selected Saved Design Pack version in the generation request", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Reusable report",
+        purpose: "Monthly review",
+        context: "leadership meeting",
+        audience: "executives",
+        presentationType: "report",
+        successCriteria: "approve next actions",
+        duration: "10",
+        slides: "8",
+        tone: "professional",
+        colorMood: "trusted blue",
+        fontMood: "professional Korean sans",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette,
+      [],
+      undefined,
+      undefined,
+      { id: "design_pack_user_1", version: 4 }
+    );
+
+    expect(payload.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 4
+    });
+  });
+
   it("keeps a one-slide request within the valid lower bound", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {

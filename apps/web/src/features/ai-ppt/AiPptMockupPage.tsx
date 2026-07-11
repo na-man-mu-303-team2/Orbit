@@ -8,7 +8,8 @@ import type {
   PptAdvisorHistoryItem,
   PptAdvisorResponse,
   PptAdvisorSuggestion,
-  ReferenceExtractionResult
+  ReferenceExtractionResult,
+  SavedDesignPack
 } from "@orbit/shared";
 import {
   pptAdvisorResponseSchema,
@@ -21,12 +22,17 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   FileText,
   Layers3,
   Palette,
   Paperclip,
+  Pencil,
   Play,
-  Sparkles
+  Save,
+  Sparkles,
+  Star,
+  Trash2
 } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -167,7 +173,8 @@ export function buildAiPptGenerateDeckPayload(
   referenceGrounding: ReferenceGrounding = {
     referenceContext: [],
     referenceKeywords: []
-  }
+  },
+  savedDesignPack?: Pick<SavedDesignPack, "id" | "version">
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCountRange = resolveSlideCountRange(state);
@@ -222,6 +229,7 @@ export function buildAiPptGenerateDeckPayload(
       fontOverride,
       referencePolicy: state.referencePolicy
     },
+    ...(savedDesignPack ? { savedDesignPack } : {}),
     visualPlanPolicy: {
       mediaPolicy: state.mediaPolicy
     },
@@ -304,6 +312,9 @@ export function AiPptMockupPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [designPacks, setDesignPacks] = useState<SavedDesignPack[]>([]);
+  const [selectedDesignPackId, setSelectedDesignPackId] = useState("");
+  const [isSavingDesignPack, setIsSavingDesignPack] = useState(false);
   const colorRequestKey = [
     form.topic,
     form.purpose,
@@ -323,9 +334,21 @@ export function AiPptMockupPage() {
   const selectedFont =
     fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
   const payloadPreview = useMemo(
-    () => buildAiPptGenerateDeckPayload(form, selectedPalette, [], selectedFont),
-    [form, selectedPalette, selectedFont]
+    () =>
+      buildAiPptGenerateDeckPayload(
+        form,
+        selectedPalette,
+        [],
+        selectedFont,
+        undefined,
+        designPacks.find((pack) => pack.id === selectedDesignPackId)
+      ),
+    [designPacks, form, selectedDesignPackId, selectedFont, selectedPalette]
   );
+
+  useEffect(() => {
+    void loadDesignPacks();
+  }, []);
 
   useEffect(() => {
     if (fontOptions.some((font) => font.fontId === selectedFontId)) return;
@@ -343,6 +366,116 @@ export function AiPptMockupPage() {
     value: AiPptWizardState[K]
   ) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function loadDesignPacks(preferredId?: string) {
+    try {
+      const packs = await fetchSavedDesignPacks();
+      setDesignPacks(packs);
+      const nextId =
+        preferredId ||
+        (packs.some((pack) => pack.id === selectedDesignPackId)
+          ? selectedDesignPackId
+          : packs.find((pack) => pack.isDefault)?.id) ||
+        "";
+      setSelectedDesignPackId(nextId);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Saved Design Pack 목록을 불러오지 못했습니다."
+      );
+    }
+  }
+
+  function applyDesignPack(packId: string) {
+    setSelectedDesignPackId(packId);
+    const pack = designPacks.find((candidate) => candidate.id === packId);
+    if (!pack) return;
+
+    setForm((current) => ({
+      ...current,
+      tone: pack.preferences.tone,
+      mediaPolicy: pack.preferences.mediaPolicy,
+      referencePolicy: pack.preferences.referencePolicy
+    }));
+    const palette = completeSavedPalette(pack, selectedPalette.palette);
+    const optionId = `saved-${pack.id}`;
+    setPaletteOptions((current) => [
+      {
+        optionId,
+        name: pack.name,
+        rationale: "Saved Design Pack palette",
+        palette
+      },
+      ...current.filter((option) => option.optionId !== optionId)
+    ]);
+    setSelectedPaletteId(optionId);
+    const savedFont = fontOptions.find(
+      (font) =>
+        font.headingFontFamily === pack.preferences.typography.headingFontFamily
+    );
+    if (savedFont) setSelectedFontId(savedFont.fontId);
+  }
+
+  async function saveCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    const canUpdate = selected?.ownerType === "user";
+    const requestedName = window.prompt(
+      canUpdate ? "Design Pack 이름" : "새 Design Pack 이름",
+      canUpdate ? selected.name : `${form.topic.trim() || "My"} Design Pack`
+    );
+    if (!requestedName?.trim()) return;
+
+    setIsSavingDesignPack(true);
+    setError("");
+    try {
+      const body = buildSavedDesignPackInput(
+        requestedName,
+        form,
+        selectedPalette,
+        selectedFont,
+        selected?.isDefault ?? false
+      );
+      const saved = canUpdate
+        ? await updateSavedDesignPack(selected.id, body)
+        : await createSavedDesignPack(body);
+      await loadDesignPacks(saved.id);
+      setStatus("Saved Design Pack이 저장되었습니다.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Saved Design Pack을 저장하지 못했습니다."
+      );
+    } finally {
+      setIsSavingDesignPack(false);
+    }
+  }
+
+  async function duplicateCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected) return;
+    const name = window.prompt("복제할 Design Pack 이름", `${selected.name} Copy`);
+    if (!name?.trim()) return;
+    const duplicated = await duplicateSavedDesignPack(selected.id, name);
+    await loadDesignPacks(duplicated.id);
+  }
+
+  async function deleteCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    if (!window.confirm(`'${selected.name}' Design Pack을 삭제할까요?`)) return;
+    await deleteSavedDesignPack(selected.id);
+    setSelectedDesignPackId("");
+    await loadDesignPacks();
+  }
+
+  async function setCurrentDesignPackDefault() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    const saved = await setDefaultSavedDesignPack(selected.id);
+    await loadDesignPacks(saved.id);
   }
 
   function goToStep(step: StepId) {
@@ -460,7 +593,8 @@ export function AiPptMockupPage() {
               selectedPalette,
               referenceFileIds,
               selectedFont,
-              referenceGrounding
+              referenceGrounding,
+              designPacks.find((pack) => pack.id === selectedDesignPackId)
             )
           )
         }
@@ -536,10 +670,18 @@ export function AiPptMockupPage() {
             ) : null}
             {currentStep === "style" ? (
               <StyleStep
+                designPacks={designPacks}
                 fontOptions={fontOptions}
                 form={form}
+                isSavingDesignPack={isSavingDesignPack}
+                onApplyDesignPack={applyDesignPack}
                 onChange={updateForm}
+                onDeleteDesignPack={() => void deleteCurrentDesignPack()}
+                onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
                 onFontSelect={setSelectedFontId}
+                onSaveDesignPack={() => void saveCurrentDesignPack()}
+                onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
+                selectedDesignPackId={selectedDesignPackId}
                 selectedFontId={selectedFont.fontId}
               />
             ) : null}
@@ -658,22 +800,84 @@ function BriefStep(props: {
 }
 
 function StyleStep(props: {
+  designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
+  isSavingDesignPack: boolean;
+  onApplyDesignPack: (packId: string) => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
+  onDeleteDesignPack: () => void;
+  onDuplicateDesignPack: () => void;
   onFontSelect: (fontId: string) => void;
+  onSaveDesignPack: () => void;
+  onSetDefaultDesignPack: () => void;
+  selectedDesignPackId: string;
   selectedFontId: string;
 }) {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
+  const selectedPack = props.designPacks.find(
+    (pack) => pack.id === props.selectedDesignPackId
+  );
   return (
     <>
       <PanelHeading
         kicker="2. Style"
         title="Brandlogy Design Pack에 얹을 톤 선택"
       />
+      <div className="ai-ppt-pack-manager">
+        <label>
+          <span>Saved Design Pack</span>
+          <select
+            value={props.selectedDesignPackId}
+            onChange={(event) => props.onApplyDesignPack(event.target.value)}
+          >
+            <option value="">현재 세션 설정</option>
+            {props.designPacks.map((pack) => (
+              <option key={pack.id} value={pack.id}>
+                {pack.isDefault ? "★ " : ""}{pack.name}
+                {pack.ownerType === "system" ? " (Preset)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <button
+            type="button"
+            title={selectedPack?.ownerType === "user" ? "Design Pack 수정 저장" : "새 Design Pack 저장"}
+            disabled={props.isSavingDesignPack}
+            onClick={props.onSaveDesignPack}
+          >
+            {selectedPack?.ownerType === "user" ? <Pencil size={16} /> : <Save size={16} />}
+          </button>
+          <button
+            type="button"
+            title="Design Pack 복제"
+            disabled={!selectedPack}
+            onClick={props.onDuplicateDesignPack}
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            type="button"
+            title="기본 Design Pack 지정"
+            disabled={selectedPack?.ownerType !== "user" || selectedPack.isDefault}
+            onClick={props.onSetDefaultDesignPack}
+          >
+            <Star size={16} />
+          </button>
+          <button
+            type="button"
+            title="Design Pack 삭제"
+            disabled={selectedPack?.ownerType !== "user"}
+            onClick={props.onDeleteDesignPack}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
           <button
@@ -1165,6 +1369,134 @@ function TextField(props: {
       </div>
     </label>
   );
+}
+
+type SavedDesignPackInput = {
+  name: string;
+  description: string;
+  baseStylePackId: string;
+  preferences: SavedDesignPack["preferences"];
+  isDefault: boolean;
+};
+
+export function buildSavedDesignPackInput(
+  name: string,
+  form: AiPptWizardState,
+  palette: PaletteOption,
+  font: GenerateDeckFontOption,
+  isDefault = false
+): SavedDesignPackInput {
+  return {
+    name: name.trim(),
+    description: `${form.presentationType.trim()} / ${form.audience.trim()}`,
+    baseStylePackId: stylePackId,
+    preferences: {
+      palette: palette.palette,
+      typography: {
+        headingFontFamily: font.headingFontFamily,
+        bodyFontFamily: font.bodyFontFamily,
+        fallbackFamily: font.fallbackFamily,
+        titleSizeScale: font.recommendedTitleSize / 48,
+        bodySizeScale: font.recommendedBodySize / 22,
+        lineHeight: Math.max(1.2, font.lineHeight)
+      },
+      tone: form.tone,
+      density: "medium",
+      titleStyle: "action",
+      layoutPreference: "varied",
+      imageDensity:
+        form.mediaPolicy === "minimal"
+          ? "none"
+          : form.mediaPolicy === "ai-generated" || form.mediaPolicy === "public-assets"
+            ? "medium"
+            : "low",
+      mediaPolicy: form.mediaPolicy,
+      referencePolicy: form.referencePolicy,
+      qaStrictness: "standard"
+    },
+    isDefault
+  };
+}
+
+function completeSavedPalette(
+  pack: SavedDesignPack,
+  fallback: Required<PaletteOverride>
+): Required<PaletteOverride> {
+  return { ...fallback, ...pack.preferences.palette };
+}
+
+export async function fetchSavedDesignPacks(): Promise<SavedDesignPack[]> {
+  const response = await fetch("/api/v1/design-packs", {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 목록을 불러오지 못했습니다."));
+  }
+  const payload = (await response.json()) as { packs: SavedDesignPack[] };
+  return payload.packs;
+}
+
+async function createSavedDesignPack(
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack("/api/v1/design-packs", "POST", input);
+}
+
+async function updateSavedDesignPack(
+  packId: string,
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    "PATCH",
+    input
+  );
+}
+
+async function duplicateSavedDesignPack(
+  packId: string,
+  name: string
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/duplicate`,
+    "POST",
+    { name }
+  );
+}
+
+async function setDefaultSavedDesignPack(packId: string): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/default`,
+    "POST",
+    {}
+  );
+}
+
+async function deleteSavedDesignPack(packId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    { method: "DELETE", credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack을 삭제하지 못했습니다."));
+  }
+}
+
+async function writeSavedDesignPack(
+  url: string,
+  method: "POST" | "PATCH",
+  body: unknown
+): Promise<SavedDesignPack> {
+  const response = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 작업을 완료하지 못했습니다."));
+  }
+  return (await response.json()) as SavedDesignPack;
 }
 
 async function fetchDeckColorOptions(input: {

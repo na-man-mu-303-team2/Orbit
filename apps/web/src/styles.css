@@ -1385,6 +1385,56 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
 }
 
+.ai-ppt-pack-manager {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ai-ppt-pack-manager label {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-ppt-pack-manager label span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ai-ppt-pack-manager select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #0f172a;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.ai-ppt-pack-manager > div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, 38px);
+}
+
+.ai-ppt-pack-manager button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #334155;
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.ai-ppt-pack-manager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .ai-ppt-tone-grid,
 .ai-ppt-choice-list {
   display: grid;
@@ -1941,6 +1991,11 @@ button:disabled {
   .ai-ppt-header .ai-ppt-primary,
   .ai-ppt-footer button {
     width: 100%;
+  }
+
+  .ai-ppt-pack-manager {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   .ai-ppt-steps,
