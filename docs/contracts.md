@@ -291,6 +291,26 @@ API:
 - 리허설은 `speakerNotes`, `keywords.text`, `keywords.synonyms`, `keywords.abbreviations`를 기준으로 연결한다.
 - 협업/발표 동기화는 `deck_`, `slide_`, `el_`, `anim_` prefix를 따르는 `deckId`, `slideId`, `elementId`, `animationId` 기준으로 처리한다.
 
+### Semantic Cue lifecycle 계약
+
+`slide.semanticCues`가 Semantic Cue의 canonical 저장 위치다. 기존 cue의 `required`, `priority`는 호환 필드로 유지하고, 사용자 검토와 최종 평가에는 다음 lifecycle 필드를 사용한다.
+
+- `importance`: `core | supporting | optional`, 기본값 `supporting`
+- `reviewStatus`: `suggested | approved | excluded`, 기본값 `suggested`
+- `freshness`: `current | stale`, 기본값 `current`
+- `origin`: `ai | manual | imported`, 기본값 `imported`
+- `revision`: 1부터 시작하는 양의 정수, 기본값 `1`
+- `cueType`: `definition | problem | cause | solution | result | warning | lesson | transition | closing`
+- `reportLabel`: 최대 80자, `presenterTag`: 최대 40자
+- `sourceDeckVersion`: source가 확정된 양의 deck version
+- `sourceFingerprint`: 8~128자의 source identity hash
+- `sourceRefs`: 최대 16개의 `{ kind, refId?, sourceHash }`
+- `qualityWarnings`: 최대 12개의 80자 이하 warning
+
+`sourceRefs[].kind`는 `slide-title | speaker-notes | element | table | chart | image-analysis`이며 `sourceHash`는 8~128자다. source text는 NFC 정규화, 연속 공백 축소, trim 후 SHA-256을 계산한다. `sourceFingerprint`는 정렬된 `(kind, refId, sourceHash)` 목록과 cue type, normalized required concept의 stable JSON SHA-256이다.
+
+legacy cue는 parse 시 `suggested/current/imported/revision=1`로 정규화한다. 기존 `required=true`만으로 `approved`로 승격하지 않으며 승인 전 최종 coverage 분모에 포함하지 않는다. 검토 UI 저장 시 호환값은 `core → required=true, priority=1`, `supporting → required=false, priority=2`, `optional → required=false, priority=3`으로 함께 기록한다. 표시 label fallback은 `reportLabel ?? meaning`, presenter tag fallback은 `presenterTag ?? reportLabel ?? meaning`이며 AI 분석 결과가 아닌 UI 표시 fallback이다.
+
 구현 위치:
 
 - `packages/shared/src/deck/deck.schema.ts`: deck, slide style, slide, keyword schema와 타입
@@ -353,12 +373,20 @@ DeckPatch 결정 사항:
 - `delete_element`: element 삭제
 - `update_speaker_notes`: 발표자 노트 교체
 - `replace_keywords`: slide keyword 목록 전체 교체
+- `replace_semantic_cues`: slide Semantic Cue 목록 전체 교체
 - `add_animation`: animation 추가
 - `update_animation`: animation 부분 수정
 - `delete_animation`: animation 삭제
 - `add_slide_action`: slide action 추가
 - `update_slide_action`: slide action 부분 수정
 - `delete_slide_action`: slide action 삭제
+
+Semantic Cue cascade 규칙:
+
+- `update_speaker_notes`와 text/table/chart의 의미 내용 변경은 기존 `reviewStatus`를 보존하고 해당 slide cue의 `freshness`만 `stale`로 바꾼다.
+- frame 좌표, z-index, text/table/chart의 장식 style만 바뀌면 cue를 stale 처리하지 않는다.
+- `delete_element`는 `targetElementIds`와 같은 element를 가리키는 `sourceRefs`를 제거하고, `delete_slide_action` 및 연쇄 삭제된 action은 `triggerActionIds`에서 제거한다.
+- element/action reference가 제거된 cue는 stale이 되며, 최종 Deck은 다시 `deckSchema`로 검증한다.
 
 patch 적용 규칙:
 
@@ -1070,6 +1098,7 @@ Run 상태:
 - `processing`
 - `succeeded`
 - `failed`
+- `cancelled`
 
 Run 응답 구조:
 
@@ -1080,6 +1109,14 @@ Run 응답 구조:
   "deckId": "deck_demo_1",
   "audioFileId": "file_audio_1",
   "jobId": "job_1",
+  "deckVersion": 7,
+  "evaluationSnapshot": {
+    "deckId": "deck_demo_1",
+    "deckVersion": 7,
+    "capturedAt": "2026-07-10T08:00:00.000Z",
+    "slides": []
+  },
+  "semanticEvaluationMode": "full",
   "status": "processing",
   "error": null,
   "rawAudioDeletedAt": null,
@@ -1091,7 +1128,12 @@ Run 응답 구조:
 API:
 
 - `POST /api/v1/projects/:projectId/rehearsals`
-  - request: `{ "deckId": "deck_demo_1" }`
+  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full" }`
+  - `expectedDeckVersion`은 optional이며 `full` run에서 현재 서버 deck version과 다르면 `REHEARSAL_DECK_VERSION_MISMATCH` 충돌로 거부한다.
+  - `semanticEvaluationMode`는 `full | delivery-only`이고 기본값은 `full`이다.
+  - response: `{ "run": RehearsalRun }`
+- `POST /api/v1/rehearsals/:runId/cancel`
+  - audio processing 시작 전 `created/uploading` run만 `cancelled`로 바꾼다.
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/audio/upload-url`
   - request: `{ "originalName": "rehearsal.webm", "mimeType": "audio/webm", "size": 1048576 }`
@@ -1142,7 +1184,10 @@ Report 응답 구조:
     "wordsPerMinute": 120,
     "fillerWordCount": 2,
     "pauseCount": 1,
-    "keywordCoverage": 0.75
+    "keywordCoverage": 0.75,
+    "keywordCoverageMeasurement": {
+      "state": "measured"
+    }
   },
   "speedSamples": [
     {
@@ -1183,6 +1228,13 @@ Report 응답 구조:
     "questionSummary": "",
     "unclearTopics": []
   },
+  "semanticEvaluation": {
+    "state": "unavailable",
+    "measurementMode": "none",
+    "reasons": ["evaluation_not_run"],
+    "retryable": false
+  },
+  "semanticCueOutcomes": [],
   "coaching": {
     "status": "succeeded",
     "summary": "핵심 메시지가 분명합니다.",
@@ -1203,6 +1255,11 @@ Report 응답 구조:
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
+- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- `freshness=stale`인 reviewed cue도 snapshot에 유지해 최종 결과를 `unmeasured(stale_cue)`로 설명할 수 있게 한다.
+- snapshot은 생성 후 수정하지 않는다. `deckVersion`과 cue `revision`은 해당 run의 immutable 평가 기준이다.
+- `delivery-only`와 legacy run은 `deckVersion=null`, `evaluationSnapshot=null`이며 Semantic Cue 최종 평가는 각각 `evaluation_snapshot_mismatch`, `evaluation_not_run`으로 구분한다.
+- 기본 run 목록은 `cancelled`를 제외한다. processing이 시작된 run은 cancel할 수 없다.
 - `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
@@ -1210,6 +1267,30 @@ Report 응답 구조:
 - 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.
 - 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
+
+### Semantic Cue 측정·fallback 계약
+
+live `semanticCueDecisions`는 provisional/debug 호환 필드이며 canonical report 결과는 `semanticCueOutcomes`다. legacy decision은 `matchedBy=nli`, `measurementMode=full`, `fallbackUsed=false`로 정규화하고 기존 required `provider`는 optional로 완화한다.
+
+- capability: `stt | semantic_runtime | embedding | nli | server_evaluation | cue_freshness | transcript_evidence`
+- capability state: `available | degraded | unavailable`
+- measurement mode: `full | basic | none`
+- decision match: `lexical | alias | embedding | nli`
+- outcome match: decision match 값과 `post_run_semantic`
+- outcome status: `covered | partial | missed | unmeasured | excluded`
+- fallback reason: `user_disabled | permission_denied | stt_unavailable | network_error | provider_unavailable | model_not_ready | model_load_failed | timeout | runtime_error | server_evaluation_failed | stale_cue | transcript_incomplete | no_transcript | insufficient_evidence | slide_not_visited | evaluation_not_run | evaluation_snapshot_mismatch | queue_dropped | needs_confirmation`
+
+`semanticCapabilityEvents`는 owner-only run meta에 최대 100개를 저장한다. event의 `cueIds`는 중복 제거 후 최대 50개이며 transcript, speaker notes, premise 원문을 넣지 않는다. `degraded/unavailable` event는 `reason`이 필수고 `available` 복구 event는 `fromState`와 `at`이 필수다.
+
+`semanticCueOutcomes`는 cue마다 `cueRevision`, meaning/report label snapshot, importance, measurement 상태, fallback 상태, covered/missing concept를 저장한다. evidence는 정규화된 300자 이하 excerpt 하나와 `startMs/endMs`만 허용한다.
+
+- `unmeasured`는 `measurementMode=none`과 `unmeasuredReason`이 필수다.
+- `excluded`는 `measurementMode=none`이며 evidence를 가질 수 없다.
+- `missed`는 정상 full 평가가 완료된 경우에만 허용한다.
+- `fallbackUsed=true`이면 `fallbackReason`이 필수다.
+- `basic` mode는 positive evidence가 있는 `covered/partial`만 허용하며 absence를 `missed`로 바꾸지 않는다.
+- legacy report는 `semanticEvaluation=unavailable/none/evaluation_not_run`, `semanticCueOutcomes=[]`, `keywordCoverageMeasurement.state=measured`로 parse한다.
+- 새 report의 keyword 분모가 0이면 숫자 `keywordCoverage=0`은 계산 placeholder로만 두고 `keywordCoverageMeasurement={ state: "unmeasured", reason: "no-keywords" }`를 저장한다. UI는 숫자 대신 `N/A`를 표시한다.
 
 구현 위치:
 

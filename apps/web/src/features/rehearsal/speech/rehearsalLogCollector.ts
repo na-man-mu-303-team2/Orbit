@@ -88,7 +88,10 @@ export function createRehearsalLogCollector(
     return {
       slideTimeline: [...slideTimeline],
       missedKeywords,
-      adviceEvents: [...adviceEvents]
+      adviceEvents: [...adviceEvents],
+      utteranceOutcomes: [],
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     };
   }
 

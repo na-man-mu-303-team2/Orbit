@@ -163,7 +163,11 @@ export const putDeckResponseSchema = z
     );
   });
 
-export const appendDeckPatchRequestSchema = z.object({
+export const appendDeckPatchRequestSchema: z.ZodObject<{
+  patch: typeof deckPatchSchema;
+  responseMode: z.ZodOptional<z.ZodLiteral<"ack">>;
+  snapshotReason: z.ZodOptional<typeof deckSnapshotReasonSchema>;
+}> = z.object({
   patch: deckPatchSchema,
   responseMode: z.literal("ack").optional(),
   snapshotReason: deckSnapshotReasonSchema.optional(),
@@ -201,15 +205,23 @@ export const appendDeckPatchAckResponseSchema = z
     }
   });
 
-export const appendDeckPatchResponseSchema = z
-  .object({
-    deck: deckSchema,
-    changeRecord: deckChangeRecordSchema,
-    snapshot: deckSnapshotSchema.nullable(),
-    ooxmlSyncJob: jobSchema.optional(),
-    updatedAt: isoDateTimeSchema,
-  })
-  .superRefine((response, ctx) => {
+const appendDeckPatchResponseObjectSchema: z.ZodObject<{
+  deck: typeof deckSchema;
+  changeRecord: typeof deckChangeRecordSchema;
+  snapshot: z.ZodNullable<typeof deckSnapshotSchema>;
+  ooxmlSyncJob: z.ZodOptional<typeof jobSchema>;
+  updatedAt: typeof isoDateTimeSchema;
+}> = z.object({
+  deck: deckSchema,
+  changeRecord: deckChangeRecordSchema,
+  snapshot: deckSnapshotSchema.nullable(),
+  ooxmlSyncJob: jobSchema.optional(),
+  updatedAt: isoDateTimeSchema,
+});
+
+export const appendDeckPatchResponseSchema: z.ZodEffects<
+  typeof appendDeckPatchResponseObjectSchema
+> = appendDeckPatchResponseObjectSchema.superRefine((response, ctx) => {
     requireMatchingDeckId(
       ctx,
       response.changeRecord.deckId,
@@ -242,7 +254,7 @@ export const appendDeckPatchResponseSchema = z
         ["snapshot", "version"],
       );
     }
-  });
+});
 
 export const listDeckSnapshotsResponseSchema = z
   .object({

@@ -15,6 +15,7 @@ describe("SourceLedgerPanel", () => {
       speakerNotes: "notes",
       elements: [],
       keywords: [],
+      semanticCues: [],
       animations: [],
       actions: [],
       aiNotes: {

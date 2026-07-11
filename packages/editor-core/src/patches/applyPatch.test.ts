@@ -5,6 +5,7 @@ import type {
   DeckElement,
   DeckPatch,
   DeckPatchOperation,
+  SemanticCue,
   Slide,
 } from "@orbit/shared";
 
@@ -37,6 +38,7 @@ function createSlide(slideId: string, order: number): Slide {
     speakerNotes: "",
     elements: [],
     keywords: [],
+    semanticCues: [],
     animations: [],
     actions: [],
   };
@@ -64,6 +66,100 @@ function createTextElement(elementId: string): DeckElement {
       verticalAlign: "top",
       lineHeight: 1.2,
     },
+  };
+}
+
+function createTableElement(elementId: string): DeckElement {
+  return {
+    elementId,
+    type: "table",
+    role: "table",
+    x: 200,
+    y: 160,
+    width: 480,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 2,
+    locked: false,
+    visible: true,
+    props: {
+      rows: [
+        [
+          {
+            text: "기존 값",
+            fill: "transparent",
+            fontSize: 18,
+            fontWeight: "normal",
+            align: "left",
+            verticalAlign: "middle",
+            borderColor: "#CBD5E1",
+            borderWidth: 1,
+            colSpan: 1,
+            rowSpan: 1,
+          },
+        ],
+      ],
+      borderColor: "#CBD5E1",
+      borderWidth: 1,
+    },
+  };
+}
+
+function createChartElement(elementId: string): DeckElement {
+  return {
+    elementId,
+    type: "chart",
+    role: "chart",
+    x: 200,
+    y: 160,
+    width: 480,
+    height: 240,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 3,
+    locked: false,
+    visible: true,
+    props: {
+      type: "bar",
+      title: "기존 추이",
+      data: [{ label: "1분기", value: 10 }],
+      style: {
+        colors: [],
+        showLegend: true,
+        legendPosition: "bottom",
+        showDataLabels: false,
+        showGrid: true,
+        xAxisTitle: "분기",
+        yAxisTitle: "건수",
+        unit: "건",
+      },
+    },
+  };
+}
+
+function createSemanticCue(overrides: Partial<SemanticCue> = {}): SemanticCue {
+  return {
+    cueId: "scue_1",
+    slideId: "slide_1",
+    meaning: "발표자는 ORBIT의 핵심 가치를 설명한다",
+    importance: "core",
+    reviewStatus: "approved",
+    freshness: "current",
+    origin: "manual",
+    revision: 1,
+    sourceRefs: [],
+    qualityWarnings: [],
+    required: true,
+    priority: 1,
+    candidateKeywords: ["ORBIT"],
+    aliases: {},
+    requiredConcepts: ["핵심 가치"],
+    nliHypotheses: ["발표자는 ORBIT의 핵심 가치를 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: [],
+    ...overrides,
   };
 }
 
@@ -337,6 +433,172 @@ describe("applyDeckPatch", () => {
     }
   });
 
+  it("marks approved cues stale when text content changes", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_1",
+          props: { text: "의미가 바뀐 문장" },
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues[0]).toMatchObject({
+      reviewStatus: "approved",
+      freshness: "stale",
+      revision: 1,
+    });
+  });
+
+  it("does not mark cues stale for frame or text style-only changes", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_1",
+          frame: { x: 320, zIndex: 4 },
+        },
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_1",
+          props: { fontSize: 36, color: "#111827" },
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
+  });
+
+  it("marks cues stale for table cell and chart data changes", () => {
+    const tableDeck = createPatchTestDeck();
+    tableDeck.slides[0].elements.push(createTableElement("el_table"));
+    tableDeck.slides[0].semanticCues = [createSemanticCue()];
+    const tableResult = applyPatchOrFail(
+      tableDeck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_table",
+          props: {
+            rows: [
+              [
+                {
+                  text: "변경된 값",
+                  fill: "transparent",
+                  fontSize: 18,
+                  fontWeight: "normal",
+                  align: "left",
+                  verticalAlign: "middle",
+                  borderColor: "#CBD5E1",
+                  borderWidth: 1,
+                  colSpan: 1,
+                  rowSpan: 1,
+                },
+              ],
+            ],
+          },
+        },
+      ]),
+    );
+
+    const chartDeck = createPatchTestDeck();
+    chartDeck.slides[0].elements.push(createChartElement("el_chart"));
+    chartDeck.slides[0].semanticCues = [createSemanticCue()];
+    const chartResult = applyPatchOrFail(
+      chartDeck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_chart",
+          props: { data: [{ label: "1분기", value: 20 }] },
+        },
+      ]),
+    );
+
+    expect(tableResult.deck.slides[0].semanticCues[0].freshness).toBe("stale");
+    expect(chartResult.deck.slides[0].semanticCues[0].freshness).toBe("stale");
+  });
+
+  it("does not mark cues stale for table and chart decoration changes", () => {
+    const tableDeck = createPatchTestDeck();
+    tableDeck.slides[0].elements.push(createTableElement("el_table"));
+    tableDeck.slides[0].semanticCues = [createSemanticCue()];
+    const tableResult = applyPatchOrFail(
+      tableDeck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_table",
+          props: { borderColor: "#111827" },
+        },
+      ]),
+    );
+
+    const chartDeck = createPatchTestDeck();
+    chartDeck.slides[0].elements.push(createChartElement("el_chart"));
+    chartDeck.slides[0].semanticCues = [createSemanticCue()];
+    const chartResult = applyPatchOrFail(
+      chartDeck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_chart",
+          props: { style: { colors: ["#2563EB"] } },
+        },
+      ]),
+    );
+
+    expect(tableResult.deck.slides[0].semanticCues[0].freshness).toBe("current");
+    expect(chartResult.deck.slides[0].semanticCues[0].freshness).toBe("current");
+  });
+
+  it("marks cues stale only when speaker notes actually change", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+    const unchanged = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: deck.slides[0].speakerNotes,
+        },
+      ]),
+    );
+    const changed = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: "근거 문구가 변경된 발표자 노트",
+        },
+      ]),
+    );
+
+    expect(unchanged.deck.slides[0].semanticCues[0].freshness).toBe("current");
+    expect(changed.deck.slides[0].semanticCues[0]).toMatchObject({
+      reviewStatus: "approved",
+      freshness: "stale",
+    });
+  });
+
   it("deletes an element and removes animations and actions targeting it", () => {
     const deck = createPatchTestDeck();
 
@@ -368,6 +630,36 @@ describe("applyDeckPatch", () => {
     expect(result.deck.slides[0].elements).toEqual([]);
     expect(result.deck.slides[0].animations).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
+  });
+
+  it("removes deleted element references and keeps the deck schema valid", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [
+      createSemanticCue({
+        sourceRefs: [
+          { kind: "element", refId: "el_1", sourceHash: "hash_el_1" },
+        ],
+        targetElementIds: ["el_1"],
+      }),
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "delete_element",
+          slideId: "slide_1",
+          elementId: "el_1",
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues[0]).toMatchObject({
+      reviewStatus: "approved",
+      freshness: "stale",
+      targetElementIds: [],
+      sourceRefs: [],
+    });
   });
 
   it("applies theme, slide style, notes, animation, and slide action operations", () => {
@@ -530,6 +822,79 @@ describe("applyDeckPatch", () => {
     expect(result.deck.slides[0].actions).toEqual([]);
   });
 
+  it("removes direct and cascading deleted action references", () => {
+    const directDeck = createPatchTestDeck();
+    directDeck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: { kind: "cue", cue: "강조" },
+        effect: { kind: "go-to-next-slide" },
+      },
+    ];
+    directDeck.slides[0].semanticCues = [
+      createSemanticCue({ triggerActionIds: ["act_1"] }),
+    ];
+    const directResult = applyPatchOrFail(
+      directDeck,
+      createPatch([
+        {
+          type: "delete_slide_action",
+          slideId: "slide_1",
+          actionId: "act_1",
+        },
+      ]),
+    );
+
+    const cascadingDeck = createPatchTestDeck();
+    cascadingDeck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: { kind: "cue", cue: "강조" },
+        effect: { kind: "play-animation", animationId: "anim_1" },
+      },
+    ];
+    cascadingDeck.slides[0].semanticCues = [
+      createSemanticCue({ triggerActionIds: ["act_1"] }),
+    ];
+    const cascadingResult = applyPatchOrFail(
+      cascadingDeck,
+      createPatch([
+        {
+          type: "delete_animation",
+          slideId: "slide_1",
+          animationId: "anim_1",
+        },
+      ]),
+    );
+
+    for (const result of [directResult, cascadingResult]) {
+      expect(result.deck.slides[0].semanticCues[0]).toMatchObject({
+        freshness: "stale",
+        triggerActionIds: [],
+      });
+    }
+  });
+
+  it("replays semantic content edits deterministically without mutating undo state", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+    const patch = createPatch([
+      {
+        type: "update_element_props",
+        slideId: "slide_1",
+        elementId: "el_1",
+        props: { text: "재생 가능한 변경" },
+      },
+    ]);
+
+    const first = applyPatchOrFail(deck, patch);
+    const replay = applyPatchOrFail(deck, patch);
+
+    expect(deck.slides[0].semanticCues[0].freshness).toBe("current");
+    expect(first.deck).toEqual(replay.deck);
+    expect(first.deck.slides[0].semanticCues[0].freshness).toBe("stale");
+  });
+
   it("deletes keyword-triggered slide actions when the keyword is removed", () => {
     const deck = createPatchTestDeck();
 
@@ -559,6 +924,60 @@ describe("applyDeckPatch", () => {
 
     expect(result.deck.slides[0].keywords).toEqual([]);
     expect(result.deck.slides[0].actions).toEqual([]);
+  });
+
+  it("replaces semantic cues with an independent slide-scoped copy", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue({ cueId: "scue_old" })];
+    const semanticCues = [
+      createSemanticCue({
+        cueId: "scue_new",
+        meaning: "발표자는 교체된 핵심 메시지를 설명한다",
+        revision: 2,
+      }),
+    ];
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_1",
+          semanticCues,
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues).toEqual(semanticCues);
+    expect(result.changeRecord.operations[0]).toEqual({
+      type: "replace_semantic_cues",
+      slideId: "slide_1",
+      semanticCues,
+    });
+    semanticCues[0].meaning = "호출자에서 변경된 문구";
+    expect(result.deck.slides[0].semanticCues[0].meaning).toBe(
+      "발표자는 교체된 핵심 메시지를 설명한다",
+    );
+  });
+
+  it("fails when a semantic cue replacement targets a missing slide", () => {
+    const result = applyDeckPatch(
+      createPatchTestDeck(),
+      createPatch([
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_missing",
+          semanticCues: [],
+        },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "SLIDE_NOT_FOUND",
+      },
+    });
   });
 
   it("fails when deckId does not match", () => {
