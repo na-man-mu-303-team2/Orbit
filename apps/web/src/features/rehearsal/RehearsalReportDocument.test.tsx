@@ -309,7 +309,8 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       wordsPerMinute: 120,
       fillerWordCount: 0,
       pauseCount: 0,
-      keywordCoverage: 1
+      keywordCoverage: 1,
+      keywordCoverageMeasurement: { state: "measured" }
     },
     speedSamples: [],
     fillerWordDetails: [],
