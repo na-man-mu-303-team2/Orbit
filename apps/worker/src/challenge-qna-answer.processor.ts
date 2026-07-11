@@ -25,7 +25,7 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
     JOIN challenge_qna_sessions sessions ON sessions.qna_session_id=attempts.qna_session_id AND sessions.project_id=attempts.project_id
     LEFT JOIN project_assets assets ON assets.project_id=attempts.project_id AND assets.file_id=attempts.audio_file_id
     WHERE attempts.answer_attempt_id=$1 AND attempts.project_id=$2`, [payload.answerAttemptId,payload.projectId]);
-  const row = rowSchema.parse(rows[0]);
+  const row = rowSchema.parse(firstQueryRow(rows));
   if (row.status !== "queued") return currentJob(dataSource,payload.jobId);
   await updateJob(dataSource,payload.jobId,"running",20,"답변 분석 중",null,null);
   await dataSource.query(`UPDATE challenge_qna_answer_attempts SET status='processing' WHERE answer_attempt_id=$1 AND status='queued'`,[payload.answerAttemptId]);
@@ -46,7 +46,7 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
     const deletedAt=await cleanupVoice(dataSource,storage,row);
     await dataSource.query(`UPDATE challenge_qna_answer_attempts SET status='succeeded',concept_outcomes_json=$2,clarity=$3,audience_fit=$4,
       cleanup_state=$5,raw_audio_deleted_at=$6,evidence_expires_at=NULL,completed_at=now() WHERE answer_attempt_id=$1 AND status='processing'`,
-      [payload.answerAttemptId,result.conceptOutcomes,result.clarity,result.audienceFit,row.input_mode==="voice"?(deletedAt?"deleted":"pending"):"not-required",deletedAt]);
+      [payload.answerAttemptId,JSON.stringify(result.conceptOutcomes),result.clarity,result.audienceFit,row.input_mode==="voice"?(deletedAt?"deleted":"pending"):"not-required",deletedAt]);
     return updateJob(dataSource,payload.jobId,"succeeded",100,"답변 분석 완료",{answerAttemptId:payload.answerAttemptId,measuredConceptCount:result.conceptOutcomes.filter((item)=>item.outcome!=="unmeasured").length},null);
   } catch (error) {
     const code=error instanceof Error?error.message:"QNA_ANSWER_ANALYSIS_FAILED";
@@ -62,7 +62,8 @@ async function cleanupVoice(dataSource:DataSource,storage:Pick<StoragePort,"remo
   try { await storage.removeObject(row.storage_key); const deletedAt=new Date().toISOString(); await dataSource.query(`UPDATE project_assets SET status='deleted',deleted_at=$3 WHERE project_id=$1 AND file_id=$2`,[row.project_id,row.audio_file_id,deletedAt]); return deletedAt; }
   catch { const hash=createHash("sha256").update(row.storage_key).digest("hex"); const now=new Date().toISOString(); await dataSource.query(`INSERT INTO storage_deletion_outbox (deletion_id,project_id,file_id,storage_key,storage_key_hash,purpose,status,attempt_count,next_attempt_at,created_at) VALUES ($1,$2,$3,$4,$5,'qna-answer-audio','pending',0,$6,$6) ON CONFLICT (storage_key_hash) DO NOTHING`,[`deletion_${hash.slice(0,32)}`,row.project_id,row.audio_file_id,row.storage_key,hash,now]); return null; }
 }
-function updateJob(ds:DataSource,id:string,status:"running"|"succeeded"|"failed",progress:number,message:string,result:Record<string,unknown>|null,error:{code:string;message:string}|null){return ds.query(`UPDATE jobs SET status=$2,progress=$3,message=$4,result=$5,error=$6,updated_at=now() WHERE job_id=$1 RETURNING *`,[id,status,progress,message,result,error]).then((rows)=>toJob(rows[0]));}
-function currentJob(ds:DataSource,id:string){return ds.query(`SELECT * FROM jobs WHERE job_id=$1`,[id]).then((rows)=>toJob(rows[0]));}
+function updateJob(ds:DataSource,id:string,status:"running"|"succeeded"|"failed",progress:number,message:string,result:Record<string,unknown>|null,error:{code:string;message:string}|null){return ds.query(`UPDATE jobs SET status=$2,progress=$3,message=$4,result=$5,error=$6,updated_at=now() WHERE job_id=$1 RETURNING *`,[id,status,progress,message,result,error]).then((rows)=>toJob(firstQueryRow(rows)));}
+function currentJob(ds:DataSource,id:string){return ds.query(`SELECT * FROM jobs WHERE job_id=$1`,[id]).then((rows)=>toJob(firstQueryRow(rows)));}
 function toJob(row:any){return jobSchema.parse({jobId:row.job_id,projectId:row.project_id,type:row.type,status:row.status,progress:row.progress,message:row.message,result:row.result,error:row.error,createdAt:iso(row.created_at),updatedAt:iso(row.updated_at)});}
 function iso(value:unknown){return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
+function firstQueryRow<T=any>(value:unknown):T { const first=Array.isArray(value)?value[0]:undefined; return (Array.isArray(first)?first[0]:first) as T; }

@@ -1,4 +1,4 @@
-import { loadOrbitConfig } from "@orbit/config";
+import { isAdaptiveCoachingProjectAllowed, loadOrbitConfig } from "@orbit/config";
 import {
   enqueueChallengeQnaAnswerAnalysisJob,
   enqueueChallengeQnaGenerationJob,
@@ -17,7 +17,7 @@ import {
   type ChallengeQnaAnswerAttempt,
   type ChallengeQnaSession,
 } from "@orbit/shared";
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DataSource, type EntityManager } from "typeorm";
 import { FilesService } from "../files/files.service";
@@ -42,6 +42,9 @@ export class ChallengeQnaService {
   async createSession(projectId: string, actorUserId: string, body: unknown) {
     const request = createChallengeQnaSessionRequestSchema.parse(body);
     await this.projects.assertCanWriteProject(projectId, actorUserId);
+    if (!this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED || !this.config.CHALLENGE_QNA_ENABLED || !isAdaptiveCoachingProjectAllowed(this.config, projectId)) {
+      throw new ForbiddenException("Challenge Q&A is not enabled for this project.");
+    }
     const session = await this.dataSource.transaction(async (manager) => {
       const existing = first(await manager.query(`SELECT * FROM challenge_qna_sessions WHERE project_id=$1 AND client_request_id=$2`, [projectId, request.clientRequestId]));
       if (existing) return toSession(existing, false);
@@ -103,7 +106,7 @@ export class ChallengeQnaService {
     const rows = await this.dataSource.query(`UPDATE challenge_qna_sessions SET generation_revision=generation_revision+1,
       status='preparing', generation_job_id=NULL, active_question_order=NULL, error_code=NULL
       WHERE qna_session_id=$1 AND generation_revision=$2 RETURNING *`, [sessionId, request.expectedGenerationRevision]);
-    const session = toSession(rows[0], false);
+    const session = toSession(first(rows)!, false);
     await this.dispatchGeneration(session);
     return this.getSession(sessionId, actorUserId);
   }
@@ -114,6 +117,10 @@ export class ChallengeQnaService {
     await this.projects.assertCanWriteProject(String(row.project_id), actorUserId);
     const question = first(await this.dataSource.query(`SELECT * FROM challenge_qna_questions WHERE qna_session_id=$1 AND question_id=$2 AND revision=$3`, [sessionId, questionId, request.questionRevision]));
     if (!question || request.questionRevision !== row.generation_revision) throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Question revision is stale." });
+    if (request.level === "full-guide") {
+      const firstAttempt = first(await this.dataSource.query(`SELECT 1 FROM challenge_qna_answer_attempts WHERE qna_session_id=$1 AND question_id=$2 AND question_revision=$3 LIMIT 1`, [sessionId, questionId, request.questionRevision]));
+      if (!firstAttempt) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Submit an answer before revealing the full guide." });
+    }
     await this.dataSource.query(`INSERT INTO challenge_qna_assistance (project_id,qna_session_id,question_id,question_revision,level,level_rank,updated_by,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,now()) ON CONFLICT (qna_session_id,question_id,question_revision) DO UPDATE SET
       level=CASE WHEN challenge_qna_assistance.level_rank < EXCLUDED.level_rank THEN EXCLUDED.level ELSE challenge_qna_assistance.level END,
@@ -156,9 +163,9 @@ export class ChallengeQnaService {
     await this.dataSource.query(`UPDATE challenge_qna_sessions SET status='active' WHERE qna_session_id=$1 AND status='ready'`, [sessionId]);
     if (request.inputMode === "text") {
       await this.evidence.putText(attemptId, request.answerText);
-      return { attempt: await this.queueAnswer(rows[0]), upload: null };
+      return { attempt: await this.queueAnswer(first(rows)!), upload: null };
     }
-    return { attempt: toAttempt(rows[0]), upload };
+    return { attempt: toAttempt(first(rows)!), upload };
   }
 
   async completeAudio(attemptId: string, actorUserId: string, body: unknown) {
@@ -169,7 +176,7 @@ export class ChallengeQnaService {
     if (row.status !== "uploading" || row.audio_file_id !== request.fileId) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Audio attempt is not uploadable." });
     await this.files.completeUpload(String(row.project_id), { fileId: request.fileId }, "qna-answer-audio");
     const rows = await this.dataSource.query(`UPDATE challenge_qna_answer_attempts SET duration_ms=$2 WHERE answer_attempt_id=$1 AND status='uploading' RETURNING *`, [attemptId, request.durationMs]);
-    return { attempt: await this.queueAnswer(rows[0]) };
+    return { attempt: await this.queueAnswer(first(rows)!) };
   }
 
   async advance(sessionId: string, actorUserId: string) {
@@ -181,14 +188,15 @@ export class ChallengeQnaService {
     const next = Number(row.active_question_order) + 1;
     const terminal = next > count;
     const rows = await this.dataSource.query(`UPDATE challenge_qna_sessions SET status=$2, active_question_order=$3, completed_at=$4 WHERE qna_session_id=$1 RETURNING *`, [sessionId, terminal ? "completed" : "active", terminal ? null : next, terminal ? new Date().toISOString() : null]);
-    return { session: toSession(rows[0], true) };
+    return { session: toSession(first(rows)!, true) };
   }
 
   async cancel(sessionId: string, actorUserId: string) {
     const row = await this.getSessionRow(sessionId); await this.projects.assertCanWriteProject(String(row.project_id), actorUserId);
     const rows = await this.dataSource.query(`UPDATE challenge_qna_sessions SET status='cancelled',active_question_order=NULL,completed_at=now() WHERE qna_session_id=$1 AND status NOT IN ('completed','cancelled') RETURNING *`, [sessionId]);
-    if (!rows[0]) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Session is terminal." });
-    return { session: toSession(rows[0], true) };
+    const updated = first(rows);
+    if (!updated) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Session is terminal." });
+    return { session: toSession(updated, true) };
   }
 
   private async dispatchGeneration(session: ChallengeQnaSession) {
@@ -201,7 +209,7 @@ export class ChallengeQnaService {
     const job = await this.jobs.create({ projectId: String(row.project_id), type: "challenge-qna-answer-analysis", payload: { answerAttemptId: row.answer_attempt_id } });
     const rows = await this.dataSource.query(`UPDATE challenge_qna_answer_attempts SET status='queued',analysis_job_id=$2 WHERE answer_attempt_id=$1 AND status IN ('created','uploading') RETURNING *`, [row.answer_attempt_id, job.jobId]);
     await enqueueChallengeQnaAnswerAnalysisJob({ driver: this.config.JOB_QUEUE_DRIVER, redisUrl: this.config.REDIS_URL, jobId: job.jobId, projectId: String(row.project_id), answerAttemptId: String(row.answer_attempt_id) });
-    return toAttempt(rows[0]);
+    return toAttempt(first(rows)!);
   }
 
   private async getSessionRow(sessionId: string) {
@@ -285,5 +293,5 @@ function toAttempt(row: Record<string, any>): ChallengeQnaAnswerAttempt {
     errorCode: row.error_code, createdAt: iso(row.created_at), completedAt: row.completed_at ? iso(row.completed_at) : null });
 }
 
-function first(rows: unknown): Record<string, any> | undefined { return Array.isArray(rows) && rows[0] && typeof rows[0] === "object" ? rows[0] as Record<string, any> : undefined; }
+function first(rows: unknown): Record<string, any> | undefined { if(!Array.isArray(rows))return undefined;const value=Array.isArray(rows[0])?rows[0][0]:rows[0];return value&&typeof value==="object"?value as Record<string,any>:undefined; }
 function iso(value: unknown) { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }

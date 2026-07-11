@@ -2,6 +2,11 @@
 .focused-practice-shell { margin: 0 auto; max-width: 920px; }
 .focused-practice-shell > header { align-items: end; display: flex; justify-content: space-between; }
 .focused-practice-shell h1 { font-size: var(--orbit-ds-type-page-title); letter-spacing: -.04em; margin: 0; }
+.focused-slide-preview { background: var(--orbit-ds-text); border-radius: var(--orbit-ds-radius-block); color: var(--orbit-ds-surface); display: grid; gap: 28px; grid-template-columns: minmax(180px, .55fr) minmax(0, 1.45fr); margin-top: 36px; padding: 28px; }
+.focused-slide-preview small { color: var(--orbit-ds-lilac); font-family: var(--orbit-ds-font-mono); }
+.focused-slide-preview h2 { font-size: 24px; line-height: 1.25; margin: 10px 0 0; }
+.focused-slide-preview-canvas { align-items: center; display: flex; justify-content: center; min-width: 0; overflow: hidden; }
+.focused-slide-preview-canvas .orbit-read-only-slide-viewport { box-shadow: 0 12px 32px rgba(0, 0, 0, .22); }
 .focused-practice-stage { background: var(--orbit-ds-lilac-soft); border-radius: var(--orbit-ds-radius-block); margin-top: 36px; min-height: 360px; padding: 44px; }
 .focused-practice-stage > svg { background: var(--orbit-ds-lilac); border-radius: 50%; padding: 12px; box-sizing: content-box; }
 .focused-practice-stage small { color: var(--orbit-ds-lilac-strong); display: block; font-family: var(--orbit-ds-font-mono); margin-top: 42px; }
@@ -14,4 +19,4 @@
 .focused-practice-shell > footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 28px; }
 .focused-practice-shell .orbit-ds-button { min-height: 44px; }
 .focused-practice-error { background: var(--orbit-ds-danger-soft); color: var(--orbit-ds-danger); padding: 12px; }
-@media (max-width: 640px) { .focused-practice-page { padding: 28px 16px; } .focused-practice-shell > header { align-items: start; flex-direction: column; gap: 16px; } .focused-practice-stage { min-height: 0; padding: 28px; } .focused-practice-shell > footer { flex-direction: column; } .focused-practice-shell .orbit-ds-button { width: 100%; } }
+@media (max-width: 640px) { .focused-practice-page { padding: 28px 16px; } .focused-practice-shell > header { align-items: start; flex-direction: column; gap: 16px; } .focused-slide-preview { grid-template-columns: 1fr; padding: 22px; } .focused-practice-stage { min-height: 0; padding: 28px; } .focused-practice-shell > footer { flex-direction: column; } .focused-practice-shell .orbit-ds-button { width: 100%; } }

@@ -1,7 +1,17 @@
 import { deckSchema } from "@orbit/shared";
 import type { EntityManager } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
-import { buildChallengeQnaSource } from "./challenge-qna.service";
+import type { DataSource } from "typeorm";
+import type { FilesService } from "../files/files.service";
+import type { JobsService } from "../jobs/jobs.service";
+import type { ProjectsService } from "../projects/projects.service";
+import type { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
+import { buildChallengeQnaSource, ChallengeQnaService } from "./challenge-qna.service";
+
+vi.mock("@orbit/config", () => ({
+  loadOrbitConfig: () => ({ ADAPTIVE_REHEARSAL_COACH_ENABLED: true, CHALLENGE_QNA_ENABLED: true, ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"] }),
+  isAdaptiveCoachingProjectAllowed: () => true,
+}));
 
 describe("ChallengeQnaService grounding", () => {
   it("freezes only hash-matched approved chunks inside the project", async () => {
@@ -28,5 +38,24 @@ describe("ChallengeQnaService grounding", () => {
     expect(result.groundingSnapshot.chunks).toHaveLength(1);
     expect(result.sourceSnapshot.approvedReferences).toEqual([{ fileId: "file-approved", fileContentHash: "a".repeat(64) }]);
     expect(query.mock.calls[3]?.[1]).toEqual(["project-a", "file-approved", "a".repeat(64)]);
+  });
+
+  it("does not reveal the full guide before the first answer attempt", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ project_id: "project-a", generation_revision: 1 }])
+      .mockResolvedValueOnce([{ question_id: "question-a" }])
+      .mockResolvedValueOnce([]);
+    const service = new ChallengeQnaService(
+      { query } as unknown as DataSource,
+      { assertCanWriteProject: vi.fn(async () => ({})) } as unknown as ProjectsService,
+      {} as FilesService,
+      {} as JobsService,
+      {} as ChallengeQnaEvidenceCache,
+    );
+
+    await expect(service.revealAssistance("session-a", "question-a", "user-a", {
+      questionRevision: 1,
+      level: "full-guide",
+    })).rejects.toMatchObject({ response: { code: "INVALID_STATE_TRANSITION" } });
   });
 });

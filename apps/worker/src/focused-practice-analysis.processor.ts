@@ -39,7 +39,7 @@ export async function processFocusedPracticeAnalysisJob(
      WHERE attempts.attempt_id = $1 AND attempts.project_id = $2`,
     [payload.attemptId, payload.projectId],
   );
-  const row = inputRowSchema.parse(rows[0]);
+  const row = inputRowSchema.parse(firstQueryRow(rows));
   if (row.status !== "queued") return currentJob(dataSource, payload.jobId);
   await updateJob(dataSource, payload.jobId, "running", 10, "부분 연습 분석 준비 중", null, null);
   await dataSource.query(`UPDATE focused_practice_attempts SET status = 'processing' WHERE attempt_id = $1 AND status = 'queued'`, [payload.attemptId]);
@@ -88,7 +88,7 @@ export async function processFocusedPracticeAnalysisJob(
       `UPDATE focused_practice_attempts SET status = 'succeeded', result = $2,
        goal_outcomes_json = $3, cleanup_state = $4, raw_audio_deleted_at = $5,
        completed_at = now() WHERE attempt_id = $1 AND status = 'processing'`,
-      [payload.attemptId, aggregate, result.outcomes, deletedAt ? "deleted" : "pending", deletedAt],
+      [payload.attemptId, aggregate, JSON.stringify(result.outcomes), deletedAt ? "deleted" : "pending", deletedAt],
     );
     return updateJob(dataSource, payload.jobId, "succeeded", 100, "부분 연습 분석 완료", {
       attemptId: payload.attemptId, result: aggregate, goalOutcomes: result.outcomes,
@@ -114,9 +114,9 @@ export async function processFocusedPracticeAnalysisJob(
 }
 
 function updateJob(dataSource: DataSource, jobId: string, status: "running" | "succeeded" | "failed", progress: number, message: string, result: Record<string, unknown> | null, error: { code: string; message: string } | null) {
-  return dataSource.query(`UPDATE jobs SET status=$2, progress=$3, message=$4, result=$5, error=$6, updated_at=now() WHERE job_id=$1 RETURNING *`, [jobId, status, progress, message, result, error]).then((rows) => jobRow(rows[0]));
+  return dataSource.query(`UPDATE jobs SET status=$2, progress=$3, message=$4, result=$5, error=$6, updated_at=now() WHERE job_id=$1 RETURNING *`, [jobId, status, progress, message, result, error]).then((rows) => jobRow(firstQueryRow(rows)));
 }
-function currentJob(dataSource: DataSource, jobId: string) { return dataSource.query(`SELECT * FROM jobs WHERE job_id=$1`, [jobId]).then((rows) => jobRow(rows[0])); }
+function currentJob(dataSource: DataSource, jobId: string) { return dataSource.query(`SELECT * FROM jobs WHERE job_id=$1`, [jobId]).then((rows) => jobRow(firstQueryRow(rows))); }
 async function scheduleRawAudioDeletion(dataSource: DataSource, row: z.infer<typeof inputRowSchema>) {
   const now = new Date().toISOString();
   const storageKeyHash = createHash("sha256").update(row.storage_key).digest("hex");
@@ -132,3 +132,4 @@ async function scheduleRawAudioDeletion(dataSource: DataSource, row: z.infer<typ
 
 function jobRow(row: any): Job { return jobSchema.parse({ jobId: row.job_id, projectId: row.project_id, type: row.type, status: row.status, progress: row.progress, message: row.message, result: row.result, error: row.error, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) }); }
 function iso(value: unknown) { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }
+function firstQueryRow<T=any>(value:unknown):T { const first=Array.isArray(value)?value[0]:undefined; return (Array.isArray(first)?first[0]:first) as T; }

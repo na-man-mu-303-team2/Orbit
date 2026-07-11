@@ -9,8 +9,8 @@ export type ChallengeQnaView = { session:ChallengeQnaSession;questions:Challenge
 
 async function parse(response:Response){const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error((body as any).message??"요청을 처리하지 못했습니다.");return body as any;}
 
-export async function createChallengeQna(projectId:string,sourceFullRunId:string){
-  const body=await parse(await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/challenge-qna-sessions`,{method:"POST",headers:{"content-type":"application/json"},credentials:"include",body:JSON.stringify({clientRequestId:crypto.randomUUID(),source:{mode:"final",sourceFullRunId,questionCount:3}})}));
+export async function createChallengeQna(projectId:string,sourceFullRunId:string,clientRequestId:string){
+  const body=await parse(await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/challenge-qna-sessions`,{method:"POST",headers:{"content-type":"application/json"},credentials:"include",body:JSON.stringify({clientRequestId,source:{mode:"final",sourceFullRunId,questionCount:3}})}));
   return normalize(body);
 }
 export async function getChallengeQna(sessionId:string){return normalize(await parse(await fetch(`/api/v1/challenge-qna-sessions/${encodeURIComponent(sessionId)}`,{credentials:"include"})));}

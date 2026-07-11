@@ -7,8 +7,8 @@ describe("processChallengeQnaGenerationJob",()=>{
   it("stores an immutable grounded revision without question text in the Job result",async()=>{
     const query=vi.fn(async(sql:string,parameters?:unknown[])=>{
       if(sql.includes("SELECT * FROM challenge_qna_sessions"))return [sessionRow()];
-      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="running")return [jobRow("running",null,null)];
-      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="succeeded")return [jobRow("succeeded",parameters[4],null)];
+      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="running")return [[jobRow("running",null,null)],1];
+      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="succeeded")return [[jobRow("succeeded",parameters[4],null)],1];
       return [];
     });
     const managerQuery=vi.fn(async(sql:string)=>sql.includes("FOR UPDATE")?[{generation_revision:1,status:"preparing"}]:[]);

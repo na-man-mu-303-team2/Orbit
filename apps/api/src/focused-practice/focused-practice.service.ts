@@ -8,8 +8,8 @@ import {
   type FocusedPracticeSession,
 } from "@orbit/shared";
 import { enqueueFocusedPracticeAnalysisJob } from "@orbit/job-queue";
-import { loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { isAdaptiveCoachingProjectAllowed, loadOrbitConfig } from "@orbit/config";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DataSource } from "typeorm";
 
@@ -31,6 +31,9 @@ export class FocusedPracticeService {
   async createSession(projectId: string, actorUserId: string, body: unknown) {
     const request = createFocusedPracticeSessionRequestSchema.parse(body);
     await this.projects.assertCanWriteProject(projectId, actorUserId);
+    if (!this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED || !this.config.FOCUSED_PRACTICE_ENABLED || !isAdaptiveCoachingProjectAllowed(this.config, projectId)) {
+      throw new ForbiddenException("Focused practice is not enabled for this project.");
+    }
     return this.dataSource.transaction(async (manager) => {
       const existing = first(await manager.query(
         `SELECT * FROM focused_practice_sessions WHERE project_id = $1 AND client_request_id = $2`,
@@ -93,7 +96,7 @@ export class FocusedPracticeService {
           compatibility_state, status, data_origin, created_by, created_at, completed_at
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [session.practiceSessionId, projectId, session.deckId, session.sourceFullRunId,
-          session.sourceGoalSetId, request.clientRequestId, session.goalIds, session.targetScope,
+          session.sourceGoalSetId, request.clientRequestId, JSON.stringify(session.goalIds), session.targetScope,
           session.snapshot, session.compatibilityState, session.status, session.dataOrigin,
           session.createdBy, session.createdAt, null],
       );
@@ -143,7 +146,7 @@ export class FocusedPracticeService {
       [`attempt_${randomUUID()}`, projectId, sessionId, request.clientRequestId,
         upload.fileId, new Date(now.getTime() + 30 * 60_000).toISOString(), now.toISOString()],
     );
-    return { attempt: toAttempt(rows[0]), upload };
+    return { attempt: toAttempt(first(rows)!), upload };
   }
 
   async completeAttempt(attemptId: string, actorUserId: string, body: unknown) {
@@ -166,7 +169,7 @@ export class FocusedPracticeService {
     const rows = await this.dataSource.query(
       `UPDATE focused_practice_attempts SET status = 'queued', analysis_job_id = $2,
         duration_ms = $3, slide_timeline_json = $4 WHERE attempt_id = $1 AND status = 'uploading' RETURNING *`,
-      [attemptId, job.jobId, request.durationMs, request.slideTimeline],
+      [attemptId, job.jobId, request.durationMs, JSON.stringify(request.slideTimeline)],
     );
     await enqueueFocusedPracticeAnalysisJob({
       driver: this.config.JOB_QUEUE_DRIVER,
@@ -177,7 +180,7 @@ export class FocusedPracticeService {
       attemptId,
       audioFileId: request.fileId,
     });
-    return { attempt: toAttempt(rows[0]), job };
+    return { attempt: toAttempt(first(rows)!), job };
   }
 
   async finishSession(sessionId: string, actorUserId: string, status: "completed" | "cancelled") {
@@ -188,8 +191,9 @@ export class FocusedPracticeService {
        WHERE practice_session_id = $1 AND status = 'active' RETURNING *`,
       [sessionId, status],
     );
-    if (!rows[0]) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Session is already terminal." });
-    return { session: toSession(rows[0]) };
+    const updated = first(rows);
+    if (!updated) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Session is already terminal." });
+    return { session: toSession(updated) };
   }
 
   private async getSessionRow(sessionId: string) {
@@ -250,7 +254,9 @@ function validateTimeline(timeline: Array<{ enteredAtMs: number; exitedAtMs: num
 }
 
 function first(rows: unknown): Record<string, any> | undefined {
-  return Array.isArray(rows) && rows[0] && typeof rows[0] === "object" ? rows[0] as Record<string, any> : undefined;
+  if (!Array.isArray(rows)) return undefined;
+  const value = Array.isArray(rows[0]) ? rows[0][0] : rows[0];
+  return value && typeof value === "object" ? value as Record<string, any> : undefined;
 }
 function iso(value: unknown) { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }
 function canonical(value: unknown) { return JSON.stringify(value, Object.keys((value ?? {}) as object).sort()); }

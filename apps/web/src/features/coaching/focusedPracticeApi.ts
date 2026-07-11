@@ -9,12 +9,12 @@ import {
 const jsonHeaders = { "content-type": "application/json" };
 async function json(response: Response) { if (!response.ok) throw new Error("부분 연습 요청에 실패했습니다."); return response.json(); }
 
-export async function createFocusedSession(projectId: string, plan: Extract<PracticePlanResponse, { status: "ready" }>, goalId: string) {
+export async function createFocusedSession(projectId: string, plan: Extract<PracticePlanResponse, { status: "ready" }>, goalId: string, clientRequestId: string) {
   const goal = plan.goals.find((item) => item.goalId === goalId);
   if (!goal?.targetScope) throw new Error("부분 연습 범위가 없습니다.");
   const data = await json(await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/focused-practice-sessions`, {
     method: "POST", headers: jsonHeaders, credentials: "include",
-    body: JSON.stringify({ clientRequestId: crypto.randomUUID(), sourceFullRunId: plan.sourceFullRunId,
+    body: JSON.stringify({ clientRequestId, sourceFullRunId: plan.sourceFullRunId,
       sourceGoalSetId: plan.goalSet.goalSetId, goalIds: [goalId], targetScope: goal.targetScope }),
   })) as { session: unknown };
   return focusedPracticeSessionSchema.parse(data.session);

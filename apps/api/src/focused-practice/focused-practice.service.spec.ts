@@ -7,7 +7,8 @@ import type { ProjectsService } from "../projects/projects.service";
 import { deriveStabilization, FocusedPracticeService } from "./focused-practice.service";
 
 vi.mock("@orbit/config", () => ({
-  loadOrbitConfig: () => ({ JOB_QUEUE_DRIVER: "bullmq", REDIS_URL: "redis://localhost:6379" }),
+  loadOrbitConfig: () => ({ JOB_QUEUE_DRIVER: "bullmq", REDIS_URL: "redis://localhost:6379", ADAPTIVE_REHEARSAL_COACH_ENABLED: true, FOCUSED_PRACTICE_ENABLED: true, ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"] }),
+  isAdaptiveCoachingProjectAllowed: () => true,
 }));
 
 describe("FocusedPracticeService", () => {

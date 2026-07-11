@@ -7,8 +7,8 @@ describe("processChallengeQnaAnswerJob",()=>{
   it("consumes text evidence once and persists only bounded outcomes",async()=>{
     const query=vi.fn(async(sql:string,parameters?:unknown[])=>{
       if(sql.includes("FROM challenge_qna_answer_attempts attempts"))return [{answer_attempt_id:"answer-a",project_id:"project-a",qna_session_id:"qna-a",question_id:"question-a",question_revision:1,input_mode:"text",status:"queued",audio_file_id:null,storage_key:null,mime_type:null,duration_ms:null,answer_guide_json:{},question_text:"근거?",source_snapshot_json:{}}];
-      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="running")return [jobRow("running",null,null)];
-      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="succeeded")return [jobRow("succeeded",parameters[4],null)];
+      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="running")return [[jobRow("running",null,null)],1];
+      if(sql.includes("UPDATE jobs")&&parameters?.[1]==="succeeded")return [[jobRow("succeeded",parameters[4],null)],1];
       return [];
     });
     const evidence={take:vi.fn(async()=>"비공개 답변 원문"),delete:vi.fn(async()=>undefined)};

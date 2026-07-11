@@ -21,7 +21,7 @@ const responseSchema = z.object({ questions: z.array(generatedQuestionSchema).mi
 export async function processChallengeQnaGenerationJob(dataSource: DataSource, pythonWorkerUrl: string, rawPayload: unknown): Promise<Job> {
   const payload = challengeQnaGenerationJobPayloadSchema.parse(rawPayload);
   const rows = await dataSource.query(`SELECT * FROM challenge_qna_sessions WHERE qna_session_id=$1 AND project_id=$2`, [payload.qnaSessionId, payload.projectId]);
-  const row = rows[0];
+  const row = firstQueryRow<any>(rows);
   if (!row || row.generation_revision !== payload.generationRevision || row.status !== "preparing") return currentJob(dataSource, payload.jobId);
   await updateJob(dataSource, payload.jobId, "running", 20, "질문 근거 확인 중", null, null);
   try {
@@ -43,7 +43,7 @@ export async function processChallengeQnaGenerationJob(dataSource: DataSource, p
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())`, [
           `question_${payload.qnaSessionId}_${payload.generationRevision}_${index + 1}`.slice(0, 128), payload.projectId,
           payload.qnaSessionId, payload.generationRevision, index + 1, question.questionType, question.difficulty,
-          question.questionText, question.linkedGoalIds, question.sourceRefs, question.answerGuide,
+          question.questionText, JSON.stringify(question.linkedGoalIds), JSON.stringify(question.sourceRefs), question.answerGuide,
           { generator: "orbit-python-provider", model: "grounded-rule-v1", schemaVersion: 1, promptTemplateVersion: "challenge-qna-v1" },
         ]);
       }
@@ -68,8 +68,9 @@ function validateSources(questions: z.infer<typeof responseSchema>["questions"],
 }
 
 function updateJob(dataSource: DataSource, jobId: string, status: "running" | "succeeded" | "failed", progress: number, message: string, result: Record<string, unknown> | null, error: { code: string; message: string } | null) {
-  return dataSource.query(`UPDATE jobs SET status=$2,progress=$3,message=$4,result=$5,error=$6,updated_at=now() WHERE job_id=$1 RETURNING *`, [jobId,status,progress,message,result,error]).then((rows) => toJob(rows[0]));
+  return dataSource.query(`UPDATE jobs SET status=$2,progress=$3,message=$4,result=$5,error=$6,updated_at=now() WHERE job_id=$1 RETURNING *`, [jobId,status,progress,message,result,error]).then((rows) => toJob(firstQueryRow(rows)));
 }
-function currentJob(dataSource: DataSource, jobId: string) { return dataSource.query(`SELECT * FROM jobs WHERE job_id=$1`, [jobId]).then((rows) => toJob(rows[0])); }
+function currentJob(dataSource: DataSource, jobId: string) { return dataSource.query(`SELECT * FROM jobs WHERE job_id=$1`, [jobId]).then((rows) => toJob(firstQueryRow(rows))); }
 function toJob(row: any) { return jobSchema.parse({ jobId: row.job_id,projectId:row.project_id,type:row.type,status:row.status,progress:row.progress,message:row.message,result:row.result,error:row.error,createdAt:iso(row.created_at),updatedAt:iso(row.updated_at) }); }
 function iso(value: unknown) { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }
+function firstQueryRow<T=any>(value:unknown):T { const first=Array.isArray(value)?value[0]:undefined; return (Array.isArray(first)?first[0]:first) as T; }
