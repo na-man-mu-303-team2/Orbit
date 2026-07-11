@@ -46,7 +46,8 @@ export type EditorValidationItem = {
     | "EVIDENCE_MISMATCH"
     | "IMAGE_RELEVANCE_WEAK"
     | "BRAND_KIT_VIOLATION"
-    | "IMAGE_LICENSE_MISSING";
+    | "IMAGE_LICENSE_MISSING"
+    | "SPEAKER_NOTES_REPEATED";
   level?: "warning";
   canonicalIssue?: "TEXT_OVERFLOW";
   message: string;
@@ -178,22 +179,22 @@ function getEditorSlideValidationItems(
   if (
     presentationRules &&
     targetSpeakerNotesChars > 0 &&
-    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.7)
+    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.9)
   ) {
     items.push({
       issue: "SPEAKER_NOTES_SHORT",
-      message: `발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      message: `발표자 메모가 장표별 발화 목표의 90%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
       slideId: slide.slideId,
       severity: "warning"
     });
   } else if (
     presentationRules &&
     targetSpeakerNotesChars > 0 &&
-    actualSpeakerNotesChars > Math.round(targetSpeakerNotesChars * 1.15)
+    actualSpeakerNotesChars > Math.round(targetSpeakerNotesChars * 1.1)
   ) {
     items.push({
       issue: "SPEAKER_NOTES_DENSE",
-      message: `발표자 메모가 장표별 발화 목표의 115%를 초과합니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      message: `발표자 메모가 장표별 발화 목표의 110%를 초과합니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
       slideId: slide.slideId,
       severity: "warning"
     });

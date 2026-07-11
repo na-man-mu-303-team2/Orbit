@@ -3479,7 +3479,7 @@ def merge_grounded_repair_notes(
         repaired.speaker_notes = fit_grounded_speaker_note_candidates(
             candidates,
             minimum_chars=round(target * 0.9),
-            preferred_max_chars=round(target * 1.15),
+            preferred_max_chars=round(target * 1.1),
         )
     return repaired_slide_plans
 
@@ -3509,6 +3509,33 @@ def speaker_note_fragments(text: str) -> list[str]:
         for fragment in re.split(r"(?<=[.!?])\s+", normalized)
         if fragment.strip()
     ]
+
+
+def repeated_speaker_notes_slide_order(
+    notes_by_order: list[tuple[int, str]],
+) -> int | None:
+    seen_sentences: set[str] = set()
+    for order, notes in notes_by_order:
+        sentences = speaker_note_fragments(notes)
+        for index, sentence in enumerate(sentences):
+            key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
+            if len(key) < 20:
+                continue
+            if key in seen_sentences:
+                return order
+            seen_sentences.add(key)
+            previous = sentences[index - 1] if index > 0 else ""
+            if previous and speaker_note_token_overlap(previous, sentence) >= 0.8:
+                return order
+    return None
+
+
+def speaker_note_token_overlap(left: str, right: str) -> float:
+    left_tokens = set(re.findall(r"[0-9A-Za-z가-힣]+", left.casefold()))
+    right_tokens = set(re.findall(r"[0-9A-Za-z가-힣]+", right.casefold()))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / max(len(left_tokens), len(right_tokens))
 
 
 def fit_grounded_speaker_note_candidates(
@@ -3546,15 +3573,15 @@ def fit_grounded_speaker_note_candidates(
 def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
     target = slide_plan.target_speaker_notes_chars
     actual = count_speaker_note_chars(slide_plan.speaker_notes)
-    if target <= 0 or actual <= round(target * 1.15):
+    if target <= 0 or actual <= round(target * 1.1):
         return
     compacted = fit_grounded_speaker_note_candidates(
         speaker_note_fragments(slide_plan.speaker_notes),
-        minimum_chars=round(target * 0.7),
-        preferred_max_chars=round(target * 1.15),
+        minimum_chars=round(target * 0.9),
+        preferred_max_chars=round(target * 1.1),
     )
     compacted_chars = count_speaker_note_chars(compacted)
-    if round(target * 0.7) <= compacted_chars < actual:
+    if round(target * 0.9) <= compacted_chars < actual:
         slide_plan.speaker_notes = compacted
 
 
@@ -3653,7 +3680,6 @@ def message_duplicates_content_items(
 
 def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     reasons: list[str] = []
-    normalized_notes: dict[str, int] = {}
     total_slides = len(slide_plans)
     for slide_plan in slide_plans:
         minimum_items, maximum_items = content_item_capacity_for_slide(
@@ -3674,19 +3700,19 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
             )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
-        if target > 0 and actual < round(target * 0.7):
+        if target > 0 and actual < round(target * 0.9):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
             )
-        elif target > 0 and actual > round(target * 1.15):
+        elif target > 0 and actual > round(target * 1.1):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
             )
-        normalized = re.sub(r"\s+", "", slide_plan.speaker_notes).casefold()
-        if normalized:
-            normalized_notes[normalized] = normalized_notes.get(normalized, 0) + 1
-    if any(count > 1 for count in normalized_notes.values()):
-        reasons.append("speaker notes repeat verbatim across slides")
+    repeated_order = repeated_speaker_notes_slide_order(
+        [(slide.order, slide.speaker_notes) for slide in slide_plans]
+    )
+    if repeated_order is not None:
+        reasons.append(f"slide {repeated_order}: speaker notes repeat content")
     return reasons
 
 
@@ -3810,7 +3836,7 @@ def repair_short_speaker_notes_with_llm(
         for slide in slide_plans
         if slide.target_speaker_notes_chars > 0
         and count_speaker_note_chars(slide.speaker_notes)
-        < round(slide.target_speaker_notes_chars * 0.7)
+        < round(slide.target_speaker_notes_chars * 0.9)
     ]
     if not short_slides:
         return slide_plans
@@ -3889,8 +3915,8 @@ def repair_short_speaker_notes_with_llm(
         repaired_by_order = {item.order: item for item in repaired.slides}
         for slide in batch:
             item = repaired_by_order[slide.order]
-            minimum_chars = round(slide.target_speaker_notes_chars * 0.7)
-            maximum_chars = round(slide.target_speaker_notes_chars * 1.15)
+            minimum_chars = round(slide.target_speaker_notes_chars * 0.9)
+            maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
             speaker_notes = " ".join(item.speaker_notes.split())
             actual_chars = count_speaker_note_chars(speaker_notes)
             if not minimum_chars <= actual_chars <= maximum_chars:
@@ -3914,7 +3940,7 @@ def repair_short_speaker_notes_with_llm(
         repair_batch(short_slides[batch_start : batch_start + 3])
     for slide in short_slides:
         if count_speaker_note_chars(slide.speaker_notes) < round(
-            slide.target_speaker_notes_chars * 0.7
+            slide.target_speaker_notes_chars * 0.9
         ):
             repair_batch([slide])
     return slide_plans
@@ -11567,7 +11593,30 @@ def validate_content(deck: dict[str, Any]) -> list[ValidationIssue]:
             presentation_rules=presentation_rules,
         )
     )
+    if presentation_rules:
+        issues.extend(validate_speaker_notes_repetition(deck))
     return issues
+
+
+def validate_speaker_notes_repetition(
+    deck: dict[str, Any],
+) -> list[ValidationIssue]:
+    repeated_order = repeated_speaker_notes_slide_order(
+        [
+            (index + 1, str(slide.get("speakerNotes", "")))
+            for index, slide in enumerate(deck.get("slides", []))
+        ]
+    )
+    if repeated_order is None:
+        return []
+    return [
+        ValidationIssue(
+            code="SPEAKER_NOTES_REPEATED",
+            scope="slide",
+            path=f"slides.{repeated_order - 1}.speakerNotes",
+            message="발표자 메모에 동일하거나 매우 유사한 문장이 반복되어 있습니다.",
+        )
+    ]
 
 
 def validate_slide_timing_plan(
@@ -11582,26 +11631,26 @@ def validate_slide_timing_plan(
     target_chars = int(timing_plan.get("targetSpeakerNotesChars") or 0)
     actual_chars = count_speaker_note_chars(str(slide.get("speakerNotes", "")))
     if presentation_rules and target_chars > 0:
-        if actual_chars < round(target_chars * 0.7):
+        if actual_chars < round(target_chars * 0.9):
             return [
                 ValidationIssue(
                     code="SPEAKER_NOTES_SHORT",
                     scope="slide",
                     path=f"slides.{slide_index}.speakerNotes",
                     message=(
-                        "발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. "
+                        "발표자 메모가 장표별 발화 목표의 90%보다 짧습니다. "
                         f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
                     ),
                 )
             ]
-        if actual_chars > round(target_chars * 1.15):
+        if actual_chars > round(target_chars * 1.1):
             return [
                 ValidationIssue(
                     code="SPEAKER_NOTES_DENSE",
                     scope="slide",
                     path=f"slides.{slide_index}.speakerNotes",
                     message=(
-                        "발표자 메모가 장표별 발화 목표의 115%를 초과합니다. "
+                        "발표자 메모가 장표별 발화 목표의 110%를 초과합니다. "
                         f"목표 {target_chars}자 대비 현재 {actual_chars}자입니다."
                     ),
                 )

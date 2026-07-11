@@ -346,12 +346,12 @@ describe("editor design-pack validation", () => {
     if (!slide.aiNotes?.timingPlan) throw new Error("timing plan missing");
     slide.aiNotes.timingPlan.targetSpeakerNotesChars = 100;
 
-    slide.speakerNotes = "가".repeat(69);
+    slide.speakerNotes = "가".repeat(89);
     expect(getEditorValidationItems(deck, slide)).toContainEqual(
       expect.objectContaining({ issue: "SPEAKER_NOTES_SHORT" })
     );
 
-    slide.speakerNotes = "가".repeat(116);
+    slide.speakerNotes = "가".repeat(111);
     expect(getEditorValidationItems(deck, slide)).toContainEqual(
       expect.objectContaining({ issue: "SPEAKER_NOTES_DENSE" })
     );

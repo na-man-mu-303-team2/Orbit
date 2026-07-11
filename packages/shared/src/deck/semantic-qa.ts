@@ -7,7 +7,8 @@ export const semanticQaIssueCodes = [
   "EVIDENCE_MISMATCH",
   "IMAGE_RELEVANCE_WEAK",
   "BRAND_KIT_VIOLATION",
-  "IMAGE_LICENSE_MISSING"
+  "IMAGE_LICENSE_MISSING",
+  "SPEAKER_NOTES_REPEATED"
 ] as const;
 
 export type SemanticQaIssueCode = (typeof semanticQaIssueCodes)[number];
@@ -19,7 +20,8 @@ export function getSemanticQaIssues(deck: Deck): GenerateDeckValidationIssue[] {
     ...narrativeIssues(deck),
     ...evidenceIssues(deck),
     ...imageIssues(deck),
-    ...brandKitIssues(deck)
+    ...brandKitIssues(deck),
+    ...speakerNotesIssues(deck)
   ];
 }
 
@@ -204,6 +206,55 @@ function brandKitIssues(deck: Deck) {
         )
       ]
     : [];
+}
+
+function speakerNotesIssues(deck: Deck) {
+  const seen = new Map<string, number>();
+  for (const [slideIndex, slide] of deck.slides.entries()) {
+    const sentences = speakerNoteSentences(slide.speakerNotes);
+    for (const [sentenceIndex, sentence] of sentences.entries()) {
+      const key = normalize(sentence).replaceAll(" ", "");
+      if (key.length < 20) continue;
+      if (seen.has(key)) {
+        return [
+          issue(
+            "SPEAKER_NOTES_REPEATED",
+            "slide",
+            `slides.${slideIndex}.speakerNotes`,
+            "발표자 메모에 동일한 문장이 반복되어 있습니다."
+          )
+        ];
+      }
+      seen.set(key, slideIndex);
+      const previous = sentences[sentenceIndex - 1];
+      if (previous && tokenSimilarity(previous, sentence) >= 0.8) {
+        return [
+          issue(
+            "SPEAKER_NOTES_REPEATED",
+            "slide",
+            `slides.${slideIndex}.speakerNotes`,
+            "발표자 메모의 인접 문장이 같은 내용을 반복합니다."
+          )
+        ];
+      }
+    }
+  }
+  return [];
+}
+
+function speakerNoteSentences(value: string) {
+  return value
+    .split(/(?<=[.!?。！？])\s+|\n+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function tokenSimilarity(left: string, right: string) {
+  const leftTokens = new Set(tokens(left));
+  const rightTokens = new Set(tokens(right));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return intersection / Math.max(leftTokens.size, rightTokens.size);
 }
 
 function issue(

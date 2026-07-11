@@ -30,6 +30,18 @@ describe("semantic QA", () => {
     expect(getSemanticQaIssues(deck)).toEqual([]);
   });
 
+  it("detects repeated speaker-note sentences across slides", () => {
+    const deck = semanticDeck();
+    const repeated =
+      "이 문장은 발표 분량을 채우기 위한 반복이 아니라 반드시 한 번만 설명해야 하는 핵심 근거입니다.";
+    deck.slides[0].speakerNotes = `${repeated} 첫 번째 장의 추가 설명입니다.`;
+    deck.slides[1].speakerNotes = `${repeated} 두 번째 장의 추가 설명입니다.`;
+
+    expect(getSemanticQaIssues(deck)).toContainEqual(
+      expect.objectContaining({ code: "SPEAKER_NOTES_REPEATED" })
+    );
+  });
+
   it("accepts a distinct claim that supports the primary message", () => {
     const deck = semanticDeck();
     for (const slide of deck.slides) {

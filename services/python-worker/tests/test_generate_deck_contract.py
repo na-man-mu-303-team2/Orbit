@@ -400,13 +400,32 @@ def test_timing_validation_uses_design_pack_short_and_dense_codes() -> None:
 
     first = deck["slides"][0]
     first_target = first["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
-    first["speakerNotes"] = "가" * max(1, round(first_target * 0.69))
+    first["speakerNotes"] = "가" * max(1, round(first_target * 0.89))
     assert "SPEAKER_NOTES_SHORT" in {
         issue.code for issue in validate_content(deck)
     }
 
-    first["speakerNotes"] = "가" * round(first_target * 1.16)
+    first["speakerNotes"] = "가" * round(first_target * 1.11)
     assert "SPEAKER_NOTES_DENSE" in {
+        issue.code for issue in validate_content(deck)
+    }
+
+
+def test_timing_validation_detects_repeated_speaker_note_sentences() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Repeated notes",
+            generationMode="design-pack",
+        )
+    ).deck
+    repeated = (
+        "이 문장은 발표 분량을 채우지 않고 핵심 근거를 한 번만 설명하기 위한 충분히 긴 문장입니다."
+    )
+    deck["slides"][0]["speakerNotes"] = repeated
+    deck["slides"][1]["speakerNotes"] = repeated
+
+    assert "SPEAKER_NOTES_REPEATED" in {
         issue.code for issue in validate_content(deck)
     }
 
@@ -737,16 +756,16 @@ def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
         ),
         keywords=[],
         evidence=[],
-        target_speaker_notes_chars=160,
+        target_speaker_notes_chars=170,
     )
     original_chars = len("".join(slide.speaker_notes.split()))
 
     compact_dense_speaker_notes(slide)
 
     compacted_chars = len("".join(slide.speaker_notes.split()))
-    assert round(160 * 0.7) <= compacted_chars <= round(160 * 1.15)
+    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
     assert compacted_chars < original_chars
-    assert slide.speaker_notes.count("Distinct evidence sentence") == 3
+    assert slide.speaker_notes.count("Distinct evidence sentence") == 4
 
 
 def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
@@ -771,7 +790,7 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
         ),
         keywords=["성과", "위험"],
         evidence=[],
-        target_speaker_notes_chars=80,
+        target_speaker_notes_chars=70,
         content_items=[
             GeneratedContentItem(contentItemId="item-1", text="성과와 위험 확인")
         ],
@@ -780,7 +799,7 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     apply_design_options(raw_input, [slide])
 
     actual_chars = len("".join(slide.speaker_notes.split()))
-    assert round(80 * 0.7) <= actual_chars <= round(80 * 1.15)
+    assert round(70 * 0.9) <= actual_chars <= round(70 * 1.1)
     assert any("승인" in item.text for item in slide.content_items)
 
 
@@ -1932,7 +1951,7 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
     slide = response.deck["slides"][0]
     timing = slide["aiNotes"]["timingPlan"]
     assert len(slide["speakerNotes"].replace(" ", "")) >= round(
-        timing["targetSpeakerNotesChars"] * 0.7
+        timing["targetSpeakerNotesChars"] * 0.9
     )
 
 
@@ -2072,7 +2091,7 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
             {"contentItemId": "fact-1", "text": "A verified release fact"}
         ],
         target_seconds=60,
-        target_speaker_notes_chars=200,
+        target_speaker_notes_chars=180,
     )
     long_repaired_note = " ".join(
         f"Verified detail {index} explains a distinct supported announcement fact."
@@ -2088,7 +2107,7 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
         client=fake_client,
     )[0]
 
-    assert 160 <= len(repaired.speaker_notes.replace(" ", "")) <= 250
+    assert 162 <= len(repaired.speaker_notes.replace(" ", "")) <= 198
     assert "Verified detail 1" in repaired.speaker_notes
 
 
@@ -7429,8 +7448,8 @@ def long_speaker_notes(order: int) -> str:
 def bounded_speaker_notes(order: int) -> str:
     return (
         f"{order}번째 장에서는 확인된 근거를 핵심 주장과 연결해 설명합니다. "
-        "첫 번째 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
-        "두 번째 기준은 선택 가능한 행동과 예상 효과를 구분해 보여 줍니다. "
-        "관련 자료의 범위와 한계를 함께 확인해 과도한 해석을 피합니다. "
-        "마지막으로 청중이 다음 단계에서 확인할 판단 기준을 명확히 정리합니다."
+        f"{order}번째 장의 첫 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
+        f"{order}번째 장의 둘째 기준은 선택 가능한 행동과 예상 효과를 구분합니다. "
+        f"{order}번째 장에서 관련 자료의 범위와 한계를 확인해 과도한 해석을 피합니다. "
+        f"{order}번째 장의 판단 기준을 마지막으로 명확히 정리합니다."
     )
