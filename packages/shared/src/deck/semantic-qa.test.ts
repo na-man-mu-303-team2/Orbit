@@ -14,13 +14,17 @@ describe("semantic QA", () => {
 
   it("performs only deterministic message and image-alt repair", () => {
     const deck = semanticDeck();
+    if (!deck.slides[0].aiNotes?.visualPlan) {
+      throw new Error("semantic fixture visual plan missing");
+    }
+    deck.slides[0].aiNotes.visualPlan.imageAlt = "고객 전환 퍼널 다이어그램";
     const repaired = repairSemanticQaOnce(deck);
 
     expect(repaired.slides[0].aiNotes?.emphasisPoints).toHaveLength(1);
     const image = repaired.slides[0].elements.find(
       (element) => element.type === "image"
     );
-    expect(image?.props.alt).toContain("고객 전환율");
+    expect(image?.props.alt).toBe("고객 전환 퍼널 다이어그램");
   });
 
   it("does not apply phase-three semantic QA to legacy decks", () => {

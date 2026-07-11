@@ -33,12 +33,21 @@ export function repairSemanticQaOnce(deck: Deck): Deck {
       const visualPlan = slide.aiNotes?.visualPlan;
       const repairedElements = slide.elements.map((element) => {
         if (element.type !== "image" || !visualPlan?.reason) return element;
-        if (hasTokenOverlap(element.props.alt, `${slide.title} ${visualPlan.reason}`)) {
+        const desiredAlt = visualPlan.imageAlt?.trim() || visualPlan.reason;
+        const imageContext = [
+          slide.title,
+          visualPlan.reason,
+          visualPlan.imageAlt,
+          visualPlan.imagePrompt
+        ]
+          .filter(Boolean)
+          .join(" ");
+        if (hasTokenOverlap(element.props.alt, imageContext)) {
           return element;
         }
         return {
           ...element,
-          props: { ...element.props, alt: visualPlan.reason }
+          props: { ...element.props, alt: desiredAlt }
         };
       });
       if (!slide.aiNotes || emphasisPoints.length <= 1) {
@@ -115,7 +124,15 @@ function imageIssues(deck: Deck) {
     );
     if (!plan || images.length === 0) return [];
     const issues: GenerateDeckValidationIssue[] = [];
-    const context = `${slide.title} ${plan.reason} ${primaryMessage(slide)}`;
+    const context = [
+      slide.title,
+      plan.reason,
+      plan.imageAlt,
+      plan.imagePrompt,
+      primaryMessage(slide)
+    ]
+      .filter(Boolean)
+      .join(" ");
     if (images.some((image) => !hasTokenOverlap(image.props.alt, context))) {
       issues.push(
         issue(
