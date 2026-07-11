@@ -24,7 +24,11 @@ describe("project job controllers", () => {
       "project-a",
       "user-1",
     );
-    expect(service.createJob).toHaveBeenCalledWith("project-a", { topic: "deck" });
+    expect(service.createJob).toHaveBeenCalledWith(
+      "project-a",
+      { topic: "deck" },
+      "user-1"
+    );
   });
 
   it("requires write permission before creating AI template deck jobs", async () => {

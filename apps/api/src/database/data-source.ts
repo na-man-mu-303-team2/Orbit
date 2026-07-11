@@ -2,6 +2,7 @@ import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
 import { AiSuggestionEntity } from "../ai-suggestions/ai-suggestion.entity";
+import { SavedDesignPackEntity } from "../saved-design-packs/saved-design-pack.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
@@ -22,6 +23,7 @@ import { AddRehearsalRunMetaJson2026070301000 } from "./migrations/2026070301000
 import { CreateTemplateBlueprints2026070301000 } from "./migrations/2026070301000-CreateTemplateBlueprints";
 import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
+import { CreateSavedDesignPacks2026071101000 } from "./migrations/2026071101000-CreateSavedDesignPacks";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -37,7 +39,8 @@ export const databaseOptions: DataSourceOptions = {
     ProjectMemberEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
-    AiSuggestionEntity
+    AiSuggestionEntity,
+    SavedDesignPackEntity
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -55,7 +58,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalRunMetaJson2026070301000,
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
-    ReplaceRehearsalSummaryWithProjectComment2026070802000
+    ReplaceRehearsalSummaryWithProjectComment2026070802000,
+    CreateSavedDesignPacks2026071101000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

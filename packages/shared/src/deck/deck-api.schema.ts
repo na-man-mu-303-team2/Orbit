@@ -1,10 +1,14 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { jobSchema } from "../jobs/job.schema";
-import { deckSchema } from "./deck.schema";
+import { jobSchema, type Job } from "../jobs/job.schema";
+import { deckSchema, type Deck } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
-import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
+import {
+  deckChangeRecordSchema,
+  deckPatchSchema,
+  type DeckChangeRecord
+} from "./patch.schema";
 
 type DeckApiIssuePath = Array<string | number>;
 
@@ -201,7 +205,19 @@ export const appendDeckPatchAckResponseSchema = z
     }
   });
 
-export const appendDeckPatchResponseSchema = z
+export type AppendDeckPatchResponse = {
+  deck: Deck;
+  changeRecord: DeckChangeRecord;
+  snapshot: DeckSnapshot | null;
+  ooxmlSyncJob?: Job;
+  updatedAt: string;
+};
+
+export const appendDeckPatchResponseSchema: z.ZodType<
+  AppendDeckPatchResponse,
+  z.ZodTypeDef,
+  unknown
+> = z
   .object({
     deck: deckSchema,
     changeRecord: deckChangeRecordSchema,
@@ -312,9 +328,6 @@ export type AppendDeckPatchFullRequest = Omit<
 > & { responseMode?: undefined };
 export type AppendDeckPatchAckResponse = z.infer<
   typeof appendDeckPatchAckResponseSchema
->;
-export type AppendDeckPatchResponse = z.infer<
-  typeof appendDeckPatchResponseSchema
 >;
 export type ListDeckSnapshotsResponse = z.infer<
   typeof listDeckSnapshotsResponseSchema

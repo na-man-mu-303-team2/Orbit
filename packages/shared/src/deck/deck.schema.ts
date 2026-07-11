@@ -71,7 +71,7 @@ export const deckMetadataSchema = z.object({
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
-  designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
+  designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 

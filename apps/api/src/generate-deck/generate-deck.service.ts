@@ -21,6 +21,7 @@ import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 
 const generateDeckJobResponseSchema = z.object({
   job: jobSchema
@@ -42,21 +43,36 @@ export class GenerateDeckService {
       input: EnqueueGenerateDeckJobInput
     ) => Promise<void> = enqueueGenerateDeckJob,
     @Optional()
-    private readonly filesService?: FilesService
+    private readonly filesService?: FilesService,
+    @Optional()
+    private readonly savedDesignPacksService?: SavedDesignPacksService
   ) {}
 
   async createJob(
     projectId: string,
-    body: unknown
+    body: unknown,
+    userId?: string
   ): Promise<GenerateDeckJobResponse> {
     await this.projectsService.getAccessibleProject(projectId);
 
-    const request = generateDeckRequestSchema.parse(body);
+    const parsedRequest = generateDeckRequestSchema.parse(body);
+    const resolved =
+      this.savedDesignPacksService && userId
+        ? await this.savedDesignPacksService.resolveGenerationRequest(
+            parsedRequest,
+            body,
+            userId
+          )
+        : { request: parsedRequest };
+    const request = resolved.request;
     await this.assertDesignReferences(projectId, request.designReferences);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
-      payload: { request }
+      payload: {
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {})
+      }
     });
 
     try {
@@ -65,7 +81,8 @@ export class GenerateDeckService {
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {})
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {

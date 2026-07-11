@@ -122,6 +122,9 @@ export const duplicateSavedDesignPackRequestSchema = z.object({
 });
 
 export type SavedDesignPack = z.infer<typeof savedDesignPackSchema>;
+export type SavedDesignPackOwnerType = z.infer<
+  typeof savedDesignPackOwnerTypeSchema
+>;
 export type SavedDesignPackPreferences = z.infer<
   typeof savedDesignPackPreferencesSchema
 >;

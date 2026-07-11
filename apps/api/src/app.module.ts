@@ -22,6 +22,7 @@ import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
+import { SavedDesignPacksModule } from "./saved-design-packs/saved-design-packs.module";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     PptAdvisorModule,
     ReferencesModule,
     RuntimeConfigModule,
+    SavedDesignPacksModule,
     RealtimeTranscriptionModule,
     RehearsalsModule
   ],

@@ -154,6 +154,74 @@ describe("processGenerateDeckJob", () => {
     expect(job.result).toMatchObject({ validation: { passed: false } });
   });
 
+  it("persists the resolved Saved Design Pack snapshot on design-pack decks", async () => {
+    const deck = createDeck();
+    const snapshot = {
+      id: "design_pack_1",
+      name: "Personal report",
+      version: 2,
+      baseStylePackId: "brandlogy-modern",
+      preferences: {
+        palette: { primary: "#2563EB" },
+        typography: {},
+        tone: "professional",
+        density: "medium",
+        titleStyle: "action",
+        layoutPreference: "varied",
+        imageDensity: "low",
+        mediaPolicy: "balanced",
+        referencePolicy: "topic-only",
+        qaStrictness: "standard"
+      }
+    } as const;
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          { deckId: deck.deckId, deck, warnings: [], validation: validation() },
+          null
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            deck,
+            warnings: [],
+            validation: validation(),
+            diagnostics: diagnostics()
+          })
+        )
+      )
+    );
+
+    await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          generationMode: "design-pack",
+          savedDesignPack: { id: snapshot.id, version: snapshot.version }
+        },
+        designPackSnapshot: snapshot
+      }
+    );
+
+    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
+    expect(savedDeck.metadata.designPackSnapshot).toMatchObject(snapshot);
+    expect(
+      savedDeck.metadata.designPackSnapshot?.preferences.typography
+    ).toMatchObject({ titleSizeScale: 1, bodySizeScale: 1 });
+  });
+
   it("fails before saving a deck when blocking validation issues remain", async () => {
     const deck = createDeck();
     const deckValidation = validation({
