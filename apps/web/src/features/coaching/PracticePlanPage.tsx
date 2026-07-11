@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { coachingCapabilitiesResponseSchema } from "@orbit/shared";
 import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Mic2, Target } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -18,6 +19,15 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
     retry: false,
   });
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const capabilitiesQuery = useQuery({
+    queryKey: ["coaching-capabilities", props.projectId],
+    queryFn: async () => {
+      const response = await fetch(`/api/v1/projects/${encodeURIComponent(props.projectId)}/coaching-capabilities`, { credentials: "include" });
+      if (!response.ok) throw new Error("Coaching capabilities unavailable.");
+      return coachingCapabilitiesResponseSchema.parse(await response.json());
+    },
+    retry: false,
+  });
   const plan = planQuery.data;
 
   useEffect(() => {
@@ -86,7 +96,7 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
                 <div><dt><Mic2 aria-hidden="true" size={17} /> 다음 행동</dt><dd>{selectedGoal.nextAction}</dd></div>
                 <div><dt><CheckCircle2 aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
               </dl>
-              {selectedGoal.canStartFocusedPractice ? (
+              {selectedGoal.canStartFocusedPractice && capabilitiesQuery.data?.focusedPracticeEnabled ? (
                 <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}>
                   선택한 구간 연습
                 </OrbitButton>
@@ -98,9 +108,9 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
               <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`}>
                 <Clock3 aria-hidden="true" size={16} /> 전체 리허설로 확인
               </a>
-              <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
+              {capabilitiesQuery.data?.challengeQnaEnabled ? <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
                 <Mic2 aria-hidden="true" size={16} /> 도전 질문 3개 연습
-              </a>
+              </a> : null}
             </article>
           </div>
         </section>

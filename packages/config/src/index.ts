@@ -91,6 +91,12 @@ const optionalString = z.preprocess((value) => {
   return trimmed.length === 0 ? undefined : trimmed;
 }, z.string().min(1).optional());
 
+const commaSeparatedStringSchema = z.preprocess((value) => {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === "") return [];
+  return String(value).split(",").map((item) => item.trim()).filter(Boolean);
+}, z.array(z.string().min(1)));
+
 const requiredUrl = (name: string) =>
   requiredString(name).pipe(z.string().url(`${name} must be a valid URL`));
 
@@ -202,6 +208,16 @@ export const orbitEnvSchema = z.object({
   PRIVATE_EVIDENCE_REDIS_URL: requiredString("PRIVATE_EVIDENCE_REDIS_URL").default(
     localDefaults.PRIVATE_EVIDENCE_REDIS_URL
   ),
+  ADAPTIVE_REHEARSAL_COACH_ENABLED: booleanStringSchema.default(false),
+  FOCUSED_PRACTICE_ENABLED: booleanStringSchema.default(false),
+  CHALLENGE_QNA_ENABLED: booleanStringSchema.default(false),
+  DEMO_COACHING_FIXTURE_ENABLED: booleanStringSchema.default(false),
+  DEMO_FIXTURE_ENV_ALLOWLIST: commaSeparatedStringSchema.default([]),
+  ADAPTIVE_COACHING_PROJECT_ALLOWLIST: commaSeparatedStringSchema.default([]),
+  COACHING_IDEMPOTENCY_HMAC_SECRET: optionalString,
+  COACHING_IDEMPOTENCY_HMAC_KEY_VERSION: optionalIntegerInRange("COACHING_IDEMPOTENCY_HMAC_KEY_VERSION", 1, 1, 32767),
+  COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET: optionalString,
+  COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION: z.preprocess((value) => value === undefined || value === null || value === "" ? undefined : Number(value), z.number().int().min(1).max(32767).optional()),
   SESSION_SECRET: requiredString("SESSION_SECRET").pipe(
     z.string().min(16, "SESSION_SECRET must be at least 16 characters")
   ),
@@ -261,6 +277,23 @@ export const orbitEnvSchema = z.object({
   DEMO_DECK_ID: requiredString("DEMO_DECK_ID"),
   DEMO_SESSION_ID: requiredString("DEMO_SESSION_ID")
 }).superRefine((value, context) => {
+  if ((value.FOCUSED_PRACTICE_ENABLED || value.CHALLENGE_QNA_ENABLED) && !value.ADAPTIVE_REHEARSAL_COACH_ENABLED) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["ADAPTIVE_REHEARSAL_COACH_ENABLED"], message: "Adaptive coaching core must be enabled before focused practice or Challenge Q&A" });
+  }
+  if (value.APP_ENV === "production" && value.DEMO_COACHING_FIXTURE_ENABLED) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_COACHING_FIXTURE_ENABLED"], message: "Demo coaching fixtures are forbidden in production" });
+  }
+  if (value.APP_ENV === "production" && value.ADAPTIVE_REHEARSAL_COACH_ENABLED && (!value.COACHING_IDEMPOTENCY_HMAC_SECRET || value.COACHING_IDEMPOTENCY_HMAC_SECRET.length < 32)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["COACHING_IDEMPOTENCY_HMAC_SECRET"], message: "Production coaching idempotency HMAC secret must be at least 32 characters" });
+  }
+  const hasPreviousSecret = Boolean(value.COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET);
+  const hasPreviousVersion = value.COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION !== undefined;
+  if (hasPreviousSecret !== hasPreviousVersion) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET"], message: "Previous coaching HMAC secret and key version must be configured together" });
+  }
+  if (hasPreviousVersion && value.COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION === value.COACHING_IDEMPOTENCY_HMAC_KEY_VERSION) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION"], message: "Previous coaching HMAC key version must differ from the current version" });
+  }
   if (value.PRIVATE_EVIDENCE_REDIS_URL === value.REDIS_URL) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -365,6 +398,10 @@ export const orbitEnvSchema = z.object({
 });
 
 export type OrbitConfig = z.infer<typeof orbitEnvSchema>;
+
+export function isAdaptiveCoachingProjectAllowed(config: OrbitConfig, projectId: string) {
+  return config.ADAPTIVE_COACHING_PROJECT_ALLOWLIST.includes("*") || config.ADAPTIVE_COACHING_PROJECT_ALLOWLIST.includes(projectId);
+}
 
 export interface LoadOrbitConfigOptions {
   service?: "api" | "worker" | "web" | "shared";

@@ -1,6 +1,6 @@
 .practice-plan-page { min-height: 100vh; }
 .practice-plan-topbar { align-items: center; border-bottom: 1px solid var(--orbit-ds-border); display: flex; justify-content: space-between; min-height: 68px; padding: 0 44px; }
-.practice-plan-topbar a, .practice-full-run-link { align-items: center; color: var(--orbit-ds-ink); display: inline-flex; font-size: 14px; gap: 8px; text-decoration: none; }
+.practice-plan-topbar a, .practice-full-run-link { align-items: center; color: var(--orbit-ds-ink); display: inline-flex; font-size: 14px; gap: 8px; min-height: 44px; padding: 0 8px; text-decoration: none; }
 .practice-plan-content { margin: 0 auto; max-width: 1180px; padding: 72px 44px 120px; }
 .practice-plan-heading { max-width: 760px; }
 .practice-plan-heading h1 { font-size: var(--orbit-ds-type-page-title); letter-spacing: -.045em; line-height: 1.08; margin: 0; }

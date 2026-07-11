@@ -81,11 +81,20 @@ services:
     env_file:
       - .env.local
     environment:
+      APP_ENV: ${APP_ENV:-local}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
+      ADAPTIVE_REHEARSAL_COACH_ENABLED: ${ADAPTIVE_REHEARSAL_COACH_ENABLED:-false}
+      FOCUSED_PRACTICE_ENABLED: ${FOCUSED_PRACTICE_ENABLED:-false}
+      CHALLENGE_QNA_ENABLED: ${CHALLENGE_QNA_ENABLED:-false}
+      DEMO_COACHING_FIXTURE_ENABLED: ${DEMO_COACHING_FIXTURE_ENABLED:-false}
+      DEMO_FIXTURE_ENV_ALLOWLIST: ${DEMO_FIXTURE_ENV_ALLOWLIST:-}
+      ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ${ADAPTIVE_COACHING_PROJECT_ALLOWLIST:-}
     ports:
       - "${API_PORT:-3000}:3000"
     healthcheck:
@@ -110,11 +119,18 @@ services:
     env_file:
       - .env.local
     environment:
+      APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
+      ADAPTIVE_REHEARSAL_COACH_ENABLED: ${ADAPTIVE_REHEARSAL_COACH_ENABLED:-false}
+      FOCUSED_PRACTICE_ENABLED: ${FOCUSED_PRACTICE_ENABLED:-false}
+      CHALLENGE_QNA_ENABLED: ${CHALLENGE_QNA_ENABLED:-false}
+      DEMO_COACHING_FIXTURE_ENABLED: ${DEMO_COACHING_FIXTURE_ENABLED:-false}
+      DEMO_FIXTURE_ENV_ALLOWLIST: ${DEMO_FIXTURE_ENV_ALLOWLIST:-}
+      ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ${ADAPTIVE_COACHING_PROJECT_ALLOWLIST:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -132,6 +148,7 @@ services:
     env_file:
       - .env.local
     environment:
+      APP_ENV: ${APP_ENV:-local}
       API_BASE_URL: http://api:3000
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-whisper-1}
@@ -160,6 +177,7 @@ services:
     env_file:
       - .env.local
     environment:
+      APP_ENV: ${APP_ENV:-local}
       API_BASE_URL: http://api:3000
     ports:
       - "${WEB_PORT:-5173}:5173"

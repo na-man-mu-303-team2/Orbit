@@ -53,6 +53,21 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
+  it("parses coaching flags and exact project allowlists", () => {
+    const config = loadOrbitConfig({ ...validEnv, ADAPTIVE_REHEARSAL_COACH_ENABLED: "true", FOCUSED_PRACTICE_ENABLED: "true", ADAPTIVE_COACHING_PROJECT_ALLOWLIST: "project-a,project-b" }, { service: "api" });
+    expect(config.FOCUSED_PRACTICE_ENABLED).toBe(true);
+    expect(config.ADAPTIVE_COACHING_PROJECT_ALLOWLIST).toEqual(["project-a", "project-b"]);
+  });
+
+  it("requires the adaptive core before focused or Q&A features", () => {
+    expect(() => loadOrbitConfig({ ...validEnv, FOCUSED_PRACTICE_ENABLED: "true" }, { service: "api" })).toThrow("ADAPTIVE_REHEARSAL_COACH_ENABLED");
+  });
+
+  it("forbids production fixtures and incomplete HMAC rotation", () => {
+    expect(() => loadOrbitConfig({ ...validEnv, APP_ENV: "production", DEMO_COACHING_FIXTURE_ENABLED: "true" }, { service: "api" })).toThrow("DEMO_COACHING_FIXTURE_ENABLED");
+    expect(() => loadOrbitConfig({ ...validEnv, COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET: "previous-secret" }, { service: "api" })).toThrow("COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET");
+  });
+
   it("requires private evidence Redis to be isolated from the durable queue Redis", () => {
     expect(() =>
       loadOrbitConfig(
@@ -335,7 +350,7 @@ describe("ORBIT env validation", () => {
           S3_ACCESS_KEY_ID: "",
           S3_SECRET_ACCESS_KEY: "",
           S3_FORCE_PATH_STYLE: "false",
-          OPENAI_API_KEY: "sk-production-placeholder",
+          OPENAI_API_KEY: "test-production-openai-key-placeholder",
           AUTH_COOKIE_SECURE: "false"
         },
         { service: "api" }
