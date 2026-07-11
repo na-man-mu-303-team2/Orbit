@@ -40,6 +40,16 @@ export const aiDeckToneSchema = z.enum([
   "concise"
 ]);
 
+export const aiDeckPresentationProfileSchema = z.enum([
+  "proposal",
+  "executive-report",
+  "product-launch",
+  "education",
+  "technical",
+  "research",
+  "general-inform"
+]);
+
 export const deckCreatedFromReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
@@ -59,6 +69,7 @@ export const deckMetadataSchema = z.object({
   audience: aiDeckAudienceSchema.optional(),
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
+  presentationProfile: aiDeckPresentationProfileSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
@@ -194,11 +205,13 @@ export const slideSourceLedgerSchema = z.object({
 
 export const slideTimingPlanSchema = z.object({
   charsPerMinute: z.number().int().positive().optional(),
+  speakingTimeRatio: z.number().finite().min(0).max(1).optional(),
   targetTotalChars: z.number().int().nonnegative().optional(),
   targetSlideCount: z.number().int().positive().optional(),
   targetSecondsPerSlide: z.number().int().positive().optional(),
   targetSpeakerNotesCharsPerSlide: z.number().int().nonnegative().optional(),
   targetSeconds: z.number().int().positive(),
+  targetSpokenSeconds: z.number().int().positive().optional(),
   targetSpeakerNotesChars: z.number().int().nonnegative(),
   actualSpeakerNotesChars: z.number().int().nonnegative()
 });

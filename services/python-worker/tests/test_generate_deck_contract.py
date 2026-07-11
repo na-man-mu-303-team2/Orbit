@@ -27,12 +27,20 @@ from app.ai.generate_deck import (
     ValidationResult,
     allocate_weighted_integers,
     analyze_input,
+    apply_design_options,
+    apply_timing_to_slide_plans,
     chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
+    compact_dense_speaker_notes,
     build_design_pack_content_manifest,
+    content_plan_repair_reasons,
     core_geometry_fingerprint,
     deck_content_prompt,
+    deck_content_response_format_for,
+    design_pack_insight_elements,
+    design_pack_items,
+    design_pack_recipe_elements,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
@@ -40,13 +48,23 @@ from app.ai.generate_deck import (
     initial_source_records,
     is_text_overflowing,
     merge_grounded_repair_notes,
+    message_duplicates_content_items,
+    normalize_structural_content_text,
+    presentation_profile_for_request,
+    plan_presentation,
+    plan_slides,
+    presentation_rule_prompt,
     refine_design_issues,
+    repair_design_pack_text_element,
     repair_content_plan_with_llm,
+    repair_reason_codes,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
     review_text_overlap_candidates,
     validate_and_patch,
+    validate_content,
     validate_design,
+    validate_presentation,
     web_source_id,
     web_sources_from_response,
 )
@@ -105,12 +123,490 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
 @pytest.mark.parametrize(
     ("request_patch", "expected"),
     [
-        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 300),
-        ({"brief": {"presentationType": "초등 교육"}}, 280),
-        ({"metadata": {"tone": "friendly"}}, 320),
-        ({"metadata": {"tone": "concise"}}, 440),
-        ({"brief": {"presentationType": "제품 기획 피치"}}, 400),
-        ({}, 350),
+        ({"design": {"profile": "startup-pitch"}}, "proposal"),
+        ({"metadata": {"audience": "executive", "purpose": "report"}}, "executive-report"),
+        ({"brief": {"presentationType": "신상품 기획 공개"}}, "product-launch"),
+        ({"metadata": {"purpose": "teach"}}, "education"),
+        ({"design": {"profile": "technical"}}, "technical"),
+        ({"brief": {"presentationType": "기술 연구 발표"}}, "research"),
+        ({}, "general-inform"),
+    ],
+)
+def test_presentation_profile_resolver_uses_stable_precedence(
+    request_patch: dict[str, object],
+    expected: str,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="ORBIT",
+        generationMode="design-pack",
+        **request_patch,
+    )
+
+    assert presentation_profile_for_request(request) == expected
+    assert analyze_input(request).presentation_profile == expected
+
+
+@pytest.mark.parametrize(
+    ("request_patch", "expected"),
+    [
+        (
+            {
+                "design": {"profile": "startup-pitch"},
+                "brief": {"presentationType": "기술 연구 발표"},
+            },
+            "proposal",
+        ),
+        ({"brief": {"presentationType": "기술 연구 발표"}}, "research"),
+        ({"brief": {"presentationType": "신상품 기획 제안"}}, "product-launch"),
+        (
+            {
+                "design": {"profile": "editorial"},
+                "brief": {"presentationType": "신상품 기획 제안"},
+            },
+            "product-launch",
+        ),
+    ],
+)
+def test_presentation_profile_resolver_handles_conflicting_signals(
+    request_patch: dict[str, object],
+    expected: str,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="ORBIT",
+        generationMode="design-pack",
+        **request_patch,
+    )
+
+    assert presentation_profile_for_request(request) == expected
+
+
+def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT 신상품 공개",
+            generationMode="design-pack",
+            targetDurationMinutes=10,
+            slideCountRange={"min": 10, "max": 10},
+            brief={"presentationType": "신상품 공개"},
+        )
+    )
+
+    rules = presentation_rule_prompt(raw_input)
+
+    assert len(rules) <= 10
+    assert rules[0] == "Presentation profile: product-launch"
+    assert "release information" in rules[1]
+    assert any("concrete next action" in rule for rule in rules)
+    assert "Presentation profile: product-launch" in deck_content_prompt(raw_input)
+
+
+def test_presentation_rule_prompt_controls_beat_scaling_and_agenda() -> None:
+    education = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="교육 발표",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+            brief={"presentationType": "교육 발표"},
+        )
+    )
+    proposal = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="스타트업 피치",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+            design={"profile": "startup-pitch"},
+        )
+    )
+
+    education_rules = presentation_rule_prompt(education)
+    proposal_rules = presentation_rule_prompt(proposal)
+
+    assert any("merge adjacent beats" in rule for rule in education_rules)
+    assert any("Include an agenda" in rule for rule in education_rules)
+    assert any("Do not add an agenda" in rule for rule in proposal_rules)
+
+
+def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() -> None:
+    design_pack = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            brief={"presentationType": "신상품 공개"},
+        )
+    )
+    legacy = generate_deck(
+        GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT")
+    )
+
+    assert design_pack.deck["metadata"]["presentationProfile"] == "product-launch"
+    assert "presentationProfile" not in legacy.deck["metadata"]
+
+
+def test_presentation_validation_detects_action_title_and_dense_body() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["title"] = "현황"
+    body = next(
+        element
+        for element in slide["elements"]
+        if element["type"] == "text" and element.get("role") == "body"
+    )
+    body["props"]["text"] = "\n".join(f"항목 {index}" for index in range(1, 8))
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "ACTION_TITLE_WEAK" in codes
+    assert "BODY_CONTENT_DENSE" in codes
+
+
+def test_presentation_validation_detects_missing_primary_content() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    for element in slide["elements"]:
+        if (
+            element.get("role") in {"body", "highlight", "media"}
+            or element.get("type") in {"image", "chart"}
+        ):
+            element["visible"] = False
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "VISUAL_HIERARCHY_WEAK" in codes
+
+
+def test_presentation_validation_detects_structural_content_duplication() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Duplicate validation",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    body = next(
+        element
+        for element in slide["elements"]
+        if element["type"] == "text" and element.get("role") == "body"
+    )
+    body["props"]["text"] = "Alpha evidence and beta evidence"
+    for index, text in enumerate(["Alpha evidence", "beta evidence"], start=1):
+        supporting = deepcopy(body)
+        supporting["elementId"] = f"el_duplicate_{index}"
+        supporting["props"]["text"] = text
+        supporting["y"] += index * 80
+        slide["elements"].append(supporting)
+
+    assert "CONTENT_DUPLICATED" in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+
+def test_timing_validation_uses_design_pack_short_and_dense_codes() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Timing validation",
+            generationMode="design-pack",
+        )
+    ).deck
+    for slide in deck["slides"]:
+        target = slide["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
+        slide["speakerNotes"] = "가" * target
+
+    first = deck["slides"][0]
+    first_target = first["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
+    first["speakerNotes"] = "가" * max(1, round(first_target * 0.69))
+    assert "SPEAKER_NOTES_SHORT" in {
+        issue.code for issue in validate_content(deck)
+    }
+
+    first["speakerNotes"] = "가" * round(first_target * 1.16)
+    assert "SPEAKER_NOTES_DENSE" in {
+        issue.code for issue in validate_content(deck)
+    }
+
+
+@pytest.mark.parametrize(
+    ("request_patch", "expected_title"),
+    [
+        ({"design": {"profile": "startup-pitch"}}, "다음 실행을 결정하세요"),
+        ({"brief": {"presentationType": "신상품 공개"}}, "출시 정보를 확인하세요"),
+        ({"design": {"profile": "executive-report"}}, "다음 결정을 요청합니다"),
+    ],
+)
+def test_profile_fallback_closing_contains_required_action(
+    request_patch: dict[str, object],
+    expected_title: str,
+) -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            **request_patch,
+        )
+    )
+
+    assert expected_title in response.deck["slides"][-1]["title"]
+    assert "CTA_MISSING" not in {
+        issue.code for issue in response.validation.presentation_issues
+    }
+
+
+def test_presentation_validation_detects_missing_profile_closing_action() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={"profile": "startup-pitch"},
+        )
+    ).deck
+    closing = deck["slides"][-1]
+    closing["title"] = "핵심 정리"
+    for element in closing["elements"]:
+        if element.get("type") == "text" and element.get("role") not in {
+            "caption",
+            "footer",
+        }:
+            element["props"]["text"] = "핵심 정리"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "CTA_MISSING" in codes
+
+
+def test_presentation_validation_detects_typography_rule_violations() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    text_elements = [
+        element for element in slide["elements"] if element["type"] == "text"
+    ]
+    body = next(element for element in text_elements if element.get("role") == "body")
+    body["props"]["fontSize"] = 17
+    body["props"]["lineHeight"] = 1.1
+    for index, element in enumerate(text_elements[:3], start=1):
+        element["props"]["fontFamily"] = f"Test Font {index}"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "FONT_SIZE_BELOW_MINIMUM" in codes
+    assert "LINE_HEIGHT_OUT_OF_RANGE" in codes
+    assert "FONT_FAMILY_OVERUSED" in codes
+
+
+def test_design_pack_text_repair_preserves_body_readability_floor() -> None:
+    element = {
+        "elementId": "el_2_body",
+        "type": "text",
+        "role": "body",
+        "x": 120,
+        "y": 200,
+        "width": 160,
+        "height": 40,
+        "props": {
+            "text": "아주 긴 본문을 작은 텍스트 박스에 배치해도 읽기 기준을 유지합니다.",
+            "fontFamily": "Pretendard",
+            "fontSize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    repair_design_pack_text_element(element)
+
+    assert element["props"]["fontSize"] >= 18
+    assert element["props"]["lineHeight"] >= 1.2
+
+
+def test_design_pack_generation_applies_role_based_typography_floor() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={
+                "fontOverride": {
+                    "fontId": "pretendard",
+                    "name": "Pretendard",
+                    "headingFontFamily": "Pretendard",
+                    "bodyFontFamily": "Pretendard",
+                    "recommendedTitleSize": 40,
+                    "recommendedBodySize": 16,
+                    "lineHeight": 1.1,
+                }
+            },
+        )
+    )
+
+    assert not {
+        "FONT_SIZE_BELOW_MINIMUM",
+        "LINE_HEIGHT_OUT_OF_RANGE",
+        "FONT_FAMILY_OVERUSED",
+    } & {issue.code for issue in response.validation.presentation_issues}
+    for slide_index, slide in enumerate(response.deck["slides"]):
+        for element in slide["elements"]:
+            if element["type"] != "text":
+                continue
+            role = element.get("role")
+            if role == "title":
+                assert element["props"]["fontSize"] >= (44 if slide_index == 0 else 32)
+            elif role in {"body", "highlight"}:
+                assert element["props"]["fontSize"] >= 18
+                assert element["props"]["lineHeight"] >= 1.2
+
+
+def test_design_pack_pptx_export_preserves_body_typography() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            design={
+                "fontOverride": {
+                    "fontId": "pretendard",
+                    "name": "Pretendard",
+                    "headingFontFamily": "Pretendard",
+                    "bodyFontFamily": "Pretendard",
+                    "recommendedTitleSize": 44,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.24,
+                }
+            },
+        )
+    ).deck
+    body = next(
+        element
+        for slide in deck["slides"]
+        for element in slide["elements"]
+        if element["type"] == "text"
+        and element.get("role") == "body"
+        and element["props"].get("text")
+    )
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+    exported_paragraph = next(
+        paragraph
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+        for paragraph in shape.text_frame.paragraphs
+        if paragraph.text == body["props"]["text"]
+    )
+
+    assert exported_paragraph.font.name == body["props"]["fontFamily"]
+    assert exported_paragraph.font.size.pt == pytest.approx(
+        body["props"]["fontSize"] * 0.5
+    )
+    assert exported_paragraph.line_spacing == pytest.approx(
+        body["props"]["lineHeight"]
+    )
+
+
+def test_design_pack_pptx_export_preserves_exact_count_text_and_speaker_notes() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="PPTX contract",
+            generationMode="design-pack",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 8, "max": 8},
+        )
+    ).deck
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+
+    assert len(presentation.slides) == len(deck["slides"]) == 8
+    assert response.warnings == []
+    for slide_data, exported_slide in zip(
+        deck["slides"],
+        presentation.slides,
+        strict=True,
+    ):
+        assert exported_slide.notes_slide.notes_text_frame is not None
+        assert exported_slide.notes_slide.notes_text_frame.text == slide_data["speakerNotes"]
+        expected_texts = [
+            normalize_structural_content_text(str(element.get("props", {}).get("text", "")))
+            for element in slide_data["elements"]
+            if element.get("visible", True)
+            and element.get("type") == "text"
+            and str(element.get("props", {}).get("text", "")).strip()
+        ]
+        exported_texts = [
+            normalize_structural_content_text(shape.text)
+            for shape in exported_slide.shapes
+            if getattr(shape, "has_text_frame", False) and shape.text.strip()
+        ]
+        assert sorted(exported_texts) == sorted(expected_texts)
+        message_key = normalize_structural_content_text(
+            slide_data["aiNotes"]["emphasisPoints"][0]
+        )
+        assert exported_texts.count(message_key) <= 1
+
+
+def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+        )
+    ).deck
+
+    assert "GRID_ALIGNMENT_INCONSISTENT" not in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+    title = next(
+        element
+        for element in deck["slides"][1]["elements"]
+        if element["type"] == "text" and element.get("role") == "title"
+    )
+    title["x"] += 12
+
+    assert "GRID_ALIGNMENT_INCONSISTENT" in {
+        issue.code for issue in validate_presentation(deck)
+    }
+
+
+@pytest.mark.parametrize(
+        ("request_patch", "expected"),
+    [
+        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 240),
+        ({"brief": {"presentationType": "초등 교육"}}, 240),
+        ({"brief": {"presentationType": "자유 토의"}}, 240),
+        ({"metadata": {"tone": "friendly"}}, 260),
+        ({"metadata": {"tone": "concise"}}, 260),
+        ({"brief": {"presentationType": "제품 기획 피치"}}, 280),
+        ({"prompt": "빠른 발표 속도로 진행"}, 300),
+        ({}, 260),
     ],
 )
 def test_chars_per_minute_uses_ordered_presentation_context(
@@ -136,6 +632,91 @@ def test_weighted_timing_allocation_is_exact_and_respects_minimum() -> None:
     assert sum(allocated) == 480
     assert min(allocated) >= 15
     assert len(set(allocated)) > 1
+
+
+def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="15 minute timing",
+            generationMode="design-pack",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+    slide_plans = apply_timing_to_slide_plans(
+        raw_input,
+        plan_slides(raw_input, plan_presentation(raw_input)),
+    )
+
+    assert raw_input.timing_plan.speaking_time_ratio == 0.8
+    assert raw_input.timing_plan.target_spoken_seconds == 720
+    assert raw_input.timing_plan.target_total_chars == 3120
+    assert sum(slide.target_seconds for slide in slide_plans) == 900
+    assert sum(slide.target_spoken_seconds for slide in slide_plans) == 720
+    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) == 3120
+    assert slide_plans[0].target_spoken_seconds < max(
+        slide.target_spoken_seconds for slide in slide_plans[1:-1]
+    )
+
+
+def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
+    slide = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Dense notes",
+        message="Evidence supports the decision.",
+        speaker_notes=" ".join(
+            f"Distinct evidence sentence {index} supports the decision."
+            for index in range(1, 9)
+        ),
+        keywords=[],
+        evidence=[],
+        target_speaker_notes_chars=160,
+    )
+    original_chars = len("".join(slide.speaker_notes.split()))
+
+    compact_dense_speaker_notes(slide)
+
+    compacted_chars = len("".join(slide.speaker_notes.split()))
+    assert round(160 * 0.7) <= compacted_chars <= round(160 * 1.15)
+    assert compacted_chars < original_chars
+    assert slide.speaker_notes.count("Distinct evidence sentence") == 3
+
+
+def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Executive decision",
+            generationMode="design-pack",
+            design={"profile": "executive-report"},
+            brief={"successCriteria": "다음 분기 예산 승인"},
+        )
+    )
+    slide = SlidePlan(
+        order=5,
+        slide_type="summary",
+        title="운영 현황 요약",
+        message="핵심 성과와 위험을 정리합니다.",
+        speaker_notes=(
+            "확인된 성과와 현재 위험을 차례로 설명합니다. "
+            "예산 범위와 일정에 미치는 영향을 구체적으로 짚습니다. "
+            "마지막으로 다음 분기에 필요한 후속 과제를 정리합니다."
+        ),
+        keywords=["성과", "위험"],
+        evidence=[],
+        target_speaker_notes_chars=80,
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="성과와 위험 확인")
+        ],
+    )
+
+    apply_design_options(raw_input, [slide])
+
+    actual_chars = len("".join(slide.speaker_notes.split()))
+    assert round(80 * 0.7) <= actual_chars <= round(80 * 1.15)
+    assert any("승인" in item.text for item in slide.content_items)
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:
@@ -222,6 +803,164 @@ def test_design_pack_content_manifest_blocks_unrendered_item() -> None:
                 {"elementId": "el_2_three", "_contentItemIds": ["item-3"]},
             ],
         )
+
+
+def test_single_insight_content_item_is_rendered_once() -> None:
+    theme = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Single insight",
+            generationMode="design-pack",
+        )
+    ).deck["theme"]
+    slide_plan = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="One clear insight",
+        message="One supporting point",
+        speaker_notes="Explain the supporting point.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="One supporting point")
+        ],
+    )
+
+    elements = design_pack_insight_elements(
+        slide_plan,
+        theme,
+        variant="insight_callout",
+    )
+    rendered = [
+        element["props"]["text"]
+        for element in elements
+        if element["type"] == "text"
+    ]
+
+    assert rendered.count("One supporting point") == 1
+    assert build_design_pack_content_manifest(slide_plan, elements)["item-1"] == [
+        "el_2_insight_single_text"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("message", "items", "expected"),
+    [
+        ("One clear conclusion.", ["One clear conclusion"], True),
+        ("First reason, second reason.", ["First reason", "second reason"], True),
+        ("알파와 베타", ["알파", "베타"], True),
+        ("A useful conclusion: reason one and reason two.", ["reason one", "reason two"], False),
+    ],
+)
+def test_message_content_item_structural_duplication(
+    message: str,
+    items: list[str],
+    expected: bool,
+) -> None:
+    content_items = [
+        GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+        for index, text in enumerate(items, start=1)
+    ]
+
+    assert message_duplicates_content_items(message, content_items) is expected
+
+
+def test_content_plan_repair_marks_structural_duplication() -> None:
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Duplicate planning",
+        message="First point.\nSecond point!",
+        speaker_notes="A distinct presentation script.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="First point"),
+            GeneratedContentItem(contentItemId="item-2", text="Second point"),
+        ],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan])
+
+    assert "slide 1: message duplicates content items" in reasons
+    assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
+
+
+@pytest.mark.parametrize(
+    ("recipe", "slide_type", "order"),
+    [
+        ("cover_trust_signal", "cover", 1),
+        ("overview_cards", "feature-grid", 2),
+        ("insight_evidence", "data", 3),
+        ("closing_summary", "summary", 6),
+    ],
+)
+def test_design_pack_recipes_hide_duplicated_primary_message(
+    recipe: str,
+    slide_type: str,
+    order: int,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Structural duplicate",
+        generationMode="design-pack",
+    )
+    raw_input = analyze_input(request)
+    theme = generate_deck(request).deck["theme"]
+    items = [
+        GeneratedContentItem(contentItemId="item-1", text="First point"),
+        GeneratedContentItem(contentItemId="item-2", text="Second point"),
+    ]
+    slide_plan = SlidePlan(
+        order=order,
+        slide_type=slide_type,
+        title="One conclusion",
+        message="First point. Second point.",
+        speaker_notes="Explain the conclusion without repetition.",
+        keywords=[],
+        evidence=[],
+        content_items=items,
+    )
+
+    elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
+    rendered_keys = [
+        normalize_structural_content_text(str(element.get("props", {}).get("text", "")))
+        for element in elements
+        if element.get("type") == "text"
+    ]
+
+    assert normalize_structural_content_text(slide_plan.message) not in rendered_keys
+    for item in items:
+        assert normalize_structural_content_text(item.text) in rendered_keys
+    build_design_pack_content_manifest(slide_plan, elements)
+
+
+@pytest.mark.parametrize(
+    ("recipe", "minimum"),
+    [("closing_summary", 2), ("process_steps", 3)],
+)
+def test_design_pack_capacity_fallback_uses_grounded_plan_content(
+    recipe: str,
+    minimum: int,
+) -> None:
+    slide_plan = SlidePlan(
+        order=4,
+        slide_type="summary" if recipe == "closing_summary" else "process",
+        title="출시 실행 기준",
+        message="공식 출시 정보와 신청 절차를 확인합니다.",
+        speaker_notes="출시 정보와 후속 행동을 설명합니다.",
+        keywords=["출시일", "사전 신청"],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="신청 링크 확인")
+        ],
+    )
+
+    items = design_pack_items(slide_plan, recipe)
+
+    assert len(items) == minimum
+    assert all("다음 확인 항목" not in item.text for item in items)
+    assert len({normalize_structural_content_text(item.text) for item in items}) == minimum
 
 
 def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
@@ -1063,13 +1802,22 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
                 "Short note.",
                 slide_type="cover",
                 slot_preset="title_center",
-                content_items=["A concise verified point."],
+                content_items=["Official evidence supports the concise point."],
             )
         ],
     }
-    repaired_notes = (
-        "검증된 근거를 중심으로 핵심 사실과 의미를 차례로 설명합니다. " * 12
-    ).strip()
+    repaired_notes = " ".join(
+        [
+            "검증된 근거가 핵심 사실을 뒷받침합니다.",
+            "첫 번째 자료에서 확인된 맥락을 설명합니다.",
+            "두 번째 근거는 결론의 의미를 구체화합니다.",
+            "마지막으로 청중이 기억할 판단 기준을 정리합니다.",
+            "이 기준을 다음 행동과 자연스럽게 연결합니다.",
+            "공식 자료의 범위를 벗어난 추정은 포함하지 않습니다.",
+            "각 근거가 결론에 미치는 영향을 차례로 구분합니다.",
+            "발표를 마치며 확인할 후속 과제를 분명히 제시합니다.",
+        ]
+    )
     fake_client = FakeOpenAIClient(
         [
             short_plan,
@@ -1099,7 +1847,7 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
     slide = response.deck["slides"][0]
     timing = slide["aiNotes"]["timingPlan"]
     assert len(slide["speakerNotes"].replace(" ", "")) >= round(
-        timing["targetSpeakerNotesChars"] * 0.8
+        timing["targetSpeakerNotesChars"] * 0.7
     )
 
 
@@ -1165,9 +1913,9 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
     )[0]
 
     request_payload = json.loads(str(fake_client.requests[0]["input"]))
-    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 560
-    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 640
-    assert 320 <= len(repaired.speaker_notes.replace(" ", "")) <= 500
+    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 360
+    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 440
+    assert 280 <= len(repaired.speaker_notes.replace(" ", "")) <= 460
     assert "official source confirms" in repaired.speaker_notes
 
 
@@ -1331,6 +2079,52 @@ def test_short_speaker_note_repair_batches_large_decks() -> None:
     )
 
 
+def test_short_speaker_note_repair_retries_remaining_slide_individually() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Retry notes",
+            prompt="Explain the deck.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Retry notes",
+        message="A supported message",
+        speaker_notes="Short notes.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="A supported point")
+        ],
+        target_seconds=60,
+        target_speaker_notes_chars=200,
+    )
+    repaired_note = " ".join(
+        f"Supported detail {index} explains a distinct decision point."
+        for index in range(1, 12)
+    )
+    fake_client = FakeOpenAIClient(
+        [
+            {"slides": [{"order": 1, "speakerNotes": "Still short."}]},
+            {"slides": [{"order": 1, "speakerNotes": repaired_note}]},
+        ]
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    assert len(fake_client.requests) == 2
+    assert 140 <= len("".join(repaired.speaker_notes.split())) <= 230
+
+
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -1488,7 +2282,186 @@ def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
     ]
 
 
-def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
+def test_design_pack_content_response_format_uses_slide_range() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            targetDurationMinutes=8,
+            slideCountRange={"min": 5, "max": 8},
+        )
+    )
+
+    slides_schema = deck_content_response_format_for(raw_input)["format"]["schema"][
+        "properties"
+    ]["slides"]
+
+    assert slides_schema["minItems"] == 5
+    assert slides_schema["maxItems"] == 8
+
+
+def test_design_pack_repairs_exact_slide_count_once() -> None:
+    initial = {
+        "title": "Too short",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Message {index}",
+                f"Explain slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 13)
+        ],
+    }
+    repaired = {
+        "title": "Exact count",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Distinct message {index}",
+                f"Explain repaired slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 16)
+        ],
+    }
+    fake_client = FakeOpenAIClient([initial, repaired])
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+
+    assert plan is not None
+    assert len(plan.slides) == 15
+    assert len(fake_client.requests) == 2
+    assert raw_input.repair_attempted is True
+    assert raw_input.repair_reason_codes == ["SLIDE_COUNT_SHORT"]
+    for request in fake_client.requests:
+        slides_schema = request["text"]["format"]["schema"]["properties"]["slides"]
+        assert slides_schema["minItems"] == 15
+        assert slides_schema["maxItems"] == 15
+
+
+def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
+    payloads = [
+        {
+            "title": title,
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    f"Message {index}",
+                    f"Explain slide {index}.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, count + 1)
+            ],
+        }
+        for title, count in [("Initial", 12), ("Still short", 13)]
+    ]
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="requested 15, received 13",
+    ):
+        generate_content_plan_with_llm(
+            raw_input,
+            client=FakeOpenAIClient(payloads),
+        )
+
+    exact_payload = {
+        "title": "Fresh exact plan",
+        "slides": [
+            slide_payload(
+                f"Slide {index}",
+                f"Fresh message {index}",
+                f"Explain fresh slide {index}.",
+                slide_type="solution",
+                slot_preset="title_left_visual_right",
+            )
+            for index in range(1, 16)
+        ],
+    }
+    fresh_client = FakeOpenAIClient(exact_payload)
+    fresh_plan = generate_content_plan_with_llm(
+        analyze_input(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                generationMode="design-pack",
+                topic="ORBIT",
+                prompt="Create an exact deck.",
+                targetDurationMinutes=15,
+                slideCountRange={"min": 15, "max": 15},
+            )
+        ),
+        client=fresh_client,
+    )
+
+    assert fresh_plan is not None
+    assert len(fresh_plan.slides) == 15
+    assert len(fresh_client.requests) == 1
+
+
+def test_design_pack_repairs_exact_slide_count_overflow() -> None:
+    payloads = [
+        {
+            "title": title,
+            "slides": [
+                slide_payload(
+                    f"Slide {index}",
+                    f"Message {index}",
+                    f"Explain slide {index}.",
+                    slide_type="solution",
+                    slot_preset="title_left_visual_right",
+                )
+                for index in range(1, count + 1)
+            ],
+        }
+        for title, count in [("Too long", 16), ("Exact", 15)]
+    ]
+    fake_client = FakeOpenAIClient(payloads)
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
+
+    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+
+    assert plan is not None
+    assert len(plan.slides) == 15
+    assert len(fake_client.requests) == 2
+    assert raw_input.repair_attempted is True
+    assert raw_input.repair_reason_codes == []
+
+
+def test_legacy_rejects_llm_slide_count_below_minimum_without_repair() -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "Too short",
@@ -1516,6 +2489,8 @@ def test_generate_deck_rejects_llm_slide_count_below_minimum() -> None:
             ),
             client=fake_client,
         )
+
+    assert len(fake_client.requests) == 1
 
 
 def test_generate_deck_clamps_llm_slide_count_to_upper_bound() -> None:
@@ -2456,12 +3431,19 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
         "SPEAKER_NOTES_LONG",
     }
     assert response.diagnostics.unique_core_layout_count >= 4
-    assert response.diagnostics.validation_issue_count == 0
+    assert response.diagnostics.validation_issue_count == 0, json.dumps(
+        response.validation.model_dump(by_alias=True),
+        ensure_ascii=False,
+    )
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
-    assert timing_plan["charsPerMinute"] == 320
+    assert timing_plan["charsPerMinute"] == 240
+    assert timing_plan["speakingTimeRatio"] == 0.8
     assert timing_plan["targetSlideCount"] == 7
     assert sum(slide["estimatedSeconds"] for slide in slides) == 420
+    assert sum(
+        slide["aiNotes"]["timingPlan"]["targetSpokenSeconds"] for slide in slides
+    ) == 336
     assert all(slide["estimatedSeconds"] >= 15 for slide in slides)
     assert len({slide["estimatedSeconds"] for slide in slides}) > 1
     assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in slides) >= round(
@@ -2744,7 +3726,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     cover, overview, process, comparison, closing = response.deck["slides"]
     assert has_element(cover, "el_1_cover_trust_signal_panel")
     assert has_element(cover, "el_1_cover_summary_card_1")
-    assert has_element(cover, "el_1_body")
+    assert not has_element(cover, "el_1_body")
     assert not has_element(cover, "el_1_accent_rail")
     for index in range(1, 4):
         label = element_by_id(cover, f"el_1_cover_summary_card_{index}_label")
@@ -6050,7 +7032,7 @@ class RepairingFakeOpenAIClient(FakeOpenAIClient):
         repaired = deepcopy(payload)
         for index, slide in enumerate(repaired.get("slides", []), start=1):
             if isinstance(slide, dict):
-                slide["speakerNotes"] = long_speaker_notes(index)
+                slide["speakerNotes"] = bounded_speaker_notes(index)
         super().__init__([payload, repaired])
 
 
@@ -6228,3 +7210,13 @@ def long_speaker_notes(order: int) -> str:
         "청중이 다음 행동을 판단할 수 있도록 배경과 예상 효과를 차례로 짚겠습니다. "
     )
     return sentence * 8
+
+
+def bounded_speaker_notes(order: int) -> str:
+    return (
+        f"{order}번째 장에서는 확인된 근거를 핵심 주장과 연결해 설명합니다. "
+        "첫 번째 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
+        "두 번째 기준은 선택 가능한 행동과 예상 효과를 구분해 보여 줍니다. "
+        "관련 자료의 범위와 한계를 함께 확인해 과도한 해석을 피합니다. "
+        "마지막으로 청중이 다음 단계에서 확인할 판단 기준을 명확히 정리합니다."
+    )
