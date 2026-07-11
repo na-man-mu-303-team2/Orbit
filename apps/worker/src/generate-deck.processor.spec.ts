@@ -379,6 +379,171 @@ describe("processGenerateDeckJob", () => {
     });
   });
 
+  it("fails design-pack quality before calling the image provider", async () => {
+    const deck = createDeck();
+    const deckValidation = validation({
+      passed: false,
+      designIssues: [
+        {
+          code: "TEXT_OVERFLOW",
+          scope: "element",
+          severity: "warning",
+          blocking: false,
+          path: "slides.0.elements.0",
+          message: "Text overflows."
+        }
+      ]
+    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          90,
+          params[4] as Record<string, unknown>,
+          params[5] as { code: string; message: string }
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            deck,
+            warnings: [],
+            validation: deckValidation,
+            diagnostics: diagnostics({ validationIssueCount: 1 })
+          })
+        )
+      )
+    );
+    const generate = vi.fn();
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: { ...payload.request, generationMode: "design-pack" },
+        imageAssetScope: { userId: "user-1" }
+      },
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 20,
+        maxPerOrganizationPerDay: 100
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(generate).not.toHaveBeenCalled();
+    expect(job.result).toMatchObject({
+      deck: { deckId: deck.deckId },
+      validation: { passed: false }
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("keeps an unresolved media candidate out of the decks table", async () => {
+    const deck = deckSchema.parse(
+      createDeck({
+        metadata: {
+          ...createDeck().metadata,
+          presentationProfile: "general-inform"
+        },
+        slides: [
+          {
+            ...createDeck().slides[0],
+            elements: [
+              {
+                elementId: "el_1_design_pack_visual_media_placeholder",
+                type: "rect",
+                role: "media",
+                x: 1114,
+                y: 256,
+                width: 686,
+                height: 520,
+                rotation: 0,
+                opacity: 1,
+                zIndex: 3,
+                locked: false,
+                visible: true,
+                props: {
+                  fill: "#eeeeee",
+                  stroke: "transparent",
+                  strokeWidth: 0,
+                  borderRadius: 8
+                }
+              }
+            ],
+            aiNotes: {
+              ...createDeck().slides[0].aiNotes,
+              visualPlan: {
+                visualType: "image",
+                imageNeeded: true,
+                imageSourcePolicy: "ai-generated",
+                reason: "Show the product"
+              }
+            }
+          }
+        ]
+      })
+    );
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          90,
+          params[4] as Record<string, unknown>,
+          params[5] as { code: string; message: string }
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            deck,
+            warnings: [],
+            validation: validation(),
+            diagnostics: diagnostics()
+          })
+        )
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: { ...payload.request, generationMode: "design-pack" }
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.result).toMatchObject({
+      validation: {
+        passed: false,
+        designIssues: [
+          expect.objectContaining({ code: "MEDIA_PLACEHOLDER_UNRESOLVED" })
+        ]
+      }
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
   it("marks the DB job failed when Python generation fails", async () => {
     const query = vi
       .fn()

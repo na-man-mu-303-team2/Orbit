@@ -227,6 +227,19 @@ export async function processGenerateDeckJob(
       payload.designPackSnapshot,
       payload.brandKitSnapshot
     );
+    if (
+      payload.request.generationMode === "design-pack" &&
+      hasQualityGateIssues(workerPayload.validation)
+    ) {
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        workerPayload.validation,
+        workerPayload.warnings
+      );
+    }
     let imageWarnings: string[] = [];
     if (
       payload.brandKitSnapshot &&
@@ -291,6 +304,38 @@ export async function processGenerateDeckJob(
       ]
     };
 
+    const unresolvedMedia = hasRequiredMediaPlaceholder(deck);
+    if (
+      payload.request.generationMode === "design-pack" &&
+      (hasQualityGateIssues(validation) || unresolvedMedia)
+    ) {
+      const finalValidation = unresolvedMedia
+        ? {
+            ...validation,
+            passed: false,
+            designIssues: [
+              ...validation.designIssues,
+              {
+                code: "MEDIA_PLACEHOLDER_UNRESOLVED",
+                scope: "deck" as const,
+                severity: "warning" as const,
+                blocking: false,
+                path: "slides",
+                message: "필수 이미지 자리 표시자가 실제 asset으로 교체되지 않았습니다."
+              }
+            ]
+          }
+        : validation;
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        finalValidation,
+        [...workerPayload.warnings, ...imageWarnings]
+      );
+    }
+
     await saveDeck(dataSource, deck);
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
@@ -334,6 +379,55 @@ function allValidationIssues(
     ...validation.designIssues,
     ...validation.presentationIssues
   ];
+}
+
+function hasQualityGateIssues(
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"]
+) {
+  return !validation.passed || allValidationIssues(validation).length > 0;
+}
+
+function hasRequiredMediaPlaceholder(deck: Deck) {
+  return deck.slides.some(
+    (slide) =>
+      slide.aiNotes?.visualPlan?.imageNeeded &&
+      slide.elements.some(
+        (element) =>
+          element.visible &&
+          element.role === "media" &&
+          element.elementId.endsWith("_media_placeholder")
+      )
+  );
+}
+
+async function failQualityGate(
+  dataSource: DataSource,
+  jobId: string,
+  workerPayload: ReturnType<typeof generateDeckResponseSchema.parse>,
+  deck: Deck,
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"],
+  warnings: string[]
+) {
+  const issueCount = allValidationIssues(validation).length;
+  const result = generateDeckJobResultSchema.parse({
+    deckId: deck.deckId,
+    ...workerPayload,
+    deck,
+    warnings,
+    validation,
+    diagnostics: {
+      ...workerPayload.diagnostics,
+      validationIssueCount: issueCount
+    }
+  });
+  return failJob(
+    dataSource,
+    jobId,
+    90,
+    "GENERATE_DECK_QUALITY_GATE_FAILED",
+    `Deck generation retained ${issueCount} quality issue(s).`,
+    result
+  );
 }
 
 function markDeckForInitialThumbnailRefresh(
