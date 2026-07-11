@@ -21,6 +21,7 @@ import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 import {
+  applyBrandKitLogoAsset,
   resolveDeckImageAssets,
   type ImageAssetRuntime
 } from "./image-asset-pipeline";
@@ -227,6 +228,27 @@ export async function processGenerateDeckJob(
       payload.brandKitSnapshot
     );
     let imageWarnings: string[] = [];
+    if (
+      payload.brandKitSnapshot &&
+      payload.request.generationMode === "design-pack"
+    ) {
+      const brandAssets = await applyBrandKitLogoAsset(
+        dataSource,
+        storage,
+        deck,
+        payload.brandKitSnapshot
+      );
+      deck = brandAssets.deck;
+      imageWarnings.push(...brandAssets.warnings);
+      if (
+        payload.brandKitSnapshot.values.lockedFields.includes("typography") &&
+        payload.request.design.fontOverride?.pptxEmbeddable === false
+      ) {
+        imageWarnings.push(
+          `Brand Kit font is not embeddable; PPTX fallback ${payload.brandKitSnapshot.values.typography.fallbackFamily} will be used when unavailable.`
+        );
+      }
+    }
     if (
       imageRuntime &&
       payload.imageAssetScope &&

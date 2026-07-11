@@ -2,10 +2,100 @@ import type { GeneratedImageProvider, PublicImageSearchProvider } from "@orbit/a
 import { deckSchema } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
-import { describe, expect, it, vi } from "vitest";
-import { resolveDeckImageAssets } from "./image-asset-pipeline";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  applyBrandKitLogoAsset,
+  resolveDeckImageAssets
+} from "./image-asset-pipeline";
 
 describe("image asset pipeline", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("copies a Brand Kit logo into the generated project and locks its elements", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          file_id: "file_logo",
+          project_id: "project_brand",
+          storage_key: "projects/project_brand/assets/logo.png",
+          original_name: "logo.png",
+          mime_type: "image/png",
+          size: 24
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    const getSignedReadUrl = vi.fn(async () => "http://storage.local/logo.png");
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(pngHeader(1280, 720), { status: 200 }))
+    );
+
+    const result = await applyBrandKitLogoAsset(
+      { query } as unknown as DataSource,
+      { getSignedReadUrl, putObject } as Pick<
+        StoragePort,
+        "getSignedReadUrl" | "putObject"
+      >,
+      imageDeck("ai-generated"),
+      {
+        id: "brand_kit_1",
+        organizationId: "organization_1",
+        name: "ORBIT",
+        version: 1,
+        values: {
+          logoAssetId: "file_logo",
+          palette: {
+            primary: "#2563EB",
+            secondary: "#0F766E",
+            background: "#FFFFFF",
+            surface: "#FFFFFF",
+            muted: "#E0F2FE",
+            border: "#BAE6FD",
+            text: "#0F172A",
+            accentColor: "#F472B6"
+          },
+          forbiddenColors: [],
+          typography: {
+            headingFontFamily: "Pretendard",
+            bodyFontFamily: "Pretendard",
+            fallbackFamily: "Arial"
+          },
+          tone: "professional",
+          mediaPolicy: "balanced",
+          writingStyle: "",
+          coverRules: "",
+          footerRules: "",
+          approvedAssetIds: [],
+          lockedFields: ["logo"]
+        }
+      }
+    );
+
+    expect(getSignedReadUrl).toHaveBeenCalledWith(
+      "projects/project_brand/assets/logo.png"
+    );
+    expect(putObject).toHaveBeenCalledOnce();
+    expect(query.mock.calls[1]?.[0]).toContain("'brand-kit'");
+    const logo = result.deck.slides[0].elements.find((element) =>
+      element.elementId.endsWith("_brand_kit_logo")
+    );
+    expect(logo).toMatchObject({ type: "image", role: "footer", locked: true });
+    expect(logo?.type === "image" ? logo.props.src : "").toMatch(
+      /^\/api\/v1\/projects\/project_1\/assets\/file_.*\/content$/
+    );
+  });
+
   it("retries AI generation once, stores provenance, and replaces the placeholder", async () => {
     const generate = vi
       .fn<GeneratedImageProvider["generate"]>()

@@ -109,7 +109,7 @@ function imageIssues(deck: Deck) {
       (
         element
       ): element is Extract<Slide["elements"][number], { type: "image" }> =>
-        element.visible && element.type === "image"
+        element.visible && element.type === "image" && element.role === "media"
     );
     if (!plan || images.length === 0) return [];
     const issues: GenerateDeckValidationIssue[] = [];
@@ -178,6 +178,21 @@ function brandKitIssues(deck: Deck) {
       )
     );
     if (invalid) violations.push("typography");
+  }
+  if (
+    locked.has("logo") &&
+    snapshot.values.logoAssetId &&
+    deck.slides.some(
+      (slide) =>
+        !slide.elements.some(
+          (element) =>
+            element.visible &&
+            element.type === "image" &&
+            element.elementId.endsWith("_brand_kit_logo")
+        )
+    )
+  ) {
+    violations.push("logo");
   }
   return violations.length > 0
     ? [

@@ -3,7 +3,12 @@ import type {
   ImageAssetCandidate,
   PublicImageSearchProvider
 } from "@orbit/ai";
-import { deckSchema, type Deck, type Slide } from "@orbit/shared";
+import {
+  deckSchema,
+  type BrandKitSnapshot,
+  type Deck,
+  type Slide
+} from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
@@ -20,6 +25,78 @@ export type ImageAssetScope = {
   userId: string;
   organizationId?: string;
 };
+
+type StoredAssetRow = {
+  file_id: string;
+  project_id: string;
+  storage_key: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+};
+
+export async function applyBrandKitLogoAsset(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  deck: Deck,
+  brandKit: BrandKitSnapshot
+): Promise<{ deck: Deck; warnings: string[] }> {
+  const sourceFileId = brandKit.values.logoAssetId;
+  if (!sourceFileId) return { deck, warnings: [] };
+
+  try {
+    const rows = (await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size
+        FROM project_assets
+        WHERE file_id = $1 AND status = 'uploaded'
+        LIMIT 1
+      `,
+      [sourceFileId]
+    )) as StoredAssetRow[];
+    const source = rows[0];
+    if (!source) throw new Error("Brand Kit logo asset is unavailable");
+    if (!["image/png", "image/jpeg", "image/webp"].includes(source.mime_type)) {
+      throw new Error(`Unsupported Brand Kit logo MIME type: ${source.mime_type}`);
+    }
+
+    let fileId = source.file_id;
+    if (source.project_id !== deck.projectId) {
+      const readUrl = await storage.getSignedReadUrl(source.storage_key);
+      const response = await fetch(readUrl, {
+        signal: AbortSignal.timeout(30_000)
+      });
+      if (!response.ok) throw new Error("Brand Kit logo asset content is unavailable");
+      const body = new Uint8Array(await response.arrayBuffer());
+      assertCandidate(
+        {
+          body,
+          mimeType: source.mime_type as ImageAssetCandidate["mimeType"],
+          fileName: source.original_name,
+          provider: "brand-kit"
+        },
+        "brand-kit"
+      );
+      fileId = await copyBrandKitAsset(
+        dataSource,
+        storage,
+        deck.projectId,
+        source,
+        body
+      );
+    }
+
+    return {
+      deck: deckSchema.parse(addBrandKitLogoElements(deck, fileId, brandKit)),
+      warnings: []
+    };
+  } catch (error) {
+    return {
+      deck,
+      warnings: [`Brand Kit logo fallback: ${safeErrorMessage(error)}`]
+    };
+  }
+}
 
 export async function resolveDeckImageAssets(
   dataSource: DataSource,
@@ -120,6 +197,7 @@ async function remainingDailyBudget(
       FROM project_assets
       WHERE created_at >= date_trunc('day', now())
         AND asset_provider IS NOT NULL
+        AND asset_provider <> 'brand-kit'
     `,
     [scope.userId, scope.organizationId ?? null]
   )) as Array<{ user_count: string | number; organization_count: string | number }>;
@@ -134,6 +212,91 @@ async function remainingDailyBudget(
       )
     : Number.POSITIVE_INFINITY;
   return Math.min(userRemaining, organizationRemaining);
+}
+
+async function copyBrandKitAsset(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "putObject">,
+  projectId: string,
+  source: StoredAssetRow,
+  body: Uint8Array
+) {
+  const fileId = `file_${randomUUID()}`;
+  const originalName = safeStorageName(source.original_name);
+  const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
+  const url = createAssetContentUrl(projectId, fileId);
+  await storage.putObject({
+    key: storageKey,
+    body,
+    contentType: source.mime_type,
+    purpose: "design-asset"
+  });
+  await dataSource.query(
+    `
+      INSERT INTO project_assets (
+        file_id, project_id, storage_key, original_name, mime_type, size, url,
+        purpose, status, created_at, uploaded_at, deleted_at, asset_provider
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7,
+        'design-asset', 'uploaded', now(), now(), null, 'brand-kit'
+      )
+    `,
+    [
+      fileId,
+      projectId,
+      storageKey,
+      originalName,
+      source.mime_type,
+      body.byteLength,
+      url
+    ]
+  );
+  return fileId;
+}
+
+function addBrandKitLogoElements(
+  deck: Deck,
+  fileId: string,
+  brandKit: BrandKitSnapshot
+): Deck {
+  const src = createAssetContentUrl(deck.projectId, fileId);
+  const locked = brandKit.values.lockedFields.includes("logo");
+  return {
+    ...deck,
+    slides: deck.slides.map((slide) => {
+      const elementId = `el_${slide.slideId}_brand_kit_logo`;
+      const existing = slide.elements.find((element) => element.elementId === elementId);
+      if (existing) return slide;
+      return {
+        ...slide,
+        elements: [
+          ...slide.elements,
+          {
+            elementId,
+            type: "image" as const,
+            role: "footer" as const,
+            x: 1600,
+            y: 88,
+            width: 200,
+            height: 64,
+            rotation: 0,
+            opacity: 1,
+            zIndex: Math.max(0, ...slide.elements.map((element) => element.zIndex)) + 1,
+            locked,
+            visible: true,
+            props: {
+              src,
+              alt: `${brandKit.name} logo`,
+              fit: "contain" as const,
+              focusX: 0.5,
+              focusY: 0.5
+            }
+          }
+        ]
+      };
+    })
+  };
 }
 
 async function retryImageRequest<T>(operation: () => Promise<T>, retries: number) {

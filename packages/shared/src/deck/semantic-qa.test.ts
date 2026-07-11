@@ -50,6 +50,66 @@ describe("semantic QA", () => {
       "EVIDENCE_MISMATCH"
     );
   });
+
+  it("requires a logo element when the Brand Kit logo is locked", () => {
+    const deck = semanticDeck();
+    deck.metadata.brandKitSnapshot = {
+      id: "brand_kit_1",
+      organizationId: "organization_1",
+      name: "ORBIT",
+      version: 1,
+      values: {
+        logoAssetId: "file_logo",
+        palette: {
+          primary: "#2563EB",
+          secondary: "#0F766E",
+          background: "#FFFFFF",
+          surface: "#FFFFFF",
+          muted: "#E0F2FE",
+          border: "#BAE6FD",
+          text: "#0F172A",
+          accentColor: "#F472B6"
+        },
+        forbiddenColors: [],
+        typography: {
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial"
+        },
+        tone: "professional",
+        mediaPolicy: "balanced",
+        writingStyle: "",
+        coverRules: "",
+        footerRules: "",
+        approvedAssetIds: [],
+        lockedFields: ["logo"]
+      }
+    };
+
+    expect(getSemanticQaIssues(deck).map((issue) => issue.code)).toContain(
+      "BRAND_KIT_VIOLATION"
+    );
+    for (const slide of deck.slides) {
+      slide.elements.push({
+        elementId: `el_${slide.slideId}_brand_kit_logo`,
+        type: "image",
+        role: "footer",
+        x: 1600,
+        y: 88,
+        width: 200,
+        height: 64,
+        locked: true,
+        visible: true,
+        props: {
+          src: `/api/v1/projects/project_1/assets/file_logo/content`,
+          alt: "ORBIT logo"
+        }
+      });
+    }
+    expect(getSemanticQaIssues(deck).map((issue) => issue.code)).not.toContain(
+      "BRAND_KIT_VIOLATION"
+    );
+  });
 });
 
 function semanticDeck() {

@@ -1,5 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
-import type { Deck } from "@orbit/shared";
+import { deckSchema, type Deck, type GenerateDeckJobResult } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
@@ -155,13 +155,14 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("applies semantic repair once and persists remaining shared QA issues", async () => {
-    const deck = createDeck({
+    const deck = deckSchema.parse(createDeck({
       metadata: {
         ...createDeck().metadata,
         presentationProfile: "proposal"
       }
-    });
+    }));
     const firstSlide = deck.slides[0];
+    if (!firstSlide.aiNotes) throw new Error("semantic fixture notes missing");
     firstSlide.aiNotes.emphasisPoints = [
       "고객 전환율을 높입니다",
       "구매 여정을 단축합니다"
@@ -209,9 +210,7 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
-    const result = (query.mock.calls[2][1] as unknown[])[4] as NonNullable<
-      typeof job.result
-    >;
+    const result = (query.mock.calls[2][1] as unknown[])[4] as GenerateDeckJobResult;
     expect(result.warnings).toContain(
       "Semantic QA bounded repair applied once."
     );
