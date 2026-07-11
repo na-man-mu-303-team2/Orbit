@@ -658,10 +658,10 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
-- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`만 허용하며, source 없는 media placeholder는 `placeholder-ok`에서만 허용한다.
+- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`, `provided-only`, `public-assets`, `ai-generated`, `minimal`을 허용한다. 실제 provider를 사용할 수 없거나 검증·예산 제한에 걸리면 editable placeholder를 유지한다.
 - `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
 - `generationMode`는 `legacy`, `design-pack`만 허용하며 기본값은 `legacy`다. 기존 AI 덱 생성과 템플릿 기반 생성은 `legacy` 경로를 유지하고, `/ai-ppt` wizard만 `design-pack`을 명시한다.
-- AI PPT 1차 wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `references-first`, `references-only`만 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
+- AI PPT wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `user-input-only`, `references-first`, `references-only`, `research-first`를 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
 - AI PPT 1차 wizard는 `design.stylePackId = "brandlogy-modern"`를 기본값으로 사용한다. 이는 PPTX 템플릿이 아니라 worker 내부 Design Pack preset이며, 최종 Deck JSON에는 style pack 중간 필드를 저장하지 않는다.
 - `generationMode = "design-pack"` 경로는 worker의 코드 기반 layout recipe가 좌표, 크기, zIndex, 구조 요소를 계산한다. `legacy` 생성 경로는 기존 layout preset 조립 방식을 유지한다.
 - AI PPT 1차 wizard는 자연어 색상 요청을 `design.colorIntent`와 `design.constraints`로 구조화한다. `designPrompt`는 설명용 보조 필드이며, 흰 배경/금지 스타일 같은 강제 규칙은 `design.constraints`가 source of truth다.
@@ -717,6 +717,10 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - 생성 결과는 `metadata.brandKitSnapshot`에 최종 적용 Brand Kit을 기록한다.
 - Brand Kit 잠금 필드는 Saved Design Pack과 Session override보다 우선한다.
 - platform Hard Rule은 Brand Kit에서도 해제할 수 없다.
+- 관리 API는 `GET/POST /api/v1/organizations/:organizationId/brand-kits`, `PATCH/DELETE /api/v1/organizations/:organizationId/brand-kits/:brandKitId`를 사용한다. 생성·수정·삭제는 조직 `admin`만 가능하다.
+- `logoAssetId`와 `approvedAssetIds`는 관리자가 accepted member인 프로젝트의 uploaded asset만 참조할 수 있다.
+- 생성 시 `logoAssetId`가 다른 프로젝트에 있으면 기존 `StoragePort`와 `project_assets`를 사용해 대상 프로젝트로 복제하고, 각 슬라이드에는 내부 content URL을 사용하는 `footer` image element를 기록한다. `lockedFields`에 `logo`가 있으면 해당 element도 잠근다.
+- Brand Kit 공식 font가 현재 font catalog에서 embeddable로 확인되지 않으면 fallback font를 유지하고 생성 warning을 남긴다.
 
 구현 위치:
 
@@ -743,6 +747,23 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - `apps/worker/src/image-asset-pipeline.ts`
 - `apps/worker/src/deck-export.processor.ts`
 - `apps/api/src/database/migrations/2026071103000-AddImageAssetProvenance.ts`
+
+### AI PPT 기본 의미 기반 QA 계약
+
+`metadata.presentationProfile`이 있는 `design-pack` Deck은 Worker 저장 전과 Editor AI 검증에서 같은 shared semantic QA를 사용한다. legacy/import Deck에는 적용하지 않는다.
+
+- issue code: `SLIDE_MESSAGE_MULTIPLE`, `NARRATIVE_FLOW_WEAK`, `EVIDENCE_MISMATCH`, `IMAGE_RELEVANCE_WEAK`, `BRAND_KIT_VIOLATION`, `IMAGE_LICENSE_MISSING`
+- Worker는 다중 핵심 메시지와 이미지 대체 텍스트 관련 항목만 결정론적으로 최대 1회 보정한 뒤 전체 issue를 다시 계산한다.
+- 이미지 관련성은 `role=media`인 실제 본문 이미지에만 적용하며 Brand Kit logo와 footer image는 제외한다.
+- 공개 이미지는 `aiNotes.visualPlan.asset`의 원본 URL과 license가 없으면 `IMAGE_LICENSE_MISSING`을 남긴다.
+- Brand Kit locked palette, typography, tone, logo가 최종 Deck에 유지되지 않으면 `BRAND_KIT_VIOLATION`을 남긴다.
+- semantic issue는 모두 `severity=warning`, `blocking=false`다. Deck 저장은 허용하지만 하나라도 남으면 `validation.passed=false`이며 Worker와 Editor가 같은 code를 표시한다.
+
+구현 위치:
+
+- `packages/shared/src/deck/semantic-qa.ts`
+- `apps/worker/src/generate-deck.processor.ts`
+- `apps/web/src/features/editor/ai/quality/editorValidation.ts`
 
 ## PPTX import, Template Blueprint, Quality Report 계약
 
