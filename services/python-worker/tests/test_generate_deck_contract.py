@@ -2310,7 +2310,9 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
             content=(
                 "유럽의 배터리 규정은 소비자가 일반 공구로 배터리를 교체할 수 있게 요구합니다. "
                 "교체형 설계는 제품 수명을 늘리고 전자 폐기물 감소에 기여합니다. "
-                "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다."
+                "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다. "
+                "제조사는 부품 접근성과 수리 가능성을 제품 설계 단계에서 함께 고려합니다. "
+                "소비자는 배터리 수명이 끝난 뒤에도 본체를 계속 사용할 수 있습니다."
             ),
             authority="independent",
         )
@@ -2331,7 +2333,7 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
         ],
         source_refs=["web:verified"],
         target_seconds=60,
-        target_speaker_notes_chars=180,
+        target_speaker_notes_chars=224,
     )
     fake_client = FakeOpenAIClient(
         [
@@ -2347,7 +2349,8 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
     )[0]
 
     actual_chars = len("".join(repaired.speaker_notes.split()))
-    assert round(180 * 0.9) <= actual_chars <= round(180 * 1.1)
+    assert round(224 * 0.9) <= actual_chars <= round(224 * 1.1)
+    assert actual_chars >= round(raw_input.timing_plan.chars_per_minute * 0.75)
     assert "전자 폐기물" in repaired.speaker_notes
 
 

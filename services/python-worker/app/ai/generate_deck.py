@@ -4058,6 +4058,58 @@ def repair_short_speaker_notes_with_llm(
         grounded_chars = count_speaker_note_chars(grounded_notes)
         if minimum_chars <= grounded_chars <= maximum_chars:
             slide.speaker_notes = grounded_notes
+    minimum_total_chars = round(
+        raw_input.target_duration_minutes
+        * raw_input.timing_plan.chars_per_minute
+        * 0.75
+    )
+    actual_total_chars = sum(
+        count_speaker_note_chars(slide.speaker_notes) for slide in slide_plans
+    )
+    if actual_total_chars < minimum_total_chars:
+        for slide in sorted(
+            slide_plans,
+            key=lambda item: (
+                round(item.target_speaker_notes_chars * 1.1)
+                - count_speaker_note_chars(item.speaker_notes)
+            ),
+            reverse=True,
+        ):
+            current_chars = count_speaker_note_chars(slide.speaker_notes)
+            maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
+            if current_chars >= maximum_chars:
+                continue
+            source_refs = slide.source_refs or default_source_refs(
+                raw_input, slide.order
+            )
+            source_fragments = [
+                fragment
+                for source_id in source_refs
+                if (source := source_records.get(source_id)) is not None
+                for fragment in speaker_note_fragments(source.content)
+            ]
+            if not source_fragments:
+                continue
+            required_chars = min(
+                maximum_chars,
+                current_chars + minimum_total_chars - actual_total_chars,
+            )
+            grounded_notes = fit_grounded_speaker_note_candidates(
+                [
+                    *speaker_note_fragments(slide.speaker_notes),
+                    *source_fragments,
+                    *[content_item.text for content_item in slide.content_items],
+                    slide.message,
+                ],
+                minimum_chars=required_chars,
+                preferred_max_chars=maximum_chars,
+            )
+            grounded_chars = count_speaker_note_chars(grounded_notes)
+            if current_chars < grounded_chars <= maximum_chars:
+                slide.speaker_notes = grounded_notes
+                actual_total_chars += grounded_chars - current_chars
+            if actual_total_chars >= minimum_total_chars:
+                break
     return slide_plans
 
 
