@@ -12,6 +12,8 @@ import {
   type SavedDesignPackSnapshot,
   brandKitSnapshotSchema,
   type BrandKitSnapshot,
+  getSemanticQaIssues,
+  repairSemanticQaOnce,
   type TemplateBlueprint
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -249,11 +251,35 @@ export async function processGenerateDeckJob(
       }
     }
 
+    const initialSemanticIssues = getSemanticQaIssues(deck);
+    const shouldRepairSemanticIssues = initialSemanticIssues.some((issue) =>
+      ["SLIDE_MESSAGE_MULTIPLE", "IMAGE_RELEVANCE_WEAK"].includes(issue.code)
+    );
+    if (shouldRepairSemanticIssues) {
+      deck = deckSchema.parse(repairSemanticQaOnce(deck));
+      imageWarnings.push("Semantic QA bounded repair applied once.");
+    }
+    const semanticIssues = getSemanticQaIssues(deck);
+    const validation = {
+      ...workerPayload.validation,
+      passed: workerPayload.validation.passed && semanticIssues.length === 0,
+      presentationIssues: [
+        ...workerPayload.validation.presentationIssues,
+        ...semanticIssues
+      ]
+    };
+
     await saveDeck(dataSource, deck);
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
       warnings: [...workerPayload.warnings, ...imageWarnings],
+      validation,
+      diagnostics: {
+        ...workerPayload.diagnostics,
+        validationIssueCount:
+          workerPayload.diagnostics.validationIssueCount + semanticIssues.length
+      },
       deck
     });
 

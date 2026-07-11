@@ -1,4 +1,5 @@
 import type { Deck, DeckElement, Slide, TextElementProps } from "@orbit/shared";
+import { getSemanticQaIssues } from "@orbit/shared";
 import {
   getKonvaFontStyle,
   getPrimaryTextRun,
@@ -39,7 +40,13 @@ export type EditorValidationItem = {
     | "GRID_ALIGNMENT_INCONSISTENT"
     | "CONTENT_DUPLICATED"
     | "SPEAKER_NOTES_SHORT"
-    | "SPEAKER_NOTES_DENSE";
+    | "SPEAKER_NOTES_DENSE"
+    | "SLIDE_MESSAGE_MULTIPLE"
+    | "NARRATIVE_FLOW_WEAK"
+    | "EVIDENCE_MISMATCH"
+    | "IMAGE_RELEVANCE_WEAK"
+    | "BRAND_KIT_VIOLATION"
+    | "IMAGE_LICENSE_MISSING";
   level?: "warning";
   message: string;
   slideId?: string;
@@ -140,8 +147,21 @@ function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
   }
 
   items.push(...getEditorPresentationDeckValidationItems(deck));
+  items.push(
+    ...getSemanticQaIssues(deck).map((issue) => ({
+      issue: issue.code as EditorValidationItem["issue"],
+      message: issue.message,
+      severity: "warning" as const,
+      slideId: slideIdFromIssuePath(deck, issue.path)
+    }))
+  );
 
   return items;
+}
+
+function slideIdFromIssuePath(deck: Deck, path: string) {
+  const match = path.match(/^slides\.(\d+)/);
+  return match ? deck.slides[Number(match[1])]?.slideId : undefined;
 }
 
 function getEditorSlideValidationItems(

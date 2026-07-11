@@ -427,4 +427,98 @@ describe("editor design-pack validation", () => {
       expect(issues.has(issue)).toBe(true);
     }
   });
+
+  it("mirrors the shared phase-three semantic QA issue codes", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "proposal";
+    const first = deck.slides[0];
+    if (!first.aiNotes?.visualPlan) throw new Error("fixture visual plan missing");
+    first.aiNotes.emphasisPoints = [
+      "고객 전환율을 높입니다",
+      "구매 여정을 단축합니다"
+    ];
+    first.aiNotes.sourceLedger = [
+      {
+        claim: "서버 지연 시간은 20ms입니다",
+        source: "report",
+        sourceType: "uploaded",
+        confidence: 0.9,
+        usedInSlideId: first.slideId
+      }
+    ];
+    first.aiNotes.visualPlan.imageSourcePolicy = "public-assets";
+    first.aiNotes.visualPlan.asset = {
+      fileId: "file_public",
+      provider: "openverse"
+    };
+    first.elements.push({
+      elementId: "el_semantic_image",
+      type: "image",
+      role: "media",
+      x: 1100,
+      y: 500,
+      width: 640,
+      height: 360,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 20,
+      locked: false,
+      visible: true,
+      props: {
+        src: "/api/v1/projects/project_demo/assets/file_public/content",
+        alt: "unrelated mountain",
+        fit: "cover",
+        focusX: 0.5,
+        focusY: 0.5
+      }
+    });
+    deck.slides.push({
+      ...structuredClone(first),
+      slideId: "slide_semantic_duplicate",
+      order: 2
+    });
+    deck.metadata.brandKitSnapshot = {
+      id: "brand_kit_1",
+      organizationId: "organization_1",
+      name: "ORBIT",
+      version: 1,
+      values: {
+        palette: {
+          primary: "#FF0000",
+          secondary: "#00FF00",
+          background: "#FFFFFF",
+          surface: "#FFFFFF",
+          muted: "#F3F4F6",
+          border: "#D1D5DB",
+          text: "#111827",
+          accentColor: "#FF00FF"
+        },
+        forbiddenColors: [],
+        typography: {
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial"
+        },
+        tone: "professional",
+        mediaPolicy: "public-assets",
+        writingStyle: "",
+        coverRules: "",
+        footerRules: "",
+        approvedAssetIds: [],
+        lockedFields: ["palette"]
+      }
+    };
+
+    const issues = new Set(
+      getEditorValidationItems(deck).map((item) => item.issue)
+    );
+    expect(Array.from(issues)).toEqual(expect.arrayContaining([
+      "SLIDE_MESSAGE_MULTIPLE",
+      "NARRATIVE_FLOW_WEAK",
+      "EVIDENCE_MISMATCH",
+      "IMAGE_RELEVANCE_WEAK",
+      "BRAND_KIT_VIOLATION",
+      "IMAGE_LICENSE_MISSING"
+    ]));
+  });
 });

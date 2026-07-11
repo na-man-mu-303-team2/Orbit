@@ -154,6 +154,77 @@ describe("processGenerateDeckJob", () => {
     expect(job.result).toMatchObject({ validation: { passed: false } });
   });
 
+  it("applies semantic repair once and persists remaining shared QA issues", async () => {
+    const deck = createDeck({
+      metadata: {
+        ...createDeck().metadata,
+        presentationProfile: "proposal"
+      }
+    });
+    const firstSlide = deck.slides[0];
+    firstSlide.aiNotes.emphasisPoints = [
+      "고객 전환율을 높입니다",
+      "구매 여정을 단축합니다"
+    ];
+    firstSlide.aiNotes.sourceLedger = [
+      {
+        claim: "서버 지연 시간은 20ms입니다",
+        source: "report",
+        sourceType: "uploaded",
+        confidence: 0.9,
+        usedInSlideId: firstSlide.slideId
+      }
+    ];
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          { deckId: deck.deckId, deck, warnings: [], validation: validation() },
+          null
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            deck,
+            warnings: [],
+            validation: validation(),
+            diagnostics: diagnostics()
+          })
+        )
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("succeeded");
+    const result = (query.mock.calls[2][1] as unknown[])[4] as NonNullable<
+      typeof job.result
+    >;
+    expect(result.warnings).toContain(
+      "Semantic QA bounded repair applied once."
+    );
+    expect(result.deck.slides[0].aiNotes?.emphasisPoints).toEqual([
+      "고객 전환율을 높입니다"
+    ]);
+    expect(result.validation).toMatchObject({
+      passed: false,
+      presentationIssues: [expect.objectContaining({ code: "EVIDENCE_MISMATCH" })]
+    });
+    expect(result.diagnostics).toMatchObject({ validationIssueCount: 1 });
+  });
+
   it("persists the resolved Saved Design Pack snapshot on design-pack decks", async () => {
     const deck = createDeck();
     const snapshot = {
