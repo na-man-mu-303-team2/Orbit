@@ -170,7 +170,7 @@ export function buildAiPptGenerateDeckPayload(
   }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
-  const slideCount = resolveSlideCount(state);
+  const slideCountRange = resolveSlideCountRange(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
   const fontOverride = fontOverrideFromOption(selectedFont);
@@ -203,10 +203,7 @@ export function buildAiPptGenerateDeckPayload(
       referencePolicy: state.referencePolicy
     },
     targetDurationMinutes: durationMinutes,
-    slideCountRange: {
-      min: slideCount,
-      max: slideCount
-    },
+    slideCountRange,
     template: "default",
     metadata: {
       audience: "general",
@@ -1288,10 +1285,13 @@ function parsePositiveInteger(value: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveSlideCount(state: AiPptWizardState) {
+function resolveSlideCountRange(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
-  if (requested > 0) return requested;
-  return deriveSlideCountFromState(state);
+  if (requested > 0) {
+    return { min: Math.max(1, requested - 2), max: requested + 2 };
+  }
+  const derived = deriveSlideCountFromState(state);
+  return { min: derived, max: derived };
 }
 
 function deriveSlideCountFromState(state: AiPptWizardState) {
