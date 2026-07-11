@@ -47,6 +47,7 @@ import orbitLogo from "./assets/orbit-logo.png";
 import { AppSidebar } from "./components/AppSidebar";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
+import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { AiPptMockupPage } from "./features/ai-ppt/AiPptMockupPage";
 import {
   createProject,
@@ -220,6 +221,7 @@ export type Route =
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
+  | { name: "focused-practice"; projectId: string; goalId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
@@ -515,6 +517,17 @@ export function getRoute(
     };
   }
 
+  const focusedPracticeMatch = normalized.match(/^\/rehearsal\/([^/]+)\/focus\/([^/]+)$/);
+  if (focusedPracticeMatch) {
+    const params = new URLSearchParams(currentSearch);
+    return {
+      name: "focused-practice",
+      projectId: decodeURIComponent(focusedPracticeMatch[1]),
+      goalId: decodeURIComponent(focusedPracticeMatch[2]),
+      sourceFullRunId: params.get("sourceFullRunId") ?? ""
+    };
+  }
+
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     const searchParams = new URLSearchParams(currentSearch);
@@ -598,6 +611,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
     route.name !== "practice-plan" &&
+    route.name !== "focused-practice" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -665,6 +679,9 @@ function renderRoute(route: Route, user?: AuthUser) {
         sourceFullRunId={route.sourceFullRunId}
       />
     );
+  }
+  if (route.name === "focused-practice") {
+    return <FocusedPracticePage projectId={route.projectId} goalId={route.goalId} sourceFullRunId={route.sourceFullRunId} />;
   }
   if (route.name === "report-project-overview") {
     return (

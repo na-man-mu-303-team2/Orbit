@@ -87,7 +87,7 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
                 <div><dt><CheckCircle2 aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
               </dl>
               {selectedGoal.canStartFocusedPractice ? (
-                <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}`; }}>
+                <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}>
                   선택한 구간 연습
                 </OrbitButton>
               ) : (

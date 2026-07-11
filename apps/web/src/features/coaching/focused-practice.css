@@ -1,0 +1,17 @@
+.focused-practice-page { background: var(--orbit-ds-surface); padding: 48px 20px; }
+.focused-practice-shell { margin: 0 auto; max-width: 920px; }
+.focused-practice-shell > header { align-items: end; display: flex; justify-content: space-between; }
+.focused-practice-shell h1 { font-size: var(--orbit-ds-type-page-title); letter-spacing: -.04em; margin: 0; }
+.focused-practice-stage { background: var(--orbit-ds-lilac-soft); border-radius: var(--orbit-ds-radius-block); margin-top: 36px; min-height: 360px; padding: 44px; }
+.focused-practice-stage > svg { background: var(--orbit-ds-lilac); border-radius: 50%; padding: 12px; box-sizing: content-box; }
+.focused-practice-stage small { color: var(--orbit-ds-lilac-strong); display: block; font-family: var(--orbit-ds-font-mono); margin-top: 42px; }
+.focused-practice-stage h2 { font-size: 32px; letter-spacing: -.035em; margin: 10px 0; }
+.focused-practice-stage p { color: var(--orbit-ds-text-muted); font-size: 18px; line-height: 1.6; }
+.focused-practice-stage div { align-items: center; border-top: 1px solid var(--orbit-ds-lilac); display: flex; gap: 10px; margin-top: 32px; padding-top: 20px; }
+.focused-attempt-history { margin-top: 28px; }
+.focused-attempt-history h2 { font-size: 18px; }
+.focused-attempt-history > div { border-top: 1px solid var(--orbit-ds-border); display: flex; justify-content: space-between; padding: 14px 0; }
+.focused-practice-shell > footer { display: flex; gap: 12px; justify-content: flex-end; margin-top: 28px; }
+.focused-practice-shell .orbit-ds-button { min-height: 44px; }
+.focused-practice-error { background: var(--orbit-ds-danger-soft); color: var(--orbit-ds-danger); padding: 12px; }
+@media (max-width: 640px) { .focused-practice-page { padding: 28px 16px; } .focused-practice-shell > header { align-items: start; flex-direction: column; gap: 16px; } .focused-practice-stage { min-height: 0; padding: 28px; } .focused-practice-shell > footer { flex-direction: column; } .focused-practice-shell .orbit-ds-button { width: 100%; } }
