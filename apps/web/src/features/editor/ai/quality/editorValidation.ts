@@ -601,12 +601,13 @@ function getEditorVisualOccupancyValidationItems(
     const minimumWidthRatio = hasPlannedMedia ? 0.85 : 0.7;
     const minimumHeightRatio = hasPlannedMedia ? 0.55 : 0.4;
     if (
-      right - left < 1680 * minimumWidthRatio ||
-      bottom - top < 904 * minimumHeightRatio
+      right - left < 1680 * minimumWidthRatio - 4 ||
+      bottom - top < 904 * minimumHeightRatio - 4
     ) {
       reasons.push("핵심 콘텐츠가 안전 영역을 충분히 점유하지 않습니다.");
     }
   }
+  reasons.push(...getRecipeGeometryQualityReasons(visible, visualType));
   if (visible.some((element) => isMeaninglessLargeDecoration(element, visible))) {
     reasons.push("의미 없는 대형 장식 요소가 콘텐츠보다 큰 비중을 차지합니다.");
   }
@@ -625,12 +626,72 @@ function getEditorVisualOccupancyValidationItems(
 function isVisualQualityCoreElement(element: DeckElement) {
   if (isDesignPackChrome(element)) return false;
   return (
-    ["title", "subtitle", "body", "highlight", "media"].includes(
-      element.role ?? ""
-    ) ||
+    ["body", "highlight", "media"].includes(element.role ?? "") ||
     element.type === "image" ||
     element.type === "chart"
   );
+}
+
+function getRecipeGeometryQualityReasons(
+  elements: DeckElement[],
+  visualType: string
+) {
+  const reasons: string[] = [];
+  if (visualType === "process") {
+    const cards = elements.filter((element) =>
+      /_process_(?:step|two_row|vertical)_card_\d+$/.test(element.elementId)
+    );
+    if (cards.length > 0) {
+      const top = Math.min(...cards.map((element) => element.y));
+      const bottom = Math.max(
+        ...cards.map((element) => element.y + element.height)
+      );
+      if (bottom - top < 360) {
+        reasons.push("process 카드 영역은 최소 360px 높이가 필요합니다.");
+      }
+    }
+  }
+
+  if (visualType === "comparison") {
+    const cells = elements.filter((element) =>
+      /_comparison_matrix_cell_\d+$/.test(element.elementId)
+    );
+    if (cells.length === 3) {
+      const rows = new Set(cells.map((element) => Math.round(element.y)));
+      const right = Math.max(...cells.map((element) => element.x + element.width));
+      if (rows.size !== 1 || right < 1796) {
+        reasons.push("comparison 3개 항목은 빈 셀 없이 3열을 사용해야 합니다.");
+      }
+    }
+  }
+
+  if (visualType === "decision") {
+    const focusPanel = elements.find((element) =>
+      element.elementId.endsWith("_decision_actions_focus_panel")
+    );
+    const focusText = elements.find(
+      (element) =>
+        element.type === "text" &&
+        element.elementId.endsWith("_decision_actions_focus_text")
+    );
+    const actionRows = elements.filter((element) =>
+      /_decision_actions_row_\d+$/.test(element.elementId)
+    );
+    if (focusPanel && focusText?.type === "text" && actionRows.length > 0) {
+      const text = getTextElementText(focusText.props as TextElementProps).replace(
+        /[^\p{L}\p{N}]+/gu,
+        ""
+      );
+      const top = Math.min(...actionRows.map((element) => element.y));
+      const bottom = Math.max(
+        ...actionRows.map((element) => element.y + element.height)
+      );
+      if (text.length <= 24 && focusPanel.height > Math.max(240, bottom - top + 8)) {
+        reasons.push("짧은 focus 문구에 비해 강조 패널이 지나치게 큽니다.");
+      }
+    }
+  }
+  return reasons;
 }
 
 function isMeaninglessLargeDecoration(

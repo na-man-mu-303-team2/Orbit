@@ -224,6 +224,49 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("measures body occupancy without using the title bounds", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    if (!slide.aiNotes?.visualPlan) throw new Error("visual plan missing");
+    slide.aiNotes.visualPlan.imageNeeded = false;
+    slide.elements = slide.elements.filter((element) => element.role !== "media");
+    const body = slide.elements.find((element) => element.role === "body");
+    if (!body) throw new Error("body missing");
+    Object.assign(body, { x: 120, y: 420, width: 300, height: 100 });
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "VISUAL_HIERARCHY_WEAK" })
+    );
+  });
+
+  it("accepts generated media geometry and warns after an off-grid edit", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    const title = slide.elements.find((element) => element.role === "title");
+    const body = slide.elements.find((element) => element.role === "body");
+    const media = slide.elements.find((element) => element.role === "media");
+    if (!title || !body || !media) throw new Error("quality fixture elements missing");
+    Object.assign(title, { x: 120, y: 120, width: 970, height: 112 });
+    Object.assign(body, { x: 120, y: 256, width: 970, height: 360 });
+    Object.assign(media, { x: 1114, y: 256, width: 686, height: 520 });
+
+    expect(getEditorValidationItems(deck, slide)).not.toContainEqual(
+      expect.objectContaining({ issue: "GRID_ALIGNMENT_INCONSISTENT" })
+    );
+
+    Object.assign(media, {
+      x: 511.8055687730131,
+      y: 31.80522661562667,
+      width: 1348.9886308346456,
+      height: 1022.556979641422
+    });
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "GRID_ALIGNMENT_INCONSISTENT" })
+    );
+  });
+
   it("links editor overflow repair items to TEXT_OVERFLOW", () => {
     const deck = structuredClone(designPackDeck);
     const body = deck.slides[0].elements.find(

@@ -6858,6 +6858,7 @@ def design_pack_recipe_elements(
         elements.extend(design_pack_closing_elements(slide_plan, theme, variant))
     else:
         elements.extend(design_pack_insight_elements(slide_plan, theme, variant))
+    elements = remove_duplicate_primary_message_elements(slide_plan, elements)
     fit_design_pack_recipe_to_media_frame(elements, slide_plan, recipe, variant)
     elements.extend(
         design_pack_media_placeholder_elements(
@@ -6868,7 +6869,7 @@ def design_pack_recipe_elements(
             variant,
         )
     )
-    return remove_duplicate_primary_message_elements(slide_plan, elements)
+    return elements
 
 
 def fit_design_pack_recipe_to_media_frame(
@@ -6884,6 +6885,10 @@ def fit_design_pack_recipe_to_media_frame(
     if not media_intent_needs_slot(slide_plan.media_intent):
         if has_cover_panel:
             fit_design_pack_cover_without_media(elements)
+        elif recipe == "overview_cards" and variant == "overview_rail":
+            fit_design_pack_overview_to_frame(elements, CANVAS.safe_width)
+        elif recipe == "decision_agenda":
+            fit_design_pack_agenda_without_message(elements)
         return
 
     if has_cover_panel:
@@ -6891,7 +6896,11 @@ def fit_design_pack_recipe_to_media_frame(
         return
 
     if recipe == "overview_cards" and variant == "overview_rail":
-        fit_design_pack_overview_to_media_frame(elements)
+        fit_design_pack_overview_to_frame(elements, 970)
+        return
+
+    if recipe == "decision_agenda":
+        fit_design_pack_agenda_to_media_frame(elements)
         return
 
     content_width = 7 * GRID_COLUMN_WIDTH + 6 * GRID_GUTTER
@@ -6918,7 +6927,10 @@ def fit_design_pack_recipe_to_media_frame(
         expand_design_pack_short_label_width(element, max_x=CANVAS.safe_x + content_width)
 
 
-def fit_design_pack_overview_to_media_frame(elements: list[dict[str, Any]]) -> None:
+def fit_design_pack_overview_to_frame(
+    elements: list[dict[str, Any]],
+    frame_width: int,
+) -> None:
     item_count = sum(
         1
         for element in elements
@@ -6934,13 +6946,18 @@ def fit_design_pack_overview_to_media_frame(elements: list[dict[str, Any]]) -> N
     for element in elements:
         element_id = str(element.get("elementId", ""))
         if element.get("role") == "title":
-            element.update(x=CANVAS.safe_x, y=120, width=970, height=112)
+            element.update(x=CANVAS.safe_x, y=120, width=frame_width, height=112)
             continue
         if element_id.endswith("_body"):
-            element.update(x=CANVAS.safe_x, y=236, width=970, height=60)
+            element.update(x=CANVAS.safe_x, y=236, width=frame_width, height=60)
             continue
         if element_id.endswith("_overview_rail_panel"):
-            element.update(x=CANVAS.safe_x, y=panel_y, width=970, height=panel_height)
+            element.update(
+                x=CANVAS.safe_x,
+                y=panel_y,
+                width=frame_width,
+                height=panel_height,
+            )
             continue
         match = re.search(r"_overview_rail_item_(\d+)(?:_(marker|text))?$", element_id)
         if match is None:
@@ -6951,9 +6968,82 @@ def fit_design_pack_overview_to_media_frame(elements: list[dict[str, Any]]) -> N
         if part == "marker":
             element.update(x=176, y=y + (item_height - 30) // 2, width=30, height=30)
         elif part == "text":
-            element.update(x=224, y=y + 15, width=790, height=item_height - 30)
+            element.update(
+                x=224,
+                y=y + 15,
+                width=frame_width - 180,
+                height=item_height - 30,
+            )
         else:
-            element.update(x=152, y=y, width=906, height=item_height)
+            element.update(x=152, y=y, width=frame_width - 64, height=item_height)
+
+
+def fit_design_pack_agenda_to_media_frame(elements: list[dict[str, Any]]) -> None:
+    item_texts = [
+        element
+        for element in elements
+        if re.search(
+            r"_decision_agenda_text_\d+$",
+            str(element.get("elementId", "")),
+        )
+    ]
+    item_count = len(item_texts)
+    item_height = 68 if item_count > 4 else 84
+    item_stride = item_height + 18
+    panel_y = 304
+    panel_height = 72 + item_count * item_height + max(0, item_count - 1) * 18
+    elements[:] = [
+        element
+        for element in elements
+        if not str(element.get("elementId", "")).endswith(
+            "_decision_agenda_side_rule"
+        )
+    ]
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if element.get("role") == "title":
+            element.update(x=CANVAS.safe_x, y=120, width=970, height=112)
+        elif element_id.endswith("_body"):
+            element.update(x=CANVAS.safe_x, y=236, width=970, height=60)
+        elif element_id.endswith("_decision_agenda_panel"):
+            element.update(x=CANVAS.safe_x, y=panel_y, width=970, height=panel_height)
+        else:
+            number = re.search(r"_decision_agenda_number_(\d+)$", element_id)
+            text = re.search(r"_decision_agenda_text_(\d+)$", element_id)
+            if number:
+                index = int(number.group(1)) - 1
+                element.update(x=176, y=panel_y + 36 + index * item_stride + 18)
+            elif text:
+                index = int(text.group(1)) - 1
+                element.update(
+                    x=260,
+                    y=panel_y + 36 + index * item_stride + 14,
+                    width=750,
+                    height=max(42, item_height - 28),
+                )
+
+
+def fit_design_pack_agenda_without_message(elements: list[dict[str, Any]]) -> None:
+    if any(
+        str(element.get("elementId", "")).endswith("_body")
+        for element in elements
+    ):
+        return
+    elements[:] = [
+        element
+        for element in elements
+        if not str(element.get("elementId", "")).endswith(
+            "_decision_agenda_side_rule"
+        )
+    ]
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if element_id.endswith("_decision_agenda_panel"):
+            element.update(x=CANVAS.safe_x, width=CANVAS.safe_width)
+        elif re.search(r"_decision_agenda_number_\d+$", element_id):
+            element.update(x=176)
+        elif re.search(r"_decision_agenda_text_\d+$", element_id):
+            element.update(x=260, width=1450)
 
 
 def fit_design_pack_cover_to_media_frame(elements: list[dict[str, Any]]) -> None:
@@ -7534,7 +7624,7 @@ def design_pack_overview_elements(
     card_width = int(
         (CANVAS.safe_width - card_gap_x * (column_count - 1)) / column_count
     )
-    card_height = min(320, int((510 - card_gap_y * (row_count - 1)) / row_count))
+    card_height = min(368, int((510 - card_gap_y * (row_count - 1)) / row_count))
     for index, item in enumerate(items):
         row = index // column_count
         column = index % column_count
@@ -7888,7 +7978,7 @@ def design_pack_decision_actions_elements(
     items = design_pack_items(slide_plan, "decision_actions")
     lead, *actions = items
     action_count = max(1, len(actions))
-    row_height = min(102, int((500 - 20 * (action_count - 1)) / action_count))
+    row_height = max(76, int((360 - 20 * (action_count - 1)) / action_count))
     action_stack_height = action_count * row_height + max(0, action_count - 1) * 20
     focus_height = max(240, min(500, action_stack_height))
     short_focus = len(lead.text.strip()) <= 24
@@ -8025,7 +8115,11 @@ def design_pack_priority_stack_elements(
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "priority_stack")
-    row_height = 74 if len(items) > 4 else 88
+    base_row_height = 74 if len(items) > 4 else 88
+    row_height = max(
+        base_row_height,
+        int((360 - 18 * (len(items) - 1)) / len(items)),
+    )
     row_stride = row_height + 18
     elements = [
         design_pack_text(
@@ -8488,7 +8582,7 @@ def design_pack_process_elements(
         (CANVAS.safe_width - card_gap * (len(items) - 1)) / len(items)
     )
     card_y = 376
-    card_height = 360
+    card_height = 368
     for index, item in enumerate(items):
         x = 120 + index * (card_width + card_gap)
         elements.extend(
@@ -8587,7 +8681,7 @@ def design_pack_comparison_elements(
         card_width = int(
             (CANVAS.safe_width - card_gap * (column_count - 1)) / column_count
         )
-        card_height = 320 if row_count == 1 else 210
+        card_height = 368 if row_count == 1 else 210
         elements = [
             design_pack_text(
                 slide_plan.order,
@@ -8824,6 +8918,8 @@ def design_pack_closing_elements(
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "closing_summary")
+    card_gap = 24 if len(items) == 2 else 36
+    card_height = 168 if len(items) == 2 else 96
     elements = [
         design_pack_text(
             slide_plan.order,
@@ -8857,7 +8953,7 @@ def design_pack_closing_elements(
         ),
     ]
     for index, item in enumerate(items):
-        y = 420 + index * 132
+        y = 420 + index * (card_height + card_gap)
         elements.extend(
             [
                 shape_element(
@@ -8867,7 +8963,7 @@ def design_pack_closing_elements(
                     120,
                     y,
                     1680,
-                    96,
+                    card_height,
                     3,
                     colors["surface"],
                     colors["border"],
@@ -8895,7 +8991,7 @@ def design_pack_closing_elements(
                         "body",
                         item.text,
                         230,
-                        y + 26,
+                        y + max(26, (card_height - 42) // 2),
                         1480,
                         42,
                         5,
@@ -13045,10 +13141,12 @@ def validate_slide_visual_occupancy(
         minimum_width_ratio = 0.85 if has_planned_media else 0.7
         minimum_height_ratio = 0.55 if has_planned_media else 0.4
         if (
-            right - left < CANVAS.safe_width * minimum_width_ratio
-            or bottom - top < CANVAS.safe_height * minimum_height_ratio
+            right - left < CANVAS.safe_width * minimum_width_ratio - GRID_TOLERANCE
+            or bottom - top
+            < CANVAS.safe_height * minimum_height_ratio - GRID_TOLERANCE
         ):
             reasons.append("핵심 콘텐츠가 안전 영역을 충분히 점유하지 않습니다.")
+    reasons.extend(recipe_geometry_quality_reasons(visible, visual_type))
     if any(is_meaningless_large_decoration(element, visible) for element in visible):
         reasons.append("의미 없는 대형 장식 요소가 콘텐츠보다 큰 비중을 차지합니다.")
     if not reasons:
@@ -13067,9 +13165,97 @@ def is_visual_quality_core_element(element: dict[str, Any]) -> bool:
     if is_design_pack_chrome_text(element):
         return False
     role = str(element.get("role", ""))
-    if role in {"title", "subtitle", "body", "highlight", "media"}:
+    if role in {"body", "highlight", "media"}:
         return True
     return element.get("type") in {"image", "chart"}
+
+
+def recipe_geometry_quality_reasons(
+    elements: list[dict[str, Any]],
+    visual_type: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if visual_type == "process":
+        cards = [
+            element
+            for element in elements
+            if re.search(
+                r"_process_(?:step|two_row|vertical)_card_\d+$",
+                str(element.get("elementId", "")),
+            )
+        ]
+        if cards:
+            top = min(float(element.get("y", 0)) for element in cards)
+            bottom = max(
+                float(element.get("y", 0)) + float(element.get("height", 0))
+                for element in cards
+            )
+            if bottom - top < 360:
+                reasons.append("process 카드 영역은 최소 360px 높이가 필요합니다.")
+
+    if visual_type == "comparison":
+        cells = [
+            element
+            for element in elements
+            if re.search(
+                r"_comparison_matrix_cell_\d+$",
+                str(element.get("elementId", "")),
+            )
+        ]
+        if len(cells) == 3:
+            rows = {round(float(element.get("y", 0))) for element in cells}
+            right = max(
+                float(element.get("x", 0)) + float(element.get("width", 0))
+                for element in cells
+            )
+            if len(rows) != 1 or right < CANVAS.safe_x + CANVAS.safe_width - 4:
+                reasons.append("comparison 3개 항목은 빈 셀 없이 3열을 사용해야 합니다.")
+
+    if visual_type == "decision":
+        focus_panel = next(
+            (
+                element
+                for element in elements
+                if str(element.get("elementId", "")).endswith(
+                    "_decision_actions_focus_panel"
+                )
+            ),
+            None,
+        )
+        focus_text = next(
+            (
+                element
+                for element in elements
+                if str(element.get("elementId", "")).endswith(
+                    "_decision_actions_focus_text"
+                )
+            ),
+            None,
+        )
+        action_rows = [
+            element
+            for element in elements
+            if re.search(
+                r"_decision_actions_row_\d+$",
+                str(element.get("elementId", "")),
+            )
+        ]
+        if focus_panel is not None and focus_text is not None and action_rows:
+            focus_value = normalize_structural_content_text(
+                str(focus_text.get("props", {}).get("text", ""))
+            )
+            action_top = min(float(element.get("y", 0)) for element in action_rows)
+            action_bottom = max(
+                float(element.get("y", 0)) + float(element.get("height", 0))
+                for element in action_rows
+            )
+            allowed_height = max(240, action_bottom - action_top + GRID_SPACING)
+            if (
+                len(focus_value) <= 24
+                and float(focus_panel.get("height", 0)) > allowed_height
+            ):
+                reasons.append("짧은 focus 문구에 비해 강조 패널이 지나치게 큽니다.")
+    return reasons
 
 
 def is_meaningless_large_decoration(

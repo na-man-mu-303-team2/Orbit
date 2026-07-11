@@ -68,6 +68,7 @@ from app.ai.generate_deck import (
     plan_slides,
     presentation_rule_prompt,
     refine_design_issues,
+    recipe_geometry_quality_reasons,
     repeated_speaker_notes_slide_order,
     repair_design_pack_text_element,
     repair_content_plan_with_llm,
@@ -458,6 +459,87 @@ def test_presentation_validation_detects_small_media_and_large_empty_decoration(
     assert len(issues) == 1
     assert "최소 5열" in issues[0].message
     assert "대형 장식" in issues[0].message
+
+
+def test_presentation_occupancy_excludes_the_slide_title() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Sparse body",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["aiNotes"]["visualPlan"]["imageNeeded"] = False
+    for element in slide["elements"]:
+        if element.get("role") in {"body", "highlight"}:
+            element.update(x=120, y=420, width=300, height=100)
+        if element.get("role") == "media":
+            element["visible"] = False
+
+    issues = [
+        issue
+        for issue in validate_presentation(deck)
+        if issue.code == "VISUAL_HIERARCHY_WEAK"
+    ]
+
+    assert any("안전 영역" in issue.message for issue in issues)
+
+
+def test_recipe_geometry_validation_rejects_old_sparse_frames() -> None:
+    old_process = [
+        {
+            "elementId": f"el_3_process_step_card_{index}",
+            "x": 120 + (index - 1) * 408,
+            "y": 420,
+            "width": 360,
+            "height": 260,
+        }
+        for index in range(1, 4)
+    ]
+    old_comparison = [
+        {
+            "elementId": f"el_5_comparison_matrix_cell_{index}",
+            "x": 120 if index in {1, 3} else 970,
+            "y": 358 if index < 3 else 584,
+            "width": 760,
+            "height": 174,
+        }
+        for index in range(1, 4)
+    ]
+    old_decision = [
+        {
+            "elementId": "el_4_decision_actions_focus_panel",
+            "x": 120,
+            "y": 292,
+            "width": 570,
+            "height": 500,
+            "props": {},
+        },
+        {
+            "elementId": "el_4_decision_actions_focus_text",
+            "x": 172,
+            "y": 414,
+            "width": 466,
+            "height": 250,
+            "props": {"text": "브랜치 구조 단순화"},
+        },
+        *[
+            {
+                "elementId": f"el_4_decision_actions_row_{index}",
+                "x": 780,
+                "y": 292 + (index - 1) * 122,
+                "width": 960,
+                "height": 102,
+                "props": {},
+            }
+            for index in range(1, 3)
+        ],
+    ]
+
+    assert recipe_geometry_quality_reasons(old_process, "process")
+    assert recipe_geometry_quality_reasons(old_comparison, "comparison")
+    assert recipe_geometry_quality_reasons(old_decision, "decision")
 
 
 def test_presentation_validation_detects_structural_content_duplication() -> None:
@@ -1103,7 +1185,7 @@ def test_dynamic_recipe_frames_fill_the_available_grid() -> None:
     assert len(process_cards) == 3
     assert process_cards[0]["x"] == 120
     assert process_cards[-1]["x"] + process_cards[-1]["width"] == 1800
-    assert all(card["height"] == 360 for card in process_cards)
+    assert all(card["height"] >= 360 for card in process_cards)
 
     comparison = design_pack_comparison_elements(
         plan("comparison", ["Git Flow", "GitHub Flow", "선택 기준"]),
@@ -1146,7 +1228,7 @@ def test_dynamic_recipe_frames_fill_the_available_grid() -> None:
         for element in decision
         if element["elementId"].endswith("_decision_actions_focus_text")
     )
-    assert focus_panel["height"] == 240
+    assert focus_panel["height"] == 360
     assert focus_text["props"]["fontSize"] == 42
 
 
