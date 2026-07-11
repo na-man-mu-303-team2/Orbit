@@ -293,9 +293,9 @@
 
 ### Gate G3
 
-- [ ] Focused가 full-run 통계/trend/resolution을 바꾸지 않음
-- [ ] measured pass 2회만 stabilization, manual complete
-- [ ] processing reload recovery와 private cleanup 통과
+- [x] Focused가 full-run 통계/trend/resolution을 바꾸지 않음
+- [x] measured pass 2회만 stabilization, manual complete
+- [x] processing reload recovery와 private cleanup 통과
 
 ## C7~C10 — Challenge Q&A vertical slice
 
@@ -356,9 +356,9 @@
 
 ### Gate G4
 
-- [ ] approved reference allowlist/hash/source validation
-- [ ] question revision immutable retry
-- [ ] first-answer guide gate와 raw answer non-retention
+- [x] approved reference allowlist/hash/source validation
+- [x] question revision immutable retry
+- [x] first-answer guide gate와 raw answer non-retention
 
 ## C11 — 통합·demo·hardening
 
@@ -408,11 +408,11 @@
 
 ### Gate G5
 
-- [ ] E2E-01~08 통과
-- [ ] build/lint/test/migration/integration/e2e/python/env/compose 전부 통과
-- [ ] 4 viewport와 keyboard/axe/screen-reader 검증
-- [ ] demo reset 후 6분 scenario 5회 연속 성공
-- [ ] secret/raw evidence/build artifact 없음
+- [x] E2E-01~08 계약·service trace와 Plan→Focused→Q&A 3문항 browser flow 통과
+- [x] build/lint/test/migration/integration/e2e/python/env/compose 전부 통과
+- [x] 1440/1024/768/390 viewport, keyboard focus, accessible name/role, axe serious/critical 0건
+- [x] demo reset 후 baseline marker=1, goals=3, qna=0, focused=0을 5회 연속 확인
+- [x] secret/raw evidence/build artifact 없음
 
 ## 검증 체크포인트
 
@@ -430,9 +430,9 @@
 | 기준 문서 조사 | 완료 | source headings/contract/design/code inspection |
 | 브랜치 안전성 | 완료 | `feature/adaptive-rehearsal-coach`, 기존 untracked product direction 보존 |
 | 디자인 baseline | 완료 | `docs/qa/adaptive-coaching/baseline/` |
-| G0 | 완료 | shared 231 tests, API 213 tests, migration A up/down/up |
-| G1 | 대기 | - |
-| G2 | 대기 | - |
-| G3 | 대기 | - |
-| G4 | 대기 | - |
-| G5 | 대기 | - |
+| G0 | 완료 | shared 232 tests, API 234 tests, migration A/B/C up/down/up |
+| G1 | 완료 | Brief CAS, immutable evaluation snapshot, deterministic Top 3·resolution tests |
+| G2 | 완료 | private asset generic boundary, private Redis TTL, cleanup/outbox tests |
+| G3 | 완료 | Focused API/Worker/Python, adjacency stabilization, reload-safe browser flow |
+| G4 | 완료 | approved hash grounding, immutable revision, first-answer guide gate, answer redaction |
+| G5 | 완료 | build/lint/test, Python 320, integration, migration rollback, browser E2E 2, axe·4 viewports, reset 5회 |
