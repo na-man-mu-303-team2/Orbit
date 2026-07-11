@@ -72,24 +72,29 @@ export class OpenversePublicImageSearchProvider
     query: string;
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate> {
-    const searchUrl = new URL("https://api.openverse.org/v1/images/");
-    searchUrl.searchParams.set("q", input.query);
-    searchUrl.searchParams.set("page_size", "20");
-    searchUrl.searchParams.set("size", "large,medium");
-    searchUrl.searchParams.set("aspect_ratio", "wide");
-    const response = await fetch(searchUrl, { signal: input.abortSignal });
-    if (!response.ok) {
-      throw new Error(`Openverse image search failed with status ${response.status}`);
+    let candidates: OpenverseImage[] = [];
+    for (const query of openverseSearchQueries(input.query)) {
+      const searchUrl = new URL("https://api.openverse.org/v1/images/");
+      searchUrl.searchParams.set("q", query);
+      searchUrl.searchParams.set("page_size", "20");
+      searchUrl.searchParams.set("size", "large,medium");
+      searchUrl.searchParams.set("aspect_ratio", "wide");
+      const response = await fetch(searchUrl, { signal: input.abortSignal });
+      if (!response.ok) {
+        throw new Error(`Openverse image search failed with status ${response.status}`);
+      }
+      const payload = (await response.json()) as { results?: OpenverseImage[] };
+      candidates = (payload.results ?? []).filter(
+        (item) =>
+          (item.url || item.thumbnail) &&
+          item.license &&
+          item.foreign_landing_url &&
+          (!item.width || !item.height ||
+            (item.width >= 640 && item.height >= 360)) &&
+          isRelevantOpenverseCandidate(input.query, item)
+      );
+      if (candidates.length > 0) break;
     }
-    const payload = (await response.json()) as { results?: OpenverseImage[] };
-    const candidates = (payload.results ?? []).filter(
-      (item) =>
-        (item.url || item.thumbnail) &&
-        item.license &&
-        item.foreign_landing_url &&
-        (!item.width || !item.height || (item.width >= 640 && item.height >= 360)) &&
-        isRelevantOpenverseCandidate(input.query, item)
-    );
     if (candidates.length === 0) {
       throw new Error("Openverse returned no licensed image candidate");
     }
@@ -143,6 +148,25 @@ const relevanceStopWords = new Set([
   "visual",
   "with"
 ]);
+
+const searchModifierWords = new Set([
+  "exterior",
+  "interior",
+  "night",
+  "photo",
+  "photograph",
+  "photorealistic",
+  "realistic"
+]);
+
+function openverseSearchQueries(query: string) {
+  const normalized = query.replace(/\s+/g, " ").trim();
+  const compact = relevantTokens(normalized)
+    .filter((token) => !searchModifierWords.has(token))
+    .slice(0, 4)
+    .join(" ");
+  return [...new Set([normalized, compact].filter(Boolean))];
+}
 
 function isRelevantOpenverseCandidate(query: string, candidate: OpenverseImage) {
   const queryTokens = relevantTokens(query);

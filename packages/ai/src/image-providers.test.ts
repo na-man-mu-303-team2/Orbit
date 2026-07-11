@@ -215,6 +215,51 @@ describe("image providers", () => {
     );
   });
 
+  it("retries a specific compact query when a detailed prompt has no results", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/louvre.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/louvre",
+                title: "Louvre Pyramid Paris",
+                tags: [{ name: "museum" }]
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "Louvre Pyramid exterior Paris at night photo-realistic"
+    });
+
+    expect(result.sourceUrl).toBe("https://example.com/louvre");
+    expect(
+      new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("q")
+    ).toBe("louvre pyramid paris");
+  });
+
   it("rejects candidates that match only generic presentation words", async () => {
     vi.stubGlobal(
       "fetch",
