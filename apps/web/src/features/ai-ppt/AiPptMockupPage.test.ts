@@ -5,6 +5,7 @@ import {
   buildReferenceGrounding,
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
+  miniSlideFontStyles,
   pollJob,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
@@ -32,6 +33,19 @@ const palette: PaletteOption = {
 describe("AI PPT wizard payload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("applies the selected heading and body fonts to slide previews", () => {
+    expect(
+      miniSlideFontStyles({
+        headingFontFamily: "Gowun Dodum",
+        bodyFontFamily: "Noto Sans KR",
+        fallbackFamily: "Arial"
+      })
+    ).toEqual({
+      heading: { fontFamily: '"Gowun Dodum", Arial, sans-serif' },
+      body: { fontFamily: '"Noto Sans KR", Arial, sans-serif' }
+    });
   });
 
   it("compiles wizard answers into GenerateDeckRequest", () => {
