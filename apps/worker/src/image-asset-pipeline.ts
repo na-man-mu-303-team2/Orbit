@@ -452,8 +452,6 @@ function replaceSlideImagePlaceholder(
               "_media_asset"
             ),
             type: "image" as const,
-            height: Math.max(placeholder.height, 180),
-            y: Math.max(88, placeholder.y - Math.max(0, 180 - placeholder.height)),
             props: {
               src: url,
               alt: plan?.imageAlt ?? plan?.reason ?? slide.title,

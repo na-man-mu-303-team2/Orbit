@@ -151,6 +151,7 @@ describe("image asset pipeline", () => {
       (element) => element.type === "image"
     );
     expect(image?.elementId).toMatch(/_media_asset$/);
+    expect(image).toMatchObject({ x: 1114, y: 256, width: 686, height: 520 });
     expect(
       result.deck.slides[0].elements.some((element) =>
         element.elementId.endsWith("_media_placeholder")
@@ -319,19 +320,19 @@ function imageDeck(
             elementId: "el_media_placeholder",
             type: "rect",
             role: "media",
-            x: 1200,
-            y: 700,
-            width: 480,
-            height: 100,
+            x: 1114,
+            y: 256,
+            width: 686,
+            height: 520,
             props: { fill: "#E0F2FE" }
           },
           {
             elementId: "el_media_caption",
             type: "text",
             role: "caption",
-            x: 1220,
-            y: 720,
-            width: 440,
+            x: 1138,
+            y: 278,
+            width: 638,
             height: 60,
             props: { text: "placeholder" }
           }
