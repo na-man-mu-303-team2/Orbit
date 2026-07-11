@@ -35,6 +35,9 @@ describe("RehearsalReportDocument", () => {
               cueId: "scue_intro_1",
               label: "covered",
               finalScore: 0.82,
+              matchedBy: "nli",
+              measurementMode: "full",
+              fallbackUsed: false,
               entailmentScore: 0.91,
               premise: "보고서에 그대로 노출하지 않을 전사 근거",
               hypothesis: "보고서에 그대로 노출하지 않을 가설",
@@ -317,6 +320,14 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     pauseDetails: [],
     missedKeywords: [],
     utteranceOutcomes: [],
+    semanticCueDecisions: [],
+    semanticEvaluation: {
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false
+    },
+    semanticCueOutcomes: [],
     slideTimings: [],
     slideInsights: [],
     qnaSummary: {
