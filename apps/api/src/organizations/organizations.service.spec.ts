@@ -33,7 +33,10 @@ const values: BrandKitValues = {
   lockedFields: ["palette", "typography", "tone", "mediaPolicy"]
 };
 
-function serviceFixture(role: "admin" | "member" = "member") {
+function serviceFixture(
+  role: "admin" | "member" = "member",
+  assetRows: Array<{ file_id: string; mime_type: string }> = []
+) {
   const membership: OrganizationMemberEntity = {
     organizationId: "organization_1",
     userId: "user_1",
@@ -53,7 +56,7 @@ function serviceFixture(role: "admin" | "member" = "member") {
   const organizationRepository = repository(organizations);
   const memberRepository = repository([membership]);
   const brandKitRepository = repository([kit]);
-  const dataSource = { query: async () => [] } as unknown as DataSource;
+  const dataSource = { query: async () => assetRows } as unknown as DataSource;
   return {
     kit,
     service: new OrganizationsService(
@@ -88,6 +91,36 @@ describe("OrganizationsService Brand Kit", () => {
       })
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it("rejects Brand Kit assets outside the admin's accessible projects", async () => {
+    const { service } = serviceFixture("admin");
+
+    await expect(
+      service.updateBrandKit("organization_1", "brand_kit_1", "user_1", {
+        values: { ...values, logoAssetId: "file_private" }
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("accepts an uploaded image from an admin's accessible project", async () => {
+    const { service } = serviceFixture("admin", [
+      { file_id: "file_logo", mime_type: "image/png" }
+    ]);
+
+    await expect(
+      service.updateBrandKit("organization_1", "brand_kit_1", "user_1", {
+        values: { ...values, logoAssetId: "file_logo" }
+      })
+    ).resolves.toMatchObject({ values: { logoAssetId: "file_logo" } });
+  });
+
+  it("allows an admin to delete an organization Brand Kit", async () => {
+    const { service } = serviceFixture("admin");
+
+    await expect(
+      service.deleteBrandKit("organization_1", "brand_kit_1", "user_1")
+    ).resolves.toEqual({ id: "brand_kit_1" });
+  });
 });
 
 function baseRequest(): GenerateDeckRequest {
@@ -119,6 +152,7 @@ function repository<T extends object>(rows: T[]): Repository<T> {
   return {
     create: (input: Partial<T>) => input as T,
     save: async (input: T) => input,
+    remove: async (input: T) => input,
     find: async () => rows,
     findOne: async ({ where }: { where: Partial<T> }) =>
       rows.find((row) =>

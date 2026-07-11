@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
+  buildBrandKitValues,
   buildReferenceGrounding,
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
@@ -150,6 +151,58 @@ describe("AI PPT wizard payload", () => {
     expect(payload.brandKit).toEqual({
       id: "brand_kit_org_1",
       version: 2
+    });
+  });
+
+  it("builds a locked Brand Kit from the current session style", () => {
+    const values = buildBrandKitValues(
+      {
+        topic: "Brand",
+        purpose: "Launch",
+        context: "All hands",
+        audience: "team",
+        presentationType: "launch",
+        successCriteria: "understand",
+        duration: "10",
+        slides: "8",
+        tone: "confident",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "public-assets",
+        referencePolicy: "research-first"
+      },
+      palette,
+      {
+        fontId: "brand-font",
+        name: "Brand Font",
+        headingFontFamily: "Brand Sans",
+        bodyFontFamily: "Brand Sans",
+        fallbackFamily: "Arial",
+        weights: [400, 700],
+        supportsKorean: true,
+        pptxEmbeddable: false,
+        moodTags: [],
+        license: "",
+        sourceUrl: "",
+        recommendedTitleSize: 48,
+        recommendedBodySize: 22,
+        lineHeight: 1.24,
+        widthFactor: 1,
+        overflowRisk: "medium",
+        rationale: "brand",
+        score: 100
+      }
+    );
+
+    expect(values).toMatchObject({
+      palette: palette.palette,
+      typography: {
+        headingFontFamily: "Brand Sans",
+        fallbackFamily: "Arial"
+      },
+      tone: "confident",
+      mediaPolicy: "public-assets",
+      lockedFields: ["palette", "typography", "tone", "mediaPolicy"]
     });
   });
 

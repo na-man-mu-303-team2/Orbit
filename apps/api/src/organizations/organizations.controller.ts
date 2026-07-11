@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { OrganizationsService } from "./organizations.service";
@@ -60,5 +60,15 @@ export class OrganizationsController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     return this.service.updateBrandKit(organizationId, brandKitId, user.userId, body);
+  }
+
+  @Delete(":organizationId/brand-kits/:brandKitId")
+  async deleteBrandKit(
+    @Param("organizationId") organizationId: string,
+    @Param("brandKitId") brandKitId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.service.deleteBrandKit(organizationId, brandKitId, user.userId);
   }
 }

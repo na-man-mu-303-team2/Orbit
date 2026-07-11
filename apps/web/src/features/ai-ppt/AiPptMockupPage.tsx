@@ -1,11 +1,14 @@
 import type {
   BrandKit,
+  BrandKitValues,
   DeckColorOptionsResponse,
   GenerateDeckFontOption,
   GenerateDeckMediaPolicy,
   GenerateDeckRequest,
   GenerateDeckReferencePolicy,
   Job,
+  Organization,
+  OrganizationRole,
   PptAdvisorHistoryItem,
   PptAdvisorResponse,
   PptAdvisorSuggestion,
@@ -30,6 +33,7 @@ import {
   Paperclip,
   Pencil,
   Play,
+  Plus,
   Save,
   Sparkles,
   Star,
@@ -46,6 +50,7 @@ type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
 type MediaPolicy = GenerateDeckMediaPolicy;
 type Tone = "professional" | "friendly" | "confident" | "concise";
+type AvailableOrganization = Organization & { role: OrganizationRole };
 
 type PaletteOverride = NonNullable<GenerateDeckRequest["design"]["paletteOverride"]>;
 type ColorIntent = NonNullable<GenerateDeckRequest["design"]["colorIntent"]>;
@@ -319,7 +324,9 @@ export function AiPptMockupPage() {
   const [selectedDesignPackId, setSelectedDesignPackId] = useState("");
   const [isSavingDesignPack, setIsSavingDesignPack] = useState(false);
   const [brandKits, setBrandKits] = useState<BrandKit[]>([]);
+  const [organizations, setOrganizations] = useState<AvailableOrganization[]>([]);
   const [selectedBrandKitId, setSelectedBrandKitId] = useState("");
+  const [isSavingBrandKit, setIsSavingBrandKit] = useState(false);
   const colorRequestKey = [
     form.topic,
     form.purpose,
@@ -405,7 +412,9 @@ export function AiPptMockupPage() {
 
   async function loadBrandKits() {
     try {
-      setBrandKits(await fetchAvailableBrandKits());
+      const catalog = await fetchAvailableBrandKitCatalog();
+      setOrganizations(catalog.organizations);
+      setBrandKits(catalog.brandKits);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -413,6 +422,78 @@ export function AiPptMockupPage() {
           : "Brand Kit 목록을 불러오지 못했습니다."
       );
     }
+  }
+
+  async function createBrandKitOrganization() {
+    const name = window.prompt("새 조직 이름", "My Organization");
+    if (!name?.trim()) return;
+    try {
+      await createOrganization(name);
+      await loadBrandKits();
+      setStatus("Brand Kit 조직이 생성되었습니다.");
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "조직을 생성하지 못했습니다."
+      );
+    }
+  }
+
+  async function saveCurrentBrandKit() {
+    const selected = brandKits.find((kit) => kit.id === selectedBrandKitId);
+    const organization = organizations.find(
+      (candidate) =>
+        candidate.role === "admin" &&
+        (!selected || candidate.id === selected.organizationId)
+    );
+    if (!organization) {
+      setError("Brand Kit을 관리할 수 있는 조직 관리자 권한이 필요합니다.");
+      return;
+    }
+    const name = window.prompt(
+      selected ? "Brand Kit 이름" : "새 Brand Kit 이름",
+      selected?.name ?? `${organization.name} Brand Kit`
+    );
+    if (!name?.trim()) return;
+
+    setIsSavingBrandKit(true);
+    setError("");
+    try {
+      const values = buildBrandKitValues(
+        form,
+        selectedPalette,
+        selectedFont,
+        selected?.values
+      );
+      const saved = selected
+        ? await updateBrandKit(organization.id, selected.id, { name, values })
+        : await createBrandKit(organization.id, { name, values });
+      await loadBrandKits();
+      setSelectedBrandKitId(saved.id);
+      setStatus("Organization Brand Kit이 저장되었습니다.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Brand Kit을 저장하지 못했습니다."
+      );
+    } finally {
+      setIsSavingBrandKit(false);
+    }
+  }
+
+  async function deleteCurrentBrandKit() {
+    const selected = brandKits.find((kit) => kit.id === selectedBrandKitId);
+    const organization = organizations.find(
+      (candidate) =>
+        candidate.id === selected?.organizationId && candidate.role === "admin"
+    );
+    if (!selected || !organization) return;
+    if (!window.confirm(`'${selected.name}' Brand Kit을 삭제할까요?`)) return;
+    await deleteBrandKit(organization.id, selected.id);
+    setSelectedBrandKitId("");
+    await loadBrandKits();
   }
 
   function applyDesignPack(packId: string) {
@@ -702,14 +783,19 @@ export function AiPptMockupPage() {
                 brandKits={brandKits}
                 fontOptions={fontOptions}
                 form={form}
+                isSavingBrandKit={isSavingBrandKit}
                 isSavingDesignPack={isSavingDesignPack}
+                organizations={organizations}
                 onApplyDesignPack={applyDesignPack}
                 onApplyBrandKit={setSelectedBrandKitId}
                 onChange={updateForm}
+                onCreateOrganization={() => void createBrandKitOrganization()}
+                onDeleteBrandKit={() => void deleteCurrentBrandKit()}
                 onDeleteDesignPack={() => void deleteCurrentDesignPack()}
                 onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
                 onFontSelect={setSelectedFontId}
                 onSaveDesignPack={() => void saveCurrentDesignPack()}
+                onSaveBrandKit={() => void saveCurrentBrandKit()}
                 onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
                 selectedDesignPackId={selectedDesignPackId}
                 selectedBrandKitId={selectedBrandKitId}
@@ -835,17 +921,22 @@ function StyleStep(props: {
   designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
+  isSavingBrandKit: boolean;
   isSavingDesignPack: boolean;
+  organizations: AvailableOrganization[];
   onApplyBrandKit: (brandKitId: string) => void;
   onApplyDesignPack: (packId: string) => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
+  onCreateOrganization: () => void;
+  onDeleteBrandKit: () => void;
   onDeleteDesignPack: () => void;
   onDuplicateDesignPack: () => void;
   onFontSelect: (fontId: string) => void;
   onSaveDesignPack: () => void;
+  onSaveBrandKit: () => void;
   onSetDefaultDesignPack: () => void;
   selectedBrandKitId: string;
   selectedDesignPackId: string;
@@ -854,6 +945,17 @@ function StyleStep(props: {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
   const selectedPack = props.designPacks.find(
     (pack) => pack.id === props.selectedDesignPackId
+  );
+  const selectedBrandKit = props.brandKits.find(
+    (kit) => kit.id === props.selectedBrandKitId
+  );
+  const canManageSelectedBrandKit = props.organizations.some(
+    (organization) =>
+      organization.id === selectedBrandKit?.organizationId &&
+      organization.role === "admin"
+  );
+  const hasAdminOrganization = props.organizations.some(
+    (organization) => organization.role === "admin"
   );
   return (
     <>
@@ -912,20 +1014,51 @@ function StyleStep(props: {
           </button>
         </div>
       </div>
-      <label className="ai-ppt-brand-kit-select">
-        <span>Organization Brand Kit</span>
-        <select
-          value={props.selectedBrandKitId}
-          onChange={(event) => props.onApplyBrandKit(event.target.value)}
-        >
-          <option value="">Brand Kit 사용 안 함</option>
-          {props.brandKits.map((kit) => (
-            <option key={kit.id} value={kit.id}>
-              {kit.name} · v{kit.version}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="ai-ppt-pack-manager">
+        <label>
+          <span>Organization Brand Kit</span>
+          <select
+            value={props.selectedBrandKitId}
+            onChange={(event) => props.onApplyBrandKit(event.target.value)}
+          >
+            <option value="">Brand Kit 사용 안 함</option>
+            {props.brandKits.map((kit) => (
+              <option key={kit.id} value={kit.id}>
+                {kit.name} · v{kit.version}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <button
+            type="button"
+            title="새 조직 생성"
+            onClick={props.onCreateOrganization}
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            type="button"
+            title={selectedBrandKit ? "Brand Kit 수정 저장" : "새 Brand Kit 저장"}
+            disabled={
+              props.isSavingBrandKit ||
+              (!selectedBrandKit && !hasAdminOrganization) ||
+              Boolean(selectedBrandKit && !canManageSelectedBrandKit)
+            }
+            onClick={props.onSaveBrandKit}
+          >
+            {selectedBrandKit ? <Pencil size={16} /> : <Save size={16} />}
+          </button>
+          <button
+            type="button"
+            title="Brand Kit 삭제"
+            disabled={!selectedBrandKit || !canManageSelectedBrandKit}
+            onClick={props.onDeleteBrandKit}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
           <button
@@ -1110,6 +1243,12 @@ function ReviewStep(props: {
           <p>{props.payload.brief?.referencePolicy}</p>
           <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
+        </SummaryCard>
+        <SummaryCard icon={<Layers3 size={18} />} title="Style priority">
+          <p>Base → Saved → Session → Brand Kit lock → Hard Rules</p>
+          <span>
+            Saved: {props.payload.savedDesignPack?.id ?? "none"} · Brand: {props.payload.brandKit?.id ?? "none"}
+          </span>
         </SummaryCard>
       </div>
       <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
@@ -1466,6 +1605,36 @@ export function buildSavedDesignPackInput(
   };
 }
 
+export function buildBrandKitValues(
+  form: AiPptWizardState,
+  palette: PaletteOption,
+  font: GenerateDeckFontOption,
+  existing?: BrandKitValues
+): BrandKitValues {
+  return {
+    ...(existing?.logoAssetId ? { logoAssetId: existing.logoAssetId } : {}),
+    palette: palette.palette,
+    forbiddenColors: existing?.forbiddenColors ?? [],
+    typography: {
+      headingFontFamily: font.headingFontFamily,
+      bodyFontFamily: font.bodyFontFamily,
+      fallbackFamily: font.fallbackFamily
+    },
+    tone: form.tone,
+    mediaPolicy: form.mediaPolicy,
+    writingStyle: existing?.writingStyle ?? "",
+    coverRules: existing?.coverRules ?? "",
+    footerRules: existing?.footerRules ?? "",
+    approvedAssetIds: existing?.approvedAssetIds ?? [],
+    lockedFields: existing?.lockedFields ?? [
+      "palette",
+      "typography",
+      "tone",
+      "mediaPolicy"
+    ]
+  };
+}
+
 function completeSavedPalette(
   pack: SavedDesignPack,
   fallback: Required<PaletteOverride>
@@ -1485,6 +1654,13 @@ export async function fetchSavedDesignPacks(): Promise<SavedDesignPack[]> {
 }
 
 export async function fetchAvailableBrandKits(): Promise<BrandKit[]> {
+  return (await fetchAvailableBrandKitCatalog()).brandKits;
+}
+
+export async function fetchAvailableBrandKitCatalog(): Promise<{
+  organizations: AvailableOrganization[];
+  brandKits: BrandKit[];
+}> {
   const organizationResponse = await fetch("/api/v1/organizations", {
     credentials: "include"
   });
@@ -1492,7 +1668,7 @@ export async function fetchAvailableBrandKits(): Promise<BrandKit[]> {
     throw new Error(await readResponseText(organizationResponse, "조직 목록을 불러오지 못했습니다."));
   }
   const organizationPayload = (await organizationResponse.json()) as {
-    organizations: Array<{ id: string }>;
+    organizations: AvailableOrganization[];
   };
   const responses = await Promise.all(
     organizationPayload.organizations.map(async (organization) => {
@@ -1506,7 +1682,70 @@ export async function fetchAvailableBrandKits(): Promise<BrandKit[]> {
       return ((await response.json()) as { brandKits: BrandKit[] }).brandKits;
     })
   );
-  return responses.flat();
+  return {
+    organizations: organizationPayload.organizations,
+    brandKits: responses.flat()
+  };
+}
+
+async function createOrganization(name: string): Promise<AvailableOrganization> {
+  const response = await fetch("/api/v1/organizations", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ name })
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "조직을 생성하지 못했습니다."));
+  }
+  return { ...((await response.json()) as Organization), role: "admin" };
+}
+
+async function createBrandKit(
+  organizationId: string,
+  body: { name: string; values: BrandKitValues }
+): Promise<BrandKit> {
+  return writeBrandKit(organizationId, "", "POST", body);
+}
+
+async function updateBrandKit(
+  organizationId: string,
+  brandKitId: string,
+  body: { name: string; values: BrandKitValues }
+): Promise<BrandKit> {
+  return writeBrandKit(organizationId, brandKitId, "PATCH", body);
+}
+
+async function deleteBrandKit(organizationId: string, brandKitId: string) {
+  const response = await fetch(
+    `/api/v1/organizations/${encodeURIComponent(organizationId)}/brand-kits/${encodeURIComponent(brandKitId)}`,
+    { method: "DELETE", credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Brand Kit을 삭제하지 못했습니다."));
+  }
+}
+
+async function writeBrandKit(
+  organizationId: string,
+  brandKitId: string,
+  method: "POST" | "PATCH",
+  body: unknown
+): Promise<BrandKit> {
+  const suffix = brandKitId ? `/${encodeURIComponent(brandKitId)}` : "";
+  const response = await fetch(
+    `/api/v1/organizations/${encodeURIComponent(organizationId)}/brand-kits${suffix}`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body)
+    }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Brand Kit 작업을 완료하지 못했습니다."));
+  }
+  return (await response.json()) as BrandKit;
 }
 
 async function createSavedDesignPack(
