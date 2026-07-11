@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { AiSuggestionsModule } from "./ai-suggestions/ai-suggestions.module";
 import { AiTemplateDeckGenerationModule } from "./ai-template-deck-generation/ai-template-deck-generation.module";
 import { DecksModule } from "./decks/decks.module";
+import { DesignAgentModule } from "./design-agent/design-agent.module";
 import { FilesModule } from "./files/files.module";
 import { HealthModule } from "./health/health.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -33,6 +34,7 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     HealthModule,
     ProjectsModule,
     DecksModule,
+    DesignAgentModule,
     FilesModule,
     ExtractModule,
     GenerateDeckModule,
