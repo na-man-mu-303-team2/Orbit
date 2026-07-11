@@ -51,6 +51,7 @@ from app.ai.generate_deck import (
     merge_grounded_repair_notes,
     message_duplicates_content_items,
     normalize_structural_content_text,
+    remove_redundant_speaker_note_sentences,
     presentation_profile_for_request,
     plan_presentation,
     plan_slides,
@@ -61,6 +62,7 @@ from app.ai.generate_deck import (
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
+    speaker_note_fragments,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_content,
@@ -428,6 +430,36 @@ def test_timing_validation_detects_repeated_speaker_note_sentences() -> None:
     assert "SPEAKER_NOTES_REPEATED" in {
         issue.code for issue in validate_content(deck)
     }
+
+
+@pytest.mark.parametrize(
+    ("notes", "expected_sentences"),
+    [
+        (
+            (
+                "안녕하세요. 오늘은 원격 근무 환경의 집중력 저하를 설명합니다. "
+                "업무 도구 차이는 소통 지연과 혼선을 만듭니다. "
+                "안녕하세요, 오늘은 원격 팀의 업무 공간 개선안을 제안합니다."
+            ),
+            3,
+        ),
+        (
+            (
+                "제안된 공간 운영안은 다음 분기 시범 운영부터 시작합니다. "
+                "사용자 피드백으로 운영 모델을 구체화합니다. "
+                "제안하는 공간 운영안은 다음 분기 시범 운영부터 시작합니다."
+            ),
+            2,
+        ),
+    ],
+)
+def test_redundant_speaker_note_restatements_are_removed(
+    notes: str,
+    expected_sentences: int,
+) -> None:
+    cleaned = remove_redundant_speaker_note_sentences(notes)
+
+    assert len(speaker_note_fragments(cleaned)) == expected_sentences
 
 
 @pytest.mark.parametrize(

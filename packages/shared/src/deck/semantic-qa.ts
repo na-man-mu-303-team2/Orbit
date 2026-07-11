@@ -212,9 +212,13 @@ function speakerNotesIssues(deck: Deck) {
   const seen = new Map<string, number>();
   for (const [slideIndex, slide] of deck.slides.entries()) {
     const sentences = speakerNoteSentences(slide.speakerNotes);
+    const acceptedSentences: string[] = [];
     for (const [sentenceIndex, sentence] of sentences.entries()) {
       const key = normalize(sentence).replaceAll(" ", "");
-      if (key.length < 20) continue;
+      if (key.length < 20) {
+        acceptedSentences.push(sentence);
+        continue;
+      }
       if (seen.has(key)) {
         return [
           issue(
@@ -237,6 +241,17 @@ function speakerNotesIssues(deck: Deck) {
           )
         ];
       }
+      if (speakerNoteRepeatsPrior(sentence, acceptedSentences)) {
+        return [
+          issue(
+            "SPEAKER_NOTES_REPEATED",
+            "slide",
+            `slides.${slideIndex}.speakerNotes`,
+            "발표자 메모가 앞선 설명을 다른 표현으로 반복합니다."
+          )
+        ];
+      }
+      acceptedSentences.push(sentence);
     }
   }
   return [];
@@ -255,6 +270,48 @@ function tokenSimilarity(left: string, right: string) {
   if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
   const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
   return intersection / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function speakerNoteRepeatsPrior(sentence: string, priorSentences: string[]) {
+  if (priorSentences.length === 0 || !/[가-힣]/u.test(sentence)) return false;
+  const sentenceTokens = new Set(tokens(sentence));
+  const priorTokens = new Set(tokens(priorSentences.join(" ")));
+  if (sentenceTokens.size >= 6) {
+    const novelCount = [...sentenceTokens].filter(
+      (token) => !priorTokens.has(token)
+    ).length;
+    if (novelCount / sentenceTokens.size <= 0.4) return true;
+  }
+  if (
+    priorSentences.some(
+      (prior) => characterPairSimilarity(sentence, prior) >= 0.65
+    )
+  ) {
+    return true;
+  }
+  return ["안녕하세요", "오늘은"].some(
+    (marker) =>
+      sentence.includes(marker) &&
+      priorSentences.some((prior) => prior.includes(marker))
+  );
+}
+
+function characterPairSimilarity(left: string, right: string) {
+  const leftKey = normalize(left).replaceAll(" ", "");
+  const rightKey = normalize(right).replaceAll(" ", "");
+  if (leftKey.length < 2 || rightKey.length < 2) return 0;
+  const leftPairs = new Set(
+    Array.from({ length: leftKey.length - 1 }, (_, index) =>
+      leftKey.slice(index, index + 2)
+    )
+  );
+  const rightPairs = new Set(
+    Array.from({ length: rightKey.length - 1 }, (_, index) =>
+      rightKey.slice(index, index + 2)
+    )
+  );
+  const intersection = [...leftPairs].filter((pair) => rightPairs.has(pair)).length;
+  return (2 * intersection) / (leftPairs.size + rightPairs.size);
 }
 
 function issue(

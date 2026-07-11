@@ -42,6 +42,30 @@ describe("semantic QA", () => {
     );
   });
 
+  it("detects a restated introduction within one speaker note", () => {
+    const deck = semanticDeck();
+    deck.slides[0].speakerNotes =
+      "안녕하세요. 오늘은 원격 근무 환경의 집중력 저하를 설명합니다. " +
+      "업무 도구 차이는 소통 지연과 혼선을 만듭니다. " +
+      "안녕하세요, 오늘은 원격 팀의 업무 공간 개선안을 제안합니다.";
+
+    expect(getSemanticQaIssues(deck)).toContainEqual(
+      expect.objectContaining({ code: "SPEAKER_NOTES_REPEATED" })
+    );
+  });
+
+  it("detects a lexical restatement within one speaker note", () => {
+    const deck = semanticDeck();
+    deck.slides[0].speakerNotes =
+      "제안된 공간 운영안은 다음 분기 시범 운영부터 시작합니다. " +
+      "사용자 피드백으로 운영 모델을 구체화합니다. " +
+      "제안하는 공간 운영안은 다음 분기 시범 운영부터 시작합니다.";
+
+    expect(getSemanticQaIssues(deck)).toContainEqual(
+      expect.objectContaining({ code: "SPEAKER_NOTES_REPEATED" })
+    );
+  });
+
   it("accepts a distinct claim that supports the primary message", () => {
     const deck = semanticDeck();
     for (const slide of deck.slides) {

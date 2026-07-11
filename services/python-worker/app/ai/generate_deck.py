@@ -1776,6 +1776,9 @@ Rules:
 - Return exactly one entry for each requested slide order and do not add slide orders.
 - Keep every note between minimumNonWhitespaceChars and maximumNonWhitespaceChars.
 - Write natural Korean presenter lines that can be read aloud.
+- Rewrite currentSpeakerNotes as one coherent replacement note; never append a
+  restatement to the existing note.
+- Introduce the slide once, and express each claim or transition only once.
 - Use only facts directly supported by the supplied slide content and verified sources.
 - Preserve exact names, dates, platforms, availability, and defining features.
 - Do not add generic filler, repeated sentences, unsupported claims, or instructions to
@@ -3517,9 +3520,11 @@ def repeated_speaker_notes_slide_order(
     seen_sentences: set[str] = set()
     for order, notes in notes_by_order:
         sentences = speaker_note_fragments(notes)
+        accepted_sentences: list[str] = []
         for index, sentence in enumerate(sentences):
             key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
             if len(key) < 20:
+                accepted_sentences.append(sentence)
                 continue
             if key in seen_sentences:
                 return order
@@ -3527,6 +3532,9 @@ def repeated_speaker_notes_slide_order(
             previous = sentences[index - 1] if index > 0 else ""
             if previous and speaker_note_token_overlap(previous, sentence) >= 0.8:
                 return order
+            if speaker_note_repeats_prior(sentence, accepted_sentences):
+                return order
+            accepted_sentences.append(sentence)
     return None
 
 
@@ -3536,6 +3544,51 @@ def speaker_note_token_overlap(left: str, right: str) -> float:
     if not left_tokens or not right_tokens:
         return 0.0
     return len(left_tokens & right_tokens) / max(len(left_tokens), len(right_tokens))
+
+
+def speaker_note_repeats_prior(sentence: str, prior_sentences: list[str]) -> bool:
+    if not prior_sentences or re.search(r"[가-힣]", sentence) is None:
+        return False
+    sentence_tokens = set(re.findall(r"[0-9A-Za-z가-힣]+", sentence.casefold()))
+    prior_tokens = set(
+        re.findall(r"[0-9A-Za-z가-힣]+", " ".join(prior_sentences).casefold())
+    )
+    if len(sentence_tokens) >= 6:
+        novel_ratio = len(sentence_tokens - prior_tokens) / len(sentence_tokens)
+        if novel_ratio <= 0.4:
+            return True
+    sentence_key = normalize_structural_content_text(sentence)
+    if any(
+        speaker_note_character_similarity(sentence_key, prior) >= 0.65
+        for prior in prior_sentences
+    ):
+        return True
+    markers = {"안녕하세요", "오늘은"}
+    return any(
+        marker in sentence and any(marker in prior for prior in prior_sentences)
+        for marker in markers
+    )
+
+
+def speaker_note_character_similarity(left: str, right: str) -> float:
+    left_key = normalize_structural_content_text(left)
+    right_key = normalize_structural_content_text(right)
+    if len(left_key) < 2 or len(right_key) < 2:
+        return 0.0
+    left_pairs = {left_key[index : index + 2] for index in range(len(left_key) - 1)}
+    right_pairs = {
+        right_key[index : index + 2] for index in range(len(right_key) - 1)
+    }
+    return 2 * len(left_pairs & right_pairs) / (len(left_pairs) + len(right_pairs))
+
+
+def remove_redundant_speaker_note_sentences(text: str) -> str:
+    selected: list[str] = []
+    for sentence in speaker_note_fragments(text):
+        if speaker_note_repeats_prior(sentence, selected):
+            continue
+        selected.append(sentence)
+    return " ".join(selected)
 
 
 def fit_grounded_speaker_note_candidates(
@@ -3555,6 +3608,8 @@ def fit_grounded_speaker_note_candidates(
             or (len(selected_key) >= 12 and selected_key in key)
             for selected_key in selected_keys
         ):
+            continue
+        if speaker_note_repeats_prior(sentence, selected):
             continue
         prospective = " ".join([*selected, sentence])
         if (
@@ -3939,7 +3994,9 @@ def repair_short_speaker_notes_with_llm(
             item = repaired_by_order[slide.order]
             minimum_chars = round(slide.target_speaker_notes_chars * 0.9)
             maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
-            speaker_notes = " ".join(item.speaker_notes.split())
+            speaker_notes = remove_redundant_speaker_note_sentences(
+                " ".join(item.speaker_notes.split())
+            )
             actual_chars = count_speaker_note_chars(speaker_notes)
             if not minimum_chars <= actual_chars <= maximum_chars:
                 speaker_notes = fit_grounded_speaker_note_candidates(
