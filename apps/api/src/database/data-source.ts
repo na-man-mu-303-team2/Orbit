@@ -6,6 +6,9 @@ import { SavedDesignPackEntity } from "../saved-design-packs/saved-design-pack.e
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
+import { BrandKitEntity } from "../organizations/brand-kit.entity";
+import { OrganizationEntity } from "../organizations/organization.entity";
+import { OrganizationMemberEntity } from "../organizations/organization-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
@@ -24,6 +27,7 @@ import { CreateTemplateBlueprints2026070301000 } from "./migrations/202607030100
 import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 import { CreateSavedDesignPacks2026071101000 } from "./migrations/2026071101000-CreateSavedDesignPacks";
+import { CreateOrganizationsAndBrandKits2026071102000 } from "./migrations/2026071102000-CreateOrganizationsAndBrandKits";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -37,6 +41,9 @@ export const databaseOptions: DataSourceOptions = {
   entities: [
     ProjectEntity,
     ProjectMemberEntity,
+    OrganizationEntity,
+    OrganizationMemberEntity,
+    BrandKitEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
     AiSuggestionEntity,
@@ -59,7 +66,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
     ReplaceRehearsalSummaryWithProjectComment2026070802000,
-    CreateSavedDesignPacks2026071101000
+    CreateSavedDesignPacks2026071101000,
+    CreateOrganizationsAndBrandKits2026071102000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

@@ -174,6 +174,37 @@ describe("processGenerateDeckJob", () => {
         qaStrictness: "standard"
       }
     } as const;
+    const brandKitSnapshot = {
+      id: "brand_kit_1",
+      organizationId: "organization_1",
+      name: "ORBIT",
+      version: 1,
+      values: {
+        palette: {
+          primary: "#2563EB",
+          secondary: "#0F766E",
+          background: "#FFFFFF",
+          surface: "#FFFFFF",
+          muted: "#E0F2FE",
+          border: "#BAE6FD",
+          text: "#0F172A",
+          accentColor: "#F472B6"
+        },
+        forbiddenColors: [],
+        typography: {
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial"
+        },
+        tone: "professional",
+        mediaPolicy: "balanced",
+        writingStyle: "",
+        coverRules: "",
+        footerRules: "",
+        approvedAssetIds: [],
+        lockedFields: ["palette"]
+      }
+    } as const;
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 15, null, null)])
@@ -211,7 +242,8 @@ describe("processGenerateDeckJob", () => {
           generationMode: "design-pack",
           savedDesignPack: { id: snapshot.id, version: snapshot.version }
         },
-        designPackSnapshot: snapshot
+        designPackSnapshot: snapshot,
+        brandKitSnapshot
       }
     );
 
@@ -220,6 +252,7 @@ describe("processGenerateDeckJob", () => {
     expect(
       savedDeck.metadata.designPackSnapshot?.preferences.typography
     ).toMatchObject({ titleSizeScale: 1, bodySizeScale: 1 });
+    expect(savedDeck.metadata.brandKitSnapshot).toEqual(brandKitSnapshot);
   });
 
   it("fails before saving a deck when blocking validation issues remain", async () => {

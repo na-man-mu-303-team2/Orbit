@@ -10,6 +10,8 @@ import {
   type QualityReport,
   savedDesignPackSnapshotSchema,
   type SavedDesignPackSnapshot,
+  brandKitSnapshotSchema,
+  type BrandKitSnapshot,
   type TemplateBlueprint
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -21,7 +23,8 @@ const generateDeckPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
   request: generateDeckRequestSchema,
-  designPackSnapshot: savedDesignPackSnapshotSchema.optional()
+  designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
+  brandKitSnapshot: brandKitSnapshotSchema.optional()
 });
 
 const designImportResponseSchema = z.object({
@@ -207,7 +210,8 @@ export async function processGenerateDeckJob(
     }
     const deck = markDeckForInitialThumbnailRefresh(
       workerPayload.deck,
-      payload.designPackSnapshot
+      payload.designPackSnapshot,
+      payload.brandKitSnapshot
     );
 
     await saveDeck(dataSource, deck);
@@ -250,7 +254,8 @@ function allValidationIssues(
 
 function markDeckForInitialThumbnailRefresh(
   deck: Deck,
-  designPackSnapshot?: SavedDesignPackSnapshot
+  designPackSnapshot?: SavedDesignPackSnapshot,
+  brandKitSnapshot?: BrandKitSnapshot
 ): Deck {
   return {
     ...deck,
@@ -259,6 +264,9 @@ function markDeckForInitialThumbnailRefresh(
       thumbnailSource: "import-render",
       ...(designPackSnapshot && deck.metadata.sourceType === "ai"
         ? { designPackSnapshot }
+        : {}),
+      ...(brandKitSnapshot && deck.metadata.sourceType === "ai"
+        ? { brandKitSnapshot }
         : {})
     },
     slides: deck.slides.map((slide, index) => ({

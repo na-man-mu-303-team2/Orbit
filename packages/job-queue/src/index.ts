@@ -14,6 +14,7 @@ import {
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
   type SavedDesignPackSnapshot,
+  type BrandKitSnapshot,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -88,6 +89,7 @@ export interface GenerateDeckBullMqPayload {
   projectId: string;
   request: GenerateDeckRequest;
   designPackSnapshot?: SavedDesignPackSnapshot;
+  brandKitSnapshot?: BrandKitSnapshot;
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
@@ -229,6 +231,7 @@ export async function enqueueGenerateDeckJob(
       ...(input.designPackSnapshot
         ? { designPackSnapshot: input.designPackSnapshot }
         : {}),
+      ...(input.brandKitSnapshot ? { brandKitSnapshot: input.brandKitSnapshot } : {}),
     } satisfies GenerateDeckBullMqPayload);
   } finally {
     await queue.close();

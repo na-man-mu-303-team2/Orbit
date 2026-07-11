@@ -21,6 +21,7 @@ import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import { OrganizationsService } from "../organizations/organizations.service";
 import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 
 const generateDeckJobResponseSchema = z.object({
@@ -45,7 +46,9 @@ export class GenerateDeckService {
     @Optional()
     private readonly filesService?: FilesService,
     @Optional()
-    private readonly savedDesignPacksService?: SavedDesignPacksService
+    private readonly savedDesignPacksService?: SavedDesignPacksService,
+    @Optional()
+    private readonly organizationsService?: OrganizationsService
   ) {}
 
   async createJob(
@@ -64,14 +67,22 @@ export class GenerateDeckService {
             userId
           )
         : { request: parsedRequest };
-    const request = resolved.request;
+    const brandResolved =
+      this.organizationsService && userId
+        ? await this.organizationsService.resolveGenerationRequest(
+            resolved.request,
+            userId
+          )
+        : { request: resolved.request };
+    const request = brandResolved.request;
     await this.assertDesignReferences(projectId, request.designReferences);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
       payload: {
         request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {})
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {})
       }
     });
 
@@ -82,7 +93,8 @@ export class GenerateDeckService {
         jobId: queuedJob.jobId,
         projectId,
         request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {})
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {})
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
