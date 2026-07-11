@@ -287,7 +287,9 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
     this.emitError(
       new LiveSttError(
-        "runtime_error",
+        event.error === "not-allowed" || event.error === "service-not-allowed"
+          ? "permission_denied"
+          : "runtime_error",
         event.message || `Web Speech 인식 오류: ${event.error ?? "unknown"}`
       )
     );

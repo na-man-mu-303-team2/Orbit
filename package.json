@@ -21,6 +21,7 @@
     "py:sync": "cd services/python-worker && uv sync",
     "py:test": "cd services/python-worker && uv run pytest",
     "test": "turbo run test",
+    "test:nli-browser": "node infra/scripts/run-semantic-cue-nli-browser-benchmark.mjs",
     "test:smoke": "playwright test",
     "typecheck": "turbo run typecheck"
   },

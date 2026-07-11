@@ -145,6 +145,10 @@ import {
   getRehearsalScriptFocusSentenceId,
 } from "./panel/RehearsalPanel";
 import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "./panel/SemanticSpeechDebugPanel";
+import {
   calculateFinalTranscriptWpm,
   getDeckTargetSeconds as getRehearsalDeckTargetSeconds,
   getTimingAdviceState,
@@ -157,6 +161,33 @@ import {
   type P3RehearsalSession,
   type P3RehearsalSessionState,
 } from "./speech/p3RehearsalSession";
+import {
+  getSemanticCueRuntimeFlags,
+  isSemanticCueNliEnabledForMode,
+} from "./speech/semanticCueFeatureFlags";
+import {
+  createSemanticCueDebugRingBuffer,
+} from "./speech/semanticCueDebugEvents";
+import {
+  createSemanticCueEmbeddingIndex,
+  type SemanticCueEmbeddingIndex,
+} from "./speech/semanticCueEmbeddingIndex";
+import { createSemanticCueRuntime } from "./speech/semanticCueRuntime";
+import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliProvider";
+import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
+import {
+  getE5EmbeddingService,
+  type E5EmbeddingService,
+} from "./speech/e5EmbeddingService";
+import {
+  createIdleSemanticDebugState,
+  createSemanticDebugState,
+  markSemanticModelReady,
+} from "./speech/semanticSpeechDebug";
+import {
+  createSemanticUtteranceMatcher,
+  type SemanticUtteranceMatcher,
+} from "./speech/semanticUtteranceMatcher";
 import {
   createPauseDetector,
   type PauseDetector,
@@ -1564,6 +1595,9 @@ export function RehearsalWorkspace(props: {
     useState<LiveSttSlideAdvanceEvent | null>(null);
   const [p3SessionState, setP3SessionState] =
     useState<P3RehearsalSessionState | null>(null);
+  const [semanticDebugState, setSemanticDebugState] = useState(
+    createIdleSemanticDebugState,
+  );
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -1612,6 +1646,16 @@ export function RehearsalWorkspace(props: {
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
+  const semanticEmbeddingServicePromiseRef =
+    useRef<Promise<E5EmbeddingService> | null>(null);
+  const semanticMatcherRef = useRef<SemanticUtteranceMatcher | null>(null);
+  const semanticCueEmbeddingIndexRef =
+    useRef<SemanticCueEmbeddingIndex | null>(null);
+  const semanticCueDebugBufferRef = useRef(createSemanticCueDebugRingBuffer());
+  const semanticCueNliProviderRef = useRef<{
+    key: string;
+    provider: ReturnType<typeof createBrowserTransformersSemanticCueNliProvider>;
+  } | null>(null);
   const p3RunMetaRef = useRef<RehearsalRunMeta | null>(null);
   const pendingP3RunMetaRef = useRef<Promise<RehearsalRunMeta | null> | null>(
     null,
@@ -1642,6 +1686,34 @@ export function RehearsalWorkspace(props: {
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
+
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+
+    getOrCreateSemanticMatcher();
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.MODE === "test") {
+      return;
+    }
+    const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    if (!flags.nliEnabled || flags.provider !== "browser-transformersjs") {
+      return;
+    }
+
+    void getOrCreateBrowserSemanticCueNliProvider(flags).load();
+  }, []);
+
+  useEffect(
+    () => () => {
+      semanticCueNliProviderRef.current?.provider.dispose();
+      semanticCueNliProviderRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -2392,6 +2464,126 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  function getOrCreateSemanticMatcher() {
+    if (semanticMatcherRef.current) {
+      return semanticMatcherRef.current;
+    }
+
+    const servicePromise = getOrCreateSemanticEmbeddingService();
+    semanticMatcherRef.current = createSemanticUtteranceMatcher({
+      embeddingService: {
+        embedQuery: async (text) => (await servicePromise).embedQuery(text),
+        embedPassages: async (texts) =>
+          (await servicePromise).embedPassages(texts),
+      },
+    });
+    return semanticMatcherRef.current;
+  }
+
+  function createSemanticCueRuntimeFromFlags(
+    mode: "rehearsal" | "presentation",
+  ) {
+    const flags = getSemanticCueRuntimeFlags(import.meta.env);
+    const embeddingIndex = getOrCreateSemanticCueEmbeddingIndex();
+
+    if (
+      !isSemanticCueNliEnabledForMode(flags, mode) ||
+      flags.provider === "off"
+    ) {
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
+    }
+
+    if (flags.provider === "browser-transformersjs") {
+      return createSemanticCueRuntime({
+        provider: getOrCreateBrowserSemanticCueNliProvider(flags),
+        enabled: true,
+        nliMode: "shadow",
+        embeddingIndex,
+      });
+    }
+
+    if (flags.provider !== "mock") {
+      return createSemanticCueRuntime({
+        enabled: false,
+        embeddingIndex,
+      });
+    }
+
+    return createSemanticCueRuntime({
+      provider: createMockSemanticCueNliProvider({
+        modelId: flags.modelId,
+      }),
+      enabled: true,
+      embeddingIndex,
+    });
+  }
+
+  function getOrCreateBrowserSemanticCueNliProvider(
+    flags: ReturnType<typeof getSemanticCueRuntimeFlags>,
+  ) {
+    const key = `${flags.provider}:${flags.modelId}:${flags.nliDevice ?? "none"}`;
+    if (semanticCueNliProviderRef.current?.key !== key) {
+      semanticCueNliProviderRef.current?.provider.dispose();
+      semanticCueNliProviderRef.current = {
+        key,
+        provider: createBrowserTransformersSemanticCueNliProvider({
+          modelId: flags.modelId,
+          loadOnEvaluate: false,
+          ...(flags.nliDevice === null
+            ? {}
+            : { deviceOverride: flags.nliDevice }),
+        }),
+      };
+    }
+    return semanticCueNliProviderRef.current.provider;
+  }
+
+  function getOrCreateSemanticCueEmbeddingIndex() {
+    if (semanticCueEmbeddingIndexRef.current) {
+      return semanticCueEmbeddingIndexRef.current;
+    }
+    semanticCueEmbeddingIndexRef.current = createSemanticCueEmbeddingIndex({
+      embeddingService: {
+        embedQuery: async (text) =>
+          (await getOrCreateSemanticEmbeddingService()).embedQuery(text),
+        embedPassages: async (texts) =>
+          (await getOrCreateSemanticEmbeddingService()).embedPassages(texts),
+      },
+    });
+    return semanticCueEmbeddingIndexRef.current;
+  }
+
+  function getOrCreateSemanticEmbeddingService() {
+    semanticEmbeddingServicePromiseRef.current ??= getE5EmbeddingService(() => {
+      setSemanticDebugState((current) =>
+        createSemanticDebugState({
+          ...current,
+          status: "loading-model",
+          error: null,
+        }),
+      );
+    })
+      .then((service) => {
+        setSemanticDebugState(markSemanticModelReady);
+        return service;
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setSemanticDebugState((current) =>
+          createSemanticDebugState({
+            ...current,
+            status: "error",
+            error: message,
+          }),
+        );
+        throw error;
+      });
+    return semanticEmbeddingServicePromiseRef.current;
+  }
+
   async function startP3Tracking(stream: MediaStream) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
@@ -2447,6 +2639,18 @@ export function RehearsalWorkspace(props: {
         if (session) {
           setP3SessionState(session.getState());
         }
+      },
+      semanticMatcher:
+        import.meta.env.MODE === "test" ? undefined : getOrCreateSemanticMatcher(),
+      semanticCueRuntime:
+        import.meta.env.MODE === "test"
+          ? undefined
+          : createSemanticCueRuntimeFromFlags("rehearsal"),
+      isSemanticMatchingEnabled: () =>
+        presenterSettings.advancePolicy.semanticMatching,
+      onSemanticDebugState: setSemanticDebugState,
+      onSemanticCueDebugEvent: (event) => {
+        semanticCueDebugBufferRef.current.push(event);
       },
     });
     p3SessionRef.current = session;
@@ -2623,7 +2827,6 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
-    setIsTimerRunning(false);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
@@ -3546,6 +3749,11 @@ export function RehearsalWorkspace(props: {
     );
   }
 
+  const showSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
+    isDevelopment: import.meta.env.DEV,
+    storage: getSemanticDebugPanelStorage(),
+  });
+
   return (
     <main className="rehearsal-presenter-shell">
       <div className="rehearsal-legacy-test-marker" aria-hidden="true">
@@ -4120,6 +4328,14 @@ export function RehearsalWorkspace(props: {
           state={advanceControllerState}
         />
       </section>
+      {showSemanticDebugPanel ? (
+        <SemanticSpeechDebugPanel
+          semanticMatchingEnabled={
+            presenterSettings.advancePolicy.semanticMatching
+          }
+          state={semanticDebugState}
+        />
+      ) : null}
     </main>
   );
 }
@@ -4672,6 +4888,18 @@ function getPreflightTriggerStatus(
     tone: "info",
     value: `음성 트리거 ${triggerCount}개`,
   };
+}
+
+function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 type RehearsalCompletionSummary = {
@@ -5850,6 +6078,7 @@ function buildP3SessionSlides(deck: Deck) {
     slideId: slide.slideId,
     speakerNotes: slide.speakerNotes,
     keywords: slide.keywords ?? [],
+    semanticCues: slide.semanticCues ?? [],
     controlPhrases: defaultRehearsalCommandConfig.flatMap(
       (command) => command.phrases,
     ),

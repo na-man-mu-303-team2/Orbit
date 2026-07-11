@@ -59,8 +59,8 @@ function createSlide(): Slide {
         required: false
       }
     ],
-    elements: [],
     semanticCues: [],
+    elements: [],
     animations: [
       {
         animationId: "anim_legacy",
