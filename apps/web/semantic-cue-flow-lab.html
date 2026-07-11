@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Semantic Cue Flow Lab — 리허설 유저 플로우 실험</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --lab-border: #d7d9e0;
+        --lab-bg: #f6f7fb;
+        --lab-panel: #ffffff;
+        --lab-accent: #3b5bdb;
+        --lab-text: #1c1e26;
+        --lab-muted: #6b7280;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          "Pretendard",
+          -apple-system,
+          "Apple SD Gothic Neo",
+          "Segoe UI",
+          sans-serif;
+        background: var(--lab-bg);
+        color: var(--lab-text);
+      }
+      .lab-root {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .lab-header h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      .lab-header p {
+        margin: 0 0 16px;
+        color: var(--lab-muted);
+        font-size: 13px;
+      }
+      .lab-columns {
+        display: grid;
+        grid-template-columns: minmax(380px, 1fr) minmax(480px, 1.3fr);
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 1000px) {
+        .lab-columns {
+          grid-template-columns: 1fr;
+        }
+      }
+      .lab-panel {
+        background: var(--lab-panel);
+        border: 1px solid var(--lab-border);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .lab-panel h2 {
+        font-size: 15px;
+        margin: 18px 0 8px;
+      }
+      .lab-panel h2:first-child {
+        margin-top: 0;
+      }
+      .lab-panel h3 {
+        font-size: 13px;
+        margin: 14px 0 6px;
+        color: var(--lab-muted);
+      }
+      .lab-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .lab-wrap {
+        flex-wrap: wrap;
+      }
+      button {
+        border: 1px solid var(--lab-border);
+        background: #fff;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--lab-accent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .lab-primary {
+        background: var(--lab-accent);
+        border-color: var(--lab-accent);
+        color: #fff;
+      }
+      .lab-rec {
+        background: #e03131;
+        border-color: #e03131;
+        color: #fff;
+      }
+      textarea,
+      select,
+      input[type="number"],
+      input[type="text"] {
+        border: 1px solid var(--lab-border);
+        border-radius: 6px;
+        font-size: 12.5px;
+        padding: 6px 8px;
+        font-family: inherit;
+        width: 100%;
+      }
+      select {
+        width: auto;
+      }
+      .lab-json {
+        font-family: "SF Mono", "D2Coding", monospace;
+        font-size: 12px;
+        white-space: pre;
+      }
+      .lab-transcript {
+        font-size: 14px;
+      }
+      .lab-adhoc {
+        flex: 1;
+      }
+      .lab-error {
+        color: #c92a2a;
+        font-size: 12.5px;
+      }
+      .lab-hint {
+        color: var(--lab-muted);
+        font-size: 12px;
+        margin: 6px 0;
+      }
+      .lab-interim {
+        color: var(--lab-accent);
+        font-size: 13px;
+      }
+      .lab-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--lab-muted);
+      }
+      .lab-field input[type="number"] {
+        width: 90px;
+      }
+      .lab-field-changed {
+        color: var(--lab-accent);
+      }
+      .lab-changed-mark {
+        color: var(--lab-accent);
+      }
+      .lab-field-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .lab-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin: 6px 0 10px;
+      }
+      .lab-table th,
+      .lab-table td {
+        border: 1px solid var(--lab-border);
+        padding: 4px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .lab-table th {
+        background: var(--lab-bg);
+        font-weight: 600;
+      }
+      .lab-label {
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-weight: 600;
+        font-size: 12px;
+      }
+      .lab-label-covered {
+        background: #d3f9d8;
+        color: #2b8a3e;
+      }
+      .lab-label-partial {
+        background: #fff3bf;
+        color: #e67700;
+      }
+      .lab-label-not_covered {
+        background: #e9ecef;
+        color: #495057;
+      }
+      .lab-label-contradicted {
+        background: #ffe3e3;
+        color: #c92a2a;
+      }
+      .lab-status {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--lab-muted);
+      }
+      .lab-status-running {
+        color: #2b8a3e;
+      }
+      .lab-status-failed {
+        color: #c92a2a;
+      }
+      .lab-slide-chip {
+        border-radius: 999px;
+      }
+      .lab-slide-chip.current {
+        background: var(--lab-accent);
+        border-color: var(--lab-accent);
+        color: #fff;
+        opacity: 1;
+      }
+      .lab-segments,
+      .lab-event-log {
+        font-size: 12px;
+        margin: 6px 0;
+        padding-left: 18px;
+        max-height: 180px;
+        overflow-y: auto;
+      }
+      .lab-event-log {
+        list-style: none;
+        padding-left: 4px;
+      }
+      .lab-event-log code {
+        background: var(--lab-bg);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 11px;
+      }
+      .lab-event-log small {
+        color: var(--lab-muted);
+      }
+      .lab-pre {
+        font-size: 11px;
+        background: var(--lab-bg);
+        border: 1px solid var(--lab-border);
+        border-radius: 6px;
+        padding: 8px;
+        overflow-x: auto;
+        max-height: 400px;
+      }
+      .lab-config summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .lab-config summary h2 {
+        display: inline;
+      }
+      .lab-config summary::before {
+        content: "▸ ";
+      }
+      .lab-config[open] summary::before {
+        content: "▾ ";
+      }
+      .lab-cue-checklist {
+        list-style: none;
+        margin: 6px 0 10px;
+        padding: 0;
+        display: grid;
+        gap: 6px;
+      }
+      .lab-cue-item {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        border: 1px solid var(--lab-border);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        transition:
+          opacity 0.4s ease,
+          background 0.4s ease;
+      }
+      .lab-cue-mark {
+        font-weight: 700;
+        width: 16px;
+        flex-shrink: 0;
+      }
+      .lab-cue-text {
+        flex: 1;
+      }
+      .lab-cue-item small {
+        color: var(--lab-muted);
+        white-space: nowrap;
+      }
+      .lab-cue-item.pending .lab-cue-mark {
+        color: var(--lab-muted);
+      }
+      .lab-cue-item.done {
+        background: #ebfbee;
+        border-color: #b2f2bb;
+        opacity: 0.6;
+      }
+      .lab-cue-item.done .lab-cue-mark {
+        color: #2b8a3e;
+      }
+      .lab-cue-item.done .lab-cue-text {
+        text-decoration: line-through;
+        color: var(--lab-muted);
+      }
+      .lab-cue-item.partial {
+        background: #fff9db;
+        border-color: #ffe066;
+      }
+      .lab-cue-item.partial .lab-cue-mark {
+        color: #e67700;
+      }
+      .lab-cue-item.contradicted {
+        background: #fff5f5;
+        border-color: #ffc9c9;
+      }
+      .lab-cue-item.contradicted .lab-cue-mark {
+        color: #c92a2a;
+      }
+      .lab-cue-item.unusable {
+        opacity: 0.45;
+        border-style: dashed;
+      }
+      .lab-score-input {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .lab-score-input input[type="number"] {
+        width: 64px;
+      }
+      .lab-score-input input[type="range"] {
+        width: 80px;
+      }
+
+      /* SemanticCueDebugPanel: 프로덕션은 fixed 오버레이지만 여기선 인라인 배치 */
+      .semantic-speech-debug-panel {
+        background: rgba(15, 23, 42, 0.94);
+        border: 1px solid rgba(148, 163, 184, 0.36);
+        border-radius: 8px;
+        color: #e2e8f0;
+        display: grid;
+        gap: 10px;
+        max-height: 420px;
+        overflow: auto;
+        padding: 12px;
+        position: static;
+        width: 100%;
+      }
+      .semantic-speech-debug-panel header,
+      .semantic-speech-debug-panel li div {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+      }
+      .semantic-speech-debug-panel header strong {
+        font-size: 0.88rem;
+      }
+      .semantic-speech-debug-panel header span,
+      .semantic-speech-debug-panel section span,
+      .semantic-speech-debug-panel li span,
+      .semantic-speech-debug-panel small {
+        color: #93c5fd;
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .semantic-speech-debug-panel section,
+      .semantic-speech-debug-panel li {
+        background: rgba(30, 41, 59, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 6px;
+        padding: 9px;
+      }
+      .semantic-speech-debug-panel p {
+        color: #e2e8f0;
+        font-size: 0.8rem;
+        line-height: 1.45;
+        margin: 4px 0 0;
+      }
+      .semantic-speech-debug-panel ol {
+        display: grid;
+        gap: 8px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .semantic-speech-debug-panel li strong {
+        color: #f8fafc;
+        font-size: 0.78rem;
+      }
+      .semantic-cue-debug-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .semantic-cue-debug-actions button {
+        background: rgba(96, 165, 250, 0.16);
+        border: 1px solid rgba(147, 197, 253, 0.34);
+        border-radius: 6px;
+        color: #bfdbfe;
+        cursor: pointer;
+        font-size: 0.74rem;
+        font-weight: 800;
+        min-height: 30px;
+        padding: 0 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script
+      type="module"
+      src="/src/features/rehearsal/speech/lab/semanticCueFlowLabPage.tsx"
+    ></script>
+  </body>
+</html>
