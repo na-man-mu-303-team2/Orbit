@@ -3269,6 +3269,12 @@ def plan_deck_content(
                                 slide_plans,
                             )
                             generated_plan = repaired_plan
+                    for slide_plan in slide_plans:
+                        slide_plan.speaker_notes = (
+                            remove_redundant_speaker_note_sentences(
+                                slide_plan.speaker_notes
+                            )
+                        )
                     slide_plans = repair_short_speaker_notes_with_llm(
                         raw_input,
                         slide_plans,
@@ -3563,7 +3569,7 @@ def speaker_note_repeats_prior(sentence: str, prior_sentences: list[str]) -> boo
     )
     if len(sentence_tokens) >= 6:
         novel_ratio = len(sentence_tokens - prior_tokens) / len(sentence_tokens)
-        if novel_ratio <= 0.4:
+        if novel_ratio <= 0.45:
             return True
     sentence_key = normalize_structural_content_text(sentence)
     if any(

@@ -60,6 +60,7 @@ from app.ai.generate_deck import (
     plan_slides,
     presentation_rule_prompt,
     refine_design_issues,
+    repeated_speaker_notes_slide_order,
     repair_design_pack_text_element,
     repair_content_plan_with_llm,
     repair_reason_codes,
@@ -135,6 +136,23 @@ def test_speaker_note_bounds_enforce_exact_ninety_to_one_ten_percent() -> None:
     assert speaker_notes_maximum_chars(225) == 247
     assert speaker_notes_minimum_chars(259) == 234
     assert speaker_notes_maximum_chars(259) == 284
+
+
+def test_python_repeated_note_detection_matches_shared_semantic_qa() -> None:
+    notes = (
+        "이번 교육의 목표는 신입 PM 여러분이 AI 제품 기획에서 문제를 명확히 "
+        "정의하고 효과적인 해결 가설을 수립하며 그 가설을 실험과 데이터로 "
+        "검증할 수 있도록 돕는 것입니다. 특히 직접 실습을 통해 이러한 절차를 "
+        "이해하고 익숙해지는 데 중점을 두고 있습니다. 이를 통해 반복 가능한 "
+        "체계적 기획 역량을 갖추게 될 것입니다. 오늘 교육의 핵심 목표는 신입 PM "
+        "여러분이 제품 기획의 전 과정을 체계적으로 이해하고 직접 실습해 보는 "
+        "것입니다. 특히 문제 정의 단계부터 시작해 가설을 설정하고 검증하는 반복 "
+        "가능한 절차를 익히는 데 집중합니다."
+    )
+
+    assert repeated_speaker_notes_slide_order([(1, notes)]) == 1
+    deduplicated = remove_redundant_speaker_note_sentences(notes)
+    assert "오늘 교육의 핵심 목표" not in deduplicated
 
 
 @pytest.mark.parametrize(
