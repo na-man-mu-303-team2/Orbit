@@ -55,6 +55,8 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
 type OpenverseImage = {
   url?: string;
   thumbnail?: string;
+  width?: number;
+  height?: number;
   creator?: string;
   license?: string;
   license_url?: string;
@@ -72,6 +74,8 @@ export class OpenversePublicImageSearchProvider
     const searchUrl = new URL("https://api.openverse.org/v1/images/");
     searchUrl.searchParams.set("q", input.query);
     searchUrl.searchParams.set("page_size", "20");
+    searchUrl.searchParams.set("size", "large,medium");
+    searchUrl.searchParams.set("aspect_ratio", "wide");
     const response = await fetch(searchUrl, { signal: input.abortSignal });
     if (!response.ok) {
       throw new Error(`Openverse image search failed with status ${response.status}`);
@@ -81,7 +85,8 @@ export class OpenversePublicImageSearchProvider
       (item) =>
         (item.url || item.thumbnail) &&
         item.license &&
-        item.foreign_landing_url
+        item.foreign_landing_url &&
+        (!item.width || !item.height || (item.width >= 640 && item.height >= 360))
     );
     if (candidates.length === 0) {
       throw new Error("Openverse returned no licensed image candidate");

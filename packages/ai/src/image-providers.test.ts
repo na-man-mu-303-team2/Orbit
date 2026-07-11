@@ -65,6 +65,58 @@ describe("image providers", () => {
       sourceUrl: "https://example.com/source",
       provider: "openverse"
     });
+    const searchUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(searchUrl.searchParams.get("size")).toBe("large,medium");
+    expect(searchUrl.searchParams.get("aspect_ratio")).toBe("wide");
+  });
+
+  it("skips Openverse candidates below the presentation minimum", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/small.jpg",
+                width: 320,
+                height: 180,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/small"
+              },
+              {
+                url: "https://images.example.com/large.jpg",
+                width: 1280,
+                height: 720,
+                creator: "Large Creator",
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/large"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "wide product"
+    });
+
+    expect(result).toMatchObject({
+      author: "Large Creator",
+      sourceUrl: "https://example.com/large"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://images.example.com/large.jpg"
+    );
   });
 
   it("falls back to another licensed Openverse candidate when download fails", async () => {
