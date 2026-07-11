@@ -1772,6 +1772,32 @@ button:disabled {
   color: #047857;
 }
 
+.ai-ppt-quality-failure {
+  border-left: 4px solid #b91c1c;
+  color: #7f1d1d;
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.ai-ppt-quality-failure ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.ai-ppt-quality-failure li,
+.ai-ppt-quality-failure p {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.ai-ppt-quality-failure button {
+  justify-self: start;
+}
+
 .ai-ppt-result-toolbar button,
 .ai-ppt-primary,
 .ai-ppt-secondary {

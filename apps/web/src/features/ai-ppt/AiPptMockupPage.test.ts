@@ -1,3 +1,4 @@
+import type { Job } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptAdvisorSuggestions,
@@ -6,6 +7,7 @@ import {
   buildReferenceGrounding,
   briefFieldPlaceholders,
   getAiPptWizardValidationMessage,
+  getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
   miniSlideFontStyles,
   initialAiPptWizardState,
@@ -53,6 +55,55 @@ describe("AI PPT wizard payload", () => {
     expect(JSON.stringify(initialAiPptWizardState)).not.toContain(
       briefFieldPlaceholders.successCriteria
     );
+  });
+
+  it("parses quality-gate issues without treating them as a network error", () => {
+    const issues = Array.from({ length: 6 }, (_, index) => ({
+      code: `QUALITY_${index + 1}`,
+      scope: "slide" as const,
+      severity: "warning" as const,
+      blocking: false,
+      path: `slides.${index}.elements`,
+      message: `quality issue ${index + 1}`
+    }));
+    const job: Job = {
+      jobId: "job-quality",
+      projectId: "project-quality",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: false,
+          layoutIssues: issues,
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_QUALITY_GATE_FAILED",
+        message: "quality gate failed"
+      },
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: issues.slice(0, 5).map((issue, index) => ({
+        code: issue.code,
+        message: issue.message,
+        slide: index + 1
+      })),
+      remainingCount: 1
+    });
+    expect(
+      getAiPptQualityFailure({
+        ...job,
+        error: { code: "NETWORK_ERROR", message: "network" }
+      })
+    ).toBeNull();
   });
 
   it.each([

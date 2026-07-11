@@ -16,6 +16,7 @@ import type {
   SavedDesignPack
 } from "@orbit/shared";
 import {
+  generateDeckValidationSchema,
   pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
   referenceExtractionResultSchema,
@@ -86,6 +87,11 @@ type ReferenceGrounding = Pick<
   GenerateDeckRequest,
   "referenceContext" | "referenceKeywords"
 >;
+
+type AiPptQualityFailure = {
+  issues: Array<{ code: string; message: string; slide?: number }>;
+  remainingCount: number;
+};
 
 const stylePackId = "brandlogy-modern";
 
@@ -347,6 +353,7 @@ export function AiPptMockupPage() {
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -671,6 +678,7 @@ export function AiPptMockupPage() {
 
     setIsGenerating(true);
     setError("");
+    setQualityFailure(null);
     setStatus("프로젝트 생성 중...");
     setJob(null);
 
@@ -755,6 +763,12 @@ export function AiPptMockupPage() {
       const completed = await pollJob(data.job.jobId);
       setJob(completed);
       if (completed.status === "failed") {
+        const qualityGateFailure = getAiPptQualityFailure(completed);
+        if (qualityGateFailure) {
+          setQualityFailure(qualityGateFailure);
+          setStatus("");
+          return;
+        }
         throw new Error(completed.error?.message || completed.message);
       }
 
@@ -874,6 +888,13 @@ export function AiPptMockupPage() {
               />
             ) : null}
             {error ? <p className="ai-ppt-error">{error}</p> : null}
+            {qualityFailure ? (
+              <QualityFailurePanel
+                failure={qualityFailure}
+                isGenerating={isGenerating}
+                onRetry={() => void submitGeneration()}
+              />
+            ) : null}
             {status ? <p className="ai-ppt-status">{status}</p> : null}
           </section>
 
@@ -926,6 +947,38 @@ export function AiPptMockupPage() {
           )}
         </button>
       </footer>
+    </section>
+  );
+}
+
+function QualityFailurePanel(props: {
+  failure: AiPptQualityFailure;
+  isGenerating: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="ai-ppt-quality-failure" role="alert">
+      <strong>품질 검증을 통과하지 못해 에디터에 발행하지 않았습니다.</strong>
+      <ul>
+        {props.failure.issues.map((issue, index) => (
+          <li key={`${issue.code}-${issue.slide ?? 0}-${index}`}>
+            <b>{issue.code}</b>
+            {issue.slide ? ` · ${issue.slide}번 슬라이드` : ""}: {issue.message}
+          </li>
+        ))}
+      </ul>
+      {props.failure.remainingCount > 0 ? (
+        <p>그 외 {props.failure.remainingCount}개 이슈가 있습니다.</p>
+      ) : null}
+      <button
+        className="ai-ppt-secondary"
+        disabled={props.isGenerating}
+        type="button"
+        onClick={props.onRetry}
+      >
+        <Play size={16} />
+        동일 조건으로 다시 생성
+      </button>
     </section>
   );
 }
@@ -1964,6 +2017,40 @@ export async function pollJob(jobId: string): Promise<Job> {
     await delay(1200);
   }
   throw new Error("AI PPT 생성 시간이 초과되었습니다.");
+}
+
+export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
+  if (
+    job.status !== "failed" ||
+    job.error?.code !== "GENERATE_DECK_QUALITY_GATE_FAILED"
+  ) {
+    return null;
+  }
+  const validation = generateDeckValidationSchema.safeParse(
+    job.result && typeof job.result === "object" && "validation" in job.result
+      ? job.result.validation
+      : null
+  );
+  if (!validation.success) {
+    return { issues: [], remainingCount: 0 };
+  }
+  const issues = [
+    ...validation.data.layoutIssues,
+    ...validation.data.contentIssues,
+    ...validation.data.designIssues,
+    ...validation.data.presentationIssues
+  ].map((issue) => {
+    const match = issue.path.match(/^slides\.(\d+)/);
+    return {
+      code: issue.code,
+      message: issue.message,
+      ...(match ? { slide: Number(match[1]) + 1 } : {})
+    };
+  });
+  return {
+    issues: issues.slice(0, 5),
+    remainingCount: Math.max(0, issues.length - 5)
+  };
 }
 
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
