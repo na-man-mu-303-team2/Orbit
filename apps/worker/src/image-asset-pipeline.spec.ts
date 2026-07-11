@@ -150,6 +150,12 @@ describe("image asset pipeline", () => {
     const image = result.deck.slides[0].elements.find(
       (element) => element.type === "image"
     );
+    expect(image?.elementId).toMatch(/_media_asset$/);
+    expect(
+      result.deck.slides[0].elements.some((element) =>
+        element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(false);
     expect(image?.props.src).toMatch(
       /^\/api\/v1\/projects\/project_1\/assets\/file_.*\/content$/
     );
