@@ -48,6 +48,7 @@ export type EditorValidationItem = {
     | "BRAND_KIT_VIOLATION"
     | "IMAGE_LICENSE_MISSING";
   level?: "warning";
+  canonicalIssue?: "TEXT_OVERFLOW";
   message: string;
   slideId?: string;
   severity: "warning" | "risk";
@@ -247,6 +248,7 @@ function getEditorSlideValidationItems(
         items.push({
           elementId: element.elementId,
           issue: "textOverflow",
+          canonicalIssue: "TEXT_OVERFLOW",
           message: "텍스트가 상자 높이를 넘을 수 있습니다.",
           severity: "warning"
         });
@@ -470,7 +472,11 @@ function getEditorPresentationSlideValidationItems(
   }
 
   items.push(...getEditorTypographyValidationItems(slide, slideIndex));
-  items.push(...getEditorVisualHierarchyValidationItems(slide, visualType));
+  const hierarchyItems = getEditorVisualHierarchyValidationItems(slide, visualType);
+  items.push(...hierarchyItems);
+  if (hierarchyItems.length === 0) {
+    items.push(...getEditorVisualOccupancyValidationItems(slide, visualType));
+  }
   items.push(...getEditorGridValidationItems(slide));
   return items;
 }
@@ -558,6 +564,80 @@ function getEditorVisualHierarchyValidationItems(
       slideId: slide.slideId
     }
   ];
+}
+
+function getEditorVisualOccupancyValidationItems(
+  slide: Slide,
+  visualType: string
+): EditorValidationItem[] {
+  const visible = slide.elements.filter((element) => element.visible);
+  const media = visible.filter(
+    (element) =>
+      element.role === "media" || element.type === "image" || element.type === "chart"
+  );
+  const hasPlannedMedia = Boolean(slide.aiNotes?.visualPlan?.imageNeeded);
+  const core = visible.filter(isVisualQualityCoreElement);
+  const reasons: string[] = [];
+
+  if (
+    hasPlannedMedia &&
+    (media.length === 0 || media.some((element) => element.width < 686 || element.height < 420))
+  ) {
+    reasons.push("이미지 영역은 최소 5열 너비와 420px 높이가 필요합니다.");
+  }
+  if (core.length > 0 && (hasPlannedMedia || !["cover", "quote"].includes(visualType))) {
+    const left = Math.min(...core.map((element) => element.x));
+    const top = Math.min(...core.map((element) => element.y));
+    const right = Math.max(...core.map((element) => element.x + element.width));
+    const bottom = Math.max(...core.map((element) => element.y + element.height));
+    const minimumWidthRatio = hasPlannedMedia ? 0.85 : 0.7;
+    const minimumHeightRatio = hasPlannedMedia ? 0.55 : 0.4;
+    if (
+      right - left < 1680 * minimumWidthRatio ||
+      bottom - top < 904 * minimumHeightRatio
+    ) {
+      reasons.push("핵심 콘텐츠가 안전 영역을 충분히 점유하지 않습니다.");
+    }
+  }
+  if (visible.some((element) => isMeaninglessLargeDecoration(element, visible))) {
+    reasons.push("의미 없는 대형 장식 요소가 콘텐츠보다 큰 비중을 차지합니다.");
+  }
+  return reasons.length === 0
+    ? []
+    : [
+        {
+          issue: "VISUAL_HIERARCHY_WEAK",
+          message: reasons.join(" "),
+          severity: "warning",
+          slideId: slide.slideId
+        }
+      ];
+}
+
+function isVisualQualityCoreElement(element: DeckElement) {
+  if (isDesignPackChrome(element)) return false;
+  return (
+    ["title", "subtitle", "body", "highlight", "media"].includes(
+      element.role ?? ""
+    ) ||
+    element.type === "image" ||
+    element.type === "chart"
+  );
+}
+
+function isMeaninglessLargeDecoration(
+  element: DeckElement,
+  elements: DeckElement[]
+) {
+  if (element.role !== "decoration" || isFullBleedElement(element)) return false;
+  if (element.width * element.height <= 1680 * 904 * 0.12) return false;
+  return !elements.some(
+    (candidate) =>
+      candidate.elementId !== element.elementId &&
+      candidate.visible &&
+      candidate.type === "text" &&
+      getTextBackgroundCoverage(candidate, element) >= 0.75
+  );
 }
 
 function getEditorGridValidationItems(slide: Slide): EditorValidationItem[] {

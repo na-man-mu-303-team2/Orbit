@@ -295,6 +295,70 @@ def test_presentation_validation_detects_missing_primary_content() -> None:
     assert "VISUAL_HIERARCHY_WEAK" in codes
 
 
+def test_presentation_validation_detects_small_media_and_large_empty_decoration() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Visual quality",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["aiNotes"]["visualPlan"]["imageNeeded"] = True
+    slide["elements"].extend(
+        [
+            {
+                "elementId": "el_small_media",
+                "type": "rect",
+                "role": "media",
+                "x": 1200,
+                "y": 300,
+                "width": 420,
+                "height": 180,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 3,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#eeeeee",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            },
+            {
+                "elementId": "el_empty_decoration",
+                "type": "rect",
+                "role": "decoration",
+                "x": 120,
+                "y": 400,
+                "width": 800,
+                "height": 300,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 2,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#dddddd",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            },
+        ]
+    )
+
+    issues = [
+        issue for issue in validate_presentation(deck) if issue.code == "VISUAL_HIERARCHY_WEAK"
+    ]
+
+    assert len(issues) == 1
+    assert "최소 5열" in issues[0].message
+    assert "대형 장식" in issues[0].message
+
+
 def test_presentation_validation_detects_structural_content_duplication() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
@@ -3818,7 +3882,8 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     assert has_element(comparison, "el_4_comparison_split_left_panel")
     assert has_element(comparison, "el_4_comparison_split_right_panel")
     assert has_element(comparison, "el_4_comparison_split_divider")
-    assert has_element(closing, "el_5_closing_summary_accent_block")
+    assert not has_element(closing, "el_5_closing_summary_accent_block")
+    assert element_by_id(closing, "el_5_closing_summary_card_1")["width"] == 1680
 
     assert element_by_id(cover, "el_1_cover_trust_signal_accent")["props"]["fill"] == "#001F3F"
     assert element_by_id(process, "el_3_process_step_connector_1")["props"]["fill"] == "#001F3F"
@@ -4754,6 +4819,13 @@ def test_generate_deck_preserves_media_intent_for_image_provider() -> None:
     )
     assert visual_plan["imageAlt"] == "Hybrid team workspace"
     assert visual_plan["imagePlacement"] == "right"
+    placeholder = element_by_id(
+        response.deck["slides"][0],
+        "el_1_design_pack_visual_media_placeholder",
+    )
+    assert placeholder["x"] == 1114
+    assert placeholder["width"] == 686
+    assert placeholder["height"] >= 560
 
 
 def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
@@ -6998,6 +7070,7 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
     order = slide["order"]
     recipe_markers = [
         (f"el_{order}_cover_trust_signal_panel", "cover_trust_signal"),
+        (f"el_{order}_cover_summary_card_1", "cover_trust_signal"),
         (f"el_{order}_overview_card_1", "overview_cards"),
         (f"el_{order}_overview_rail_panel", "overview_cards"),
         (f"el_{order}_decision_actions_focus_panel", "decision_actions"),
@@ -7008,7 +7081,7 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
         (f"el_{order}_process_vertical_axis", "process_steps"),
         (f"el_{order}_comparison_split_left_panel", "comparison_split"),
         (f"el_{order}_comparison_matrix_cell_1", "comparison_split"),
-        (f"el_{order}_closing_summary_accent_block", "closing_summary"),
+        (f"el_{order}_closing_summary_card_1", "closing_summary"),
         (f"el_{order}_insight_evidence_key_panel", "insight_evidence"),
         (f"el_{order}_insight_callout_block", "insight_evidence"),
     ]

@@ -6522,6 +6522,7 @@ def design_pack_recipe_elements(
         elements.extend(design_pack_closing_elements(slide_plan, theme, variant))
     else:
         elements.extend(design_pack_insight_elements(slide_plan, theme, variant))
+    fit_design_pack_recipe_to_media_frame(elements, slide_plan)
     elements.extend(
         design_pack_media_placeholder_elements(
             raw_input,
@@ -6532,6 +6533,71 @@ def design_pack_recipe_elements(
         )
     )
     return remove_duplicate_primary_message_elements(slide_plan, elements)
+
+
+def fit_design_pack_recipe_to_media_frame(
+    elements: list[dict[str, Any]],
+    slide_plan: SlidePlan,
+) -> None:
+    if not media_intent_needs_slot(slide_plan.media_intent):
+        return
+
+    if slide_plan.slide_type in {"title", "cover"}:
+        fit_design_pack_cover_to_media_frame(elements)
+        return
+
+    content_width = 7 * GRID_COLUMN_WIDTH + 6 * GRID_GUTTER
+    scale = content_width / CANVAS.safe_width
+    chrome_tokens = (
+        "_design_pack_background",
+        "_design_pack_top_rule",
+        "_design_pack_bottom_rule",
+        "_design_pack_section_",
+        "_design_pack_page_marker",
+    )
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if any(token in element_id for token in chrome_tokens):
+            continue
+        x = float(element.get("x", 0))
+        width = float(element.get("width", 0))
+        if x < CANVAS.safe_x or x + width > CANVAS.safe_x + CANVAS.safe_width:
+            continue
+        left = CANVAS.safe_x + round((x - CANVAS.safe_x) * scale)
+        right = CANVAS.safe_x + round((x + width - CANVAS.safe_x) * scale)
+        element["x"] = left
+        element["width"] = max(GRID_SPACING, right - left)
+
+
+def fit_design_pack_cover_to_media_frame(elements: list[dict[str, Any]]) -> None:
+    elements[:] = [
+        element
+        for element in elements
+        if not any(
+            token in str(element.get("elementId", ""))
+            for token in ("_cover_trust_signal_panel", "_cover_trust_signal_accent")
+        )
+    ]
+    for element in elements:
+        element_id = str(element.get("elementId", ""))
+        if element.get("role") == "title":
+            element.update(x=CANVAS.safe_x, y=200, width=970, height=160)
+            continue
+        if element_id.endswith("_body"):
+            element.update(x=CANVAS.safe_x, y=376, width=970, height=80)
+            continue
+        match = re.search(r"_cover_summary_card_(\d+)(?:_(label|text))?$", element_id)
+        if match is None:
+            continue
+        index = int(match.group(1)) - 1
+        part = match.group(2)
+        y = 480 + index * 128
+        if part == "label":
+            element.update(x=152, y=y + 20, width=120, height=32)
+        elif part == "text":
+            element.update(x=300, y=y + 22, width=740, height=56)
+        else:
+            element.update(x=CANVAS.safe_x, y=y, width=970, height=104)
 
 
 def remove_duplicate_primary_message_elements(
@@ -6623,25 +6689,10 @@ def design_pack_media_placeholder_elements(
         return []
 
     colors = design_pack_colors(raw_input, theme)
-    x, y, width, height = {
-        "cover_trust_signal": (1210, 760, 480, 86),
-        "overview_cards": (1330, 238, 420, 96),
-        "decision_actions": (120, 790, 420, 86),
-        "priority_stack": (1320, 820, 420, 86),
-        "decision_agenda": (120, 760, 420, 86),
-        "insight_evidence": (1080, 680, 540, 92),
-        "process_steps": (1370, 226, 420, 98),
-        "comparison_split": (1488, 176, 300, 84),
-        "closing_summary": (162, 738, 336, 104),
-    }.get(recipe, (1320, 820, 420, 96))
-    if variant == "overview_rail":
-        x, y, width, height = (120, 710, 760, 94)
-    elif variant == "process_vertical":
-        x, y, width, height = (120, 650, 760, 100)
-    elif variant == "comparison_matrix":
-        x, y, width, height = (1260, 226, 420, 92)
-    elif variant == "insight_callout":
-        x, y, width, height = (930, 728, 640, 92)
+    x = CANVAS.safe_x + 7 * GRID_STEP
+    y = 176 if recipe == "cover_trust_signal" else 256
+    width = 5 * GRID_COLUMN_WIDTH + 4 * GRID_GUTTER
+    height = 560 if recipe == "cover_trust_signal" else 520
     caption = slide_plan.media_intent.caption or "Visual placeholder"
     return [
         shape_element(
@@ -6661,14 +6712,14 @@ def design_pack_media_placeholder_elements(
             slide_plan.order,
             "design_pack_visual_media_caption",
             "caption",
-            compact_design_pack_text(caption, 72),
+            compact_design_pack_text(caption, 120),
             x + 24,
             y + 22,
             max(120, width - 48),
-            max(36, height - 44),
+            88,
             7,
             colors["text"],
-            16,
+            18,
             "medium",
             theme,
             line_height=1.08,
@@ -6756,7 +6807,7 @@ def design_pack_chrome_elements(
             slide_plan.order,
             "design_pack_page_marker",
             "footer",
-            "ORBIT AI Deck",
+            "ORBIT 발표 자료",
             CANVAS.safe_x,
             990,
             280,
@@ -6870,7 +6921,7 @@ def design_pack_cover_elements(
                     slide_plan.order,
                     f"cover_summary_card_{index + 1}_label",
                     "caption",
-                    f"Point {index + 1}",
+                    f"핵심 {index + 1}",
                     1240,
                     y + 18,
                     140,
@@ -8307,27 +8358,14 @@ def design_pack_closing_elements(
     colors = design_pack_colors(None, theme)
     items = design_pack_items(slide_plan, "closing_summary")
     elements = [
-        shape_element(
-            slide_plan.order,
-            "closing_summary_accent_block",
-            "highlight",
-            120,
-            168,
-            420,
-            540,
-            2,
-            colors["primary"],
-            "transparent",
-            8,
-        ),
         design_pack_text(
             slide_plan.order,
             "title",
             "title",
             slide_plan.title,
-            620,
+            120,
             158,
-            1120,
+            1680,
             124,
             4,
             colors["text"],
@@ -8340,9 +8378,9 @@ def design_pack_closing_elements(
             "body",
             "body",
             slide_plan.message,
-            620,
+            120,
             296,
-            920,
+            1400,
             66,
             4,
             colors["text_muted"],
@@ -8359,9 +8397,9 @@ def design_pack_closing_elements(
                     slide_plan.order,
                     f"closing_summary_card_{index + 1}",
                     "highlight",
-                    620,
+                    120,
                     y,
-                    900,
+                    1680,
                     96,
                     3,
                     colors["surface"],
@@ -8373,7 +8411,7 @@ def design_pack_closing_elements(
                     f"closing_summary_card_{index + 1}_number",
                     "caption",
                     f"{index + 1:02d}",
-                    654,
+                    154,
                     y + 30,
                     56,
                     28,
@@ -8389,9 +8427,9 @@ def design_pack_closing_elements(
                         f"closing_summary_card_{index + 1}_text",
                         "body",
                         item.text,
-                        730,
+                        230,
                         y + 26,
-                        720,
+                        1480,
                         42,
                         5,
                         colors["text"],
@@ -8577,16 +8615,16 @@ def compact_design_pack_text(value: str, width: int) -> str:
 
 def design_pack_recipe_label(recipe: str) -> str:
     return {
-        "cover_trust_signal": "TRUST SIGNAL",
-        "overview_cards": "OVERVIEW",
-        "decision_actions": "DECISION",
-        "priority_stack": "PRIORITIES",
-        "decision_agenda": "AGENDA",
-        "insight_evidence": "INSIGHT",
-        "process_steps": "PROCESS",
-        "comparison_split": "COMPARISON",
-        "closing_summary": "SUMMARY",
-    }.get(recipe, "DESIGN PACK")
+        "cover_trust_signal": "표지",
+        "overview_cards": "개요",
+        "decision_actions": "의사결정",
+        "priority_stack": "우선순위",
+        "decision_agenda": "안건",
+        "insight_evidence": "핵심 근거",
+        "process_steps": "진행 단계",
+        "comparison_split": "비교",
+        "closing_summary": "요약",
+    }.get(recipe, "핵심 근거")
 
 
 def design_pack_background_color(
@@ -11766,6 +11804,7 @@ def validate_design(deck: dict[str, Any]) -> list[ValidationIssue]:
                 if is_text_overflowing(element):
                     issues.append(
                         ValidationIssue(
+                            code="TEXT_OVERFLOW",
                             scope="element",
                             path=f"slides.{slide_index}.elements.{element_index}",
                             message="텍스트가 상자 높이를 넘을 수 있습니다.",
@@ -12191,7 +12230,16 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
                 )
         issues.extend(validate_slide_content_density(slide, slide_index, visual_type))
         issues.extend(validate_slide_content_duplication(slide, slide_index))
-        issues.extend(validate_slide_visual_hierarchy(slide, slide_index, visual_type))
+        hierarchy_issues = validate_slide_visual_hierarchy(
+            slide,
+            slide_index,
+            visual_type,
+        )
+        issues.extend(hierarchy_issues)
+        if not hierarchy_issues:
+            issues.extend(
+                validate_slide_visual_occupancy(slide, slide_index, visual_type)
+            )
         issues.extend(validate_slide_typography(slide, slide_index))
         issues.extend(validate_slide_grid_alignment(slide, slide_index))
 
@@ -12407,6 +12455,96 @@ def validate_slide_visual_hierarchy(
             message="본문 슬라이드에는 하나의 명확한 시각적 중심 요소가 필요합니다.",
         )
     ]
+
+
+def validate_slide_visual_occupancy(
+    slide: dict[str, Any],
+    slide_index: int,
+    visual_type: str,
+) -> list[ValidationIssue]:
+    visible = [
+        element
+        for element in slide.get("elements", [])
+        if element.get("visible", True)
+    ]
+    media = [
+        element
+        for element in visible
+        if element.get("role") == "media"
+        or element.get("type") in {"image", "chart"}
+    ]
+    has_planned_media = bool(
+        slide.get("aiNotes", {}).get("visualPlan", {}).get("imageNeeded")
+    )
+    core = [
+        element
+        for element in visible
+        if is_visual_quality_core_element(element)
+    ]
+    reasons: list[str] = []
+    if has_planned_media:
+        if not media or any(
+            float(element.get("width", 0)) < 686
+            or float(element.get("height", 0)) < 420
+            for element in media
+        ):
+            reasons.append("이미지 영역은 최소 5열 너비와 420px 높이가 필요합니다.")
+    if core and (has_planned_media or visual_type not in {"cover", "quote"}):
+        left = min(float(element.get("x", 0)) for element in core)
+        top = min(float(element.get("y", 0)) for element in core)
+        right = max(
+            float(element.get("x", 0)) + float(element.get("width", 0))
+            for element in core
+        )
+        bottom = max(
+            float(element.get("y", 0)) + float(element.get("height", 0))
+            for element in core
+        )
+        minimum_width_ratio = 0.85 if has_planned_media else 0.7
+        minimum_height_ratio = 0.55 if has_planned_media else 0.4
+        if (
+            right - left < CANVAS.safe_width * minimum_width_ratio
+            or bottom - top < CANVAS.safe_height * minimum_height_ratio
+        ):
+            reasons.append("핵심 콘텐츠가 안전 영역을 충분히 점유하지 않습니다.")
+    if any(is_meaningless_large_decoration(element, visible) for element in visible):
+        reasons.append("의미 없는 대형 장식 요소가 콘텐츠보다 큰 비중을 차지합니다.")
+    if not reasons:
+        return []
+    return [
+        ValidationIssue(
+            code="VISUAL_HIERARCHY_WEAK",
+            scope="slide",
+            path=f"slides.{slide_index}.elements",
+            message=" ".join(reasons),
+        )
+    ]
+
+
+def is_visual_quality_core_element(element: dict[str, Any]) -> bool:
+    if is_design_pack_chrome_text(element):
+        return False
+    role = str(element.get("role", ""))
+    if role in {"title", "subtitle", "body", "highlight", "media"}:
+        return True
+    return element.get("type") in {"image", "chart"}
+
+
+def is_meaningless_large_decoration(
+    element: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> bool:
+    if element.get("role") != "decoration" or is_full_bleed_element(element):
+        return False
+    if element_area(element) <= CANVAS.safe_width * CANVAS.safe_height * 0.12:
+        return False
+    return not any(
+        candidate is not element
+        and candidate.get("type") == "text"
+        and candidate.get("visible", True)
+        and text_background_coverage(candidate, element) >= 0.75
+        for candidate in elements
+    )
 
 
 def visible_text_elements_for_roles(

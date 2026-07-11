@@ -141,10 +141,10 @@ const designPackDeck: Deck = {
           elementId: "el_1_design_pack_visual_media_placeholder",
           type: "rect",
           role: "media",
-          x: 1110,
+          x: 1114,
           y: 250,
-          width: 520,
-          height: 220,
+          width: 686,
+          height: 420,
           rotation: 0,
           opacity: 1,
           zIndex: 4,
@@ -205,6 +205,37 @@ describe("editor design-pack validation", () => {
     expect(items).not.toContainEqual(
       expect.objectContaining({
         elementId: "el_1_design_pack_visual_media_placeholder"
+      })
+    );
+  });
+
+  it("reports undersized planned media with the canonical hierarchy issue", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const media = deck.slides[0].elements.find(
+      (element) => element.elementId === "el_1_design_pack_visual_media_placeholder"
+    );
+    if (!media) throw new Error("media placeholder missing");
+    media.width = 420;
+    media.height = 180;
+
+    expect(getEditorValidationItems(deck, deck.slides[0])).toContainEqual(
+      expect.objectContaining({ issue: "VISUAL_HIERARCHY_WEAK" })
+    );
+  });
+
+  it("links editor overflow repair items to TEXT_OVERFLOW", () => {
+    const deck = structuredClone(designPackDeck);
+    const body = deck.slides[0].elements.find(
+      (element) => element.elementId === "el_1_body"
+    );
+    if (!body || body.type !== "text") throw new Error("body missing");
+    body.height = 20;
+
+    expect(getEditorValidationItems(deck, deck.slides[0])).toContainEqual(
+      expect.objectContaining({
+        issue: "textOverflow",
+        canonicalIssue: "TEXT_OVERFLOW"
       })
     );
   });
