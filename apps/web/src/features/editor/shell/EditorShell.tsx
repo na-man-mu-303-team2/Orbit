@@ -5526,7 +5526,12 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               </div>
               <div className="assistant-panel-slot">
-                <AiChatPanel />
+                <AiChatPanel
+                  projectId={projectId}
+                  deck={deck}
+                  currentSlide={currentSlide}
+                  selectedElementIds={selectedElementIds}
+                />
                 {false ? (
                   <>
                     <PptxImportQualityPanel state={pptxImportState} />

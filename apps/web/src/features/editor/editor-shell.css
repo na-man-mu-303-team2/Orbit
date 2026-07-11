@@ -2928,6 +2928,12 @@
   font-size: 13px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ai-chat-message p.error {
+  background: #fef3f2;
+  color: #b42318;
 }
 
 .ai-chat-message.user p {
