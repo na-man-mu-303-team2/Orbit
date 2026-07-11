@@ -264,7 +264,9 @@ function getEditorSlideValidationItems(
         items.push({
           elementId: element.elementId,
           issue: "titleWrap",
-          message: "제목이 여러 줄로 줄바꿈되었습니다.",
+          message: deck.metadata.presentationProfile
+            ? "제목이 세 줄 이상으로 줄바꿈되었습니다."
+            : "제목이 여러 줄로 줄바꿈되었습니다.",
           severity: "warning"
         });
       }
@@ -814,7 +816,8 @@ function isEditorTitleTextWrapped(
   const text = getTextElementText(element.props as TextElementProps);
   if (!text || !isTitleLikeTextElement(deck, slide, element)) return false;
 
-  return getEditorTextContentMetrics(deck, slide, element, text).lineCount > 1;
+  const maximumLines = deck.metadata.presentationProfile ? 2 : 1;
+  return getEditorTextContentMetrics(deck, slide, element, text).lineCount > maximumLines;
 }
 
 function isTitleLikeTextElement(

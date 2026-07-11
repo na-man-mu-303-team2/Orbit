@@ -240,6 +240,27 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("allows a two-line design-pack title and warns at three lines", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "product-launch";
+    const slide = deck.slides[0];
+    const title = slide.elements.find(
+      (element) => element.type === "text" && element.role === "title"
+    );
+    if (!title || title.type !== "text") throw new Error("title missing");
+    title.props.text = "Nintendo Switch 2, 기대를 뛰어넘는 혁신적 하이브리드 콘솔";
+    title.width = 970;
+
+    expect(getEditorValidationItems(deck, slide)).not.toContainEqual(
+      expect.objectContaining({ issue: "titleWrap" })
+    );
+
+    title.width = 360;
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({ issue: "titleWrap" })
+    );
+  });
+
   it("uses the topmost local solid shape for text contrast", () => {
     const deck = structuredClone(designPackDeck);
     const slide = deck.slides[0];
