@@ -19,6 +19,12 @@ from app.ai.deck_pptx_export import (
     DeckPptxExportResponse,
     export_deck_pptx,
 )
+from app.ai.design_agent import (
+    DesignAgentGenerationError,
+    DesignAgentRequest,
+    DesignAgentResponse,
+    generate_design_proposal,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -591,6 +597,26 @@ def generate_ai_deck_color_options(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
+
+
+@app.post(
+    "/ai/design-agent/propose",
+    response_model=DesignAgentResponse,
+    response_model_exclude_none=True,
+)
+def propose_slide_design(
+    payload: DesignAgentRequest,
+    request: Request,
+) -> DesignAgentResponse:
+    config = _config(request)
+    try:
+        return generate_design_proposal(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DesignAgentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)

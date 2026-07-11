@@ -91,6 +91,7 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
+import { AiChatPanel } from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -122,7 +123,7 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
-  ApplyAiSuggestionResponse,
+  ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
@@ -186,7 +187,6 @@ import {
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
-import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   SemanticCueReviewPanel,
   type SemanticCueExtractionUiState
@@ -1253,8 +1253,8 @@ export function EditorShell(props: { projectId?: string }) {
     (state) => state.setIsRightPanelOpen
   );
   const [rightPanelView, setRightPanelView] = useState<
-    "ai" | "semantic-cues"
-  >("ai");
+    "ai-chat" | "ai-tools" | "semantic-cues"
+  >("ai-chat");
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1398,7 +1398,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
-    setRightPanelView("ai");
+    setRightPanelView("ai-chat");
     setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
@@ -2007,7 +2007,9 @@ export function EditorShell(props: { projectId?: string }) {
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
 
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
+  function handleDesignAgentProposalApplied(
+    response: ApplyDesignAgentProposalResponse
+  ) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
@@ -2017,9 +2019,7 @@ export function EditorShell(props: { projectId?: string }) {
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
+    setLastPatchLabel(`AI design · v${response.deck.version}`);
     setSaveState("auto-saved");
     setSaveError(null, null);
   }
@@ -2742,13 +2742,14 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
     event.preventDefault();
-    const nextView = rightPanelView === "ai" ? "semantic-cues" : "ai";
+    const views = ["ai-chat", "ai-tools", "semantic-cues"] as const;
+    const currentIndex = views.indexOf(rightPanelView);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextView = views[(currentIndex + direction + views.length) % views.length];
     setRightPanelView(nextView);
     requestAnimationFrame(() => {
       document
-        .getElementById(
-          nextView === "ai" ? "editor-ai-tools-tab" : "editor-semantic-cue-tab"
-        )
+        .getElementById(`editor-${nextView === "semantic-cues" ? "semantic-cue" : nextView}-tab`)
         ?.focus();
     });
   }
@@ -5725,14 +5726,27 @@ export function EditorShell(props: { projectId?: string }) {
                 role="tablist"
               >
                 <button
+                  aria-controls="editor-ai-chat-panel"
+                  aria-selected={rightPanelView === "ai-chat"}
+                  className={rightPanelView === "ai-chat" ? "active" : ""}
+                  id="editor-ai-chat-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-chat" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-chat")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 채팅
+                </button>
+                <button
                   aria-controls="editor-ai-tools-panel"
-                  aria-selected={rightPanelView === "ai"}
-                  className={rightPanelView === "ai" ? "active" : ""}
+                  aria-selected={rightPanelView === "ai-tools"}
+                  className={rightPanelView === "ai-tools" ? "active" : ""}
                   id="editor-ai-tools-tab"
                   role="tab"
-                  tabIndex={rightPanelView === "ai" ? 0 : -1}
+                  tabIndex={rightPanelView === "ai-tools" ? 0 : -1}
                   type="button"
-                  onClick={() => setRightPanelView("ai")}
+                  onClick={() => setRightPanelView("ai-tools")}
                   onKeyDown={handleRightPanelTabKeyDown}
                 >
                   AI 도구
@@ -5756,9 +5770,24 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
               <div className="assistant-panel-slot">
                 <div
+                  aria-labelledby="editor-ai-chat-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-chat"}
+                  id="editor-ai-chat-panel"
+                  role="tabpanel"
+                >
+                  <AiChatPanel
+                    projectId={projectId}
+                    deck={deck}
+                    currentSlide={currentSlide}
+                    selectedElementIds={selectedElementIds}
+                    onProposalApplied={handleDesignAgentProposalApplied}
+                  />
+                </div>
+                <div
                   aria-labelledby="editor-ai-tools-tab"
                   className="assistant-panel-view"
-                  hidden={rightPanelView !== "ai"}
+                  hidden={rightPanelView !== "ai-tools"}
                   id="editor-ai-tools-panel"
                   role="tabpanel"
                 >
@@ -5768,14 +5797,8 @@ export function EditorShell(props: { projectId?: string }) {
                     onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
                     onHighlightElementIds={setValidationHighlightElementIds}
                     onTextOverflowAction={handleValidationTextOverflowAction}
-                   />
-                  <SourceLedgerPanel slide={currentSlide ?? null} />
-                  <SuggestionPanel
-                    deck={deck}
-                    projectId={projectId}
-                    slideId={currentSlide?.slideId ?? null}
-                    onApplySuccess={handleAiSuggestionApplied}
                   />
+                  <SourceLedgerPanel slide={currentSlide ?? null} />
                 </div>
                 <div
                   aria-labelledby="editor-semantic-cue-tab"
