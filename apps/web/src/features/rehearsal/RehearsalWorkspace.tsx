@@ -753,7 +753,8 @@ export async function runRehearsalUploadFlow(options: {
       runMeta.missedKeywords.length > 0 ||
       runMeta.adviceEvents.length > 0 ||
       runMeta.utteranceOutcomes.length > 0 ||
-      runMeta.semanticCueDecisions.length > 0)
+      runMeta.semanticCueDecisions.length > 0 ||
+      runMeta.semanticCapabilityEvents.length > 0)
   ) {
     try {
       await updateRehearsalRunMeta(created.run.runId, runMeta, fetcher);
