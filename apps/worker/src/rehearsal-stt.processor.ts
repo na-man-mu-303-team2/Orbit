@@ -20,6 +20,10 @@ import {
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import {
+  derivePracticeGoalSet,
+  publishPracticeGoalSet
+} from "./practice-goal-derivation";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -55,7 +59,8 @@ const rehearsalRunInputRowSchema = z.object({
   run_id: z.string().min(1),
   meta_json: z.record(z.unknown()).nullable().optional(),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
-  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full")
+  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
+  analysis_revision: z.number().int().nonnegative().default(0)
 });
 
 const transcribeSegmentSchema = z
@@ -390,13 +395,30 @@ export async function processRehearsalSttJob(
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
   }
 
-  await updateRun(dataSource, payload, {
+  const completedRun = await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
     rawAudioDeletedAt,
     rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
+
+  if (completedRun.evaluation_snapshot_json) {
+    const goalSet = derivePracticeGoalSet({
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      sourceAnalysisRevision: completedRun.analysis_revision,
+      snapshot: completedRun.evaluation_snapshot_json,
+      report
+    });
+    if (goalSet) {
+      await publishPracticeGoalSet(dataSource, goalSet, {
+        evaluatedFullRunId: payload.runId,
+        snapshot: completedRun.evaluation_snapshot_json,
+        report
+      });
+    }
+  }
 
   try {
     await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
@@ -1297,9 +1319,19 @@ async function updateRun(
           raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
           report_json = COALESCE($6::jsonb, report_json),
           transcript_retained = COALESCE($7::boolean, transcript_retained),
+          analysis_revision = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_revision
+            ELSE analysis_revision + 1
+          END,
+          analysis_finalized_at = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_finalized_at
+            WHEN $9::boolean THEN now()
+            ELSE NULL
+          END,
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id, meta_json, evaluation_snapshot_json, semantic_evaluation_mode
+      RETURNING run_id, meta_json, evaluation_snapshot_json,
+                semantic_evaluation_mode, analysis_revision
     `,
     [
       payload.runId,
@@ -1309,7 +1341,10 @@ async function updateRun(
       patch.rawAudioDeletedAt ?? null,
       patch.rehearsalReport ? JSON.stringify(patch.rehearsalReport) : null,
       patch.transcriptRetained ?? null,
-      payload.projectId
+      payload.projectId,
+      patch.rehearsalReport
+        ? !patch.rehearsalReport.semanticEvaluation.retryable
+        : false
     ]
   );
 

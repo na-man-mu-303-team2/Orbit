@@ -39,10 +39,12 @@ export class PresentationBriefsService {
 
   async get(projectId: string, actorUserId: string) {
     await this.projects.assertCanReadProject(projectId, actorUserId);
-    const brief = await this.dataSource.transaction((manager) =>
-      this.readCurrent(manager, projectId),
-    );
+    const brief = await this.getCurrent(projectId);
     return getPresentationBriefResponseSchema.parse({ brief });
+  }
+
+  getCurrent(projectId: string) {
+    return this.dataSource.transaction((manager) => this.readCurrent(manager, projectId));
   }
 
   async put(projectId: string, actorUserId: string, body: unknown) {
@@ -286,4 +288,3 @@ export class PresentationBriefsService {
 function toIso(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
-

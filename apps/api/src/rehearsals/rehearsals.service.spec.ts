@@ -2,7 +2,8 @@ import {
   deckSchema,
   type AssetUploadUrlResponse,
   type Deck,
-  type Job
+  type Job,
+  type PresentationBrief
 } from "@orbit/shared";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
@@ -12,6 +13,7 @@ import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
+import type { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import type { ProjectEntity } from "../projects/project.entity";
 import type {
@@ -219,6 +221,43 @@ describe("RehearsalsService", () => {
       evaluationSnapshot: null,
       semanticEvaluationMode: "delivery-only"
     });
+  });
+
+  it("freezes adaptive Brief, Lens, deck hash, and evaluation criteria", async () => {
+    const brief = {
+      briefId: "brief_1",
+      projectId: "project-a",
+      revision: 1,
+      audience: "decision-maker",
+      purpose: "persuade",
+      evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+      targetDurationMinutes: 8,
+      desiredOutcome: "승인을 얻는다.",
+      requirements: [],
+      terminology: [],
+      challengeTopics: [],
+      approvedReferences: [],
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z"
+    } as PresentationBrief;
+    const currentDeck = createDeck();
+    const service = createService({ presentationBrief: brief, deck: currentDeck });
+
+    const response = await service.createRun("project-a", {
+      deckId: currentDeck.deckId,
+      expectedDeckVersion: currentDeck.version,
+      briefRef: { mode: "briefed", briefId: brief.briefId, expectedRevision: 1 },
+      evaluatorLensRef: brief.evaluatorLensRef,
+      sourceGoalSetId: null
+    });
+
+    expect(response.run.evaluationSnapshot?.deckContentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.run.evaluationSnapshot?.evaluationPlan?.briefRef).toEqual({
+      mode: "briefed",
+      briefId: "brief_1",
+      revision: 1
+    });
+    expect(response.run.evaluationSnapshot?.evaluationPlan?.criteria.length).toBeGreaterThan(0);
   });
 
   it("rejects run creation when the deckId does not match the project deck", async () => {
@@ -872,6 +911,7 @@ function createService(
     filesServicePatch?: Partial<FilesService>;
     transcriptCache?: RehearsalTranscriptCache;
     deck?: Deck;
+    presentationBrief?: PresentationBrief | null;
   } = {}
 ) {
   const logger = createLogger();
@@ -922,6 +962,9 @@ function createService(
       }))
     } as unknown as DecksService,
     projectsService,
+    {
+      getCurrent: vi.fn(async () => options.presentationBrief ?? null)
+    } as unknown as PresentationBriefsService,
     filesService,
     options.jobsService ??
       ({
