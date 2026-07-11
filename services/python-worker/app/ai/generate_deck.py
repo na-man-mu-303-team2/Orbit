@@ -3465,9 +3465,9 @@ def merge_grounded_repair_notes(
             repaired.media_intent = original.media_intent
 
         target = repaired.target_speaker_notes_chars
-        if target <= 0 or count_speaker_note_chars(repaired.speaker_notes) >= round(
-            target * 0.9
-        ):
+        if target <= 0 or count_speaker_note_chars(
+            repaired.speaker_notes
+        ) >= speaker_notes_minimum_chars(target):
             continue
         candidates = speaker_note_fragments(repaired.speaker_notes)
         if original is not None:
@@ -3481,8 +3481,8 @@ def merge_grounded_repair_notes(
         candidates.extend(grounded_speaker_note_transitions(repaired))
         repaired.speaker_notes = fit_grounded_speaker_note_candidates(
             candidates,
-            minimum_chars=round(target * 0.9),
-            preferred_max_chars=round(target * 1.1),
+            minimum_chars=speaker_notes_minimum_chars(target),
+            preferred_max_chars=speaker_notes_maximum_chars(target),
         )
     return repaired_slide_plans
 
@@ -3636,8 +3636,8 @@ def fit_grounded_speaker_note_candidates(
 def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
     target = slide_plan.target_speaker_notes_chars
     actual = count_speaker_note_chars(slide_plan.speaker_notes)
-    minimum_chars = round(target * 0.9)
-    maximum_chars = round(target * 1.1)
+    minimum_chars = speaker_notes_minimum_chars(target)
+    maximum_chars = speaker_notes_maximum_chars(target)
     if target <= 0 or actual <= maximum_chars:
         return
     compacted = fit_grounded_speaker_note_candidates(
@@ -3737,6 +3737,14 @@ def count_speaker_note_chars(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+def speaker_notes_minimum_chars(target: int) -> int:
+    return math.ceil(target * 0.9)
+
+
+def speaker_notes_maximum_chars(target: int) -> int:
+    return math.floor(target * 1.1)
+
+
 def normalize_structural_content_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text).casefold()
     return "".join(character for character in normalized if character.isalnum())
@@ -3785,11 +3793,11 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
             )
         target = slide_plan.target_speaker_notes_chars
         actual = count_speaker_note_chars(slide_plan.speaker_notes)
-        if target > 0 and actual < round(target * 0.9):
+        if target > 0 and actual < speaker_notes_minimum_chars(target):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
             )
-        elif target > 0 and actual > round(target * 1.1):
+        elif target > 0 and actual > speaker_notes_maximum_chars(target):
             reasons.append(
                 f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
             )
@@ -3861,11 +3869,11 @@ def repair_content_plan_with_llm(
             "currentNonWhitespaceChars": count_speaker_note_chars(
                 slide.speaker_notes
             ),
-            "minimumNonWhitespaceChars": round(
-                slide.target_speaker_notes_chars * 0.9
+            "minimumNonWhitespaceChars": speaker_notes_minimum_chars(
+                slide.target_speaker_notes_chars
             ),
-            "maximumNonWhitespaceChars": round(
-                slide.target_speaker_notes_chars * 1.1
+            "maximumNonWhitespaceChars": speaker_notes_maximum_chars(
+                slide.target_speaker_notes_chars
             ),
         }
         for slide in slide_plans
@@ -3921,7 +3929,7 @@ def repair_short_speaker_notes_with_llm(
         for slide in slide_plans
         if slide.target_speaker_notes_chars > 0
         and count_speaker_note_chars(slide.speaker_notes)
-        < round(slide.target_speaker_notes_chars * 0.9)
+        < speaker_notes_minimum_chars(slide.target_speaker_notes_chars)
     ]
     if not short_slides:
         return slide_plans
@@ -3954,11 +3962,11 @@ def repair_short_speaker_notes_with_llm(
                     "contentItems": [item.text for item in slide.content_items],
                     "currentSpeakerNotes": slide.speaker_notes,
                     "sourceRefs": source_refs,
-                    "minimumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 0.9
+                    "minimumNonWhitespaceChars": speaker_notes_minimum_chars(
+                        slide.target_speaker_notes_chars
                     ),
-                    "maximumNonWhitespaceChars": round(
-                        slide.target_speaker_notes_chars * 1.1
+                    "maximumNonWhitespaceChars": speaker_notes_maximum_chars(
+                        slide.target_speaker_notes_chars
                     ),
                 }
             )
@@ -4000,8 +4008,12 @@ def repair_short_speaker_notes_with_llm(
         repaired_by_order = {item.order: item for item in repaired.slides}
         for slide in batch:
             item = repaired_by_order[slide.order]
-            minimum_chars = round(slide.target_speaker_notes_chars * 0.9)
-            maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
+            minimum_chars = speaker_notes_minimum_chars(
+                slide.target_speaker_notes_chars
+            )
+            maximum_chars = speaker_notes_maximum_chars(
+                slide.target_speaker_notes_chars
+            )
             speaker_notes = remove_redundant_speaker_note_sentences(
                 " ".join(item.speaker_notes.split())
             )
@@ -4026,13 +4038,13 @@ def repair_short_speaker_notes_with_llm(
     for batch_start in range(0, len(short_slides), 3):
         repair_batch(short_slides[batch_start : batch_start + 3])
     for slide in short_slides:
-        if count_speaker_note_chars(slide.speaker_notes) < round(
-            slide.target_speaker_notes_chars * 0.9
-        ):
+        if count_speaker_note_chars(
+            slide.speaker_notes
+        ) < speaker_notes_minimum_chars(slide.target_speaker_notes_chars):
             repair_batch([slide])
     for slide in short_slides:
-        minimum_chars = round(slide.target_speaker_notes_chars * 0.9)
-        maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
+        minimum_chars = speaker_notes_minimum_chars(slide.target_speaker_notes_chars)
+        maximum_chars = speaker_notes_maximum_chars(slide.target_speaker_notes_chars)
         if count_speaker_note_chars(slide.speaker_notes) >= minimum_chars:
             continue
         source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
@@ -4070,13 +4082,15 @@ def repair_short_speaker_notes_with_llm(
         for slide in sorted(
             slide_plans,
             key=lambda item: (
-                round(item.target_speaker_notes_chars * 1.1)
+                speaker_notes_maximum_chars(item.target_speaker_notes_chars)
                 - count_speaker_note_chars(item.speaker_notes)
             ),
             reverse=True,
         ):
             current_chars = count_speaker_note_chars(slide.speaker_notes)
-            maximum_chars = round(slide.target_speaker_notes_chars * 1.1)
+            maximum_chars = speaker_notes_maximum_chars(
+                slide.target_speaker_notes_chars
+            )
             if current_chars >= maximum_chars:
                 continue
             source_refs = slide.source_refs or default_source_refs(
@@ -11870,7 +11884,7 @@ def validate_slide_timing_plan(
     target_chars = int(timing_plan.get("targetSpeakerNotesChars") or 0)
     actual_chars = count_speaker_note_chars(str(slide.get("speakerNotes", "")))
     if presentation_rules and target_chars > 0:
-        if actual_chars < round(target_chars * 0.9):
+        if actual_chars < speaker_notes_minimum_chars(target_chars):
             return [
                 ValidationIssue(
                     code="SPEAKER_NOTES_SHORT",
@@ -11882,7 +11896,7 @@ def validate_slide_timing_plan(
                     ),
                 )
             ]
-        if actual_chars > round(target_chars * 1.1):
+        if actual_chars > speaker_notes_maximum_chars(target_chars):
             return [
                 ValidationIssue(
                     code="SPEAKER_NOTES_DENSE",

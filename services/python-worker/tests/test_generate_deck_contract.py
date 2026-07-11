@@ -65,6 +65,8 @@ from app.ai.generate_deck import (
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
+    speaker_notes_maximum_chars,
+    speaker_notes_minimum_chars,
     speaker_note_fragments,
     text_color_for_background,
     contrast_ratio,
@@ -126,6 +128,13 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+def test_speaker_note_bounds_enforce_exact_ninety_to_one_ten_percent() -> None:
+    assert speaker_notes_minimum_chars(225) == 203
+    assert speaker_notes_maximum_chars(225) == 247
+    assert speaker_notes_minimum_chars(259) == 234
+    assert speaker_notes_maximum_chars(259) == 284
 
 
 @pytest.mark.parametrize(
