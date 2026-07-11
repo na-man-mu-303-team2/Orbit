@@ -1084,6 +1084,7 @@ describe("RehearsalWorkspace", () => {
               fillerWordCount: 0,
               pauseCount: 1,
               keywordCoverage: 0.75,
+              keywordCoverageMeasurement: { state: "measured" },
             },
           }),
         ]}
@@ -1095,6 +1096,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 18,
             pauseCount: 1,
             keywordCoverage: 0.75,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         run={runFixture("succeeded")}
@@ -1245,6 +1247,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 0,
             pauseCount: 0,
             keywordCoverage: 1,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         projectId="project-a"
@@ -1270,6 +1273,7 @@ describe("RehearsalWorkspace", () => {
             fillerWordCount: 0,
             pauseCount: 0,
             keywordCoverage: 1,
+            keywordCoverageMeasurement: { state: "measured" },
           },
         })}
         projectId="project-a"
@@ -2479,6 +2483,9 @@ function runFixture(
     deckId: "deck-a",
     audioFileId: null,
     jobId: null,
+    deckVersion: null,
+    evaluationSnapshot: null,
+    semanticEvaluationMode: "full",
     status,
     error: null,
     rawAudioDeletedAt: null,
@@ -2517,11 +2524,21 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       fillerWordCount: 2,
       pauseCount: 1,
       keywordCoverage: 0.75,
+      keywordCoverageMeasurement: { state: "measured" },
     },
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
+    utteranceOutcomes: [],
+    semanticCueDecisions: [],
+    semanticEvaluation: {
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false,
+    },
+    semanticCueOutcomes: [],
     slideTimings: [
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],

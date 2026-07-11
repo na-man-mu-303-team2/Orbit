@@ -20,7 +20,9 @@ describe("rehearsalLogCollector", () => {
       ],
       missedKeywords: [],
       adviceEvents: [],
-      utteranceOutcomes: []
+      utteranceOutcomes: [],
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     });
   });
 

@@ -60,6 +60,7 @@ function createSlide(): Slide {
       }
     ],
     elements: [],
+    semanticCues: [],
     animations: [
       {
         animationId: "anim_legacy",

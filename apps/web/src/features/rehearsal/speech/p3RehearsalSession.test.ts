@@ -134,7 +134,9 @@ describe("p3RehearsalSession", () => {
         }
       ],
       adviceEvents: [],
-      utteranceOutcomes: []
+      utteranceOutcomes: [],
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     });
     expect(JSON.stringify(meta)).not.toContain("생성형 AI 초안");
     expect(JSON.stringify(meta)).not.toContain("speakerNotes");

@@ -89,7 +89,9 @@ export function createRehearsalLogCollector(
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents],
-      utteranceOutcomes: []
+      utteranceOutcomes: [],
+      semanticCueDecisions: [],
+      semanticCapabilityEvents: []
     };
   }
 
