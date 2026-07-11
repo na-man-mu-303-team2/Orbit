@@ -48,6 +48,7 @@ import { AppSidebar } from "./components/AppSidebar";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
+import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { AiPptMockupPage } from "./features/ai-ppt/AiPptMockupPage";
 import {
   createProject,
@@ -222,6 +223,7 @@ export type Route =
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
   | { name: "focused-practice"; projectId: string; goalId: string; sourceFullRunId: string }
+  | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
@@ -528,6 +530,11 @@ export function getRoute(
     };
   }
 
+  const challengeQnaMatch = normalized.match(/^\/rehearsal\/([^/]+)\/challenge\/([^/]+)$/);
+  if (challengeQnaMatch) {
+    return { name: "challenge-qna", projectId: decodeURIComponent(challengeQnaMatch[1]), sourceFullRunId: decodeURIComponent(challengeQnaMatch[2]) };
+  }
+
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     const searchParams = new URLSearchParams(currentSearch);
@@ -612,6 +619,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal-report" &&
     route.name !== "practice-plan" &&
     route.name !== "focused-practice" &&
+    route.name !== "challenge-qna" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -682,6 +690,9 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "focused-practice") {
     return <FocusedPracticePage projectId={route.projectId} goalId={route.goalId} sourceFullRunId={route.sourceFullRunId} />;
+  }
+  if (route.name === "challenge-qna") {
+    return <ChallengeQnaPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
   }
   if (route.name === "report-project-overview") {
     return (

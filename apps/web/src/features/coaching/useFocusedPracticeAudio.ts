@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type FocusedPracticeCapture = { blob: Blob; durationMs: number };
 
-export function useFocusedPracticeAudio() {
+export function useFocusedPracticeAudio(maxDurationMs = 300_000) {
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -26,10 +26,10 @@ export function useFocusedPracticeAudio() {
       stream.current?.getTracks().forEach((track) => track.stop());
       stream.current = null;
       setRecording(false);
-      resolve({ blob, durationMs: Math.min(300_000, Math.max(1, Date.now() - startedAt.current)) });
+      resolve({ blob, durationMs: Math.min(maxDurationMs, Math.max(1, Date.now() - startedAt.current)) });
     };
     current.stop();
-  }), []);
+  }), [maxDurationMs]);
 
   const start = useCallback(async () => {
     stream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -39,8 +39,8 @@ export function useFocusedPracticeAudio() {
     next.start(); recorder.current = next; startedAt.current = Date.now(); setRecording(true);
     stopTimer.current = window.setTimeout(() => {
       void stop().then(setAutomaticCapture);
-    }, 300_000);
-  }, [stop]);
+    }, maxDurationMs);
+  }, [maxDurationMs, stop]);
   useEffect(() => () => {
     if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);
     recorder.current?.stop(); stream.current?.getTracks().forEach((track) => track.stop()); chunks.current = [];

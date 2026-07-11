@@ -98,6 +98,9 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
               <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`}>
                 <Clock3 aria-hidden="true" size={16} /> 전체 리허설로 확인
               </a>
+              <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
+                <Mic2 aria-hidden="true" size={16} /> 도전 질문 3개 연습
+              </a>
             </article>
           </div>
         </section>
