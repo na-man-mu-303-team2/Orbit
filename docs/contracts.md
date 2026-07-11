@@ -305,6 +305,14 @@ API:
 - `sourceRefs`: 최대 16개의 `{ kind, refId?, sourceHash }`
 - `qualityWarnings`: 최대 12개의 80자 이하 warning
 
+의미 판정 보조 필드는 다음 책임을 가진다.
+
+- `candidateKeywords`: cue 후보 검색을 위한 1~4개의 구별력 있는 표면 표현이며, 단독으로 의미 전달 완료를 증명하지 않는다.
+- `aliases`: 하나의 canonical term에 대한 발음, 약어, 번역, STT 변형의 any-of 그룹이다. 기술 용어, 코드 식별자, 약어, 영문 용어는 대체 표현이 있으면 반드시 같은 그룹에 둔다.
+- `requiredConcepts`: 발표자가 모두 전달해야 하는 1~4개의 중복 없는 canonical concept이다. 번역어나 약어를 별도 concept으로 중복 저장하지 않는다.
+- `nliHypotheses`: 같은 cue 전체를 동등하게 표현하는 1~3개의 발표자 중심 문장이다. 각 문장은 모든 required concept과 그 관계를 독립적으로 포함해야 하며 cue 일부를 hypothesis별로 나누지 않는다.
+- `negativeHints`: cue의 핵심 관계를 뒤집거나 대체하는 0~3개의 완전한 hard-negative 문장이다. live pairwise NLI와 post-run semantic evaluator의 close false-positive 방지 문맥으로 사용하며, 단순 단어 조각이나 관련 없는 주제를 저장하지 않는다.
+
 `sourceRefs[].kind`는 `slide-title | speaker-notes | element | table | chart | image-analysis`이며 `sourceHash`는 8~128자다. source text는 NFC 정규화, 연속 공백 축소, trim 후 SHA-256을 계산한다. `sourceFingerprint`는 정렬된 `(kind, refId, sourceHash)` 목록과 cue type, normalized required concept의 stable JSON SHA-256이다.
 
 legacy cue는 parse 시 `suggested/current/imported/revision=1`로 정규화한다. 기존 `required=true`만으로 `approved`로 승격하지 않으며 승인 전 최종 coverage 분모에 포함하지 않는다. 검토 UI 저장 시 호환값은 `core → required=true, priority=1`, `supporting → required=false, priority=2`, `optional → required=false, priority=3`으로 함께 기록한다. 표시 label fallback은 `reportLabel ?? meaning`, presenter tag fallback은 `presenterTag ?? reportLabel ?? meaning`이며 AI 분석 결과가 아닌 UI 표시 fallback이다.

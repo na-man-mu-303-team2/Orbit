@@ -2978,6 +2978,60 @@
   line-height: 1.5;
 }
 
+.semantic-cue-extraction-action {
+  display: grid;
+  gap: 7px;
+}
+
+.semantic-cue-extract-button {
+  min-height: 38px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.semantic-cue-extract-button:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.semantic-cue-extract-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.semantic-cue-extract-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.semantic-cue-extraction-action > small {
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.semantic-cue-extraction-status {
+  margin: 0;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 8px 9px;
+}
+
+.semantic-cue-extraction-status--succeeded {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.semantic-cue-extraction-status--error {
+  background: #fff1f2;
+  color: #be123c;
+}
+
 .semantic-cue-review-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

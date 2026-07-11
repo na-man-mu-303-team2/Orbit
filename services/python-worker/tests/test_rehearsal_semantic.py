@@ -91,6 +91,9 @@ def test_semantic_grader_produces_full_canonical_outcome() -> None:
                         "scue_semantic",
                         "slide_1",
                         required_concepts=["반복 업무 자동화"],
+                        negative_hints=[
+                            "발표자는 반복 업무를 계속 사람이 처리한다고 설명했다"
+                        ],
                     )
                 ],
             )
@@ -108,6 +111,9 @@ def test_semantic_grader_produces_full_canonical_outcome() -> None:
     response = analyze_semantic_cues(request, grader=grader)
 
     assert len(grader.inputs) == 1
+    assert grader.inputs[0].negative_hints == [
+        "발표자는 반복 업무를 계속 사람이 처리한다고 설명했다"
+    ]
     outcome = response.semantic_cue_outcomes[0]
     assert outcome.status == "covered"
     assert outcome.matched_by == "post_run_semantic"
@@ -329,6 +335,7 @@ def test_empty_provider_output_is_provider_unavailable() -> None:
         meaning="핵심 의미",
         required_concepts=["핵심 원인"],
         hypotheses=["발표자는 핵심 원인을 설명했다"],
+        negative_hints=["발표자는 핵심 원인이 없다고 설명했다"],
         segments=[
             AnalyzeSemanticCuesRequest.model_validate(
                 semantic_payload(
@@ -434,6 +441,7 @@ def snapshot_cue(
     *,
     required_concepts: list[str] | None = None,
     aliases: dict[str, list[str]] | None = None,
+    negative_hints: list[str] | None = None,
     review_status: str = "approved",
     freshness: str = "current",
 ) -> dict[str, Any]:
@@ -455,7 +463,7 @@ def snapshot_cue(
         "aliases": aliases or {},
         "requiredConcepts": required_concepts or ["핵심 원인"],
         "nliHypotheses": ["발표자는 핵심 원인을 설명했다"],
-        "negativeHints": [],
+        "negativeHints": negative_hints or [],
         "targetElementIds": [],
         "triggerActionIds": [],
     }

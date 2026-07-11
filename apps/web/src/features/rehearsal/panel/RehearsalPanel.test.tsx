@@ -76,6 +76,64 @@ describe("RehearsalPanel", () => {
     expect(html).not.toContain("AI 코칭");
   });
 
+  it("현재 슬라이드의 승인된 핵심 메시지 전달 상태를 표시한다", () => {
+    const html = renderPanel({
+      semanticCueItems: [
+        {
+          cueId: "scue_covered",
+          slideId: "slide_1",
+          label: "고객 획득 비용의 원인",
+          importance: "core",
+          status: "covered",
+          measurementMode: "basic",
+          matchedBy: "lexical"
+        },
+        {
+          cueId: "scue_waiting",
+          slideId: "slide_1",
+          label: "개선 방안",
+          importance: "core",
+          status: "waiting",
+          measurementMode: "none"
+        }
+      ]
+    });
+
+    expect(html).toContain("핵심 메시지");
+    expect(html).toContain("1/2");
+    expect(html).toContain("고객 획득 비용의 원인");
+    expect(html).toContain("전달됨");
+    expect(html).toContain("개선 방안");
+    expect(html).toContain("확인 대기");
+    expect(html).not.toContain("lexical");
+  });
+
+  it("핵심 메시지가 없으면 빈 체크리스트를 렌더링하지 않는다", () => {
+    const html = renderPanel({ semanticCueItems: [] });
+
+    expect(html).not.toContain("핵심 메시지");
+  });
+
+  it("보조 메시지만 있으면 0/0 핵심 메시지 대신 발표 메시지로 표시한다", () => {
+    const html = renderPanel({
+      semanticCueItems: [
+        {
+          cueId: "scue_supporting",
+          slideId: "slide_1",
+          label: "보조 근거",
+          importance: "supporting",
+          status: "needs-review",
+          measurementMode: "basic"
+        }
+      ]
+    });
+
+    expect(html).toContain("발표 메시지");
+    expect(html).toContain("0/1");
+    expect(html).toContain("검토 필요");
+    expect(html).not.toContain("0/0");
+  });
+
   it("marks the script region as auto-following by default", () => {
     const html = renderPanel();
 
@@ -208,6 +266,7 @@ function renderPanel(
     sentences?: ExtractedSentence[];
     snapshot?: SpeechTrackerSnapshot;
     semanticCapabilityItems?: import("./semanticCapabilityStatusModel").SemanticCapabilityStatusItem[];
+    semanticCueItems?: import("../speech/p3RehearsalSession").P3SemanticCueProgressItem[];
     comparisonReminder?: import("../rehearsalRunComparisonModel").ComparisonReminder;
   } = {}
 ) {
@@ -225,6 +284,7 @@ function renderPanel(
       speakerNotes={overrides.speakerNotes}
       snapshot={overrides.snapshot ?? snapshot}
       semanticCapabilityItems={overrides.semanticCapabilityItems}
+      semanticCueItems={overrides.semanticCueItems}
       comparisonReminder={overrides.comparisonReminder}
     />
   );

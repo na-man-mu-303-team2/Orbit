@@ -210,6 +210,54 @@ describe("SemanticCueReviewPanel", () => {
     expect(html).toContain("직접 메시지 추가");
   });
 
+  it("AI 추출 버튼으로 비어 있는 덱과 기존 덱을 구분해 요청한다", () => {
+    const emptySlide = createDemoDeck().slides[0];
+    emptySlide.semanticCues = [];
+    const onExtract = vi.fn();
+    const emptyTree = SemanticCueReviewPanel({
+      extractionState: { status: "idle", message: "" },
+      onChange: vi.fn(),
+      onExtract,
+      slide: emptySlide
+    });
+    const emptyButton = flattenElements(emptyTree).find(
+      (element) => element.props.className === "semantic-cue-extract-button"
+    );
+    expect(emptyButton?.props.children).toBe("AI로 발표 메시지 만들기");
+    (emptyButton?.props.onClick as (() => void) | undefined)?.();
+    expect(onExtract).toHaveBeenLastCalledWith(false);
+
+    const populatedSlide = createDemoDeck().slides[0];
+    populatedSlide.semanticCues = [cue("scue_existing")];
+    const populatedTree = SemanticCueReviewPanel({
+      extractionState: { status: "idle", message: "" },
+      onChange: vi.fn(),
+      onExtract,
+      slide: populatedSlide
+    });
+    const populatedButton = flattenElements(populatedTree).find(
+      (element) => element.props.className === "semantic-cue-extract-button"
+    );
+    expect(populatedButton?.props.children).toBe("AI로 전체 덱 다시 분석");
+    (populatedButton?.props.onClick as (() => void) | undefined)?.();
+    expect(onExtract).toHaveBeenLastCalledWith(true);
+  });
+
+  it("AI 추출 중에는 중복 실행을 막고 진행 상태를 알린다", () => {
+    const slide = createDemoDeck().slides[0];
+    const html = renderToString(
+      <SemanticCueReviewPanel
+        extractionState={{ status: "running", message: "의미 분석 중..." }}
+        onChange={vi.fn()}
+        onExtract={vi.fn()}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("의미 분석 중...");
+    expect(html).toContain("disabled");
+  });
+
   it("remounts the wording input when undo restores another cue revision", () => {
     const slide = createDemoDeck().slides[0];
     slide.semanticCues = [cue("scue_undo")];

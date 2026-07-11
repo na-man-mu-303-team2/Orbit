@@ -335,10 +335,10 @@ def _semantic_cues_from_llm(
 
     for cue in generated_cues:
         candidate_keywords = _compact_meaningful_phrases(
-            cue.candidate_keywords, max_items=6, max_length=80
+            cue.candidate_keywords, max_items=4, max_length=80
         )
         required_concepts = _compact_meaningful_phrases(
-            cue.required_concepts, max_items=8, max_length=80
+            cue.required_concepts, max_items=4, max_length=80
         )
         meaning = cue.meaning.strip()[:240]
         nli_hypotheses = _compact_texts(
@@ -364,6 +364,9 @@ def _semantic_cues_from_llm(
             )
             if key and values and _is_meaningful_phrase(key, max_length=80)
         }
+        negative_hints = _compact_texts(
+            cue.negative_hints, max_items=3, max_length=160
+        )
         target_element_ids = [
             element_id
             for element_id in _compact_texts(
@@ -384,7 +387,9 @@ def _semantic_cues_from_llm(
             meaning=meaning,
             candidate_keywords=candidate_keywords,
             aliases=aliases,
+            required_concepts=required_concepts,
             hypotheses=nli_hypotheses,
+            negative_hints=negative_hints,
             has_source_refs=bool(source_refs),
             image_source_unverified=image_source_unverified,
         )
@@ -409,9 +414,7 @@ def _semantic_cues_from_llm(
                 aliases=aliases,
                 requiredConcepts=required_concepts,
                 nliHypotheses=nli_hypotheses,
-                negativeHints=_compact_texts(
-                    cue.negative_hints, max_items=5, max_length=160
-                ),
+                negativeHints=negative_hints,
                 targetElementIds=target_element_ids,
                 triggerActionIds=[
                     action_id

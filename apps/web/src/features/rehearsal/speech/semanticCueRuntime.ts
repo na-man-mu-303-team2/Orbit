@@ -284,12 +284,18 @@ export function createSemanticCueRuntime(options: {
 
       lastNliRunAtMs = input.nowMs;
       const hypotheses = ambiguousCandidates.flatMap((candidate) =>
-        candidate.cue.nliHypotheses
-          .slice(0, config.maxHypothesesPerCue)
-          .map((hypothesis) => ({
-            cueId: candidate.cue.cueId,
+        [
+          ...candidate.cue.nliHypotheses
+            .slice(0, config.maxHypothesesPerCue)
+            .map((hypothesis) => ({
+              cueId: candidate.cue.cueId,
+              hypothesis: boundNliText(hypothesis, 300)
+            })),
+          ...candidate.cue.negativeHints.slice(0, 1).map((hypothesis, index) => ({
+            cueId: negativeHypothesisCueId(candidate.cue.cueId, index),
             hypothesis: boundNliText(hypothesis, 300)
           }))
+        ].filter((item) => item.hypothesis.length > 0)
       );
       const premise = boundNliTokens(stableWindow, config.maxNliTokens);
 
@@ -362,19 +368,33 @@ export function createSemanticCueRuntime(options: {
         if (!best) {
           return [];
         }
+        const negative = nliDecisions
+          .filter((decision) =>
+            isNegativeHypothesisCueId(decision.cueId, candidate.cue.cueId)
+          )
+          .sort((left, right) => right.entailmentScore - left.entailmentScore)[0];
+        const nliEvidence = negative
+          ? {
+              ...best,
+              contradictionScore: Math.max(
+                best.contradictionScore,
+                negative.entailmentScore
+              )
+            }
+          : best;
         const combination = combineSemanticCueScore(
           {
             lexicalScore: candidate.lexicalScore,
             conceptCoverage: candidate.conceptCoverage,
             embeddingScore: candidate.retrievalScore,
-            nli: best
+            nli: nliEvidence
           },
           combinerConfig
         );
         const evidence = buildSemanticCueReportEvidence({
           slideId: input.slideId,
           candidate,
-          nliDecision: best,
+          nliDecision: nliEvidence,
           combination,
           premise,
           at: new Date(now()).toISOString()
@@ -561,6 +581,14 @@ function boundNliTokens(value: string, maxTokens: number) {
 
 function boundNliText(value: string, maxLength: number) {
   return normalizeBoundedText(value, maxLength);
+}
+
+function negativeHypothesisCueId(cueId: string, index: number) {
+  return `${cueId}::negative::${index}`;
+}
+
+function isNegativeHypothesisCueId(value: string, cueId: string) {
+  return value.startsWith(`${cueId}::negative::`);
 }
 
 function resultWithoutDecision(

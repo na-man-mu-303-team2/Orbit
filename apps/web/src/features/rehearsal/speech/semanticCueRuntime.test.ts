@@ -237,6 +237,53 @@ describe("semanticCueRuntime fallback", () => {
     );
   });
 
+  it("hard-negative 문장이 발화에 부합하면 positive hypothesis가 높아도 covered로 판정하지 않는다", async () => {
+    const evaluate = vi.fn(
+      async (input: Parameters<SemanticCueNliProvider["evaluate"]>[0]) =>
+        input.hypotheses.map((hypothesis) => ({
+          ...hypothesis,
+          entailmentScore: hypothesis.hypothesis.includes("실제 CALL")
+            ? 0.93
+            : 0.91,
+          neutralScore: 0.05,
+          contradictionScore: 0.04,
+          provider: "mock" as const
+        }))
+    );
+    const runtime = createSemanticCueRuntime({
+      enabled: true,
+      provider: {
+        load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
+        evaluate
+      },
+      embeddingIndex: embeddingIndex(new Map([["scue_1", 0.9]]))
+    });
+
+    const result = await runtime.evaluateFinalResult(
+      runtimeInput({
+        cues: [
+          cue({
+            nliHypotheses: [
+              "발표자는 가짜 복귀 주소가 스택 프레임 규격을 유지한다고 설명했다"
+            ],
+            negativeHints: [
+              "발표자는 가짜 복귀 주소가 실제 CALL 명령이 저장한 주소라고 설명했다"
+            ]
+          })
+        ]
+      })
+    );
+
+    expect(evaluate.mock.calls[0]?.[0].hypotheses).toHaveLength(2);
+    expect(result.decisions).toEqual([
+      expect.objectContaining({
+        cueId: "scue_1",
+        label: "contradicted",
+        reasonCodes: ["nli-contradiction"]
+      })
+    ]);
+  });
+
   it("shadow NLI 결과는 debug에만 남기고 cue decision이나 action 근거로 사용하지 않는다", async () => {
     const provider: SemanticCueNliProvider = {
       load: vi.fn(async () => ({ provider: "mock" as const, status: "ready" as const })),
