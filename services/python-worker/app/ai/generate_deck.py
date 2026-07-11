@@ -12253,13 +12253,8 @@ def estimated_text_content_height(
     font_size = float(props.get("fontSize", 24))
     line_height = float(props.get("lineHeight", 1.2))
     width = max(1.0, float(element.get("width", 1)) - width_padding)
-    average_character_width = max(
-        1.0,
-        font_size * 0.56 * font_width_factor_from_element(element),
-    )
-    characters_per_line = max(1, int(width / average_character_width))
     estimated_lines = sum(
-        max(1, (len(line) + characters_per_line - 1) // characters_per_line)
+        max(1, math.ceil(estimated_single_line_text_width(element, line) / width))
         for line in text.splitlines() or [text]
     )
     return estimated_lines * font_size * line_height
@@ -12275,13 +12270,20 @@ def is_text_editor_overflow_risk(element: dict[str, Any]) -> bool:
     return estimated_text_content_height(element, width_padding=8) > max(1, height - 8)
 
 
-def estimated_single_line_text_width(element: dict[str, Any]) -> float:
+def estimated_single_line_text_width(
+    element: dict[str, Any],
+    text: str | None = None,
+) -> float:
     props = element.get("props", {})
-    text = re.sub(r"\s+", " ", str(props.get("text", ""))).strip()
+    normalized_text = re.sub(
+        r"\s+",
+        " ",
+        str(props.get("text", "") if text is None else text),
+    ).strip()
     font_size = float(props.get("fontSize", 24))
     width_factor = font_width_factor_from_element(element)
     width = 0.0
-    for character in text:
+    for character in normalized_text:
         if character.isspace():
             width += font_size * 0.33
         elif re.match(r"[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af]", character):

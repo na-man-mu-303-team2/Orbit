@@ -164,6 +164,26 @@ def test_worker_detects_editor_short_label_width_risk() -> None:
     assert not is_short_label_text_box_too_narrow(label)
 
 
+def test_worker_uses_cjk_width_for_editor_overflow_parity() -> None:
+    element = {
+        "elementId": "el_2_process_vertical_text_1",
+        "type": "text",
+        "role": "body",
+        "x": 1098,
+        "y": 308,
+        "width": 486,
+        "height": 46,
+        "props": {
+            "text": "문제 정의 → 가설 설정 → 테스트 → 결과 분석 → 개선 반복",
+            "fontSize": 21,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.2,
+        },
+    }
+
+    assert is_text_overflowing(element)
+
+
 @pytest.mark.parametrize(
     ("request_patch", "expected"),
     [
