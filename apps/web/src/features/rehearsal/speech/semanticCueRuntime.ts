@@ -205,7 +205,12 @@ export function createSemanticCueRuntime(options: {
         .filter(
           (candidate) =>
             candidate.selectedForNli &&
-            !basicDecisions.some((decision) => decision.cueId === candidate.cue.cueId)
+            (hasUsableNegativeHint(candidate.cue) ||
+              !basicDecisions.some(
+                (decision) =>
+                  decision.cueId === candidate.cue.cueId &&
+                  decision.label === "covered"
+              ))
         )
         .slice(0, config.maxNliCandidates);
       const providerFailure = getProviderFailure(options.enabled, options.provider);
@@ -284,12 +289,21 @@ export function createSemanticCueRuntime(options: {
 
       lastNliRunAtMs = input.nowMs;
       const hypotheses = ambiguousCandidates.flatMap((candidate) =>
-        candidate.cue.nliHypotheses
-          .slice(0, config.maxHypothesesPerCue)
-          .map((hypothesis) => ({
-            cueId: candidate.cue.cueId,
-            hypothesis: boundNliText(hypothesis, 300)
-          }))
+        [
+          ...candidate.cue.nliHypotheses
+            .slice(0, config.maxHypothesesPerCue)
+            .map((hypothesis) => ({
+              cueId: candidate.cue.cueId,
+              hypothesis: boundNliText(hypothesis, 300)
+            })),
+          ...candidate.cue.negativeHints
+            .filter((hypothesis) => isUsableNegativeHint(candidate.cue, hypothesis))
+            .slice(0, 1)
+            .map((hypothesis, index) => ({
+              cueId: negativeHypothesisCueId(candidate.cue.cueId, index),
+              hypothesis: boundNliText(hypothesis, 300)
+            }))
+        ].filter((item) => item.hypothesis.length > 0)
       );
       const premise = boundNliTokens(stableWindow, config.maxNliTokens);
 
@@ -362,19 +376,33 @@ export function createSemanticCueRuntime(options: {
         if (!best) {
           return [];
         }
+        const negative = nliDecisions
+          .filter((decision) =>
+            isNegativeHypothesisCueId(decision.cueId, candidate.cue.cueId)
+          )
+          .sort((left, right) => right.entailmentScore - left.entailmentScore)[0];
+        const nliEvidence = negative
+          ? {
+              ...best,
+              contradictionScore: Math.max(
+                best.contradictionScore,
+                negative.entailmentScore
+              )
+            }
+          : best;
         const combination = combineSemanticCueScore(
           {
             lexicalScore: candidate.lexicalScore,
             conceptCoverage: candidate.conceptCoverage,
             embeddingScore: candidate.retrievalScore,
-            nli: best
+            nli: nliEvidence
           },
           combinerConfig
         );
         const evidence = buildSemanticCueReportEvidence({
           slideId: input.slideId,
           candidate,
-          nliDecision: best,
+          nliDecision: nliEvidence,
           combination,
           premise,
           at: new Date(now()).toISOString()
@@ -408,7 +436,15 @@ export function createSemanticCueRuntime(options: {
       const decisions =
         options.nliMode === "shadow"
           ? basicDecisions
-          : [...basicDecisions, ...fullDecisions];
+          : [
+              ...basicDecisions.filter(
+                (decision) =>
+                  !fullDecisions.some(
+                    (fullDecision) => fullDecision.cueId === decision.cueId
+                  )
+              ),
+              ...fullDecisions
+            ];
       const firstDecision = decisions[0];
       return buildResult({
         input,
@@ -448,12 +484,18 @@ function buildBasicDecision(
     candidate.conceptCoverage === 1 &&
     (candidate.retrievalScore >= config.basicCoveredRetrieval ||
       candidate.lexicalScore >= config.candidateEligibility.lexical);
-  const covered = meaningMatched || (aliasMatched && candidate.conceptCoverage === 1) || strongConceptEvidence;
+  const deterministicCovered =
+    meaningMatched ||
+    (aliasMatched && candidate.conceptCoverage === 1) ||
+    strongConceptEvidence;
+  const needsRelationshipValidation = hasUsableNegativeHint(candidate.cue);
+  const covered = deterministicCovered && !needsRelationshipValidation;
   const partial =
     !covered &&
-    candidate.score >= config.basicPartialScore &&
-    (candidate.lexicalScore >= config.candidateEligibility.lexical ||
-      candidate.conceptCoverage >= config.basicPartialConceptCoverage);
+    (deterministicCovered ||
+      (candidate.score >= config.basicPartialScore &&
+        (candidate.lexicalScore >= config.candidateEligibility.lexical ||
+          candidate.conceptCoverage >= config.basicPartialConceptCoverage)));
   if (!covered && !partial) {
     return null;
   }
@@ -562,6 +604,72 @@ function boundNliTokens(value: string, maxTokens: number) {
 function boundNliText(value: string, maxLength: number) {
   return normalizeBoundedText(value, maxLength);
 }
+
+function negativeHypothesisCueId(cueId: string, index: number) {
+  return `${cueId}::negative::${index}`;
+}
+
+function isNegativeHypothesisCueId(value: string, cueId: string) {
+  return value.startsWith(`${cueId}::negative::`);
+}
+
+function hasUsableNegativeHint(cue: SemanticCue) {
+  return cue.negativeHints.some((hint) => isUsableNegativeHint(cue, hint));
+}
+
+function isUsableNegativeHint(cue: SemanticCue, hint: string) {
+  const normalizedHint = normalizeNegativeHintText(hint);
+  if (!normalizedHint) {
+    return false;
+  }
+  const cueTokens = Array.from(
+    new Set(
+      [
+        ...cue.candidateKeywords,
+        ...cue.requiredConcepts,
+        ...cue.nliHypotheses,
+        ...Object.keys(cue.aliases)
+      ]
+        .flatMap((value) =>
+          normalizeNegativeHintText(value).match(
+            /[a-z0-9*_-]{2,}|[가-힣]{2,}/g
+          ) ?? []
+        )
+        .filter((token) => !weakNegativeGenericTokens.has(token))
+    )
+  );
+  const overlaps = cueTokens.filter((token) => normalizedHint.includes(token));
+  return (
+    overlaps.some((token) => /[a-z0-9*_-]/.test(token)) || overlaps.length >= 2
+  );
+}
+
+function normalizeNegativeHintText(value: string) {
+  return value
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("ko-KR");
+}
+
+const weakNegativeGenericTokens = new Set([
+  "과제",
+  "과정",
+  "내용",
+  "다른",
+  "말했다",
+  "문제",
+  "발표자가",
+  "발표자는",
+  "설명했다",
+  "언급했다",
+  "이번",
+  "이야기",
+  "주제",
+  "진행",
+  "프로젝트",
+  "공유"
+]);
 
 function resultWithoutDecision(
   options: Omit<Parameters<typeof buildResult>[0], "decisions">
