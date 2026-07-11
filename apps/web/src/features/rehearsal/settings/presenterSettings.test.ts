@@ -69,6 +69,7 @@ describe("presenterSettings", () => {
           rehearsal: false,
           live: true,
           pauseMs: 900,
+          semanticMatching: true,
           threshold: 0.99
         },
         paceAdvice: {
@@ -102,6 +103,7 @@ describe("presenterSettings", () => {
         rehearsal: false,
         live: true,
         pauseMs: 900,
+        semanticMatching: true,
         threshold: 0.95
       },
       paceAdvice: {

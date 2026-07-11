@@ -25,6 +25,7 @@ import { CreateTemplateBlueprints2026070301000 } from "./migrations/202607030100
 import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/2026070801000-CreateProjectRehearsalSummaries";
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 import { CreateDesignAgentTables2026071101000 } from "./migrations/2026071101000-CreateDesignAgentTables";
+import { AddRehearsalEvaluationSnapshot2026071001000 } from "./migrations/2026071001000-AddRehearsalEvaluationSnapshot";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -61,6 +62,7 @@ export const databaseOptions: DataSourceOptions = {
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
     ReplaceRehearsalSummaryWithProjectComment2026070802000,
+    AddRehearsalEvaluationSnapshot2026071001000,
     CreateDesignAgentTables2026071101000
   ],
   migrationsTableName: "typeorm_migrations",

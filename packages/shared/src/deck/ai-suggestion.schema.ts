@@ -230,6 +230,7 @@ function getSuggestionOperationSlideId(
     case "delete_element":
     case "update_speaker_notes":
     case "replace_keywords":
+    case "replace_semantic_cues":
     case "add_animation":
     case "update_animation":
     case "delete_animation":

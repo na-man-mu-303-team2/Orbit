@@ -10,6 +10,7 @@ import {
   type DeckSnapshotReason,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import type { PinoLogger } from "nestjs-pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DecksService } from "./decks.service";
 
@@ -282,7 +283,8 @@ function createService() {
 
 function createJob(
   jobId = "job_sync_1",
-  type: "pptx-ooxml-sync" | "deck-export" = "pptx-ooxml-sync",
+  type: "pptx-ooxml-sync" | "deck-export" | "semantic-cue-extraction" =
+    "pptx-ooxml-sync",
 ) {
   return jobSchema.parse({
     jobId,
@@ -296,6 +298,13 @@ function createJob(
     createdAt: "2026-07-03T00:00:00.000Z",
     updatedAt: "2026-07-03T00:00:00.000Z",
   });
+}
+
+function createLogger() {
+  return {
+    info: vi.fn(),
+    error: vi.fn(),
+  } as unknown as PinoLogger;
 }
 
 function stubOrbitEnv() {
@@ -930,6 +939,88 @@ describe("DecksService", () => {
     expect(response.ooxmlSyncJob).toBeUndefined();
     expect(response.deck.version).toBe(2);
     expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueSyncJob).not.toHaveBeenCalled();
+  });
+
+  it("creates and enqueues a semantic cue extraction preparation job", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const semanticCueJob = createJob(
+      "job_semantic_cues_1",
+      "semantic-cue-extraction",
+    );
+    const jobsService = {
+      create: vi.fn(async () => semanticCueJob),
+      update: vi.fn(),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const enqueueSemanticCueJob = vi.fn(async () => undefined);
+    const logger = createLogger();
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+      undefined,
+      enqueueSemanticCueJob,
+      logger,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    await service.appendPatch(deck.projectId, {
+      patch: createUpdateTitlePatch(deck, "enqueue 직전 편집"),
+    });
+    expect(dataSource.patchRows).toHaveLength(1);
+    const response = await service.createSemanticCueExtractionJob(deck.projectId, {
+      force: true,
+    });
+
+    expect(response.job.jobId).toBe(semanticCueJob.jobId);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "semantic-cue-extraction",
+      payload: {
+        request: {
+          deckId: deck.deckId,
+          force: true,
+          baseVersion: 2,
+        },
+      },
+    });
+    expect(enqueueSemanticCueJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driver: "bullmq",
+        redisUrl: "redis://localhost:6379",
+        jobId: semanticCueJob.jobId,
+        projectId: deck.projectId,
+        request: {
+          deckId: deck.deckId,
+          force: true,
+          baseVersion: 2,
+        },
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "semantic_cue.extraction.queued",
+        jobId: semanticCueJob.jobId,
+        projectId: deck.projectId,
+        deckId: deck.deckId,
+        deckVersion: 2,
+      }),
+      "Semantic cue extraction job enqueued.",
+    );
+    expect(dataSource.patchRows).toEqual([]);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({
+      version: 2,
+      deck_json: expect.objectContaining({ title: "enqueue 직전 편집", version: 2 }),
+    });
+    expect(
+      dataSource.executedQueries.some(
+        (query) =>
+          query.includes("FROM deck_patches") && query.includes("FOR UPDATE"),
+      ),
+    ).toBe(true);
     expect(enqueueSyncJob).not.toHaveBeenCalled();
   });
 

@@ -59,6 +59,7 @@ import {
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -202,6 +203,7 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "presentation"; projectId: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -297,6 +299,9 @@ const reportMockupRun: RehearsalRun = {
   deckId: demoIds.deckId,
   audioFileId: "file_report_mockup_audio",
   jobId: "job_report_mockup_stt",
+  deckVersion: null,
+  evaluationSnapshot: null,
+  semanticEvaluationMode: "full",
   status: "succeeded",
   error: null,
   rawAudioDeletedAt: null,
@@ -315,7 +320,8 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
+    keywordCoverageMeasurement: { state: "measured" }
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
@@ -325,6 +331,15 @@ const reportMockupReport: RehearsalReport = {
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  utteranceOutcomes: [],
+  semanticCueDecisions: [],
+  semanticEvaluation: {
+    state: "unavailable",
+    measurementMode: "none",
+    reasons: ["evaluation_not_run"],
+    retryable: false
+  },
+  semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {
@@ -455,6 +470,14 @@ export function getRoute(
     };
   }
 
+  const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
+  if (presentationMatch) {
+    return {
+      name: "presentation",
+      projectId: decodeURIComponent(presentationMatch[1])
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
@@ -549,6 +572,7 @@ export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
     route.name !== "project-editor" &&
+    route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
@@ -576,6 +600,14 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "presentation") {
+    return (
+      <PresentationWorkspace
+        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        projectId={route.projectId}
+      />
+    );
   }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;

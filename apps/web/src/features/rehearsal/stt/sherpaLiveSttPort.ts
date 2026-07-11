@@ -158,6 +158,10 @@ function toSherpaBiasSource(
   source: ReturnType<typeof normalizeLiveSttBiasPhrases>[number]["source"]
 ): LiveSttBiasContext["terms"][number]["source"] {
   switch (source) {
+    case "semantic-cue-term":
+      return "keyword";
+    case "semantic-cue-alias":
+      return "synonym";
     case "keyword":
     case "synonym":
     case "abbreviation":

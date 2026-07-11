@@ -6,15 +6,79 @@ import {
   assetUploadUrlResponseSchema
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
-import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
+import {
+  deckKeywordIdSchema,
+  deckSemanticCueIdSchema,
+  deckSlideIdSchema
+} from "../deck/id.schema";
+import { keywordSchema } from "../deck/deck.schema";
+import {
+  semanticCueImportanceSchema,
+  semanticCueSchema
+} from "../deck/semantic-cue.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
   "uploading",
   "processing",
   "succeeded",
-  "failed"
+  "failed",
+  "cancelled"
 ]);
+
+export const rehearsalSemanticEvaluationModeSchema = z.enum([
+  "full",
+  "delivery-only"
+]);
+
+export const rehearsalEvaluationSnapshotKeywordSchema = keywordSchema
+  .pick({
+    keywordId: true,
+    text: true,
+    synonyms: true,
+    abbreviations: true,
+    required: true
+  })
+  .strict();
+
+export const rehearsalEvaluationSnapshotSlideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: z.number().int().positive(),
+    title: z.string().trim().min(1).max(240),
+    estimatedSeconds: z.number().int().positive(),
+    keywords: z.array(rehearsalEvaluationSnapshotKeywordSchema),
+    semanticCues: z.array(semanticCueSchema)
+  })
+  .strict()
+  .superRefine((slide, context) => {
+    slide.semanticCues.forEach((cue, cueIndex) => {
+      if (cue.slideId !== slide.slideId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must reference its containing slide.",
+          path: ["semanticCues", cueIndex, "slideId"]
+        });
+      }
+
+      if (cue.reviewStatus !== "approved" && cue.reviewStatus !== "excluded") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must be approved or excluded.",
+          path: ["semanticCues", cueIndex, "reviewStatus"]
+        });
+      }
+    });
+  });
+
+export const rehearsalEvaluationSnapshotSchema = z
+  .object({
+    deckId: z.string().trim().min(1),
+    deckVersion: z.number().int().positive(),
+    capturedAt: isoDateTimeSchema,
+    slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
+  })
+  .strict();
 
 export const rehearsalRunErrorSchema = z.object({
   code: z.string().min(1),
@@ -28,6 +92,9 @@ export const rehearsalRunSchema = z.object({
   audioFileId: z.string().min(1).nullable(),
   jobId: z.string().min(1).nullable(),
   status: rehearsalRunStatusSchema,
+  deckVersion: z.number().int().positive().nullable().default(null),
+  evaluationSnapshot: rehearsalEvaluationSnapshotSchema.nullable().default(null),
+  semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full"),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
@@ -39,7 +106,16 @@ export const rehearsalReportMetricsSchema = z.object({
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
-  keywordCoverage: z.number().min(0).max(1)
+  keywordCoverage: z.number().min(0).max(1),
+  keywordCoverageMeasurement: z
+    .object({
+      state: z.enum(["measured", "unmeasured"]),
+      reason: z
+        .enum(["no-keywords", "stt-unavailable", "transcript-incomplete"])
+        .optional()
+    })
+    .strict()
+    .default({ state: "measured" })
 }).strict();
 
 export const rehearsalReportSpeedSampleSchema = z
@@ -120,6 +196,268 @@ export const rehearsalReportCoachingSchema = z.object({
   message: z.string().default("")
 });
 
+export const rehearsalUtteranceOutcomeKindSchema = z.enum([
+  "covered",
+  "paraphrased",
+  "ad-lib",
+  "missed"
+]);
+
+export const rehearsalUtteranceOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    kind: rehearsalUtteranceOutcomeKindSchema,
+    sentenceId: z.string().trim().min(1).optional(),
+    text: z.string().trim().min(1).max(600).optional(),
+    similarity: z.number().min(-1).max(1).optional(),
+    lexicalOverlap: z.number().min(0).max(1).optional(),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict();
+
+export const semanticCueDecisionLabelSchema = z.enum([
+  "covered",
+  "partial",
+  "not_covered",
+  "contradicted"
+]);
+
+export const semanticCueNliProviderSchema = z.enum([
+  "browser-transformersjs",
+  "browser-onnx",
+  "mock"
+]);
+
+export const semanticCapabilitySchema = z.enum([
+  "stt",
+  "semantic_runtime",
+  "embedding",
+  "nli",
+  "server_evaluation",
+  "cue_freshness",
+  "transcript_evidence"
+]);
+
+export const semanticCapabilityStateSchema = z.enum([
+  "available",
+  "degraded",
+  "unavailable"
+]);
+
+export const semanticMeasurementModeSchema = z.enum(["full", "basic", "none"]);
+
+export const semanticFallbackReasonSchema = z.enum([
+  "user_disabled",
+  "permission_denied",
+  "stt_unavailable",
+  "network_error",
+  "provider_unavailable",
+  "model_not_ready",
+  "model_load_failed",
+  "timeout",
+  "runtime_error",
+  "server_evaluation_failed",
+  "stale_cue",
+  "transcript_incomplete",
+  "no_transcript",
+  "insufficient_evidence",
+  "slide_not_visited",
+  "evaluation_not_run",
+  "evaluation_snapshot_mismatch",
+  "queue_dropped",
+  "needs_confirmation"
+]);
+
+export const semanticCueMatchedBySchema = z.enum([
+  "lexical",
+  "alias",
+  "embedding",
+  "nli"
+]);
+
+const dedupedSemanticCueIdsSchema = z
+  .array(deckSemanticCueIdSchema)
+  .transform((cueIds) => [...new Set(cueIds)])
+  .pipe(z.array(deckSemanticCueIdSchema).max(50));
+
+export const semanticCapabilityEventSchema = z
+  .object({
+    eventId: z.string().trim().min(1).max(160),
+    capability: semanticCapabilitySchema,
+    fromState: semanticCapabilityStateSchema.nullable(),
+    toState: semanticCapabilityStateSchema,
+    reason: semanticFallbackReasonSchema.optional(),
+    measurementMode: semanticMeasurementModeSchema,
+    retryable: z.boolean(),
+    slideId: deckSlideIdSchema.optional(),
+    cueIds: dedupedSemanticCueIdsSchema,
+    provider: z.string().trim().min(1).max(160).optional(),
+    latencyMs: z.number().finite().nonnegative().optional(),
+    at: isoDateTimeSchema
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (event.toState !== "available" && event.reason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "degraded or unavailable capability events require a reason.",
+        path: ["reason"]
+      });
+    }
+
+    if (event.toState === "available" && event.fromState === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "available recovery capability events require fromState.",
+        path: ["fromState"]
+      });
+    }
+  });
+
+export const rehearsalSemanticCueDecisionSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema,
+    label: semanticCueDecisionLabelSchema,
+    finalScore: z.number().finite().min(0).max(1),
+    embeddingScore: z.number().finite().min(-1).max(1).optional(),
+    lexicalScore: z.number().finite().min(0).max(1).optional(),
+    conceptCoverage: z.number().finite().min(0).max(1).optional(),
+    entailmentScore: z.number().finite().min(0).max(1).optional(),
+    neutralScore: z.number().finite().min(0).max(1).optional(),
+    contradictionScore: z.number().finite().min(0).max(1).optional(),
+    premise: z.string().trim().min(1).max(600).optional(),
+    hypothesis: z.string().trim().min(1).max(300).optional(),
+    matchedBy: semanticCueMatchedBySchema.default("nli"),
+    measurementMode: semanticMeasurementModeSchema.default("full"),
+    fallbackUsed: z.boolean().default(false),
+    fallbackReason: semanticFallbackReasonSchema.optional(),
+    provider: semanticCueNliProviderSchema.optional(),
+    modelId: z.string().trim().min(1).max(160).optional(),
+    reasonCodes: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict()
+  .superRefine((decision, context) => {
+    if (decision.fallbackUsed && decision.fallbackReason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fallbackUsed decisions require fallbackReason.",
+        path: ["fallbackReason"]
+      });
+    }
+  });
+
+export const rehearsalSemanticCueOutcomeStatusSchema = z.enum([
+  "covered",
+  "partial",
+  "missed",
+  "unmeasured",
+  "excluded"
+]);
+
+export const rehearsalSemanticCueOutcomeMatchedBySchema = z.enum([
+  "lexical",
+  "alias",
+  "embedding",
+  "nli",
+  "post_run_semantic"
+]);
+
+const normalizedEvidenceExcerptSchema = z
+  .string()
+  .transform((value) => value.normalize("NFC").replace(/\s+/g, " ").trim())
+  .pipe(z.string().min(1).max(300));
+
+export const rehearsalSemanticCueOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema,
+    cueRevision: z.number().int().positive(),
+    cueMeaningSnapshot: z.string().trim().min(1).max(240),
+    reportLabelSnapshot: z.string().trim().min(1).max(80),
+    importance: semanticCueImportanceSchema,
+    status: rehearsalSemanticCueOutcomeStatusSchema,
+    confidence: z.number().finite().min(0).max(1).optional(),
+    matchedBy: rehearsalSemanticCueOutcomeMatchedBySchema.optional(),
+    measurementMode: semanticMeasurementModeSchema,
+    fallbackUsed: z.boolean(),
+    fallbackReason: semanticFallbackReasonSchema.optional(),
+    unmeasuredReason: semanticFallbackReasonSchema.optional(),
+    evidence: z
+      .object({
+        excerpt: normalizedEvidenceExcerptSchema,
+        startMs: z.number().finite().nonnegative(),
+        endMs: z.number().finite().nonnegative()
+      })
+      .strict()
+      .optional(),
+    coveredConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
+    missingConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
+    feedback: z.string().trim().min(1).max(300).optional()
+  })
+  .strict()
+  .superRefine((outcome, context) => {
+    if (
+      outcome.status === "unmeasured" &&
+      (outcome.measurementMode !== "none" || outcome.unmeasuredReason === undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unmeasured outcomes require mode none and unmeasuredReason.",
+        path: ["unmeasuredReason"]
+      });
+    }
+
+    if (
+      outcome.status === "excluded" &&
+      (outcome.measurementMode !== "none" || outcome.evidence !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "excluded outcomes require mode none and cannot include evidence.",
+        path: ["status"]
+      });
+    }
+
+    if (outcome.status === "missed" && outcome.measurementMode !== "full") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "missed outcomes require full measurement mode.",
+        path: ["measurementMode"]
+      });
+    }
+
+    if (outcome.fallbackUsed && outcome.fallbackReason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fallbackUsed outcomes require fallbackReason.",
+        path: ["fallbackReason"]
+      });
+    }
+
+    if (
+      outcome.measurementMode === "basic" &&
+      outcome.status !== "covered" &&
+      outcome.status !== "partial"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "basic measurement mode only supports covered or partial outcomes.",
+        path: ["status"]
+      });
+    }
+  });
+
+export const rehearsalSemanticEvaluationSchema = z
+  .object({
+    state: z.enum(["succeeded", "partial", "unavailable"]),
+    measurementMode: semanticMeasurementModeSchema,
+    reasons: z.array(semanticFallbackReasonSchema).max(20),
+    retryable: z.boolean()
+  })
+  .strict();
+
 export const rehearsalReportSchema = z
   .object({
     reportId: z.string().min(1),
@@ -133,6 +471,17 @@ export const rehearsalReportSchema = z
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
+    utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
+      .default([]),
+    semanticEvaluation: rehearsalSemanticEvaluationSchema.default({
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false
+    }),
+    semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
     slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
@@ -155,9 +504,13 @@ export const rehearsalReportSchema = z
     }
   });
 
-export const createRehearsalRunRequestSchema = z.object({
-  deckId: z.string().min(1)
-});
+export const createRehearsalRunRequestSchema = z
+  .object({
+    deckId: z.string().min(1),
+    expectedDeckVersion: z.number().int().positive().optional(),
+    semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
+  })
+  .strict();
 
 export const createRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
@@ -246,9 +599,20 @@ export const rehearsalRunMetaSchema = z
           })
           .strict()
       )
+      .default([]),
+    utteranceOutcomes: z
+      .array(rehearsalUtteranceOutcomeSchema)
+      .default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
+      .default([]),
+    semanticCapabilityEvents: z
+      .array(semanticCapabilityEventSchema)
+      .max(100)
       .default([])
   })
-  // run 메타는 리포트 집계를 위한 사건 정보만 받고 전사/대본/원본 오디오는 받지 않는다.
+  // Run meta stores bounded report facts only. It may include approved ad-lib
+  // snippets, but must not accept full transcript, speaker notes, or raw audio.
   .strict();
 
 export const updateRehearsalRunMetaRequestSchema = rehearsalRunMetaSchema;
@@ -261,12 +625,53 @@ export const getRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const cancelRehearsalRunResponseSchema = z.object({
+  run: rehearsalRunSchema
+});
+
+export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
+  job: jobSchema
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable()
 });
 
+export const rehearsalComparisonIssueSchema = z
+  .object({
+    category: z.enum(["semantic-cue", "timing", "delivery"]),
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema.optional(),
+    cueRevision: z.number().int().positive().optional(),
+    label: z.string().trim().min(1).max(120),
+    severity: z.enum(["high", "medium", "low"]),
+    reason: z.string().trim().min(1).max(300)
+  })
+  .strict();
+
+export const rehearsalRunComparisonSchema = z
+  .object({
+    currentRunId: z.string().min(1),
+    previousRunId: z.string().min(1).nullable(),
+    improved: z.array(rehearsalComparisonIssueSchema).max(500),
+    repeated: z.array(rehearsalComparisonIssueSchema).max(500),
+    newIssues: z.array(rehearsalComparisonIssueSchema).max(500),
+    incomparable: z.array(rehearsalComparisonIssueSchema).max(500),
+    briefing: z.array(rehearsalComparisonIssueSchema).max(3)
+  })
+  .strict();
+
+export const getRehearsalRunComparisonResponseSchema =
+  rehearsalRunComparisonSchema;
+
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
+export type RehearsalSemanticEvaluationMode = z.infer<
+  typeof rehearsalSemanticEvaluationModeSchema
+>;
+export type RehearsalEvaluationSnapshot = z.infer<
+  typeof rehearsalEvaluationSnapshotSchema
+>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
@@ -277,6 +682,28 @@ export type RehearsalReportSlideTiming = z.infer<
 >;
 export type RehearsalReportQnaSummary = z.infer<typeof rehearsalReportQnaSummarySchema>;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
+export type RehearsalSemanticCueDecision = z.infer<
+  typeof rehearsalSemanticCueDecisionSchema
+>;
+export type SemanticCapability = z.infer<typeof semanticCapabilitySchema>;
+export type SemanticCapabilityState = z.infer<
+  typeof semanticCapabilityStateSchema
+>;
+export type SemanticMeasurementMode = z.infer<
+  typeof semanticMeasurementModeSchema
+>;
+export type SemanticFallbackReason = z.infer<
+  typeof semanticFallbackReasonSchema
+>;
+export type SemanticCapabilityEvent = z.infer<
+  typeof semanticCapabilityEventSchema
+>;
+export type RehearsalSemanticCueOutcome = z.infer<
+  typeof rehearsalSemanticCueOutcomeSchema
+>;
+export type RehearsalSemanticEvaluation = z.infer<
+  typeof rehearsalSemanticEvaluationSchema
+>;
 export type CreateRehearsalRunRequest = z.infer<typeof createRehearsalRunRequestSchema>;
 export type CreateRehearsalRunResponse = z.infer<typeof createRehearsalRunResponseSchema>;
 export type CreateRehearsalAudioUploadUrlRequest = z.infer<
@@ -304,6 +731,12 @@ export type UploadRehearsalAudioChunkParams = z.infer<
   typeof uploadRehearsalAudioChunkParamsSchema
 >;
 export type RehearsalRunMeta = z.infer<typeof rehearsalRunMetaSchema>;
+export type RehearsalUtteranceOutcome = z.infer<
+  typeof rehearsalUtteranceOutcomeSchema
+>;
+export type RehearsalUtteranceOutcomeKind = z.infer<
+  typeof rehearsalUtteranceOutcomeKindSchema
+>;
 export type UpdateRehearsalRunMetaRequest = z.infer<
   typeof updateRehearsalRunMetaRequestSchema
 >;
@@ -311,6 +744,18 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type RetryRehearsalSemanticEvaluationResponse = z.infer<
+  typeof retryRehearsalSemanticEvaluationResponseSchema
+>;
+export type RehearsalComparisonIssue = z.infer<
+  typeof rehearsalComparisonIssueSchema
+>;
+export type RehearsalRunComparison = z.infer<
+  typeof rehearsalRunComparisonSchema
+>;
+export type GetRehearsalRunComparisonResponse = z.infer<
+  typeof getRehearsalRunComparisonResponseSchema
+>;
 
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),

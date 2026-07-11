@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Semantic Cue Lab — 필수 문맥 판별 실험</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --lab-border: #d7d9e0;
+        --lab-bg: #f6f7fb;
+        --lab-panel: #ffffff;
+        --lab-accent: #3b5bdb;
+        --lab-text: #1c1e26;
+        --lab-muted: #6b7280;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          "Pretendard",
+          -apple-system,
+          "Apple SD Gothic Neo",
+          "Segoe UI",
+          sans-serif;
+        background: var(--lab-bg);
+        color: var(--lab-text);
+      }
+      .lab-root {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .lab-header h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+      .lab-header p {
+        margin: 0 0 16px;
+        color: var(--lab-muted);
+        font-size: 13px;
+      }
+      .lab-columns {
+        display: grid;
+        grid-template-columns: minmax(380px, 1fr) minmax(480px, 1.3fr);
+        gap: 16px;
+        align-items: start;
+      }
+      @media (max-width: 1000px) {
+        .lab-columns {
+          grid-template-columns: 1fr;
+        }
+      }
+      .lab-panel {
+        background: var(--lab-panel);
+        border: 1px solid var(--lab-border);
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .lab-panel h2 {
+        font-size: 15px;
+        margin: 18px 0 8px;
+      }
+      .lab-panel h2:first-child {
+        margin-top: 0;
+      }
+      .lab-panel h3 {
+        font-size: 13px;
+        margin: 14px 0 6px;
+        color: var(--lab-muted);
+      }
+      .lab-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .lab-wrap {
+        flex-wrap: wrap;
+      }
+      button {
+        border: 1px solid var(--lab-border);
+        background: #fff;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--lab-accent);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .lab-primary {
+        background: var(--lab-accent);
+        border-color: var(--lab-accent);
+        color: #fff;
+      }
+      .lab-rec {
+        background: #e03131;
+        border-color: #e03131;
+        color: #fff;
+      }
+      textarea,
+      select,
+      input[type="number"] {
+        border: 1px solid var(--lab-border);
+        border-radius: 6px;
+        font-size: 12.5px;
+        padding: 6px 8px;
+        font-family: inherit;
+        width: 100%;
+      }
+      select {
+        width: auto;
+      }
+      .lab-json {
+        font-family: "SF Mono", "D2Coding", monospace;
+        font-size: 12px;
+        white-space: pre;
+      }
+      .lab-transcript {
+        font-size: 14px;
+      }
+      .lab-error {
+        color: #c92a2a;
+        font-size: 12.5px;
+      }
+      .lab-warning {
+        color: #e8590c;
+        font-size: 12.5px;
+      }
+      .lab-hint {
+        color: var(--lab-muted);
+        font-size: 12px;
+        margin: 6px 0;
+      }
+      .lab-interim {
+        color: var(--lab-accent);
+        font-size: 13px;
+      }
+      .lab-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--lab-muted);
+      }
+      .lab-field input[type="number"] {
+        width: 90px;
+      }
+      .lab-field-changed {
+        color: var(--lab-accent);
+      }
+      .lab-changed-mark {
+        color: var(--lab-accent);
+      }
+      .lab-field-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .lab-check {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        font-size: 12.5px;
+        border: 1px solid var(--lab-border);
+        border-radius: 6px;
+        padding: 4px 8px;
+      }
+      .lab-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+        margin: 6px 0 10px;
+      }
+      .lab-table th,
+      .lab-table td {
+        border: 1px solid var(--lab-border);
+        padding: 4px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .lab-table th {
+        background: var(--lab-bg);
+        font-weight: 600;
+      }
+      .lab-label {
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-weight: 600;
+      }
+      .lab-label-covered {
+        background: #d3f9d8;
+        color: #2b8a3e;
+      }
+      .lab-label-partial {
+        background: #fff3bf;
+        color: #e67700;
+      }
+      .lab-label-not_covered {
+        background: #e9ecef;
+        color: #495057;
+      }
+      .lab-label-contradicted {
+        background: #ffe3e3;
+        color: #c92a2a;
+      }
+      .lab-history {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 180px;
+        overflow-y: auto;
+        margin-bottom: 10px;
+      }
+      .lab-history-item {
+        text-align: left;
+        font-size: 12px;
+      }
+      .lab-history-item.selected {
+        border-color: var(--lab-accent);
+        background: #edf2ff;
+      }
+      .lab-premise {
+        font-size: 12px;
+        color: var(--lab-muted);
+        word-break: break-all;
+      }
+      .lab-pre {
+        font-size: 11px;
+        background: var(--lab-bg);
+        border: 1px solid var(--lab-border);
+        border-radius: 6px;
+        padding: 8px;
+        overflow-x: auto;
+        max-height: 400px;
+      }
+      .lab-config summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .lab-config summary h2 {
+        display: inline;
+      }
+      .lab-config summary::before {
+        content: "▸ ";
+      }
+      .lab-config[open] summary::before {
+        content: "▾ ";
+      }
+      .lab-score-input {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .lab-score-input input[type="number"] {
+        width: 64px;
+      }
+      .lab-score-input input[type="range"] {
+        width: 80px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script
+      type="module"
+      src="/src/features/rehearsal/speech/lab/semanticCueLabPage.tsx"
+    ></script>
+  </body>
+</html>

@@ -170,7 +170,7 @@ export function buildAiPptGenerateDeckPayload(
   }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
-  const slideCount = resolveSlideCount(state);
+  const slideCountRange = resolveSlideCountRange(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
   const fontOverride = fontOverrideFromOption(selectedFont);
@@ -203,10 +203,7 @@ export function buildAiPptGenerateDeckPayload(
       referencePolicy: state.referencePolicy
     },
     targetDurationMinutes: durationMinutes,
-    slideCountRange: {
-      min: slideCount,
-      max: slideCount
-    },
+    slideCountRange,
     template: "default",
     metadata: {
       audience: "general",
@@ -1048,12 +1045,27 @@ function AdvisorPanel(props: {
   );
 }
 
+export function miniSlideFontStyles(
+  font: Pick<
+    GenerateDeckFontOption,
+    "headingFontFamily" | "bodyFontFamily" | "fallbackFamily"
+  >
+) {
+  const stack = (family: string) =>
+    `"${family.replaceAll('"', "")}", ${font.fallbackFamily}, sans-serif`;
+  return {
+    heading: { fontFamily: stack(font.headingFontFamily) },
+    body: { fontFamily: stack(font.bodyFontFamily) }
+  };
+}
+
 function MiniSlide(props: {
   dense?: boolean;
   font?: GenerateDeckFontOption;
   palette: Required<PaletteOverride>;
 }) {
   const { palette } = props;
+  const fontStyles = props.font ? miniSlideFontStyles(props.font) : undefined;
   return (
     <div
       className={[
@@ -1064,20 +1076,22 @@ function MiniSlide(props: {
         background: palette.background,
         color: palette.text,
         borderColor: palette.border,
-        fontFamily: props.font?.bodyFontFamily
+        ...fontStyles?.body
       }}
     >
       <i className="ai-ppt-mini-top-rule" style={{ background: palette.primary }} />
-      <header className="ai-ppt-mini-section">
+      <header className="ai-ppt-mini-section" style={fontStyles?.heading}>
         <span style={{ color: palette.primary }}>01</span>
-        <b>DESIGN PACK</b>
+        <b>발표 디자인</b>
       </header>
       {props.dense ? (
         <main className="ai-ppt-mini-body-recipe">
           {[palette.primary, palette.secondary, palette.accentColor].map((color, index) => (
             <section key={color} style={{ borderColor: palette.border }}>
               <i style={{ background: color }} />
-              <strong>{index === 0 ? "Process" : index === 1 ? "Cards" : "Signal"}</strong>
+              <strong style={fontStyles?.heading}>
+                {index === 0 ? "과정" : index === 1 ? "핵심" : "근거"}
+              </strong>
               <p style={{ background: palette.muted }} />
             </section>
           ))}
@@ -1085,8 +1099,8 @@ function MiniSlide(props: {
       ) : (
         <main className="ai-ppt-mini-cover-recipe">
           <section>
-            <strong>Deck JSON first</strong>
-            <p>Brief + Design Pack</p>
+            <strong style={fontStyles?.heading}>핵심 메시지</strong>
+            <p style={fontStyles?.body}>발표 흐름과 실행안</p>
           </section>
           <aside style={{ background: palette.muted, borderColor: palette.border }}>
             <i style={{ background: palette.primary }} />
@@ -1271,10 +1285,13 @@ function parsePositiveInteger(value: string, fallback: number) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveSlideCount(state: AiPptWizardState) {
+function resolveSlideCountRange(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
-  if (requested > 0) return requested;
-  return deriveSlideCountFromState(state);
+  if (requested > 0) {
+    return { min: Math.max(1, requested - 2), max: requested + 2 };
+  }
+  const derived = deriveSlideCountFromState(state);
+  return { min: derived, max: derived };
 }
 
 function deriveSlideCountFromState(state: AiPptWizardState) {

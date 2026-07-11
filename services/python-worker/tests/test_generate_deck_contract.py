@@ -963,6 +963,26 @@ def test_design_pack_capacity_fallback_uses_grounded_plan_content(
     assert len({normalize_structural_content_text(item.text) for item in items}) == minimum
 
 
+def test_design_pack_capacity_maximum_is_advisory() -> None:
+    slide_plan = SlidePlan(
+        order=13,
+        slide_type="summary",
+        title="Closing summary",
+        message="Keep every generated takeaway.",
+        speaker_notes="Explain all four takeaways.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=f"Takeaway {index}")
+            for index in range(1, 5)
+        ],
+    )
+
+    items = design_pack_items(slide_plan, "closing_summary")
+
+    assert len(items) == 4
+
+
 def test_design_pack_eight_slide_fixture_uses_five_core_geometries() -> None:
     slide_types = [
         "cover",

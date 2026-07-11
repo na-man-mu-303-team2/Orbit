@@ -8469,7 +8469,7 @@ def design_pack_items(
     recipe: str,
 ) -> list[GeneratedContentItem]:
     items = list(slide_plan.content_items)
-    minimum, maximum = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
+    minimum, _ = DESIGN_PACK_RECIPE_CAPACITIES[recipe]
     if len(items) < minimum:
         existing_keys = {
             normalize_structural_content_text(item.text) for item in items
@@ -8505,9 +8505,9 @@ def design_pack_items(
                 break
     if items != slide_plan.content_items:
         slide_plan.content_items = items
-    if not minimum <= len(items) <= maximum:
+    if len(items) < minimum:
         raise DeckContentGenerationError(
-            f"slide {slide_plan.order}: recipe {recipe} requires {minimum}-{maximum} "
+            f"slide {slide_plan.order}: recipe {recipe} requires at least {minimum} "
             f"content items, received {len(items)}"
         )
     return items
