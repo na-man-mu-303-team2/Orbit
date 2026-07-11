@@ -1303,7 +1303,7 @@
   grid-template-columns:
     var(--slides-pane-width, 176px)
     minmax(0, 1fr)
-    var(--right-pane-width, 320px);
+    var(--right-pane-width, 480px);
   background: var(--page);
   overflow: hidden;
 }
@@ -1313,7 +1313,7 @@
     var(--slides-pane-width, 176px)
     var(--animation-pane-width, 304px)
     minmax(0, 1fr)
-    var(--right-pane-width, 320px);
+    var(--right-pane-width, 480px);
 }
 
 .editor-panel.right-panel-closed {
@@ -2858,7 +2858,7 @@
 
 .right-panel-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -2867,6 +2867,7 @@
 }
 
 .right-panel-tabs button {
+  min-width: 0;
   min-height: 34px;
   border: 0;
   border-radius: 7px;
@@ -2874,6 +2875,7 @@
   color: var(--muted);
   font-size: 13px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .right-panel-tabs button.active {
