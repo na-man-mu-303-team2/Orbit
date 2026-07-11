@@ -706,6 +706,23 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직
 - `packages/shared/src/deck/generate-deck.schema.ts`
 - `packages/shared/src/deck/deck.schema.ts`
 
+### Organization Brand Kit 계약
+
+Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저장하며 일반 조직 멤버는 조회·적용만 가능하다.
+
+- 조직 역할: `admin`, `member`
+- Brand Kit 값: `logoAssetId`, palette, forbidden colors, 공식 font와 fallback, tone, writing style, cover/footer 규칙, 승인 asset ID, `lockedFields`
+- 잠금 가능 필드: `palette`, `typography`, `tone`, `mediaPolicy`, `logo`, `cover`, `footer`
+- 생성 요청은 `brandKit: { id, version }`으로 선택 버전을 고정한다.
+- 생성 결과는 `metadata.brandKitSnapshot`에 최종 적용 Brand Kit을 기록한다.
+- Brand Kit 잠금 필드는 Saved Design Pack과 Session override보다 우선한다.
+- platform Hard Rule은 Brand Kit에서도 해제할 수 없다.
+
+구현 위치:
+
+- `packages/shared/src/projects/organization.schema.ts`
+- `packages/shared/src/deck/brand-kit.schema.ts`
+
 ## PPTX import, Template Blueprint, Quality Report 계약
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.

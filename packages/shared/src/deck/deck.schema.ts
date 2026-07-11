@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { animationSchema } from "./animation.schema";
+import { brandKitSnapshotSchema } from "./brand-kit.schema";
 import {
   deckIdSchema,
   deckKeywordIdSchema,
@@ -72,6 +73,7 @@ export const deckMetadataSchema = z.object({
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
   designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
+  brandKitSnapshot: z.lazy(() => brandKitSnapshotSchema).optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
