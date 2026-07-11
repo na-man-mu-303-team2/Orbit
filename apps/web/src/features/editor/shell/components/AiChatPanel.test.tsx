@@ -1,7 +1,11 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AiChatPanel } from "./AiChatPanel";
+
+vi.mock("./DesignProposalPreviewModal", () => ({
+  DesignProposalPreviewModal: () => null
+}));
 
 describe("AiChatPanel", () => {
   it("renders the history and message composer", () => {
@@ -12,6 +16,7 @@ describe("AiChatPanel", () => {
         deck={deck}
         currentSlide={deck.slides[0] ?? null}
         selectedElementIds={[]}
+        onProposalApplied={() => undefined}
       />
     );
 

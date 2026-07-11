@@ -1,7 +1,17 @@
-import type { Deck, Slide } from "@orbit/shared";
+import { applyDeckPatch } from "@orbit/editor-core";
+import type {
+  ApplyDesignAgentProposalResponse,
+  Deck,
+  DesignAgentProposal,
+  Slide
+} from "@orbit/shared";
 import { ArrowUp } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
-import { createDesignAgentMessage } from "../../design-agent/designAgentApi";
+import {
+  applyDesignAgentProposal,
+  createDesignAgentMessage
+} from "../../design-agent/designAgentApi";
+import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
 type ChatMessage = {
   id: string;
@@ -10,11 +20,17 @@ type ChatMessage = {
   tone?: "error";
 };
 
+type PendingPreview = {
+  candidateDeck: Deck;
+  proposal: DesignAgentProposal;
+};
+
 type AiChatPanelProps = {
   projectId: string;
   deck: Deck;
   currentSlide: Slide | null;
   selectedElementIds: string[];
+  onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
 };
 
 const initialMessages: ChatMessage[] = [
@@ -29,6 +45,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -57,6 +75,23 @@ export function AiChatPanel(props: AiChatPanelProps) {
         }
       });
       sessionIdRef.current = result.sessionId;
+
+      if (result.proposal) {
+        const previewResult = applyDeckPatch(props.deck, {
+          deckId: result.proposal.deckId,
+          baseVersion: result.proposal.baseVersion,
+          source: "ai",
+          operations: result.proposal.operations
+        });
+        if (!previewResult.ok) {
+          throw new Error("AI 제안의 미리보기를 만들지 못했습니다.");
+        }
+        setPendingPreview({
+          candidateDeck: previewResult.deck,
+          proposal: result.proposal
+        });
+      }
+
       const warningText = result.proposal?.warnings.length
         ? `\n\n주의: ${result.proposal.warnings.join(" ")}`
         : "";
@@ -65,25 +100,56 @@ export function AiChatPanel(props: AiChatPanelProps) {
         {
           id: result.responseMessage.messageId,
           role: "assistant",
-          content: `${result.responseMessage.content}${warningText}`
+          content: `${result.responseMessage.content}${
+            result.proposal ? "\n\n미리보기를 확인해 주세요." : ""
+          }${warningText}`
         }
       ]);
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `error-${crypto.randomUUID()}`,
-          role: "assistant",
-          content:
-            error instanceof Error
-              ? `요청을 처리하지 못했습니다. ${error.message}`
-              : "요청을 처리하지 못했습니다.",
-          tone: "error"
-        }
-      ]);
+      appendErrorMessage(error);
     } finally {
       setIsSending(false);
     }
+  }
+
+  async function handleApplyPreview() {
+    if (!pendingPreview || isApplying) return;
+    setIsApplying(true);
+    try {
+      const applied = await applyDesignAgentProposal(
+        props.projectId,
+        pendingPreview.proposal.proposalId
+      );
+      props.onProposalApplied(applied);
+      setPendingPreview(null);
+      setMessages((current) => [
+        ...current,
+        {
+          id: `applied-${applied.proposal.proposalId}`,
+          role: "assistant",
+          content: "선택한 디자인을 슬라이드에 적용했습니다."
+        }
+      ]);
+    } catch (error) {
+      appendErrorMessage(error);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  function appendErrorMessage(error: unknown) {
+    setMessages((current) => [
+      ...current,
+      {
+        id: `error-${crypto.randomUUID()}`,
+        role: "assistant",
+        content:
+          error instanceof Error
+            ? `요청을 처리하지 못했습니다. ${error.message}`
+            : "요청을 처리하지 못했습니다.",
+        tone: "error"
+      }
+    ]);
   }
 
   const canSend = Boolean(draft.trim() && props.currentSlide && !isSending);
@@ -122,6 +188,18 @@ export function AiChatPanel(props: AiChatPanelProps) {
           <ArrowUp size={17} strokeWidth={2.4} />
         </button>
       </form>
+
+      {pendingPreview ? (
+        <DesignProposalPreviewModal
+          deck={pendingPreview.candidateDeck}
+          slideId={pendingPreview.proposal.slideId}
+          summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
+          warnings={pendingPreview.proposal.warnings}
+          isApplying={isApplying}
+          onApply={() => void handleApplyPreview()}
+          onClose={() => setPendingPreview(null)}
+        />
+      ) : null}
     </section>
   );
 }

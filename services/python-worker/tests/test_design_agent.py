@@ -58,6 +58,20 @@ def request_payload(*, locked: bool = False) -> DesignAgentRequest:
                 "theme": {"name": "Business"},
             },
             "history": [],
+            "capabilities": {
+                "version": "1",
+                "operations": [
+                    "add_element",
+                    "update_element_frame",
+                    "update_element_props",
+                    "delete_element",
+                    "update_slide_style",
+                ],
+                "addableElementTypes": ["text", "rect"],
+                "canEditTextContent": True,
+                "canGenerateImages": False,
+                "canModifyLockedElements": False,
+            },
         }
     )
 
@@ -138,3 +152,74 @@ def test_allows_an_unspecified_alignment() -> None:
     )
 
     assert result.interpreted_intent.alignment is None
+
+
+def test_allows_adding_a_rounded_card_and_text() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "add_element",
+            "slideId": "slide_1",
+            "element": {
+                "elementId": "el_card_1",
+                "type": "rect",
+                "role": "decoration",
+                "x": 100,
+                "y": 600,
+                "width": 500,
+                "height": 240,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 10,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#FFFFFF",
+                    "stroke": "#D0D5DD",
+                    "strokeWidth": 1,
+                    "borderRadius": 24,
+                },
+            },
+        },
+        {
+            "type": "add_element",
+            "slideId": "slide_1",
+            "element": {
+                "elementId": "el_card_text_1",
+                "type": "text",
+                "role": "body",
+                "x": 140,
+                "y": 640,
+                "width": 420,
+                "height": 160,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 11,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "text": "핵심 내용을 간결하게 설명합니다.",
+                    "fontFamily": None,
+                    "fontSize": 28,
+                    "fontWeight": 600,
+                    "color": "#101828",
+                    "align": "left",
+                    "verticalAlign": "middle",
+                    "lineHeight": 1.3,
+                },
+            },
+        },
+    ]
+    payload["affectedElementIds"] = ["el_card_1", "el_card_text_1"]
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert [operation.type for operation in result.operations] == [
+        "add_element",
+        "add_element",
+    ]

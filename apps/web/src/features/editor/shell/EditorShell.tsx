@@ -124,6 +124,7 @@ export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
   ApplyAiSuggestionResponse,
+  ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
@@ -1944,6 +1945,23 @@ export function EditorShell(props: { projectId?: string }) {
     setLastPatchLabel(
       `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
     );
+    setSaveState("auto-saved");
+    setSaveError(null, null);
+  }
+
+  function handleDesignAgentProposalApplied(
+    response: ApplyDesignAgentProposalResponse
+  ) {
+    queryClient.setQueryData(["deck", projectId], response.deck);
+    markHydratedPersistedDeck(response.deck, setDeck);
+    setLastSavedAt(response.changeRecord.createdAt);
+    setUndoStack([]);
+    setRedoStack([]);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setLastPatchLabel(`AI design · v${response.deck.version}`);
     setSaveState("auto-saved");
     setSaveError(null, null);
   }
@@ -5527,6 +5545,7 @@ export function EditorShell(props: { projectId?: string }) {
                   deck={deck}
                   currentSlide={currentSlide}
                   selectedElementIds={selectedElementIds}
+                  onProposalApplied={handleDesignAgentProposalApplied}
                 />
                 {false ? (
                   <>

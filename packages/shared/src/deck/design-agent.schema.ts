@@ -1,12 +1,17 @@
 import { z } from "zod";
 
-import { deckCanvasSchema, slideSchema } from "./deck.schema";
+import { deckSnapshotSchema, type DeckSnapshot } from "./deck-api.schema";
+import { deckCanvasSchema, deckSchema, slideSchema, type Deck } from "./deck.schema";
 import {
   deckElementIdSchema,
   deckIdSchema,
   deckSlideIdSchema,
 } from "./id.schema";
-import { deckPatchOperationSchema } from "./patch.schema";
+import {
+  deckChangeRecordSchema,
+  deckPatchOperationSchema,
+  type DeckChangeRecord,
+} from "./patch.schema";
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
@@ -26,6 +31,38 @@ export const designAgentProposalStatusSchema = z.enum([
 export const designAgentHistoryItemSchema = z.object({
   role: designAgentMessageRoleSchema,
   content: z.string().trim().min(1).max(2_000),
+});
+
+export const designAgentCapabilityOperationSchema = z.enum([
+  "add_element",
+  "update_element_frame",
+  "update_element_props",
+  "delete_element",
+  "update_slide_style",
+]);
+
+export const designAgentCapabilitiesSchema = z.object({
+  version: z.literal("1"),
+  operations: z.array(designAgentCapabilityOperationSchema).min(1),
+  addableElementTypes: z.array(z.enum(["text", "rect"])),
+  canEditTextContent: z.boolean(),
+  canGenerateImages: z.boolean(),
+  canModifyLockedElements: z.boolean(),
+});
+
+export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
+  version: "1",
+  operations: [
+    "add_element",
+    "update_element_frame",
+    "update_element_props",
+    "delete_element",
+    "update_slide_style",
+  ],
+  addableElementTypes: ["text", "rect"],
+  canEditTextContent: true,
+  canGenerateImages: false,
+  canModifyLockedElements: false,
 });
 
 export const designAgentContextSchema = z.object({
@@ -65,6 +102,7 @@ export const designAgentWorkerRequestSchema = z.object({
   question: z.string().trim().min(1).max(2_000),
   context: designAgentContextSchema,
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
+  capabilities: designAgentCapabilitiesSchema.default(designAgentCapabilities),
 });
 
 export const designAgentWorkerResponseSchema = z.object({
@@ -118,8 +156,25 @@ export const createDesignAgentMessageResponseSchema = z.object({
   proposal: designAgentProposalSchema.optional(),
 });
 
+export const applyDesignAgentProposalResponseSchema: z.ZodType<{
+  proposal: z.infer<typeof designAgentProposalSchema>;
+  deck: Deck;
+  changeRecord: DeckChangeRecord;
+  snapshot: DeckSnapshot | null;
+  updatedAt: string;
+}, z.ZodTypeDef, unknown> = z.object({
+  proposal: designAgentProposalSchema,
+  deck: deckSchema,
+  changeRecord: deckChangeRecordSchema,
+  snapshot: deckSnapshotSchema.nullable(),
+  updatedAt: z.string().datetime(),
+});
+
 export type DesignAgentMessageRole = z.infer<
   typeof designAgentMessageRoleSchema
+>;
+export type DesignAgentCapabilities = z.infer<
+  typeof designAgentCapabilitiesSchema
 >;
 export type DesignAgentMessageStatus = z.infer<
   typeof designAgentMessageStatusSchema
@@ -141,4 +196,7 @@ export type DesignAgentMessage = z.infer<typeof designAgentMessageSchema>;
 export type DesignAgentProposal = z.infer<typeof designAgentProposalSchema>;
 export type CreateDesignAgentMessageResponse = z.infer<
   typeof createDesignAgentMessageResponseSchema
+>;
+export type ApplyDesignAgentProposalResponse = z.infer<
+  typeof applyDesignAgentProposalResponseSchema
 >;

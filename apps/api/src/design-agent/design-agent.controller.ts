@@ -31,4 +31,19 @@ export class DesignAgentController {
     );
     return this.designAgentService.createMessage(projectId, user.userId, input);
   }
+
+  @Post("proposals/:proposalId/apply")
+  async applyProposal(
+    @Param("projectId") projectId: string,
+    @Param("proposalId") proposalId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.designAgentService.applyProposal(
+      projectId,
+      proposalId,
+      user.userId,
+    );
+  }
 }

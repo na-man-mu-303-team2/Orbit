@@ -33,6 +33,27 @@ class DesignAgentContext(BaseModel):
     theme: dict[str, Any]
 
 
+class DesignAgentCapabilities(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    version: Literal["1"] = "1"
+    operations: list[
+        Literal[
+            "add_element",
+            "update_element_frame",
+            "update_element_props",
+            "delete_element",
+            "update_slide_style",
+        ]
+    ]
+    addable_element_types: list[Literal["text", "rect"]] = Field(
+        alias="addableElementTypes"
+    )
+    can_edit_text_content: bool = Field(alias="canEditTextContent")
+    can_generate_images: bool = Field(alias="canGenerateImages")
+    can_modify_locked_elements: bool = Field(alias="canModifyLockedElements")
+
+
 class DesignAgentRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -41,6 +62,7 @@ class DesignAgentRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2_000)
     context: DesignAgentContext
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
+    capabilities: DesignAgentCapabilities
 
 
 class ElementFramePatch(BaseModel):
@@ -83,6 +105,11 @@ class ElementPropsPatch(BaseModel):
     font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
     fill: str | None = Field(default=None, min_length=1)
+    text: str | None = None
+    color: str | None = Field(default=None, min_length=1)
+    stroke: str | None = Field(default=None, min_length=1)
+    stroke_width: float | None = Field(default=None, alias="strokeWidth", ge=0)
+    border_radius: float | None = Field(default=None, alias="borderRadius", ge=0)
     line_height: float | None = Field(default=None, alias="lineHeight", gt=0)
     corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0)
     fit: Literal["cover", "contain", "stretch"] | None = None
@@ -99,6 +126,85 @@ class SlideStylePatch(BaseModel):
     )
     text_color: str | None = Field(default=None, alias="textColor", min_length=1)
     accent_color: str | None = Field(default=None, alias="accentColor", min_length=1)
+
+
+class TextElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    text: str
+    font_family: str | None = Field(default=None, alias="fontFamily")
+    font_size: float = Field(alias="fontSize", gt=0)
+    font_weight: int = Field(alias="fontWeight", ge=100, le=900)
+    color: str
+    align: Literal["left", "center", "right", "justify"]
+    vertical_align: Literal["top", "middle", "bottom"] = Field(
+        alias="verticalAlign"
+    )
+    line_height: float = Field(alias="lineHeight", gt=0)
+
+
+class RectElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    fill: str
+    stroke: str
+    stroke_width: float = Field(alias="strokeWidth", ge=0)
+    border_radius: float = Field(alias="borderRadius", ge=0)
+
+
+class TextElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["text"]
+    role: Literal["title", "subtitle", "body", "caption", "footer"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: TextElementProps
+
+
+class RectElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["rect"]
+    role: Literal["background", "decoration", "highlight"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: RectElementProps
+
+
+AddableElement = Annotated[TextElement | RectElement, Field(discriminator="type")]
+
+
+class AddElementOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["add_element"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    element: AddableElement
+
+
+class DeleteElementOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["delete_element"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    element_id: str = Field(alias="elementId", min_length=1)
 
 
 class UpdateElementFrameOperation(BaseModel):
@@ -128,7 +234,9 @@ class UpdateSlideStyleOperation(BaseModel):
 
 
 DesignAgentOperation = Annotated[
-    UpdateElementFrameOperation
+    AddElementOperation
+    | DeleteElementOperation
+    | UpdateElementFrameOperation
     | UpdateElementPropsOperation
     | UpdateSlideStyleOperation,
     Field(discriminator="type"),
@@ -254,7 +362,10 @@ def generate_design_proposal(
     try:
         response = api_client.responses.create(
             model=model,
-            instructions=design_agent_system_prompt(request.context.canvas),
+            instructions=design_agent_system_prompt(
+                request.context.canvas,
+                request.capabilities,
+            ),
             input=design_agent_user_prompt(request),
             text=DESIGN_AGENT_RESPONSE_FORMAT,
         )
@@ -269,7 +380,10 @@ def generate_design_proposal(
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
 
 
-def design_agent_system_prompt(canvas: DesignAgentCanvas) -> str:
+def design_agent_system_prompt(
+    canvas: DesignAgentCanvas,
+    capabilities: DesignAgentCapabilities | None = None,
+) -> str:
     horizontal_margin = round(canvas.width * 0.05, 2)
     vertical_margin = round(canvas.height * 0.0667, 2)
     return (
@@ -280,11 +394,17 @@ def design_agent_system_prompt(canvas: DesignAgentCanvas) -> str:
         f"The canvas is {canvas.width} by {canvas.height}; its origin is the top-left. "
         f"Use horizontal safe margins of {horizontal_margin} and vertical safe margins "
         f"of {vertical_margin}. Left, center, and right refer to the canvas safe area. "
+        "Reply in the same language as the user's latest question. "
         "When elements are selected, treat them as the primary target unless the request "
         "clearly asks to redesign the whole slide. Preserve slideId and elementId. "
-        "Never modify locked or hidden elements. Do not add or delete elements. "
+        "Never modify or delete locked or hidden elements. "
+        "Use only operations and addable element types listed in capabilities. "
+        "New elementId values must start with el_ and be unique on the slide. "
+        "A visual card requires a rect element and a separate text element above it. "
+        "When the user requests new text, write concise content using existing slide context. "
         "Preserve text meaning. Avoid overlap, keep every element inside the canvas, "
         "maintain visual hierarchy, and emit the smallest necessary set of operations. "
+        f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
         "Do not claim the proposal has already been applied."
     )
 
@@ -309,28 +429,49 @@ def validate_design_proposal(
         for item in slide.get("elements", [])
         if isinstance(item, dict) and item.get("elementId")
     }
+    known_element_ids = set(elements)
+    allowed_operations = set(request.capabilities.operations)
+    addable_types = set(request.capabilities.addable_element_types)
     warnings = list(response.warnings)
 
     for operation in response.operations:
+        if operation.type not in allowed_operations:
+            raise DesignAgentGenerationError("Operation is not enabled by capabilities.")
         if operation.slide_id != slide_id:
             raise DesignAgentGenerationError("Operation slideId does not match context.")
         if isinstance(operation, UpdateSlideStyleOperation):
             continue
 
-        element = elements.get(operation.element_id)
-        if element is None:
+        if isinstance(operation, AddElementOperation):
+            element = operation.element.model_dump(by_alias=True)
+            element_id = operation.element.element_id
+            if operation.element.type not in addable_types:
+                raise DesignAgentGenerationError("Element type is not enabled by capabilities.")
+            if element_id in known_element_ids:
+                raise DesignAgentGenerationError("Added elementId already exists.")
+            _validate_frame_bounds(request.context.canvas, element, ElementFramePatch())
+            elements[element_id] = element
+            known_element_ids.add(element_id)
+            continue
+
+        target_element = elements.get(operation.element_id)
+        if target_element is None:
             raise DesignAgentGenerationError("Operation elementId does not exist.")
-        if element.get("locked") is True or element.get("visible") is False:
+        if target_element.get("locked") is True or target_element.get("visible") is False:
             raise DesignAgentGenerationError("Operation targets a locked or hidden element.")
 
+        if isinstance(operation, DeleteElementOperation):
+            del elements[operation.element_id]
+            continue
+
         if isinstance(operation, UpdateElementFrameOperation):
-            _validate_frame_bounds(request.context.canvas, element, operation.frame)
-            if str(element.get("type")) == "image":
-                warning = _image_aspect_warning(element, operation.frame)
+            _validate_frame_bounds(request.context.canvas, target_element, operation.frame)
+            if str(target_element.get("type")) == "image":
+                warning = _image_aspect_warning(target_element, operation.frame)
                 if warning and warning not in warnings:
                     warnings.append(warning)
 
-    unknown_affected = set(response.affected_element_ids) - set(elements)
+    unknown_affected = set(response.affected_element_ids) - known_element_ids
     if unknown_affected:
         raise DesignAgentGenerationError("affectedElementIds contains unknown elements.")
 
@@ -435,6 +576,11 @@ def _props_operation_json_schema() -> dict[str, Any]:
             },
             "fontFamily": {"type": ["string", "null"]},
             "fill": {"type": ["string", "null"]},
+            "text": {"type": ["string", "null"]},
+            "color": {"type": ["string", "null"]},
+            "stroke": {"type": ["string", "null"]},
+            "strokeWidth": {"type": ["number", "null"], "minimum": 0},
+            "borderRadius": {"type": ["number", "null"], "minimum": 0},
             "lineHeight": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "cornerRadius": {"type": ["number", "null"], "minimum": 0},
             "fit": {
@@ -444,6 +590,116 @@ def _props_operation_json_schema() -> dict[str, Any]:
         }
     )
     return _operation_json_schema("update_element_props", "props", props)
+
+
+def _element_base_properties(element_type: str, roles: list[str]) -> dict[str, Any]:
+    return {
+        "elementId": {"type": "string", "pattern": "^el_[A-Za-z0-9_-]+$"},
+        "type": {"type": "string", "const": element_type},
+        "role": {"type": "string", "enum": roles},
+        "x": {"type": "number", "minimum": 0},
+        "y": {"type": "number", "minimum": 0},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0},
+        "rotation": {"type": "number"},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        "zIndex": {"type": "integer", "minimum": 0},
+        "locked": {"type": "boolean"},
+        "visible": {"type": "boolean"},
+    }
+
+
+def _text_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties(
+        "text", ["title", "subtitle", "body", "caption", "footer"]
+    )
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "text": {"type": "string"},
+            "fontFamily": {"type": ["string", "null"]},
+            "fontSize": {"type": "number", "exclusiveMinimum": 0},
+            "fontWeight": {"type": "integer", "minimum": 100, "maximum": 900},
+            "color": {"type": "string"},
+            "align": {
+                "type": "string",
+                "enum": ["left", "center", "right", "justify"],
+            },
+            "verticalAlign": {
+                "type": "string",
+                "enum": ["top", "middle", "bottom"],
+            },
+            "lineHeight": {"type": "number", "exclusiveMinimum": 0},
+        },
+        "required": [
+            "text",
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "color",
+            "align",
+            "verticalAlign",
+            "lineHeight",
+        ],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
+def _rect_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties(
+        "rect", ["background", "decoration", "highlight"]
+    )
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "fill": {"type": "string"},
+            "stroke": {"type": "string"},
+            "strokeWidth": {"type": "number", "minimum": 0},
+            "borderRadius": {"type": "number", "minimum": 0},
+        },
+        "required": ["fill", "stroke", "strokeWidth", "borderRadius"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
+def _add_element_operation_json_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "type": {"type": "string", "const": "add_element"},
+            "slideId": {"type": "string"},
+            "element": {
+                "anyOf": [_text_element_json_schema(), _rect_element_json_schema()]
+            },
+        },
+        "required": ["type", "slideId", "element"],
+    }
+
+
+def _delete_element_operation_json_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "type": {"type": "string", "const": "delete_element"},
+            "slideId": {"type": "string"},
+            "elementId": {"type": "string"},
+        },
+        "required": ["type", "slideId", "elementId"],
+    }
 
 
 def _slide_style_operation_json_schema() -> dict[str, Any]:
@@ -488,6 +744,8 @@ def _operation_json_schema(
 DESIGN_AGENT_RESPONSE_FORMAT["format"]["schema"]["properties"]["operations"][
     "items"
 ]["anyOf"] = [
+    _add_element_operation_json_schema(),
+    _delete_element_operation_json_schema(),
     _frame_operation_json_schema(),
     _props_operation_json_schema(),
     _slide_style_operation_json_schema(),

@@ -1,15 +1,23 @@
 import { randomUUID } from "node:crypto";
 import {
+  applyDesignAgentProposalResponseSchema,
   createDesignAgentMessageResponseSchema,
   designAgentMessageSchema,
+  designAgentCapabilities,
   designAgentProposalSchema,
+  type ApplyDesignAgentProposalResponse,
   type CreateDesignAgentMessageRequest,
   type CreateDesignAgentMessageResponse,
   type DesignAgentContext,
   type DesignAgentMessage,
   type DesignAgentProposal,
 } from "@orbit/shared";
-import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { Repository } from "typeorm";
@@ -67,6 +75,7 @@ export class DesignAgentService {
         question: input.content,
         context: input.context,
         history,
+        capabilities: designAgentCapabilities,
       });
       const responseNow = new Date();
       const responseMessage = await this.messagesRepository.save(
@@ -157,6 +166,76 @@ export class DesignAgentService {
       );
       throw error;
     }
+  }
+
+  async applyProposal(
+    projectId: string,
+    proposalId: string,
+    actorUserId: string,
+  ): Promise<ApplyDesignAgentProposalResponse> {
+    const proposal = await this.proposalsRepository.findOne({
+      where: { projectId, proposalId },
+    });
+    if (!proposal) {
+      throw new NotFoundException("Design agent proposal was not found.");
+    }
+    if (proposal.status !== "pending") {
+      throw new ConflictException("Design agent proposal is not pending.");
+    }
+
+    const current = await this.decksService.getDeck(projectId);
+    if (
+      current.deck.deckId !== proposal.deckId ||
+      current.deck.version !== proposal.baseVersion
+    ) {
+      proposal.status = "stale";
+      proposal.updatedAt = new Date();
+      await this.proposalsRepository.save(proposal);
+      throw new ConflictException("Design agent proposal baseVersion is stale.");
+    }
+    if (!current.deck.slides.some((slide) => slide.slideId === proposal.slideId)) {
+      proposal.status = "stale";
+      proposal.updatedAt = new Date();
+      await this.proposalsRepository.save(proposal);
+      throw new ConflictException("Design agent proposal slide no longer exists.");
+    }
+
+    const applied = await this.decksService.appendPatch(projectId, {
+      patch: {
+        deckId: proposal.deckId,
+        baseVersion: proposal.baseVersion,
+        source: "ai",
+        actorUserId,
+        operations: proposal.operations,
+      },
+      snapshotReason: "patch-applied",
+    });
+
+    proposal.status = "applied";
+    proposal.appliedChangeId = applied.changeRecord.changeId;
+    proposal.updatedAt = new Date();
+    const savedProposal = await this.proposalsRepository.save(proposal);
+
+    this.logger.info(
+      {
+        event: "design_agent.proposal.applied",
+        projectId,
+        deckId: proposal.deckId,
+        slideId: proposal.slideId,
+        proposalId,
+        changeId: applied.changeRecord.changeId,
+        operationCount: proposal.operations.length,
+      },
+      "Design agent proposal applied.",
+    );
+
+    return applyDesignAgentProposalResponseSchema.parse({
+      proposal: toProposalDto(savedProposal),
+      deck: applied.deck,
+      changeRecord: applied.changeRecord,
+      snapshot: applied.snapshot,
+      updatedAt: applied.updatedAt,
+    });
   }
 
   private async assertCurrentContext(

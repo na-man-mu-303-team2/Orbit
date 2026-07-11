@@ -3006,6 +3006,110 @@
   cursor: default;
 }
 
+.design-proposal-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.design-proposal-modal {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.3);
+}
+
+.design-proposal-modal-header,
+.design-proposal-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.design-proposal-modal-header > div {
+  display: grid;
+  gap: 5px;
+}
+
+.design-proposal-modal-header strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.design-proposal-modal-header span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.design-proposal-modal-header button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.design-proposal-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  background: #eef2f6;
+}
+
+.design-proposal-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #fffaeb;
+  color: #93370d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.design-proposal-modal-footer {
+  justify-content: flex-end;
+}
+
+.design-proposal-modal-footer button {
+  min-width: 84px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid #d0d5dd;
+  border-radius: 9px;
+  background: #fff;
+  color: #344054;
+  font-weight: 800;
+}
+
+.design-proposal-modal-footer button.primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+.design-proposal-modal-footer button:disabled {
+  opacity: 0.55;
+}
+
 .assistant-panel-empty {
   display: grid;
   gap: 8px;
