@@ -1,9 +1,9 @@
 # AI PPT 생성 고도화 기획서 V12
 
-> 기준일: 2026-07-11
+> 기준일: 2026-07-12
 >
 >
-> 상태: 1차 완료, 2차 완료, 3차 기능 연결 완료, 3차 생성 품질 승인 보강 중
+> 상태: 1차 완료, 2차 완료, 3차 기능 및 생성 품질 최종 승인 완료
 >
 
 ---
@@ -36,6 +36,19 @@ Editor와 PPTX의 장수·텍스트·이미지 정합성
 ```
 
 품질 Gate는 `/ai-ppt`의 `design-pack` 경로에만 적용한다. 품질 실패 후보는 Job을 `GENERATE_DECK_QUALITY_GATE_FAILED`로 종료하고 후보 Deck JSON과 validation을 `jobs.result`에 저장한다. 기존 프로젝트 Deck과 legacy/template 생성 경로는 변경하지 않는다.
+
+### V12 최종 재승인 결과
+
+2026-07-12 기준으로 구조화 시각물, 공개 이미지, AI 이미지와 최소 이미지 시나리오를 다시 검증해 3차 생성 품질을 최종 승인했다.
+
+- 구조화 시각물은 공개 이미지 검색에서 제외하고 Deck 도형 recipe로 생성한다. Git 브랜치 전략 덱 `project_1b0bd5d1-12cc-43eb-bd75-2f3dceafeadf`은 5장 모두 Worker와 Editor issue 0건으로 통과했다.
+- 공개 이미지 덱 `project_e1975955-73a2-4974-86a3-ab8ac38dc8ae`은 5장 모두 issue 0건으로 통과했다. Openverse 출처, 저작자와 라이선스 provenance를 저장하고 686 x 560px media frame을 유지했다.
+- AI 이미지 덱 `project_3a6e66cc-19a9-4088-8e83-66d416ee2118`은 6장 모두 issue 0건으로 통과했다. OpenAI 생성 asset을 저장하고 686 x 560px media frame을 Editor와 PPTX에서 유지했다.
+- 최소 이미지 교육 덱 `project_9c841a8e-55fd-4fd1-b695-f75775e341cb`은 6장 모두 issue 0건으로 통과했다.
+- 대표 3개 덱의 PPTX export는 각각 원본 Deck과 같은 5장 또는 6장, 같은 발표 메모 수와 이미지 asset 수를 유지했다.
+- shared, AI provider, Web, API와 Worker 테스트 1,072건 및 Python 테스트 305건이 통과했고 Web, API와 Worker production build, Ruff와 mypy가 통과했다.
+
+공개 이미지의 실제 픽셀 미학, 정밀 crop과 고급 의미 적합성 평가는 3차 이후 Vision QA 범위로 유지한다.
 
 ---
 
@@ -1136,7 +1149,7 @@ LLM 담당:
 - 기본 의미 기반 QA
 - 스타일 preset 확장
 
-**상태: 다음 구현 범위**
+**상태: 기능 구현 및 생성 품질 최종 승인 완료**
 
 ### 3차 이후: 고급 품질 최적화
 
@@ -1181,17 +1194,15 @@ LLM 담당:
 
 ## 12. 다음 작업 우선순위
 
-기본 생성 계약과 3차 선행 발표 품질 규칙이 최종 승인됐으므로 Web의 19장·20장 범위 상한을 먼저 바로잡고 3차 재사용·실제 asset 단계로 전환한다.
+3차 기능과 생성 품질이 최종 승인됐으므로 다음 개발은 3차 이후 고급 품질 최적화에서 선택한다.
 
-1. 사용자 입력 slide range의 max를 shared 최대 20장으로 clamp하고 경계 테스트 추가
-2. Saved Design Pack schema와 규칙 저장 범위 확정
-3. Saved Design Pack CRUD와 사용자·조직 소유권 계약 구현
-4. Session override와 저장 Design Pack의 우선순위 및 병합 규칙 구현
-5. Brand Kit schema, logo·font·palette asset 연결
-6. 실제 AI 및 공개 이미지 생성·검색·저장 provider 경계와 Side AI capability 안내 동기화
-7. 이미지 비용·실패·재시도·대체 placeholder 정책 구현
-8. 기본 의미 기반 QA와 profile별 golden deck 평가 도입
-9. 실제 asset을 포함한 Editor·PPTX export 정합성 검증
-10. 대표 profile 및 Saved Design Pack 브라우저 승인
+1. Vision 기반 실제 이미지 의미 적합성, 피사체 위치, crop과 픽셀 대비 평가
+2. 고급 chart 유형·축·강조 계열 왜곡 QA
+3. 발표용 Deck과 상세 배포본 분리 생성
+4. 리허설 발화 속도와 슬라이드 체류 시간을 반영한 timing 개인화
+5. 발표 환경과 청중별 접근성 기준 조정
+6. 발표 유형별 golden deck과 정량 회귀 평가 체계
+7. Deck JSON, Editor와 PPTX의 letter spacing 공통 지원
+8. 제한된 animation 정책과 export 정합성
 
-완료된 Worker exact-count, Web 장수 허용 범위, 구조적 중복, 발화 예산, profile, typography, grid, Worker·Editor 동기화와 legacy 분리 회귀 suite는 모든 3차 작업에서 유지한다. Saved Design Pack이나 Brand Kit의 사용자 설정이 Hard Rule을 해제하지 못하도록 규칙 우선순위를 공통 계약으로 먼저 고정한다.
+완료된 exact-count, 최대 20장 생성 상한, 구조적 중복, 발화 예산, profile, typography, grid, Worker·Editor 검증, Saved Design Pack, Brand Kit, 실제 이미지 asset과 legacy 분리 회귀 suite는 후속 작업에서도 유지한다.
