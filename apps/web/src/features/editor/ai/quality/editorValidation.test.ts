@@ -552,4 +552,21 @@ describe("editor design-pack validation", () => {
       "IMAGE_LICENSE_MISSING"
     ]));
   });
+
+  it("shows the current slide semantic issue in the editor panel", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "proposal";
+    const slide = deck.slides[0];
+    slide.speakerNotes =
+      "안녕하세요. 오늘은 원격 근무 환경의 집중력 저하를 설명합니다. " +
+      "업무 도구 차이는 소통 지연과 혼선을 만듭니다. " +
+      "안녕하세요, 오늘은 원격 팀의 업무 공간 개선안을 제안합니다.";
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        issue: "SPEAKER_NOTES_REPEATED",
+        slideId: slide.slideId
+      })
+    );
+  });
 });

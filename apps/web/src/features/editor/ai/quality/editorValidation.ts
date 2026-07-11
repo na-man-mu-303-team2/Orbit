@@ -60,10 +60,15 @@ export function getEditorValidationItems(
   slide?: Slide
 ): EditorValidationItem[] {
   const slides = slide ? [slide] : deck.slides;
+  const deckItems = getEditorDeckValidationItems(deck);
   const slideItems = slides.flatMap((targetSlide) =>
     getEditorSlideValidationItems(deck, targetSlide)
   );
-  return slide ? slideItems : [...getEditorDeckValidationItems(deck), ...slideItems];
+  if (!slide) return [...deckItems, ...slideItems];
+  return [
+    ...deckItems.filter((item) => !item.slideId || item.slideId === slide.slideId),
+    ...slideItems
+  ];
 }
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
