@@ -498,8 +498,6 @@ function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
 
-const slideThumbnailHeight = 360;
-
 async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -525,10 +523,8 @@ async function createSlideRenderFile(args: {
     pixelRatio
   }) as HTMLCanvasElement;
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(
-    (args.deck.canvas.width / args.deck.canvas.height) * slideThumbnailHeight
-  );
-  canvas.height = slideThumbnailHeight;
+  canvas.width = args.deck.canvas.width;
+  canvas.height = args.deck.canvas.height;
 
   const context = canvas.getContext("2d");
 
