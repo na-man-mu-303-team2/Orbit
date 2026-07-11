@@ -29,6 +29,17 @@ services:
       timeout: 3s
       retries: 20
 
+  private-evidence-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address ":9001"
@@ -72,6 +83,7 @@ services:
     environment:
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
+      PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
     ports:
@@ -86,6 +98,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      private-evidence-redis:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
 
@@ -98,12 +112,15 @@ services:
     environment:
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
+      PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      private-evidence-redis:
         condition: service_healthy
       minio:
         condition: service_healthy

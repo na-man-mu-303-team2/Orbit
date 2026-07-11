@@ -154,9 +154,9 @@
 
 ### Gate G1
 
-- [ ] Brief CAS/reference snapshot 통과
-- [ ] evaluation snapshot immutable parse 통과
-- [ ] Goal Set revision race와 Resolution compatibility 통과
+- [x] Brief CAS/reference snapshot 통과 (API 222 tests)
+- [x] evaluation snapshot immutable parse 통과 (shared 232 tests)
+- [x] Goal Set revision race와 Resolution compatibility 통과 (worker 67 tests)
 
 ## C3 — Report·Plan·Reminder
 
@@ -241,9 +241,9 @@
 
 ### Gate G2
 
-- [ ] generic private asset 비노출
-- [ ] non-persistent Redis/TTL/redaction 검증
-- [ ] cleanup 5회·exhausted·result preservation 검증
+- [x] generic private asset 비노출
+- [x] non-persistent Redis/TTL/redaction 검증
+- [x] cleanup 5회·exhausted·result preservation 검증
 
 ## C5/C6 — Focused Practice vertical slice
 

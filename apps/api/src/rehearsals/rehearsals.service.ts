@@ -438,12 +438,11 @@ export class RehearsalsService {
     const run = await this.getRunEntity(runId);
     const report =
       run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
-    const transcript = report ? await this.getCachedTranscript(run.runId) : null;
     const responseReport = report
       ? {
           ...report,
-          transcriptRetained: transcript !== null,
-          transcript
+          transcriptRetained: false,
+          transcript: null
         }
       : null;
 
@@ -588,22 +587,6 @@ export class RehearsalsService {
     return retryRehearsalSemanticEvaluationResponseSchema.parse({
       job: queuedJob
     });
-  }
-
-  private async getCachedTranscript(runId: string) {
-    try {
-      return await this.transcriptCache.get(runId);
-    } catch (error) {
-      this.logger.warn(
-        {
-          event: "rehearsal.transcript_cache_read_failed",
-          runId,
-          error: serializeLogError(error)
-        },
-        "Failed to read rehearsal transcript cache."
-      );
-      return null;
-    }
   }
 
   private async getRunEntity(runId: string) {

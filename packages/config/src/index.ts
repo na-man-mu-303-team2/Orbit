@@ -173,6 +173,7 @@ const localDefaults = {
   PYTHON_WORKER_URL: "http://localhost:8000",
   DATABASE_URL: "postgres://orbit:orbit@localhost:5432/orbit",
   REDIS_URL: "redis://localhost:6379",
+  PRIVATE_EVIDENCE_REDIS_URL: "redis://localhost:6380",
   SESSION_SECRET: "local-session-secret-change-me",
   COOKIE_SECRET: "local-cookie-secret-change-me",
   S3_ENDPOINT: "http://localhost:9000",
@@ -198,6 +199,9 @@ export const orbitEnvSchema = z.object({
   PYTHON_WORKER_URL: requiredUrl("PYTHON_WORKER_URL"),
   DATABASE_URL: requiredString("DATABASE_URL"),
   REDIS_URL: requiredString("REDIS_URL"),
+  PRIVATE_EVIDENCE_REDIS_URL: requiredString("PRIVATE_EVIDENCE_REDIS_URL").default(
+    localDefaults.PRIVATE_EVIDENCE_REDIS_URL
+  ),
   SESSION_SECRET: requiredString("SESSION_SECRET").pipe(
     z.string().min(16, "SESSION_SECRET must be at least 16 characters")
   ),
@@ -257,6 +261,13 @@ export const orbitEnvSchema = z.object({
   DEMO_DECK_ID: requiredString("DEMO_DECK_ID"),
   DEMO_SESSION_ID: requiredString("DEMO_SESSION_ID")
 }).superRefine((value, context) => {
+  if (value.PRIVATE_EVIDENCE_REDIS_URL === value.REDIS_URL) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["PRIVATE_EVIDENCE_REDIS_URL"],
+      message: "PRIVATE_EVIDENCE_REDIS_URL must use a separate non-persistent Redis instance"
+    });
+  }
   if (value.STORAGE_DRIVER === "minio") {
     for (const key of [
       "S3_ENDPOINT",

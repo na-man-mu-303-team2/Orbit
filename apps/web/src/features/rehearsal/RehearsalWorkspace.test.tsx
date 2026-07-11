@@ -1230,7 +1230,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("report-page-state");
   });
 
-  it("shows retained transcript download controls during the 30 minute window", () => {
+  it("does not render private transcript controls even when legacy input contains transcript data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -1246,9 +1246,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("발표 전사본");
-    expect(html).toContain("DOCX 내려받기");
-    expect(html).toContain("펼치기");
+    expect(html).not.toContain("발표 전사본");
+    expect(html).not.toContain("DOCX 내려받기");
+    expect(html).not.toContain("펼치기");
     expect(html).not.toContain("민감한 전사 원문");
   });
 

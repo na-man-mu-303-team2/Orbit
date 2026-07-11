@@ -209,7 +209,6 @@ describe("processRehearsalSttJob", () => {
         "리포트 생성 완료",
         expect.objectContaining({
           transcriptRetained: false,
-          transcript: null,
           segmentCount: 1,
             report: expect.objectContaining({
               reportId: "report_run-a",
@@ -917,7 +916,7 @@ describe("processRehearsalSttJob", () => {
     expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
   });
 
-  it("marks deletion failure explicitly", async () => {
+  it("preserves a successful analysis and schedules cleanup when raw audio deletion fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -927,13 +926,10 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
-      .mockResolvedValueOnce([
-        jobRow("failed", 85, null, {
-          code: "RAW_AUDIO_DELETE_FAILED",
-          message: "delete denied"
-        })
-      ]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
     const storage = createStorage();
     vi.mocked(storage.removeObject).mockRejectedValueOnce(new Error("delete denied"));
     vi.stubGlobal(
@@ -975,8 +971,11 @@ describe("processRehearsalSttJob", () => {
       payload
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("RAW_AUDIO_DELETE_FAILED");
+    expect(job.status).toBe("succeeded");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
+      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    );
   });
 
   it("marks the job failed when report validation fails after deleting raw audio", async () => {

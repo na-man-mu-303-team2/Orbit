@@ -205,7 +205,7 @@ export async function enqueueReferenceExtractJob(
       jobId: input.jobId,
       projectId: input.projectId,
       files: input.files,
-    } satisfies ReferenceExtractBullMqPayload);
+    } satisfies ReferenceExtractBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -229,7 +229,7 @@ export async function enqueueRehearsalSttJob(
       runId: input.runId,
       deckId: input.deckId,
       audioFileId: input.audioFileId,
-    } satisfies RehearsalSttBullMqPayload);
+    } satisfies RehearsalSttBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -254,6 +254,7 @@ export async function enqueueRehearsalSemanticEvaluationJob(
         projectId: input.projectId,
         runId: input.runId,
       }),
+      canonicalJobOptions(input.jobId),
     );
   } finally {
     await queue.close();
@@ -276,7 +277,7 @@ export async function enqueueGenerateDeckJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: generateDeckRequestSchema.parse(input.request),
-    } satisfies GenerateDeckBullMqPayload);
+    } satisfies GenerateDeckBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -299,7 +300,7 @@ export async function enqueueDeckExportJob(
       projectId: input.projectId,
       deck: deckSchema.parse(input.deck),
       format: deckExportFormatSchema.parse(input.format),
-    } satisfies DeckExportBullMqPayload);
+    } satisfies DeckExportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -321,7 +322,7 @@ export async function enqueueAiTemplateDeckGenerationJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
-    } satisfies AiTemplateDeckGenerationBullMqPayload);
+    } satisfies AiTemplateDeckGenerationBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -343,7 +344,7 @@ export async function enqueueSemanticCueExtractionJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: input.request,
-    }));
+    }), canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -365,7 +366,7 @@ export async function enqueuePptxImportJob(
       jobId: input.jobId,
       projectId: input.projectId,
       fileId: input.fileId,
-    } satisfies PptxImportBullMqPayload);
+    } satisfies PptxImportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -387,7 +388,7 @@ export async function enqueuePptxOoxmlGenerationJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: input.request,
-    } satisfies PptxOoxmlGenerationBullMqPayload);
+    } satisfies PptxOoxmlGenerationBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -411,7 +412,7 @@ export async function enqueuePptxOoxmlSyncJob(
       deckId: input.deckId,
       changeId: input.changeId,
       targetDeckVersion: input.targetDeckVersion,
-    } satisfies PptxOoxmlSyncBullMqPayload);
+    } satisfies PptxOoxmlSyncBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -432,7 +433,7 @@ export async function enqueueWorkerHealthCheckJob(
     await queue.add(workerHealthCheckJobName, {
       jobId: input.jobId,
       projectId: input.projectId,
-    } satisfies WorkerHealthCheckBullMqPayload);
+    } satisfies WorkerHealthCheckBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -459,6 +460,10 @@ export function redisConnectionOptions(redisUrl: string) {
     tls: url.protocol === "rediss:" ? {} : undefined,
     username: url.username ? decodeURIComponent(url.username) : undefined,
   };
+}
+
+function canonicalJobOptions(jobId: string) {
+  return { jobId, attempts: 5, removeOnComplete: 1000, removeOnFail: 1000 };
 }
 
 export class InMemoryJobQueue implements JobQueuePort {

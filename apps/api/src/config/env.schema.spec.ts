@@ -14,6 +14,7 @@ const validEnv = {
   PYTHON_WORKER_URL: "http://localhost:8000",
   DATABASE_URL: "postgres://orbit:orbit@localhost:5432/orbit",
   REDIS_URL: "redis://localhost:6379",
+  PRIVATE_EVIDENCE_REDIS_URL: "redis://localhost:6380",
   SESSION_SECRET: "local-session-secret-change-me",
   COOKIE_SECRET: "local-cookie-secret-change-me",
   STORAGE_DRIVER: "minio",
@@ -52,6 +53,15 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
+  it("requires private evidence Redis to be isolated from the durable queue Redis", () => {
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, PRIVATE_EVIDENCE_REDIS_URL: validEnv.REDIS_URL },
+        { service: "api" }
+      )
+    ).toThrow("PRIVATE_EVIDENCE_REDIS_URL");
+  });
+
   it("reads OpenAI model defaults from env", () => {
     const config = loadOrbitConfig(
       {
@@ -266,6 +276,7 @@ describe("ORBIT env validation", () => {
         PYTHON_WORKER_URL: "http://python-worker:8000",
         DATABASE_URL: "postgres://orbit:orbit@postgres:5432/orbit",
         REDIS_URL: "redis://redis:6379",
+        PRIVATE_EVIDENCE_REDIS_URL: "redis://private-evidence-redis:6379",
         SESSION_SECRET: "staging-session-secret",
         COOKIE_SECRET: "staging-cookie-secret",
         S3_ENDPOINT: "http://minio:9000",

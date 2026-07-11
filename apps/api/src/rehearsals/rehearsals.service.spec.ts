@@ -666,13 +666,8 @@ describe("RehearsalsService", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
-    const service = createService({
-      transcriptCache: {
-        get: vi.fn(async () => "발표 전사본"),
-        hasSemanticEvidence: vi.fn(async () => false)
-      }
-    });
+  it("never exposes the private transcript cache through report GET", async () => {
+    const service = createService();
     const run = await createRun(service);
     await saveRunPatch(service, run.runId, {
       status: "succeeded",
@@ -684,10 +679,9 @@ describe("RehearsalsService", () => {
     const result = await service.getReport(run.runId);
 
     expect(result.report).toMatchObject({
-      transcriptRetained: true,
-      transcript: "발표 전사본"
+      transcriptRetained: false,
+      transcript: null
     });
-    expect(service.testTranscriptCache.get).toHaveBeenCalledWith(run.runId);
   });
 
   it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
@@ -700,7 +694,6 @@ describe("RehearsalsService", () => {
       jobsService,
       enqueueSemanticEvaluationJob,
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -768,7 +761,6 @@ describe("RehearsalsService", () => {
     const service = createService({
       jobsService,
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -803,7 +795,6 @@ describe("RehearsalsService", () => {
         throw new Error("redis down");
       }),
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -917,7 +908,6 @@ function createService(
   const logger = createLogger();
   const repository = createRunRepository();
   const transcriptCache = options.transcriptCache ?? {
-    get: vi.fn(async () => null),
     hasSemanticEvidence: vi.fn(async () => false)
   };
   const filesService = {

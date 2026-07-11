@@ -33,6 +33,7 @@ import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
+import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -52,6 +53,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   ];
   private workers: BullMqWorker[] = [];
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
+  private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -73,7 +75,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const storage = workerStorage();
-    this.transcriptCache = new RedisRehearsalTranscriptCache(this.config.REDIS_URL);
+    const reconcileDeletions = () => {
+      void reconcileStorageDeletionOutbox(this.dataSource, storage).catch((error) => {
+        this.logger.error(
+          { event: "storage_deletion.reconcile_failed", error: serializeLogError(error) },
+          "Storage deletion reconciliation failed."
+        );
+      });
+    };
+    reconcileDeletions();
+    this.storageDeletionTimer = setInterval(reconcileDeletions, 30_000);
+    this.transcriptCache = new RedisRehearsalTranscriptCache(
+      this.config.PRIVATE_EVIDENCE_REDIS_URL
+    );
     this.workers = [
       this.createWorker(referenceExtractQueueName, (job) =>
         processReferenceExtractJob(
@@ -178,6 +192,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.transcriptCache?.close();
     this.logger.info(
