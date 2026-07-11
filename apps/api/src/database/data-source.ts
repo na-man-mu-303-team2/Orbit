@@ -1,7 +1,6 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
-import { AiSuggestionEntity } from "../ai-suggestions/ai-suggestion.entity";
 import { DesignAgentMessageEntity } from "../design-agent/design-agent-message.entity";
 import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
@@ -26,6 +25,7 @@ import { CreateProjectRehearsalSummaries2026070801000 } from "./migrations/20260
 import { ReplaceRehearsalSummaryWithProjectComment2026070802000 } from "./migrations/2026070802000-ReplaceRehearsalSummaryWithProjectComment";
 import { CreateDesignAgentTables2026071101000 } from "./migrations/2026071101000-CreateDesignAgentTables";
 import { AddRehearsalEvaluationSnapshot2026071001000 } from "./migrations/2026071001000-AddRehearsalEvaluationSnapshot";
+import { DropAiSuggestions2026071102000 } from "./migrations/2026071102000-DropAiSuggestions";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -41,7 +41,6 @@ export const databaseOptions: DataSourceOptions = {
     ProjectMemberEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
-    AiSuggestionEntity,
     DesignAgentMessageEntity,
     DesignAgentProposalEntity
   ],
@@ -63,7 +62,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateProjectRehearsalSummaries2026070801000,
     ReplaceRehearsalSummaryWithProjectComment2026070802000,
     AddRehearsalEvaluationSnapshot2026071001000,
-    CreateDesignAgentTables2026071101000
+    CreateDesignAgentTables2026071101000,
+    DropAiSuggestions2026071102000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

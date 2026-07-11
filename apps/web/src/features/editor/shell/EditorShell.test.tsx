@@ -7,11 +7,9 @@ import {
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
-  AiSuggestion,
   Deck,
   DeckPatch,
   DeckElement,
-  ListAiSuggestionsResponse,
   SemanticCue,
   TableElementProps
 } from "@orbit/shared";
@@ -54,7 +52,6 @@ import {
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
-import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -544,63 +541,6 @@ describe("editor shell", () => {
         severity: "warning"
       })
     );
-  });
-
-  it("loads AI suggestions with the route project id", () => {
-    const queryClient = createTestQueryClient();
-    const projectId = "project_real_1";
-    const deck = {
-      ...createDemoDeck(),
-      projectId
-    } as Deck;
-    const slideId = deck.slides[0].slideId;
-    const suggestion = {
-      suggestionId: "suggestion_real_project",
-      projectId,
-      deckId: deck.deckId,
-      slideId,
-      baseVersion: deck.version,
-      title: "실제 프로젝트 제안",
-      summary: "라우트 projectId로 조회한 제안입니다.",
-      patch: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        source: "ai",
-        operations: [
-          {
-            type: "update_speaker_notes",
-            slideId,
-            speakerNotes: "현재 프로젝트의 발표 메모를 개선합니다."
-          }
-        ]
-      },
-      status: "pending",
-      createdAt: "2026-06-29T00:00:00.000Z",
-      updatedAt: "2026-06-29T00:00:01.000Z"
-    } satisfies AiSuggestion;
-    const response = {
-      projectId,
-      suggestions: [suggestion]
-    } satisfies ListAiSuggestionsResponse;
-
-    queryClient.setQueryData(["deck", projectId], deck);
-    queryClient.setQueryData(["health"], {
-      app: "orbit-api",
-      demo: demoIds,
-      status: "ok"
-    });
-    queryClient.setQueryData(
-      aiSuggestionsQueryKey(projectId, {
-        deckId: deck.deckId,
-        slideId
-      }),
-      response
-    );
-
-    const html = renderApp(queryClient, projectId);
-
-    expect(html).toContain("실제 프로젝트 제안");
-    expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
   });
 
   it("uploads a PPTX file, creates an import job, and polls until completion", async () => {

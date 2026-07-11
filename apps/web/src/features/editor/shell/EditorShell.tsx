@@ -123,7 +123,6 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
-  ApplyAiSuggestionResponse,
   ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
   CustomShapeElementProps,
@@ -188,7 +187,6 @@ import {
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
-import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
 import {
   SemanticCueReviewPanel,
   type SemanticCueExtractionUiState
@@ -2008,23 +2006,6 @@ export function EditorShell(props: { projectId?: string }) {
 
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
-
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
-    queryClient.setQueryData(["deck", projectId], response.deck);
-    markHydratedPersistedDeck(response.deck, setDeck);
-    setLastSavedAt(response.changeRecord.createdAt);
-    setUndoStack([]);
-    setRedoStack([]);
-    setSelectedElementIds([]);
-    setEditingElementId(null);
-    setCustomShapeEditElementId(null);
-    setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
-    setSaveState("auto-saved");
-    setSaveError(null, null);
-  }
 
   function handleDesignAgentProposalApplied(
     response: ApplyDesignAgentProposalResponse
@@ -5818,12 +5799,6 @@ export function EditorShell(props: { projectId?: string }) {
                     onTextOverflowAction={handleValidationTextOverflowAction}
                   />
                   <SourceLedgerPanel slide={currentSlide ?? null} />
-                  <SuggestionPanel
-                    deck={deck}
-                    projectId={projectId}
-                    slideId={currentSlide?.slideId ?? null}
-                    onApplySuccess={handleAiSuggestionApplied}
-                  />
                 </div>
                 <div
                   aria-labelledby="editor-semantic-cue-tab"

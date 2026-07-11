@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { LoggerModule } from "nestjs-pino";
 import { AuthModule } from "./auth/auth.module";
-import { AiSuggestionsModule } from "./ai-suggestions/ai-suggestions.module";
 import { AiTemplateDeckGenerationModule } from "./ai-template-deck-generation/ai-template-deck-generation.module";
 import { DecksModule } from "./decks/decks.module";
 import { DesignAgentModule } from "./design-agent/design-agent.module";
@@ -28,7 +27,6 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
   imports: [
     LoggerModule.forRoot(createApiLoggerParams()),
     TypeOrmModule.forRoot(databaseOptions),
-    AiSuggestionsModule,
     AiTemplateDeckGenerationModule,
     AuthModule,
     HealthModule,
