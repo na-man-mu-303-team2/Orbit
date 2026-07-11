@@ -189,7 +189,7 @@ export class RehearsalsService {
 
     await this.filesService.completeUpload(run.projectId, {
       fileId: request.fileId
-    });
+    }, "rehearsal-audio");
     await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
 
     const claimedRun = await this.claimAudioUpload(run, request.fileId);
