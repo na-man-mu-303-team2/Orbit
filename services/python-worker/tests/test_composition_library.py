@@ -1524,6 +1524,54 @@ def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
+def test_body_hero_split_without_media_uses_native_content_composition() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        slide_payload("feature-grid", 3),
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "minimal-cover",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "hero-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
+                "compositionId": "cta-closing",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+
+    assert normalized.slides[1].composition_id in {
+        "editorial-split",
+        "feature-comparison",
+        "kpi-strip-evidence",
+        "diagram-hub",
+    }
+
+
 def test_two_item_comparison_uses_asymmetric_contrasting_statement_panels() -> None:
     slide = slide_payload("comparison", 2)
     design_program = program(

@@ -2003,6 +2003,7 @@ def normalize_design_program(
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
     if media_policy == "hybrid":
         _enforce_hybrid_media_mix(normalized, slides, media_budget)
+    _replace_body_hero_splits_without_media(normalized, slides)
     _enforce_background_rhythm(normalized, force_light, force_dark)
     return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
 
@@ -2038,6 +2039,11 @@ def _select_composition_sequence(
                 slide,
                 index,
                 media_policy,
+            )
+            and not (
+                candidate == "hero-split"
+                and index > 0
+                and direction.asset_role == "none"
             )
             and not ((force_light or force_dark) and candidate == "hero-full-bleed")
             and not (
@@ -2406,6 +2412,50 @@ def _enforce_hybrid_media_mix(
         direction.composition_id = candidate
         direction.asset_role = "atmosphere"
         direction.required_asset = False
+
+
+def _replace_body_hero_splits_without_media(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+) -> None:
+    usage = Counter(direction.composition_id for direction in program.slides)
+    for index, (direction, slide) in enumerate(
+        zip(program.slides, slides, strict=True)
+    ):
+        if (
+            index == 0
+            or direction.composition_id != "hero-split"
+            or direction.asset_role != "none"
+        ):
+            continue
+        slide_type = _composition_slide_type(slide)
+        item_count = len(_items(slide))
+        candidates = [
+            candidate
+            for candidate in FALLBACK_COMPOSITIONS.get(slide_type, ())
+            if candidate != "hero-split"
+            and COMPOSITION_SPECS[candidate].media_requirement != "required"
+            and _supports(candidate, slide_type, item_count)
+            and content_supports_composition(candidate, slide)
+        ]
+        neighboring_silhouettes = {
+            COMPOSITION_SPECS[program.slides[neighbor].composition_id].silhouette
+            for neighbor in (index - 1, index + 1)
+            if 0 <= neighbor < len(program.slides)
+        }
+        replacement = min(
+            candidates,
+            key=lambda candidate: (
+                COMPOSITION_SPECS[candidate].silhouette in neighboring_silhouettes,
+                usage[candidate],
+            ),
+            default=None,
+        )
+        if replacement is None:
+            continue
+        usage[direction.composition_id] -= 1
+        direction.composition_id = replacement
+        usage[replacement] += 1
 
 
 def _media_candidate(
