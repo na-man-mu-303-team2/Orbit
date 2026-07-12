@@ -47,6 +47,7 @@ import {
   pollExtractJob,
   resolveGenerateDeckTargetProject,
   shouldRenderAppFrame,
+  shouldWaitForAuthResolution,
   TemplateRail,
   TemplateStyleOptionsPanel
 } from "./App";
@@ -153,6 +154,24 @@ describe("App shell routing", () => {
       })
     ).toBe(false);
     expect(shouldRenderAppFrame({ name: "home" })).toBe(true);
+  });
+
+  it("renders public routes without waiting for the current-user request", () => {
+    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "report-mockup" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "not-found" })).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
+    ).toBe(false);
+  });
+
+  it("waits for authentication before rendering workspace routes", () => {
+    expect(shouldWaitForAuthResolution({ name: "home" })).toBe(true);
+    expect(shouldWaitForAuthResolution({ name: "project-list" })).toBe(true);
+    expect(
+      shouldWaitForAuthResolution({ name: "project-editor", projectId: "project-1" })
+    ).toBe(true);
   });
 
   it("exposes the design-system preview outside the product shell", () => {

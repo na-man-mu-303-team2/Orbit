@@ -648,12 +648,7 @@ export function App() {
     retry: false
   });
 
-  if (
-    auth.isPending &&
-    !["design-system", "mockup", "audience-session", "present", "deck-render"].includes(
-      route.name
-    )
-  ) {
+  if (auth.isPending && shouldWaitForAuthResolution(route)) {
     return <AuthLoadingFallback />;
   }
 
@@ -674,6 +669,20 @@ export function App() {
       {renderRoute(route, auth.data)}
     </AppFrame>
   );
+}
+
+export function shouldWaitForAuthResolution(route: Route) {
+  return ![
+    "login",
+    "signup",
+    "design-system",
+    "mockup",
+    "report-mockup",
+    "audience-session",
+    "present",
+    "deck-render",
+    "not-found"
+  ].includes(route.name);
 }
 
 export function shouldRenderAppFrame(route: Route) {
