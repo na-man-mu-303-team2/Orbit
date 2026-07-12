@@ -1091,8 +1091,9 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
     expect(html).toContain("음");
-    expect(html).toContain("표현별 비중");
-    expect(html).toContain("100% (2회)");
+    expect(html).toContain("상위 표현");
+    expect(html).toContain("표현별 사용 횟수와 비중");
+    expect(html).toContain("2회");
     expect(html).toContain("놓친 핵심 메시지");
     expect(html).toContain("문제 신호");
     expect(html).toContain("습관어 2회");
@@ -1149,7 +1150,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("18초회");
   });
 
-  it("shows only problematic slides and paginates the first three cards", () => {
+  it("shows problematic slide cards and puts every slide on the priority strip", () => {
     const baseDeck = createDemoDeck();
     const deck = {
       ...baseDeck,
@@ -1209,7 +1210,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain(`슬라이드 ${slide1!.order} · ${slide1!.title}`);
     expect(html).toContain(`슬라이드 ${slide2!.order} · ${slide2!.title}`);
     expect(html).toContain(`슬라이드 ${slide3!.order} · ${slide3!.title}`);
-    expect(html).not.toContain(`슬라이드 ${slide4!.order} · ${slide4!.title}`);
+    expect(html).toContain(`슬라이드 ${slide4!.order} · ${slide4!.title}`);
     expect(html).toContain("1 / 2");
     expect(html).toContain("다음");
   });

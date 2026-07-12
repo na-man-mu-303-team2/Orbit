@@ -1,5 +1,5 @@
 import { FileText } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo } from "react";
 import type { Deck, RehearsalReport } from "@orbit/shared";
 import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 
@@ -163,7 +163,6 @@ export function RehearsalSlideTimingOverview({
   formatDuration,
   slideTimings,
 }: Props) {
-  const [expanded, setExpanded] = useState(false);
   const gradientId = useId();
 
   const slideDurationSeries = useMemo(
@@ -195,15 +194,6 @@ export function RehearsalSlideTimingOverview({
                 Math.max(...slideDurationSeries.map((item) => item.actualSeconds)),
               )}
             </strong>
-            {slideDurationSeries.length > 5 && (
-              <button
-                type="button"
-                className="rrd-panel-toggle"
-                onClick={() => setExpanded((current) => !current)}
-              >
-                {expanded ? "접기" : "펼치기"}
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -315,7 +305,7 @@ export function RehearsalSlideTimingOverview({
             </svg>
           </div>
 
-          <div className={`rrd-slide-detail-list${expanded ? " is-expanded" : ""}`}>
+          <div className="rrd-slide-detail-list">
             {chart.points.map((point) => (
               <div key={point.slideId} className="rrd-slide-detail-item">
                 <div className="rrd-cumulative-thumb">

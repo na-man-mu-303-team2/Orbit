@@ -12,6 +12,7 @@ import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
+import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
@@ -93,6 +94,9 @@ export function RehearsalReportDocument({
         <div className="rrd-hero-text">
           <h1 className="rrd-hero-title">{title}</h1>
           <time className="rrd-hero-date">{runDate}</time>
+          <span className="rrd-hero-status">
+            <i aria-hidden="true" /> AI 코칭 완료
+          </span>
         </div>
         <button
           type="button"
@@ -107,14 +111,20 @@ export function RehearsalReportDocument({
       {/* ── 1. AI summary ── */}
       <RehearsalAiSummaryOverview report={report} />
 
-      {/* ── 2. 말버릇 / 멈춤 ── */}
+      {/* ── 2. 말버릇 ── */}
       <RehearsalHabitOverview
-        formatDuration={fmt}
         prevReport={prevReport}
         report={report}
       />
 
-      {/* ── 3. 소요 시간 분석 ── */}
+      {/* ── 3. 음성 타임라인 / 긴 멈춤 ── */}
+      <RehearsalPauseOverview
+        deck={deck}
+        formatDuration={fmt}
+        report={report}
+      />
+
+      {/* ── 4. 소요 시간 분석 ── */}
       <section className="rrd-card rrd-overview-card">
         <header className="rrd-card-head">
           <FileText size={20} className="rrd-card-icon" />

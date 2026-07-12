@@ -1,4 +1,10 @@
-import { ArrowLeft, FileText, Loader2, Mic, TrendingUp } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Mic,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import type {
   Deck,
@@ -23,6 +29,7 @@ import {
   formatRunDate,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
+import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 
 export function RehearsalProjectOverviewPage({
   projectId,
@@ -96,6 +103,9 @@ export function RehearsalProjectOverviewPage({
     label: `${i + 1}회차`,
     seconds: p.durationSeconds,
   }));
+  const durationValues = durationSeries.map((point) => point.seconds);
+  const latestDuration = durationValues.at(-1) ?? null;
+  const primaryBriefing = comparisonModel?.briefing[0] ?? null;
 
   return (
     <main className="rehearsal-report-page">
@@ -138,18 +148,71 @@ export function RehearsalProjectOverviewPage({
             </div>
           ) : (
             <>
-              <div className="report-overview-stats">
-                <div className="report-stat-card">
-                  <FileText size={22} className="report-stat-icon" />
-                  <span className="report-stat-label">리허설 리포트</span>
-                  <strong className="report-stat-value">{runs.length}건</strong>
+              <header className="report-overview-hero">
+                <div className="report-overview-hero-copy">
+                  <span className="report-page-kicker">
+                    <Sparkles size={14} /> PROJECT REPORT
+                  </span>
+                  <h1>{project?.title ?? "프로젝트 리포트"}</h1>
+                  <p>
+                    {runs.length > 0
+                      ? `${runs.length}회차 발표 기록을 한눈에 비교해보세요.`
+                      : "첫 리허설을 시작하면 발표 흐름이 여기에 쌓여요."}
+                  </p>
+                  <span className="report-overview-hero-status">
+                    <i aria-hidden="true" /> AI 분석 준비 완료
+                  </span>
                 </div>
-                <div className="report-stat-card report-stat-card-disabled">
-                  <FileText size={22} className="report-stat-icon" />
-                  <span className="report-stat-label">실전 리포트</span>
-                  <strong className="report-stat-value">0건</strong>
+                <div className="report-mascot-wrap report-overview-mascot-wrap">
+                  <img
+                    src={orbitReportMascot}
+                    alt="ORBIT 리포트 캐릭터"
+                    className="report-mascot report-overview-mascot"
+                  />
                 </div>
-              </div>
+              </header>
+
+              <section
+                className="report-overview-focus"
+                aria-label="다음 발표 핵심 안내"
+              >
+                <header className="report-overview-focus-header">
+                  <div>
+                    <span>WHAT TO DO NEXT</span>
+                    <h2>다음 발표에서 먼저 챙길 것</h2>
+                  </div>
+                  <small>회차 비교와 발표 흐름에서 뽑은 핵심</small>
+                </header>
+                <div className="report-overview-focus-grid">
+                  {primaryBriefing ? (
+                    <a
+                      className="report-overview-focus-card is-primary"
+                      href={primaryBriefing.href}
+                    >
+                      <span>우선 개선</span>
+                      <strong>{primaryBriefing.label}</strong>
+                      <small>{primaryBriefing.slideLabel}</small>
+                      <p>{primaryBriefing.reason}</p>
+                    </a>
+                  ) : (
+                    <article className="report-overview-focus-card is-primary">
+                      <span>우선 개선</span>
+                      <strong>반복 이슈가 없습니다</strong>
+                      <p>
+                        다음 회차에서 새로운 변화가 생기면 이곳에 바로 보여드려요.
+                      </p>
+                    </article>
+                  )}
+                  <article className="report-overview-focus-card">
+                    <span>발표 흐름 요약</span>
+                    <strong>최근 발표 흐름을 확인하세요</strong>
+                    <p>
+                      {summary?.progressComment ??
+                        "회차가 쌓이면 발표 흐름의 변화가 이곳에 요약됩니다."}
+                    </p>
+                  </article>
+                </div>
+              </section>
 
               <div className="report-overview-dates">
                 <div className="report-date-row">
@@ -159,8 +222,10 @@ export function RehearsalProjectOverviewPage({
                   </strong>
                 </div>
                 <div className="report-date-row">
-                  <span className="report-date-label">최신 발표</span>
-                  <strong className="report-date-value report-date-empty">—</strong>
+                  <span className="report-date-label">실전 리포트</span>
+                  <strong className="report-date-value report-date-empty">
+                    0건 · 준비 중
+                  </strong>
                 </div>
               </div>
 
@@ -186,18 +251,28 @@ export function RehearsalProjectOverviewPage({
 
                   {durationSeries.length >= 2 && (
                     <div className="report-project-chart-block">
-                      <span className="report-project-chart-label">
-                        회차별 총 소요시간 (초)
-                      </span>
+                      <div className="report-project-chart-heading">
+                        <span className="report-project-chart-label">
+                          회차별 총 소요시간
+                        </span>
+                        <span className="report-project-chart-note">
+                          전체 {durationSeries.length}회 · 최근 {formatOverviewDuration(latestDuration ?? 0)}
+                        </span>
+                      </div>
                       <DurationLineChart series={durationSeries} />
                     </div>
                   )}
 
                   {(summary?.slideAvgTimings?.length ?? 0) > 0 && (
                     <div className="report-project-chart-block">
-                      <span className="report-project-chart-label">
-                        슬라이드별 평균 소요시간 (초)
-                      </span>
+                      <div className="report-project-chart-heading">
+                        <span className="report-project-chart-label">
+                          슬라이드별 평균 소요시간
+                        </span>
+                        <span className="report-project-chart-note">
+                          {summary!.slideAvgTimings.length}장 · 실제 발표 기준
+                        </span>
+                      </div>
                       <SlideAvgBarChart timings={summary!.slideAvgTimings} />
                     </div>
                   )}
@@ -209,4 +284,11 @@ export function RehearsalProjectOverviewPage({
       </div>
     </main>
   );
+}
+
+function formatOverviewDuration(totalSeconds: number) {
+  const roundedSeconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return minutes > 0 ? `${minutes}분 ${seconds}초` : `${seconds}초`;
 }
