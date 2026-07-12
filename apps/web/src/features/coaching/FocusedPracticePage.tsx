@@ -98,13 +98,13 @@ export function FocusedPracticePage(props: {
   const isRecording = props.preview ? status === "녹음 중" : audio.recording;
 
   if (loadState === "error") {
-    return <div className="orbit-ds-page focused-practice-page"><section className="focused-practice-shell"><p className="orbit-ds-eyebrow">FOCUSED PRACTICE</p><h1>집중 연습을 준비하지 못했습니다.</h1><p className="focused-practice-error" role="alert">{error}</p><footer><OrbitButton onClick={() => setReloadKey((value) => value + 1)} icon={<IconRefresh size={18} />}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></footer></section></div>;
+    return <div className="orbit-ds-page focused-practice-page"><section className="focused-practice-shell"><p className="orbit-ds-eyebrow">집중 연습</p><h1>집중 연습을 준비하지 못했습니다.</h1><p className="focused-practice-error" role="alert">{error}</p><footer><OrbitButton onClick={() => setReloadKey((value) => value + 1)} icon={<IconRefresh size={18} />}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></footer></section></div>;
   }
 
   return <div className="orbit-ds-page focused-practice-page">
     <div className="focused-practice-breadcrumb"><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}><IconArrowLeft size={17} /> 연습 계획</a><span>/</span><strong>집중 연습</strong></div>
     <section className="focused-practice-shell">
-      <header><div><p className="orbit-ds-eyebrow">Focused practice</p><h1>한 구간만 짧게 반복하세요.</h1></div><OrbitStatus tone={stabilized ? "success" : "lilac"}>{stabilized ? "연습에서 안정화됨" : status}</OrbitStatus></header>
+      <header><div><p className="orbit-ds-eyebrow">집중 연습</p><h1>한 구간만 짧게 반복하세요.</h1></div><OrbitStatus tone={stabilized ? "success" : "lilac"}>{stabilized ? "연습에서 안정화됨" : status}</OrbitStatus></header>
       {error ? <p role="alert" className="focused-practice-error">{error}</p> : null}
       <div className={`focused-practice-layout${deck && goal?.targetScope?.type === "slide" ? "" : " no-preview"}`}>
         {deck && goal?.targetScope?.type === "slide" ? props.preview ? <FocusedPreviewSlideCard deck={deck} slideId={goal.targetScope.slideId} /> : <Suspense fallback={<FocusedPreviewSlideCard deck={deck} slideId={goal.targetScope.slideId} />}><FocusedSlidePreview deck={deck} slideId={goal.targetScope.slideId} /></Suspense> : null}

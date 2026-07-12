@@ -175,7 +175,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
       <div className="qna-breadcrumb"><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}><IconArrowLeft size={17} /> 연습 계획</a><span>/</span><strong>도전 Q&amp;A</strong></div>
       <section className="qna-shell">
         <header>
-          <div><p className="orbit-ds-eyebrow">Challenge Q&amp;A</p><h1>질문 하나에 집중해 답해 보세요.</h1><p>실제 청중이 물을 만한 질문을 발표 근거로 연습합니다.</p></div>
+          <div><p className="orbit-ds-eyebrow">도전 Q&amp;A</p><h1>질문 하나에 집중해 답해 보세요.</h1><p>실제 청중이 물을 만한 질문을 발표 근거로 연습합니다.</p></div>
           <OrbitStatus tone={result?.status === "succeeded" ? "success" : "lilac"}>{view.session.activeQuestionOrder ?? 0} / {view.session.source.questionCount}</OrbitStatus>
         </header>
         {error ? <p className="qna-error" role="alert">{error}</p> : null}
@@ -237,7 +237,7 @@ function GuideDrawer(props: { guide: any; onClose: () => void }) {
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   }, []);
-  return <div className="qna-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><aside className="qna-drawer" role="dialog" aria-modal="true" aria-labelledby="guide-title"><button ref={close} className="qna-drawer-close" aria-label="가이드 닫기" onClick={props.onClose} type="button"><IconX /></button><p className="orbit-ds-eyebrow">Answer guide</p><h2 id="guide-title">답변 구조 가이드</h2><ol>{props.guide.suggestedStructure.map((item: string) => <li key={item}>{item}</li>)}</ol><h3>반드시 포함할 개념</h3><ul>{props.guide.mustIncludeConcepts.map((item: any) => <li key={item.conceptId}>{item.label}</li>)}</ul>{props.guide.remediation ? <p className="qna-warning">{props.guide.remediation.message}</p> : null}</aside></div>;
+  return <div className="qna-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}><aside className="qna-drawer" role="dialog" aria-modal="true" aria-labelledby="guide-title"><button ref={close} className="qna-drawer-close" aria-label="가이드 닫기" onClick={props.onClose} type="button"><IconX /></button><p className="orbit-ds-eyebrow">답변 가이드</p><h2 id="guide-title">답변 구조 가이드</h2><ol>{props.guide.suggestedStructure.map((item: string) => <li key={item}>{item}</li>)}</ol><h3>반드시 포함할 개념</h3><ul>{props.guide.mustIncludeConcepts.map((item: any) => <li key={item.conceptId}>{item.label}</li>)}</ul>{props.guide.remediation ? <p className="qna-warning">{props.guide.remediation.message}</p> : null}</aside></div>;
 }
 
 function message(cause: unknown) {

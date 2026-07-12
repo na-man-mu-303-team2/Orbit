@@ -64,7 +64,7 @@ export function PracticePlanPage(props: {
         <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/report/${encodeURIComponent(props.sourceFullRunId)}`}>
           <IconArrowLeft aria-hidden="true" size={18} /> 리포트로 돌아가기
         </a>
-        <OrbitStatus tone="lilac">Adaptive coach</OrbitStatus>
+        <OrbitStatus tone="lilac">맞춤 연습</OrbitStatus>
       </header>
 
       {!props.previewPlan && planQuery.isLoading ? <PlanState title="연습 계획을 정리하고 있어요" copy="분석 결과에서 가장 효과가 큰 목표를 고르는 중입니다." /> : null}
@@ -79,7 +79,7 @@ export function PracticePlanPage(props: {
       {plan?.status === "ready" && selectedGoal ? (
         <section className="practice-plan-content" aria-labelledby="practice-plan-title">
           <header className="practice-plan-heading">
-            <p className="orbit-ds-eyebrow">Next rehearsal</p>
+            <p className="orbit-ds-eyebrow">다음 리허설</p>
             <h1 id="practice-plan-title">다음 연습은 이 세 가지에 집중하세요.</h1>
             <p>한 번에 하나씩 고르고, 짧게 반복한 뒤 전체 발표에서 확인합니다.</p>
           </header>
@@ -115,21 +115,25 @@ export function PracticePlanPage(props: {
                 <div><dt><IconMicrophone aria-hidden="true" size={17} /> 다음 행동</dt><dd>{selectedGoal.nextAction}</dd></div>
                 <div><dt><IconCircleCheck aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
               </dl>
-              {selectedGoal.canStartFocusedPractice && capabilities?.focusedPracticeEnabled ? (
-                <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}>
-                  선택한 구간 연습
-                </OrbitButton>
-              ) : (
-                <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}>
-                  전체 리허설에서 확인
-                </OrbitButton>
-              )}
+              <OrbitButton
+                disabled={!selectedGoal.canStartFocusedPractice || !capabilities?.focusedPracticeEnabled}
+                onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}
+              >
+                선택한 구간 연습
+              </OrbitButton>
+              {!selectedGoal.canStartFocusedPractice || !capabilities?.focusedPracticeEnabled ? (
+                <p className="practice-action-note" role="status">
+                  집중 연습은 현재 사용할 수 없습니다. 전체 리허설로 목표를 확인할 수 있습니다.
+                </p>
+              ) : null}
               <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`}>
                 <IconClock aria-hidden="true" size={16} /> 전체 리허설로 확인
               </a>
               {capabilities?.challengeQnaEnabled ? <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
                 <IconMicrophone aria-hidden="true" size={16} /> 도전 질문 3개 연습
-              </a> : null}
+              </a> : <span aria-disabled="true" className="practice-full-run-link practice-disabled-link">
+                <IconMicrophone aria-hidden="true" size={16} /> 도전 질문 3개 연습 · 현재 사용할 수 없습니다
+              </span>}
             </article>
           </div>
         </section>

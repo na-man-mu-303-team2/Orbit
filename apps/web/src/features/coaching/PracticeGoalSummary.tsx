@@ -21,7 +21,7 @@ export function PracticeGoalSummary(props: { projectId: string; sourceFullRunId:
     <section className="practice-report-summary" aria-labelledby="practice-report-summary-title">
       <header>
         <div>
-          <p className="orbit-ds-eyebrow">Top 3 practice goals</p>
+          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">다음 연습에서 먼저 바꿀 것</h2>
         </div>
         <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>

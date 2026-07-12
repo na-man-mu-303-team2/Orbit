@@ -25,7 +25,9 @@
 .practice-goal-focus dt { align-items: center; display: flex; font-size: 13px; font-weight: 700; gap: 8px; }
 .practice-goal-focus dd { color: var(--orbit-ds-text-muted); line-height: 1.6; margin: 8px 0 0; }
 .practice-goal-focus .orbit-ds-button { width: 100%; }
+.practice-action-note { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.5; margin: 10px 4px 0; }
 .practice-full-run-link { justify-content: center; margin-top: 18px; }
+.practice-disabled-link { color: var(--orbit-ds-text-muted); cursor: not-allowed; opacity: .72; }
 .practice-plan-state { margin: 0 auto; max-width: 640px; padding: 18vh 32px; text-align: center; }
 .practice-plan-state svg { color: var(--orbit-ds-lilac-strong); }
 .practice-plan-state h1 { font-size: 34px; letter-spacing: -.035em; margin: 24px 0 12px; }
