@@ -572,6 +572,9 @@ function fileNameForMime(
   mimeType: ImageAssetCandidate["mimeType"]
 ) {
   const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1];
-  const stem = title.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "") || "public-image";
+  const sanitized =
+    title.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "") ||
+    "public-image";
+  const stem = sanitized.slice(0, 96).replace(/[._-]+$/g, "") || "public-image";
   return `${stem}.${extension}`;
 }

@@ -364,7 +364,7 @@ describe("image providers", () => {
 
     const result = await new OfficialWebImageProvider().fetch({
       sourceUrls: ["https://official.example/game"],
-      query: "Splatoon Raiders key art"
+      query: "Splatoon Raiders key art ".repeat(30)
     });
 
     expect(result).toMatchObject({
@@ -374,6 +374,7 @@ describe("image providers", () => {
       sourceAuthority: "official",
       usageBasis: "official-reference"
     });
+    expect(result.fileName.length).toBeLessThanOrEqual(100);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
