@@ -365,8 +365,16 @@ def _hero_split(
 ) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
+    duplicates_items = _message_duplicates_items(slide, items)
+    message_item_ids = _message_backed_item_ids(slide, items)
     content_columns = 6 if direction.asset_role != "none" else 7
     media_columns = 12 - content_columns
+    title_text = str(slide.get("title", ""))
+    title_size = _hero_title_font_size(
+        title_text,
+        style.cover_size,
+        _grid_width(content_columns),
+    )
     elements = [_background(order, style)]
     elements.append(
         _rect(order, "hero_accent", "decoration", 120, 164, 92, 14, 2, style.focal)
@@ -375,14 +383,14 @@ def _hero_split(
         order,
         "title",
         "title",
-        str(slide.get("title", "")),
+        title_text,
         _grid_x(0),
         232,
         _grid_width(content_columns),
-        248,
+        328,
         10,
         style.text,
-        style.cover_size,
+        title_size,
         "bold",
         style.heading_font,
         line_height=1.05,
@@ -395,17 +403,19 @@ def _hero_split(
             "highlight",
             str(slide.get("message", "")),
             _grid_x(0),
-            520,
+            592,
             _grid_width(content_columns),
-            152,
+            144,
             10,
             style.text,
             max(style.body_size + 4, 24),
             "semibold",
             style.body_font,
+            vertical="middle",
+            content_item_ids=message_item_ids or None,
         )
     )
-    if items:
+    if items and not duplicates_items:
         elements.append(
             _text(
                 order,
@@ -413,9 +423,9 @@ def _hero_split(
                 "body",
                 "\n".join(f"• {value}" for _, value in items),
                 _grid_x(0),
-                704,
+                768,
                 _grid_width(content_columns),
-                184,
+                120,
                 10,
                 style.muted_text,
                 style.body_size,
@@ -479,6 +489,18 @@ def _hero_split(
         ]
     )
     return elements, title["elementId"]
+
+
+def _hero_title_font_size(value: str, base_size: int, width: int) -> int:
+    normalized_length = len(_normalized_text(value))
+    if width <= _grid_width(6):
+        if normalized_length > 40:
+            return min(base_size, 52)
+        if normalized_length > 34:
+            return min(base_size, 56)
+        if normalized_length > 26:
+            return min(base_size, 64)
+    return base_size
 
 
 def _hero_full_bleed(
@@ -1014,85 +1036,34 @@ def _editorial_split(
         return elements, message["elementId"]
 
     if len(items) >= 3:
-        row_top = 288
-        row_height = 584 // len(items)
-        for index, (identifier, value) in enumerate(items):
-            y = row_top + index * row_height
-            is_focal = index == 0
-            text_color = (
-                _contrasting_text_color(style.focal, style.text)
-                if is_focal
-                else style.text
-            )
-            if is_focal:
-                elements.append(
-                    _rect(
-                        order,
-                        "item_1_focal_rail",
-                        "decoration",
-                        SAFE_X,
-                        y,
-                        SAFE_WIDTH,
-                        row_height,
-                        3,
-                        style.focal,
-                    )
-                )
-            elif index < len(items):
-                elements.append(
-                    _rect(
-                        order,
-                        f"item_{index + 1}_divider",
-                        "decoration",
-                        _grid_x(2),
-                        y + row_height - 2,
-                        _grid_width(10),
-                        2,
-                        3,
-                        style.secondary,
-                    )
-                )
+        focal_x = _grid_x(0)
+        focal_y = 288
+        focal_width = _grid_width(5)
+        focal_height = 584
+        focal_text = _contrasting_text_color(style.focal, style.text)
+        first_id, first_value = items[0]
+        elements.extend(
+            [
+                _rect(order, "item_1_focal_rail", "decoration", focal_x, focal_y, focal_width, focal_height, 3, style.focal, radius=8),
+                _text(order, "item_1_index", "highlight", "01", focal_x + 48, focal_y + 32, focal_width - 96, 72, 5, focal_text, 56, "bold", style.heading_font),
+                _text(order, "item_1", "body", first_value, focal_x + 48, focal_y + 128, focal_width - 96, focal_height - 176, 5, focal_text, max(44, style.body_size + 10), "bold", style.body_font, vertical="middle", content_item_ids=[first_id]),
+            ]
+        )
+        supporting = items[1:]
+        row_height = focal_height // len(supporting)
+        for index, (identifier, value) in enumerate(supporting, start=2):
+            y = focal_y + (index - 2) * row_height
             elements.extend(
                 [
-                    _text(
-                        order,
-                        f"item_{index + 1}_index",
-                        "highlight",
-                        f"{index + 1:02d}",
-                        _grid_x(0),
-                        y + 16,
-                        _grid_width(2),
-                        row_height - 32,
-                        5,
-                        text_color if is_focal else style.focal,
-                        52 if is_focal else 44,
-                        "bold",
-                        style.heading_font,
-                        align="center",
-                        vertical="middle",
-                    ),
-                    _text(
-                        order,
-                        f"item_{index + 1}",
-                        "body",
-                        value,
-                        _grid_x(2),
-                        y + 16,
-                        _grid_width(10),
-                        row_height - 32,
-                        5,
-                        text_color,
-                        max(42, style.body_size + 8)
-                        if is_focal
-                        else max(36, style.body_size + 4),
-                        "bold" if is_focal else "semibold",
-                        style.body_font,
-                        vertical="middle",
-                        content_item_ids=[identifier],
-                    ),
+                    _text(order, f"item_{index}_index", "highlight", f"{index:02d}", _grid_x(5) + 36, y + 16, 82, row_height - 32, 5, style.focal if index % 2 == 0 else style.secondary, 44, "bold", style.heading_font, vertical="middle"),
+                    _text(order, f"item_{index}", "body", value, _grid_x(6), y + 16, _grid_width(6), row_height - 32, 5, style.text, max(36, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
                 ]
             )
-        return elements, _id(order, "item_1")
+            if index < len(items):
+                elements.append(
+                    _rect(order, f"item_{index}_divider", "decoration", _grid_x(6), y + row_height - 2, _grid_width(6), 2, 3, style.secondary)
+                )
+        return elements, _id(order, "item_1_focal_rail")
 
     if len(items) == 2:
         frames = [
@@ -1261,6 +1232,34 @@ def _feature_comparison(
             )
         )
     count = len(items)
+    colors = _editorial_field_colors(style)
+    if count == 4:
+        focal_fill = colors[0]
+        focal_text = _contrasting_text_color(focal_fill, style.text)
+        first_id, first_value = items[0]
+        focal_height = 216
+        elements.extend(
+            [
+                _rect(order, "comparison_1_field", "decoration", SAFE_X, content_top, SAFE_WIDTH, focal_height, 3, focal_fill, radius=8),
+                _text(order, "comparison_1_index", "highlight", "01", SAFE_X + 36, content_top + 24, 96, focal_height - 48, 5, focal_text, 52, "bold", style.heading_font, vertical="middle"),
+                _text(order, "comparison_1", "body", first_value, SAFE_X + 160, content_top + 24, SAFE_WIDTH - 196, focal_height - 48, 5, focal_text, max(44, style.body_size + 10), "bold", style.body_font, vertical="middle", content_item_ids=[first_id]),
+            ]
+        )
+        support_top = content_top + focal_height + 24
+        support_height = content_height - focal_height - 24
+        for index, (identifier, value) in enumerate(items[1:], start=2):
+            column = index - 2
+            x = _grid_x(column * 4)
+            width = _grid_width(4)
+            marker_color = style.focal if index % 2 == 0 else style.secondary
+            elements.extend(
+                [
+                    _rect(order, f"comparison_{index}_rule", "decoration", x, support_top, width, 8, 3, marker_color, radius=4),
+                    _text(order, f"comparison_{index}_index", "highlight", f"{index:02d}", x, support_top + 32, width, 64, 5, marker_color, 44, "bold", style.heading_font),
+                    _text(order, f"comparison_{index}", "body", value, x, support_top + 112, width, support_height - 112, 5, style.text, max(34, style.body_size + 2), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                ]
+            )
+        return elements, _id(order, "comparison_1")
     frames: list[tuple[int, int, int, int]]
     if count == 3:
         stacked_height = (content_height - 24) // 2
@@ -1307,7 +1306,6 @@ def _feature_comparison(
             )
             for index in range(count)
         ]
-    colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)
     ):

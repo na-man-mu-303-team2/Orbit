@@ -515,7 +515,7 @@ def test_two_item_comparison_uses_distinct_even_and_odd_geometry() -> None:
     assert even_frames != odd_frames
 
 
-def test_feature_comparison_uses_distinct_editorial_color_fields() -> None:
+def test_feature_comparison_uses_focal_field_and_distinct_accent_rules() -> None:
     design_program = program(
         [
             {
@@ -540,12 +540,17 @@ def test_feature_comparison_uses_distinct_editorial_color_fields() -> None:
         for element in compiled.elements
         if str(element.get("elementId", "")).endswith("_field")
     ]
+    rules = [
+        element
+        for element in compiled.elements
+        if re.search(r"_comparison_\d+_rule$", str(element.get("elementId", "")))
+    ]
 
-    assert [field["props"]["fill"] for field in fields] == [
+    assert [field["props"]["fill"] for field in fields] == ["#6D28D9"]
+    assert [rule["props"]["fill"] for rule in rules] == [
         "#6D28D9",
-        "#111827",
         "#06B6D4",
-        "#F3F4F6",
+        "#6D28D9",
     ]
 
 
@@ -1117,7 +1122,7 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
 
 
-def test_editorial_split_three_items_use_single_focal_rail() -> None:
+def test_editorial_split_three_items_use_side_focal_and_evidence_rows() -> None:
     slide = slide_payload("solution", 3)
     slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
     design_program = program(
@@ -1149,10 +1154,11 @@ def test_editorial_split_three_items_use_single_focal_rail() -> None:
     assert len(rails) == 1
     assert (rails[0]["x"], rails[0]["width"], rails[0]["height"]) == (
         120,
-        1680,
-        194,
+        686,
+        584,
     )
-    assert all((element["x"], element["width"]) == (404, 1396) for element in body)
+    assert (body[0]["x"], body[0]["width"]) == (168, 590)
+    assert all((element["x"], element["width"]) == (972, 828) for element in body[1:])
     assert body[0]["props"]["fontSize"] > body[1]["props"]["fontSize"]
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
 
@@ -1214,6 +1220,47 @@ def test_short_hero_with_media_uses_balanced_six_column_split() -> None:
 
     assert (title["x"], title["width"]) == (120, 828)
     assert (media["x"], media["width"], media["height"]) == (972, 828, 840)
+
+
+def test_long_mixed_script_hero_reserves_vertical_title_flow() -> None:
+    slide = slide_payload("cover", 2)
+    slide["title"] = (
+        "Splatoon Raiders 발표: Nintendo Switch 2 전용 첫 스핀오프 게임"
+    )
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "hero-split",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "image",
+                "assetRole": "atmosphere",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    title = next(element for element in compiled.elements if element["role"] == "title")
+    message = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_message")
+    )
+
+    assert title["props"]["fontSize"] <= 52
+    assert title["height"] >= 320
+    assert title["y"] + title["height"] + 32 <= message["y"]
+    assert not any(
+        element["elementId"].endswith("_support")
+        for element in compiled.elements
+    )
 
 
 def test_editorial_atmosphere_media_uses_five_seven_split() -> None:
@@ -1292,7 +1339,7 @@ def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
 
 
-def test_editorial_split_four_items_uses_single_focal_rail() -> None:
+def test_editorial_split_four_items_uses_side_focal_and_three_rows() -> None:
     slide = slide_payload("feature-grid", 4)
     slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
     design_program = program(
@@ -1329,12 +1376,53 @@ def test_editorial_split_four_items_uses_single_focal_rail() -> None:
     assert len(rails) == 1
     assert (rails[0]["x"], rails[0]["width"], rails[0]["height"]) == (
         120,
-        1680,
-        146,
+        686,
+        584,
     )
-    assert len(dividers) == 3
-    assert all((body["x"], body["width"]) == (404, 1396) for body in bodies)
+    assert len(dividers) == 2
+    assert (bodies[0]["x"], bodies[0]["width"]) == (168, 590)
+    assert all((body["x"], body["width"]) == (972, 828) for body in bodies[1:])
     assert bodies[0]["props"]["fontSize"] > bodies[1]["props"]["fontSize"]
+
+
+def test_four_item_comparison_uses_one_focal_band_and_three_columns() -> None:
+    slide = slide_payload("comparison", 4)
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "feature-comparison",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "comparison",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if re.search(r"_comparison_\d+_field$", element["elementId"])
+    ]
+    bodies = [element for element in compiled.elements if element["role"] == "body"]
+
+    assert len(fields) == 1
+    assert (fields[0]["x"], fields[0]["width"], fields[0]["height"]) == (
+        120,
+        1680,
+        216,
+    )
+    assert len(bodies) == 4
+    assert [body["x"] for body in bodies[1:]] == [120, 688, 1256]
+    assert all(body["width"] == 544 for body in bodies[1:])
 
 
 def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
