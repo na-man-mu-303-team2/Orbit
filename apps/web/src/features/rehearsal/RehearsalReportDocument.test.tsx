@@ -116,30 +116,15 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("발화 커버리지");
-    expect(html).toContain("그대로 말한 문장");
-    expect(html).toContain("바꿔 말한 문장");
-    expect(html).toContain("추가로 말한 애드리브");
-    expect(html).toContain("설명하지 않은 문장");
-    expect(html).toContain("도입 문장입니다");
-    expect(html).toContain("핵심 메시지를 다르게 설명합니다");
-    expect(html).toContain("고객 사례를 하나 더 설명했습니다.");
-    expect(html).toContain("마무리 문장입니다");
-    expect(html).toContain("슬라이드 1 · Opening");
-    expect(html).toContain("93%");
-    expect(html).toContain("의미 전달 리포트");
-    expect(html).toContain("일부 의미 항목을 측정하지 못했어요");
-    expect(html).toContain("전달됨");
-    expect(html).toContain("일부 전달");
-    expect(html).toContain("놓친 의미");
-    expect(html).toContain("측정하지 못함");
-    expect(html).toContain("검토 제외");
-    expect(html).toContain("다음 연습 목표");
-    expect(html).toContain("고객 가치");
-    expect(html).toContain("비용 절감 효과");
-    expect(html).toContain("반복 업무를 줄였습니다.");
-    expect(html).toContain("정밀 의미 평가 시간 초과");
-    expect(html).toContain("서버 재평가");
+    expect(html).toContain("AI 총평");
+    expect(html).toContain("말버릇");
+    expect(html).toContain("발화 지체 및 긴 멈춤 분석");
+    expect(html).toContain("소요 시간 분석");
+    expect(html).not.toContain("의미 전달 리포트");
+    expect(html).not.toContain("발화 커버리지");
+    expect(html.indexOf("발화 지체 및 긴 멈춤 분석")).toBeLessThan(
+      html.indexOf("슬라이드별 소요 시간"),
+    );
     expect(html).not.toContain("Semantic cue evidence");
     expect(html).not.toContain("scue_intro_1");
     expect(html).not.toContain("nli-entailment");
@@ -147,7 +132,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("보고서에 그대로 노출하지 않을 가설");
   });
 
-  it("shows the basic badge and N/A for a deck without keyword coverage", () => {
+  it("does not render removed semantic or keyword coverage content", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -182,13 +167,12 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("기본 의미 체크");
-    expect(html).toContain("N/A");
-    expect(html).toContain("저장된 장표 키워드가 없어 측정하지 않았어요.");
-    expect(html).not.toContain("키워드 커버리지</span><strong>0%");
+    expect(html).not.toContain("기본 의미 체크");
+    expect(html).not.toContain("N/A");
+    expect(html).not.toContain("키워드 커버리지");
   });
 
-  it("keeps failed retry and fallback copy in system status, not AI summary", () => {
+  it("does not render removed semantic retry content in the report", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -222,11 +206,10 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("시스템 상태 안내");
-    expect(html).toContain("서버 의미 평가 연결 실패");
-    expect(html).toContain("서버 재평가를 완료하지 못했습니다.");
-    expect(html).toContain('role="alert"');
-    expect(html).not.toContain("rrd-ai-summary");
+    expect(html).not.toContain("시스템 상태 안내");
+    expect(html).not.toContain("서버 의미 평가 연결 실패");
+    expect(html).not.toContain("서버 재평가를 완료하지 못했습니다.");
+    expect(html).not.toContain('role="alert"');
     expect(html).not.toContain("server_evaluation_failed");
   });
 });

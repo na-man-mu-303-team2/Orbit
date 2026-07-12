@@ -1146,13 +1146,11 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("2026.06.29");
     expect(html).toContain("1분 30초");
     expect(html).toContain(String(deck.slides.length));
-    expect(html).toContain("75%");
-    expect(html).toContain("키워드 커버리지");
     expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
+    expect(html).toContain("발화 지체 및 긴 멈춤 분석");
     expect(html).toContain("음");
-    expect(html).toContain("표현별 비중");
-    expect(html).toContain("100% (2회)");
+    expect(html).toContain("2회 · 100%");
     expect(html).toContain("놓친 핵심 메시지");
     expect(html).toContain("문제 신호");
     expect(html).toContain("습관어 2회");
@@ -1209,7 +1207,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("18초회");
   });
 
-  it("shows only problematic slides and paginates the first three cards", () => {
+  it("shows slide priorities and paginates the detailed problem cards", () => {
     const baseDeck = createDemoDeck();
     const deck = {
       ...baseDeck,
@@ -1269,7 +1267,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain(`슬라이드 ${slide1!.order} · ${slide1!.title}`);
     expect(html).toContain(`슬라이드 ${slide2!.order} · ${slide2!.title}`);
     expect(html).toContain(`슬라이드 ${slide3!.order} · ${slide3!.title}`);
-    expect(html).not.toContain(`슬라이드 ${slide4!.order} · ${slide4!.title}`);
+    expect(html).toContain("먼저 볼 장표");
+    expect(html).toContain(slide4!.title);
     expect(html).toContain("1 / 2");
     expect(html).toContain("다음");
   });
@@ -1288,7 +1287,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("report-page-state");
   });
 
-  it("does not render private transcript controls even when legacy input contains transcript data", () => {
+  it("renders retained transcript controls without exposing raw text by default", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -1304,10 +1303,30 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
+    expect(html).toContain("발표 전사본");
+    expect(html).toContain("DOCX 내려받기");
+    expect(html).toContain("펼치기");
+    expect(html).not.toContain("민감한 전사 원문");
+  });
+
+  it("hides the transcript controls after the 30-minute retention window", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportPage
+        initialDeck={createDemoDeck()}
+        initialRun={runFixture("succeeded")}
+        initialReport={reportFixture({
+          transcriptRetained: true,
+          transcript: "만료된 전사 원문",
+          generatedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+        })}
+        projectId="project-a"
+        runId="run-1"
+      />,
+    );
+
     expect(html).not.toContain("발표 전사본");
     expect(html).not.toContain("DOCX 내려받기");
-    expect(html).not.toContain("펼치기");
-    expect(html).not.toContain("민감한 전사 원문");
+    expect(html).not.toContain("만료된 전사 원문");
   });
 
   it("calculates completion percent from official slide timings", () => {
@@ -1381,7 +1400,6 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("저장된 장표 키워드 기준");
     expect(html).not.toContain(
       "핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.",
     );
