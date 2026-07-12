@@ -1150,8 +1150,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("긴 멈춤");
     expect(html).toContain("발화 지체 및 긴 멈춤 분석");
     expect(html).toContain("음");
-    expect(html).toContain("표현별 비중");
-    expect(html).toContain("100% (2회)");
+    expect(html).toContain("2회 · 100%");
     expect(html).toContain("놓친 핵심 메시지");
     expect(html).toContain("문제 신호");
     expect(html).toContain("습관어 2회");

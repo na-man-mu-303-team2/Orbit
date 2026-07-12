@@ -146,7 +146,6 @@ export function RehearsalHabitOverview({ prevReport, report }: Props) {
       {fillerDistribution.length > 0 ? (
         <>
           <h3 className="rrd-section-label">상위 표현</h3>
-          <p className="rrd-filler-list-caption">표현별 비중</p>
           <div className="rrd-filler-distribution">
             <div className="rrd-filler-distribution-chart">
               <svg
@@ -208,7 +207,7 @@ export function RehearsalHabitOverview({ prevReport, report }: Props) {
                         dy="23"
                         className="rrd-filler-donut-callout-value"
                       >
-                        {fmtPercent(segment.sharePercent)} ({segment.count}회)
+                        {segment.count}회 · {fmtPercent(segment.sharePercent)}
                       </tspan>
                     </text>
                   </g>

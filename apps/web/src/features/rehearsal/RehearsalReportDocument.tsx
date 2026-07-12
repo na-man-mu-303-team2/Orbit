@@ -96,6 +96,9 @@ export function RehearsalReportDocument({
         <div className="rrd-hero-text">
           <h1 className="rrd-hero-title">{title}</h1>
           <time className="rrd-hero-date">{runDate}</time>
+          <span className="rrd-hero-status">
+            <i aria-hidden="true" /> AI 코칭 완료
+          </span>
         </div>
         <button
           type="button"
@@ -158,7 +161,7 @@ export function RehearsalReportDocument({
         report={report}
       />
 
-      {/* ── 6. 전체 코칭 ── */}
+      {/* ── 5. 전체 코칭 ── */}
       {coaching && (
         <section className="rrd-card">
           <header className="rrd-card-head">
@@ -198,6 +201,7 @@ export function RehearsalReportDocument({
         </section>
       )}
 
+      {/* ── 6. 전사본 ── */}
       {transcriptAvailable && (
         <section className="rrd-card rrd-transcript-card">
           <header className="rrd-card-head">
