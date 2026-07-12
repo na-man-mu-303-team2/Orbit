@@ -4313,6 +4313,51 @@ def test_generate_deck_keeps_theme_tokens_before_semantic_palette() -> None:
     assert theme["palette"]["secondary"] == "#ff0066"
 
 
+def test_generate_deck_keeps_explicit_colors_before_semantic_palette() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Explicit color priority",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Explicit user colors should win over the editorial mood.",
+                    "Use the requested color roles.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "soft editorial",
+                        "structure": "cover",
+                        "paletteHint": "pink editorial palette",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Game launch",
+            designPrompt=(
+                "White editorial deck with electric yellow, ink purple, and blue accents"
+            ),
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["palette"]["primary"] == "#facc15"
+    assert theme["palette"]["secondary"] == "#7c3aed"
+
+
 def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
     design_prompt = "retro tetris colors, classic game, pixel art"
     fake_client = FakeOpenAIClient(

@@ -5757,34 +5757,35 @@ def apply_explicit_palette(
     if tokens:
         return apply_keyed_theme_tokens(theme, tokens)
 
-    semantic_palette = semantic_palette_for_sources(raw_input, slide_plans)
-    if semantic_palette is not None:
-        return apply_semantic_palette(theme, semantic_palette)
-
     colors = explicit_palette_colors(raw_input, slide_plans)
-    if not colors:
-        return theme
-
     neutral = next((color for color in colors if is_neutral_color(color)), None)
     accent_colors = [color for color in colors if not is_neutral_color(color)]
+    if accent_colors:
+        if neutral is not None:
+            theme["backgroundColor"] = neutral
+            theme["textColor"] = text_color_for_background(neutral)
+            theme["palette"]["surface"] = neutral
 
+        if accent_colors:
+            accent = accent_colors[0]
+            theme["accentColor"] = accent
+            theme["palette"]["primary"] = accent
+            theme["palette"]["secondary"] = (
+                accent_colors[1] if len(accent_colors) > 1 else accent
+            )
+            if neutral == "#ffffff" and accent == "#facc15":
+                theme["palette"]["muted"] = "#fef9c3"
+                theme["palette"]["border"] = "#fde68a"
+
+        return theme
+
+    semantic_palette = semantic_palette_for_sources(raw_input, slide_plans)
+    if semantic_palette is not None:
+        theme = apply_semantic_palette(theme, semantic_palette)
     if neutral is not None:
         theme["backgroundColor"] = neutral
         theme["textColor"] = text_color_for_background(neutral)
         theme["palette"]["surface"] = neutral
-
-    if accent_colors:
-        accent = accent_colors[0]
-        theme["accentColor"] = accent
-        theme["palette"]["primary"] = accent
-        theme["palette"]["secondary"] = (
-            accent_colors[1] if len(accent_colors) > 1 else accent
-        )
-        if neutral == "#ffffff" and accent == "#facc15":
-            theme["palette"]["secondary"] = accent
-            theme["palette"]["muted"] = "#fef9c3"
-            theme["palette"]["border"] = "#fde68a"
-
     return theme
 
 
@@ -5792,14 +5793,7 @@ def semantic_palette_for_sources(
     raw_input: RawInput,
     slide_plans: list[SlidePlan] | None = None,
 ) -> dict[str, Any] | None:
-    sources = [
-        *[
-            slide_plan.visual_intent.palette_hint
-            for slide_plan in slide_plans or []
-        ],
-        raw_input.design_prompt,
-    ]
-    for source in sources:
+    for source in palette_sources(raw_input, slide_plans):
         normalized = strip_theme_tokens(source).casefold()
         for profile in SEMANTIC_PALETTE_PROFILES.values():
             if has_any(normalized, profile["keywords"]):
@@ -5887,12 +5881,12 @@ def palette_sources(
     slide_plans: list[SlidePlan] | None = None,
 ) -> list[str]:
     return [
+        raw_input.design_prompt,
+        raw_input.prompt,
         *[
             slide_plan.visual_intent.palette_hint
             for slide_plan in slide_plans or []
         ],
-        raw_input.design_prompt,
-        raw_input.prompt,
     ]
 
 
