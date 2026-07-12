@@ -583,15 +583,19 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
         if duplicates_items
         else (_grid_width(3), _grid_width(4))
     )
+    expanded_pair = duplicates_items and len(items) == 2
+    panel_height = 440 if expanded_pair else 224
+    text_height = panel_height - 48
+    row_step = panel_height + 40
     for index, (identifier, value) in enumerate(items):
         column = index % 2
         x = _grid_x((0 if column == 0 else 6) if duplicates_items else (5 if column == 0 else 8))
-        y = 304 + (index // 2) * 264
+        y = 304 + (index // 2) * row_step
         panel_width = panel_widths[column]
         elements.extend(
             [
-                _rect(order, f"item_{index + 1}_field", "decoration", x, y, panel_width, 224, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-                _text(order, f"item_{index + 1}", "body", value, x + 24, y + 24, panel_width - 48, 176, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]),
+                _rect(order, f"item_{index + 1}_field", "decoration", x, y, panel_width, panel_height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+                _text(order, f"item_{index + 1}", "body", value, x + 24, y + 24, panel_width - 48, text_height, 5, style.text, max(style.body_size + 2, 30) if expanded_pair else style.body_size + 2, "semibold", style.body_font, vertical="middle" if expanded_pair else "top", content_item_ids=[identifier]),
             ]
         )
     return elements, _id(order, "item_1") if duplicates_items and items else message["elementId"]

@@ -202,6 +202,40 @@ def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -
     assert "\n".join(data_items) not in visible_text
 
 
+def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
+    slide = slide_payload("solution", 2)
+    slide["message"] = "\n".join(
+        item["text"] for item in slide["contentItems"]
+    )
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "editorial-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    body_elements = [
+        element for element in compiled.elements if element.get("role") == "body"
+    ]
+
+    assert len(body_elements) == 2
+    assert all(element["height"] >= 392 for element in body_elements)
+    assert all(element["props"]["fontSize"] >= 30 for element in body_elements)
+    assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
+
+
 def test_white_canvas_forces_light_variants() -> None:
     slides = launch_slides()
     normalized = normalize_design_program(
