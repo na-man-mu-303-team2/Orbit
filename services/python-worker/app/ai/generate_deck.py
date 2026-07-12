@@ -12912,7 +12912,7 @@ def is_expected_media_placeholder(slide: dict[str, Any]) -> bool:
         return False
     return bool(visual_plan.get("imageNeeded")) and str(
         visual_plan.get("imageSourcePolicy", "")
-    ) in {"ai-generated", "public-assets", "placeholder-ok"}
+    ) in {"ai-generated", "public-assets", "official-assets", "placeholder-ok"}
 
 
 def estimated_text_content_height(

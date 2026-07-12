@@ -725,7 +725,7 @@ COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "hero-full-bleed": CompositionSpec("hero-full-bleed", ("cover", "title"), 1, 2, "required", ("image",), "full-bleed", "hero-image", _hero_full_bleed),
     "minimal-cover": CompositionSpec("minimal-cover", ("cover", "title"), 1, 3, "none", ("light", "dark"), "minimal", "title", _minimal_cover),
     "statement-poster": CompositionSpec("statement-poster", ("problem", "solution", "quote", "summary"), 1, 2, "none", ("light", "dark"), "poster", "statement", _statement_poster),
-    "editorial-split": CompositionSpec("editorial-split", ("problem", "solution", "feature-grid", "data"), 2, 4, "optional", ("light", "dark"), "split-editorial", "message-or-image", _editorial_split),
+    "editorial-split": CompositionSpec("editorial-split", ("problem", "solution", "feature-grid", "data", "comparison"), 2, 4, "optional", ("light", "dark"), "split-editorial", "message-or-image", _editorial_split),
     "metric-poster": CompositionSpec("metric-poster", ("data", "chart", "summary"), 1, 3, "none", ("light", "dark"), "poster-metric", "metric", _metric_poster),
     "kpi-strip-evidence": CompositionSpec("kpi-strip-evidence", ("data", "chart", "feature-grid", "solution"), 2, 4, "none", ("light", "dark"), "evidence-strip", "first-kpi", _kpi_strip),
     "image-evidence": CompositionSpec("image-evidence", ("data", "feature-grid", "solution", "quote"), 1, 3, "required", ("light", "dark"), "image-evidence", "evidence-image", _image_evidence),

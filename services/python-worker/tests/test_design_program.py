@@ -6,9 +6,10 @@ from typing import Any
 
 import pytest
 
-from app.ai.composition_library import COMPOSITION_SPECS
+from app.ai.composition_library import COMPOSITION_SPECS, normalize_design_program
 from app.ai.design_program import (
     ArtDirectorContext,
+    DeckDesignProgram,
     DesignProgramError,
     art_director_prompt,
     create_design_program,
@@ -21,6 +22,8 @@ from app.ai.generate_deck import (
     MediaIntent,
     SlidePlan,
     initial_source_records,
+    is_expected_media_placeholder,
+    program_v2_slide_summary,
     validate_presentation,
 )
 
@@ -132,6 +135,36 @@ def test_response_format_requires_exact_slide_count() -> None:
     assert schema["properties"]["slides"]["minItems"] == 10
     assert schema["properties"]["slides"]["maxItems"] == 10
     assert schema["properties"]["backgroundSequence"]["minItems"] == 10
+
+
+def test_hybrid_official_asset_placeholder_is_expected_before_resolution() -> None:
+    slide = {
+        "aiNotes": {
+            "visualPlan": {
+                "imageNeeded": True,
+                "imageSourcePolicy": "official-assets",
+            }
+        }
+    }
+
+    assert is_expected_media_placeholder(slide) is True
+
+
+def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
+    plans = golden_slide_plans()
+    plans[6].slide_type = "comparison"
+    payload = golden_design_program()
+    payload["slides"][6]["compositionId"] = "feature-comparison"
+    program = DeckDesignProgram.model_validate(payload)
+
+    normalized = normalize_design_program(
+        program,
+        [program_v2_slide_summary(plan) for plan in plans],
+        media_policy="hybrid",
+    )
+
+    assert normalized.slides[5].composition_id == "feature-comparison"
+    assert normalized.slides[6].composition_id == "editorial-split"
 
 
 def test_create_design_program_retries_one_invalid_response() -> None:
