@@ -1,9 +1,12 @@
 import json
+from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.design_program import (
     ArtDirectorContext,
     DesignProgramError,
@@ -233,3 +236,184 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
         for slide in deck["slides"]
         for element in slide["elements"]
     )
+
+
+def test_splatoon_product_launch_golden_composition_contract() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "splatoon_product_launch_golden_request.json"
+    )
+    request = GenerateDeckRequest.model_validate_json(fixture_path.read_text("utf-8"))
+    slide_plans = golden_slide_plans()
+    responses = FakeResponses([golden_design_program()])
+    orchestrator = DeckGenerationOrchestrator(
+        request,
+        client=SimpleNamespace(responses=responses),
+    )
+    raw_input = orchestrator.run_brief_agent()
+    raw_input.source_records = initial_source_records(raw_input)
+
+    normalized_plans, theme = orchestrator.run_design_director_agent(
+        raw_input,
+        slide_plans,
+    )
+    compiled_slides = orchestrator.run_layout_agent(
+        raw_input,
+        normalized_plans,
+        theme,
+        [],
+    )
+    deck = orchestrator.build_deck(
+        raw_input,
+        type("Outline", (), {"title": "스플래툰 레이더스"})(),
+        theme,
+        compiled_slides,
+    )
+
+    composition_ids = [
+        slide["aiNotes"]["compositionPlan"]["compositionId"]
+        for slide in deck["slides"]
+    ]
+    silhouettes = [COMPOSITION_SPECS[value].silhouette for value in composition_ids]
+    asset_roles = [
+        slide["aiNotes"]["compositionPlan"]["assetRole"]
+        for slide in deck["slides"]
+    ]
+    backgrounds = {
+        slide["aiNotes"]["compositionPlan"]["backgroundMode"]
+        for slide in deck["slides"]
+    }
+
+    assert len(deck["slides"]) == 10
+    assert deck["metadata"]["presentationProfile"] == "product-launch"
+    assert max(Counter(composition_ids).values()) <= 2
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
+    assert len(backgrounds) >= 2
+    assert 3 <= sum(role != "none" for role in asset_roles) <= 5
+    for slide in deck["slides"]:
+        focal_id = slide["aiNotes"]["compositionPlan"]["primaryFocalElementId"]
+        assert focal_id in {element["elementId"] for element in slide["elements"]}
+        assert all(
+            "_program_v2_" in element["elementId"]
+            for element in slide["elements"]
+        )
+
+
+def golden_slide_plans() -> list[SlidePlan]:
+    definitions = [
+        ("cover", "미지의 군도로", "레이더스는 탐험 중심의 새 경험을 연다", ["공식 공개", "새로운 무대"]),
+        ("solution", "혼자 떠나는 탐사", "익숙한 잉크 액션이 단독 탐험으로 확장된다", ["단독 플레이", "탐사 루프", "잉크 이동"]),
+        ("feature-grid", "발견이 플레이가 된다", "섬의 발견과 수집이 진행 동기를 만든다", ["탐색", "수집", "성장"]),
+        ("data", "공식 정보 한눈에", "확인된 정보와 미정 정보를 분리해 전달한다", ["플랫폼", "공개 상태"]),
+        ("architecture", "탐험 루프", "이동과 발견, 대응, 귀환이 하나의 루프를 이룬다", ["이동", "발견", "대응", "귀환"]),
+        ("comparison", "시리즈의 새 축", "대전 중심 경험과 다른 탐험 가치를 제안한다", ["기존 대전", "레이더스 탐험", "공통 잉크 액션"]),
+        ("process", "한 번의 원정", "준비부터 귀환까지 선택이 이어진다", ["준비", "진입", "탐사", "귀환"]),
+        ("data", "공식 장면이 증거다", "공식 키 아트와 트레일러 장면으로 변화를 보여준다", ["공식 키 아트", "트레일러 장면"]),
+        ("solution", "팬이 기대할 이유", "익숙함과 새로움이 동시에 진입 동기를 만든다", ["세계관", "조작감", "새 목표"]),
+        ("summary", "다음 공개를 확인하세요", "공식 채널에서 출시 정보를 이어서 확인한다", ["공식 사이트", "공식 채널"]),
+    ]
+    plans: list[SlidePlan] = []
+    for order, (slide_type, title, message, items) in enumerate(definitions, start=1):
+        media = None
+        if order in {1, 2, 8, 10}:
+            media = MediaIntent(
+                kind="generate",
+                prompt=f"Splatoon Raiders official visual for {title}",
+                alt=title,
+                required=order in {1, 8},
+            )
+        plans.append(
+            SlidePlan(
+                order=order,
+                slide_type=slide_type,
+                title=title,
+                message=message,
+                speaker_notes=f"{order}번 슬라이드에서 {message}는 점을 설명합니다.",
+                keywords=[title],
+                evidence=[],
+                content_items=[
+                    GeneratedContentItem(
+                        contentItemId=f"item-{order}-{index}",
+                        text=value,
+                    )
+                    for index, value in enumerate(items, start=1)
+                ],
+                source_refs=["topic:brief"],
+                **({"media_intent": media} if media is not None else {}),
+            )
+        )
+    return plans
+
+
+def golden_design_program() -> dict[str, Any]:
+    composition_ids = [
+        "hero-full-bleed",
+        "editorial-split",
+        "feature-comparison",
+        "metric-poster",
+        "diagram-hub",
+        "feature-comparison",
+        "process-horizontal",
+        "image-evidence",
+        "kpi-strip-evidence",
+        "cta-closing",
+    ]
+    background_modes = [
+        "image",
+        "light",
+        "dark",
+        "light",
+        "dark",
+        "light",
+        "dark",
+        "light",
+        "dark",
+        "light",
+    ]
+    asset_roles = [
+        "atmosphere",
+        "evidence",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "evidence",
+        "none",
+        "atmosphere",
+    ]
+    return {
+        "version": "program-v2",
+        "visualConcept": "Playful ink expedition with editorial evidence",
+        "paletteRoles": {
+            "dominant": "#FFFFFF",
+            "surface": "#F3F4F6",
+            "text": "#111827",
+            "focal": "#6D28D9",
+            "secondary": "#22D3EE",
+        },
+        "typography": {
+            "headingFont": "Pretendard",
+            "bodyFont": "Pretendard",
+            "typeScale": {"cover": 64, "title": 40, "body": 22, "caption": 14},
+        },
+        "backgroundSequence": background_modes,
+        "imageStyle": "Official game art with bold clean crops",
+        "surfaceStyle": "Flat ink fields without gradients",
+        "slides": [
+            {
+                "order": order,
+                "compositionId": composition_id,
+                "variant": background,
+                "backgroundMode": background,
+                "focalType": "primary-message",
+                "assetRole": asset_role,
+                "requiredAsset": order in {1, 8},
+            }
+            for order, (composition_id, background, asset_role) in enumerate(
+                zip(composition_ids, background_modes, asset_roles, strict=True),
+                start=1,
+            )
+        ],
+    }
