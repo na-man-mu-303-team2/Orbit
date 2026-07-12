@@ -568,18 +568,24 @@ def _statement_poster(direction: SlideCompositionDirection, slide: dict[str, Any
 def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
+    duplicates_items = _message_duplicates_items(slide, items)
     elements = [_background(order, style), _title(order, slide, style)]
     message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(5), 352, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
-    elements.append(message)
+    if not duplicates_items:
+        elements.append(message)
     if direction.asset_role != "none":
         elements.extend(_media(order, _grid_x(7), 248, _grid_width(5), 624, 4, style, _media_caption(slide)))
         if items:
-            elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 704, _grid_width(5), 208, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+            elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 304 if duplicates_items else 704, _grid_width(5), 560 if duplicates_items else 208, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
         return elements, _id(order, "media_placeholder")
-    panel_widths = (_grid_width(3), _grid_width(4))
+    panel_widths = (
+        (_grid_width(6), _grid_width(6))
+        if duplicates_items
+        else (_grid_width(3), _grid_width(4))
+    )
     for index, (identifier, value) in enumerate(items):
         column = index % 2
-        x = _grid_x(5 if column == 0 else 8)
+        x = _grid_x((0 if column == 0 else 6) if duplicates_items else (5 if column == 0 else 8))
         y = 304 + (index // 2) * 264
         panel_width = panel_widths[column]
         elements.extend(
@@ -588,7 +594,7 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
                 _text(order, f"item_{index + 1}", "body", value, x + 24, y + 24, panel_width - 48, 176, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]),
             ]
         )
-    return elements, message["elementId"]
+    return elements, _id(order, "item_1") if duplicates_items and items else message["elementId"]
 
 
 def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
@@ -596,24 +602,31 @@ def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], 
     items = _items(slide)
     metric = _metric_value(slide, items)
     metric_element = _text(order, "metric", "highlight", metric, _grid_x(0), 280, _grid_width(7), 272, 5, style.focal, 92, "bold", style.heading_font, line_height=1.2)
-    elements = [_background(order, style), _title(order, slide, style), metric_element, _text(order, "message", "body", str(slide.get("message", "")), _grid_x(0), 608, _grid_width(11), 176, 5, style.text, style.body_size + 4, "semibold", style.body_font)]
+    duplicates_items = _message_duplicates_items(slide, items)
+    elements = [_background(order, style), _title(order, slide, style), metric_element]
+    if not duplicates_items:
+        elements.append(_text(order, "message", "body", str(slide.get("message", "")), _grid_x(0), 608, _grid_width(11), 176, 5, style.text, style.body_size + 4, "semibold", style.body_font))
     if items:
-        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 824, _grid_width(11), 96, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 608 if duplicates_items else 824, _grid_width(11), 176 if duplicates_items else 96, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     return elements, metric_element["elementId"]
 
 
 def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    elements = [_background(order, style), _title(order, slide, style), _text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, 30, "semibold", style.heading_font)]
+    duplicates_items = _message_duplicates_items(slide, items)
+    elements = [_background(order, style), _title(order, slide, style)]
+    if not duplicates_items:
+        elements.append(_text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, 30, "semibold", style.heading_font))
     count = max(1, len(items))
     gap = 24
     width = (SAFE_WIDTH - gap * (count - 1)) // count
+    field_y = 330 if duplicates_items else 430
     for index, (identifier, value) in enumerate(items):
         x = SAFE_X + index * (width + gap)
         elements.extend([
-            _rect(order, f"kpi_{index + 1}_field", "decoration", x, 430, width, 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
-            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, 485, width - 56, 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, content_item_ids=[identifier]),
+            _rect(order, f"kpi_{index + 1}_field", "decoration", x, field_y, width, 460 if duplicates_items else 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
+            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 280 if duplicates_items else 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, content_item_ids=[identifier]),
         ])
     return elements, _id(order, "kpi_1")
 
@@ -745,7 +758,7 @@ FALLBACK_COMPOSITIONS: dict[str, tuple[CompositionId, ...]] = {
     "feature-grid": ("editorial-split", "feature-comparison", "kpi-strip-evidence", "diagram-hub"),
     "process": ("process-horizontal", "timeline"),
     "architecture": ("diagram-hub", "process-horizontal"),
-    "data": ("metric-poster", "kpi-strip-evidence", "image-evidence"),
+    "data": ("metric-poster", "kpi-strip-evidence", "image-evidence", "editorial-split"),
     "chart": ("metric-poster", "kpi-strip-evidence"),
     "comparison": ("feature-comparison", "editorial-split"),
     "quote": ("statement-poster", "image-evidence"),
@@ -812,6 +825,7 @@ def _select_composition_sequence(
                 (preferred, *FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",)))
             )
             if _supports(candidate, slide_type, item_count)
+            and _content_supports_composition(candidate, slide)
             and not (force_light and candidate == "hero-full-bleed")
             and not (
                 media_policy in {"minimal", "avoid"}
@@ -850,6 +864,15 @@ def _select_composition_sequence(
     if not choose(0, "", 0):
         raise CompositionCompileError("No composition sequence satisfies the deck constraints")
     return selected
+
+
+def _content_supports_composition(
+    composition_id: CompositionId,
+    slide: dict[str, Any],
+) -> bool:
+    if composition_id != "kpi-strip-evidence":
+        return True
+    return sum(bool(re.search(r"\d", value)) for _, value in _items(slide)) >= 2
 
 
 def compile_composition(

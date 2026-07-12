@@ -148,11 +148,22 @@ def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -
         ("feature-grid", 4, "editorial-split"),
         ("comparison", 3, "feature-comparison"),
         ("feature-grid", 4, "editorial-split"),
-        ("data", 3, "metric-poster"),
+        ("data", 4, "kpi-strip-evidence"),
         ("comparison", 3, "feature-comparison"),
         ("summary", 2, "cta-closing"),
     ]
     slides = [slide_payload(slide_type, count) for slide_type, count, _ in definitions]
+    data_items = [
+        "탐험: 신비로운 섬 자유 탐험",
+        "액션: 다양한 잉크 무기와 기계 장비 활용",
+        "커스터마이즈: 외모와 장비 구성 자유",
+        "협동: 온라인 및 로컬 3인 협동 지원",
+    ]
+    slides[5]["contentItems"] = [
+        {"contentItemId": f"data-{index}", "text": value}
+        for index, value in enumerate(data_items, start=1)
+    ]
+    slides[5]["message"] = "\n".join(data_items)
     design_program = program(
         [
             {
@@ -180,6 +191,15 @@ def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -
     assert max(Counter(composition_ids).values()) <= 2
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
     assert composition_ids[4] in {"kpi-strip-evidence", "diagram-hub"}
+    assert composition_ids[5] in {"metric-poster", "editorial-split"}
+
+    compiled = compile_composition(normalized.slides[5], slides[5], normalized)
+    visible_text = [
+        element["props"]["text"]
+        for element in compiled.elements
+        if element.get("type") == "text"
+    ]
+    assert "\n".join(data_items) not in visible_text
 
 
 def test_white_canvas_forces_light_variants() -> None:
