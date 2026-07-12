@@ -63,6 +63,12 @@ FOCAL_POINT_WEAK or BALANCE_WEAK when non-title content forms a small island ins
 large unused canvas, when visual weights are nearly equal, or when no image, metric,
 statement, or diagram clearly dominates. Flag CARD_OVERUSED when short phrases are
 isolated in repeated outlined boxes instead of forming one intentional composition.
+Two or three large borderless filled color fields are an intentional editorial
+composition, not card overuse. Use CARD_OVERUSED only for at least four repeated small
+framed fields with equal weight. A 40-60% media split with a large title is an
+intentional hero or closing composition; negative space around that split alone is not
+BALANCE_WEAK. A declared primary focal that visibly occupies a large field is not
+FOCAL_POINT_WEAK merely because supporting elements are quieter.
 Return only the requested JSON. Use only the allowed issue codes and repair actions.
 Do not flag factual accuracy or speaker notes. passed=true requires zero issues.
 Use changeComposition only when geometry-level actions cannot solve the problem.
@@ -397,6 +403,10 @@ def enforce_visual_review_contract(
     ):
         invalid_codes.add("BACKGROUND_RHYTHM_FLAT")
 
+    slide_ids_by_order = {
+        int(slide.get("order", index + 1)): str(slide.get("slideId", ""))
+        for index, slide in enumerate(deck.get("slides", []))
+    }
     removed_issues = [
         issue
         for issue in review.issues
@@ -405,11 +415,8 @@ def enforce_visual_review_contract(
             issue.code == "IMAGE_CROP_WEAK"
             and not _describes_concrete_crop_defect(issue.message)
         )
+        or _visual_issue_is_deterministically_disproved(issue, deck)
     ]
-    slide_ids_by_order = {
-        int(slide.get("order", index + 1)): str(slide.get("slideId", ""))
-        for index, slide in enumerate(deck.get("slides", []))
-    }
     removed_issue_slides = {
         code: {
             slide_ids_by_order.get(issue.slide_order, "")
@@ -420,10 +427,14 @@ def enforce_visual_review_contract(
     }
     issues = [issue for issue in review.issues if issue not in removed_issues]
     remaining_codes = {issue.code for issue in issues}
+    remaining_issue_slide_ids = {
+        slide_ids_by_order.get(issue.slide_order, "") for issue in issues
+    }
     repair_actions = [
         action
         for action in review.repair_actions
-        if not (
+        if action.slide_id in remaining_issue_slide_ids
+        and not (
             action.action in {"changeComposition", "reduceCards"}
             and action.slide_id
             in removed_issue_slides.get("LAYOUT_REPETITIVE", set())
@@ -451,6 +462,127 @@ def enforce_visual_review_contract(
         passed=not issues,
         issues=issues,
         repairActions=repair_actions,
+    )
+
+
+def _visual_issue_is_deterministically_disproved(
+    issue: VisualQaIssue,
+    deck: dict[str, Any],
+) -> bool:
+    slides = deck.get("slides", [])
+    slide = next(
+        (
+            candidate
+            for index, candidate in enumerate(slides)
+            if int(candidate.get("order", index + 1)) == issue.slide_order
+        ),
+        None,
+    )
+    if slide is None:
+        return False
+    if issue.code == "CARD_OVERUSED":
+        return _card_like_field_count(slide) < 4
+    if issue.code == "FOCAL_POINT_WEAK":
+        return _has_strong_declared_focal(slide)
+    if issue.code == "BALANCE_WEAK":
+        return _has_balanced_media_split(slide)
+    return False
+
+
+def _card_like_field_count(slide: dict[str, Any]) -> int:
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    if composition_id in {"diagram-hub", "kpi-strip-evidence", "timeline"}:
+        return 0
+    count = 0
+    for element in slide.get("elements", []):
+        element_id = str(element.get("elementId", "")).casefold()
+        width = float(element.get("width", 0))
+        height = float(element.get("height", 0))
+        if (
+            element.get("type") == "rect"
+            and element.get("role") == "decoration"
+            and any(token in element_id for token in ("_card", "_field", "_panel"))
+            and 120 <= width <= 924
+            and 80 <= height <= 452
+            and 20_000 <= width * height <= 375_000
+        ):
+            count += 1
+    return count
+
+
+def _has_strong_declared_focal(slide: dict[str, Any]) -> bool:
+    plan = slide.get("aiNotes", {}).get("compositionPlan", {})
+    focal_id = str(plan.get("primaryFocalElementId", ""))
+    if not focal_id:
+        return False
+    elements = slide.get("elements", [])
+    focal = next(
+        (element for element in elements if element.get("elementId") == focal_id),
+        None,
+    )
+    if focal is None:
+        return False
+    if _element_is_strong_focal(focal):
+        return True
+    backing_field = next(
+        (
+            element
+            for element in elements
+            if element.get("elementId") == f"{focal_id}_field"
+        ),
+        None,
+    )
+    return backing_field is not None and _element_is_strong_focal(backing_field)
+
+
+def _element_is_strong_focal(element: dict[str, Any]) -> bool:
+    width = float(element.get("width", 0))
+    height = float(element.get("height", 0))
+    area_ratio = width * height / (1680 * 904)
+    if element.get("type") == "image":
+        return width >= 672 and height >= 452 and area_ratio >= 0.18
+    if element.get("type") == "text":
+        font_size = float(element.get("props", {}).get("fontSize", 0))
+        return font_size >= 44 and width >= 672 and height >= 108
+    return area_ratio >= 0.08
+
+
+def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    if composition_id not in {
+        "hero-split",
+        "cta-closing",
+        "editorial-split",
+        "image-evidence",
+    }:
+        return False
+    media = next(
+        (
+            element
+            for element in slide.get("elements", [])
+            if element.get("type") == "image" and element.get("role") == "media"
+        ),
+        None,
+    )
+    title = next(
+        (
+            element
+            for element in slide.get("elements", [])
+            if element.get("type") == "text" and element.get("role") == "title"
+        ),
+        None,
+    )
+    if media is None or title is None:
+        return False
+    return (
+        float(media.get("width", 0)) >= 768
+        and float(media.get("height", 0)) >= 540
+        and float(title.get("width", 0)) >= 672
+        and float(title.get("props", {}).get("fontSize", 0)) >= 44
     )
 
 

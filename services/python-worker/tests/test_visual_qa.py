@@ -238,6 +238,8 @@ def test_visual_qa_instructions_reject_clean_but_undercomposed_slides() -> None:
     assert "not acceptable merely because it is clean and readable" in instructions
     assert "small island inside large unused canvas" in instructions
     assert "short phrases are isolated in repeated outlined boxes" in instructions
+    assert "at least four repeated small framed fields" in instructions
+    assert "40-60% media split with a large title" in instructions
 
 
 def test_visual_review_response_limits_repair_targets_to_current_deck_ids() -> None:
@@ -406,6 +408,167 @@ def test_visual_review_contract_removes_actions_from_passed_review() -> None:
 
     assert normalized.passed is True
     assert normalized.repair_actions == []
+
+
+def test_visual_review_contract_rejects_only_four_or_more_small_card_fields() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["aiNotes"]["compositionPlan"]["compositionId"] = "editorial-split"
+    slide["elements"].extend(
+        {
+            "elementId": f"el_1_program_v2_item_{index}_field",
+            "type": "rect",
+            "role": "decoration",
+            "x": 120 + (index - 1) * 300,
+            "y": 600,
+            "width": 260,
+            "height": 180,
+            "props": {"fill": "#F3F4F6", "strokeWidth": 1},
+        }
+        for index in range(1, 5)
+    )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "CARD_OVERUSED",
+                    "slideOrder": 1,
+                    "message": "Four repeated small framed fields fragment the slide.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "reduceCards",
+                    "slideId": "slide_1",
+                    "reason": "Reduce the repeated fields.",
+                }
+            ],
+        }
+    )
+
+    retained = visual_qa_module.enforce_visual_review_contract(review, candidate)
+    slide["elements"] = slide["elements"][:-1]
+    removed = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert retained.passed is False
+    assert [issue.code for issue in retained.issues] == ["CARD_OVERUSED"]
+    assert [action.action for action in retained.repair_actions] == ["reduceCards"]
+    assert removed.passed is True
+    assert removed.issues == []
+    assert removed.repair_actions == []
+
+
+def test_visual_review_contract_accepts_large_declared_focal_and_media_split() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["aiNotes"]["compositionPlan"]["compositionId"] = "hero-split"
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 972,
+            "y": 120,
+            "width": 828,
+            "height": 840,
+            "props": {"src": "data:image/png;base64,AA=="},
+        }
+    )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "FOCAL_POINT_WEAK",
+                    "slideOrder": 1,
+                    "message": "The title focal is weak.",
+                },
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 1,
+                    "message": "The hero split is unbalanced.",
+                },
+            ],
+            "repairActions": [
+                {
+                    "action": "increaseFocalScale",
+                    "slideId": "slide_1",
+                    "reason": "Increase the title.",
+                },
+                {
+                    "action": "moveSupportingContent",
+                    "slideId": "slide_1",
+                    "reason": "Rebalance the split.",
+                },
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
+def test_visual_review_contract_retains_small_focal_and_media_split() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    title = slide["elements"][1]
+    title.update({"width": 400, "height": 80})
+    title["props"]["fontSize"] = 28
+    slide["aiNotes"]["compositionPlan"]["compositionId"] = "hero-split"
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 1300,
+            "y": 400,
+            "width": 400,
+            "height": 300,
+            "props": {"src": "data:image/png;base64,AA=="},
+        }
+    )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "FOCAL_POINT_WEAK",
+                    "slideOrder": 1,
+                    "message": "The title is visibly too small.",
+                },
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 1,
+                    "message": "The media is a small island.",
+                },
+            ],
+            "repairActions": [
+                {
+                    "action": "increaseFocalScale",
+                    "slideId": "slide_1",
+                    "reason": "Increase the title.",
+                },
+                {
+                    "action": "moveSupportingContent",
+                    "slideId": "slide_1",
+                    "reason": "Rebalance the split.",
+                },
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is False
+    assert [issue.code for issue in normalized.issues] == [
+        "FOCAL_POINT_WEAK",
+        "BALANCE_WEAK",
+    ]
+    assert len(normalized.repair_actions) == 2
 
 
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
