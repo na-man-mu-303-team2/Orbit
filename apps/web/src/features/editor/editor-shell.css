@@ -51,6 +51,8 @@
 .orbit-shell .refresh-top-button { border-radius: 50%; height: 36px; min-height: 36px; padding: 0; width: 36px; }
 .orbit-shell .editor-panel { padding-top: 48px; }
 .orbit-shell .stage-top-controls { background: #f3f6fb; border-bottom: 1px solid var(--orbit-ds-border); height: 48px; left: 0; padding: 5px 14px; position: fixed; right: 0; top: 78px; z-index: 18; }
+.orbit-shell .editor-panel:has(.selection-quickbar) { padding-top: 116px; }
+.orbit-shell .stage-top-controls:has(.selection-quickbar) { height: 116px; }
 .orbit-shell .editor-toolbar { background: transparent; border: 0; box-shadow: none; min-height: 38px; padding: 0; width: 100%; }
 .orbit-shell .editor-toolbar .tool-group { gap: 4px; }
 .orbit-shell .editor-toolbar .tool-button, .orbit-shell .editor-toolbar .icon-button { background: transparent; border-color: transparent; border-radius: 6px; font-size: 12px; min-height: 32px; }
