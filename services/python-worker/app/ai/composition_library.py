@@ -985,7 +985,7 @@ def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], styl
     duplicates_items = _message_duplicates_items(slide, items)
     elements = [_background(order, style), _title(order, slide, style)]
     if not duplicates_items:
-        elements.append(_text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, 30, "semibold", style.heading_font))
+        elements.append(_text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, max(40, style.body_size + 6), "semibold", style.heading_font))
     count = max(1, len(items))
     gap = 24
     width = (SAFE_WIDTH - gap * (count - 1)) // count
@@ -994,7 +994,7 @@ def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], styl
         x = SAFE_X + index * (width + gap)
         elements.extend([
             _rect(order, f"kpi_{index + 1}_field", "decoration", x, field_y, width, 460 if duplicates_items else 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
-            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 376 if duplicates_items else 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier]),
+            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 376 if duplicates_items else 220, 5, style.text, max(40, style.body_size + 6), "bold", style.heading_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier]),
         ])
     return elements, _id(order, "kpi_1")
 
@@ -1004,9 +1004,9 @@ def _image_evidence(direction: SlideCompositionDirection, slide: dict[str, Any],
         raise CompositionCompileError("image-evidence requires an asset")
     order = direction.order
     items = _items(slide)
-    elements = [_background(order, style), _title(order, slide, style), *_media(order, _grid_x(0), 272, _grid_width(6), 616, 4, style, _media_caption(slide)), _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(6), 304, _grid_width(6), 216, 5, style.text, 32, "bold", style.heading_font, line_height=1.2)]
+    elements = [_background(order, style), _title(order, slide, style), *_media(order, _grid_x(0), 272, _grid_width(6), 616, 4, style, _media_caption(slide)), _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(6), 304, _grid_width(6), 248, 5, style.text, max(44, style.body_size + 8), "bold", style.heading_font, line_height=1.2)]
     if items:
-        elements.append(_text(order, "evidence", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(6), 568, _grid_width(6), 304, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        elements.append(_text(order, "evidence", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(6), 584, _grid_width(6), 288, 5, style.muted_text, style.body_size, "semibold", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     return elements, _id(order, "media_placeholder")
 
 
@@ -1576,11 +1576,11 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     duplicates_items = bool(items) and not action_items
     content_width = _grid_width(6) if direction.asset_role != "none" else _grid_width(12)
     title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 160, 5, style.text, 36 if duplicates_items else 30, "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 176, 5, style.text, max(44, style.body_size + 8) if duplicates_items else max(42, style.body_size + 6), "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
     elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
     action = None
     if action_items:
-        action = _text(order, "actions", "body", "  →  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
+        action = _text(order, "actions", "body", "  →  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, max(36, style.body_size + 4), "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
         elements.append(action)
     if direction.asset_role != "none":
         elements.extend(_media(order, _grid_x(6), 208, _grid_width(6), 624, 3, style, _media_caption(slide)))
