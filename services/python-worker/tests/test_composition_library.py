@@ -6,6 +6,7 @@ import pytest
 from app.ai.composition_library import (
     COMPOSITION_SPECS,
     compile_composition,
+    content_supports_composition,
     design_program_snapshot,
     normalize_design_program,
 )
@@ -287,6 +288,53 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["height"] >= 392 for element in body_elements)
     assert all(element["props"]["fontSize"] >= 30 for element in body_elements)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
+
+
+def test_metric_poster_requires_numeric_evidence() -> None:
+    qualitative = slide_payload("data", 2)
+    qualitative["contentItems"] = [
+        {"contentItemId": "item-a", "text": "긴장감 있는 전투"},
+        {"contentItemId": "item-b", "text": "다양한 적 구성"},
+    ]
+    numeric = slide_payload("data", 2)
+    numeric["contentItems"][0]["text"] = "2026년 7월 23일 출시"
+
+    assert content_supports_composition("metric-poster", qualitative) is False
+    assert content_supports_composition("metric-poster", numeric) is True
+
+
+def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
+    slide = slide_payload("feature-grid", 3)
+    slide["title"] = "딥컷 아미보 피규어 출시 예고"
+    slide["message"] = "\n".join(
+        item["text"] for item in slide["contentItems"]
+    )
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "diagram-hub",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "diagram",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    hub = next(
+        element for element in compiled.elements if element["elementId"].endswith("_hub")
+    )
+
+    assert hub["x"] == 712
+    assert hub["width"] == 496
+    assert hub["props"]["fontSize"] == 26
 
 
 def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:

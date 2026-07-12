@@ -705,13 +705,16 @@ def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style
 def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    hub = _rect(order, "hub_field", "highlight", 720, 390, 480, 260, 4, style.focal, radius=8)
+    hub_x = _grid_x(4)
+    hub_width = _grid_width(4)
+    hub = _rect(order, "hub_field", "highlight", hub_x, 390, hub_width, 260, 4, style.focal, radius=8)
     hub_copy = (
         str(slide.get("title", ""))
         if _message_duplicates_items(slide, items)
         else str(slide.get("message", ""))
     )
-    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), 770, 440, 380, 160, 5, "#FFFFFF", 28, "bold", style.heading_font, align="center", vertical="middle")]
+    hub_font_size = 26 if len(hub_copy) <= 16 else 22 if len(hub_copy) <= 20 else 18
+    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), hub_x + 24, 440, hub_width - 48, 160, 5, "#FFFFFF", hub_font_size, "bold", style.heading_font, align="center", vertical="middle")]
     positions = [(120, 280), (1320, 280), (120, 720), (1320, 720), (420, 760), (1020, 760)]
     for index, (identifier, value) in enumerate(items):
         x, y = positions[index]
@@ -901,9 +904,15 @@ def content_supports_composition(
     composition_id: CompositionId,
     slide: dict[str, Any],
 ) -> bool:
-    if composition_id != "kpi-strip-evidence":
-        return True
-    return sum(bool(re.search(r"\d", value)) for _, value in _items(slide)) >= 2
+    items = _items(slide)
+    if composition_id == "kpi-strip-evidence":
+        return sum(bool(re.search(r"\d", value)) for _, value in items) >= 2
+    if composition_id == "metric-poster":
+        metric_text = " ".join(
+            [str(slide.get("message", "")), *[value for _, value in items]]
+        )
+        return bool(re.search(r"\d", metric_text))
+    return True
 
 
 def compile_composition(
