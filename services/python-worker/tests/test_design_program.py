@@ -138,10 +138,10 @@ def test_program_v2_typography_keeps_presentation_scale_floors() -> None:
     )
 
     assert themed.typography.type_scale == {
-        "cover": 64,
-        "title": 40,
-        "body": 22,
-        "caption": 14,
+        "cover": 72,
+        "title": 56,
+        "body": 32,
+        "caption": 24,
     }
 
 

@@ -1492,10 +1492,10 @@ def _style(program: DeckDesignProgram, mode: BackgroundMode) -> Style:
         secondary=roles.secondary,
         heading_font=program.typography.heading_font,
         body_font=program.typography.body_font,
-        cover_size=max(44, int(scale.get("cover", 60))),
-        title_size=max(32, int(scale.get("title", 40))),
-        body_size=max(18, int(scale.get("body", 22))),
-        caption_size=max(14, int(scale.get("caption", 14))),
+        cover_size=max(72, int(scale.get("cover", 60))),
+        title_size=max(56, int(scale.get("title", 40))),
+        body_size=max(32, int(scale.get("body", 22))),
+        caption_size=max(24, int(scale.get("caption", 14))),
     )
 
 
