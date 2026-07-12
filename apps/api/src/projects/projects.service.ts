@@ -97,10 +97,14 @@ export class ProjectsService {
     userId: string,
     now: Date,
   ): Promise<void> {
-    const rows = await executor.query<Array<{ table_name: string | null }>>(
-      "SELECT to_regclass('public.workspaces') AS table_name",
+    const rows = await executor.query<
+      Array<{ members_table: string | null; workspace_table: string | null }>
+    >(
+      `SELECT
+        to_regclass('public.workspaces') AS workspace_table,
+        to_regclass('public.workspace_members') AS members_table`,
     );
-    if (!rows[0]?.table_name) return;
+    if (!rows[0]?.workspace_table) return;
 
     await executor.query(
       `
@@ -116,6 +120,23 @@ export class ProjectsService {
         ON CONFLICT (workspace_id) DO NOTHING
       `,
       [demoIds.workspaceId, "ORBIT Workspace", userId, now],
+    );
+
+    if (!rows[0].members_table) return;
+    await executor.query(
+      `
+        INSERT INTO workspace_members (
+          workspace_id,
+          user_id,
+          role,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, 'editor', 'accepted', $3, $3)
+        ON CONFLICT (workspace_id, user_id) DO NOTHING
+      `,
+      [demoIds.workspaceId, userId, now],
     );
   }
 
