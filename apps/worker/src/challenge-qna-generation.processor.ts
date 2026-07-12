@@ -1,6 +1,7 @@
 import {
   challengeAnswerGuideSchema,
   challengeQnaGenerationJobPayloadSchema,
+  challengeQnaGenerationJobResultSchema,
   challengeSourceReferenceSchema,
   jobSchema,
   type Job,
@@ -49,7 +50,12 @@ export async function processChallengeQnaGenerationJob(dataSource: DataSource, p
       }
       await manager.query(`UPDATE challenge_qna_sessions SET status='ready',active_question_order=1,error_code=NULL WHERE qna_session_id=$1 AND generation_revision=$2`, [payload.qnaSessionId, payload.generationRevision]);
     });
-    return updateJob(dataSource, payload.jobId, "succeeded", 100, "질문 준비 완료", { qnaSessionId: payload.qnaSessionId, generationRevision: payload.generationRevision, questionCount: result.questions.length }, null);
+    const jobResult = challengeQnaGenerationJobResultSchema.parse({
+      qnaSessionId: payload.qnaSessionId,
+      generationRevision: payload.generationRevision,
+      questionCount: result.questions.length,
+    });
+    return updateJob(dataSource, payload.jobId, "succeeded", 100, "질문 준비 완료", jobResult, null);
   } catch {
     await dataSource.query(`UPDATE challenge_qna_sessions SET status='failed',error_code='QNA_GENERATION_FAILED' WHERE qna_session_id=$1 AND generation_revision=$2 AND status='preparing'`, [payload.qnaSessionId, payload.generationRevision]);
     return updateJob(dataSource, payload.jobId, "failed", 100, "질문 준비 실패", null, { code: "QNA_GENERATION_FAILED", message: "Challenge Q&A generation failed." });

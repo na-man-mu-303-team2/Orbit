@@ -1,5 +1,10 @@
 import type { StoragePort } from "@orbit/storage";
-import { challengeQnaAnswerAnalysisJobPayloadSchema, jobSchema, type Job } from "@orbit/shared";
+import {
+  challengeQnaAnswerAnalysisJobPayloadSchema,
+  challengeQnaAnswerAnalysisJobResultSchema,
+  jobSchema,
+  type Job,
+} from "@orbit/shared";
 import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
@@ -47,7 +52,8 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
     await dataSource.query(`UPDATE challenge_qna_answer_attempts SET status='succeeded',concept_outcomes_json=$2,clarity=$3,audience_fit=$4,
       cleanup_state=$5,raw_audio_deleted_at=$6,evidence_expires_at=NULL,completed_at=now() WHERE answer_attempt_id=$1 AND status='processing'`,
       [payload.answerAttemptId,JSON.stringify(result.conceptOutcomes),result.clarity,result.audienceFit,row.input_mode==="voice"?(deletedAt?"deleted":"pending"):"not-required",deletedAt]);
-    return updateJob(dataSource,payload.jobId,"succeeded",100,"답변 분석 완료",{answerAttemptId:payload.answerAttemptId,measuredConceptCount:result.conceptOutcomes.filter((item)=>item.outcome!=="unmeasured").length},null);
+    const jobResult=challengeQnaAnswerAnalysisJobResultSchema.parse({answerAttemptId:payload.answerAttemptId,measuredConceptCount:result.conceptOutcomes.filter((item)=>item.outcome!=="unmeasured").length});
+    return updateJob(dataSource,payload.jobId,"succeeded",100,"답변 분석 완료",jobResult,null);
   } catch (error) {
     const code=error instanceof Error?error.message:"QNA_ANSWER_ANALYSIS_FAILED";
     const deletedAt=await cleanupVoice(dataSource,storage,row);
