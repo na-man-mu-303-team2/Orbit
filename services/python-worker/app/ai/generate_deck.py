@@ -2164,7 +2164,9 @@ class DeckGenerationOrchestrator:
         deck, validation = self.run_refiner_agent(deck, reviewer_validation)
         if raw_input.generation_mode == "design-pack":
             deck = enforce_design_pack_constraints(deck, raw_input)
-            if not is_program_v2(raw_input):
+            if is_program_v2(raw_input):
+                deck = repair_program_v2_deck(deck)
+            else:
                 deck = repair_design_pack_deck(deck)
             deck, validation = validate_and_patch(deck, include_design_in_passed=True)
         warnings = unique_warnings(
@@ -14013,6 +14015,40 @@ def repair_design_pack_deck(deck: dict[str, Any]) -> dict[str, Any]:
             if should_clamp_design_pack_text_to_safe_area(element):
                 clamp_text_to_safe_area(element)
     return patch_deck(deck)
+
+
+def repair_program_v2_deck(deck: dict[str, Any]) -> dict[str, Any]:
+    for slide in deck["slides"]:
+        if not isinstance(slide.get("aiNotes", {}).get("compositionPlan"), dict):
+            continue
+        for element in slide["elements"]:
+            if element.get("type") == "text":
+                repair_program_v2_text_element(element)
+    return patch_deck(deck)
+
+
+def repair_program_v2_text_element(element: dict[str, Any]) -> None:
+    props = element.get("props", {})
+    if not str(props.get("text", "")).strip():
+        return
+    minimum_font_size = design_pack_minimum_font_size_for_element(element)
+    minimum_line_height = design_pack_minimum_line_height(
+        str(element.get("role", ""))
+    )
+    for _ in range(16):
+        if not (
+            is_text_editor_overflow_risk(element)
+            or is_short_label_text_box_too_narrow(element)
+        ):
+            return
+        font_size = float(props.get("fontSize", 24))
+        if font_size <= minimum_font_size:
+            return
+        props["fontSize"] = max(minimum_font_size, round(font_size * 0.9))
+        props["lineHeight"] = max(
+            minimum_line_height,
+            round(float(props.get("lineHeight", 1.2)) - 0.03, 2),
+        )
 
 
 def repair_design_pack_text_element(element: dict[str, Any]) -> None:

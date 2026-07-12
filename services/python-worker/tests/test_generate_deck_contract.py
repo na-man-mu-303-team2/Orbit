@@ -74,6 +74,7 @@ from app.ai.generate_deck import (
     recipe_geometry_quality_reasons,
     repeated_speaker_notes_slide_order,
     repair_design_pack_text_element,
+    repair_program_v2_text_element,
     repair_content_plan_with_llm,
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
@@ -1495,6 +1496,41 @@ def test_text_color_fallback_always_meets_contrast_floor() -> None:
     foreground = text_color_for_background(background)
 
     assert contrast_ratio(background, foreground) >= 4.5
+
+
+def test_program_v2_text_fit_preserves_composition_frame() -> None:
+    element = {
+        "elementId": "el_5_program_v2_metric",
+        "type": "text",
+        "role": "highlight",
+        "x": 120,
+        "y": 280,
+        "width": 970,
+        "height": 272,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 5,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": "살모니드 적과 다채로운 전투 플레이어 경험",
+            "fontFamily": "Gmarket Sans",
+            "fontSize": 83,
+            "fontWeight": "bold",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+    original_frame = tuple(element[key] for key in ("x", "y", "width", "height"))
+
+    repair_program_v2_text_element(element)
+
+    assert not is_text_overflowing(element)
+    assert not is_short_label_text_box_too_narrow(element)
+    assert element["props"]["fontSize"] >= 18
+    assert tuple(element[key] for key in ("x", "y", "width", "height")) == original_frame
 
 
 @pytest.mark.parametrize(
