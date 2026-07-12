@@ -14,6 +14,8 @@ import {
   focusedPracticeTargetScopeSchema,
   frozenBriefRefSchema,
 } from "./coaching-common.schema";
+import { criterionResultSchema } from "./evaluation-criterion.schema";
+import { coachingActionSchema } from "./practice-goal.schema";
 
 export { focusedPracticeTargetScopeSchema };
 
@@ -49,6 +51,95 @@ export const focusedPracticeGoalOutcomeSchema = z
     ]),
   })
   .strict();
+
+export const practiceVerificationItemSchema = z
+  .object({
+    goalId: coachingIdSchema,
+    resolutionStatus: z.enum([
+      "resolved",
+      "repeated",
+      "unmeasured",
+      "incomparable",
+    ]),
+    criterionResult: criterionResultSchema,
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (
+      item.resolutionStatus === "unmeasured" &&
+      item.criterionResult.measurementState !== "unmeasured"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unmeasured resolutions require an unmeasured criterion result.",
+        path: ["criterionResult", "measurementState"],
+      });
+    }
+    if (
+      (item.resolutionStatus === "resolved" || item.resolutionStatus === "repeated") &&
+      item.criterionResult.measurementState !== "measured"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "resolved and repeated resolutions require a measured criterion result.",
+        path: ["criterionResult", "measurementState"],
+      });
+    }
+  });
+
+export const practiceVerificationCountsSchema = z
+  .object({
+    resolved: z.number().int().nonnegative(),
+    repeated: z.number().int().nonnegative(),
+    unmeasured: z.number().int().nonnegative(),
+    incomparable: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const practiceVerificationSummarySchema = z
+  .object({
+    verificationId: coachingIdSchema,
+    projectId: coachingIdSchema,
+    sourceGoalSetId: coachingIdSchema,
+    evaluatedFullRunId: coachingIdSchema,
+    verificationStatus: z.enum([
+      "verified",
+      "needs-follow-up",
+      "incomplete",
+      "incomparable",
+    ]),
+    items: z.array(practiceVerificationItemSchema).min(1).max(3),
+    counts: practiceVerificationCountsSchema,
+    nextActions: z.array(coachingActionSchema).max(3),
+    evaluatedAt: isoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((summary, context) => {
+    const goalIds = summary.items.map((item) => item.goalId);
+    if (new Set(goalIds).size !== goalIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "practice verification goal IDs must be unique.",
+        path: ["items"],
+      });
+    }
+
+    const expectedCounts = {
+      resolved: summary.items.filter((item) => item.resolutionStatus === "resolved").length,
+      repeated: summary.items.filter((item) => item.resolutionStatus === "repeated").length,
+      unmeasured: summary.items.filter((item) => item.resolutionStatus === "unmeasured").length,
+      incomparable: summary.items.filter((item) => item.resolutionStatus === "incomparable").length,
+    };
+    for (const key of Object.keys(expectedCounts) as Array<keyof typeof expectedCounts>) {
+      if (summary.counts[key] !== expectedCounts[key]) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "practice verification counts must match item resolution statuses.",
+          path: ["counts", key],
+        });
+      }
+    }
+  });
 
 export const focusedPracticeSnapshotSchema = z
   .object({
@@ -187,6 +278,9 @@ export type FocusedPracticeAttemptStatus = z.infer<
 >;
 export type FocusedPracticeGoalOutcome = z.infer<
   typeof focusedPracticeGoalOutcomeSchema
+>;
+export type PracticeVerificationSummary = z.infer<
+  typeof practiceVerificationSummarySchema
 >;
 export type FocusedPracticeSession = z.infer<typeof focusedPracticeSessionSchema>;
 export type FocusedPracticeAttempt = z.infer<typeof focusedPracticeAttemptSchema>;

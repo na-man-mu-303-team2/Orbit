@@ -42,6 +42,77 @@ export const practiceGoalEvidenceRefSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
+export const coachingActionTargetSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("focused-practice"),
+      projectId: coachingIdSchema,
+      goalId: coachingIdSchema,
+      sourceFullRunId: coachingIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("full-rehearsal"),
+      projectId: coachingIdSchema,
+      sourceGoalSetId: coachingIdSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("report-evidence"),
+      projectId: coachingIdSchema,
+      runId: coachingIdSchema,
+      observationId: coachingIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("deck-edit"),
+      projectId: coachingIdSchema,
+      deckId: coachingIdSchema,
+      slideId: coachingIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("challenge-qna"),
+      projectId: coachingIdSchema,
+      sourceFullRunId: coachingIdSchema,
+    })
+    .strict(),
+]);
+
+export const coachingActionUnavailableReasonSchema = z.enum([
+  "SOURCE_STALE",
+  "SOURCE_INCOMPATIBLE",
+  "UNMEASURED",
+  "FEATURE_DISABLED",
+  "EVIDENCE_EXPIRED",
+]);
+
+export const coachingActionSchema = z
+  .object({
+    actionId: coachingIdSchema,
+    priority: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    label: z.string().trim().min(1).max(120),
+    detail: z.string().trim().min(1).max(240),
+    target: coachingActionTargetSchema,
+    availability: z.enum(["available", "unavailable"]),
+    unavailableReason: coachingActionUnavailableReasonSchema.nullable(),
+  })
+  .strict()
+  .superRefine((action, context) => {
+    const shouldHaveReason = action.availability === "unavailable";
+    if (shouldHaveReason !== (action.unavailableReason !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "only unavailable coaching actions require an unavailable reason.",
+        path: ["unavailableReason"],
+      });
+    }
+  });
+
 const practiceGoalShape = {
     goalId: coachingIdSchema,
     goalSetId: coachingIdSchema,
@@ -213,6 +284,7 @@ export const practicePlanResponseSchema = z.discriminatedUnion("status", [
 
 export type PracticeGoal = z.infer<typeof practiceGoalSchema>;
 export type PracticeGoalSet = z.infer<typeof practiceGoalSetSchema>;
+export type CoachingAction = z.infer<typeof coachingActionSchema>;
 export type PracticeGoalResolution = z.infer<
   typeof practiceGoalResolutionSchema
 >;
