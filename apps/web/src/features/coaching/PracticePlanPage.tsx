@@ -1,6 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { coachingCapabilitiesResponseSchema } from "@orbit/shared";
-import { AlertCircle, ArrowLeft, CheckCircle2, Clock3, Mic2, Target } from "lucide-react";
+import { coachingCapabilitiesResponseSchema, type PracticePlanResponse } from "@orbit/shared";
+import {
+  IconAlertCircle,
+  IconArrowLeft,
+  IconCircleCheck,
+  IconClock,
+  IconMicrophone,
+  IconSparkles,
+} from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { OrbitButton, OrbitStatus } from "../../design-system";
@@ -12,10 +19,16 @@ import {
 } from "./practicePlanViewModel";
 import "./practice-plan.css";
 
-export function PracticePlanPage(props: { projectId: string; sourceFullRunId: string }) {
+export function PracticePlanPage(props: {
+  previewCapabilities?: { challengeQnaEnabled: boolean; focusedPracticeEnabled: boolean };
+  previewPlan?: Extract<PracticePlanResponse, { status: "ready" }>;
+  projectId: string;
+  sourceFullRunId: string;
+}) {
   const planQuery = useQuery({
     queryKey: ["practice-plan", props.projectId, props.sourceFullRunId],
     queryFn: () => fetchPracticePlan(props.projectId, props.sourceFullRunId),
+    enabled: !props.previewPlan,
     retry: false,
   });
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -26,9 +39,11 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
       if (!response.ok) throw new Error("Coaching capabilities unavailable.");
       return coachingCapabilitiesResponseSchema.parse(await response.json());
     },
+    enabled: !props.previewPlan,
     retry: false,
   });
-  const plan = planQuery.data;
+  const plan = props.previewPlan ?? planQuery.data;
+  const capabilities = props.previewCapabilities ?? capabilitiesQuery.data;
 
   useEffect(() => {
     if (plan) setSelectedGoalId(firstSelectableGoal(plan));
@@ -42,16 +57,16 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
   );
 
   return (
-    <main className="orbit-ds-page practice-plan-page">
+    <div className="orbit-ds-page practice-plan-page">
       <header className="practice-plan-topbar">
         <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/report/${encodeURIComponent(props.sourceFullRunId)}`}>
-          <ArrowLeft aria-hidden="true" size={18} /> 리포트로 돌아가기
+          <IconArrowLeft aria-hidden="true" size={18} /> 리포트로 돌아가기
         </a>
         <OrbitStatus tone="lilac">Adaptive coach</OrbitStatus>
       </header>
 
-      {planQuery.isLoading ? <PlanState title="연습 계획을 정리하고 있어요" copy="분석 결과에서 가장 효과가 큰 목표를 고르는 중입니다." /> : null}
-      {planQuery.isError ? <PlanState error title="계획을 불러오지 못했어요" copy="잠시 후 다시 시도해 주세요." onRetry={() => void planQuery.refetch()} /> : null}
+      {!props.previewPlan && planQuery.isLoading ? <PlanState title="연습 계획을 정리하고 있어요" copy="분석 결과에서 가장 효과가 큰 목표를 고르는 중입니다." /> : null}
+      {!props.previewPlan && planQuery.isError ? <PlanState error title="계획을 불러오지 못했어요" copy="잠시 후 다시 시도해 주세요." onRetry={() => void planQuery.refetch()} /> : null}
       {plan?.status === "processing" ? <PlanState title="분석이 아직 진행 중이에요" copy="최종 측정이 끝나면 연습할 Top 3를 보여드릴게요." /> : null}
       {plan?.status === "no-goal" ? <PlanState title="지금 바로 반복할 목표가 없어요" copy="전체 흐름을 한 번 더 연습해 발표 감각을 유지해 보세요." /> : null}
       {plan?.status === "stale" ? <PlanState error title="발표 자료가 변경됐어요" copy="현재 자료로 전체 리허설을 다시 실행해 주세요." /> : null}
@@ -89,14 +104,14 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
             </ol>
 
             <article className="practice-goal-focus" aria-live="polite">
-              <div className="practice-goal-focus-icon"><Target aria-hidden="true" size={24} /></div>
+              <div className="practice-goal-focus-icon"><IconSparkles aria-hidden="true" size={24} /></div>
               <p>{practiceGoalCategoryLabel(selectedGoal.category)}</p>
               <h2>{selectedGoal.problemLabel}</h2>
               <dl>
-                <div><dt><Mic2 aria-hidden="true" size={17} /> 다음 행동</dt><dd>{selectedGoal.nextAction}</dd></div>
-                <div><dt><CheckCircle2 aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
+                <div><dt><IconMicrophone aria-hidden="true" size={17} /> 다음 행동</dt><dd>{selectedGoal.nextAction}</dd></div>
+                <div><dt><IconCircleCheck aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
               </dl>
-              {selectedGoal.canStartFocusedPractice && capabilitiesQuery.data?.focusedPracticeEnabled ? (
+              {selectedGoal.canStartFocusedPractice && capabilities?.focusedPracticeEnabled ? (
                 <OrbitButton onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}>
                   선택한 구간 연습
                 </OrbitButton>
@@ -106,23 +121,24 @@ export function PracticePlanPage(props: { projectId: string; sourceFullRunId: st
                 </OrbitButton>
               )}
               <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`}>
-                <Clock3 aria-hidden="true" size={16} /> 전체 리허설로 확인
+                <IconClock aria-hidden="true" size={16} /> 전체 리허설로 확인
               </a>
-              {capabilitiesQuery.data?.challengeQnaEnabled ? <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
-                <Mic2 aria-hidden="true" size={16} /> 도전 질문 3개 연습
+              {capabilities?.challengeQnaEnabled ? <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}/challenge/${encodeURIComponent(props.sourceFullRunId)}`}>
+                <IconMicrophone aria-hidden="true" size={16} /> 도전 질문 3개 연습
               </a> : null}
             </article>
           </div>
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }
+
 
 function PlanState(props: { title: string; copy: string; error?: boolean; onRetry?: () => void }) {
   return (
     <section className="practice-plan-state" role={props.error ? "alert" : "status"}>
-      {props.error ? <AlertCircle aria-hidden="true" size={28} /> : <Target aria-hidden="true" size={28} />}
+      {props.error ? <IconAlertCircle aria-hidden="true" size={28} /> : <IconSparkles aria-hidden="true" size={28} />}
       <h1>{props.title}</h1>
       <p>{props.copy}</p>
       {props.onRetry ? <OrbitButton variant="secondary" onClick={props.onRetry}>다시 시도</OrbitButton> : null}

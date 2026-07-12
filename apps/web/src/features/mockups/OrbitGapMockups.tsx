@@ -13,6 +13,9 @@ import {
   IconUserCircle,
   IconUsers
 } from "@tabler/icons-react";
+import { createDemoDeck } from "@orbit/editor-core";
+import type { FocusedPracticeAttempt, PracticePlanResponse } from "@orbit/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import {
   OrbitButton,
@@ -20,14 +23,18 @@ import {
   OrbitField,
   OrbitInput,
   OrbitStatus,
-  OrbitTabs,
   OrbitTextarea
 } from "../../design-system";
 import { AiPptMockupPage } from "../ai-ppt/AiPptMockupPage";
+import { ChallengeQnaPage } from "../coaching/ChallengeQnaPage";
+import type { ChallengeQnaView } from "../coaching/challengeQnaApi";
+import { FocusedPracticePage } from "../coaching/FocusedPracticePage";
+import { PracticePlanPage } from "../coaching/PracticePlanPage";
 import { MockupHeader } from "./OrbitMockupHeader";
 import "./orbit-gap-mockups.css";
 
 type MockupNavigateProps = { onNavigate: (path: string) => void };
+const previewQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 const catalogItems = [
   {
@@ -178,79 +185,98 @@ const practiceGoals = [
   { category: "전달", problem: "전환 구간의 긴 멈춤 줄이기", action: "다음 장표의 첫 문장을 미리 소리 내어 연결하세요.", success: "전환 멈춤이 2초 이내로 유지" }
 ];
 
+const previewDeck = createDemoDeck();
+const previewGoalSetId = "preview-goal-set";
+const previewGoals = practiceGoals.map((goal, index) => ({
+  goalId: `preview-goal-${index + 1}`,
+  goalSetId: previewGoalSetId,
+  projectId: "preview-project",
+  originFullRunId: "preview-run",
+  priority: (index + 1) as 1 | 2 | 3,
+  patternKey: String(index + 1).repeat(64),
+  category: (["structure", "semantic", "delivery"] as const)[index],
+  criterionRef: { criterionId: `preview-criterion-${index + 1}`, revision: 1 },
+  targetScope: { type: "slide" as const, scopeId: `preview-scope-${index + 1}`, slideId: previewDeck.slides[Math.min(index, previewDeck.slides.length - 1)].slideId },
+  recommendedPracticeMode: "focused" as const,
+  evidenceRefs: [],
+  problemLabel: goal.problem,
+  nextAction: goal.action,
+  successCondition: goal.success,
+  measurementState: "measured" as const,
+  createdAt: "2026-07-12T00:00:00.000Z",
+  history: { label: index === 0 ? "persistent" as const : "current" as const, occurrenceCount: index + 1, comparableRunCount: 2, lastSeenAt: "2026-07-12T00:00:00.000Z" },
+  canStartFocusedPractice: true,
+  unavailableReason: null,
+}));
+
+const previewPracticePlan = {
+  status: "ready",
+  sourceFullRunId: "preview-run",
+  goalSet: {
+    goalSetId: previewGoalSetId,
+    projectId: "preview-project",
+    sourceFullRunId: "preview-run",
+    revision: 1,
+    sourceAnalysisRevision: 1,
+    isCurrent: true,
+    analysisState: "final",
+    dataOrigin: "fixture",
+    derivationVersion: 1,
+    goals: previewGoals,
+    createdAt: "2026-07-12T00:00:00.000Z",
+  },
+  goals: previewGoals,
+  fullRehearsalCta: { projectId: "preview-project", sourceGoalSetId: previewGoalSetId },
+} as Extract<PracticePlanResponse, { status: "ready" }>;
+
+const previewFocusedAttempts = [{
+  attemptId: "preview-attempt-1",
+  attemptNumber: 1,
+  status: "succeeded",
+  result: "needs-retry",
+  durationMs: 18_000,
+}] as unknown as FocusedPracticeAttempt[];
+
+const previewQnaView = {
+  session: {
+    qnaSessionId: "preview-qna",
+    status: "active",
+    activeQuestionOrder: 1,
+    source: { questionCount: 3 },
+  },
+  questions: [{
+    order: 1,
+    questionId: "preview-question-1",
+    revision: 1,
+    questionType: "반론",
+    difficulty: "어려움",
+    questionText: "신제품 2종을 동시에 출시할 때 실행 리스크가 커지지 않는다고 판단한 근거는 무엇인가요?",
+    conceptHints: ["단계별 출시 기준", "고객 검증", "공통 플랫폼"],
+    answerGuide: {
+      supportState: "sufficient",
+      suggestedStructure: ["결론을 먼저 말하기", "단계별 중단 기준 설명", "다음 행동으로 마무리"],
+      mustIncludeConcepts: [{ conceptId: "launch-gate", label: "단계별 출시 기준" }],
+      sourceRefs: [],
+    },
+  }],
+  attempts: [],
+} as unknown as ChallengeQnaView;
+
 export function OrbitPracticePlanMockup(props: MockupNavigateProps) {
-  const [selected, setSelected] = useState(0);
-  const goal = practiceGoals[selected];
   return (
-    <MockupPage onNavigate={props.onNavigate}>
-      <GapBreadcrumb current="다음 연습 계획" onBack={() => props.onNavigate("/mockup/report")} />
-      <section className="gap-page-heading compact">
-        <div><p className="orbit-ds-eyebrow">NEXT REHEARSAL</p><h1>다음 연습은 이 세 가지에 집중하세요.</h1><p>한 번에 하나씩 고르고, 짧게 반복한 뒤 전체 발표에서 확인합니다.</p></div>
-        <OrbitStatus tone="lilac">Adaptive coach</OrbitStatus>
-      </section>
-      <div className="practice-plan-layout">
-        <ol className="practice-plan-list">
-          {practiceGoals.map((item, index) => (
-            <li key={item.problem}><button aria-pressed={selected === index} onClick={() => setSelected(index)} type="button"><span>0{index + 1}</span><div><small>{item.category}</small><strong>{item.problem}</strong></div><OrbitStatus tone={index === 0 ? "warning" : "neutral"}>{index === 0 ? "반복 필요" : "새 목표"}</OrbitStatus></button></li>
-          ))}
-        </ol>
-        <article className="practice-plan-focus" aria-live="polite">
-          <span className="practice-focus-icon"><IconSparkles size={24} /></span><small>{goal.category}</small><h2>{goal.problem}</h2>
-          <dl><div><dt>다음 행동</dt><dd>{goal.action}</dd></div><div><dt>성공 기준</dt><dd>{goal.success}</dd></div></dl>
-          <OrbitButton icon={<IconMicrophone size={18} />} onClick={() => props.onNavigate("/mockup/focused-practice")}>선택한 구간 연습</OrbitButton>
-          <button className="gap-quiet-link" onClick={() => props.onNavigate("/mockup/challenge-qna")} type="button">도전 질문 3개 연습 <IconArrowRight size={16} /></button>
-        </article>
-      </div>
-    </MockupPage>
+    <div className="orbit-mockup"><MockupHeader mode="app" onLogoClick={() => props.onNavigate("/mockup/catalog")} /><QueryClientProvider client={previewQueryClient}><PracticePlanPage previewCapabilities={{ challengeQnaEnabled: true, focusedPracticeEnabled: true }} previewPlan={previewPracticePlan} projectId="preview-project" sourceFullRunId="preview-run" /></QueryClientProvider></div>
   );
 }
 
 export function OrbitFocusedPracticeMockup(props: MockupNavigateProps) {
-  const [recording, setRecording] = useState(false);
-  const [attempts, setAttempts] = useState<Array<"다시 연습" | "통과">>(["다시 연습"]);
-  function toggleRecording() {
-    if (!recording) { setRecording(true); return; }
-    setRecording(false);
-    setAttempts((current) => [...current, current.length >= 2 ? "통과" : "다시 연습"]);
-  }
   return (
-    <MockupPage onNavigate={props.onNavigate}>
-      <GapBreadcrumb current="집중 연습" onBack={() => props.onNavigate("/mockup/practice-plan")} />
-      <section className="focused-mockup-shell">
-        <header><div><p className="orbit-ds-eyebrow">FOCUSED PRACTICE</p><h1>한 구간만 짧게 반복하세요.</h1><p>슬라이드 3 · 제품 우선순위</p></div><OrbitStatus tone={attempts.at(-1) === "통과" ? "success" : recording ? "warning" : "lilac"}>{attempts.at(-1) === "통과" ? "연습에서 안정화됨" : recording ? "녹음 중" : "연습 가능"}</OrbitStatus></header>
-        <div className="focused-mockup-layout">
-          <section className="focused-slide-card"><span>03 · PRIORITIES</span><h2>2026 핵심 우선순위</h2><p>고객 가치 중심의 성장 가속화</p><div><strong>+15%</strong><small>시장 점유율</small></div></section>
-          <article className="focused-goal-card"><span><IconSparkles size={22} /></span><small>현재 목표</small><h2>ARR 30% 성장 근거를 한 문장으로 연결하기</h2><p>수치 뒤에 고객 행동 변화의 원인을 붙여 말하세요.</p><div><IconCheck size={17} /><span>수치와 원인이 끊김 없이 한 문장으로 전달</span></div></article>
-        </div>
-        <section className="focused-attempts"><header><h2>반복 기록</h2><span>{attempts.length}회 시도</span></header>{attempts.map((result, index) => <div key={`${result}-${index}`}><span>{index + 1}회</span><strong>{result}</strong><small>{result === "통과" ? "핵심 수치와 근거가 연결됐어요." : "근거 문장을 조금 더 짧게 말해 보세요."}</small><OrbitStatus tone={result === "통과" ? "success" : "warning"}>{result}</OrbitStatus></div>)}</section>
-        <footer><OrbitButton icon={<IconMicrophone size={18} />} onClick={toggleRecording}>{recording ? "녹음 끝내기" : attempts.length ? "한 번 더 연습" : "녹음 시작"}</OrbitButton><OrbitButton onClick={() => props.onNavigate("/mockup/practice-plan")} variant="quiet">연습 마치기</OrbitButton></footer>
-      </section>
-    </MockupPage>
+    <div className="orbit-mockup"><MockupHeader mode="app" onLogoClick={() => props.onNavigate("/mockup/catalog")} /><FocusedPracticePage goalId={previewPracticePlan.goals[1].goalId} preview={{ attempts: previewFocusedAttempts, deck: previewDeck, plan: previewPracticePlan }} projectId="preview-project" sourceFullRunId="preview-run" /></div>
   );
 }
 
 export function OrbitChallengeQnaMockup(props: MockupNavigateProps) {
-  const [mode, setMode] = useState("voice");
-  const [hint, setHint] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   return (
-    <MockupPage onNavigate={props.onNavigate}>
-      <GapBreadcrumb current="도전 Q&A" onBack={() => props.onNavigate("/mockup/practice-plan")} />
-      <section className="qna-mockup-shell">
-        <header><div><p className="orbit-ds-eyebrow">CHALLENGE Q&amp;A</p><h1>질문 하나에 집중해 답해 보세요.</h1><p>실제 청중이 물을 만한 질문을 발표 근거로 연습합니다.</p></div><OrbitStatus tone="lilac">1 / 3</OrbitStatus></header>
-        <article className="qna-mockup-question"><small>반론 · 어려움</small><h2>신제품 2종을 동시에 출시할 때 실행 리스크가 커지지 않는다고 판단한 근거는 무엇인가요?</h2></article>
-        <nav className="qna-mockup-help" aria-label="답변 도움"><button onClick={() => setHint("핵심 개념: 단계별 출시 기준, 고객 검증, 공통 플랫폼")}>개념 힌트</button><button onClick={() => setHint("장표 3의 우선순위와 장표 5의 실행 로드맵을 연결하세요.")}>장표 근거</button><span>전체 가이드는 첫 답변 후 열립니다.</span></nav>
-        {hint ? <aside className="qna-mockup-hint" aria-live="polite">{hint}</aside> : null}
-        <OrbitTabs activeTab={mode} ariaLabel="답변 방식" onChange={setMode} tabs={[{ id: "voice", label: "음성" }, { id: "text", label: "텍스트" }]}>
-          <section className="qna-mockup-answer">
-            {mode === "text" ? <OrbitTextarea aria-label="답변" onChange={(event) => setAnswer(event.currentTarget.value)} placeholder="결론, 근거, 다음 행동 순서로 답해 보세요." rows={6} value={answer} /> : <div className="qna-voice-ready"><span><IconMicrophone size={28} /></span><div><strong>음성 답변이 기본이에요.</strong><p>준비되면 녹음을 시작하세요. 최대 2분 뒤 자동으로 멈춥니다.</p></div></div>}
-            <OrbitButton disabled={mode === "text" && !answer.trim()} icon={mode === "voice" ? <IconMicrophone size={18} /> : <IconArrowRight size={18} />} onClick={() => setSubmitted(true)}>{mode === "voice" ? "음성 답변 시작" : "답변 제출"}</OrbitButton>
-          </section>
-        </OrbitTabs>
-        {submitted ? <section className="qna-mockup-result" aria-live="polite"><span><IconCheck size={22} /></span><div><small>답변 피드백</small><h2>결론은 명확해요. 실행 기준을 한 가지 더 붙여 보세요.</h2><p>청중 적합성: 의사결정자가 비교할 수 있도록 단계별 중단 조건을 함께 말하면 더 설득력 있어요.</p></div><OrbitButton icon={<IconArrowRight size={18} />} onClick={() => { setSubmitted(false); setAnswer(""); }}>다음 질문</OrbitButton></section> : null}
-      </section>
-    </MockupPage>
+    <div className="orbit-mockup"><MockupHeader mode="app" onLogoClick={() => props.onNavigate("/mockup/catalog")} /><ChallengeQnaPage previewView={previewQnaView} projectId="preview-project" sourceFullRunId="preview-run" /></div>
   );
 }
 
