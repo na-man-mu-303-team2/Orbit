@@ -7154,6 +7154,49 @@ def test_validation_marks_gradient_text_background_as_unverifiable() -> None:
     )
 
 
+def test_validation_accepts_white_text_over_guaranteed_dark_overlay() -> None:
+    overlay = {
+        "elementId": "el_1_program_v2_image_overlay",
+        "type": "rect",
+        "role": "decoration",
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "rotation": 0,
+        "opacity": 0.58,
+        "zIndex": 3,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "fill": "#000000",
+            "stroke": "transparent",
+            "strokeWidth": 0,
+            "borderRadius": 0,
+        },
+    }
+    text = text_box(
+        "el_1_program_v2_title",
+        120,
+        304,
+        "Readable full-bleed title",
+        width=1254,
+        height=256,
+        role="title",
+    )
+    text["zIndex"] = 4
+    text["props"]["color"] = "#FFFFFF"
+    deck = text_overlap_deck([overlay, text])
+
+    issues = validate_design(deck)
+
+    assert not any(
+        issue.code in {"TEXT_CONTRAST_LOW", "TEXT_CONTRAST_UNVERIFIABLE"}
+        and issue.path == "slides.0.elements.1.props.color"
+        for issue in issues
+    )
+
+
 def test_refiner_does_not_clamp_caption_labels_into_title_area() -> None:
     deck = text_overlap_deck(
         [

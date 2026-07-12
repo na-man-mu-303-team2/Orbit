@@ -13415,11 +13415,19 @@ def effective_text_background(
     for candidate in candidates:
         if candidate.get("type") in {"image", "svg"}:
             return "unverifiable", None
-        if float(candidate.get("opacity", 1)) < 1:
-            return "unverifiable", None
         fill = candidate.get("props", {}).get("fill", "transparent")
         if fill == "transparent":
             continue
+        opacity = float(candidate.get("opacity", 1))
+        if opacity < 1:
+            verified_background = guaranteed_contrast_overlay_background(
+                text_element,
+                fill,
+                opacity,
+            )
+            if verified_background:
+                return "solid", verified_background
+            return "unverifiable", None
         if is_hex_color(fill):
             return "solid", str(fill)
         return "unverifiable", None
@@ -13428,6 +13436,45 @@ def effective_text_background(
     if is_hex_color(slide_background_color):
         return "solid", slide_background_color
     return "unverifiable", None
+
+
+def guaranteed_contrast_overlay_background(
+    text_element: dict[str, Any],
+    overlay_fill: Any,
+    opacity: float,
+) -> str | None:
+    text_color = text_element.get("props", {}).get("color")
+    if not is_hex_color(text_color) or not is_hex_color(overlay_fill):
+        return None
+    if not 0 < opacity < 1:
+        return None
+
+    backgrounds = (
+        composite_hex_color(str(overlay_fill), "#000000", opacity),
+        composite_hex_color(str(overlay_fill), "#FFFFFF", opacity),
+    )
+    ratios = [contrast_ratio(str(text_color), background) for background in backgrounds]
+    if min(ratios) < 4.5:
+        return None
+    return backgrounds[ratios.index(min(ratios))]
+
+
+def composite_hex_color(foreground: str, background: str, opacity: float) -> str:
+    foreground_rgb = tuple(
+        int(foreground[index : index + 2], 16) for index in (1, 3, 5)
+    )
+    background_rgb = tuple(
+        int(background[index : index + 2], 16) for index in (1, 3, 5)
+    )
+    channels = (
+        round(foreground_channel * opacity + background_channel * (1 - opacity))
+        for foreground_channel, background_channel in zip(
+            foreground_rgb,
+            background_rgb,
+            strict=True,
+        )
+    )
+    return "#" + "".join(f"{channel:02X}" for channel in channels)
 
 
 def text_background_coverage(

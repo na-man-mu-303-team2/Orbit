@@ -472,10 +472,19 @@ def _hero_full_bleed(
     if direction.asset_role == "none":
         raise CompositionCompileError("hero-full-bleed requires an asset")
     order = direction.order
-    media = _media(order, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT, 1, style, _media_caption(slide))
+    media_placeholder = _media(
+        order,
+        0,
+        0,
+        CANVAS_WIDTH,
+        CANVAS_HEIGHT,
+        1,
+        style,
+        _media_caption(slide),
+    )[0]
     elements = [
         _background(order, style),
-        *media,
+        media_placeholder,
         _rect(order, "image_overlay", "decoration", 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT, 3, "#000000", opacity=0.58),
         _text(order, "eyebrow", "caption", "PRODUCT REVEAL", 120, 150, 600, 50, 4, "#FFFFFF", 16, "bold", style.body_font),
         _text(

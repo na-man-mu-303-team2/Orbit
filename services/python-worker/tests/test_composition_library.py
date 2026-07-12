@@ -90,6 +90,30 @@ def test_each_composition_compiles_editable_elements(composition_id: str) -> Non
     assert all(element["y"] + element["height"] <= 1080 for element in compiled.elements)
 
 
+def test_full_bleed_cover_omits_visible_placeholder_caption() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "hero-full-bleed",
+        "variant": "image",
+        "backgroundMode": "image",
+        "focalType": "hero-image",
+        "assetRole": "atmosphere",
+        "requiredAsset": True,
+    }
+    design_program = program([direction])
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide_payload("cover", 1),
+        design_program,
+    )
+
+    assert not any(
+        element["elementId"].endswith("_media_caption")
+        for element in compiled.elements
+    )
+
+
 def launch_slides() -> list[dict[str, Any]]:
     definitions = [
         ("cover", 2),
