@@ -1872,8 +1872,8 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
         max(style.cover_size - 4, 52), "bold", style.heading_font, line_height=1.05,
     )
     message_width = _grid_width(7) if action_items else _grid_width(12)
-    message_y = 456 if action_items else 424
-    message_height = 336 if action_items else 448
+    message_y = 432 if action_items else 424
+    message_height = 400 if action_items else 448
     message_text_y = message_y + 36
     message_text_height = message_height - 72
     message_field = _rect(
@@ -1898,12 +1898,14 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     if action_items:
         action_x = _grid_x(7)
         action_width = _grid_width(5)
-        row_height = 336 // len(action_items)
+        action_y = message_y
+        action_height = message_height
+        row_height = action_height // len(action_items)
         elements.append(
-            _rect(order, "closing_action_rule", "decoration", action_x, 456, 10, 336, 3, style.secondary, radius=5)
+            _rect(order, "closing_action_rule", "decoration", action_x, action_y, 10, action_height, 3, style.secondary, radius=5)
         )
         for index, (identifier, value) in enumerate(action_items):
-            y = 456 + index * row_height
+            y = action_y + index * row_height
             elements.extend(
                 [
                     _text(order, f"closing_action_index_{index + 1}", "highlight", f"{index + 1:02d}", _grid_x(7), y + 16, _grid_width(1), row_height - 32, 5, style.focal, 38, "bold", style.heading_font, vertical="middle"),

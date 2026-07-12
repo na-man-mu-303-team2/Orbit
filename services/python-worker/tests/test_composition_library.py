@@ -893,7 +893,7 @@ def test_no_media_closing_uses_large_cta_field_and_numbered_actions() -> None:
     assert (message_field["x"], message_field["width"], message_field["height"]) == (
         120,
         970,
-        336,
+        400,
     )
     assert len(action_texts) == 3
     assert all(element["props"]["fontSize"] >= 36 for element in action_texts)
