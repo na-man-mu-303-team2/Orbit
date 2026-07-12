@@ -4,10 +4,15 @@ import type {
   OfficialImageProvider,
   PublicImageSearchProvider
 } from "./index";
+import { X509Certificate } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { connect as tlsConnect, rootCertificates } from "node:tls";
 
 const maxImageBytes = 12 * 1024 * 1024;
+const maxCertificateBytes = 128 * 1024;
+const supplementalCaCache = new Map<string, string[]>();
 
 export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
   constructor(
@@ -229,17 +234,199 @@ async function fetchPublicUrl(
   let url = new URL(rawUrl);
   for (let redirect = 0; redirect <= 3; redirect += 1) {
     await assertPublicHttpUrl(url);
-    const response = await fetch(url, {
-      redirect: "manual",
-      headers: { accept: input.accept },
-      signal: input.signal
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        redirect: "manual",
+        headers: { accept: input.accept },
+        signal: input.signal
+      });
+    } catch (error) {
+      if (
+        url.protocol !== "https:" ||
+        !isMissingIntermediateCertificateError(error)
+      ) {
+        throw error;
+      }
+      response = await fetchWithSupplementalCa(url, input);
+    }
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers.get("location");
     if (!location) throw new Error("External redirect is missing a location");
     url = new URL(location, url);
   }
   throw new Error("External redirect limit exceeded");
+}
+
+function isMissingIntermediateCertificateError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "cause" in error &&
+    typeof error.cause === "object" &&
+    error.cause !== null &&
+    "code" in error.cause &&
+    error.cause.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+  );
+}
+
+async function fetchWithSupplementalCa(
+  url: URL,
+  input: { accept: string; signal?: AbortSignal }
+) {
+  const cacheKey = url.origin;
+  let ca = supplementalCaCache.get(cacheKey);
+  if (!ca) {
+    ca = await resolveSupplementalCa(url, input.signal);
+    supplementalCaCache.set(cacheKey, ca);
+  }
+  return requestWithCa(url, input, ca);
+}
+
+async function resolveSupplementalCa(url: URL, signal?: AbortSignal) {
+  const peer = await peerCertificate(url, signal);
+  const issuerUrl = peer.infoAccess?.["CA Issuers - URI"]?.[0];
+  if (!issuerUrl) throw new Error("TLS certificate has no CA Issuers URL");
+  const certificateBody = await fetchIssuerCertificate(issuerUrl, signal);
+  const leaf = new X509Certificate(peer.raw);
+  const intermediate = new X509Certificate(certificateBody);
+  if (leaf.issuer !== intermediate.subject) {
+    throw new Error("AIA certificate does not match the TLS leaf issuer");
+  }
+  const trustedRoot = rootCertificates.find((pem) => {
+    try {
+      return new X509Certificate(pem).subject === intermediate.issuer;
+    } catch {
+      return false;
+    }
+  });
+  if (!trustedRoot) {
+    throw new Error("AIA certificate is not chained to a trusted Node root");
+  }
+  return [intermediate.toString(), trustedRoot];
+}
+
+async function peerCertificate(url: URL, signal?: AbortSignal) {
+  return new Promise<{
+    raw: Buffer;
+    infoAccess?: Record<string, string[] | undefined>;
+  }>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("TLS certificate discovery was aborted"));
+      return;
+    }
+    const socket = tlsConnect({
+      host: url.hostname,
+      port: Number(url.port || 443),
+      servername: url.hostname,
+      rejectUnauthorized: false
+    });
+    const onAbort = () => socket.destroy(new Error("TLS certificate discovery was aborted"));
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    socket.once("secureConnect", () => {
+      const certificate = socket.getPeerCertificate(true);
+      cleanup();
+      socket.end();
+      if (!certificate.raw) {
+        reject(new Error("TLS peer certificate is unavailable"));
+        return;
+      }
+      resolve({
+        raw: certificate.raw,
+        infoAccess: certificate.infoAccess
+      });
+    });
+    socket.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
+async function fetchIssuerCertificate(rawUrl: string, signal?: AbortSignal) {
+  let url = new URL(rawUrl);
+  for (let redirect = 0; redirect <= 3; redirect += 1) {
+    await assertPublicHttpUrl(url);
+    const response = await fetch(url, {
+      redirect: "manual",
+      headers: {
+        accept: "application/pkix-cert,application/x-x509-ca-cert"
+      },
+      signal
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("CA Issuers redirect has no location");
+      url = new URL(location, url);
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(`CA Issuers request failed with status ${response.status}`);
+    }
+    const contentLength = Number(response.headers.get("content-length") ?? 0);
+    if (contentLength > maxCertificateBytes) {
+      throw new Error("CA Issuers certificate exceeds the size limit");
+    }
+    const body = new Uint8Array(await response.arrayBuffer());
+    if (body.byteLength === 0 || body.byteLength > maxCertificateBytes) {
+      throw new Error("CA Issuers certificate has an invalid size");
+    }
+    return body;
+  }
+  throw new Error("CA Issuers redirect limit exceeded");
+}
+
+function requestWithCa(
+  url: URL,
+  input: { accept: string; signal?: AbortSignal },
+  ca: string[]
+) {
+  return new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest(
+      url,
+      {
+        method: "GET",
+        headers: { accept: input.accept },
+        signal: input.signal,
+        ca
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let sizeLimitExceeded = false;
+        response.on("data", (chunk: Buffer) => {
+          size += chunk.byteLength;
+          if (size > maxImageBytes) {
+            sizeLimitExceeded = true;
+            request.destroy(new Error("External response exceeds the size limit"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.once("end", () => {
+          if (sizeLimitExceeded) return;
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(response.headers)) {
+            if (Array.isArray(value)) {
+              value.forEach((item) => headers.append(name, item));
+            } else if (value !== undefined) {
+              headers.set(name, value);
+            }
+          }
+          const body = Buffer.concat(chunks);
+          resolve(
+            new Response(body.byteLength > 0 ? body : null, {
+              status: response.statusCode ?? 500,
+              headers
+            })
+          );
+        });
+      }
+    );
+    request.once("error", reject);
+    request.end();
+  });
 }
 
 async function assertPublicHttpUrl(url: URL) {
