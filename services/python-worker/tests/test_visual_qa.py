@@ -215,6 +215,14 @@ def test_review_uses_exported_pptx_render_and_montage(monkeypatch: pytest.Monkey
     assert request_content[1]["image_url"].startswith("data:image/png;base64,")
 
 
+def test_visual_review_prompt_includes_design_program_contract() -> None:
+    prompt = visual_qa_module.visual_review_prompt(deck())
+
+    assert '"allowedBackgroundModes": ["light"]' in prompt
+    assert '"focal": "#6D28D9"' in prompt
+    assert '"compositionUsage": {"minimal-cover": 1}' in prompt
+
+
 def test_visual_review_requires_issues_when_failed() -> None:
     with pytest.raises(ValueError):
         VisualQaReview(passed=False, issues=[], repairActions=[])
@@ -365,6 +373,88 @@ def test_increase_text_focal_scale_preserves_grid_frame() -> None:
     )
     assert tuple(after[key] for key in ("x", "y", "width", "height")) == frame
     assert after["props"]["fontSize"] > font_size
+
+
+def test_visual_repair_rejects_background_outside_program_contract() -> None:
+    candidate = deck()
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "switchBackgroundMode",
+                        "slideId": "slide_1",
+                        "backgroundMode": "dark",
+                        "reason": "Create stronger rhythm",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert result.deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
+    assert result.deck["slides"][0]["aiNotes"]["compositionPlan"][
+        "backgroundMode"
+    ] == "light"
+    assert result.warnings == [
+        "Visual repair skipped switchBackgroundMode: background mode dark is outside the design program contract"
+    ]
+
+
+def test_visual_repair_rolls_back_new_deterministic_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = deck()
+    initial_size = candidate["slides"][0]["elements"][1]["props"]["fontSize"]
+
+    def validation_for(candidate_deck: dict[str, Any]) -> Any:
+        font_size = candidate_deck["slides"][0]["elements"][1]["props"]["fontSize"]
+        issues = (
+            [
+                {
+                    "code": "TEXT_OVERFLOW",
+                    "scope": "element",
+                    "severity": "warning",
+                    "blocking": False,
+                    "path": "slides.0.elements.1",
+                    "message": "Text exceeds its frame.",
+                }
+            ]
+            if font_size > initial_size
+            else []
+        )
+        return visual_qa_module.ValidationResult(
+            passed=not issues,
+            layoutIssues=[],
+            contentIssues=[],
+            designIssues=issues,
+            presentationIssues=[],
+        )
+
+    monkeypatch.setattr(visual_qa_module, "validate_repaired_deck", validation_for)
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "increaseFocalScale",
+                        "slideId": "slide_1",
+                        "reason": "Increase title emphasis",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert result.deck["slides"][0]["elements"][1]["props"]["fontSize"] == initial_size
+    assert result.validation.passed is True
+    assert result.warnings == [
+        "Visual repair skipped increaseFocalScale: introduced deterministic issue(s): TEXT_OVERFLOW"
+    ]
 
 
 def test_optional_media_failure_recompiles_to_no_media_composition() -> None:

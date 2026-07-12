@@ -59,6 +59,16 @@ rhythm, card overuse, color harmony, style consistency, and readability.
 Return only the requested JSON. Use only the allowed issue codes and repair actions.
 Do not flag factual accuracy or speaker notes. passed=true requires zero issues.
 Use changeComposition only when geometry-level actions cannot solve the problem.
+Honor the declared design contract in the review prompt. Colors assigned to declared
+palette roles are intentional and are not a harmony defect by themselves when text
+remains readable. When allowedBackgroundModes contains only light, judge rhythm from
+composition and focal hierarchy and never request a dark or image background. Two
+non-adjacent uses of one composition are acceptable when their internal silhouettes
+differ; flag repetition only for adjacent matching silhouettes or three or more
+visually indistinguishable uses. Use changeCrop only for framing inside an adequately
+sized image frame; use increaseFocalScale when the image frame itself is too small.
+Every repair action must directly address its paired issue without violating the
+declared palette, background modes, safe area, typography, or grid.
 """.strip()
 
 
@@ -324,6 +334,18 @@ def build_montage(assets: list[ImportedDesignAsset]) -> bytes:
 
 
 def visual_review_prompt(deck: dict[str, Any]) -> str:
+    snapshot = deck.get("metadata", {}).get("designProgramSnapshot", {})
+    background_sequence = [
+        str(mode)
+        for mode in snapshot.get("backgroundSequence", [])
+        if mode in {"light", "dark", "image"}
+    ]
+    allowed_background_modes = list(dict.fromkeys(background_sequence)) or ["light"]
+    composition_ids = [
+        str(composition_id)
+        for composition_id in snapshot.get("compositionIds", [])
+        if composition_id
+    ]
     slides = [
         {
             "order": slide.get("order"),
@@ -338,8 +360,21 @@ def visual_review_prompt(deck: dict[str, Any]) -> str:
         }
         for slide in deck.get("slides", [])
     ]
-    return "Review this rendered deck montage. Slide map: " + json.dumps(
-        slides,
+    review_contract = {
+        "visualConcept": snapshot.get("visualConcept"),
+        "paletteRoles": snapshot.get("paletteRoles", {}),
+        "allowedBackgroundModes": allowed_background_modes,
+        "backgroundSequence": background_sequence,
+        "surfaceStyle": snapshot.get("surfaceStyle"),
+        "imageStyle": snapshot.get("imageStyle"),
+        "compositionUsage": {
+            composition_id: composition_ids.count(composition_id)
+            for composition_id in dict.fromkeys(composition_ids)
+        },
+        "slides": slides,
+    }
+    return "Review this rendered deck montage against this design contract: " + json.dumps(
+        review_contract,
         ensure_ascii=False,
     )
 
@@ -364,12 +399,14 @@ def repair_deck_visuals(request: VisualRepairRequest) -> VisualRepairResponse:
             drop_optional_media(deck, slide)
         except Exception as error:
             warnings.append(f"Optional media fallback skipped: {error}")
+    validation = validate_repaired_deck(deck)
     for action in request.actions:
+        candidate_deck = deepcopy(deck)
         slide = next(
             (
-                candidate
-                for candidate in deck.get("slides", [])
-                if candidate.get("slideId") == action.slide_id
+                candidate_slide
+                for candidate_slide in candidate_deck.get("slides", [])
+                if candidate_slide.get("slideId") == action.slide_id
             ),
             None,
         )
@@ -377,14 +414,28 @@ def repair_deck_visuals(request: VisualRepairRequest) -> VisualRepairResponse:
             warnings.append(f"Visual repair skipped missing slide: {action.slide_id}")
             continue
         try:
-            needs_asset = apply_visual_repair_action(deck, slide, action)
+            needs_asset = apply_visual_repair_action(candidate_deck, slide, action)
+            candidate_validation = validate_repaired_deck(candidate_deck)
+            introduced_issues = validation_issue_keys(candidate_validation) - validation_issue_keys(
+                validation
+            )
+            if introduced_issues:
+                introduced_codes = ", ".join(
+                    sorted(code for code, _ in introduced_issues)
+                )
+                warnings.append(
+                    f"Visual repair skipped {action.action}: introduced deterministic issue(s): {introduced_codes}"
+                )
+                continue
+            deck = candidate_deck
+            validation = candidate_validation
             if needs_asset and action.slide_id not in asset_slide_ids:
                 asset_slide_ids.append(action.slide_id)
         except Exception as error:
             warnings.append(f"Visual repair skipped {action.action}: {error}")
     return VisualRepairResponse(
         deck=deck,
-        validation=validate_repaired_deck(deck),
+        validation=validation,
         assetSlideIds=asset_slide_ids,
         warnings=warnings,
     )
@@ -407,6 +458,16 @@ def validate_repaired_deck(deck: dict[str, Any]) -> ValidationResult:
         designIssues=design_issues,
         presentationIssues=presentation_issues,
     )
+
+
+def validation_issue_keys(validation: ValidationResult) -> set[tuple[str, str]]:
+    issues = [
+        *validation.layout_issues,
+        *validation.content_issues,
+        *validation.design_issues,
+        *validation.presentation_issues,
+    ]
+    return {(issue.code, issue.path) for issue in issues}
 
 
 def apply_visual_repair_action(
@@ -725,6 +786,15 @@ def switch_background(
     mode: Literal["light", "dark", "image"],
 ) -> None:
     snapshot = deck.get("metadata", {}).get("designProgramSnapshot", {})
+    allowed_modes = {
+        str(value)
+        for value in snapshot.get("backgroundSequence", [])
+        if value in {"light", "dark", "image"}
+    }
+    if allowed_modes and mode not in allowed_modes:
+        raise ValueError(
+            f"background mode {mode} is outside the design program contract"
+        )
     roles = snapshot.get("paletteRoles", {})
     background = (
         roles.get("dominant", "#FFFFFF")
