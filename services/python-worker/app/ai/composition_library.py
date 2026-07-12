@@ -1838,17 +1838,67 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     items = _items(slide)
     action_items = _supporting_items_without_message_duplicate(slide, items)
     duplicates_items = bool(items) and not action_items
-    content_width = _grid_width(6) if direction.asset_role != "none" else _grid_width(12)
-    title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 176, 5, style.text, max(44, style.body_size + 8) if duplicates_items else max(42, style.body_size + 6), "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
-    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
-    action = None
-    if action_items:
-        action = _text(order, "actions", "body", "  →  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, max(36, style.body_size + 4), "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
-        elements.append(action)
     if direction.asset_role != "none":
+        content_width = _grid_width(6)
+        title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
+        message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 176, 5, style.text, max(44, style.body_size + 8) if duplicates_items else max(42, style.body_size + 6), "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
+        elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
+        action = None
+        if action_items:
+            action = _text(order, "actions", "body", "  /  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, max(36, style.body_size + 4), "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
+            elements.append(action)
         elements.extend(_media(order, _grid_x(6), 208, _grid_width(6), 624, 3, style, _media_caption(slide)))
-    return elements, (action or message)["elementId"]
+        return elements, (action or message)["elementId"]
+
+    title = _text(
+        order, "title", "title", str(slide.get("title", "")),
+        _grid_x(0), 216, _grid_width(12), 176, 5, style.text,
+        max(style.cover_size - 4, 52), "bold", style.heading_font, line_height=1.05,
+    )
+    message_width = _grid_width(7) if action_items else _grid_width(12)
+    message_y = 456 if action_items else 424
+    message_height = 336 if action_items else 448
+    message_text_y = message_y + 36
+    message_text_height = message_height - 72
+    message_field = _rect(
+        order, "closing_message_field", "decoration", _grid_x(0), message_y,
+        message_width, message_height, 3, style.focal, radius=8,
+    )
+    message = _text(
+        order, "closing_message", "highlight", str(slide.get("message", "")),
+        _grid_x(0) + 48, message_text_y, message_width - 96, message_text_height, 5,
+        _contrasting_text_color(style.focal, style.text),
+        max(52, style.body_size + 14), "bold", style.heading_font,
+        vertical="middle",
+        content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None,
+    )
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal),
+        title,
+        message_field,
+        message,
+    ]
+    if action_items:
+        action_x = _grid_x(7)
+        action_width = _grid_width(5)
+        row_height = 336 // len(action_items)
+        elements.append(
+            _rect(order, "closing_action_rule", "decoration", action_x, 456, 10, 336, 3, style.secondary, radius=5)
+        )
+        for index, (identifier, value) in enumerate(action_items):
+            y = 456 + index * row_height
+            elements.extend(
+                [
+                    _text(order, f"closing_action_index_{index + 1}", "highlight", f"{index + 1:02d}", action_x + 36, y + 16, 92, row_height - 32, 5, style.focal, 38, "bold", style.heading_font, vertical="middle"),
+                    _text(order, f"closing_action_{index + 1}", "body", value, action_x + 140, y + 16, action_width - 176, row_height - 32, 5, style.text, max(36, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                ]
+            )
+            if index < len(action_items) - 1:
+                elements.append(
+                    _rect(order, f"closing_action_divider_{index + 1}", "decoration", action_x + 36, y + row_height - 2, action_width - 36, 2, 3, style.secondary)
+                )
+    return elements, message["elementId"]
 
 
 COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
@@ -2390,12 +2440,59 @@ def _enforce_background_rhythm(
 
 def _composition_slide_type(slide: dict[str, Any]) -> str:
     slide_type = str(slide.get("slideType", "summary"))
+    if slide_type == "process":
+        if _looks_like_release_fact_set(slide) and not _looks_like_ordered_process(
+            slide
+        ):
+            return "data"
+        if not _looks_like_ordered_process(slide):
+            return "feature-grid"
     if slide_type != "chart":
         return slide_type
     content = " ".join(
         [str(slide.get("message", "")), *[value for _, value in _items(slide)]]
     )
     return "chart" if re.search(r"\d", content) else "feature-grid"
+
+
+def _semantic_slide_text(slide: dict[str, Any]) -> str:
+    return " ".join(
+        [
+            str(slide.get("title", "")),
+            str(slide.get("message", "")),
+            *[value for _, value in _items(slide)],
+        ]
+    ).casefold()
+
+
+def _looks_like_ordered_process(slide: dict[str, Any]) -> bool:
+    text = _semantic_slide_text(slide)
+    markers = (
+        "process", "workflow", "step", "phase", "prepare", "execute",
+        "verify", "discover", "craft", "raid", "then", "finally",
+        "\ub2e8\uacc4", "\uc808\ucc28", "\uc21c\uc11c", "\ud750\ub984", "\uacfc\uc815",
+        "\uc900\ube44", "\uc2e4\ud589", "\uac80\uc99d", "\ud0d0\ud5d8", "\uc81c\uc791",
+        "\ub808\uc774\ub4dc", "\uc131\uc7a5", "\ub2e4\uc74c", "\uc774\ud6c4", "\ub9c8\uc9c0\ub9c9",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _looks_like_release_fact_set(slide: dict[str, Any]) -> bool:
+    text = _semantic_slide_text(slide)
+    release_markers = (
+        "release", "launch", "availability", "\ucd9c\uc2dc", "\ubc1c\ub9e4",
+    )
+    commerce_markers = (
+        "purchase", "preorder", "order", "store", "price", "package",
+        "\uad6c\ub9e4", "\uc608\uc57d", "\uc2a4\ud1a0\uc5b4", "\uac00\uaca9", "\ud328\ud0a4\uc9c0", "\ud310\ub9e4",
+    )
+    has_release = any(marker in text for marker in release_markers)
+    has_commerce = any(marker in text for marker in commerce_markers)
+    has_date = bool(
+        re.search(r"\b(?:19|20)\d{2}\b", text)
+        or re.search(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b", text)
+    )
+    return has_release and (has_date or has_commerce)
 
 
 def _break_long_background_runs(program: DeckDesignProgram) -> None:

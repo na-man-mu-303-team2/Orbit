@@ -643,6 +643,117 @@ def test_three_step_process_uses_dominant_first_stage_and_stacked_followups() ->
     assert labels[0]["props"]["fontSize"] > labels[1]["props"]["fontSize"]
 
 
+def test_process_label_without_sequence_semantics_uses_feature_composition() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        {
+            **slide_payload("process", 3),
+            "title": "Four-player cooperation",
+            "message": "The game supports flexible cooperative play.",
+            "contentItems": [
+                {"contentItemId": "solo", "text": "Solo-first adventure"},
+                {"contentItemId": "party", "text": "Up to four players"},
+                {"contentItemId": "difficulty", "text": "Adaptive difficulty"},
+            ],
+        },
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "minimal-cover",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "process-horizontal",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
+                "compositionId": "cta-closing",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+
+    assert normalized.slides[1].composition_id in {
+        "editorial-split",
+        "feature-comparison",
+        "diagram-hub",
+    }
+
+
+def test_release_facts_mislabeled_as_process_use_data_composition() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        {
+            **slide_payload("process", 3),
+            "title": "Release date and purchase channels",
+            "message": "The launch package is ready for purchase.",
+            "contentItems": [
+                {"contentItemId": "date", "text": "July 23, 2026 release"},
+                {"contentItemId": "package", "text": "Physical and digital editions"},
+                {"contentItemId": "store", "text": "Official store availability"},
+            ],
+        },
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "minimal-cover",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "process-horizontal",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
+                "compositionId": "cta-closing",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+
+    assert normalized.slides[1].composition_id in {
+        "metric-poster",
+        "kpi-strip-evidence",
+    }
+
+
 def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
     direction = {
         "order": 1,
@@ -675,7 +786,51 @@ def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
 
     assert visible_text.count("감사 인사와 기대 소감") == 1
     assert "출시 정보를 확인하고 다음 행동을 선택하세요." in visible_text
-    assert compiled.primary_focal_element_id == "el_1_program_v2_actions"
+    assert compiled.primary_focal_element_id == "el_1_program_v2_closing_message"
+
+
+def test_no_media_closing_uses_large_cta_field_and_numbered_actions() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "cta-closing",
+        "variant": "dark",
+        "backgroundMode": "dark",
+        "focalType": "cta",
+        "assetRole": "none",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+    slide = {
+        **slide_payload("summary", 0),
+        "title": "Keep following the official channels",
+        "message": "Get the next update from the official site.",
+        "contentItems": [
+            {"contentItemId": "site", "text": "Visit the official site"},
+            {"contentItemId": "social", "text": "Follow the social channel"},
+            {"contentItemId": "share", "text": "Share the launch update"},
+        ],
+    }
+
+    compiled = compile_composition(design_program.slides[0], slide, design_program)
+    message_field = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_closing_message_field")
+    )
+    action_texts = [
+        element
+        for element in compiled.elements
+        if re.search(r"_closing_action_\d+$", element["elementId"])
+    ]
+
+    assert (message_field["x"], message_field["width"], message_field["height"]) == (
+        120,
+        970,
+        336,
+    )
+    assert len(action_texts) == 3
+    assert all(element["props"]["fontSize"] >= 36 for element in action_texts)
+    assert compiled.primary_focal_element_id == "el_1_program_v2_closing_message"
 
 
 def test_statement_poster_uses_a_content_backed_full_width_field() -> None:
