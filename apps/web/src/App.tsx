@@ -47,7 +47,7 @@ import {
   type OrbitAppNavigationItem
 } from "./components/OrbitAppHeader";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
-import { OrbitButton } from "./design-system";
+import { OrbitButton, OrbitEmptyState } from "./design-system";
 import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
@@ -213,7 +213,7 @@ export type Route =
   | { name: "signup" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
-  | { name: "project-list" }
+  | { name: "project-list"; intent?: "rehearsal" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
@@ -238,6 +238,7 @@ export type Route =
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
+  | { name: "not-found" }
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
@@ -471,6 +472,8 @@ export function getRoute(
     search ?? (typeof window === "undefined" ? "" : window.location.search);
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
+  try {
+
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/signup") return { name: "signup" };
   if (normalized === "/design-system") return { name: "design-system" };
@@ -499,7 +502,11 @@ export function getRoute(
   if (normalized === "/mockup/version-history") return { name: "mockup", screen: "version-history" };
   if (normalized === "/mockup/ai-ppt") return { name: "mockup", screen: "ai-ppt" };
   if (normalized === "/createdeck") return { name: "create-deck" };
-  if (normalized === "/project") return { name: "project-list" };
+  if (normalized === "/project") {
+    return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
+      ? { name: "project-list", intent: "rehearsal" }
+      : { name: "project-list" };
+  }
   if (normalized === "/reports") return { name: "report-list" };
   const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
   if (reportProjectMatch) {
@@ -610,9 +617,15 @@ export function getRoute(
     };
   }
 
-  const searchParams = new URLSearchParams(currentSearch);
-  const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
-  return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
+  if (normalized === "/") {
+    const searchParams = new URLSearchParams(currentSearch);
+    const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
+    return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
+  }
+  return { name: "not-found" };
+  } catch {
+    return { name: "not-found" };
+  }
 }
 
 function navigateTo(path: string) {
@@ -634,6 +647,15 @@ export function App() {
     queryFn: fetchCurrentUser,
     retry: false
   });
+
+  if (
+    auth.isPending &&
+    !["design-system", "mockup", "audience-session", "present", "deck-render"].includes(
+      route.name
+    )
+  ) {
+    return <AuthLoadingFallback />;
+  }
 
   if (route.name === "home" && !auth.isSuccess) {
     return <OrbitPublicLandingPage onNavigate={navigateTo} />;
@@ -684,7 +706,9 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;
-  if (route.name === "project-list") return <OrbitProjectExplorer onNavigate={navigateTo} />;
+  if (route.name === "project-list") {
+    return <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />;
+  }
   if (route.name === "project-editor") {
     return (
       <ProjectAccessGate projectId={route.projectId}>
@@ -787,8 +811,33 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
   }
-  if (route.templateStyleId) return <HomePage user={user} templateStyleId={route.templateStyleId} />;
-  return <OrbitWorkspaceHome onNavigate={navigateTo} userName={user?.displayName} />;
+  if (route.name === "not-found") {
+    return (
+      <OrbitEmptyState
+        action={<><OrbitButton onClick={() => navigateTo("/")}>홈으로</OrbitButton><OrbitButton onClick={() => navigateTo("/project")} variant="secondary">프로젝트 보기</OrbitButton></>}
+        description="주소가 바뀌었거나 존재하지 않는 페이지입니다."
+        title="페이지를 찾을 수 없습니다."
+      />
+    );
+  }
+  if (route.name === "home") {
+    if (route.templateStyleId) {
+      return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+    }
+    return <OrbitWorkspaceHome onNavigate={navigateTo} userName={user?.displayName} />;
+  }
+  return null;
+}
+
+function AuthLoadingFallback() {
+  return (
+    <main className="orbit-page">
+      <OrbitEmptyState
+        description="로그인 상태와 작업 공간을 확인하고 있습니다."
+        title="ORBIT를 준비하고 있어요."
+      />
+    </main>
+  );
 }
 
 function parseRouteNonNegativeInteger(value: string | null) {
@@ -912,7 +961,8 @@ export function getAppNavigationItem(
   if (
     route.name === "rehearsal" ||
     (route.name === "project-list" &&
-      new URLSearchParams(currentSearch).get("intent") === "rehearsal")
+      (route.intent === "rehearsal" ||
+        new URLSearchParams(currentSearch).get("intent") === "rehearsal"))
   ) {
     return "rehearsal";
   }
@@ -959,24 +1009,30 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) return <ProjectAccessError onRetry={() => void access.refetch()} />;
+  if (access.isError) {
+    return (
+      <ProjectAccessError
+        onRetry={() => void access.refetch()}
+        projectId={props.projectId}
+      />
+    );
+  }
   if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
 
   return <>{props.children}</>;
 }
 
-function ProjectAccessError(props: { onRetry: () => void }) {
+function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
-    <section className="project-request-page">
-      <article className="project-request-card">
-        <span className="eyebrow">Project access</span>
+    <ProjectAccessLayout projectId={props.projectId}>
+      <article className="orbit-access-message">
+        <span className="orbit-ds-eyebrow">PROJECT ACCESS</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
         <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
-        <button type="button" onClick={props.onRetry}>
-          다시 확인
-        </button>
+        <OrbitButton type="button" onClick={props.onRetry}>다시 확인</OrbitButton>
+        <a href="/project">프로젝트 목록으로</a>
       </article>
-    </section>
+    </ProjectAccessLayout>
   );
 }
 
@@ -1022,7 +1078,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   if (access.isError) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
-        <div className="orbit-access-message"><p className="orbit-ds-eyebrow">ACCESS CHECK</p><h1>권한 상태를 확인하지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해 주세요.</p><OrbitButton onClick={() => void access.refetch()}>다시 확인</OrbitButton></div>
+        <div className="orbit-access-message"><p className="orbit-ds-eyebrow">ACCESS CHECK</p><h1>권한 상태를 확인하지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해 주세요.</p><OrbitButton onClick={() => void access.refetch()}>다시 확인</OrbitButton><a href="/project">프로젝트 목록으로</a></div>
       </ProjectAccessLayout>
     );
   }

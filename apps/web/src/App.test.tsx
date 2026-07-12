@@ -251,7 +251,19 @@ describe("App shell routing", () => {
   });
 
   it("does not expose the old upload workspace route", () => {
-    expect(getRoute("/upload")).toEqual({ name: "home" });
+    expect(getRoute("/upload")).toEqual({ name: "not-found" });
+  });
+
+  it("returns a recoverable not-found route for unknown and malformed paths", () => {
+    expect(getRoute("/missing-page")).toEqual({ name: "not-found" });
+    expect(getRoute("/project/%E0%A4%A")).toEqual({ name: "not-found" });
+  });
+
+  it("preserves rehearsal intent in the project selection route", () => {
+    expect(getRoute("/project", "?intent=rehearsal")).toEqual({
+      name: "project-list",
+      intent: "rehearsal"
+    });
   });
 
   it("parses a selected home template style from the query string", () => {
@@ -362,6 +374,18 @@ describe("workspace project surfaces", () => {
     expect(html).toContain('aria-label="프로젝트 정렬"');
     expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
+  });
+
+  it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <OrbitProjectExplorer intent="rehearsal" onNavigate={() => undefined} />
+      </QueryClientProvider>
+    );
+
+    expect(html).toContain("리허설할 프로젝트 선택");
+    expect(html).toContain("마이크 점검");
+    expect(html).not.toContain("빈 프로젝트");
   });
 });
 
