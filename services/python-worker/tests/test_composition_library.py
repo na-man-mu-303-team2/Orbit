@@ -556,6 +556,7 @@ def test_metric_poster_promotes_complete_korean_date() -> None:
 
     assert metric["props"]["text"] == "2026년 7월 23일"
     assert metric["width"] == 1396
+    assert metric["props"]["lineHeight"] == 1.2
 
 
 def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:

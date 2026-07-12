@@ -622,7 +622,7 @@ def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], 
     items = _items(slide)
     metric = _metric_value(slide, items)
     metric_font_size = 72 if len(metric) > 12 else 92
-    metric_element = _text(order, "metric", "highlight", metric, _grid_x(0), 288, _grid_width(10), 248, 5, style.focal, metric_font_size, "bold", style.heading_font, line_height=1.1)
+    metric_element = _text(order, "metric", "highlight", metric, _grid_x(0), 288, _grid_width(10), 248, 5, style.focal, metric_font_size, "bold", style.heading_font, line_height=1.2)
     duplicates_items = _message_duplicates_items(slide, items)
     elements = [
         _background(order, style),
