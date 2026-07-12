@@ -1336,7 +1336,29 @@ def _enforce_background_rhythm(
         elif slide.background_mode == "image":
             slide.background_mode = "dark"
             slide.variant = "dark"
+    _break_long_background_runs(program)
     program.background_sequence = [slide.background_mode for slide in program.slides]
+
+
+def _break_long_background_runs(program: DeckDesignProgram) -> None:
+    index = 0
+    while index < len(program.slides):
+        mode = program.slides[index].background_mode
+        run_end = index + 1
+        while (
+            run_end < len(program.slides)
+            and program.slides[run_end].background_mode == mode
+        ):
+            run_end += 1
+        run_length = run_end - index
+        if mode in {"light", "dark"} and run_length > 4:
+            pivot = index + run_length // 2
+            replacement = "dark" if mode == "light" else "light"
+            program.slides[pivot].background_mode = replacement
+            program.slides[pivot].variant = replacement
+            index = pivot + 1
+            continue
+        index = run_end
 
 
 def _style(program: DeckDesignProgram, mode: BackgroundMode) -> Style:

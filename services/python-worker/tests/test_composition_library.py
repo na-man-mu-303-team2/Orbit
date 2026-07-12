@@ -1,4 +1,5 @@
 from collections import Counter
+from itertools import groupby
 from typing import Any
 
 import pytest
@@ -139,7 +140,36 @@ def test_normalizer_enforces_composition_and_background_rhythm() -> None:
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
     assert max(usage.values()) <= 2
     assert len(set(normalized.background_sequence)) >= 2
+    assert max(
+        len(list(group))
+        for _, group in groupby(normalized.background_sequence)
+    ) <= 4
     assert 3 <= sum(slide.asset_role != "none" for slide in normalized.slides) <= 5
+
+
+def test_normalizer_breaks_long_background_runs_without_single_color_lock() -> None:
+    slides = launch_slides()
+    candidate = repeated_program(len(slides))
+    for index, direction in enumerate(candidate.slides):
+        mode = "dark" if index in {0, 8, 9} else "light"
+        direction.background_mode = mode
+        direction.variant = mode
+    candidate.background_sequence = [
+        direction.background_mode for direction in candidate.slides
+    ]
+
+    normalized = normalize_design_program(
+        candidate,
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+    )
+
+    assert set(normalized.background_sequence) == {"light", "dark"}
+    assert max(
+        len(list(group))
+        for _, group in groupby(normalized.background_sequence)
+    ) <= 4
 
 
 def test_hybrid_media_budget_preserves_official_evidence_and_ai_atmosphere() -> None:
