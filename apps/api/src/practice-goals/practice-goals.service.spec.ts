@@ -17,6 +17,18 @@ describe("PracticeGoalsService", () => {
     });
   });
 
+  it("returns no-goal when a succeeded run has no current goal head", async () => {
+    const service = createService([
+      [{ status: "succeeded", analysis_revision: 1, analysis_finalized_at: "2026-07-12T00:00:00.000Z" }],
+      [],
+    ]);
+
+    await expect(service.getPlan("project-a", "run-a", "user-a")).resolves.toEqual({
+      status: "no-goal",
+      sourceFullRunId: "run-a",
+    });
+  });
+
   it("returns a bounded ready plan with history and focused-practice availability", async () => {
     const createdAt = "2026-07-11T00:00:00.000Z";
     const service = createService([

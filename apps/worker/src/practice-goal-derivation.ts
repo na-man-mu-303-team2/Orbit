@@ -42,6 +42,9 @@ export function derivePracticeGoalSet(input: {
     ...timingCandidates(plan.criteria, input.report, slideOrder),
     ...deliveryCandidates(plan.criteria, input.report),
   ];
+  if (candidates.length === 0) {
+    candidates.push(...fallbackCandidates(plan.criteria, slideOrder));
+  }
   const lensPriority = new Map(
     lensOrder(plan.evaluatorLensRef.lensId).map((category, index) => [category, index]),
   );
@@ -353,6 +356,88 @@ function deliveryCandidates(
       measurementState: "measured" as const,
     }];
   });
+}
+
+function fallbackCandidates(
+  criteria: EvaluationCriterion[],
+  slideOrder: Map<string, number>,
+): Candidate[] {
+  return criteria
+    .map((criterion): Candidate => {
+      const targetScope = targetScopeForCriterion(criterion);
+      return {
+        category: criterion.category,
+        criterion,
+        severity: 0,
+        slideOrder: slideOrderForCriterion(criterion, slideOrder),
+        targetScope,
+        evidenceRefs: [],
+        problemLabel: fallbackProblemLabel(criterion),
+        nextAction: fallbackNextAction(criterion),
+        successCondition: fallbackSuccessCondition(criterion),
+        measurementState: "measured" as const,
+      };
+    });
+}
+
+function targetScopeForCriterion(criterion: EvaluationCriterion): PracticeGoal["targetScope"] {
+  if (criterion.scope.type === "slide") {
+    return {
+      type: "slide" as const,
+      scopeId: `scope_${hash(["fallback", criterion.criterionId, criterion.scope]).slice(0, 24)}`,
+      slideId: criterion.scope.slideId,
+    };
+  }
+  if (criterion.scope.type === "slide-range") {
+    return {
+      type: "slide-range" as const,
+      scopeId: `scope_${hash(["fallback", criterion.criterionId, criterion.scope]).slice(0, 24)}`,
+      startSlideId: criterion.scope.startSlideId,
+      endSlideId: criterion.scope.endSlideId,
+    };
+  }
+  if (criterion.scope.type === "time-window") {
+    return {
+      type: criterion.scope.window,
+      scopeId: `scope_${hash(["fallback", criterion.criterionId, criterion.scope]).slice(0, 24)}`,
+    };
+  }
+  return null;
+}
+
+function slideOrderForCriterion(
+  criterion: EvaluationCriterion,
+  slideOrder: Map<string, number>,
+) {
+  if (criterion.scope.type === "slide") return slideOrder.get(criterion.scope.slideId) ?? 999;
+  if (criterion.scope.type === "slide-range") return slideOrder.get(criterion.scope.startSlideId) ?? 999;
+  if (criterion.scope.type === "time-window") return criterion.scope.window === "opening" ? 0 : 998;
+  return 999;
+}
+
+function fallbackProblemLabel(criterion: EvaluationCriterion) {
+  if (criterion.category === "semantic") return `다음 리허설 확인 항목: ${criterion.label}`;
+  if (criterion.category === "timing") return `${criterion.label.replace(/\s*목표 시간$/, "")} 시간 배분 유지`;
+  if (criterion.category === "delivery") return `${criterion.label} 낮은 수준 유지`;
+  return `${criterion.label} 흐름 점검`;
+}
+
+function fallbackNextAction(criterion: EvaluationCriterion) {
+  if (criterion.category === "semantic") return "핵심 메시지를 먼저 한 문장으로 말하고 근거를 이어가세요.";
+  if (criterion.category === "timing") return "슬라이드 시작 전에 말할 문장을 두 개로 압축하세요.";
+  if (criterion.category === "delivery") return "문장 사이 호흡을 일정하게 두고 불필요한 추임새를 줄이세요.";
+  return "도입, 전환, 마무리 문장을 먼저 정리하고 말하세요.";
+}
+
+function fallbackSuccessCondition(criterion: EvaluationCriterion) {
+  if (criterion.measurement.type === "max-duration-seconds") {
+    return `${criterion.measurement.maximum}초 이내로 핵심 내용을 전달합니다.`;
+  }
+  if (criterion.measurement.type === "max-count") {
+    const unit = criterion.measurement.metric === "filler-word-count" ? "반복 말버릇" : "긴 멈춤";
+    return `${unit}을 ${criterion.measurement.maximum}회 이하로 유지합니다.`;
+  }
+  return "핵심 개념을 부분 이상 전달합니다.";
 }
 
 function patternKey(candidate: Candidate) {

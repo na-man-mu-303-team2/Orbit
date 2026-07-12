@@ -37,7 +37,13 @@ export class PracticeGoalsService {
        WHERE heads.project_id = $1 AND heads.source_full_run_id = $2`,
       [projectId, sourceFullRunId],
     ));
-    if (!setRow || setRow.analysis_state === "partial") {
+    if (!setRow) {
+      return practicePlanResponseSchema.parse({
+        status: run.status === "succeeded" ? "no-goal" : "processing",
+        sourceFullRunId,
+      });
+    }
+    if (setRow.analysis_state === "partial") {
       return practicePlanResponseSchema.parse({ status: "processing", sourceFullRunId });
     }
 

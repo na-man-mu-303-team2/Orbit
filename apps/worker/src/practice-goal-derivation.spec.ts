@@ -48,6 +48,26 @@ describe("practice goal derivation", () => {
     expect(recovered?.goalSetId).not.toBe(first?.goalSetId);
   });
 
+  it("creates fallback practice goals when the report has no failing candidates", () => {
+    const set = derivePracticeGoalSet({
+      projectId: "project-a",
+      sourceFullRunId: "run-a",
+      sourceAnalysisRevision: 1,
+      snapshot: snapshot(),
+      report: passingReport()
+    });
+
+    expect(set?.analysisState).toBe("final");
+    expect(set?.goals).toHaveLength(3);
+    expect(set?.goals[0]).toMatchObject({
+      category: "semantic",
+      recommendedPracticeMode: "focused",
+      targetScope: { type: "slide", slideId: "slide_1" },
+      measurementState: "measured"
+    });
+    expect(set?.goals[0]?.problemLabel).toContain("다음 리허설");
+  });
+
   it("persists the immutable set before advancing the current head with revision CAS", async () => {
     const set = derivePracticeGoalSet({
       projectId: "project-a",
@@ -241,5 +261,34 @@ function report(retryable: boolean) {
     slideTimings: [{ slideId: "slide_1", targetSeconds: 30, actualSeconds: 45 }],
     coaching: null,
     generatedAt: "2026-07-11T00:01:00.000Z"
+  });
+}
+
+function passingReport() {
+  return rehearsalReportSchema.parse({
+    ...report(false),
+    metrics: {
+      durationSeconds: 28,
+      wordsPerMinute: 120,
+      fillerWordCount: 0,
+      pauseCount: 0,
+      keywordCoverage: 1
+    },
+    semanticCueOutcomes: [
+      {
+        slideId: "slide_1",
+        cueId: "scue_1",
+        cueRevision: 1,
+        cueMeaningSnapshot: "핵심 가치",
+        reportLabelSnapshot: "핵심 가치",
+        importance: "core",
+        status: "covered",
+        measurementMode: "full",
+        fallbackUsed: false,
+        coveredConcepts: ["가치"],
+        missingConcepts: []
+      }
+    ],
+    slideTimings: [{ slideId: "slide_1", targetSeconds: 30, actualSeconds: 20 }]
   });
 }
