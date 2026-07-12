@@ -318,6 +318,28 @@ def test_worker_uses_cjk_width_for_editor_overflow_parity() -> None:
     assert is_text_overflowing(element)
 
 
+def test_worker_accounts_for_ragged_mixed_script_title_wrapping() -> None:
+    element = {
+        "elementId": "el_1_program_v2_title",
+        "type": "text",
+        "role": "title",
+        "x": 120,
+        "y": 232,
+        "width": 828,
+        "height": 248,
+        "props": {
+            "text": (
+                "Splatoon Raiders 발표: Nintendo Switch 2 전용 첫 스핀오프 게임"
+            ),
+            "fontSize": 72,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.05,
+        },
+    }
+
+    assert is_text_overflowing(element)
+
+
 @pytest.mark.parametrize(
     ("request_patch", "expected"),
     [

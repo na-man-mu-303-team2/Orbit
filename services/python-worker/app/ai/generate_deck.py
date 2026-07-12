@@ -13246,11 +13246,43 @@ def estimated_text_content_height(
     font_size = float(props.get("fontSize", 24))
     line_height = float(props.get("lineHeight", 1.2))
     width = max(1.0, float(element.get("width", 1)) - width_padding)
+    if element.get("role") == "title":
+        width *= 0.88
     estimated_lines = sum(
-        max(1, math.ceil(estimated_single_line_text_width(element, line) / width))
+        estimated_wrapped_line_count(element, line, width)
         for line in text.splitlines() or [text]
     )
     return estimated_lines * font_size * line_height
+
+
+def estimated_wrapped_line_count(
+    element: dict[str, Any],
+    text: str,
+    width: float,
+) -> int:
+    tokens = re.findall(r"\S+\s*", text)
+    if not tokens:
+        return 1
+    lines = 0
+    current_width = 0.0
+    for token in tokens:
+        token_width = estimated_single_line_text_width(element, token)
+        if token and token[-1].isspace():
+            token_width += float(element.get("props", {}).get("fontSize", 24)) * 0.33
+        if token_width > width:
+            if current_width > 0:
+                lines += 1
+                current_width = 0.0
+            fragments = max(1, math.ceil(token_width / width))
+            lines += fragments - 1
+            current_width = token_width - width * (fragments - 1)
+            continue
+        if current_width > 0 and current_width + token_width > width:
+            lines += 1
+            current_width = token_width
+        else:
+            current_width += token_width
+    return lines + int(current_width > 0)
 
 
 def is_text_overflowing(element: dict[str, Any]) -> bool:
