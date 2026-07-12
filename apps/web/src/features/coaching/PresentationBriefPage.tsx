@@ -133,6 +133,8 @@ export function PresentationBriefPage(props: { projectId: string }) {
       hydratedRevision.current = saved.revision;
       queryClient.setQueryData(["presentation-brief", props.projectId], saved);
       setMessage(`브리프 ${saved.revision}차 저장 완료`);
+      window.history.pushState({}, "", `/project/${encodeURIComponent(props.projectId)}`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
     } catch (cause) {
       setError(
         cause instanceof PresentationBriefConflictError

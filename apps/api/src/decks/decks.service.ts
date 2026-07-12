@@ -581,8 +581,28 @@ export class DecksService {
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
       const deck = parseDeckJson(snapshotRow.deck_json);
-      await this.findDeckRowForUpdate(manager, projectId, deck.deckId);
       const updatedAt = nowIso();
+      const currentRow = await this.findDeckRowForUpdate(
+        manager,
+        projectId,
+        deck.deckId,
+      );
+      if (currentRow) {
+        const currentState = await this.readCurrentDeckState(
+          manager,
+          parseDeckJson(currentRow.deck_json),
+          projectId,
+          deck.deckId,
+          toIso(currentRow.updated_at),
+          true,
+        );
+        await this.createSnapshot(
+          manager,
+          currentState.deck,
+          "snapshot-restore",
+          updatedAt,
+        );
+      }
       await this.deletePatchRowsAfterVersion(
         manager,
         projectId,

@@ -84,6 +84,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
 
   const currentDeck = deckQuery.data?.deck;
   const snapshots = snapshotsQuery.data ?? [];
+  const currentVersion = currentDeck?.version;
 
   return (
     <div className="orbit-ds-page deck-history-page">
@@ -113,7 +114,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
             <div><h2>저장 기록</h2><span>{snapshots.length}개 버전</span></div>
             <button aria-label="새로고침" onClick={() => void snapshotsQuery.refetch()} type="button"><IconRefresh size={18} /></button>
           </header>
-          {snapshots.length ? snapshots.map((snapshot, index) => (
+          {snapshots.length ? snapshots.map((snapshot) => (
             <button
               aria-pressed={snapshot.snapshotId === selected?.snapshotId}
               key={snapshot.snapshotId}
@@ -122,7 +123,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
             >
               <span><IconClock aria-hidden="true" size={18} /></span>
               <div><small>{formatSnapshotDate(snapshot.createdAt)}</small><strong>버전 {snapshot.version} · {reasonLabels[snapshot.reason]}</strong></div>
-              <OrbitStatus tone={snapshotTone(snapshot, index)}>{snapshotLabel(snapshot, index)}</OrbitStatus>
+              <OrbitStatus tone={snapshotTone(snapshot, currentVersion)}>{snapshotLabel(snapshot, currentVersion)}</OrbitStatus>
             </button>
           )) : <div className="deck-history-empty"><IconHistory size={28} /><strong>아직 저장된 버전이 없어요.</strong><span>편집 내용을 저장하면 이곳에 복원 지점이 생깁니다.</span></div>}
         </aside>
@@ -132,8 +133,8 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
             <>
               <header>
                 <div><small>선택한 복원 지점</small><h2>버전 {selected.version} · {reasonLabels[selected.reason]}</h2></div>
-                <OrbitButton disabled={restoring || selected.snapshotId === snapshots[0]?.snapshotId} icon={<IconRefresh size={18} />} onClick={() => setConfirming(true)}>
-                  {selected.snapshotId === snapshots[0]?.snapshotId ? "현재 버전" : "이 버전 복원"}
+                <OrbitButton disabled={restoring || selected.version === currentVersion} icon={<IconRefresh size={18} />} onClick={() => setConfirming(true)}>
+                  {selected.version === currentVersion ? "현재 버전" : "이 버전 복원"}
                 </OrbitButton>
               </header>
               <div className="deck-history-version-card">
@@ -168,14 +169,14 @@ function HistoryState(props: { error?: boolean; title: string }) {
   return <div className="orbit-ds-page deck-history-page"><section className="deck-history-state" role={props.error ? "alert" : "status"}><IconHistory size={30} /><h1>{props.title}</h1><a href="/project">프로젝트로 돌아가기</a></section></div>;
 }
 
-function snapshotTone(snapshot: DeckSnapshot, index: number): OrbitStatusTone {
-  if (index === 0) return "lilac";
+export function snapshotTone(snapshot: DeckSnapshot, currentVersion?: number): OrbitStatusTone {
+  if (snapshot.version === currentVersion) return "lilac";
   if (snapshot.reason === "snapshot-restore") return "warning";
   return "neutral";
 }
 
-function snapshotLabel(snapshot: DeckSnapshot, index: number) {
-  if (index === 0) return "현재 버전";
+export function snapshotLabel(snapshot: DeckSnapshot, currentVersion?: number) {
+  if (snapshot.version === currentVersion) return "현재 버전";
   if (snapshot.reason === "snapshot-restore") return "복원 지점";
   return "자동 저장";
 }

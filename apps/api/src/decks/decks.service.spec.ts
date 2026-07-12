@@ -1049,6 +1049,20 @@ describe("DecksService", () => {
       title: deck.title,
       version: 1,
     });
+    const snapshots = await service.listSnapshots(deck.projectId);
+    expect(snapshots.snapshots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: "snapshot-restore",
+          version: 2,
+        }),
+      ]),
+    );
+    expect(
+      dataSource.snapshotRows.find(
+        (snapshot) => snapshot.reason === "snapshot-restore",
+      )?.deck_json,
+    ).toMatchObject({ title: "수정된 덱", version: 2 });
     expect(dataSource.patchRows).toHaveLength(0);
     expect(
       dataSource.executedQueries.some((query) =>
