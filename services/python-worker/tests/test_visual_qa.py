@@ -362,6 +362,28 @@ def test_visual_review_contract_removes_preference_only_crop_and_orphan_action()
     assert normalized.repair_actions == []
 
 
+def test_visual_review_contract_removes_actions_from_passed_review() -> None:
+    review = VisualQaReview.model_validate(
+        {
+            "passed": True,
+            "issues": [],
+            "repairActions": [
+                {
+                    "action": "switchBackgroundMode",
+                    "slideId": "slide_1",
+                    "backgroundMode": "dark",
+                    "reason": "Optional preference after a passing review.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, deck())
+
+    assert normalized.passed is True
+    assert normalized.repair_actions == []
+
+
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
     candidate = deck()
     candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]

@@ -415,6 +415,8 @@ def enforce_visual_review_contract(
             )
         )
     ]
+    if not issues:
+        repair_actions = []
     return VisualQaReview(
         passed=not issues,
         issues=issues,
