@@ -27,7 +27,7 @@ export function createRehearsalEvaluationSnapshot(
     slides: deck.slides.map((slide) => ({
       slideId: slide.slideId,
       order: slide.order,
-      title: slide.title,
+      title: slide.title.trim() || `슬라이드 ${slide.order}`,
       estimatedSeconds: slide.estimatedSeconds ?? fallbackEstimatedSeconds,
       keywords: slide.keywords.map((keyword) => ({
         keywordId: keyword.keywordId,

@@ -178,6 +178,17 @@ describe("RehearsalsService", () => {
     );
   });
 
+  it("creates a rehearsal snapshot when a slide title and script are blank", async () => {
+    const deck = createDeck();
+    deck.slides[0]!.title = "   ";
+    deck.slides[0]!.speakerNotes = "";
+    const service = createService({ deck });
+
+    const result = await service.createRun("project-a", { deckId: "deck-a" });
+
+    expect(result.run.evaluationSnapshot?.slides[0]?.title).toBe("슬라이드 1");
+  });
+
   it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
     const mutableDeck = createDeck();
     const service = createService({ deck: mutableDeck });

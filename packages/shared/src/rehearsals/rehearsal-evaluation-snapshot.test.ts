@@ -55,6 +55,19 @@ describe("createRehearsalEvaluationSnapshot", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("uses a stable fallback title when a slide title is blank", () => {
+    const fixture = deckFixture();
+    fixture.slides[0]!.title = "   ";
+    fixture.slides[0]!.speakerNotes = "";
+
+    const snapshot = createRehearsalEvaluationSnapshot(
+      deckSchema.parse(fixture),
+      "2026-07-10T08:00:00.000Z"
+    );
+
+    expect(snapshot.slides[0]?.title).toBe("슬라이드 1");
+  });
 });
 
 function deckFixture() {
