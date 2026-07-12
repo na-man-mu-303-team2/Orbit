@@ -195,6 +195,17 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
+  it("parses project brief and version history production routes", () => {
+    expect(getRoute("/project/project_demo_1/brief")).toEqual({
+      name: "project-brief",
+      projectId: "project_demo_1"
+    });
+    expect(getRoute("/project/project_demo_1/history")).toEqual({
+      name: "project-history",
+      projectId: "project_demo_1"
+    });
+  });
+
   it("parses presenter slide-window routes with an optional session id", () => {
     expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
       name: "present",

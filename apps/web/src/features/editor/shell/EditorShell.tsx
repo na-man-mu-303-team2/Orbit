@@ -168,6 +168,7 @@ import {
   Upload,
   Wand2,
   Home,
+  History,
 } from "lucide-react";
 import type {
   ChangeEvent,
@@ -5019,6 +5020,22 @@ export function EditorShell(props: { projectId?: string }) {
               {ooxmlSyncStatus.label}
             </span>
           ) : null}
+          <button
+            className="editor-context-top-button"
+            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
+            type="button"
+          >
+            <FileText size={15} />
+            브리프
+          </button>
+          <button
+            className="editor-context-top-button"
+            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }}
+            type="button"
+          >
+            <History size={15} />
+            버전
+          </button>
           <PresentationMenu
             activeStartAction={activePresentationAction}
             canStartPresentation={canStartPresentation}

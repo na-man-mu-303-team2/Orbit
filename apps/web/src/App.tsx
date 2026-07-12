@@ -52,6 +52,9 @@ import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuth
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
+import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
+import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
+import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
@@ -212,6 +215,8 @@ export type Route =
   | { name: "create-deck" }
   | { name: "project-list" }
   | { name: "project-editor"; projectId: string }
+  | { name: "project-brief"; projectId: string }
+  | { name: "project-history"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "presentation"; projectId: string }
@@ -526,6 +531,16 @@ export function getRoute(
     return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
   }
 
+  const projectBriefMatch = normalized.match(/^\/project\/([^/]+)\/brief$/);
+  if (projectBriefMatch) {
+    return { name: "project-brief", projectId: decodeURIComponent(projectBriefMatch[1]) };
+  }
+
+  const projectHistoryMatch = normalized.match(/^\/project\/([^/]+)\/history$/);
+  if (projectHistoryMatch) {
+    return { name: "project-history", projectId: decodeURIComponent(projectHistoryMatch[1]) };
+  }
+
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
   if (projectMatch) {
     return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
@@ -650,9 +665,6 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "rehearsal-report" &&
-    route.name !== "practice-plan" &&
-    route.name !== "focused-practice" &&
-    route.name !== "challenge-qna" &&
     route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
@@ -671,7 +683,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "signup") {
     return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
   }
-  if (route.name === "create-deck") return <GenerateDeckView />;
+  if (route.name === "create-deck") return <AiPptWizardPage />;
   if (route.name === "project-list") return <OrbitProjectExplorer onNavigate={navigateTo} />;
   if (route.name === "project-editor") {
     return (
@@ -679,6 +691,20 @@ function renderRoute(route: Route, user?: AuthUser) {
         <Suspense fallback={<EditorLoadingFallback />}>
           <EditorShell projectId={route.projectId} />
         </Suspense>
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "project-brief") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationBriefPage projectId={route.projectId} />
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "project-history") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <DeckVersionHistoryPage projectId={route.projectId} />
       </ProjectAccessGate>
     );
   }
@@ -2175,7 +2201,7 @@ function HomeUploadList(props: {
   );
 }
 
-function GenerateDeckView() {
+export function GenerateDeckView() {
   const queryClient = useQueryClient();
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");

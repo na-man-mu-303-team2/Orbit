@@ -653,6 +653,31 @@
   padding: 0 15px;
 }
 
+.editor-context-top-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--orbit-ds-radius-pill);
+  color: var(--orbit-ds-text-muted);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 650;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 11px;
+}
+
+.editor-context-top-button:hover,
+.editor-context-top-button:focus-visible {
+  background: var(--orbit-ds-lilac-soft);
+  color: var(--orbit-ds-ink);
+}
+
+.editor-context-top-button:focus-visible {
+  box-shadow: var(--orbit-ds-focus);
+  outline: none;
+}
+
 .header-chip-button.active {
   border-color: #bfdbfe;
   background: var(--blue-soft);

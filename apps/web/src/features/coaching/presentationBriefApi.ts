@@ -1,8 +1,10 @@
 import {
+  evaluatorLensRegistryResponseSchema,
   getPresentationBriefResponseSchema,
   putPresentationBriefRequestSchema,
   putPresentationBriefResponseSchema,
   type PresentationBrief,
+  type EvaluatorLensDefinition,
   type PutPresentationBriefRequest,
 } from "@orbit/shared";
 
@@ -15,6 +17,16 @@ export async function fetchPresentationBrief(projectId: string, fetcher: Fetcher
   );
   if (!response.ok) throw new Error("Brief를 불러오지 못했습니다.");
   return getPresentationBriefResponseSchema.parse(await response.json()).brief;
+}
+
+export async function fetchEvaluatorLenses(
+  fetcher: Fetcher = fetch,
+): Promise<EvaluatorLensDefinition[]> {
+  const response = await fetcher("/api/v1/evaluator-lenses", {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("평가 관점을 불러오지 못했습니다.");
+  return evaluatorLensRegistryResponseSchema.parse(await response.json()).items;
 }
 
 export async function putPresentationBrief(
