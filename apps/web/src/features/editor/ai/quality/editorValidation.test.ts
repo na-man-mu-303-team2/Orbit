@@ -267,6 +267,38 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("accepts program-v2 text inset inside a grid-aligned content panel", () => {
+    const deck = structuredClone(designPackDeck);
+    deck.metadata.presentationProfile = "general-inform";
+    const slide = deck.slides[0];
+    const title = slide.elements.find((element) => element.role === "title");
+    const body = slide.elements.find((element) => element.role === "body");
+    const media = slide.elements.find((element) => element.role === "media");
+    const background = slide.elements.find((element) => element.role === "background");
+    if (!title || !body || !media || !background) {
+      throw new Error("quality fixture elements missing");
+    }
+    Object.assign(title, { x: 120, y: 120, width: 970, height: 112 });
+    Object.assign(body, { x: 148, y: 288, width: 914, height: 296 });
+    Object.assign(media, { x: 1114, y: 256, width: 686, height: 520 });
+    const panel = structuredClone(background);
+    Object.assign(panel, {
+      elementId: "el_1_program_v2_card_field",
+      role: "decoration",
+      x: 120,
+      y: 256,
+      width: 970,
+      height: 360,
+      zIndex: Math.max(0, body.zIndex - 1),
+      locked: false
+    });
+    slide.elements.push(panel);
+
+    expect(getEditorValidationItems(deck, slide)).not.toContainEqual(
+      expect.objectContaining({ issue: "GRID_ALIGNMENT_INCONSISTENT" })
+    );
+  });
+
   it("links editor overflow repair items to TEXT_OVERFLOW", () => {
     const deck = structuredClone(designPackDeck);
     const body = deck.slides[0].elements.find(

@@ -779,8 +779,11 @@ function isContainedByGridPanel(element: DeckElement, elements: DeckElement[]) {
     (candidate) =>
       candidate.elementId !== element.elementId &&
       candidate.visible &&
-      candidate.role === "highlight" &&
       candidate.type !== "text" &&
+      (candidate.role === "highlight" ||
+        (candidate.role === "decoration" &&
+          candidate.elementId.includes("_program_v2_") &&
+          candidate.elementId.endsWith("_field"))) &&
       getTextBackgroundCoverage(element, candidate) >= 0.9
   );
 }
