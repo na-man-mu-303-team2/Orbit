@@ -1,10 +1,11 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { createDemoDeck } from "@orbit/editor-core";
-import { rehearsalEvaluationSnapshotSchema } from "@orbit/shared";
+import { rehearsalEvaluationSnapshotSchema, rehearsalReportSchema } from "@orbit/shared";
 import { describe,expect,it } from "vitest";
 import { buildRehearsalEvaluationPlan } from "../practice-goals/evaluation-plan";
 import {
   assertDemoResetAllowed,
+  createDemoRehearsalReport,
   createDemoRunEvaluationSnapshot,
   ensureDemoProjectAccess,
 } from "./reset-coaching-demo";
@@ -34,6 +35,30 @@ describe("createDemoRunEvaluationSnapshot", () => {
     });
     expect(snapshot.slides).toHaveLength(deck.slides.length);
     expect(snapshot).not.toHaveProperty("snapshotVersion");
+  });
+});
+
+describe("createDemoRehearsalReport", () => {
+  it("creates a meaningful official report using the current schema", () => {
+    const deck = createDemoDeck();
+
+    const report = createDemoRehearsalReport(
+      deck,
+      "run_demo_coaching_baseline",
+      "2026-07-12T09:00:00.000Z",
+    );
+
+    expect(rehearsalReportSchema.parse(report)).toMatchObject({
+      runId: "run_demo_coaching_baseline",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      transcriptRetained: false,
+      transcript: null,
+      semanticEvaluation: { state: "succeeded", measurementMode: "full" },
+    });
+    expect(report.aiSummary?.headline).toContain("핵심 메시지");
+    expect(report.coaching?.nextPracticeFocus).toContain("결론");
+    expect(report.slideTimings).toHaveLength(deck.slides.length);
   });
 });
 

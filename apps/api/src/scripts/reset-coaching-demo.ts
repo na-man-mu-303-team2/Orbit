@@ -2,8 +2,10 @@ import { loadOrbitConfig, type OrbitConfig } from "@orbit/config";
 import {
   createRehearsalEvaluationSnapshot,
   deckSchema,
+  rehearsalReportSchema,
   type Deck,
   type RehearsalEvaluationPlan,
+  type RehearsalReport,
 } from "@orbit/shared";
 import { createHash } from "node:crypto";
 import type { EntityManager } from "typeorm";
@@ -25,6 +27,101 @@ export function createDemoRunEvaluationSnapshot(
   return createRehearsalEvaluationSnapshot(deck, capturedAt, {
     deckContentHash: deckContentHash(deck),
     evaluationPlan,
+  });
+}
+
+export function createDemoRehearsalReport(
+  deck: Deck,
+  runId: string,
+  generatedAt: string = new Date().toISOString(),
+): RehearsalReport {
+  const fallbackSeconds = Math.max(
+    1,
+    Math.round((deck.targetDurationMinutes * 60) / deck.slides.length),
+  );
+  const slideTimings = deck.slides.map((slide, index) => ({
+    slideId: slide.slideId,
+    targetSeconds: slide.estimatedSeconds ?? fallbackSeconds,
+    actualSeconds: Math.max(1, (slide.estimatedSeconds ?? fallbackSeconds) + (index === 0 ? 8 : -3)),
+  }));
+  const semanticCueOutcomes = deck.slides.flatMap((slide) =>
+    slide.semanticCues
+      .filter((cue) => cue.reviewStatus === "approved")
+      .map((cue, index) => ({
+        slideId: slide.slideId,
+        cueId: cue.cueId,
+        cueRevision: cue.revision,
+        cueMeaningSnapshot: cue.meaning,
+        reportLabelSnapshot: cue.reportLabel,
+        importance: cue.importance,
+        status: index === 0 ? "covered" as const : "partial" as const,
+        confidence: index === 0 ? 0.9 : 0.72,
+        matchedBy: "post_run_semantic" as const,
+        measurementMode: "full" as const,
+        fallbackUsed: false,
+        coveredConcepts: cue.requiredConcepts.slice(0, index === 0 ? undefined : 1),
+        missingConcepts: index === 0 ? [] : cue.requiredConcepts.slice(1),
+        feedback: index === 0
+          ? "핵심 메시지가 분명하게 전달됐습니다."
+          : "근거를 한 문장으로 압축하면 더 선명해집니다.",
+      })),
+  );
+
+  return rehearsalReportSchema.parse({
+    reportId: `report_${runId}`,
+    runId,
+    projectId: deck.projectId,
+    deckId: deck.deckId,
+    transcriptRetained: false,
+    transcript: null,
+    metrics: {
+      durationSeconds: slideTimings.reduce((total, timing) => total + timing.actualSeconds, 0),
+      wordsPerMinute: 118,
+      fillerWordCount: 1,
+      pauseCount: 1,
+      keywordCoverage: 0.75,
+      keywordCoverageMeasurement: { state: "measured" },
+    },
+    speedSamples: [{ startSecond: 0, endSecond: 30, wordsPerMinute: 114 }],
+    fillerWordDetails: [{ word: "음", count: 1 }],
+    pauseDetails: [{ startSecond: 24, endSecond: 26, durationSeconds: 2 }],
+    missedKeywords: [],
+    utteranceOutcomes: [],
+    semanticCueDecisions: [],
+    semanticEvaluation: {
+      state: "succeeded",
+      measurementMode: "full",
+      reasons: [],
+      retryable: false,
+    },
+    semanticCueOutcomes,
+    slideTimings,
+    slideInsights: deck.slides.map((slide, index) => ({
+      slideId: slide.slideId,
+      fillerWordCount: index === 0 ? 1 : 0,
+      pauseCount: index === 0 ? 1 : 0,
+    })),
+    qnaSummary: {
+      questionCount: 0,
+      questionSummary: "질문 응답 기록이 아직 없습니다.",
+      unclearTopics: [],
+    },
+    aiSummary: {
+      headline: "핵심 메시지는 분명합니다. 근거와 다음 행동을 더 짧게 연결해 보세요.",
+      paragraphs: [
+        "도입에서 ORBIT의 핵심 메시지를 먼저 제시해 발표 방향을 이해하기 쉬웠습니다.",
+        "각 근거가 어떤 판단과 다음 행동으로 이어지는지 한 문장으로 마무리하면 설득력이 높아집니다.",
+      ],
+    },
+    coaching: {
+      status: "succeeded",
+      summary: "핵심 메시지는 전달됐지만 근거와 행동 요청의 연결을 더 선명하게 다듬을 수 있습니다.",
+      strengths: ["도입부에서 발표 목적과 핵심 메시지를 분명하게 제시했습니다."],
+      improvements: ["근거를 제시한 뒤 청중이 내려야 할 판단을 바로 연결해 보세요."],
+      nextPracticeFocus: "핵심 결론, 근거, 다음 행동을 30초 안에 연결해 말하기",
+      message: "다음 연습에서는 결론을 먼저 말하고 근거와 행동 요청을 한 문장씩 붙여 보세요.",
+    },
+    generatedAt,
   });
 }
 
@@ -74,9 +171,10 @@ export async function resetCoachingDemo() {
       const evaluationSnapshot = createDemoRunEvaluationSnapshot(deck, evaluationPlan);
       const runId = "run_demo_coaching_baseline";
       const goalSetId = "goalset_demo_coaching_baseline";
-      await manager.query(`INSERT INTO rehearsal_runs (run_id,project_id,deck_id,status,error,created_at,updated_at,transcript_retained,meta_json,deck_version,evaluation_snapshot_json,semantic_evaluation_mode,analysis_revision,analysis_finalized_at)
-        VALUES ($1,$2,$3,'succeeded',NULL,now(),now(),false,'{}'::jsonb,$4,$5,'full',1,now()) ON CONFLICT (run_id) DO UPDATE SET status='succeeded',deck_version=EXCLUDED.deck_version,evaluation_snapshot_json=EXCLUDED.evaluation_snapshot_json,analysis_revision=1,analysis_finalized_at=now(),updated_at=now()`,
-        [runId,config.DEMO_PROJECT_ID,config.DEMO_DECK_ID,deck.version,evaluationSnapshot]);
+      const rehearsalReport = createDemoRehearsalReport(deck, runId);
+      await manager.query(`INSERT INTO rehearsal_runs (run_id,project_id,deck_id,status,error,created_at,updated_at,transcript_retained,meta_json,deck_version,evaluation_snapshot_json,semantic_evaluation_mode,analysis_revision,analysis_finalized_at,report_json)
+        VALUES ($1,$2,$3,'succeeded',NULL,now(),now(),false,'{}'::jsonb,$4,$5,'full',1,now(),$6) ON CONFLICT (run_id) DO UPDATE SET status='succeeded',deck_version=EXCLUDED.deck_version,evaluation_snapshot_json=EXCLUDED.evaluation_snapshot_json,analysis_revision=1,analysis_finalized_at=now(),report_json=EXCLUDED.report_json,updated_at=now()`,
+        [runId,config.DEMO_PROJECT_ID,config.DEMO_DECK_ID,deck.version,evaluationSnapshot,rehearsalReport]);
       await manager.query(`INSERT INTO practice_goal_sets (goal_set_id,project_id,source_full_run_id,revision,source_analysis_revision,derivation_version,analysis_state,data_origin,created_at) VALUES ($1,$2,$3,1,1,1,'final','fixture',now())`, [goalSetId,config.DEMO_PROJECT_ID,runId]);
       const slides = deck.slides.slice(0,3);
       for (let index=0;index<3;index+=1) {
