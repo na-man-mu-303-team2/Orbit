@@ -231,6 +231,86 @@ def test_visual_qa_instructions_exclude_subjective_color_and_crop_nits() -> None
     assert "a merely better possible emphasis is not a defect" in instructions
 
 
+def test_visual_review_contract_removes_only_deterministically_false_deck_issues() -> None:
+    candidate = deck()
+    candidate["slides"] = []
+    compositions = [
+        "hero-split",
+        "feature-comparison",
+        "editorial-split",
+        "process-horizontal",
+        "diagram-hub",
+        "editorial-split",
+        "metric-poster",
+        "diagram-hub",
+        "statement-poster",
+        "cta-closing",
+    ]
+    backgrounds = ["dark", "light", "light", "light", "dark", "light", "light", "light", "dark", "dark"]
+    for order, (composition_id, background_mode) in enumerate(
+        zip(compositions, backgrounds, strict=True),
+        start=1,
+    ):
+        candidate["slides"].append(
+            {
+                "slideId": f"slide_{order}",
+                "order": order,
+                "aiNotes": {
+                    "compositionPlan": {
+                        "compositionId": composition_id,
+                        "backgroundMode": background_mode,
+                    }
+                },
+            }
+        )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "LAYOUT_REPETITIVE",
+                    "slideOrder": 8,
+                    "message": "Non-adjacent diagram slides repeat.",
+                },
+                {
+                    "code": "BACKGROUND_RHYTHM_FLAT",
+                    "slideOrder": 5,
+                    "message": "Background rhythm is flat.",
+                },
+                {
+                    "code": "IMAGE_CROP_WEAK",
+                    "slideOrder": 1,
+                    "message": "The focal subject has excessive empty space.",
+                },
+            ],
+            "repairActions": [
+                {
+                    "action": "changeComposition",
+                    "slideId": "slide_8",
+                    "reason": "Change the repeated layout.",
+                },
+                {
+                    "action": "switchBackgroundMode",
+                    "slideId": "slide_5",
+                    "backgroundMode": "dark",
+                    "reason": "Change the background rhythm.",
+                },
+                {
+                    "action": "changeCrop",
+                    "slideId": "slide_1",
+                    "reason": "Tighten the crop.",
+                },
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert [issue.code for issue in normalized.issues] == ["IMAGE_CROP_WEAK"]
+    assert [action.action for action in normalized.repair_actions] == ["changeCrop"]
+    assert normalized.passed is False
+
+
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
     candidate = deck()
     candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]

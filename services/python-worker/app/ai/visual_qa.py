@@ -4,6 +4,7 @@ import base64
 import json
 import re
 import textwrap
+from collections import Counter
 from copy import deepcopy
 from io import BytesIO
 from typing import Any, Literal
@@ -303,6 +304,7 @@ def review_deck_visuals(
         review = VisualQaReview.model_validate_json(
             str(getattr(response, "output_text", "")).strip()
         )
+        review = enforce_visual_review_contract(review, deck)
     except Exception as error:
         raise VisualQaUnavailableError(f"Vision QA request failed: {error}") from error
 
@@ -320,6 +322,70 @@ def review_deck_visuals(
         montageBase64=base64.b64encode(montage).decode("ascii"),
         warnings=exported.warnings,
     )
+
+
+def enforce_visual_review_contract(
+    review: VisualQaReview,
+    deck: dict[str, Any],
+) -> VisualQaReview:
+    invalid_codes: set[VisualIssueCode] = set()
+    composition_ids = [
+        str(slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", ""))
+        for slide in deck.get("slides", [])
+    ]
+    valid_compositions = [
+        composition_id
+        for composition_id in composition_ids
+        if composition_id in COMPOSITION_SPECS
+    ]
+    silhouettes = [
+        COMPOSITION_SPECS[composition_id].silhouette
+        for composition_id in valid_compositions
+    ]
+    if (
+        valid_compositions
+        and max(Counter(valid_compositions).values(), default=0) <= 2
+        and all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
+    ):
+        invalid_codes.add("LAYOUT_REPETITIVE")
+
+    background_modes = [
+        str(slide.get("aiNotes", {}).get("compositionPlan", {}).get("backgroundMode", ""))
+        for slide in deck.get("slides", [])
+    ]
+    if background_modes and _maximum_consecutive_values(background_modes) <= 4:
+        invalid_codes.add("BACKGROUND_RHYTHM_FLAT")
+
+    issues = [issue for issue in review.issues if issue.code not in invalid_codes]
+    remaining_codes = {issue.code for issue in issues}
+    repair_actions = [
+        action
+        for action in review.repair_actions
+        if not (
+            action.action in {"changeComposition", "reduceCards"}
+            and "LAYOUT_REPETITIVE" not in remaining_codes
+        )
+        and not (
+            action.action == "switchBackgroundMode"
+            and "BACKGROUND_RHYTHM_FLAT" not in remaining_codes
+        )
+    ]
+    return VisualQaReview(
+        passed=not issues,
+        issues=issues,
+        repairActions=repair_actions,
+    )
+
+
+def _maximum_consecutive_values(values: list[str]) -> int:
+    maximum = 0
+    current = 0
+    previous = ""
+    for value in values:
+        current = current + 1 if value == previous else 1
+        previous = value
+        maximum = max(maximum, current)
+    return maximum
 
 
 def build_montage(assets: list[ImportedDesignAsset]) -> bytes:
