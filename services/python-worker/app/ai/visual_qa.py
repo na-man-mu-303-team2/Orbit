@@ -344,6 +344,7 @@ def enforce_visual_review_contract(
     ]
     if (
         valid_compositions
+        and len(valid_compositions) == len(composition_ids)
         and max(Counter(valid_compositions).values(), default=0) <= 2
         and all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
     ):
@@ -353,21 +354,38 @@ def enforce_visual_review_contract(
         str(slide.get("aiNotes", {}).get("compositionPlan", {}).get("backgroundMode", ""))
         for slide in deck.get("slides", [])
     ]
-    if background_modes and _maximum_consecutive_values(background_modes) <= 4:
+    if (
+        background_modes
+        and all(mode in {"light", "dark", "image"} for mode in background_modes)
+        and _maximum_consecutive_values(background_modes) <= 4
+    ):
         invalid_codes.add("BACKGROUND_RHYTHM_FLAT")
 
+    slide_ids_by_order = {
+        int(slide.get("order", index + 1)): str(slide.get("slideId", ""))
+        for index, slide in enumerate(deck.get("slides", []))
+    }
+    removed_issue_slides = {
+        code: {
+            slide_ids_by_order.get(issue.slide_order, "")
+            for issue in review.issues
+            if issue.code == code
+        }
+        for code in invalid_codes
+    }
     issues = [issue for issue in review.issues if issue.code not in invalid_codes]
-    remaining_codes = {issue.code for issue in issues}
     repair_actions = [
         action
         for action in review.repair_actions
         if not (
             action.action in {"changeComposition", "reduceCards"}
-            and "LAYOUT_REPETITIVE" not in remaining_codes
+            and action.slide_id
+            in removed_issue_slides.get("LAYOUT_REPETITIVE", set())
         )
         and not (
             action.action == "switchBackgroundMode"
-            and "BACKGROUND_RHYTHM_FLAT" not in remaining_codes
+            and action.slide_id
+            in removed_issue_slides.get("BACKGROUND_RHYTHM_FLAT", set())
         )
     ]
     return VisualQaReview(

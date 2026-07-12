@@ -282,6 +282,11 @@ def test_visual_review_contract_removes_only_deterministically_false_deck_issues
                     "slideOrder": 1,
                     "message": "The focal subject has excessive empty space.",
                 },
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 3,
+                    "message": "The supporting content is unbalanced.",
+                },
             ],
             "repairActions": [
                 {
@@ -300,14 +305,25 @@ def test_visual_review_contract_removes_only_deterministically_false_deck_issues
                     "slideId": "slide_1",
                     "reason": "Tighten the crop.",
                 },
+                {
+                    "action": "changeComposition",
+                    "slideId": "slide_3",
+                    "reason": "Rebalance the supporting content.",
+                },
             ],
         }
     )
 
     normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
 
-    assert [issue.code for issue in normalized.issues] == ["IMAGE_CROP_WEAK"]
-    assert [action.action for action in normalized.repair_actions] == ["changeCrop"]
+    assert [issue.code for issue in normalized.issues] == [
+        "IMAGE_CROP_WEAK",
+        "BALANCE_WEAK",
+    ]
+    assert [action.action for action in normalized.repair_actions] == [
+        "changeCrop",
+        "changeComposition",
+    ]
     assert normalized.passed is False
 
 
