@@ -788,7 +788,8 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v3"
+MAX_SPEAKER_NOTES_CHARS_PER_SLIDE = 520
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
@@ -3414,7 +3415,10 @@ def apply_timing_to_slide_plans(
     ):
         slide_plan.target_seconds = target_seconds
         slide_plan.target_spoken_seconds = target_spoken_seconds
-        slide_plan.target_speaker_notes_chars = target_chars
+        slide_plan.target_speaker_notes_chars = min(
+            target_chars,
+            MAX_SPEAKER_NOTES_CHARS_PER_SLIDE,
+        )
         slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
         compact_dense_speaker_notes(slide_plan)
     if raw_input.generation_mode == "design-pack":

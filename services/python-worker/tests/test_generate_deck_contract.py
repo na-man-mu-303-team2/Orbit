@@ -660,6 +660,29 @@ def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
     )
 
 
+def test_sparse_short_deck_caps_speaker_notes_instead_of_padding_to_full_duration() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="간결한 의사결정 보고",
+            generationMode="design-pack",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 3, "max": 3},
+        )
+    )
+
+    slide_plans = apply_timing_to_slide_plans(
+        raw_input,
+        plan_slides(raw_input, plan_presentation(raw_input)),
+    )
+
+    assert len(slide_plans) == 3
+    assert all(
+        slide.target_speaker_notes_chars <= 520 for slide in slide_plans
+    )
+    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) < 3120
+
+
 def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
     slide = SlidePlan(
         order=2,
