@@ -1598,6 +1598,58 @@ def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
     assert compacted[2] is closing
 
 
+def test_program_v2_reclassifies_two_step_process_without_inventing_content() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="process",
+            title="Two confirmed milestones",
+            message="Pre-order then launch",
+            speaker_notes="Explain both confirmed milestones.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="step-1", text="Pre-order"),
+                GeneratedContentItem(contentItemId="step-2", text="Launch"),
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "feature-grid"
+    assert [item.text for item in normalized[1].content_items] == [
+        "Pre-order",
+        "Launch",
+    ]
+    assert plans[1].slide_type == "process"
+
+
 @pytest.mark.parametrize(
     ("recipe", "slide_type", "order"),
     [

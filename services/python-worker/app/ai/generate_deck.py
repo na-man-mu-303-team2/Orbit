@@ -4068,10 +4068,19 @@ def compact_program_v2_content_items(
     total_slides = len(slide_plans)
     compacted_plans: list[SlidePlan] = []
     for slide_plan in slide_plans:
-        _, maximum_items = content_item_capacity_for_slide(
+        minimum_items, maximum_items = content_item_capacity_for_slide(
             slide_plan,
             total_slides,
         )
+        if (
+            len(slide_plan.content_items) < minimum_items
+            and len(slide_plan.content_items) == 2
+            and slide_plan.slide_type in {"process", "architecture"}
+        ):
+            normalized = slide_plan.model_copy(deep=True)
+            normalized.slide_type = "feature-grid"
+            compacted_plans.append(normalized)
+            continue
         if len(slide_plan.content_items) <= maximum_items:
             compacted_plans.append(slide_plan)
             continue
