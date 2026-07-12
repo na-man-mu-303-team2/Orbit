@@ -5,6 +5,7 @@ import { fetchProjects } from "../projects/ProjectAssetWorkspace";
 import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { navigateTo, formatRunDate } from "./rehearsalUtils";
 import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
+import reportFocusIllustration from "../../assets/report-focus-illustration.png";
 
 type ProjectWithReport = {
   project: Project;
@@ -90,11 +91,10 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
           </div>
           <div className="report-mascot-wrap report-list-mascot-wrap">
             <img
-              src={orbitReportMascot}
-              alt="ORBIT 리포트 캐릭터"
-              className="report-mascot report-list-mascot"
+              src={reportFocusIllustration}
+              alt="발표 리포트 분석 흐름 일러스트"
+              className="report-focus-illustration"
             />
-            <span className="report-mascot-bubble">발표를 같이 돌아봐요!</span>
           </div>
         </header>
 

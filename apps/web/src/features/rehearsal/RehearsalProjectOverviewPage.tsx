@@ -29,7 +29,7 @@ import {
   formatRunDate,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
-import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
+import reportFocusIllustration from "../../assets/report-focus-illustration.png";
 
 export function RehearsalProjectOverviewPage({
   projectId,
@@ -165,9 +165,9 @@ export function RehearsalProjectOverviewPage({
                 </div>
                 <div className="report-mascot-wrap report-overview-mascot-wrap">
                   <img
-                    src={orbitReportMascot}
-                    alt="ORBIT 리포트 캐릭터"
-                    className="report-mascot report-overview-mascot"
+                    src={reportFocusIllustration}
+                    alt="발표 리포트 분석 흐름 일러스트"
+                    className="report-focus-illustration"
                   />
                 </div>
               </header>
