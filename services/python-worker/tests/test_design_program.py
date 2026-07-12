@@ -24,6 +24,7 @@ from app.ai.generate_deck import (
     SourceRecord,
     VisualIntent,
     analyze_input,
+    apply_program_v2_design_tokens,
     initial_source_records,
     is_expected_media_placeholder,
     program_v2_visual_plan,
@@ -110,6 +111,35 @@ def valid_program() -> dict[str, Any]:
                 "requiredAsset": False,
             },
         ],
+    }
+
+
+def test_program_v2_typography_keeps_presentation_scale_floors() -> None:
+    design_program = DeckDesignProgram.model_validate(valid_program())
+    themed = apply_program_v2_design_tokens(
+        design_program,
+        {
+            "backgroundColor": "#FFFFFF",
+            "textColor": "#111827",
+            "accentColor": "#6D28D9",
+            "fontFamily": "Gmarket Sans",
+            "palette": {"surface": "#F3F4F6", "secondary": "#22D3EE"},
+            "typography": {
+                "headingFontFamily": "Gmarket Sans",
+                "bodyFontFamily": "Gmarket Sans",
+                "titleSize": 40,
+                "headingSize": 32,
+                "bodySize": 22,
+                "captionSize": 14,
+            },
+        },
+    )
+
+    assert themed.typography.type_scale == {
+        "cover": 64,
+        "title": 40,
+        "body": 22,
+        "caption": 14,
     }
 
 

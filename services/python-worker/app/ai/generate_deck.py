@@ -2744,8 +2744,8 @@ def apply_program_v2_design_tokens(
             typography.get("bodyFontFamily", theme.get("fontFamily", "Inter"))
         ),
         typeScale={
-            "cover": max(44, int(typography.get("titleSize", 60))),
-            "title": max(32, int(typography.get("headingSize", 40))),
+            "cover": max(64, int(typography.get("titleSize", 60))),
+            "title": max(40, int(typography.get("headingSize", 40))),
             "body": max(18, int(typography.get("bodySize", 22))),
             "caption": max(14, int(typography.get("captionSize", 14))),
         },
