@@ -3,6 +3,7 @@ import json
 import re
 from copy import deepcopy
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -89,6 +90,20 @@ from app.ai.generate_deck import (
     web_sources_from_response,
 )
 from tests.test_config import VALID_ENV
+
+
+def test_program_v2_golden_request_contract() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "splatoon_product_launch_golden_request.json"
+    )
+    request = GenerateDeckRequest.model_validate_json(fixture_path.read_text("utf-8"))
+
+    assert request.generation_mode == "design-pack"
+    assert request.design.engine_version == "program-v2"
+    assert request.design.media_policy == "hybrid"
+    assert request.slide_count_range.min == request.slide_count_range.max == 10
 
 
 def client() -> TestClient:

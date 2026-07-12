@@ -3,6 +3,11 @@ import { z } from "zod";
 import { animationSchema } from "./animation.schema";
 import { brandKitSnapshotSchema } from "./brand-kit.schema";
 import {
+  deckCompositionBackgroundModeSchema,
+  deckCompositionIdSchema
+} from "./composition.schema";
+import {
+  deckElementIdSchema,
   deckIdSchema,
   deckKeywordIdSchema,
   deckKeywordOccurrenceIdSchema,
@@ -52,6 +57,21 @@ export const aiDeckPresentationProfileSchema = z.enum([
   "general-inform"
 ]);
 
+export const deckDesignProgramSnapshotSchema = z.object({
+  version: z.string().trim().min(1),
+  visualConcept: z.string().trim().min(1),
+  paletteRoles: z.record(themeColorSchema),
+  typography: z.object({
+    headingFont: z.string().trim().min(1),
+    bodyFont: z.string().trim().min(1),
+    typeScale: z.record(z.number().finite().positive())
+  }),
+  backgroundSequence: z.array(deckCompositionBackgroundModeSchema).min(1),
+  imageStyle: z.string().trim().min(1),
+  surfaceStyle: z.string().trim().min(1),
+  compositionIds: z.array(deckCompositionIdSchema).min(1)
+});
+
 export const deckCreatedFromReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
@@ -74,6 +94,7 @@ export const deckMetadataSchema = z.object({
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
   designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
   brandKitSnapshot: z.lazy(() => brandKitSnapshotSchema).optional(),
+  designProgramSnapshot: deckDesignProgramSnapshotSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
@@ -233,13 +254,24 @@ export const slideTimingPlanSchema = z.object({
   actualSpeakerNotesChars: z.number().int().nonnegative()
 });
 
+export const slideCompositionPlanSchema = z.object({
+  compositionId: deckCompositionIdSchema,
+  variant: z.string().trim().min(1),
+  backgroundMode: deckCompositionBackgroundModeSchema,
+  focalType: z.string().trim().min(1),
+  primaryFocalElementId: deckElementIdSchema.optional(),
+  assetRole: z.enum(["evidence", "atmosphere", "decoration", "none"]),
+  requiredAsset: z.boolean()
+});
+
 export const slideAiNotesSchema = z
   .object({
     emphasisPoints: z.array(z.string().min(1)).default([]),
     sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
     visualPlan: slideVisualPlanSchema.optional(),
     sourceLedger: z.array(slideSourceLedgerSchema).optional(),
-    timingPlan: slideTimingPlanSchema.optional()
+    timingPlan: slideTimingPlanSchema.optional(),
+    compositionPlan: slideCompositionPlanSchema.optional()
   })
   .default({});
 
@@ -270,6 +302,18 @@ export const slideSchema = z
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
+    const focalElementId = slide.aiNotes?.compositionPlan?.primaryFocalElementId;
+
+    if (
+      focalElementId !== undefined &&
+      !slide.elements.some((element) => element.elementId === focalElementId)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["aiNotes", "compositionPlan", "primaryFocalElementId"],
+        message: "primary focal element must exist in the same slide"
+      });
+    }
 
     slide.keywords.forEach((keyword, keywordIndex) => {
       keyword.requiredOccurrenceIds?.forEach((occurrenceId, occurrenceIndex) => {
@@ -376,6 +420,9 @@ export type DeckThumbnailSource = z.infer<typeof deckThumbnailSourceSchema>;
 export type AiDeckAudience = z.infer<typeof aiDeckAudienceSchema>;
 export type AiDeckPurpose = z.infer<typeof aiDeckPurposeSchema>;
 export type AiDeckTone = z.infer<typeof aiDeckToneSchema>;
+export type DeckDesignProgramSnapshot = z.infer<
+  typeof deckDesignProgramSnapshotSchema
+>;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
 export type Slide = z.infer<typeof slideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
@@ -388,6 +435,7 @@ export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideVisualPlan = z.infer<typeof slideVisualPlanSchema>;
 export type SlideSourceLedger = z.infer<typeof slideSourceLedgerSchema>;
 export type SlideTimingPlan = z.infer<typeof slideTimingPlanSchema>;
+export type SlideCompositionPlan = z.infer<typeof slideCompositionPlanSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;

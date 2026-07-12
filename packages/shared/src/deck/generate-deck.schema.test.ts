@@ -27,6 +27,7 @@ describe("generateDeckRequestSchema", () => {
       referencePolicy: "topic-only"
     });
     expect(request.design).toEqual({
+      engineVersion: "recipe-v1",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
@@ -145,6 +146,7 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.design).toEqual({
+      engineVersion: "recipe-v1",
       visualRhythm: "technical",
       densityTarget: "medium",
       mediaPolicy: "placeholder-ok",
@@ -209,6 +211,22 @@ describe("generateDeckRequestSchema", () => {
 
     expect(request.design.stylePackId).toBe("teal-professional-process");
     expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
+  });
+
+  it("accepts the program-v2 engine with hybrid media", () => {
+    const request = generateDeckRequestSchema.parse({
+      generationMode: "design-pack",
+      topic: "Splatoon Raiders launch",
+      design: {
+        engineVersion: "program-v2",
+        mediaPolicy: "hybrid"
+      },
+      visualPlanPolicy: { mediaPolicy: "hybrid" }
+    });
+
+    expect(request.design.engineVersion).toBe("program-v2");
+    expect(request.design.mediaPolicy).toBe("hybrid");
+    expect(request.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
   });
 
   it("accepts an optional design prompt", () => {
@@ -621,7 +639,11 @@ describe("generateDeckResponseSchema", () => {
           "SPEAKER_NOTES_SHORT"
         ],
         uniqueCoreLayoutCount: 5,
-        validationIssueCount: 0
+        validationIssueCount: 0,
+        visualQaStatus: "passed",
+        visualReviewAttempts: 2,
+        visualRepairAttempts: 1,
+        visualIssueCodes: []
       }
     });
 
@@ -631,7 +653,10 @@ describe("generateDeckResponseSchema", () => {
       researchAttempts: 2,
       relevantWebSourceCount: 2,
       officialWebSourceCount: 1,
-      uniqueCoreLayoutCount: 5
+      uniqueCoreLayoutCount: 5,
+      visualQaStatus: "passed",
+      visualReviewAttempts: 2,
+      visualRepairAttempts: 1
     });
   });
 });

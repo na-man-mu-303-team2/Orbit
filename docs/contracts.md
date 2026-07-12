@@ -204,6 +204,7 @@ API:
 - `metadata.language`와 `metadata.locale`은 생략 시 각각 `"ko"`, `"ko-KR"`로 기본값을 채운다.
 - AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.presentationProfile`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
 - `/ai-ppt`의 design-pack deck은 `metadata.presentationProfile`에 `proposal`, `executive-report`, `product-launch`, `education`, `technical`, `research`, `general-inform` 중 하나를 저장한다. 기존 legacy/import deck은 이 필드를 생략할 수 있다.
+- `program-v2` deck은 `metadata.designProgramSnapshot`에 visual concept, palette role, typography, background sequence, image/surface style과 사용한 composition ID를 기록한다. 기존 Deck은 이 필드를 생략할 수 있다.
 - Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"` until the editor captures canvas thumbnails, then update it to `"canvas"`.
 - `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
@@ -226,6 +227,7 @@ API:
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - design-pack slide의 `aiNotes.timingPlan`은 선택적으로 `speakingTimeRatio`와 `targetSpokenSeconds`를 포함할 수 있다. `targetSeconds`는 전환을 포함한 장표 점유 시간이고 `targetSpokenSeconds`는 해당 장표의 발화 목표 시간이다. 기존 Deck은 두 필드를 생략할 수 있다.
+- `program-v2` slide는 `aiNotes.compositionPlan`에 검증된 composition ID, variant, background mode, focal type, primary focal element ID, asset role과 필수 asset 여부를 기록한다. `primaryFocalElementId`가 있으면 같은 slide의 element를 가리켜야 한다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.
@@ -652,13 +654,14 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - MVP `metadata.audience`는 `general`, `executive`, `technical`, `sales`만 허용한다.
 - MVP `metadata.purpose`는 `inform`, `persuade`, `teach`, `report`만 허용한다.
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
-- 요청의 `design`은 선택 필드이며 생략 시 `{ visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
+- 요청의 `design`은 선택 필드이며 생략 시 `{ engineVersion: "recipe-v1", visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
+- `design.engineVersion`은 `recipe-v1`, `program-v2`를 허용하고 기본값은 `recipe-v1`이다. `/ai-ppt`만 승인된 V2 경로에서 `program-v2`를 명시하며 legacy/template은 기존 엔진을 유지한다.
 - `design.profile`은 선택 필드이며 `executive-report`, `startup-pitch`, `editorial`, `technical`, `training`만 허용한다. profile은 기존 `theme`, `slide.style`, `SlotPreset` 선택 가중치로만 매핑하고 최종 Deck에 별도 중간 구조를 저장하지 않는다.
 - `design.stylePackId`는 선택 필드이며 worker 내부 curated style pack ID를 강제한다. 값이 없으면 worker selector가 자동 선택한다.
 - `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
-- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`, `provided-only`, `public-assets`, `ai-generated`, `minimal`을 허용한다. 실제 provider를 사용할 수 없거나 검증·예산 제한에 걸리면 editable placeholder를 유지한다.
+- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`, `provided-only`, `public-assets`, `ai-generated`, `hybrid`, `minimal`을 허용한다. `hybrid`는 evidence에는 사용자 제공 또는 공식 asset, atmosphere에는 AI 생성 asset, 구조화 시각물에는 native element를 사용한다.
 - `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
 - `generationMode`는 `legacy`, `design-pack`만 허용하며 기본값은 `legacy`다. 기존 AI 덱 생성과 템플릿 기반 생성은 `legacy` 경로를 유지하고, `/ai-ppt` wizard만 `design-pack`을 명시한다.
 - AI PPT wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `user-input-only`, `references-first`, `references-only`, `research-first`를 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.
@@ -692,7 +695,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
 
-- 저장 필드: `palette`, `typography`, `tone`, `density`, `titleStyle`, `layoutPreference`, `imageDensity`, `mediaPolicy`, `referencePolicy`, `qaStrictness`
+- 저장 필드: `palette`, `typography`, `tone`, `density`, `titleStyle`, `layoutPreference`, `imageDensity`, `mediaPolicy`, `referencePolicy`, `qaStrictness`와 optional `preferredCompositionIds`, `avoidedCompositionIds`, `backgroundRhythm`, `imageTreatment`
 - 소유권: `ownerType`은 `system`, `user`, `organization` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
 - 버전: 수정할 때마다 `version`을 증가시키며 생성 요청은 `savedDesignPack: { id, version }`으로 선택 버전을 고정한다.
 - 재현성: `design-pack` 생성 결과의 `metadata.designPackSnapshot`에는 최종 적용된 pack 이름, version, base style pack과 preferences를 기록한다.

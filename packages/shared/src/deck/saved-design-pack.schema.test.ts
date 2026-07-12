@@ -68,4 +68,24 @@ describe("saved design pack schema", () => {
 
     expect(snapshot.id).toBeUndefined();
   });
+
+  it("accepts program-v2 composition preferences without hard rules", () => {
+    const pack = createSavedDesignPackRequestSchema.parse({
+      name: "Product launch",
+      preferences: {
+        ...preferences,
+        mediaPolicy: "hybrid",
+        preferredCompositionIds: ["hero-split", "metric-poster"],
+        avoidedCompositionIds: ["statement-poster"],
+        backgroundRhythm: "mixed",
+        imageTreatment: "Official evidence with bold AI atmosphere"
+      }
+    });
+
+    expect(pack.preferences.mediaPolicy).toBe("hybrid");
+    expect(pack.preferences.preferredCompositionIds).toEqual([
+      "hero-split",
+      "metric-poster"
+    ]);
+  });
 });

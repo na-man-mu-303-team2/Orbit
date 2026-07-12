@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import { deckCompositionIdSchema } from "./composition.schema";
 import { themeColorSchema } from "./theme.schema";
 
 export const savedDesignPackIdSchema = z.string().trim().min(1);
@@ -57,6 +58,7 @@ export const savedDesignPackPreferencesSchema = z.object({
       "provided-only",
       "public-assets",
       "ai-generated",
+      "hybrid",
       "minimal"
     ])
     .default("balanced"),
@@ -69,7 +71,13 @@ export const savedDesignPackPreferencesSchema = z.object({
       "research-first"
     ])
     .default("topic-only"),
-  qaStrictness: z.enum(["standard", "strict"]).default("standard")
+  qaStrictness: z.enum(["standard", "strict"]).default("standard"),
+  preferredCompositionIds: z.array(deckCompositionIdSchema).max(13).optional(),
+  avoidedCompositionIds: z.array(deckCompositionIdSchema).max(13).optional(),
+  backgroundRhythm: z
+    .enum(["light-dominant", "dark-dominant", "mixed"])
+    .optional(),
+  imageTreatment: z.string().trim().min(1).max(240).optional()
 });
 
 export const savedDesignPackSchema = z.object({

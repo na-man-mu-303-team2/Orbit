@@ -34,8 +34,10 @@ MediaPolicy = Literal[
     "provided-only",
     "public-assets",
     "ai-generated",
+    "hybrid",
     "minimal",
 ]
+EngineVersion = Literal["recipe-v1", "program-v2"]
 LayoutDiversity = Literal["stable", "varied"]
 ImageReviewMode = Literal["auto", "off"]
 ReferencePolicy = Literal[
@@ -298,6 +300,7 @@ class DesignConstraints(BaseModel):
 class DesignOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    engine_version: EngineVersion = Field(default="recipe-v1", alias="engineVersion")
     profile: DesignProfile | None = None
     style_pack_id: str | None = Field(default=None, alias="stylePackId")
     slide_preset_id: str | None = Field(default=None, alias="slidePresetId")
@@ -679,6 +682,24 @@ class GenerateDeckDiagnostics(BaseModel):
         default=0,
         alias="validationIssueCount",
         ge=0,
+    )
+    visual_qa_status: Literal["not-run", "passed", "failed"] | None = Field(
+        default=None,
+        alias="visualQaStatus",
+    )
+    visual_review_attempts: int | None = Field(
+        default=None,
+        alias="visualReviewAttempts",
+        ge=0,
+    )
+    visual_repair_attempts: int | None = Field(
+        default=None,
+        alias="visualRepairAttempts",
+        ge=0,
+    )
+    visual_issue_codes: list[str] | None = Field(
+        default=None,
+        alias="visualIssueCodes",
     )
 
 

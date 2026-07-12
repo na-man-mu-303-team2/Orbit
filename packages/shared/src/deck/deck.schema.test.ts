@@ -20,6 +20,20 @@ type DeckValidationInput = {
     purpose?: string;
     tone?: string;
     presentationProfile?: string;
+    designProgramSnapshot?: {
+      version: string;
+      visualConcept: string;
+      paletteRoles: Record<string, string>;
+      typography: {
+        headingFont: string;
+        bodyFont: string;
+        typeScale: Record<string, number>;
+      };
+      backgroundSequence: string[];
+      imageStyle: string;
+      surfaceStyle: string;
+      compositionIds: string[];
+    };
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
@@ -81,6 +95,15 @@ type DeckValidationInput = {
         targetSpokenSeconds?: number;
         targetSpeakerNotesChars: number;
         actualSpeakerNotesChars: number;
+      };
+      compositionPlan?: {
+        compositionId: string;
+        variant: string;
+        backgroundMode: string;
+        focalType: string;
+        primaryFocalElementId?: string;
+        assetRole: string;
+        requiredAsset: boolean;
       };
     };
     keywords: Array<{
@@ -233,6 +256,58 @@ const expectInvalidDeck = (deck: unknown) => {
 describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("accepts a program-v2 design snapshot and composition plan", () => {
+    const deck = createValidDeck();
+    deck.metadata.designProgramSnapshot = {
+      version: "program-v2",
+      visualConcept: "Energetic ink launch",
+      paletteRoles: { dominant: "#FFFFFF", focal: "#6D28D9" },
+      typography: {
+        headingFont: "Pretendard",
+        bodyFont: "Pretendard",
+        typeScale: { title: 56, body: 22 }
+      },
+      backgroundSequence: ["dark"],
+      imageStyle: "Official game imagery with crisp crops",
+      surfaceStyle: "Flat color fields",
+      compositionIds: ["hero-split"]
+    };
+    deck.slides[0].aiNotes = {
+      emphasisPoints: [],
+      sourceEvidence: [],
+      compositionPlan: {
+        compositionId: "hero-split",
+        variant: "dark",
+        backgroundMode: "dark",
+        focalType: "hero-image",
+        primaryFocalElementId: "el_1",
+        assetRole: "evidence",
+        requiredAsset: true
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects a composition plan whose focal element is missing", () => {
+    const deck = createValidDeck();
+    deck.slides[0].aiNotes = {
+      emphasisPoints: [],
+      sourceEvidence: [],
+      compositionPlan: {
+        compositionId: "hero-split",
+        variant: "light",
+        backgroundMode: "light",
+        focalType: "hero-image",
+        primaryFocalElementId: "el_missing",
+        assetRole: "evidence",
+        requiredAsset: true
+      }
+    };
+
+    expectInvalidDeck(deck);
   });
 
   it("accepts decks with more than 20 editor-managed slides", () => {
