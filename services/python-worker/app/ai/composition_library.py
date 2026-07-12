@@ -24,6 +24,9 @@ SAFE_X = 120
 SAFE_Y = 88
 SAFE_WIDTH = 1680
 SAFE_HEIGHT = 904
+GRID_COLUMN_WIDTH = 118
+GRID_GUTTER = 24
+GRID_STEP = GRID_COLUMN_WIDTH + GRID_GUTTER
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,14 @@ class CompositionCompileError(RuntimeError):
 
 def _id(order: int, name: str) -> str:
     return f"el_{order}_program_v2_{name}"
+
+
+def _grid_x(column: int) -> int:
+    return SAFE_X + column * GRID_STEP
+
+
+def _grid_width(span: int) -> int:
+    return span * GRID_COLUMN_WIDTH + (span - 1) * GRID_GUTTER
 
 
 def _rect(
@@ -231,6 +242,64 @@ def _items(slide: dict[str, Any]) -> list[tuple[str, str]]:
     return result
 
 
+def _normalized_text(value: str) -> str:
+    return re.sub(r"\W+", "", value.casefold(), flags=re.UNICODE)
+
+
+def _message_duplicates_items(
+    slide: dict[str, Any],
+    items: list[tuple[str, str]],
+) -> bool:
+    message = _normalized_text(str(slide.get("message", "")))
+    item_values = [_normalized_text(value) for _, value in items]
+    item_values = [value for value in item_values if value]
+    if not message or not item_values:
+        return False
+    if message in item_values or message == "".join(item_values):
+        return True
+    return (
+        all(value in message for value in item_values)
+        and sum(len(value) for value in item_values) >= len(message) * 0.8
+    )
+
+
+def _deduplicate_exact_visible_text(
+    elements: list[Element],
+) -> list[Element]:
+    groups: dict[str, list[Element]] = {}
+    for element in elements:
+        if element.get("type") != "text" or element.get("role") not in {
+            "subtitle",
+            "body",
+            "highlight",
+        }:
+            continue
+        normalized = _normalized_text(str(element.get("props", {}).get("text", "")))
+        if len(normalized) >= 6:
+            groups.setdefault(normalized, []).append(element)
+
+    removed_ids: set[str] = set()
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        keep = max(
+            group,
+            key=lambda element: (
+                element.get("role") == "highlight",
+                bool(element.get("_contentItemIds")),
+                float(element.get("width", 0)) * float(element.get("height", 0)),
+            ),
+        )
+        removed_ids.update(
+            str(element.get("elementId")) for element in group if element is not keep
+        )
+    return [
+        element
+        for element in elements
+        if str(element.get("elementId")) not in removed_ids
+    ]
+
+
 def _title(order: int, slide: dict[str, Any], style: Style) -> Element:
     return _text(
         order,
@@ -265,10 +334,10 @@ def _hero_split(
         "title",
         "title",
         str(slide.get("title", "")),
-        120,
-        230,
-        850,
-        250,
+        _grid_x(0),
+        232,
+        _grid_width(7),
+        248,
         10,
         style.text,
         style.cover_size,
@@ -283,10 +352,10 @@ def _hero_split(
             "message",
             "highlight",
             str(slide.get("message", "")),
-            120,
+            _grid_x(0),
             520,
-            850,
-            150,
+            _grid_width(7),
+            152,
             10,
             style.text,
             max(style.body_size + 4, 24),
@@ -302,10 +371,10 @@ def _hero_split(
                 "support",
                 "body",
                 "\n".join(f"• {value}" for _, value in items),
-                120,
-                700,
-                850,
-                190,
+                _grid_x(0),
+                704,
+                _grid_width(7),
+                184,
                 10,
                 style.muted_text,
                 style.body_size,
@@ -318,9 +387,9 @@ def _hero_split(
         elements.extend(
             _media(
                 order,
-                1090,
+                _grid_x(7),
                 120,
-                710,
+                _grid_width(5),
                 840,
                 5,
                 style,
@@ -330,8 +399,42 @@ def _hero_split(
         return elements, _id(order, "media_placeholder")
     elements.extend(
         [
-            _rect(order, "hero_field", "decoration", 1090, 120, 710, 840, 3, style.focal, radius=8),
-            _rect(order, "hero_cutout", "decoration", 1210, 250, 470, 580, 4, style.background, radius=8),
+            _rect(
+                order,
+                "hero_field_top",
+                "decoration",
+                _grid_x(7),
+                160,
+                _grid_width(5),
+                176,
+                3,
+                style.focal,
+                radius=8,
+            ),
+            _rect(
+                order,
+                "hero_field_middle",
+                "decoration",
+                _grid_x(7),
+                376,
+                _grid_width(3),
+                216,
+                3,
+                style.secondary,
+                radius=8,
+            ),
+            _rect(
+                order,
+                "hero_field_bottom",
+                "decoration",
+                _grid_x(10),
+                632,
+                _grid_width(2),
+                256,
+                3,
+                style.focal,
+                radius=8,
+            ),
         ]
     )
     return elements, title["elementId"]
@@ -356,10 +459,10 @@ def _hero_full_bleed(
             "title",
             "title",
             str(slide.get("title", "")),
-            120,
-            300,
-            1250,
-            260,
+            _grid_x(0),
+            304,
+            _grid_width(9),
+            256,
             4,
             "#FFFFFF",
             style.cover_size,
@@ -372,10 +475,10 @@ def _hero_full_bleed(
             "message",
             "highlight",
             str(slide.get("message", "")),
-            120,
-            610,
-            1050,
-            150,
+            _grid_x(0),
+            608,
+            _grid_width(8),
+            152,
             4,
             "#FFFFFF",
             max(style.body_size + 4, 24),
@@ -391,9 +494,9 @@ def _hero_full_bleed(
                 "support",
                 "body",
                 "  ·  ".join(value for _, value in items),
-                120,
-                810,
-                1500,
+                _grid_x(0),
+                808,
+                _grid_width(11),
                 80,
                 4,
                 "#FFFFFF",
@@ -417,10 +520,10 @@ def _minimal_cover(
         "title",
         "title",
         str(slide.get("title", "")),
-        220,
-        300,
-        1480,
-        250,
+        _grid_x(0),
+        304,
+        _grid_width(12),
+        248,
         4,
         style.text,
         style.cover_size,
@@ -433,23 +536,23 @@ def _minimal_cover(
         _background(order, style),
         _rect(order, "cover_mark", "decoration", 870, 190, 180, 18, 2, style.focal),
         title,
-        _text(order, "message", "highlight", str(slide.get("message", "")), 360, 600, 1200, 130, 4, style.muted_text, style.body_size + 2, "medium", style.body_font, align="center"),
+        _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(1), 600, _grid_width(10), 128, 4, style.muted_text, style.body_size + 2, "medium", style.body_font, align="center"),
     ]
     items = _items(slide)
     if items:
         elements.append(
-            _text(order, "support", "body", "  ·  ".join(value for _, value in items), 360, 790, 1200, 80, 4, style.text, style.body_size, "normal", style.body_font, align="center", content_item_ids=[identifier for identifier, _ in items])
+            _text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 792, _grid_width(12), 80, 4, style.text, style.body_size, "normal", style.body_font, align="center", content_item_ids=[identifier for identifier, _ in items])
         )
     return elements, title["elementId"]
 
 
 def _statement_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
-    statement = _text(order, "statement", "highlight", str(slide.get("message", "")), 180, 290, 1450, 390, 5, style.text, max(44, style.title_size + 8), "bold", style.heading_font, line_height=1.08)
-    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", 1510, 210, 290, 650, 2, style.focal), statement]
+    statement = _text(order, "statement", "highlight", str(slide.get("message", "")), 180, 290, 1450, 390, 5, style.text, max(44, style.title_size + 8), "bold", style.heading_font, line_height=1.2)
+    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", _grid_x(10), 216, _grid_width(2), 640, 2, style.focal), statement]
     items = _items(slide)
     if items:
-        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), 180, 760, 1260, 110, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 760, _grid_width(9), 112, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     return elements, statement["elementId"]
 
 
@@ -457,18 +560,25 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
     order = direction.order
     items = _items(slide)
     elements = [_background(order, style), _title(order, slide, style)]
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), 120, 300, 650, 360, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.12)
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(5), 352, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
     elements.append(message)
     if direction.asset_role != "none":
-        elements.extend(_media(order, 900, 250, 900, 620, 4, style, _media_caption(slide)))
+        elements.extend(_media(order, _grid_x(7), 248, _grid_width(5), 624, 4, style, _media_caption(slide)))
         if items:
-            elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), 120, 700, 650, 210, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+            elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 704, _grid_width(5), 208, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
         return elements, _id(order, "media_placeholder")
-    column_width = 480
+    panel_widths = (_grid_width(3), _grid_width(4))
     for index, (identifier, value) in enumerate(items):
-        x = 840 + (index % 2) * 520
-        y = 300 + (index // 2) * 260
-        elements.append(_text(order, f"item_{index + 1}", "body", value, x, y, column_width, 190, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]))
+        column = index % 2
+        x = _grid_x(5 if column == 0 else 8)
+        y = 304 + (index // 2) * 264
+        panel_width = panel_widths[column]
+        elements.extend(
+            [
+                _rect(order, f"item_{index + 1}_field", "decoration", x, y, panel_width, 224, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+                _text(order, f"item_{index + 1}", "body", value, x + 24, y + 24, panel_width - 48, 176, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]),
+            ]
+        )
     return elements, message["elementId"]
 
 
@@ -476,11 +586,10 @@ def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], 
     order = direction.order
     items = _items(slide)
     metric = _metric_value(slide, items)
-    metric_element = _text(order, "metric", "highlight", metric, 120, 280, 1000, 270, 5, style.focal, 92, "bold", style.heading_font, line_height=1.0)
-    elements = [_background(order, style), _title(order, slide, style), metric_element, _text(order, "message", "body", str(slide.get("message", "")), 120, 610, 1120, 180, 5, style.text, style.body_size + 4, "semibold", style.body_font)]
+    metric_element = _text(order, "metric", "highlight", metric, _grid_x(0), 280, _grid_width(7), 272, 5, style.focal, 92, "bold", style.heading_font, line_height=1.2)
+    elements = [_background(order, style), _title(order, slide, style), metric_element, _text(order, "message", "body", str(slide.get("message", "")), _grid_x(0), 608, _grid_width(11), 176, 5, style.text, style.body_size + 4, "semibold", style.body_font)]
     if items:
-        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), 120, 830, 1500, 90, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
-    elements.append(_rect(order, "metric_field", "decoration", 1400, 250, 400, 630, 2, style.secondary, radius=8))
+        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 824, _grid_width(11), 96, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     return elements, metric_element["elementId"]
 
 
@@ -505,9 +614,9 @@ def _image_evidence(direction: SlideCompositionDirection, slide: dict[str, Any],
         raise CompositionCompileError("image-evidence requires an asset")
     order = direction.order
     items = _items(slide)
-    elements = [_background(order, style), _title(order, slide, style), *_media(order, 120, 270, 820, 620, 4, style, _media_caption(slide)), _text(order, "message", "highlight", str(slide.get("message", "")), 1020, 300, 780, 220, 5, style.text, 32, "bold", style.heading_font, line_height=1.12)]
+    elements = [_background(order, style), _title(order, slide, style), *_media(order, _grid_x(0), 272, _grid_width(6), 616, 4, style, _media_caption(slide)), _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(6), 304, _grid_width(6), 216, 5, style.text, 32, "bold", style.heading_font, line_height=1.2)]
     if items:
-        elements.append(_text(order, "evidence", "body", "\n".join(f"• {value}" for _, value in items), 1020, 570, 780, 300, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        elements.append(_text(order, "evidence", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(6), 568, _grid_width(6), 304, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     return elements, _id(order, "media_placeholder")
 
 
@@ -520,7 +629,7 @@ def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, A
     rows = (count + columns - 1) // columns
     gap = 24
     width = (SAFE_WIDTH - gap * (columns - 1)) // columns
-    height = min(260, (620 - gap * (rows - 1)) // max(1, rows))
+    height = (620 - gap * (rows - 1)) // max(1, rows)
     for index, (identifier, value) in enumerate(items):
         x = SAFE_X + (index % columns) * (width + gap)
         y = 280 + (index // columns) * (height + gap)
@@ -561,6 +670,7 @@ def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style
         y = 300 if index % 2 == 0 else 610
         elements.extend([
             _rect(order, f"timeline_dot_{index + 1}", "decoration", center - 14, 506, 28, 28, 4, style.focal, radius=14),
+            _rect(order, f"timeline_{index + 1}_field", "decoration", x, y, 300, 152, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
             _text(order, f"timeline_{index + 1}", "body", value, x, y, 300, 150, 5, style.text, style.body_size, "semibold", style.body_font, align="center", content_item_ids=[identifier]),
         ])
     return elements, _id(order, "timeline_dot_1")
@@ -570,7 +680,12 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
     order = direction.order
     items = _items(slide)
     hub = _rect(order, "hub_field", "highlight", 720, 390, 480, 260, 4, style.focal, radius=8)
-    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(str(slide.get("message", "")), width=80, placeholder="..."), 770, 440, 380, 160, 5, "#FFFFFF", 28, "bold", style.heading_font, align="center", vertical="middle")]
+    hub_copy = (
+        str(slide.get("title", ""))
+        if _message_duplicates_items(slide, items)
+        else str(slide.get("message", ""))
+    )
+    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), 770, 440, 380, 160, 5, "#FFFFFF", 28, "bold", style.heading_font, align="center", vertical="middle")]
     positions = [(120, 280), (1320, 280), (120, 720), (1320, 720), (420, 760), (1020, 760)]
     for index, (identifier, value) in enumerate(items):
         x, y = positions[index]
@@ -584,14 +699,15 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
 def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    title = _text(order, "title", "title", str(slide.get("title", "")), 120, 220, 1250, 220, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
-    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 150, 180, 16, 2, style.focal), title, _text(order, "message", "highlight", str(slide.get("message", "")), 120, 500, 1180, 160, 5, style.text, 30, "semibold", style.body_font)]
+    content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(10)
+    title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
+    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 160, 5, style.text, 30, "semibold", style.body_font)]
     if items:
-        elements.append(_text(order, "actions", "body", "  →  ".join(value for _, value in items), 120, 740, 1500, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        elements.append(_text(order, "actions", "body", "  →  ".join(value for _, value in items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
     if direction.asset_role != "none":
-        elements.extend(_media(order, 1350, 210, 450, 590, 3, style, _media_caption(slide)))
+        elements.extend(_media(order, _grid_x(7), 208, _grid_width(5), 624, 3, style, _media_caption(slide)))
     else:
-        elements.append(_rect(order, "closing_field", "decoration", 1500, 0, 420, 1080, 2, style.focal))
+        elements.append(_rect(order, "closing_field", "decoration", _grid_x(10), 240, _grid_width(2), 560, 2, style.focal, radius=8))
     return elements, title["elementId"]
 
 
@@ -702,6 +818,7 @@ def compile_composition(
         )
     style = _style(program, direction.background_mode)
     elements, focal_id = spec.factory(direction, slide, style)
+    elements = _deduplicate_exact_visible_text(elements)
     if focal_id not in {str(element.get("elementId")) for element in elements}:
         raise CompositionCompileError("Composition focal element is missing")
     return CompiledComposition(

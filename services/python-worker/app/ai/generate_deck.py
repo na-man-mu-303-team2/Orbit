@@ -6466,7 +6466,7 @@ def program_v2_visual_plan(
         or slide_plan.title
     )
     result: dict[str, Any] = {
-        "visualType": direction.composition_id,
+        "visualType": program_v2_visual_type(slide_plan, direction),
         "imageNeeded": image_needed,
         "imageSourcePolicy": source_policy,
         "reason": (
@@ -6482,6 +6482,25 @@ def program_v2_visual_plan(
     if slide_plan.media_intent.placement.strip():
         result["imagePlacement"] = slide_plan.media_intent.placement.strip()
     return result
+
+
+def program_v2_visual_type(
+    slide_plan: SlidePlan,
+    direction: SlideCompositionDirection,
+) -> str:
+    if direction.order == 1 or slide_plan.slide_type in {"cover", "title"}:
+        return "cover"
+    if direction.composition_id == "cta-closing":
+        return "summary"
+    return {
+        "feature-comparison": "comparison",
+        "process-horizontal": "process",
+        "timeline": "process",
+        "diagram-hub": "architecture",
+        "metric-poster": "data",
+        "kpi-strip-evidence": "data",
+        "image-evidence": "data",
+    }.get(direction.composition_id, slide_plan.slide_type)
 
 
 def design_pack_ai_notes(
@@ -13777,8 +13796,15 @@ def is_contained_by_grid_panel(
     return any(
         candidate is not element
         and candidate.get("visible", True)
-        and candidate.get("role") == "highlight"
         and candidate.get("type") != "text"
+        and (
+            candidate.get("role") == "highlight"
+            or (
+                candidate.get("role") == "decoration"
+                and "_program_v2_" in str(candidate.get("elementId", ""))
+                and str(candidate.get("elementId", "")).endswith("_field")
+            )
+        )
         and text_background_coverage(element, candidate) >= 0.9
         for candidate in elements
     )

@@ -21,6 +21,7 @@ from app.ai.generate_deck import (
     MediaIntent,
     SlidePlan,
     initial_source_records,
+    validate_presentation,
 )
 
 
@@ -298,6 +299,20 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
             "_program_v2_" in element["elementId"]
             for element in slide["elements"]
         )
+    guarded_issue_codes = {
+        "CONTENT_DUPLICATED",
+        "VISUAL_HIERARCHY_WEAK",
+        "GRID_ALIGNMENT_INCONSISTENT",
+        "LINE_HEIGHT_OUT_OF_RANGE",
+    }
+    quality_issues = [
+        issue
+        for issue in validate_presentation(deck)
+        if issue.code in guarded_issue_codes
+    ]
+    assert quality_issues == [], [
+        (issue.code, issue.path, issue.message) for issue in quality_issues
+    ]
 
 
 def golden_slide_plans() -> list[SlidePlan]:
