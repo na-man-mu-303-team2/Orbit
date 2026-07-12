@@ -364,6 +364,58 @@ def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
     assert compiled.primary_focal_element_id == "el_1_program_v2_actions"
 
 
+def test_statement_poster_uses_accent_as_a_point_not_a_large_color_field() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "statement-poster",
+        "variant": "dark",
+        "backgroundMode": "dark",
+        "focalType": "statement",
+        "assetRole": "none",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide_payload("solution", 1),
+        design_program,
+    )
+    accent = next(
+        element
+        for element in compiled.elements
+        if str(element.get("elementId", "")).endswith("_poster_block")
+    )
+
+    assert accent["width"] == 118
+    assert accent["height"] == 480
+
+
+def test_closing_media_uses_equal_content_and_image_columns() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "cta-closing",
+        "variant": "dark",
+        "backgroundMode": "dark",
+        "focalType": "cta",
+        "assetRole": "atmosphere",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide_payload("summary", 2),
+        design_program,
+    )
+    title = next(element for element in compiled.elements if element["role"] == "title")
+    media = next(element for element in compiled.elements if element["role"] == "media")
+
+    assert title["width"] == 828
+    assert media["x"] == 972
+    assert media["width"] == 828
+
+
 def test_hybrid_required_evidence_without_official_source_uses_atmosphere() -> None:
     slides = [
         slide_payload("cover", 2),

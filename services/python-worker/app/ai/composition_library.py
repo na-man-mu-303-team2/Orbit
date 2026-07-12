@@ -573,7 +573,7 @@ def _minimal_cover(
 def _statement_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     statement = _text(order, "statement", "highlight", str(slide.get("message", "")), 180, 290, 1450, 390, 5, style.text, max(44, style.title_size + 8), "bold", style.heading_font, line_height=1.2)
-    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", _grid_x(10), 216, _grid_width(2), 640, 2, style.focal), statement]
+    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", _grid_x(11), 288, _grid_width(1), 480, 2, style.focal), statement]
     items = _items(slide)
     if items:
         elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 760, _grid_width(9), 112, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
@@ -828,7 +828,7 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     items = _items(slide)
     action_items = _supporting_items_without_message_duplicate(slide, items)
     duplicates_items = bool(items) and not action_items
-    content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(12)
+    content_width = _grid_width(6) if direction.asset_role != "none" else _grid_width(12)
     title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
     message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 160, 5, style.text, 36 if duplicates_items else 30, "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
     elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
@@ -837,7 +837,7 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
         action = _text(order, "actions", "body", "  →  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
         elements.append(action)
     if direction.asset_role != "none":
-        elements.extend(_media(order, _grid_x(7), 208, _grid_width(5), 624, 3, style, _media_caption(slide)))
+        elements.extend(_media(order, _grid_x(6), 208, _grid_width(6), 624, 3, style, _media_caption(slide)))
     return elements, (action or message)["elementId"]
 
 
