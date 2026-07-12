@@ -770,9 +770,9 @@ def test_editorial_split_three_items_use_complete_asymmetric_grid() -> None:
     body = [element for element in compiled.elements if element["role"] == "body"]
 
     assert [(field["x"], field["y"], field["width"], field["height"]) for field in fields] == [
-        (120, 304, 828, 520),
-        (972, 304, 828, 248),
-        (972, 576, 828, 248),
+        (120, 288, 970, 584),
+        (1114, 288, 686, 280),
+        (1114, 592, 686, 280),
     ]
     assert all(element["props"]["fontSize"] >= 30 for element in body)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)

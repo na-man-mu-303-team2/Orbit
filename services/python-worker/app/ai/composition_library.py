@@ -671,76 +671,292 @@ def _statement_poster(
     return elements, statement["elementId"]
 
 
-def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _editorial_split(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
     duplicates_items = _message_duplicates_items(slide, items)
-    content_columns = 6 if direction.asset_role != "none" else 7
     elements = [_background(order, style), _title(order, slide, style)]
-    message_height = 240 if direction.asset_role != "none" else 376
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(content_columns), message_height, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
-    if not duplicates_items:
-        elements.append(message)
     if direction.asset_role != "none":
-        elements.extend(_media(order, _grid_x(6), 248, _grid_width(6), 624, 4, style, _media_caption(slide)))
-        if items:
-            if duplicates_items:
-                gap = 24
-                row_height = (568 - gap * (len(items) - 1)) // len(items)
-                for index, (identifier, value) in enumerate(items):
-                    y = 304 + index * (row_height + gap)
-                    elements.extend(
-                        [
-                            _text(order, f"support_index_{index + 1}", "highlight", f"{index + 1:02d}", _grid_x(0), y, _grid_width(1), row_height, 5, style.focal, 24, "bold", style.heading_font, vertical="middle"),
-                            _text(order, f"support_{index + 1}", "body", value, _grid_x(1), y, _grid_width(5), row_height, 5, style.text, max(24, style.body_size + 2), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
-                        ]
-                    )
-            else:
-                elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 584, _grid_width(6), 288, 5, style.muted_text, max(22, style.body_size), "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
-        return elements, _id(order, "media_placeholder")
-    panel_widths = (
-        (_grid_width(6), _grid_width(6))
-        if duplicates_items
-        else (_grid_width(3), _grid_width(4))
-    )
-    expanded_pair = duplicates_items and len(items) == 2
-    if duplicates_items and len(items) == 3:
-        frames = [
-            (_grid_x(0), 304, _grid_width(6), 520),
-            (_grid_x(6), 304, _grid_width(6), 248),
-            (_grid_x(6), 576, _grid_width(6), 248),
-        ]
-    else:
-        panel_height = 440 if expanded_pair else 224
-        row_step = panel_height + 40
-        frames = []
-        for index in range(len(items)):
-            column = index % 2
-            column_start = (
-                (0 if column == 0 else 6)
-                if duplicates_items
-                else (5 if column == 0 else 8)
+        elements.extend(
+            _media(
+                order,
+                _grid_x(6),
+                248,
+                _grid_width(6),
+                640,
+                4,
+                style,
+                _media_caption(slide),
             )
-            frames.append(
-                (
-                    _grid_x(column_start),
-                    304 + (index // 2) * row_step,
-                    panel_widths[column],
-                    panel_height,
+        )
+        if duplicates_items and items:
+            row_top = 288
+            row_area_height = 584
+            row_height = row_area_height // len(items)
+            elements.append(
+                _rect(
+                    order,
+                    "editorial_rule",
+                    "decoration",
+                    SAFE_X,
+                    row_top,
+                    12,
+                    row_area_height,
+                    3,
+                    style.focal,
+                    radius=6,
                 )
             )
-    for index, ((identifier, value), (x, y, panel_width, panel_height)) in enumerate(
-        zip(items, frames, strict=True)
-    ):
-        text_height = panel_height - 48
-        vertically_centered = expanded_pair or (duplicates_items and len(items) == 3)
+            for index, (identifier, value) in enumerate(items):
+                y = row_top + index * row_height
+                elements.extend(
+                    [
+                        _text(
+                            order,
+                            f"support_index_{index + 1}",
+                            "highlight",
+                            f"{index + 1:02d}",
+                            _grid_x(0) + 36,
+                            y + 12,
+                            106,
+                            row_height - 24,
+                            5,
+                            style.focal,
+                            48,
+                            "bold",
+                            style.heading_font,
+                            vertical="middle",
+                        ),
+                        _text(
+                            order,
+                            f"support_{index + 1}",
+                            "body",
+                            value,
+                            _grid_x(1),
+                            y + 12,
+                            _grid_width(5),
+                            row_height - 24,
+                            5,
+                            style.text,
+                            max(34, style.body_size + 2),
+                            "semibold",
+                            style.body_font,
+                            vertical="middle",
+                            content_item_ids=[identifier],
+                        ),
+                    ]
+                )
+                if index < len(items) - 1:
+                    elements.append(
+                        _rect(
+                            order,
+                            f"support_divider_{index + 1}",
+                            "decoration",
+                            _grid_x(1),
+                            y + row_height - 2,
+                            _grid_width(5),
+                            2,
+                            3,
+                            style.secondary,
+                        )
+                    )
+        else:
+            elements.append(
+                _text(
+                    order,
+                    "message",
+                    "highlight",
+                    str(slide.get("message", "")),
+                    _grid_x(0),
+                    304,
+                    _grid_width(6),
+                    256,
+                    5,
+                    style.text,
+                    max(44, style.body_size + 8),
+                    "bold",
+                    style.heading_font,
+                    line_height=1.2,
+                )
+            )
+            if items:
+                elements.append(
+                    _text(
+                        order,
+                        "support",
+                        "body",
+                        "\n".join(f"• {value}" for _, value in items),
+                        _grid_x(0),
+                        608,
+                        _grid_width(6),
+                        264,
+                        5,
+                        style.muted_text,
+                        style.body_size,
+                        "semibold",
+                        style.body_font,
+                        content_item_ids=[identifier for identifier, _ in items],
+                    )
+                )
+        return elements, _id(order, "media_placeholder")
+
+    if not duplicates_items:
+        panel_fill = style.surface if _is_dark(style.background) else style.text
+        panel_text = _contrasting_text_color(panel_fill, style.text)
+        message = _text(
+            order,
+            "message",
+            "highlight",
+            str(slide.get("message", "")),
+            _grid_x(0) + 48,
+            344,
+            _grid_width(7) - 96,
+            456,
+            5,
+            panel_text,
+            max(48, style.body_size + 12),
+            "bold",
+            style.heading_font,
+            line_height=1.2,
+            vertical="middle",
+        )
         elements.extend(
             [
-                _rect(order, f"item_{index + 1}_field", "decoration", x, y, panel_width, panel_height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-                _text(order, f"item_{index + 1}", "body", value, x + 24, y + 24, panel_width - 48, text_height, 5, style.text, max(style.body_size + 2, 30) if vertically_centered else style.body_size + 2, "semibold", style.body_font, vertical="middle" if vertically_centered else "top", content_item_ids=[identifier]),
+                _rect(
+                    order,
+                    "message_field",
+                    "decoration",
+                    _grid_x(0),
+                    288,
+                    _grid_width(7),
+                    584,
+                    3,
+                    panel_fill,
+                    radius=8,
+                ),
+                message,
             ]
         )
-    return elements, _id(order, "item_1") if duplicates_items and items else message["elementId"]
+        row_height = (584 - 16 * max(0, len(items) - 1)) // max(1, len(items))
+        colors = _editorial_field_colors(style)
+        for index, (identifier, value) in enumerate(items):
+            y = 288 + index * (row_height + 16)
+            fill = colors[(index + 2) % len(colors)]
+            elements.extend(
+                [
+                    _rect(
+                        order,
+                        f"item_{index + 1}_field",
+                        "decoration",
+                        _grid_x(7),
+                        y,
+                        _grid_width(5),
+                        row_height,
+                        3,
+                        fill,
+                        radius=8,
+                    ),
+                    _text(
+                        order,
+                        f"item_{index + 1}",
+                        "body",
+                        value,
+                        _grid_x(7) + 32,
+                        y + 24,
+                        _grid_width(5) - 64,
+                        row_height - 48,
+                        5,
+                        _contrasting_text_color(fill, style.text),
+                        max(34, style.body_size + 2),
+                        "semibold",
+                        style.body_font,
+                        vertical="middle",
+                        content_item_ids=[identifier],
+                    ),
+                ]
+            )
+        return elements, message["elementId"]
+
+    if len(items) == 2:
+        frames = [
+            (_grid_x(0), 288, _grid_width(7), 584),
+            (_grid_x(7), 288, _grid_width(5), 584),
+        ]
+    elif len(items) == 3:
+        frames = [
+            (_grid_x(0), 288, _grid_width(7), 584),
+            (_grid_x(7), 288, _grid_width(5), 280),
+            (_grid_x(7), 592, _grid_width(5), 280),
+        ]
+    else:
+        frames = [
+            (
+                _grid_x((index % 2) * 6),
+                288 + (index // 2) * 304,
+                _grid_width(6),
+                280,
+            )
+            for index in range(len(items))
+        ]
+    colors = _editorial_field_colors(style)
+    for index, ((identifier, value), (x, y, width, height)) in enumerate(
+        zip(items, frames, strict=True)
+    ):
+        fill = colors[index % len(colors)]
+        text_color = _contrasting_text_color(fill, style.text)
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    f"item_{index + 1}_field",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    height,
+                    3,
+                    fill,
+                    radius=8,
+                ),
+                _text(
+                    order,
+                    f"item_{index + 1}_index",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 36,
+                    y + 28,
+                    width - 72,
+                    72,
+                    5,
+                    text_color,
+                    52,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"item_{index + 1}",
+                    "body",
+                    value,
+                    x + 36,
+                    y + 112,
+                    width - 72,
+                    height - 148,
+                    5,
+                    text_color,
+                    max(38, style.body_size + 4),
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
+            ]
+        )
+    return elements, _id(order, "item_1") if items else _id(order, "title")
 
 
 def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
@@ -1601,6 +1817,12 @@ def _contrasting_text_color(background: str, preferred: str) -> str:
     if _is_dark(background):
         return "#FFFFFF"
     return preferred if _is_dark(preferred) else "#111827"
+
+
+def _editorial_field_colors(style: Style) -> tuple[str, str, str, str]:
+    if _is_dark(style.background):
+        return (style.focal, style.secondary, style.surface, "#F8FAFC")
+    return (style.focal, style.text, style.secondary, style.surface)
 
 
 def _metric_value(slide: dict[str, Any], items: list[tuple[str, str]]) -> str:
