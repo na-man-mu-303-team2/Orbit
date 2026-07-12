@@ -5374,6 +5374,9 @@ function PreflightStatusRow(props: {
 export function getPreflightMicrophonePermissionHint(
   state: PermissionState,
 ): PreflightMicrophonePermission {
+  if (state === "granted") {
+    return "granted";
+  }
   if (state === "denied") {
     return "denied";
   }

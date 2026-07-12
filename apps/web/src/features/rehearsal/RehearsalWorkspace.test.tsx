@@ -164,9 +164,10 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("Speaker notes");
   });
 
-  it("does not treat a permission query hint as a verified microphone connection", () => {
-    expect(getPreflightMicrophonePermissionHint("granted")).toBe("prompt");
+  it("shows an already granted browser microphone permission as allowed", () => {
+    expect(getPreflightMicrophonePermissionHint("granted")).toBe("granted");
     expect(getPreflightMicrophonePermissionHint("denied")).toBe("denied");
+    expect(getPreflightMicrophonePermissionHint("prompt")).toBe("prompt");
   });
 
   it("keeps explicit editor and home exits on the rehearsal completion screen", () => {
