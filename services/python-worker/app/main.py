@@ -672,40 +672,56 @@ def generate_challenge_qna(
     slides = cast(dict[str, Any], payload.source_snapshot.get("deck", {})).get("slides", [])
     chunks = (payload.grounding_snapshot or {}).get("chunks", [])
     linked_goals = payload.source_snapshot.get("linkedGoalRefs", [])
-    source_ref: dict[str, Any] | None = None
-    concept_label = "핵심 주장"
-    if chunks:
-        chunk = chunks[0]
-        source_ref = {
+    grounding_sources: list[tuple[dict[str, Any], str]] = []
+    for chunk in chunks:
+        grounding_sources.append(({
             "type": "reference",
             "fileId": chunk["fileId"],
             "fileContentHash": chunk["fileContentHash"],
             "chunkId": chunk["chunkId"],
             "contentHash": chunk["contentHash"],
-        }
-        concept_label = str(chunk["content"])[:80]
-    elif slides:
-        slide = slides[0]
-        source_ref = {
+        }, str(chunk["content"])[:80]))
+    for slide in slides:
+        grounding_sources.append(({
             "type": "slide",
             "slideId": slide["slideId"],
             "deckVersion": payload.source_snapshot["deck"]["deckVersion"],
             "slideOrder": slide["order"],
             "title": slide["title"],
             "contentHash": slide["contentHash"],
-        }
-        concept_label = str(slide.get("visibleText") or slide["title"])[:80]
+        }, str(slide["title"])[:80]))
     question_types = ["evidence", "objection", "decision"]
+    question_templates = {
+        "evidence": "{label}을 뒷받침하는 가장 중요한 근거와 검증 기준은 무엇인가요?",
+        "objection": "{label}에 대한 가장 강한 반론은 무엇이며, 어떤 기준으로 대응하시겠습니까?",
+        "decision": "{label}을 바탕으로 청중이 지금 내려야 할 결정과 다음 행동은 무엇인가요?",
+    }
+    fallback_questions = {
+        "evidence": "이 주장을 뒷받침할 승인된 근거를 어디에 추가하시겠습니까?",
+        "objection": "이 주장에 대한 반론을 검토하려면 어떤 승인된 근거가 필요합니까?",
+        "decision": "청중의 결정을 요청하려면 어떤 승인된 근거를 먼저 추가해야 합니까?",
+    }
+    suggested_structures = {
+        "evidence": ["핵심 결론", "가장 강한 근거", "검증 기준"],
+        "objection": ["예상 반론", "수용할 조건", "대응 근거와 한계"],
+        "decision": ["요청할 결정", "판단 기준", "담당자와 다음 행동"],
+    }
     questions: list[dict[str, Any]] = []
     for index in range(question_count):
+        question_type = question_types[index % len(question_types)]
+        source_ref, concept_label = (
+            grounding_sources[index % len(grounding_sources)]
+            if grounding_sources
+            else (None, "핵심 주장")
+        )
         grounded = source_ref is not None and bool(concept_label.strip())
         questions.append({
-            "questionType": question_types[index],
+            "questionType": question_type,
             "difficulty": "challenging" if index > 0 else "standard",
             "questionText": (
-                f"{concept_label}에 대해 어떤 근거와 판단 기준으로 설명하시겠습니까?"
+                question_templates[question_type].format(label=concept_label)
                 if grounded
-                else "이 주장을 뒷받침할 승인된 근거를 어디에 추가하시겠습니까?"
+                else fallback_questions[question_type]
             ),
             "linkedGoalIds": [item["goalId"] for item in linked_goals[:3]],
             "sourceRefs": [source_ref] if source_ref else [],
@@ -716,7 +732,7 @@ def generate_challenge_qna(
                     "label": concept_label,
                     "sourceRefs": [source_ref],
                 }] if grounded else []),
-                "suggestedStructure": ["결론", "근거", "판단 또는 다음 행동"],
+                "suggestedStructure": suggested_structures[question_type],
                 "caveats": [],
                 "remediation": (None if grounded else {
                     "message": "승인된 참고자료나 장표 근거를 추가한 뒤 다시 질문을 생성하세요.",

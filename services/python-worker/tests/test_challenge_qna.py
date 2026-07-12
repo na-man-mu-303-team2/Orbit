@@ -10,7 +10,7 @@ def test_generates_exact_grounded_question_count() -> None:
             "source": {"mode": "final", "sourceFullRunId": "run-a", "questionCount": 3},
             "sourceSnapshot": {
                 "deck": {"deckVersion": 2, "slides": [{
-                    "slideId": "slide-a", "order": 1, "title": "시장", "visibleText": "시장 규모 10조",
+                    "slideId": "slide-a", "order": 1, "title": "시장 기회", "visibleText": "Editor preview 시장 규모 10조",
                     "contentHash": "a" * 64,
                 }]},
                 "linkedGoalRefs": [{"goalId": "goal-a"}],
@@ -24,6 +24,15 @@ def test_generates_exact_grounded_question_count() -> None:
     assert len(questions) == 3
     assert questions[0]["answerGuide"]["supportState"] == "grounded"
     assert questions[0]["sourceRefs"][0]["slideId"] == "slide-a"
+    assert [question["questionType"] for question in questions] == [
+        "evidence",
+        "objection",
+        "decision",
+    ]
+    assert len({question["questionText"] for question in questions}) == 3
+    assert all("시장 기회" in question["questionText"] for question in questions)
+    assert all("Editor preview" not in question["questionText"] for question in questions)
+    assert len({tuple(question["answerGuide"]["suggestedStructure"]) for question in questions}) == 3
 
 
 def test_analyzes_answer_without_returning_raw_text() -> None:
