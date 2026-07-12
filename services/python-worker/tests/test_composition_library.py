@@ -733,6 +733,44 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
 
 
+def test_editorial_split_three_items_use_complete_asymmetric_grid() -> None:
+    slide = slide_payload("solution", 3)
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "editorial-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_field")
+    ]
+    body = [element for element in compiled.elements if element["role"] == "body"]
+
+    assert [(field["x"], field["y"], field["width"], field["height"]) for field in fields] == [
+        (120, 304, 828, 520),
+        (972, 304, 828, 248),
+        (972, 576, 828, 248),
+    ]
+    assert all(element["props"]["fontSize"] >= 30 for element in body)
+    assert all(element["props"]["verticalAlign"] == "middle" for element in body)
+
+
 def test_editorial_split_distinct_message_meets_no_media_height() -> None:
     slide = slide_payload("data", 2)
     design_program = program(
