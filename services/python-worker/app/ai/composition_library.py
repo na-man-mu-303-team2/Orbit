@@ -290,6 +290,15 @@ def _deduplicate_exact_visible_text(
                 float(element.get("width", 0)) * float(element.get("height", 0)),
             ),
         )
+        content_item_ids = list(
+            dict.fromkeys(
+                str(content_item_id)
+                for element in group
+                for content_item_id in element.get("_contentItemIds", [])
+            )
+        )
+        if content_item_ids:
+            keep["_contentItemIds"] = content_item_ids
         removed_ids.update(
             str(element.get("elementId")) for element in group if element is not keep
         )

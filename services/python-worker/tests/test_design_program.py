@@ -183,7 +183,10 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
             keywords=["Splatoon Raiders"],
             evidence=[],
             content_items=[
-                GeneratedContentItem(contentItemId="item-1", text="공식 공개 정보")
+                GeneratedContentItem(
+                    contentItemId="item-1",
+                    text="스플래툰 레이더스가 새로운 경험을 연다",
+                )
             ],
             source_refs=["topic:brief"],
             media_intent=MediaIntent(
@@ -232,6 +235,11 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
     assert deck["slides"][0]["aiNotes"]["visualPlan"]["imageSourcePolicy"] == (
         "ai-generated"
     )
+    assert sum(
+        element.get("props", {}).get("text")
+        == "스플래툰 레이더스가 새로운 경험을 연다"
+        for element in deck["slides"][0]["elements"]
+    ) == 1
     assert all(
         "_design_pack_" not in element["elementId"]
         for slide in deck["slides"]
