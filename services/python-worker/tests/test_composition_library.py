@@ -865,7 +865,7 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
 
 
-def test_editorial_split_three_items_use_complete_asymmetric_grid() -> None:
+def test_editorial_split_three_items_use_single_focal_rail() -> None:
     slide = slide_payload("solution", 3)
     slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
     design_program = program(
@@ -887,19 +887,21 @@ def test_editorial_split_three_items_use_complete_asymmetric_grid() -> None:
         slide,
         design_program,
     )
-    fields = [
+    rails = [
         element
         for element in compiled.elements
-        if element["elementId"].endswith("_field")
+        if element["elementId"].endswith("_focal_rail")
     ]
     body = [element for element in compiled.elements if element["role"] == "body"]
 
-    assert [(field["x"], field["y"], field["width"], field["height"]) for field in fields] == [
-        (120, 288, 970, 584),
-        (1114, 288, 686, 280),
-        (1114, 592, 686, 280),
-    ]
-    assert all(element["props"]["fontSize"] >= 30 for element in body)
+    assert len(rails) == 1
+    assert (rails[0]["x"], rails[0]["width"], rails[0]["height"]) == (
+        120,
+        1680,
+        194,
+    )
+    assert all((element["x"], element["width"]) == (404, 1396) for element in body)
+    assert body[0]["props"]["fontSize"] > body[1]["props"]["fontSize"]
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
 
 
@@ -1267,8 +1269,49 @@ def test_duplicate_kpi_strip_uses_full_height_primary_frames() -> None:
     kpis = [element for element in compiled.elements if element["role"] == "highlight"]
 
     assert len(kpis) == 4
-    assert all(element["height"] == 376 for element in kpis)
+    assert all(element["height"] == 388 for element in kpis)
     assert all(element["props"]["verticalAlign"] == "middle" for element in kpis)
+
+
+def test_two_item_kpi_strip_uses_filled_asymmetric_focal_fields() -> None:
+    slide = slide_payload("data", 2)
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "kpi-strip-evidence",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "kpi",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_field")
+    ]
+    kpis = [element for element in compiled.elements if element["role"] == "highlight"]
+
+    assert [
+        (field["x"], field["y"], field["width"], field["height"])
+        for field in fields
+    ] == [
+        (120, 330, 970, 460),
+        (1114, 394, 686, 332),
+    ]
+    assert [field["props"]["fill"] for field in fields] == ["#6D28D9", "#111827"]
+    assert all(field["props"]["strokeWidth"] == 0 for field in fields)
+    assert kpis[0]["props"]["fontSize"] > kpis[1]["props"]["fontSize"]
 
 
 def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:

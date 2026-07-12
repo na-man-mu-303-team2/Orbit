@@ -967,7 +967,7 @@ def _editorial_split(
             )
         return elements, message["elementId"]
 
-    if len(items) >= 4:
+    if len(items) >= 3:
         row_top = 288
         row_height = 584 // len(items)
         for index, (identifier, value) in enumerate(items):
@@ -1147,13 +1147,28 @@ def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], styl
         elements.append(_text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, max(40, style.body_size + 6), "semibold", style.heading_font))
     count = max(1, len(items))
     gap = 24
-    width = (SAFE_WIDTH - gap * (count - 1)) // count
     field_y = 330 if duplicates_items else 430
-    for index, (identifier, value) in enumerate(items):
-        x = SAFE_X + index * (width + gap)
+    field_height = 460 if duplicates_items else 360
+    if count == 2:
+        frames = [
+            (_grid_x(0), field_y, _grid_width(7), field_height),
+            (_grid_x(7), field_y + 64, _grid_width(5), field_height - 128),
+        ]
+    else:
+        width = (SAFE_WIDTH - gap * (count - 1)) // count
+        frames = [
+            (SAFE_X + index * (width + gap), field_y, width, field_height)
+            for index in range(count)
+        ]
+    colors = _editorial_field_colors(style)
+    for index, ((identifier, value), (x, y, width, height)) in enumerate(
+        zip(items, frames, strict=True)
+    ):
+        fill = colors[index % len(colors)]
+        text_color = _contrasting_text_color(fill, style.text)
         elements.extend([
-            _rect(order, f"kpi_{index + 1}_field", "decoration", x, field_y, width, 460 if duplicates_items else 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
-            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 376 if duplicates_items else 220, 5, style.text, max(40, style.body_size + 6), "bold", style.heading_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier]),
+            _rect(order, f"kpi_{index + 1}_field", "decoration", x, y, width, height, 3, fill, radius=8),
+            _text(order, f"kpi_{index + 1}", "highlight", value, x + 36, y + 36, width - 72, height - 72, 5, text_color, max(52, style.body_size + 12) if index == 0 else max(44, style.body_size + 8), "bold", style.heading_font, vertical="middle", content_item_ids=[identifier]),
         ])
     return elements, _id(order, "kpi_1")
 
