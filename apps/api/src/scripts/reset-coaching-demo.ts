@@ -28,6 +28,31 @@ export function createDemoRunEvaluationSnapshot(
   });
 }
 
+export async function ensureDemoProjectAccess(
+  manager: { query(sql: string, params: unknown[]): Promise<unknown> },
+  config: Pick<OrbitConfig, "DEMO_PROJECT_ID" | "DEMO_WORKSPACE_ID">,
+) {
+  await manager.query(
+    `INSERT INTO project_members (project_id,user_id,role,status,created_at)
+      SELECT $1,participants.user_id,'editor','accepted',now()
+      FROM (
+        SELECT projects.created_by AS user_id
+        FROM projects
+        JOIN users ON users.user_id=projects.created_by
+        WHERE projects.workspace_id=$2
+        UNION
+        SELECT members.user_id
+        FROM project_members members
+        JOIN projects ON projects.project_id=members.project_id
+        WHERE projects.workspace_id=$2 AND members.status='accepted'
+      ) participants
+      ON CONFLICT (project_id,user_id) DO UPDATE SET
+        role=CASE WHEN project_members.role='owner' THEN 'owner' ELSE 'editor' END,
+        status='accepted'`,
+    [config.DEMO_PROJECT_ID, config.DEMO_WORKSPACE_ID],
+  );
+}
+
 export async function resetCoachingDemo() {
   const config = loadOrbitConfig(process.env, { service: "api" });
   assertDemoResetAllowed(config);
@@ -36,6 +61,7 @@ export async function resetCoachingDemo() {
     const counts = await AppDataSource.transaction(async (manager: EntityManager) => {
       const project = await manager.query(`SELECT 1 FROM projects WHERE project_id=$1 FOR UPDATE`, [config.DEMO_PROJECT_ID]);
       if (!project[0]) throw new Error("Canonical demo project does not exist.");
+      await ensureDemoProjectAccess(manager, config);
       await manager.query(`DELETE FROM challenge_qna_sessions WHERE project_id=$1`, [config.DEMO_PROJECT_ID]);
       await manager.query(`DELETE FROM focused_practice_sessions WHERE project_id=$1`, [config.DEMO_PROJECT_ID]);
       await manager.query(`DELETE FROM practice_goal_sets WHERE project_id=$1`, [config.DEMO_PROJECT_ID]);
