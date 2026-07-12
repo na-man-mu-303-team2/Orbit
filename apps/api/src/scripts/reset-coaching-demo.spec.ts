@@ -5,6 +5,7 @@ import { describe,expect,it } from "vitest";
 import { buildRehearsalEvaluationPlan } from "../practice-goals/evaluation-plan";
 import {
   assertDemoResetAllowed,
+  createDemoPracticeGoalCopies,
   createDemoRehearsalReport,
   createDemoRunEvaluationSnapshot,
   ensureDemoProjectAccess,
@@ -59,6 +60,20 @@ describe("createDemoRehearsalReport", () => {
     expect(report.aiSummary?.headline).toContain("핵심 메시지");
     expect(report.coaching?.nextPracticeFocus).toContain("결론");
     expect(report.slideTimings).toHaveLength(deck.slides.length);
+  });
+});
+
+describe("createDemoPracticeGoalCopies", () => {
+  it("keeps all three demo goals distinct even when the deck has one slide", () => {
+    const deck = createDemoDeck();
+
+    const copies = [0, 1, 2].map((index) =>
+      createDemoPracticeGoalCopies(deck.slides[0], index),
+    );
+
+    expect(new Set(copies.map((copy) => copy.problemLabel))).toHaveLength(3);
+    expect(new Set(copies.map((copy) => copy.nextAction))).toHaveLength(3);
+    expect(new Set(copies.map((copy) => copy.successCondition))).toHaveLength(3);
   });
 });
 

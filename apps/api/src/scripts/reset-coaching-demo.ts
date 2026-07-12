@@ -125,6 +125,36 @@ export function createDemoRehearsalReport(
   });
 }
 
+const demoPracticeGoalCopies = [
+  {
+    problemLabel: "핵심 결론을 목표 시간 안에 전달하기",
+    nextAction: "첫 문장에서 결론을 말하고 근거를 한 문장으로 이어 보세요.",
+    successCondition: "목표 시간 안에 결론과 핵심 근거가 모두 등장합니다.",
+  },
+  {
+    problemLabel: "근거를 한 문장으로 압축하기",
+    nextAction: "가장 중요한 수치나 사례 하나만 남기고 판단 기준을 붙여 말하세요.",
+    successCondition: "근거와 판단 기준을 한 문장으로 끊김 없이 전달합니다.",
+  },
+  {
+    problemLabel: "다음 행동을 분명하게 요청하기",
+    nextAction: "마지막 문장을 청중이 선택하거나 실행할 행동으로 마무리하세요.",
+    successCondition: "구체적인 담당·시점·행동 중 두 가지 이상을 말합니다.",
+  },
+] as const;
+
+export function createDemoPracticeGoalCopies(
+  slide: Deck["slides"][number],
+  index: number,
+) {
+  const copy = demoPracticeGoalCopies[index] ?? demoPracticeGoalCopies[0];
+  return {
+    problemLabel: `${slide.title} · ${copy.problemLabel}`,
+    nextAction: copy.nextAction,
+    successCondition: copy.successCondition,
+  };
+}
+
 export async function ensureDemoProjectAccess(
   manager: { query(sql: string, params: unknown[]): Promise<unknown> },
   config: Pick<OrbitConfig, "DEMO_PROJECT_ID" | "DEMO_WORKSPACE_ID">,
@@ -179,12 +209,13 @@ export async function resetCoachingDemo() {
       const slides = deck.slides.slice(0,3);
       for (let index=0;index<3;index+=1) {
         const slide=slides[index] ?? deck.slides[0]; const criterion=evaluationPlan.criteria[index] ?? evaluationPlan.criteria[0];
+        const copy=createDemoPracticeGoalCopies(slide,index);
         const pattern=createHash("sha256").update(`${criterion.criterionId}:${slide.slideId}:${index}`).digest("hex");
         await manager.query(`INSERT INTO practice_goals (goal_id,goal_set_id,project_id,origin_full_run_id,priority,pattern_key,category,criterion_ref_json,target_scope_json,recommended_practice_mode,evidence_refs_json,problem_label,next_action,success_condition,measurement_state,created_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'focused','[]'::jsonb,$10,$11,$12,'measured',now())`,[
           `goal_demo_${index+1}`,goalSetId,config.DEMO_PROJECT_ID,runId,index+1,pattern,criterion.category,
           {criterionId:criterion.criterionId,revision:criterion.revision},{type:"slide",scopeId:`scope_demo_${index+1}`,slideId:slide.slideId},
-          `${slide.title} 전달을 더 선명하게`,"핵심 결론을 먼저 말하고 근거를 한 문장으로 연결하세요.","목표 시간 안에 결론과 근거를 모두 전달합니다.",
+          copy.problemLabel,copy.nextAction,copy.successCondition,
         ]);
       }
       await manager.query(`INSERT INTO practice_goal_heads (project_id,source_full_run_id,current_goal_set_id,current_analysis_revision,updated_at) VALUES ($1,$2,$3,1,now())`, [config.DEMO_PROJECT_ID,runId,goalSetId]);
