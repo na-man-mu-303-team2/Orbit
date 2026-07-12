@@ -89,18 +89,26 @@ export class FocusedPracticeService {
         createdAt: now,
         completedAt: null,
       });
-      await manager.query(
+      const inserted = await manager.query(
         `INSERT INTO focused_practice_sessions (
           practice_session_id, project_id, deck_id, source_full_run_id, source_goal_set_id,
           client_request_id, goal_ids_json, target_scope_json, snapshot_json,
           compatibility_state, status, data_origin, created_by, created_at, completed_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT (project_id, client_request_id) DO NOTHING
+        RETURNING practice_session_id`,
         [session.practiceSessionId, projectId, session.deckId, session.sourceFullRunId,
           session.sourceGoalSetId, request.clientRequestId, JSON.stringify(session.goalIds), session.targetScope,
           session.snapshot, session.compatibilityState, session.status, session.dataOrigin,
           session.createdBy, session.createdAt, null],
       );
-      return { session };
+      if (first(inserted)) return { session };
+      const concurrent = first(await manager.query(
+        `SELECT * FROM focused_practice_sessions WHERE project_id = $1 AND client_request_id = $2`,
+        [projectId, request.clientRequestId],
+      ));
+      if (!concurrent) throw new ConflictException("Focused practice session could not be created.");
+      return { session: toSession(concurrent) };
     });
   }
 
