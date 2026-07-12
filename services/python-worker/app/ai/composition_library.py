@@ -570,7 +570,7 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
     items = _items(slide)
     duplicates_items = _message_duplicates_items(slide, items)
     elements = [_background(order, style), _title(order, slide, style)]
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(5), 352, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(5), 376, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
     if not duplicates_items:
         elements.append(message)
     if direction.asset_role != "none":
@@ -800,6 +800,7 @@ def normalize_design_program(
     ):
         selected_spec = COMPOSITION_SPECS[selected]
         direction.composition_id = selected
+        official_source_available = slides[index].get("officialSourceAvailable")
         if selected_spec.media_requirement == "none" or media_policy in {"minimal", "avoid"}:
             direction.asset_role = "none"
             direction.required_asset = False
@@ -807,6 +808,13 @@ def normalize_design_program(
             if direction.asset_role == "none":
                 direction.asset_role = "atmosphere" if index == 0 else "evidence"
             direction.required_asset = True
+        if (
+            media_policy == "hybrid"
+            and direction.asset_role == "evidence"
+            and official_source_available is False
+        ):
+            direction.asset_role = "none"
+            direction.required_asset = False
 
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
     _enforce_background_rhythm(normalized, force_light)
@@ -837,12 +845,32 @@ def _select_composition_sequence(
             )
             if _supports(candidate, slide_type, item_count)
             and content_supports_composition(candidate, slide)
+            and not unavailable_hybrid_evidence_candidate(
+                candidate,
+                direction,
+                slide,
+                index,
+                media_policy,
+            )
             and not (force_light and candidate == "hero-full-bleed")
             and not (
                 media_policy in {"minimal", "avoid"}
                 and COMPOSITION_SPECS[candidate].media_requirement == "required"
             )
         )
+        if (
+            media_policy == "hybrid"
+            and slide.get("officialSourceAvailable") is False
+            and direction.asset_role == "evidence"
+        ):
+            candidates = tuple(
+                sorted(
+                    candidates,
+                    key=lambda candidate: (
+                        COMPOSITION_SPECS[candidate].media_requirement != "optional"
+                    ),
+                )
+            )
         if not candidates:
             raise CompositionCompileError(
                 f"No composition supports {slide_type} with {item_count} content items"
@@ -913,6 +941,25 @@ def content_supports_composition(
         )
         return bool(re.search(r"\d", metric_text))
     return True
+
+
+def unavailable_hybrid_evidence_candidate(
+    composition_id: CompositionId,
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    index: int,
+    media_policy: str,
+) -> bool:
+    if (
+        media_policy != "hybrid"
+        or slide.get("officialSourceAvailable") is not False
+    ):
+        return False
+    spec = COMPOSITION_SPECS[composition_id]
+    effective_role = direction.asset_role
+    if spec.media_requirement == "required" and effective_role == "none":
+        effective_role = "atmosphere" if index == 0 else "evidence"
+    return spec.media_requirement == "required" and effective_role == "evidence"
 
 
 def compile_composition(
@@ -1025,10 +1072,11 @@ def _enforce_media_budget(
         spec = COMPOSITION_SPECS[direction.composition_id]
         if spec.media_requirement != "optional":
             continue
+        slide = slides[direction.order - 1]
         direction.asset_role = (
-            "atmosphere"
-            if direction.order in {1, len(program.slides)}
-            else "evidence"
+            "evidence"
+            if slide.get("officialSourceAvailable") is not False
+            else "atmosphere"
         )
         direction.required_asset = False
         current += 1

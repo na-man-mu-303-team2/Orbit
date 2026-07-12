@@ -21,6 +21,7 @@ from app.ai.generate_deck import (
     GeneratedContentItem,
     MediaIntent,
     SlidePlan,
+    SourceRecord,
     VisualIntent,
     analyze_input,
     initial_source_records,
@@ -202,6 +203,43 @@ def test_program_v2_visual_plan_replaces_generic_media_prompt_with_slide_subject
     assert "avoid gradient and pastel" in plan["imagePrompt"]
 
 
+def test_program_v2_slide_summary_reports_official_source_availability() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            generationMode="design-pack",
+            topic="Splatoon Raiders",
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official announcement",
+            content="Official product facts",
+            authority="official",
+        )
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Official reveal",
+        message="The official reveal is available.",
+        speaker_notes="Introduce the official reveal.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="Official reveal")
+        ],
+        source_refs=["web:official"],
+    )
+
+    summary = program_v2_slide_summary(slide, raw_input)
+
+    assert summary["officialSourceAvailable"] is True
+
+
 def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
     plans = golden_slide_plans()
     plans[6].slide_type = "comparison"
@@ -346,7 +384,19 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
         client=SimpleNamespace(responses=responses),
     )
     raw_input = orchestrator.run_brief_agent()
-    raw_input.source_records = initial_source_records(raw_input)
+    raw_input.source_records = [
+        *initial_source_records(raw_input),
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/splatoon-official",
+            title="Official Splatoon Raiders announcement",
+            content="Official product reveal images and facts",
+            authority="official",
+        ),
+    ]
+    for slide_order in (2, 8):
+        slide_plans[slide_order - 1].source_refs = ["web:official"]
 
     normalized_plans, theme = orchestrator.run_design_director_agent(
         raw_input,

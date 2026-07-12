@@ -256,6 +256,59 @@ def test_normalizer_meets_body_layout_diversity_gate() -> None:
     )
 
 
+def test_hybrid_required_evidence_without_official_source_uses_atmosphere() -> None:
+    slides = [
+        slide_payload("cover", 2),
+        {
+            **slide_payload("data", 2),
+            "officialSourceAvailable": False,
+        },
+        slide_payload("summary", 2),
+    ]
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "hero-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "atmosphere",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "image-evidence",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "image",
+                "assetRole": "evidence",
+                "requiredAsset": True,
+            },
+            {
+                "order": 3,
+                "compositionId": "cta-closing",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "cta",
+                "assetRole": "atmosphere",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(
+        design_program,
+        slides,
+        media_policy="hybrid",
+    )
+    body = normalized.slides[1]
+
+    assert body.composition_id != "image-evidence"
+    assert body.asset_role == "atmosphere"
+    assert body.required_asset is False
+
+
 def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     slide = slide_payload("solution", 2)
     slide["message"] = "\n".join(
@@ -288,6 +341,36 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["height"] >= 392 for element in body_elements)
     assert all(element["props"]["fontSize"] >= 30 for element in body_elements)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
+
+
+def test_editorial_split_distinct_message_meets_no_media_height() -> None:
+    slide = slide_payload("data", 2)
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "editorial-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    message = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_message")
+    )
+
+    assert message["height"] >= 376
 
 
 def test_metric_poster_requires_numeric_evidence() -> None:

@@ -2288,9 +2288,13 @@ class DeckGenerationOrchestrator:
         theme = apply_font_override(theme, raw_input.design.font_override)
         if is_program_v2(raw_input):
             try:
+                slide_summaries = [
+                    program_v2_slide_summary(slide, raw_input)
+                    for slide in slide_plans
+                ]
                 program = create_design_program(
                     art_director_context(raw_input, theme),
-                    [program_v2_slide_summary(slide) for slide in slide_plans],
+                    slide_summaries,
                     client=self.client,
                     model=self.model,
                     api_key=self.api_key,
@@ -2298,7 +2302,7 @@ class DeckGenerationOrchestrator:
                 program = apply_program_v2_design_tokens(program, theme)
                 self.design_program = normalize_design_program(
                     program,
-                    [program_v2_slide_summary(slide) for slide in slide_plans],
+                    slide_summaries,
                     force_light=design_pack_wants_white_canvas(raw_input),
                     media_policy=raw_input.design.media_policy,
                     media_budget=4,
@@ -2682,8 +2686,11 @@ def art_director_context(
     )
 
 
-def program_v2_slide_summary(slide_plan: SlidePlan) -> dict[str, Any]:
-    return {
+def program_v2_slide_summary(
+    slide_plan: SlidePlan,
+    raw_input: RawInput | None = None,
+) -> dict[str, Any]:
+    summary = {
         "title": slide_plan.title,
         "message": slide_plan.message,
         "contentItems": [
@@ -2693,6 +2700,25 @@ def program_v2_slide_summary(slide_plan: SlidePlan) -> dict[str, Any]:
         "visualIntent": slide_plan.visual_intent.model_dump(by_alias=True),
         "mediaIntent": slide_plan.media_intent.model_dump(),
     }
+    if raw_input is not None:
+        records = {
+            source.source_id: source
+            for source in (
+                raw_input.source_records or initial_source_records(raw_input)
+            )
+        }
+        source_refs = slide_plan.source_refs or default_source_refs(
+            raw_input,
+            slide_plan.order,
+        )
+        summary["officialSourceAvailable"] = any(
+            (source := records.get(source_id)) is not None
+            and source.source_type == "web"
+            and source.authority == "official"
+            and bool(source.url)
+            for source_id in source_refs
+        )
+    return summary
 
 
 def apply_program_v2_design_tokens(
