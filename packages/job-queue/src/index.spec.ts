@@ -138,6 +138,7 @@ describe("enqueueAiTemplateDeckGenerationJob", () => {
           tone: "professional"
         },
         design: {
+          engineVersion: "recipe-v1",
           visualRhythm: "auto",
           densityTarget: "medium",
           mediaPolicy: "balanced",

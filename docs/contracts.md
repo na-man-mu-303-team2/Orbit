@@ -740,6 +740,7 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - AI 생성 provider와 공개 이미지 검색 provider는 `@orbit/ai` interface 뒤에 둔다.
 - 생성·검색 결과는 MIME, byte size, 공개 이미지 source URL과 license를 검증한 뒤 기존 `StoragePort`에 `design-asset`으로 저장한다.
 - `project_assets`에는 provider, source URL, author, license, 확인 시각, 생성 prompt와 비용 scope를 기록한다.
+- `program-v2` asset은 원문 페이지 `source_url`과 실제 이미지 `source_asset_url`을 분리하고 `source_authority`, `usage_basis`를 기록한다. `usage_basis = official-reference`는 공식 페이지에서 가져온 참고 이미지라는 뜻이며 재사용 라이선스 보장을 의미하지 않는다.
 - Deck의 placeholder는 내부 `/api/v1/projects/:projectId/assets/:fileId/content` URL을 쓰는 editable image element로 교체한다.
 - `aiNotes.visualPlan.asset`에는 file ID와 공개 가능한 provenance를 기록한다.
 - provider timeout, 제한된 재시도 실패, deck·user·organization 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.

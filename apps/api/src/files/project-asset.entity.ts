@@ -2,6 +2,12 @@ import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
 
 export type ProjectAssetStatus = "pending" | "uploaded" | "deleted";
+export type ProjectAssetSourceAuthority = "official" | "independent" | "unknown";
+export type ProjectAssetUsageBasis =
+  | "user-provided"
+  | "licensed"
+  | "official-reference"
+  | "generated";
 
 @Entity({ name: "project_assets" })
 export class ProjectAssetEntity {
@@ -43,6 +49,15 @@ export class ProjectAssetEntity {
 
   @Column({ name: "source_url", nullable: true, type: "text" })
   sourceUrl!: string | null;
+
+  @Column({ name: "source_asset_url", nullable: true, type: "text" })
+  sourceAssetUrl!: string | null;
+
+  @Column({ name: "source_authority", nullable: true, type: "text" })
+  sourceAuthority!: ProjectAssetSourceAuthority | null;
+
+  @Column({ name: "usage_basis", nullable: true, type: "text" })
+  usageBasis!: ProjectAssetUsageBasis | null;
 
   @Column({ nullable: true, type: "text" })
   author!: string | null;

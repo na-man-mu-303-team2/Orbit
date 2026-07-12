@@ -70,6 +70,14 @@ type DeckValidationInput = {
         imagePrompt?: string;
         imageAlt?: string;
         imagePlacement?: string;
+        asset?: {
+          fileId: string;
+          provider: string;
+          sourceUrl?: string;
+          sourceAssetUrl?: string;
+          sourceAuthority?: string;
+          usageBasis?: string;
+        };
       };
       sourceLedger?: Array<{
         claim: string;
@@ -1168,7 +1176,15 @@ describe("deckSchema validation", () => {
         reason: "Shapes and typography explain the message.",
         imagePrompt: "A precise system diagram with a clear focal flow",
         imageAlt: "System flow diagram",
-        imagePlacement: "right"
+        imagePlacement: "right",
+        asset: {
+          fileId: "file_official_1",
+          provider: "official-web",
+          sourceUrl: "https://official.example/game",
+          sourceAssetUrl: "https://official.example/key-art.png",
+          sourceAuthority: "official",
+          usageBasis: "official-reference"
+        }
       },
       sourceLedger: [
         {
@@ -1211,7 +1227,11 @@ describe("deckSchema validation", () => {
     expect(deckSchema.parse(deck).slides[0].aiNotes?.visualPlan).toMatchObject({
       imagePrompt: "A precise system diagram with a clear focal flow",
       imageAlt: "System flow diagram",
-      imagePlacement: "right"
+      imagePlacement: "right",
+      asset: expect.objectContaining({
+        sourceAuthority: "official",
+        usageBasis: "official-reference"
+      })
     });
   });
 

@@ -287,18 +287,20 @@ describe("processGenerateDeckJob", () => {
           null
         )
       ]);
+    let pythonRequestBody = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        pythonRequestBody = String(init?.body ?? "");
+        return new Response(
           JSON.stringify({
             deck,
             warnings: [],
             validation: validation(),
             diagnostics: diagnostics()
           })
-        )
-      )
+        );
+      })
     );
 
     await processGenerateDeckJob(
@@ -310,6 +312,10 @@ describe("processGenerateDeckJob", () => {
         request: {
           ...payload.request,
           generationMode: "design-pack",
+          design: {
+            ...payload.request.design,
+            engineVersion: "program-v2"
+          },
           savedDesignPack: { id: snapshot.id, version: snapshot.version }
         },
         designPackSnapshot: snapshot,
@@ -323,6 +329,13 @@ describe("processGenerateDeckJob", () => {
       savedDeck.metadata.designPackSnapshot?.preferences.typography
     ).toMatchObject({ titleSizeScale: 1, bodySizeScale: 1 });
     expect(savedDeck.metadata.brandKitSnapshot).toEqual(brandKitSnapshot);
+    const designProgramContext = JSON.parse(pythonRequestBody).designProgramContext;
+    expect(designProgramContext.savedDesignPreferences).toMatchObject(
+      snapshot.preferences
+    );
+    expect(designProgramContext.brandKitLockedValues).toEqual(
+      brandKitSnapshot.values
+    );
   });
 
   it("fails before saving a deck when blocking validation issues remain", async () => {

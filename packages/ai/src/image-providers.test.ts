@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  OfficialWebImageProvider,
   OpenAiGeneratedImageProvider,
   OpenversePublicImageSearchProvider
 } from "./image-providers";
+
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }])
+}));
 
 describe("image providers", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -338,5 +343,68 @@ describe("image providers", () => {
         query: "Git branching presentation diagram"
       })
     ).rejects.toThrow("no licensed image candidate");
+  });
+
+  it("loads an official representative image with distinct provenance URLs", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          '<html><head><meta property="og:image" content="/media/key-art.jpg"></head></html>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OfficialWebImageProvider().fetch({
+      sourceUrls: ["https://official.example/game"],
+      query: "Splatoon Raiders key art"
+    });
+
+    expect(result).toMatchObject({
+      provider: "official-web",
+      sourceUrl: "https://official.example/game",
+      sourceAssetUrl: "https://official.example/media/key-art.jpg",
+      sourceAuthority: "official",
+      usageBasis: "official-reference"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks private official source URLs before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OfficialWebImageProvider().fetch({
+        sourceUrls: ["http://127.0.0.1/admin"],
+        query: "private"
+      })
+    ).rejects.toThrow("private network");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks redirects from official pages to private networks", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://127.0.0.1/internal.png" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OfficialWebImageProvider().fetch({
+        sourceUrls: ["https://official.example/game"],
+        query: "redirect"
+      })
+    ).rejects.toThrow("private network");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

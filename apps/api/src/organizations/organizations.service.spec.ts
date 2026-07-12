@@ -133,6 +133,7 @@ function baseRequest(): GenerateDeckRequest {
     template: "default",
     metadata: { audience: "general", purpose: "inform", tone: "friendly" },
     design: {
+      engineVersion: "recipe-v1",
       visualRhythm: "clean",
       densityTarget: "medium",
       mediaPolicy: "ai-generated",

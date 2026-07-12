@@ -220,6 +220,11 @@ export const slideVisualPlanSchema = z.object({
       fileId: z.string().min(1),
       provider: z.string().min(1),
       sourceUrl: z.string().url().optional(),
+      sourceAssetUrl: z.string().url().optional(),
+      sourceAuthority: z.enum(["official", "independent", "unknown"]).optional(),
+      usageBasis: z
+        .enum(["user-provided", "licensed", "official-reference", "generated"])
+        .optional(),
       author: z.string().min(1).optional(),
       license: z.string().min(1).optional(),
       checkedAt: z.string().datetime().optional()

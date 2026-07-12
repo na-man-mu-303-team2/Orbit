@@ -1,8 +1,11 @@
 import type {
   GeneratedImageProvider,
   ImageAssetCandidate,
+  OfficialImageProvider,
   PublicImageSearchProvider
 } from "./index";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
 const maxImageBytes = 12 * 1024 * 1024;
 
@@ -47,7 +50,9 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
       fileName: "ai-generated.png",
       provider: "openai",
       checkedAt: new Date().toISOString(),
-      generationPrompt: input.prompt
+      generationPrompt: input.prompt,
+      sourceAuthority: "unknown",
+      usageBasis: "generated"
     };
   }
 }
@@ -123,6 +128,9 @@ export class OpenversePublicImageSearchProvider
             fileName: fileNameForMime(candidate.title || "public-image", mimeType),
             provider: "openverse",
             sourceUrl: candidate.foreign_landing_url,
+            sourceAssetUrl: imageUrl,
+            sourceAuthority: "independent",
+            usageBasis: "licensed",
             author: candidate.creator?.trim() || "Unknown creator",
             license: candidate.license_url || candidate.license,
             checkedAt: new Date().toISOString()
@@ -134,6 +142,155 @@ export class OpenversePublicImageSearchProvider
     }
     throw lastError ?? new Error("Openverse image candidates were unavailable");
   }
+}
+
+export class OfficialWebImageProvider implements OfficialImageProvider {
+  async fetch(input: {
+    sourceUrls: string[];
+    query: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ImageAssetCandidate> {
+    let lastError: unknown;
+    for (const sourceUrl of [...new Set(input.sourceUrls)].slice(0, 4)) {
+      try {
+        const page = await fetchPublicUrl(sourceUrl, {
+          accept: "text/html,application/xhtml+xml",
+          signal: input.abortSignal
+        });
+        if (!page.ok) {
+          throw new Error(`Official source page failed with status ${page.status}`);
+        }
+        const contentType = page.headers.get("content-type")?.toLowerCase() ?? "";
+        if (!contentType.includes("text/html")) {
+          throw new Error("Official source page is not HTML");
+        }
+        const contentLength = Number(page.headers.get("content-length") ?? 0);
+        if (contentLength > 1_500_000) {
+          throw new Error("Official source page exceeds the HTML size limit");
+        }
+        const html = await page.text();
+        if (html.length > 1_500_000) {
+          throw new Error("Official source page exceeds the HTML size limit");
+        }
+        const imageUrl = officialImageUrl(html, page.url || sourceUrl);
+        if (!imageUrl) throw new Error("Official source page has no representative image");
+        const image = await fetchPublicUrl(imageUrl, {
+          accept: "image/*",
+          signal: input.abortSignal
+        });
+        if (!image.ok) {
+          throw new Error(`Official image download failed with status ${image.status}`);
+        }
+        const mimeType = supportedImageMimeType(image.headers.get("content-type"));
+        const body = new Uint8Array(await image.arrayBuffer());
+        assertImageSize(body);
+        return {
+          body,
+          mimeType,
+          fileName: fileNameForMime(input.query || "official-image", mimeType),
+          provider: "official-web",
+          sourceUrl: page.url || sourceUrl,
+          sourceAssetUrl: image.url || imageUrl,
+          sourceAuthority: "official",
+          usageBasis: "official-reference",
+          checkedAt: new Date().toISOString()
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error("Official sources produced no usable image");
+  }
+}
+
+function officialImageUrl(html: string, baseUrl: string) {
+  const patterns = [
+    /<meta\s+[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*>/i,
+    /<link\s+[^>]*rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/i
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(html);
+    if (!match?.[1]) continue;
+    const decoded = match[1].replaceAll("&amp;", "&").trim();
+    try {
+      return new URL(decoded, baseUrl).toString();
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+async function fetchPublicUrl(
+  rawUrl: string,
+  input: { accept: string; signal?: AbortSignal }
+) {
+  let url = new URL(rawUrl);
+  for (let redirect = 0; redirect <= 3; redirect += 1) {
+    await assertPublicHttpUrl(url);
+    const response = await fetch(url, {
+      redirect: "manual",
+      headers: { accept: input.accept },
+      signal: input.signal
+    });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new Error("External redirect is missing a location");
+    url = new URL(location, url);
+  }
+  throw new Error("External redirect limit exceeded");
+}
+
+async function assertPublicHttpUrl(url: URL) {
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("External asset URL must use public HTTP(S)");
+  }
+  if (url.port && !["80", "443"].includes(url.port)) {
+    throw new Error("External asset URL uses a disallowed port");
+  }
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    throw new Error("External asset URL cannot target localhost");
+  }
+  const addresses = isIP(hostname)
+    ? [{ address: hostname }]
+    : await lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
+    throw new Error("External asset URL resolved to a private network");
+  }
+}
+
+function isPrivateAddress(address: string) {
+  const normalized = address.toLowerCase();
+  if (
+    normalized === "::1" ||
+    normalized === "::" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb") ||
+    normalized.startsWith("ff") ||
+    normalized.startsWith("2001:db8")
+  ) {
+    return true;
+  }
+  const ipv4 = mappedIpv4Address(normalized);
+  const parts = ipv4.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false;
+  const [first, second] = parts;
+  return first === 0 || first === 10 || first === 127 || first >= 224 || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+}
+
+function mappedIpv4Address(address: string) {
+  if (!address.startsWith("::ffff:")) return address;
+  const mapped = address.slice("::ffff:".length);
+  if (mapped.includes(".")) return mapped;
+  const [high, low] = mapped.split(":").map((part) => Number.parseInt(part, 16));
+  if (!Number.isInteger(high) || !Number.isInteger(low)) return address;
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
 }
 
 const relevanceStopWords = new Set([

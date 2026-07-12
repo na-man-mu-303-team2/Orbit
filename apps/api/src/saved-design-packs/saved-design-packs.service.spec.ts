@@ -107,6 +107,7 @@ describe("SavedDesignPacksService", () => {
     const request = baseRequest({
       savedDesignPack: { id: "design_pack_1", version: 1 },
       design: {
+        engineVersion: "recipe-v1",
         visualRhythm: "clean",
         densityTarget: "medium",
         mediaPolicy: "minimal",
@@ -139,6 +140,7 @@ function baseRequest(overrides: Partial<GenerateDeckRequest>): GenerateDeckReque
     template: "default",
     metadata: { audience: "general", purpose: "inform", tone: "professional" },
     design: {
+      engineVersion: "recipe-v1",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",

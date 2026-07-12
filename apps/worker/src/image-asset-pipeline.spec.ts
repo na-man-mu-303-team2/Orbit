@@ -1,4 +1,8 @@
-import type { GeneratedImageProvider, PublicImageSearchProvider } from "@orbit/ai";
+import type {
+  GeneratedImageProvider,
+  OfficialImageProvider,
+  PublicImageSearchProvider
+} from "@orbit/ai";
 import { deckSchema } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
@@ -250,6 +254,73 @@ describe("image asset pipeline", () => {
     );
   });
 
+  it("resolves evidence images only from official source ledger URLs", async () => {
+    const fetch = vi.fn<OfficialImageProvider["fetch"]>(async () => ({
+      body: pngHeader(1280, 720),
+      mimeType: "image/png",
+      fileName: "official.png",
+      provider: "official-web",
+      sourceUrl: "https://official.example/game",
+      sourceAssetUrl: "https://official.example/key-art.png",
+      sourceAuthority: "official",
+      usageBasis: "official-reference",
+      checkedAt: "2026-07-12T00:00:00.000Z"
+    }));
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([]);
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const deck = imageDeck("official-assets");
+    deck.slides[0].aiNotes = {
+      ...deck.slides[0].aiNotes,
+      emphasisPoints: deck.slides[0].aiNotes?.emphasisPoints ?? [],
+      sourceEvidence: deck.slides[0].aiNotes?.sourceEvidence ?? [],
+      sourceLedger: [
+        {
+          claim: "공식 공개 정보",
+          source: "https://official.example/game",
+          sourceType: "web",
+          sourceId: "web:official",
+          url: "https://official.example/game",
+          authority: "official",
+          confidence: 0.9,
+          usedInSlideId: "slide_1"
+        }
+      ]
+    };
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      deck,
+      {
+        official: { fetch },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" }
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrls: ["https://official.example/game"]
+      })
+    );
+    expect(query.mock.calls[1]?.[0]).toContain("source_asset_url");
+    expect(result.deck.slides[0].aiNotes?.visualPlan?.asset).toMatchObject({
+      sourceAuthority: "official",
+      usageBasis: "official-reference"
+    });
+  });
+
   it("does not use a generic fallback query when specific searches fail", async () => {
     const search = vi
       .fn<PublicImageSearchProvider["search"]>()
@@ -294,7 +365,7 @@ describe("image asset pipeline", () => {
 });
 
 function imageDeck(
-  policy: "ai-generated" | "public-assets",
+  policy: "ai-generated" | "official-assets" | "public-assets",
   visualPlan: Record<string, string> = {}
 ) {
   return deckSchema.parse({

@@ -1,6 +1,7 @@
 import type {
   GeneratedImageProvider,
   ImageAssetCandidate,
+  OfficialImageProvider,
   PublicImageSearchProvider
 } from "@orbit/ai";
 import {
@@ -15,6 +16,7 @@ import type { DataSource } from "typeorm";
 
 export type ImageAssetRuntime = {
   generated?: GeneratedImageProvider;
+  official?: OfficialImageProvider;
   publicSearch?: PublicImageSearchProvider;
   maxPerDeck: number;
   maxPerUserPerDay: number;
@@ -123,9 +125,19 @@ export async function resolveDeckImageAssets(
   let resolvedDeck = deck;
   for (const slide of budgeted) {
     const policy = slide.aiNotes?.visualPlan?.imageSourcePolicy;
-    if (policy !== "ai-generated" && policy !== "public-assets") continue;
+    if (
+      policy !== "ai-generated" &&
+      policy !== "official-assets" &&
+      policy !== "public-assets"
+    ) {
+      continue;
+    }
     const provider =
-      policy === "ai-generated" ? runtime.generated : runtime.publicSearch;
+      policy === "ai-generated"
+        ? runtime.generated
+        : policy === "official-assets"
+          ? runtime.official
+          : runtime.publicSearch;
     if (!provider) {
       warnings.push(`Image provider is disabled for ${policy}.`);
       continue;
@@ -141,10 +153,16 @@ export async function resolveDeckImageAssets(
                   prompt,
                   abortSignal: AbortSignal.timeout(60_000)
                 })
-              : await searchPublicImage(
-                  provider as PublicImageSearchProvider,
-                  publicImageQueries(deck, slide)
-                );
+              : policy === "official-assets"
+                ? await (provider as OfficialImageProvider).fetch({
+                    sourceUrls: officialSourceUrls(slide),
+                    query: prompt,
+                    abortSignal: AbortSignal.timeout(30_000)
+                  })
+                : await searchPublicImage(
+                    provider as PublicImageSearchProvider,
+                    publicImageQueries(deck, slide)
+                  );
           assertCandidate(candidate, policy);
           return candidate;
         },
@@ -178,7 +196,9 @@ function isResolvableImageSlide(slide: Slide) {
   const plan = slide.aiNotes?.visualPlan;
   return (
     plan?.imageNeeded === true &&
-    ["ai-generated", "public-assets"].includes(plan.imageSourcePolicy) &&
+    ["ai-generated", "official-assets", "public-assets"].includes(
+      plan.imageSourcePolicy
+    ) &&
     slide.elements.some(
       (element) =>
         element.role === "media" &&
@@ -324,6 +344,15 @@ function assertCandidate(asset: ImageAssetCandidate, policy: string) {
   if (policy === "public-assets" && (!asset.sourceUrl || !asset.license)) {
     throw new Error("Public image source and license are required");
   }
+  if (
+    policy === "official-assets" &&
+    (!asset.sourceUrl ||
+      !asset.sourceAssetUrl ||
+      asset.sourceAuthority !== "official" ||
+      asset.usageBasis !== "official-reference")
+  ) {
+    throw new Error("Official image source provenance is required");
+  }
   const dimensions = imageDimensions(asset.body, asset.mimeType);
   if (!dimensions || dimensions.width < 640 || dimensions.height < 360) {
     throw new Error("Image resolution must be at least 640x360");
@@ -390,12 +419,13 @@ async function storeImageAsset(
         file_id, project_id, storage_key, original_name, mime_type, size, url,
         purpose, status, created_at, uploaded_at, deleted_at,
         source_url, author, license, license_checked_at, asset_provider,
-        generation_prompt, generated_for_user_id, generated_for_organization_id
+        generation_prompt, generated_for_user_id, generated_for_organization_id,
+        source_asset_url, source_authority, usage_basis
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7,
         'design-asset', 'uploaded', now(), now(), null,
-        $8, $9, $10, $11, $12, $13, $14, $15
+        $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
       )
     `,
     [
@@ -413,7 +443,10 @@ async function storeImageAsset(
       asset.provider,
       asset.generationPrompt ?? null,
       scope.userId,
-      scope.organizationId ?? null
+      scope.organizationId ?? null,
+      asset.sourceAssetUrl ?? null,
+      asset.sourceAuthority ?? "unknown",
+      asset.usageBasis ?? (asset.generationPrompt ? "generated" : null)
     ]
   );
   return { fileId, url };
@@ -471,6 +504,13 @@ function replaceSlideImagePlaceholder(
                       fileId,
                       provider: asset.provider,
                       ...(asset.sourceUrl ? { sourceUrl: asset.sourceUrl } : {}),
+                      ...(asset.sourceAssetUrl
+                        ? { sourceAssetUrl: asset.sourceAssetUrl }
+                        : {}),
+                      ...(asset.sourceAuthority
+                        ? { sourceAuthority: asset.sourceAuthority }
+                        : {}),
+                      ...(asset.usageBasis ? { usageBasis: asset.usageBasis } : {}),
                       ...(asset.author ? { author: asset.author } : {}),
                       ...(asset.license ? { license: asset.license } : {}),
                       ...(asset.checkedAt ? { checkedAt: asset.checkedAt } : {})
@@ -522,6 +562,21 @@ function publicImageQueries(deck: Deck, slide: Slide) {
   ]
     .map((query) => query.replace(/\s+/g, " ").trim().slice(0, 120))
     .filter((query, index, values) => query && values.indexOf(query) === index);
+}
+
+function officialSourceUrls(slide: Slide) {
+  return [
+    ...new Set(
+      (slide.aiNotes?.sourceLedger ?? [])
+        .filter(
+          (entry) =>
+            entry.sourceType === "web" &&
+            entry.authority === "official" &&
+            entry.url
+        )
+        .map((entry) => entry.url as string)
+    )
+  ];
 }
 
 function safeStorageName(value: string) {

@@ -1,5 +1,6 @@
 import {
   OpenAiGeneratedImageProvider,
+  OfficialWebImageProvider,
   OpenversePublicImageSearchProvider
 } from "@orbit/ai";
 import type { OrbitConfig } from "@orbit/config";
@@ -14,6 +15,7 @@ export function createImageAssetRuntime(config: OrbitConfig): ImageAssetRuntime 
             config.OPENAI_IMAGE_MODEL
           )
         : undefined,
+    official: new OfficialWebImageProvider(),
     publicSearch:
       config.PUBLIC_IMAGE_PROVIDER === "openverse"
         ? new OpenversePublicImageSearchProvider()

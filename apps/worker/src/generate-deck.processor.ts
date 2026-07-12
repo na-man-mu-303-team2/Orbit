@@ -174,6 +174,15 @@ export async function processGenerateDeckJob(
           : {}),
         ...(designTemplate.templateBlueprint
           ? { templateBlueprint: designTemplate.templateBlueprint }
+          : {}),
+        ...(payload.request.design.engineVersion === "program-v2"
+          ? {
+              designProgramContext: {
+                savedDesignPreferences:
+                  payload.designPackSnapshot?.preferences ?? {},
+                brandKitLockedValues: payload.brandKitSnapshot?.values ?? {}
+              }
+            }
           : {})
       }),
       signal: AbortSignal.timeout(
@@ -276,7 +285,7 @@ export async function processGenerateDeckJob(
           payload.imageAssetScope
         );
         deck = resolvedImages.deck;
-        imageWarnings = resolvedImages.warnings;
+        imageWarnings.push(...resolvedImages.warnings);
       } catch (error) {
         imageWarnings = [
           `Image asset pipeline fallback retained placeholders: ${

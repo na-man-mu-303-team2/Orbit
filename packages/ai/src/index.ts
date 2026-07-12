@@ -40,6 +40,9 @@ export type ImageAssetCandidate = {
   fileName: string;
   provider: string;
   sourceUrl?: string;
+  sourceAssetUrl?: string;
+  sourceAuthority?: "official" | "independent" | "unknown";
+  usageBasis?: "user-provided" | "licensed" | "official-reference" | "generated";
   author?: string;
   license?: string;
   checkedAt?: string;
@@ -55,6 +58,14 @@ export interface GeneratedImageProvider {
 
 export interface PublicImageSearchProvider {
   search(input: {
+    query: string;
+    abortSignal?: AbortSignal;
+  }): Promise<ImageAssetCandidate>;
+}
+
+export interface OfficialImageProvider {
+  fetch(input: {
+    sourceUrls: string[];
     query: string;
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate>;
