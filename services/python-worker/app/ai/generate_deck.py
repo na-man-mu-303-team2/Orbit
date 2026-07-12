@@ -6577,7 +6577,14 @@ def program_v2_ai_notes(
             program,
             direction,
         ),
-        "sourceLedger": design_pack_source_ledgers(raw_input, slide_plan),
+        "sourceLedger": design_pack_source_ledgers(
+            raw_input,
+            slide_plan,
+            include_official_web=(
+                raw_input.design.media_policy == "hybrid"
+                and direction.asset_role == "evidence"
+            ),
+        ),
         "timingPlan": design_pack_timing_plan(raw_input, slide_plan),
         "compositionPlan": {
             "compositionId": direction.composition_id,
@@ -6828,15 +6835,39 @@ def visual_plan_reason(
 def design_pack_source_ledgers(
     raw_input: RawInput,
     slide_plan: SlidePlan,
+    *,
+    include_official_web: bool = False,
 ) -> list[dict[str, Any]]:
     records = {
         record.source_id: record
         for record in (raw_input.source_records or initial_source_records(raw_input))
     }
-    source_refs = slide_plan.source_refs or default_source_refs(
-        raw_input,
-        slide_plan.order,
+    source_refs = list(
+        slide_plan.source_refs
+        or default_source_refs(
+            raw_input,
+            slide_plan.order,
+        )
     )
+    if include_official_web and not any(
+        (source := records.get(source_id)) is not None
+        and source.source_type == "web"
+        and source.authority == "official"
+        and bool(source.url)
+        for source_id in source_refs
+    ):
+        official_source_id = next(
+            (
+                source.source_id
+                for source in records.values()
+                if source.source_type == "web"
+                and source.authority == "official"
+                and bool(source.url)
+            ),
+            None,
+        )
+        if official_source_id:
+            source_refs.insert(0, official_source_id)
     claims = [item.text for item in slide_plan.content_items]
     if not claims:
         claims = unique_non_empty([slide_plan.message, *slide_plan.keywords[:2]])

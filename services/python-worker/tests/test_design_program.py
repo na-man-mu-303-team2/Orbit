@@ -25,6 +25,7 @@ from app.ai.generate_deck import (
     VisualIntent,
     analyze_input,
     apply_program_v2_design_tokens,
+    design_pack_source_ledgers,
     initial_source_records,
     is_expected_media_placeholder,
     program_v2_visual_plan,
@@ -351,6 +352,62 @@ def test_program_v2_hybrid_cover_reserves_deck_official_source() -> None:
     assert program_v2_slide_summary(body, raw_input)[
         "officialSourceAvailable"
     ] is False
+
+
+def test_program_v2_evidence_ledger_includes_deck_official_source() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            generationMode="design-pack",
+            topic="Splatoon Raiders",
+            brief={"referencePolicy": "research-first"},
+            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official announcement",
+            content="Official product facts",
+            authority="official",
+        ),
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:independent",
+            url="https://example.com/news",
+            title="Independent coverage",
+            content="Independent product coverage",
+            authority="independent",
+        ),
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Official reveal",
+        message="The official reveal is available.",
+        speaker_notes="Introduce the official reveal.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="Official reveal")
+        ],
+        source_refs=["web:independent"],
+    )
+
+    ledgers = design_pack_source_ledgers(
+        raw_input,
+        slide,
+        include_official_web=True,
+    )
+
+    assert ledgers[0]["sourceId"] == "web:official"
+    assert ledgers[0]["authority"] == "official"
+    assert {ledger["sourceId"] for ledger in ledgers} == {
+        "web:official",
+        "web:independent",
+    }
 
 
 def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
