@@ -154,11 +154,11 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("음성 없이 연습하기");
     expect(html).toContain("이번 목표는");
     expect(html).not.toContain("지난번보다");
-    expect(html).toContain("Live STT");
+    expect(html).not.toContain("Live STT");
     expect(html).not.toContain(deck.slides[0]?.title);
     expect(html).not.toContain("Partial transcript");
-    expect(html).toContain("Report AI");
-    expect(html).toContain("Speaker notes");
+    expect(html).not.toContain("Report AI");
+    expect(html).not.toContain("Speaker notes");
   });
 
   it("uses the stored previous rehearsal summary on the preflight screen", () => {

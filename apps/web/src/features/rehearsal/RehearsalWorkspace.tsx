@@ -4379,9 +4379,6 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
-      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
-        Live STT / Report AI / Speaker notes
-      </div>
       {isLiveStopModalOpen ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section
@@ -5167,9 +5164,6 @@ function RehearsalPreflightScreen(props: {
 
   return (
     <main className="rehearsal-preflight-screen" aria-label="리허설 시작 전">
-      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
-        Live STT / Report AI / Speaker notes
-      </div>
       <div className="rehearsal-preflight-banner">
         <Zap size={17} />
         <span>{preflightBanner}</span>
