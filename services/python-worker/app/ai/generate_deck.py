@@ -718,22 +718,22 @@ class GenerateDeckDiagnostics(BaseModel):
         alias="validationIssueCount",
         ge=0,
     )
-    visual_qa_status: Literal["not-run", "passed", "failed"] | None = Field(
-        default=None,
+    visual_qa_status: Literal["not-run", "passed", "failed"] = Field(
+        default="not-run",
         alias="visualQaStatus",
     )
-    visual_review_attempts: int | None = Field(
-        default=None,
+    visual_review_attempts: int = Field(
+        default=0,
         alias="visualReviewAttempts",
         ge=0,
     )
-    visual_repair_attempts: int | None = Field(
-        default=None,
+    visual_repair_attempts: int = Field(
+        default=0,
         alias="visualRepairAttempts",
         ge=0,
     )
-    visual_issue_codes: list[str] | None = Field(
-        default=None,
+    visual_issue_codes: list[str] = Field(
+        default_factory=list,
         alias="visualIssueCodes",
     )
 

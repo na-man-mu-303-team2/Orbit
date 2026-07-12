@@ -18,6 +18,7 @@ from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
     DeckGenerationOrchestrator,
+    GenerateDeckDiagnostics,
     GenerateDeckRequest,
     GenerateDeckResponse,
     GeneratedDeckContentPlan,
@@ -104,6 +105,15 @@ def test_program_v2_golden_request_contract() -> None:
     assert request.design.engine_version == "program-v2"
     assert request.design.media_policy == "hybrid"
     assert request.slide_count_range.min == request.slide_count_range.max == 10
+
+
+def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
+    diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
+
+    assert diagnostics["visualQaStatus"] == "not-run"
+    assert diagnostics["visualReviewAttempts"] == 0
+    assert diagnostics["visualRepairAttempts"] == 0
+    assert diagnostics["visualIssueCodes"] == []
 
 
 def client() -> TestClient:
