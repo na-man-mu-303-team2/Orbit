@@ -41,6 +41,7 @@ import {
   CheckCircle2,
   Download,
   Gauge,
+  Home,
   Mic,
   Monitor,
   MoreHorizontal,
@@ -4331,6 +4332,8 @@ export function RehearsalWorkspace(props: {
       <RehearsalCompletionScreen
         hasReportTarget={Boolean(run?.runId)}
         isReportPending={phase === "uploading" || phase === "processing"}
+        onGoHome={() => navigateToPath("/")}
+        onOpenProject={() => navigateToPath(`/project/${encodeURIComponent(deck.projectId)}`)}
         onPrimaryAction={handleCompletionPrimaryAction}
         onPracticeAgain={handleCompletionPracticeAgain}
         summary={rehearsalSummary}
@@ -4958,10 +4961,10 @@ function RehearsalPreflightScreen(props: {
         if (isCancelled) {
           return;
         }
-        setMicrophonePermission(toPreflightMicrophonePermission(permissionStatus.state));
+        setMicrophonePermission(getPreflightMicrophonePermissionHint(permissionStatus.state));
         permissionStatus.onchange = () => {
           setMicrophonePermission(
-            toPreflightMicrophonePermission(permissionStatus?.state ?? "prompt"),
+            getPreflightMicrophonePermissionHint(permissionStatus?.state ?? "prompt"),
           );
         };
       } catch {
@@ -5002,7 +5005,7 @@ function RehearsalPreflightScreen(props: {
   const startDisabledReason = !props.canStart
     ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
     : !isMicrophoneGranted
-      ? "마이크 권한을 허용해야 리허설을 시작할 수 있습니다."
+      ? "마이크 연결을 확인해야 리허설을 시작할 수 있습니다."
       : "";
 
   async function requestPreflightMicrophonePermission() {
@@ -5203,7 +5206,7 @@ function RehearsalPreflightScreen(props: {
                   onClick={() => void requestPreflightMicrophonePermission()}
                 >
                   <Mic size={14} />
-                  권한 허용 요청
+                  마이크 연결 확인
                 </button>
               ) : null
             }
@@ -5368,12 +5371,9 @@ function PreflightStatusRow(props: {
   );
 }
 
-function toPreflightMicrophonePermission(
+export function getPreflightMicrophonePermissionHint(
   state: PermissionState,
 ): PreflightMicrophonePermission {
-  if (state === "granted") {
-    return "granted";
-  }
   if (state === "denied") {
     return "denied";
   }
@@ -5393,7 +5393,7 @@ function getPreflightMicrophoneStatus(
     case "checking":
       return { icon: "info", tone: "info", value: "권한 상태 확인 중" };
     case "prompt":
-      return { icon: "warning", tone: "warning", value: "시작 전 권한 허용 필요" };
+      return { icon: "warning", tone: "warning", value: "마이크 연결 확인 필요" };
   }
 }
 
@@ -5474,9 +5474,11 @@ type RehearsalCompletionSummary = {
   targetSeconds: number;
 };
 
-function RehearsalCompletionScreen(props: {
+export function RehearsalCompletionScreen(props: {
   hasReportTarget: boolean;
   isReportPending: boolean;
+  onGoHome: () => void;
+  onOpenProject: () => void;
   onPracticeAgain: () => void;
   onPrimaryAction: () => void;
   summary: RehearsalCompletionSummary;
@@ -5546,6 +5548,17 @@ function RehearsalCompletionScreen(props: {
                 : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
           </p>
         </div>
+
+        <nav className="rehearsal-completion-exits" aria-label="리허설 종료 후 이동">
+          <button type="button" onClick={props.onGoHome}>
+            <Home aria-hidden="true" size={16} />
+            홈으로
+          </button>
+          <button type="button" onClick={props.onOpenProject}>
+            <Presentation aria-hidden="true" size={16} />
+            프로젝트 편집기로
+          </button>
+        </nav>
 
         <footer>
           <button type="button" onClick={props.onPracticeAgain}>

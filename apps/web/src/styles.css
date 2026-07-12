@@ -9216,6 +9216,38 @@ button:disabled {
   margin: 0;
 }
 
+.rehearsal-completion-exits {
+  align-items: center;
+  border-top: 1px solid #d9e7e5;
+  display: flex;
+  gap: 8px;
+  padding: 14px 40px 0;
+}
+
+.rehearsal-completion-exits button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--orbit-ds-radius-control);
+  color: #475569;
+  display: inline-flex;
+  font-size: var(--orbit-ds-type-ui-small);
+  font-weight: 700;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.rehearsal-completion-exits button:hover {
+  background: var(--orbit-ds-surface);
+  color: var(--orbit-ds-ink);
+}
+
+.rehearsal-completion-exits button:focus-visible {
+  box-shadow: var(--orbit-ds-focus);
+  outline: none;
+}
+
 .rehearsal-completion-card footer {
   align-items: center;
   display: flex;
@@ -10497,12 +10529,18 @@ button:disabled {
   .rehearsal-completion-card header,
   .rehearsal-completion-body,
   .rehearsal-completion-report-state,
+  .rehearsal-completion-exits,
   .rehearsal-completion-card footer {
     padding-left: 22px;
     padding-right: 22px;
   }
 
   .rehearsal-completion-card footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rehearsal-completion-exits {
     align-items: stretch;
     flex-direction: column;
   }

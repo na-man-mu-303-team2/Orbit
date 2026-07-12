@@ -16,6 +16,7 @@ import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import {
   LiveSttAdapterError,
   RehearsalFailureScreen,
+  RehearsalCompletionScreen,
   RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
@@ -45,6 +46,7 @@ import {
   getLiveSttDebugDecodingMethod,
   getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
+  getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
@@ -145,13 +147,13 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설");
     expect(html).toContain("리허설을 시작할까요?");
     expect(html).toContain("마이크 권한 확인");
-    expect(html).toContain("권한 허용 요청");
+    expect(html).toContain("마이크 연결 확인");
     expect(html).not.toContain("음성 인식 준비");
     expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
     expect(html).toContain("음성 트리거");
     expect(html).toContain("리허설 시작");
     expect(html).toContain("disabled=\"\"");
-    expect(html).toContain("마이크 권한을 허용해야 리허설을 시작할 수 있습니다.");
+    expect(html).toContain("마이크 연결을 확인해야 리허설을 시작할 수 있습니다.");
     expect(html).toContain("음성 없이 연습하기");
     expect(html).toContain("이번 목표는");
     expect(html).not.toContain("지난번보다");
@@ -160,6 +162,42 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("Report AI");
     expect(html).not.toContain("Speaker notes");
+  });
+
+  it("does not treat a permission query hint as a verified microphone connection", () => {
+    expect(getPreflightMicrophonePermissionHint("granted")).toBe("prompt");
+    expect(getPreflightMicrophonePermissionHint("denied")).toBe("denied");
+  });
+
+  it("keeps explicit editor and home exits on the rehearsal completion screen", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        hasReportTarget={false}
+        isReportPending={false}
+        onGoHome={() => undefined}
+        onOpenProject={() => undefined}
+        onPracticeAgain={() => undefined}
+        onPrimaryAction={() => undefined}
+        summary={{
+          comparisonLabel: "",
+          coverageLabel: "측정 안 됨",
+          coveragePercent: 0,
+          durationLabel: "01:00",
+          durationSeconds: 60,
+          hasSpeechTrackingData: false,
+          missedKeywordRows: [],
+          missedKeywordCount: 0,
+          missedKeywordCountLabel: "-",
+          missedKeywordEmptyLabel: "음성 추적 데이터가 없습니다.",
+          targetDeltaLabel: "목표와 같음",
+          targetLabel: "01:00",
+          targetSeconds: 60,
+        }}
+      />,
+    );
+
+    expect(html).toContain("프로젝트 편집기로");
+    expect(html).toContain("홈으로");
   });
 
   it("uses the stored previous rehearsal summary on the preflight screen", () => {
