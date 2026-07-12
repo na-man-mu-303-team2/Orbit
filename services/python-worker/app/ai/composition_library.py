@@ -1,0 +1,892 @@
+from __future__ import annotations
+
+import re
+import textwrap
+from collections import Counter
+from dataclasses import dataclass
+from typing import Any, Callable, Literal
+
+from app.ai.design_program import (
+    BackgroundMode,
+    CompositionId,
+    DeckDesignProgram,
+    SlideCompositionDirection,
+)
+
+
+MediaRequirement = Literal["none", "optional", "required"]
+Element = dict[str, Any]
+Factory = Callable[[SlideCompositionDirection, dict[str, Any], "Style"], tuple[list[Element], str]]
+
+CANVAS_WIDTH = 1920
+CANVAS_HEIGHT = 1080
+SAFE_X = 120
+SAFE_Y = 88
+SAFE_WIDTH = 1680
+SAFE_HEIGHT = 904
+
+
+@dataclass(frozen=True)
+class CompositionSpec:
+    composition_id: CompositionId
+    purposes: tuple[str, ...]
+    min_items: int
+    max_items: int
+    media_requirement: MediaRequirement
+    variants: tuple[BackgroundMode, ...]
+    silhouette: str
+    focal_rule: str
+    factory: Factory
+
+
+@dataclass(frozen=True)
+class Style:
+    background: str
+    surface: str
+    text: str
+    muted_text: str
+    focal: str
+    secondary: str
+    heading_font: str
+    body_font: str
+    cover_size: int
+    title_size: int
+    body_size: int
+    caption_size: int
+
+
+@dataclass(frozen=True)
+class CompiledComposition:
+    elements: list[Element]
+    primary_focal_element_id: str
+    layout: str
+    background_color: str
+
+
+class CompositionCompileError(RuntimeError):
+    pass
+
+
+def _id(order: int, name: str) -> str:
+    return f"el_{order}_program_v2_{name}"
+
+
+def _rect(
+    order: int,
+    name: str,
+    role: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    fill: str,
+    *,
+    stroke: str = "transparent",
+    stroke_width: int = 0,
+    radius: int = 0,
+    opacity: float = 1,
+    locked: bool = False,
+) -> Element:
+    return {
+        "elementId": _id(order, name),
+        "type": "rect",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": opacity,
+        "zIndex": z_index,
+        "locked": locked,
+        "visible": True,
+        "props": {
+            "fill": fill,
+            "stroke": stroke,
+            "strokeWidth": stroke_width,
+            "borderRadius": radius,
+        },
+    }
+
+
+def _text(
+    order: int,
+    name: str,
+    role: str,
+    value: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    color: str,
+    size: int,
+    weight: str,
+    font: str,
+    *,
+    align: str = "left",
+    vertical: str = "top",
+    line_height: float = 1.2,
+    content_item_ids: list[str] | None = None,
+) -> Element:
+    element: Element = {
+        "elementId": _id(order, name),
+        "type": "text",
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": z_index,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": value,
+            "fontFamily": font,
+            "fontSize": size,
+            "fontWeight": weight,
+            "color": color,
+            "align": align,
+            "verticalAlign": vertical,
+            "lineHeight": line_height,
+        },
+    }
+    if content_item_ids:
+        element["_contentItemIds"] = content_item_ids
+    return element
+
+
+def _media(
+    order: int,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    style: Style,
+    caption: str,
+) -> list[Element]:
+    placeholder = _rect(
+        order,
+        "media_placeholder",
+        "media",
+        x,
+        y,
+        width,
+        height,
+        z_index,
+        style.surface,
+        stroke=style.focal,
+        stroke_width=2,
+        radius=8,
+    )
+    caption_element = _text(
+        order,
+        "media_caption",
+        "caption",
+        textwrap.shorten(caption or "Visual", width=80, placeholder="..."),
+        x + 24,
+        y + 24,
+        max(120, width - 48),
+        64,
+        z_index + 1,
+        style.muted_text,
+        style.caption_size,
+        "medium",
+        style.body_font,
+    )
+    return [placeholder, caption_element]
+
+
+def _background(order: int, style: Style) -> Element:
+    return _rect(
+        order,
+        "background",
+        "background",
+        0,
+        0,
+        CANVAS_WIDTH,
+        CANVAS_HEIGHT,
+        0,
+        style.background,
+        locked=True,
+    )
+
+
+def _items(slide: dict[str, Any]) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    for index, item in enumerate(slide.get("contentItems", []), start=1):
+        if isinstance(item, dict):
+            identifier = str(item.get("contentItemId") or f"item-{index}")
+            value = str(item.get("text", ""))
+        else:
+            identifier = f"item-{index}"
+            value = str(item)
+        value = " ".join(value.split())
+        if value:
+            result.append((identifier, value))
+    return result
+
+
+def _title(order: int, slide: dict[str, Any], style: Style) -> Element:
+    return _text(
+        order,
+        "title",
+        "title",
+        str(slide.get("title", "")),
+        SAFE_X,
+        96,
+        SAFE_WIDTH,
+        120,
+        10,
+        style.text,
+        style.title_size,
+        "bold",
+        style.heading_font,
+        line_height=1.08,
+    )
+
+
+def _hero_split(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    elements = [_background(order, style)]
+    elements.append(
+        _rect(order, "hero_accent", "decoration", 120, 164, 92, 14, 2, style.focal)
+    )
+    title = _text(
+        order,
+        "title",
+        "title",
+        str(slide.get("title", "")),
+        120,
+        230,
+        850,
+        250,
+        10,
+        style.text,
+        style.cover_size,
+        "bold",
+        style.heading_font,
+        line_height=1.05,
+    )
+    elements.append(title)
+    elements.append(
+        _text(
+            order,
+            "message",
+            "highlight",
+            str(slide.get("message", "")),
+            120,
+            520,
+            850,
+            150,
+            10,
+            style.text,
+            max(style.body_size + 4, 24),
+            "semibold",
+            style.body_font,
+        )
+    )
+    items = _items(slide)
+    if items:
+        elements.append(
+            _text(
+                order,
+                "support",
+                "body",
+                "\n".join(f"• {value}" for _, value in items),
+                120,
+                700,
+                850,
+                190,
+                10,
+                style.muted_text,
+                style.body_size,
+                "normal",
+                style.body_font,
+                content_item_ids=[identifier for identifier, _ in items],
+            )
+        )
+    if direction.asset_role != "none":
+        elements.extend(
+            _media(
+                order,
+                1090,
+                120,
+                710,
+                840,
+                5,
+                style,
+                _media_caption(slide),
+            )
+        )
+        return elements, _id(order, "media_placeholder")
+    elements.extend(
+        [
+            _rect(order, "hero_field", "decoration", 1090, 120, 710, 840, 3, style.focal, radius=8),
+            _rect(order, "hero_cutout", "decoration", 1210, 250, 470, 580, 4, style.background, radius=8),
+        ]
+    )
+    return elements, title["elementId"]
+
+
+def _hero_full_bleed(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    if direction.asset_role == "none":
+        raise CompositionCompileError("hero-full-bleed requires an asset")
+    order = direction.order
+    media = _media(order, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT, 1, style, _media_caption(slide))
+    elements = [
+        _background(order, style),
+        *media,
+        _rect(order, "image_overlay", "decoration", 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT, 3, "#000000", opacity=0.58),
+        _text(order, "eyebrow", "caption", "PRODUCT REVEAL", 120, 150, 600, 50, 4, "#FFFFFF", 16, "bold", style.body_font),
+        _text(
+            order,
+            "title",
+            "title",
+            str(slide.get("title", "")),
+            120,
+            300,
+            1250,
+            260,
+            4,
+            "#FFFFFF",
+            style.cover_size,
+            "bold",
+            style.heading_font,
+            line_height=1.05,
+        ),
+        _text(
+            order,
+            "message",
+            "highlight",
+            str(slide.get("message", "")),
+            120,
+            610,
+            1050,
+            150,
+            4,
+            "#FFFFFF",
+            max(style.body_size + 4, 24),
+            "semibold",
+            style.body_font,
+        ),
+    ]
+    items = _items(slide)
+    if items:
+        elements.append(
+            _text(
+                order,
+                "support",
+                "body",
+                "  ·  ".join(value for _, value in items),
+                120,
+                810,
+                1500,
+                80,
+                4,
+                "#FFFFFF",
+                style.body_size,
+                "normal",
+                style.body_font,
+                content_item_ids=[identifier for identifier, _ in items],
+            )
+        )
+    return elements, _id(order, "media_placeholder")
+
+
+def _minimal_cover(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title = _text(
+        order,
+        "title",
+        "title",
+        str(slide.get("title", "")),
+        220,
+        300,
+        1480,
+        250,
+        4,
+        style.text,
+        style.cover_size,
+        "bold",
+        style.heading_font,
+        align="center",
+        line_height=1.05,
+    )
+    elements = [
+        _background(order, style),
+        _rect(order, "cover_mark", "decoration", 870, 190, 180, 18, 2, style.focal),
+        title,
+        _text(order, "message", "highlight", str(slide.get("message", "")), 360, 600, 1200, 130, 4, style.muted_text, style.body_size + 2, "medium", style.body_font, align="center"),
+    ]
+    items = _items(slide)
+    if items:
+        elements.append(
+            _text(order, "support", "body", "  ·  ".join(value for _, value in items), 360, 790, 1200, 80, 4, style.text, style.body_size, "normal", style.body_font, align="center", content_item_ids=[identifier for identifier, _ in items])
+        )
+    return elements, title["elementId"]
+
+
+def _statement_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    statement = _text(order, "statement", "highlight", str(slide.get("message", "")), 180, 290, 1450, 390, 5, style.text, max(44, style.title_size + 8), "bold", style.heading_font, line_height=1.08)
+    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", 1510, 210, 290, 650, 2, style.focal), statement]
+    items = _items(slide)
+    if items:
+        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), 180, 760, 1260, 110, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    return elements, statement["elementId"]
+
+
+def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style)]
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), 120, 300, 650, 360, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.12)
+    elements.append(message)
+    if direction.asset_role != "none":
+        elements.extend(_media(order, 900, 250, 900, 620, 4, style, _media_caption(slide)))
+        if items:
+            elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), 120, 700, 650, 210, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+        return elements, _id(order, "media_placeholder")
+    column_width = 480
+    for index, (identifier, value) in enumerate(items):
+        x = 840 + (index % 2) * 520
+        y = 300 + (index // 2) * 260
+        elements.append(_text(order, f"item_{index + 1}", "body", value, x, y, column_width, 190, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]))
+    return elements, message["elementId"]
+
+
+def _metric_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    metric = _metric_value(slide, items)
+    metric_element = _text(order, "metric", "highlight", metric, 120, 280, 1000, 270, 5, style.focal, 92, "bold", style.heading_font, line_height=1.0)
+    elements = [_background(order, style), _title(order, slide, style), metric_element, _text(order, "message", "body", str(slide.get("message", "")), 120, 610, 1120, 180, 5, style.text, style.body_size + 4, "semibold", style.body_font)]
+    if items:
+        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), 120, 830, 1500, 90, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    elements.append(_rect(order, "metric_field", "decoration", 1400, 250, 400, 630, 2, style.secondary, radius=8))
+    return elements, metric_element["elementId"]
+
+
+def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style), _text(order, "message", "highlight", str(slide.get("message", "")), 120, 250, 1500, 120, 5, style.text, 30, "semibold", style.heading_font)]
+    count = max(1, len(items))
+    gap = 24
+    width = (SAFE_WIDTH - gap * (count - 1)) // count
+    for index, (identifier, value) in enumerate(items):
+        x = SAFE_X + index * (width + gap)
+        elements.extend([
+            _rect(order, f"kpi_{index + 1}_field", "decoration", x, 430, width, 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
+            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, 485, width - 56, 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, content_item_ids=[identifier]),
+        ])
+    return elements, _id(order, "kpi_1")
+
+
+def _image_evidence(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    if direction.asset_role == "none":
+        raise CompositionCompileError("image-evidence requires an asset")
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style), *_media(order, 120, 270, 820, 620, 4, style, _media_caption(slide)), _text(order, "message", "highlight", str(slide.get("message", "")), 1020, 300, 780, 220, 5, style.text, 32, "bold", style.heading_font, line_height=1.12)]
+    if items:
+        elements.append(_text(order, "evidence", "body", "\n".join(f"• {value}" for _, value in items), 1020, 570, 780, 300, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    return elements, _id(order, "media_placeholder")
+
+
+def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style)]
+    count = len(items)
+    columns = 2 if count in {2, 4} else 3
+    rows = (count + columns - 1) // columns
+    gap = 24
+    width = (SAFE_WIDTH - gap * (columns - 1)) // columns
+    height = min(260, (620 - gap * (rows - 1)) // max(1, rows))
+    for index, (identifier, value) in enumerate(items):
+        x = SAFE_X + (index % columns) * (width + gap)
+        y = 280 + (index // columns) * (height + gap)
+        elements.extend([
+            _rect(order, f"comparison_{index + 1}_field", "decoration", x, y, width, height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+            _text(order, f"comparison_{index + 1}", "body", value, x + 28, y + 38, width - 56, height - 72, 5, style.text, style.body_size + 2, "semibold", style.body_font, content_item_ids=[identifier]),
+        ])
+    focal = _id(order, "comparison_1") if items else _id(order, "title")
+    return elements, focal
+
+
+def _process_horizontal(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style)]
+    count = max(1, len(items))
+    gap = 18
+    width = (SAFE_WIDTH - gap * (count - 1)) // count
+    for index, (identifier, value) in enumerate(items):
+        x = SAFE_X + index * (width + gap)
+        elements.extend([
+            _text(order, f"step_number_{index + 1}", "highlight", f"{index + 1:02d}", x, 300, width, 90, 5, style.focal, 44, "bold", style.heading_font),
+            _rect(order, f"step_{index + 1}_field", "decoration", x, 420, width, 360, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+            _text(order, f"step_{index + 1}", "body", value, x + 22, 470, width - 44, 250, 5, style.text, max(18, style.body_size), "semibold", style.body_font, content_item_ids=[identifier]),
+        ])
+    return elements, _id(order, "step_1")
+
+
+def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    elements = [_background(order, style), _title(order, slide, style), _rect(order, "timeline_line", "decoration", 180, 520, 1560, 8, 2, style.secondary, radius=4)]
+    count = max(1, len(items))
+    step = 1560 // max(1, count - 1) if count > 1 else 0
+    for index, (identifier, value) in enumerate(items):
+        center = 180 + index * step
+        x = max(120, min(center - 150, 1500))
+        y = 300 if index % 2 == 0 else 610
+        elements.extend([
+            _rect(order, f"timeline_dot_{index + 1}", "decoration", center - 14, 506, 28, 28, 4, style.focal, radius=14),
+            _text(order, f"timeline_{index + 1}", "body", value, x, y, 300, 150, 5, style.text, style.body_size, "semibold", style.body_font, align="center", content_item_ids=[identifier]),
+        ])
+    return elements, _id(order, "timeline_dot_1")
+
+
+def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    hub = _rect(order, "hub_field", "highlight", 720, 390, 480, 260, 4, style.focal, radius=8)
+    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(str(slide.get("message", "")), width=80, placeholder="..."), 770, 440, 380, 160, 5, "#FFFFFF", 28, "bold", style.heading_font, align="center", vertical="middle")]
+    positions = [(120, 280), (1320, 280), (120, 720), (1320, 720), (420, 760), (1020, 760)]
+    for index, (identifier, value) in enumerate(items):
+        x, y = positions[index]
+        elements.extend([
+            _rect(order, f"node_{index + 1}_field", "decoration", x, y, 480, 150, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+            _text(order, f"node_{index + 1}", "body", value, x + 24, y + 28, 432, 96, 5, style.text, style.body_size, "semibold", style.body_font, align="center", content_item_ids=[identifier]),
+        ])
+    return elements, _id(order, "hub")
+
+
+def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    title = _text(order, "title", "title", str(slide.get("title", "")), 120, 220, 1250, 220, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
+    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 150, 180, 16, 2, style.focal), title, _text(order, "message", "highlight", str(slide.get("message", "")), 120, 500, 1180, 160, 5, style.text, 30, "semibold", style.body_font)]
+    if items:
+        elements.append(_text(order, "actions", "body", "  →  ".join(value for _, value in items), 120, 740, 1500, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    if direction.asset_role != "none":
+        elements.extend(_media(order, 1350, 210, 450, 590, 3, style, _media_caption(slide)))
+    else:
+        elements.append(_rect(order, "closing_field", "decoration", 1500, 0, 420, 1080, 2, style.focal))
+    return elements, title["elementId"]
+
+
+COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
+    "hero-split": CompositionSpec("hero-split", ("cover", "title", "solution", "feature-grid"), 1, 3, "optional", ("light", "dark"), "split-hero", "hero-image-or-title", _hero_split),
+    "hero-full-bleed": CompositionSpec("hero-full-bleed", ("cover", "title"), 1, 2, "required", ("image",), "full-bleed", "hero-image", _hero_full_bleed),
+    "minimal-cover": CompositionSpec("minimal-cover", ("cover", "title"), 1, 3, "none", ("light", "dark"), "minimal", "title", _minimal_cover),
+    "statement-poster": CompositionSpec("statement-poster", ("problem", "solution", "quote", "summary"), 1, 2, "none", ("light", "dark"), "poster", "statement", _statement_poster),
+    "editorial-split": CompositionSpec("editorial-split", ("problem", "solution", "feature-grid", "data"), 2, 4, "optional", ("light", "dark"), "split-editorial", "message-or-image", _editorial_split),
+    "metric-poster": CompositionSpec("metric-poster", ("data", "chart", "summary"), 1, 3, "none", ("light", "dark"), "poster-metric", "metric", _metric_poster),
+    "kpi-strip-evidence": CompositionSpec("kpi-strip-evidence", ("data", "chart", "feature-grid", "solution"), 2, 4, "none", ("light", "dark"), "evidence-strip", "first-kpi", _kpi_strip),
+    "image-evidence": CompositionSpec("image-evidence", ("data", "feature-grid", "solution", "quote"), 1, 3, "required", ("light", "dark"), "image-evidence", "evidence-image", _image_evidence),
+    "feature-comparison": CompositionSpec("feature-comparison", ("comparison", "feature-grid"), 2, 4, "none", ("light", "dark"), "comparison", "first-comparison", _feature_comparison),
+    "process-horizontal": CompositionSpec("process-horizontal", ("process", "architecture"), 3, 6, "none", ("light", "dark"), "process", "first-step", _process_horizontal),
+    "timeline": CompositionSpec("timeline", ("process", "data", "summary"), 3, 6, "none", ("light", "dark"), "timeline", "first-milestone", _timeline),
+    "diagram-hub": CompositionSpec("diagram-hub", ("architecture", "feature-grid", "solution"), 3, 6, "none", ("light", "dark"), "diagram", "hub", _diagram_hub),
+    "cta-closing": CompositionSpec("cta-closing", ("summary",), 1, 3, "optional", ("light", "dark"), "closing", "cta", _cta_closing),
+}
+
+
+FALLBACK_COMPOSITIONS: dict[str, tuple[CompositionId, ...]] = {
+    "cover": ("hero-split", "hero-full-bleed", "minimal-cover"),
+    "title": ("hero-split", "minimal-cover"),
+    "problem": ("statement-poster", "editorial-split"),
+    "solution": ("editorial-split", "statement-poster", "diagram-hub"),
+    "feature-grid": ("editorial-split", "feature-comparison", "kpi-strip-evidence", "diagram-hub"),
+    "process": ("process-horizontal", "timeline"),
+    "architecture": ("diagram-hub", "process-horizontal"),
+    "data": ("metric-poster", "kpi-strip-evidence", "image-evidence"),
+    "chart": ("metric-poster", "kpi-strip-evidence"),
+    "comparison": ("feature-comparison", "editorial-split"),
+    "quote": ("statement-poster", "image-evidence"),
+    "summary": ("cta-closing", "statement-poster"),
+}
+
+
+def normalize_design_program(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    *,
+    force_light: bool = False,
+    media_policy: str = "hybrid",
+    media_budget: int = 4,
+) -> DeckDesignProgram:
+    if len(program.slides) != len(slides):
+        raise CompositionCompileError("Design Program slide count mismatch")
+    normalized = program.model_copy(deep=True)
+    usage: Counter[str] = Counter()
+    previous_silhouette = ""
+    for index, (direction, slide) in enumerate(zip(normalized.slides, slides, strict=True)):
+        slide_type = str(slide.get("slideType", "summary"))
+        if index == 0:
+            slide_type = "cover"
+        elif index == len(slides) - 1:
+            slide_type = "summary"
+        item_count = len(_items(slide))
+        candidate_ids = FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",))
+        selected = direction.composition_id
+        if index == len(slides) - 1:
+            selected = "cta-closing"
+        if not _supports(selected, slide_type, item_count):
+            selected = _first_supported(candidate_ids, slide_type, item_count)
+        selected_spec = COMPOSITION_SPECS[selected]
+        if usage[selected] >= 2 or selected_spec.silhouette == previous_silhouette:
+            alternatives = tuple(candidate for candidate in candidate_ids if candidate != selected)
+            replacement = _first_supported(
+                alternatives,
+                slide_type,
+                item_count,
+                usage=usage,
+                forbidden_silhouette=previous_silhouette,
+                allow_missing=True,
+            )
+            if replacement is not None:
+                selected = replacement
+                selected_spec = COMPOSITION_SPECS[selected]
+        direction.composition_id = selected
+        if selected_spec.media_requirement == "none" or media_policy in {"minimal", "avoid"}:
+            direction.asset_role = "none"
+            direction.required_asset = False
+        elif selected_spec.media_requirement == "required":
+            if direction.asset_role == "none":
+                direction.asset_role = "atmosphere" if index == 0 else "evidence"
+            direction.required_asset = True
+        usage[selected] += 1
+        previous_silhouette = selected_spec.silhouette
+
+    _enforce_media_budget(normalized, slides, media_policy, media_budget)
+    _enforce_background_rhythm(normalized, force_light)
+    return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
+
+
+def compile_composition(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    program: DeckDesignProgram,
+) -> CompiledComposition:
+    spec = COMPOSITION_SPECS[direction.composition_id]
+    item_count = len(_items(slide))
+    slide_type = str(slide.get("slideType", "summary"))
+    if not spec.min_items <= item_count <= spec.max_items:
+        raise CompositionCompileError(
+            f"{direction.composition_id} does not support {item_count} content items"
+        )
+    if direction.variant not in spec.variants:
+        raise CompositionCompileError(
+            f"{direction.composition_id} does not support {direction.variant}"
+        )
+    style = _style(program, direction.background_mode)
+    elements, focal_id = spec.factory(direction, slide, style)
+    if focal_id not in {str(element.get("elementId")) for element in elements}:
+        raise CompositionCompileError("Composition focal element is missing")
+    return CompiledComposition(
+        elements=elements,
+        primary_focal_element_id=focal_id,
+        layout=_deck_layout(direction.composition_id, slide_type),
+        background_color=style.background,
+    )
+
+
+def design_program_snapshot(program: DeckDesignProgram) -> dict[str, Any]:
+    return {
+        "version": program.version,
+        "visualConcept": program.visual_concept,
+        "paletteRoles": program.palette_roles.model_dump(),
+        "typography": program.typography.model_dump(by_alias=True),
+        "backgroundSequence": program.background_sequence,
+        "imageStyle": program.image_style,
+        "surfaceStyle": program.surface_style,
+        "compositionIds": [slide.composition_id for slide in program.slides],
+    }
+
+
+def _supports(composition_id: CompositionId, slide_type: str, item_count: int) -> bool:
+    spec = COMPOSITION_SPECS[composition_id]
+    return slide_type in spec.purposes and spec.min_items <= item_count <= spec.max_items
+
+
+def _first_supported(
+    candidates: tuple[CompositionId, ...],
+    slide_type: str,
+    item_count: int,
+    *,
+    usage: Counter[str] | None = None,
+    forbidden_silhouette: str = "",
+    allow_missing: bool = False,
+) -> CompositionId | None:
+    for candidate in candidates:
+        spec = COMPOSITION_SPECS[candidate]
+        if not _supports(candidate, slide_type, item_count):
+            continue
+        if usage is not None and usage[candidate] >= 2:
+            continue
+        if forbidden_silhouette and spec.silhouette == forbidden_silhouette:
+            continue
+        return candidate
+    if allow_missing:
+        return None
+    raise CompositionCompileError(
+        f"No composition supports {slide_type} with {item_count} content items"
+    )
+
+
+def _enforce_media_budget(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    media_policy: str,
+    media_budget: int,
+) -> None:
+    if media_policy in {"minimal", "avoid"}:
+        return
+    selected = [slide for slide in program.slides if slide.asset_role != "none"]
+    for direction in selected[media_budget:]:
+        if COMPOSITION_SPECS[direction.composition_id].media_requirement == "required":
+            slide = slides[direction.order - 1]
+            slide_type = "cover" if direction.order == 1 else str(slide.get("slideType", ""))
+            item_count = len(_items(slide))
+            alternatives = tuple(
+                candidate
+                for candidate in FALLBACK_COMPOSITIONS.get(slide_type, ())
+                if COMPOSITION_SPECS[candidate].media_requirement != "required"
+            )
+            replacement = _first_supported(alternatives, slide_type, item_count, allow_missing=True)
+            if replacement is None:
+                continue
+            direction.composition_id = replacement
+        direction.asset_role = "none"
+        direction.required_asset = False
+
+    minimum = min(3, media_budget)
+    current = sum(slide.asset_role != "none" for slide in program.slides)
+    if current >= minimum:
+        return
+    for direction in program.slides:
+        if current >= minimum:
+            break
+        if direction.asset_role != "none":
+            continue
+        spec = COMPOSITION_SPECS[direction.composition_id]
+        if spec.media_requirement != "optional":
+            continue
+        direction.asset_role = (
+            "atmosphere"
+            if direction.order in {1, len(program.slides)}
+            else "evidence"
+        )
+        direction.required_asset = False
+        current += 1
+
+
+def _enforce_background_rhythm(program: DeckDesignProgram, force_light: bool) -> None:
+    if force_light:
+        for slide in program.slides:
+            if slide.composition_id == "hero-full-bleed":
+                slide.composition_id = "hero-split"
+            slide.background_mode = "light"
+            slide.variant = "light"
+        program.background_sequence = ["light"] * len(program.slides)
+        return
+    if len(program.slides) >= 6 and len({slide.background_mode for slide in program.slides}) < 2:
+        for index, slide in enumerate(program.slides):
+            if slide.composition_id == "hero-full-bleed":
+                slide.background_mode = "image"
+                slide.variant = "image"
+            elif index in {0, len(program.slides) - 1}:
+                slide.background_mode = "dark"
+                slide.variant = "dark"
+            else:
+                slide.background_mode = "light"
+                slide.variant = "light"
+    for slide in program.slides:
+        if slide.composition_id == "hero-full-bleed":
+            slide.background_mode = "image"
+            slide.variant = "image"
+        elif slide.background_mode == "image":
+            slide.background_mode = "dark"
+            slide.variant = "dark"
+    program.background_sequence = [slide.background_mode for slide in program.slides]
+
+
+def _style(program: DeckDesignProgram, mode: BackgroundMode) -> Style:
+    roles = program.palette_roles
+    scale = program.typography.type_scale
+    if mode in {"dark", "image"}:
+        background = roles.text if _is_dark(roles.text) else "#101828"
+        text = "#FFFFFF"
+        surface = "#1F2937"
+        muted_text = "#D1D5DB"
+    else:
+        background = roles.dominant if not _is_dark(roles.dominant) else "#FFFFFF"
+        text = roles.text if _is_dark(roles.text) else "#111827"
+        surface = roles.surface if not _is_dark(roles.surface) else "#F3F4F6"
+        muted_text = "#475569"
+    return Style(
+        background=background,
+        surface=surface,
+        text=text,
+        muted_text=muted_text,
+        focal=roles.focal,
+        secondary=roles.secondary,
+        heading_font=program.typography.heading_font,
+        body_font=program.typography.body_font,
+        cover_size=max(44, int(scale.get("cover", 60))),
+        title_size=max(32, int(scale.get("title", 40))),
+        body_size=max(18, int(scale.get("body", 22))),
+        caption_size=max(14, int(scale.get("caption", 14))),
+    )
+
+
+def _is_dark(color: str) -> bool:
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        return False
+    red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
+    return (red * 299 + green * 587 + blue * 114) / 1000 < 128
+
+
+def _metric_value(slide: dict[str, Any], items: list[tuple[str, str]]) -> str:
+    values = [str(slide.get("message", "")), *(value for _, value in items)]
+    for value in values:
+        match = re.search(r"(?:\d[\d,.]*\s?(?:%|만|억|배|명|개|월|일|년)?)", value)
+        if match:
+            return match.group(0)
+    return textwrap.shorten(str(slide.get("message", "")), width=24, placeholder="...")
+
+
+def _media_caption(slide: dict[str, Any]) -> str:
+    intent = slide.get("mediaIntent", {})
+    return str(intent.get("alt") or intent.get("caption") or slide.get("title", "Visual"))
+
+
+def _deck_layout(composition_id: CompositionId, slide_type: str) -> str:
+    if composition_id in {"hero-split", "hero-full-bleed", "minimal-cover"}:
+        return "title"
+    if composition_id == "cta-closing" or slide_type == "summary":
+        return "closing"
+    if composition_id in {"editorial-split", "image-evidence", "feature-comparison"}:
+        return "two-column"
+    return "title-content"
