@@ -4087,6 +4087,8 @@ def content_item_capacity_for_slide(
         return DESIGN_PACK_RECIPE_CAPACITIES["process_steps"]
     if slide_plan.slide_type == "comparison":
         return DESIGN_PACK_RECIPE_CAPACITIES["comparison_split"]
+    if slide_plan.slide_type == "quote":
+        return 1, 2
     return 1, 5
 
 

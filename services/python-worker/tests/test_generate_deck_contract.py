@@ -1686,6 +1686,64 @@ def test_program_v2_reclassifies_two_step_process_without_inventing_content() ->
     assert plans[1].slide_type == "process"
 
 
+def test_program_v2_compacts_quote_support_for_no_media_fallback() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="quote",
+            title="Official statement",
+            message="A new kind of adventure begins.",
+            speaker_notes="Explain the official statement.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="quote-1", text="First context"),
+                GeneratedContentItem(contentItemId="quote-2", text="Second context"),
+                GeneratedContentItem(contentItemId="quote-3", text="Third context"),
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "quote"
+    assert [item.content_item_id for item in normalized[1].content_items] == [
+        "quote-1",
+        "quote-2",
+    ]
+    assert normalized[1].content_items[1].text == "Second context · Third context"
+    assert [item.text for item in plans[1].content_items] == [
+        "First context",
+        "Second context",
+        "Third context",
+    ]
+
+
 @pytest.mark.parametrize(
     ("recipe", "slide_type", "order"),
     [
