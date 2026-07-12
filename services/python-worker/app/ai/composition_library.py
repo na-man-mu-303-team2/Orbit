@@ -764,35 +764,17 @@ def normalize_design_program(
     if len(program.slides) != len(slides):
         raise CompositionCompileError("Design Program slide count mismatch")
     normalized = program.model_copy(deep=True)
-    usage: Counter[str] = Counter()
-    previous_silhouette = ""
-    for index, (direction, slide) in enumerate(zip(normalized.slides, slides, strict=True)):
-        slide_type = str(slide.get("slideType", "summary"))
-        if index == 0:
-            slide_type = "cover"
-        elif index == len(slides) - 1:
-            slide_type = "summary"
-        item_count = len(_items(slide))
-        candidate_ids = FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",))
-        selected = direction.composition_id
-        if index == len(slides) - 1:
-            selected = "cta-closing"
-        if not _supports(selected, slide_type, item_count):
-            selected = _first_supported(candidate_ids, slide_type, item_count)
+    selected_ids = _select_composition_sequence(
+        normalized,
+        slides,
+        force_light=force_light,
+        media_policy=media_policy,
+        media_budget=media_budget,
+    )
+    for index, (direction, selected) in enumerate(
+        zip(normalized.slides, selected_ids, strict=True)
+    ):
         selected_spec = COMPOSITION_SPECS[selected]
-        if usage[selected] >= 2 or selected_spec.silhouette == previous_silhouette:
-            alternatives = tuple(candidate for candidate in candidate_ids if candidate != selected)
-            replacement = _first_supported(
-                alternatives,
-                slide_type,
-                item_count,
-                usage=usage,
-                forbidden_silhouette=previous_silhouette,
-                allow_missing=True,
-            )
-            if replacement is not None:
-                selected = replacement
-                selected_spec = COMPOSITION_SPECS[selected]
         direction.composition_id = selected
         if selected_spec.media_requirement == "none" or media_policy in {"minimal", "avoid"}:
             direction.asset_role = "none"
@@ -801,12 +783,73 @@ def normalize_design_program(
             if direction.asset_role == "none":
                 direction.asset_role = "atmosphere" if index == 0 else "evidence"
             direction.required_asset = True
-        usage[selected] += 1
-        previous_silhouette = selected_spec.silhouette
 
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
     _enforce_background_rhythm(normalized, force_light)
     return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
+
+
+def _select_composition_sequence(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    *,
+    force_light: bool,
+    media_policy: str,
+    media_budget: int,
+) -> list[CompositionId]:
+    candidates_by_slide: list[tuple[CompositionId, ...]] = []
+    for index, (direction, slide) in enumerate(zip(program.slides, slides, strict=True)):
+        slide_type = str(slide.get("slideType", "summary"))
+        if index == 0:
+            slide_type = "cover"
+        elif index == len(slides) - 1:
+            slide_type = "summary"
+        item_count = len(_items(slide))
+        preferred = "cta-closing" if index == len(slides) - 1 else direction.composition_id
+        candidates = tuple(
+            candidate
+            for candidate in dict.fromkeys(
+                (preferred, *FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",)))
+            )
+            if _supports(candidate, slide_type, item_count)
+            and not (force_light and candidate == "hero-full-bleed")
+            and not (
+                media_policy in {"minimal", "avoid"}
+                and COMPOSITION_SPECS[candidate].media_requirement == "required"
+            )
+        )
+        if not candidates:
+            raise CompositionCompileError(
+                f"No composition supports {slide_type} with {item_count} content items"
+            )
+        candidates_by_slide.append(candidates)
+
+    selected: list[CompositionId] = []
+    usage: Counter[str] = Counter()
+
+    def choose(index: int, previous_silhouette: str, required_assets: int) -> bool:
+        if index == len(candidates_by_slide):
+            return True
+        for candidate in candidates_by_slide[index]:
+            spec = COMPOSITION_SPECS[candidate]
+            next_required_assets = required_assets + (spec.media_requirement == "required")
+            if (
+                usage[candidate] >= 2
+                or spec.silhouette == previous_silhouette
+                or next_required_assets > media_budget
+            ):
+                continue
+            usage[candidate] += 1
+            selected.append(candidate)
+            if choose(index + 1, spec.silhouette, next_required_assets):
+                return True
+            selected.pop()
+            usage[candidate] -= 1
+        return False
+
+    if not choose(0, "", 0):
+        raise CompositionCompileError("No composition sequence satisfies the deck constraints")
+    return selected
 
 
 def compile_composition(

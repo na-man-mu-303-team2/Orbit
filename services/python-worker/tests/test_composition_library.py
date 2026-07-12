@@ -141,6 +141,47 @@ def test_normalizer_enforces_composition_and_background_rhythm() -> None:
     assert 3 <= sum(slide.asset_role != "none" for slide in normalized.slides) <= 5
 
 
+def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -> None:
+    definitions = [
+        ("cover", 2, "minimal-cover"),
+        ("comparison", 4, "feature-comparison"),
+        ("feature-grid", 4, "editorial-split"),
+        ("comparison", 3, "feature-comparison"),
+        ("feature-grid", 4, "editorial-split"),
+        ("data", 3, "metric-poster"),
+        ("comparison", 3, "feature-comparison"),
+        ("summary", 2, "cta-closing"),
+    ]
+    slides = [slide_payload(slide_type, count) for slide_type, count, _ in definitions]
+    design_program = program(
+        [
+            {
+                "order": index,
+                "compositionId": composition_id,
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+            for index, (_, _, composition_id) in enumerate(definitions, start=1)
+        ]
+    )
+
+    normalized = normalize_design_program(
+        design_program,
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+    )
+    composition_ids = [slide.composition_id for slide in normalized.slides]
+    silhouettes = [COMPOSITION_SPECS[value].silhouette for value in composition_ids]
+
+    assert max(Counter(composition_ids).values()) <= 2
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
+    assert composition_ids[4] in {"kpi-strip-evidence", "diagram-hub"}
+
+
 def test_white_canvas_forces_light_variants() -> None:
     slides = launch_slides()
     normalized = normalize_design_program(
