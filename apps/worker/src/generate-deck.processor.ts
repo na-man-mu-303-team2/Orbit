@@ -353,6 +353,13 @@ export async function processGenerateDeckJob(
             .flatMap((value) => (value ? [value] : []))
         ).size
       });
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 45,
+        message: "AI deck composition completed.",
+        result: null,
+        error: null
+      });
     }
     if (
       payload.request.generationMode === "design-pack" &&
@@ -463,6 +470,13 @@ export async function processGenerateDeckJob(
         unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
         unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
       });
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 65,
+        message: "AI deck image assets prepared.",
+        result: null,
+        error: null
+      });
     }
 
     const initialSemanticIssues = getSemanticQaIssues(deck);
@@ -515,6 +529,13 @@ export async function processGenerateDeckJob(
       validationIssueCount: allValidationIssues(validation).length
     };
     if (usesProgramV2) {
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 75,
+        message: "AI deck rendered visual review running.",
+        result: null,
+        error: null
+      });
       let visualOutcome: ProgramV2VisualOutcome;
       try {
         visualOutcome = await runProgramV2VisualQa({
@@ -592,6 +613,13 @@ export async function processGenerateDeckJob(
           }
         );
       }
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 95,
+        message: "AI deck final publication running.",
+        result: null,
+        error: null
+      });
     }
 
     await saveDeck(dataSource, deck);
@@ -787,6 +815,13 @@ async function runProgramV2VisualQa(input: {
     review.repairActions.length > 0
   ) {
     repairAttempts += 1;
+    await updateJob(input.dataSource, input.jobId, {
+      status: "running",
+      progress: Math.min(90, 80 + repairAttempts * 5),
+      message: `AI deck visual repair ${repairAttempts}/${maxVisualRepairAttempts} running.`,
+      result: null,
+      error: null
+    });
     let repaired: VisualRepairResponse;
     try {
       repaired = await requestVisualRepair(

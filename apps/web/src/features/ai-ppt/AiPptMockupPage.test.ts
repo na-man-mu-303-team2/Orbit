@@ -6,6 +6,7 @@ import {
   buildBrandKitValues,
   buildReferenceGrounding,
   briefFieldPlaceholders,
+  getAiPptGenerationStatus,
   getAiPptWizardValidationMessage,
   getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
@@ -106,6 +107,59 @@ describe("AI PPT wizard payload", () => {
     ).toBeNull();
   });
 
+  it("shows visual QA unavailability as a retryable quality failure", () => {
+    const job: Job = {
+      jobId: "job-visual",
+      projectId: "project-visual",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: true,
+          layoutIssues: [],
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+        message: "Vision QA provider unavailable."
+      },
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: [
+        {
+          code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+          message: "Vision QA provider unavailable."
+        }
+      ],
+      remainingCount: 0
+    });
+  });
+
+  it("maps worker progress to the seven visual generation stages", () => {
+    const job = {
+      jobId: "job-progress",
+      projectId: "project-progress",
+      type: "ai-deck-generation" as const,
+      status: "running" as const,
+      progress: 85,
+      message: "repair",
+      result: null,
+      error: null,
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptGenerationStatus(job)).toBe("6/7 시각 품질 보정");
+  });
+
   it.each([
     ["purpose", "발표 목적을 입력하세요."],
     ["context", "발표 맥락을 입력하세요."],
@@ -184,6 +238,7 @@ describe("AI PPT wizard payload", () => {
       },
       design: {
         stylePackId: "brandlogy-modern",
+        engineVersion: "program-v2",
         colorIntent: {
           mood: "calm",
           energyLevel: "low",
@@ -214,6 +269,34 @@ describe("AI PPT wizard payload", () => {
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
     expect(payload.referencePolicy).toBe("references-first");
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
+  });
+
+  it("keeps hybrid official and AI image policy in the program-v2 request", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "제품 공개",
+        purpose: "신제품 특징 소개",
+        context: "공개 발표",
+        audience: "예비 사용자",
+        presentationType: "product launch",
+        successCriteria: "출시 기대 형성",
+        duration: "10",
+        slides: "10",
+        tone: "confident",
+        colorMood: "energetic",
+        fontMood: "bold Korean sans",
+        mediaPolicy: "hybrid",
+        referencePolicy: "research-first"
+      },
+      palette
+    );
+
+    expect(payload.design).toMatchObject({
+      engineVersion: "program-v2",
+      mediaPolicy: "hybrid"
+    });
+    expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "hybrid" });
+    expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
   });
 
   it("pins the selected Saved Design Pack version in the generation request", () => {
@@ -702,11 +785,15 @@ describe("AI PPT wizard payload", () => {
       )
     );
     vi.stubGlobal("fetch", fetcher);
+    const onUpdate = vi.fn();
 
-    await expect(pollJob("job_1")).resolves.toMatchObject({
+    await expect(pollJob("job_1", onUpdate)).resolves.toMatchObject({
       jobId: "job_1",
       status: "succeeded"
     });
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "job_1", progress: 100 })
+    );
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
   });
 });

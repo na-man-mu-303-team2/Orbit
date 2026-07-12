@@ -176,18 +176,7 @@ describe("processGenerateDeckJob", () => {
         usedInSlideId: firstSlide.slideId
       }
     ];
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          { deckId: deck.deckId, deck, warnings: [], validation: validation() },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -275,18 +264,7 @@ describe("processGenerateDeckJob", () => {
         lockedFields: ["palette"]
       }
     } as const;
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          { deckId: deck.deckId, deck, warnings: [], validation: validation() },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     let pythonRequestBody = "";
     vi.stubGlobal(
       "fetch",
@@ -326,7 +304,10 @@ describe("processGenerateDeckJob", () => {
       }
     );
 
-    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
+    const saveCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
+    );
+    const savedDeck = saveCall?.[1]?.[2] as Deck;
     expect(savedDeck.metadata.designPackSnapshot).toMatchObject(snapshot);
     expect(
       savedDeck.metadata.designPackSnapshot?.preferences.typography

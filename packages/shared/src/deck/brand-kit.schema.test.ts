@@ -47,4 +47,18 @@ describe("brand kit schema", () => {
 
     expect(values).not.toHaveProperty("allowOverflow");
   });
+
+  it("accepts hybrid official and AI image policy", () => {
+    const values = brandKitValuesSchema.parse({
+      palette,
+      typography: {
+        headingFontFamily: "Pretendard",
+        bodyFontFamily: "Pretendard"
+      },
+      mediaPolicy: "hybrid",
+      lockedFields: ["mediaPolicy"]
+    });
+
+    expect(values.mediaPolicy).toBe("hybrid");
+  });
 });

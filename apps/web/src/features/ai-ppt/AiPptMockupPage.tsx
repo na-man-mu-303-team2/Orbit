@@ -180,12 +180,13 @@ export const initialAiPptWizardState: AiPptWizardState = {
 };
 
 const generationStages = [
-  "Brief 설문 정리",
-  "색상 후보 3개 선택",
-  "Session Design Pack 구성",
-  "Deck JSON 생성",
-  "에디터 렌더링",
-  "PPTX export 준비"
+  "내용 구성",
+  "디자인 방향 설정",
+  "슬라이드 구성",
+  "이미지 준비",
+  "시각 품질 검토",
+  "시각 품질 보정",
+  "최종 발행"
 ];
 
 export function buildAiPptGenerateDeckPayload(
@@ -243,6 +244,7 @@ export function buildAiPptGenerateDeckPayload(
     },
     design: {
       stylePackId,
+      engineVersion: "program-v2",
       visualRhythm: "clean",
       densityTarget: "medium",
       mediaPolicy: state.mediaPolicy,
@@ -733,7 +735,7 @@ export function AiPptMockupPage() {
         }
       }
 
-      setStatus("Deck JSON 생성 job 시작 중...");
+      setStatus(`1/${generationStages.length} ${generationStages[0]}`);
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
         {
@@ -759,8 +761,11 @@ export function AiPptMockupPage() {
 
       const data = (await response.json()) as { job: Job };
       setJob(data.job);
-      setStatus("Deck JSON 생성 중...");
-      const completed = await pollJob(data.job.jobId);
+      setStatus(getAiPptGenerationStatus(data.job));
+      const completed = await pollJob(data.job.jobId, (current) => {
+        setJob(current);
+        setStatus(getAiPptGenerationStatus(current));
+      });
       setJob(completed);
       if (completed.status === "failed") {
         const qualityGateFailure = getAiPptQualityFailure(completed);
@@ -937,7 +942,7 @@ export function AiPptMockupPage() {
           ) : currentStep === "review" ? (
             <>
               <Play size={17} />
-              Deck JSON 생성
+              PPT 생성
             </>
           ) : (
             <>
@@ -958,7 +963,7 @@ function QualityFailurePanel(props: {
 }) {
   return (
     <section className="ai-ppt-quality-failure" role="alert">
-      <strong>품질 검증을 통과하지 못해 에디터에 발행하지 않았습니다.</strong>
+      <strong>품질 검증 결과가 발행 조건을 충족하지 못했습니다.</strong>
       <ul>
         {props.failure.issues.map((issue, index) => (
           <li key={`${issue.code}-${issue.slide ?? 0}-${index}`}>
@@ -1264,7 +1269,7 @@ function ReferencesStep(props: {
             ? `${props.files.length}개 파일 선택됨`
             : "PDF, PPTX, DOCX, 이미지 파일 첨부"}
         </strong>
-        <span>1차에서는 참고자료 파일 ID를 생성 요청에 연결합니다.</span>
+        <span>첨부 자료는 선택한 참고 정책에 따라 내용 구성과 검증에 사용됩니다.</span>
         <input
           multiple
           type="file"
@@ -1275,8 +1280,9 @@ function ReferencesStep(props: {
         {[
           ["minimal", "이미지 최소화"],
           ["provided-only", "첨부 이미지만"],
-          ["public-assets", "공개 이미지 구조"],
-          ["ai-generated", "AI 이미지 구조"]
+          ["public-assets", "공개 이미지 검색"],
+          ["ai-generated", "AI 이미지 생성"],
+          ["hybrid", "공식 이미지 + AI 이미지"]
         ].map(([value, label]) => (
           <button
             key={value}
@@ -1693,7 +1699,9 @@ export function buildSavedDesignPackInput(
       imageDensity:
         form.mediaPolicy === "minimal"
           ? "none"
-          : form.mediaPolicy === "ai-generated" || form.mediaPolicy === "public-assets"
+          : ["ai-generated", "public-assets", "hybrid"].includes(
+                form.mediaPolicy
+              )
             ? "medium"
             : "low",
       mediaPolicy: form.mediaPolicy,
@@ -2000,9 +2008,12 @@ export function getReferenceExtractionValidationMessage(
   return "";
 }
 
-export async function pollJob(jobId: string): Promise<Job> {
+export async function pollJob(
+  jobId: string,
+  onUpdate?: (job: Job) => void
+): Promise<Job> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 300_000) {
+  while (Date.now() - startedAt < 900_000) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include"
     });
@@ -2011,6 +2022,7 @@ export async function pollJob(jobId: string): Promise<Job> {
     }
     const payload = (await response.json()) as { job: Job } | Job;
     const job = "job" in payload ? payload.job : payload;
+    onUpdate?.(job);
     if (job.status === "succeeded" || job.status === "failed") {
       return job;
     }
@@ -2020,9 +2032,15 @@ export async function pollJob(jobId: string): Promise<Job> {
 }
 
 export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
+  const qualityFailureCodes = new Set([
+    "GENERATE_DECK_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+  ]);
   if (
     job.status !== "failed" ||
-    job.error?.code !== "GENERATE_DECK_QUALITY_GATE_FAILED"
+    !job.error?.code ||
+    !qualityFailureCodes.has(job.error.code)
   ) {
     return null;
   }
@@ -2032,7 +2050,15 @@ export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
       : null
   );
   if (!validation.success) {
-    return { issues: [], remainingCount: 0 };
+    return {
+      issues: [
+        {
+          code: job.error.code,
+          message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+        }
+      ],
+      remainingCount: 0
+    };
   }
   const issues = [
     ...validation.data.layoutIssues,
@@ -2047,10 +2073,38 @@ export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
       ...(match ? { slide: Number(match[1]) + 1 } : {})
     };
   });
+  const visibleIssues =
+    issues.length > 0
+      ? issues
+      : [
+          {
+            code: job.error.code,
+            message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+          }
+        ];
   return {
-    issues: issues.slice(0, 5),
-    remainingCount: Math.max(0, issues.length - 5)
+    issues: visibleIssues.slice(0, 5),
+    remainingCount: Math.max(0, visibleIssues.length - 5)
   };
+}
+
+export function getAiPptGenerationStatus(job: Job) {
+  const progress = Math.max(0, Math.min(100, job.progress));
+  const stageIndex =
+    progress >= 95
+      ? 6
+      : progress >= 80
+        ? 5
+        : progress >= 70
+          ? 4
+          : progress >= 60
+            ? 3
+            : progress >= 40
+              ? 2
+              : progress >= 25
+                ? 1
+                : 0;
+  return `${stageIndex + 1}/${generationStages.length} ${generationStages[stageIndex]}`;
 }
 
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
@@ -2299,7 +2353,7 @@ function advisorResponse(question: string, state: AiPptWizardState) {
     return `${state.fontMood || "전문적인 한글 고딕"} 기준으로 후보 3개를 다시 추천합니다. 마음에 드는 카드를 선택하면 payload에 반영됩니다.`;
   }
   if (hasAny(question.toLocaleLowerCase("ko-KR"), ["image", "이미지", "사진"])) {
-    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. ai-generated를 선택하면 2차에서는 실제 이미지 파일을 만들지 않고 Deck JSON에 이미지 계획, placeholder, 교체 근거를 남깁니다.`;
+    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. hybrid는 공식 근거 이미지를 우선 사용하고 분위기 연출이 필요한 장면만 AI 이미지로 생성합니다.`;
   }
   return "발표 시간, 청중, 참고자료 정책을 기준으로 적용 가능한 제안을 아래에 표시했습니다.";
 }

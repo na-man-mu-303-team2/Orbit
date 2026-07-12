@@ -47,6 +47,7 @@ export const brandKitValuesSchema = z.object({
       "provided-only",
       "public-assets",
       "ai-generated",
+      "hybrid",
       "minimal"
     ])
     .default("balanced"),

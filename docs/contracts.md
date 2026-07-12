@@ -656,6 +656,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - MVP `metadata.tone`은 `professional`, `friendly`, `confident`, `concise`만 허용한다.
 - 요청의 `design`은 선택 필드이며 생략 시 `{ engineVersion: "recipe-v1", visualRhythm: "auto", densityTarget: "medium", mediaPolicy: "balanced", layoutDiversity: "stable" }`로 정규화한다.
 - `design.engineVersion`은 `recipe-v1`, `program-v2`를 허용하고 기본값은 `recipe-v1`이다. `/ai-ppt`만 승인된 V2 경로에서 `program-v2`를 명시하며 legacy/template은 기존 엔진을 유지한다.
+- `/ai-ppt`는 엔진 선택 UI를 노출하지 않고 `program-v2`를 내부적으로 지정한다. Job progress는 내용 구성, 디자인 방향, 슬라이드 구성, 이미지 준비, 시각 검토, 시각 보정, 최종 발행의 7단계로 표시한다.
 - `design.profile`은 선택 필드이며 `executive-report`, `startup-pitch`, `editorial`, `technical`, `training`만 허용한다. profile은 기존 `theme`, `slide.style`, `SlotPreset` 선택 가중치로만 매핑하고 최종 Deck에 별도 중간 구조를 저장하지 않는다.
 - `design.stylePackId`는 선택 필드이며 worker 내부 curated style pack ID를 강제한다. 값이 없으면 worker selector가 자동 선택한다.
 - `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
@@ -714,7 +715,7 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직
 Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저장하며 일반 조직 멤버는 조회·적용만 가능하다.
 
 - 조직 역할: `admin`, `member`
-- Brand Kit 값: `logoAssetId`, palette, forbidden colors, 공식 font와 fallback, tone, writing style, cover/footer 규칙, 승인 asset ID, `lockedFields`
+- Brand Kit 값: `logoAssetId`, palette, forbidden colors, 공식 font와 fallback, tone, writing style, cover/footer 규칙, 승인 asset ID, `lockedFields`. `mediaPolicy`는 `hybrid`를 포함한 생성 요청 정책을 그대로 저장할 수 있다.
 - 잠금 가능 필드: `palette`, `typography`, `tone`, `mediaPolicy`, `logo`, `cover`, `footer`
 - 생성 요청은 `brandKit: { id, version }`으로 선택 버전을 고정한다.
 - 생성 결과는 `metadata.brandKitSnapshot`에 최종 적용 Brand Kit을 기록한다.
@@ -743,6 +744,7 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - `program-v2` asset은 원문 페이지 `source_url`과 실제 이미지 `source_asset_url`을 분리하고 `source_authority`, `usage_basis`를 기록한다. `usage_basis = official-reference`는 공식 페이지에서 가져온 참고 이미지라는 뜻이며 재사용 라이선스 보장을 의미하지 않는다.
 - Deck의 placeholder는 내부 `/api/v1/projects/:projectId/assets/:fileId/content` URL을 쓰는 editable image element로 교체한다.
 - `aiNotes.visualPlan.asset`에는 file ID와 공개 가능한 provenance를 기록한다.
+- Editor의 현재 슬라이드 출처 패널은 image asset의 provider, usage basis, author, license, 원문 페이지와 실제 asset URL을 구분해 표시한다.
 - provider timeout, 제한된 재시도 실패, deck·user·organization 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
 - 기본 한도는 deck 4개, user 일 30개, organization 일 100개이며 환경변수로 조정한다.
 - PPTX export worker는 저장된 내부 image asset을 일시적인 data URL로 hydrate해 Python exporter에 전달한다. 원본 Deck JSON의 내부 URL은 변경하지 않는다.
