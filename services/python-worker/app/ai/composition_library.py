@@ -1044,7 +1044,7 @@ def _editorial_split(
         first_id, first_value = items[0]
         elements.extend(
             [
-                _rect(order, "item_1_focal_rail", "decoration", focal_x, focal_y, focal_width, focal_height, 3, style.focal, radius=8),
+                _rect(order, "item_1_field", "decoration", focal_x, focal_y, focal_width, focal_height, 3, style.focal, radius=8),
                 _text(order, "item_1_index", "highlight", "01", focal_x + 48, focal_y + 32, focal_width - 96, 72, 5, focal_text, 56, "bold", style.heading_font),
                 _text(order, "item_1", "body", first_value, focal_x + 48, focal_y + 128, focal_width - 96, focal_height - 176, 5, focal_text, max(44, style.body_size + 10), "bold", style.body_font, vertical="middle", content_item_ids=[first_id]),
             ]
@@ -1063,7 +1063,7 @@ def _editorial_split(
                 elements.append(
                     _rect(order, f"item_{index}_divider", "decoration", _grid_x(6), y + row_height - 2, _grid_width(6), 2, 3, style.secondary)
                 )
-        return elements, _id(order, "item_1_focal_rail")
+        return elements, _id(order, "item_1")
 
     if len(items) == 2:
         frames = [
@@ -1906,8 +1906,8 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
             y = 456 + index * row_height
             elements.extend(
                 [
-                    _text(order, f"closing_action_index_{index + 1}", "highlight", f"{index + 1:02d}", action_x + 36, y + 16, 92, row_height - 32, 5, style.focal, 38, "bold", style.heading_font, vertical="middle"),
-                    _text(order, f"closing_action_{index + 1}", "body", value, action_x + 140, y + 16, action_width - 176, row_height - 32, 5, style.text, max(36, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                    _text(order, f"closing_action_index_{index + 1}", "highlight", f"{index + 1:02d}", _grid_x(7), y + 16, _grid_width(1), row_height - 32, 5, style.focal, 38, "bold", style.heading_font, vertical="middle"),
+                    _text(order, f"closing_action_{index + 1}", "body", value, _grid_x(8), y + 16, _grid_width(4), row_height - 32, 5, style.text, max(36, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
                 ]
             )
             if index < len(action_items) - 1:

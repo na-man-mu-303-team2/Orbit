@@ -1147,7 +1147,7 @@ def test_editorial_split_three_items_use_side_focal_and_evidence_rows() -> None:
     rails = [
         element
         for element in compiled.elements
-        if element["elementId"].endswith("_focal_rail")
+        if element["elementId"].endswith("_item_1_field")
     ]
     body = [element for element in compiled.elements if element["role"] == "body"]
 
@@ -1364,7 +1364,7 @@ def test_editorial_split_four_items_uses_side_focal_and_three_rows() -> None:
     rails = [
         element
         for element in compiled.elements
-        if element["elementId"].endswith("_focal_rail")
+        if element["elementId"].endswith("_item_1_field")
     ]
     dividers = [
         element
