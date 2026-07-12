@@ -61,6 +61,9 @@ import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import "./rehearsal-preflight.css";
+import "./rehearsal-report-detail.css";
+import "./rehearsal-workspace-orbit.css";
 import {
   fetchProjectRehearsalReportRuns,
   fetchRehearsalRunComparison,

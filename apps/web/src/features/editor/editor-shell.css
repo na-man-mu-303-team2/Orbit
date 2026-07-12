@@ -44,7 +44,10 @@
 .orbit-shell .editor-save-control { border: 0; padding: 4px 6px; }
 .orbit-shell .editor-save-button { background: transparent; font-size: 12px; min-height: 32px; min-width: 68px; padding: 0 8px; }
 .orbit-shell .editor-save-meta { display: none; }
-.orbit-shell .share-top-button { background: white; border-color: var(--orbit-ds-border-strong); border-radius: var(--orbit-ds-radius-pill); font-size: 12px; min-height: 36px; padding: 0 14px; }
+.orbit-shell .header-chip-button { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill); color: white; font-size: 12px; min-height: 36px; padding: 0 16px; }
+.orbit-shell .header-chip-button:hover,
+.orbit-shell .header-chip-button.active { background: var(--orbit-ds-lilac-strong); border-color: var(--orbit-ds-lilac-strong); color: white; }
+.orbit-shell .share-top-button { background: white; border-color: var(--orbit-ds-border-strong); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); font-size: 12px; min-height: 36px; padding: 0 14px; }
 .orbit-shell .refresh-top-button { border-radius: 50%; height: 36px; min-height: 36px; padding: 0; width: 36px; }
 .orbit-shell .editor-panel { padding-top: 48px; }
 .orbit-shell .stage-top-controls { background: #f3f6fb; border-bottom: 1px solid var(--orbit-ds-border); height: 48px; left: 0; padding: 5px 14px; position: fixed; right: 0; top: 78px; z-index: 18; }

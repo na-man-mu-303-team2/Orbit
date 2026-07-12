@@ -18,17 +18,17 @@ import {
   referenceExtractionStartResponseSchema
 } from "@orbit/shared";
 import {
-  ArrowDownToLine,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  Layers3,
-  Palette,
-  Paperclip,
-  Play,
-  Sparkles
-} from "lucide-react";
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconDownload,
+  IconFileText,
+  IconPalette,
+  IconPaperclip,
+  IconPlayerPlay,
+  IconSparkles,
+  IconStack3
+} from "@tabler/icons-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -36,6 +36,7 @@ import {
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
+import "./ai-ppt-mockup.css";
 
 type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
@@ -543,7 +544,7 @@ export function AiPptMockupPage() {
           </p>
         </div>
         <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
-          <Sparkles size={17} />
+          <IconSparkles size={17} />
           처음부터 입력
         </button>
       </header>
@@ -561,7 +562,7 @@ export function AiPptMockupPage() {
               type="button"
               onClick={() => goToStep(step.id)}
             >
-              <span>{index < currentStepIndex ? <Check size={14} /> : index + 1}</span>
+              <span>{index < currentStepIndex ? <IconCheck size={14} /> : index + 1}</span>
               <strong>{step.label}</strong>
             </button>
           ))}
@@ -642,7 +643,7 @@ export function AiPptMockupPage() {
           type="button"
           onClick={() => goToStep(steps[Math.max(currentStepIndex - 1, 0)].id)}
         >
-          <ChevronLeft size={17} />
+          <IconChevronLeft size={17} />
           이전
         </button>
         <button
@@ -653,18 +654,18 @@ export function AiPptMockupPage() {
         >
           {isGenerating ? (
             <>
-              <Play size={17} />
+              <IconPlayerPlay size={17} />
               생성 중
             </>
           ) : currentStep === "review" ? (
             <>
-              <Play size={17} />
+              <IconPlayerPlay size={17} />
               Deck JSON 생성
             </>
           ) : (
             <>
               다음
-              <ChevronRight size={17} />
+              <IconChevronRight size={17} />
             </>
           )}
         </button>
@@ -790,7 +791,7 @@ function ColorStep(props: {
       <div className="ai-ppt-result-toolbar">
         <span>{props.options.length} palettes ready</span>
         <button disabled={props.isLoading} type="button" onClick={props.onRefresh}>
-          <Palette size={16} />
+          <IconPalette size={16} />
           {props.isLoading ? "생성 중" : "색상 후보 다시 생성"}
         </button>
       </div>
@@ -829,7 +830,7 @@ function ReferencesStep(props: {
         title="참고자료 사용 정책 선택"
       />
       <label className="ai-ppt-reference-drop">
-        <Paperclip size={28} />
+        <IconPaperclip size={28} />
         <strong>
           {props.files.length
             ? `${props.files.length}개 파일 선택됨`
@@ -895,16 +896,16 @@ function ReviewStep(props: {
         title="설문 결과가 생성 payload로 컴파일된 모습"
       />
       <div className="ai-ppt-review-grid">
-        <SummaryCard icon={<FileText size={18} />} title="Brief">
+        <SummaryCard icon={<IconFileText size={18} />} title="Brief">
           <p>{props.payload.topic}</p>
           <span>{props.payload.brief?.audienceText}</span>
         </SummaryCard>
-        <SummaryCard icon={<Palette size={18} />} title="Session Design Pack">
+        <SummaryCard icon={<IconPalette size={18} />} title="Session Design Pack">
           <p>{stylePackId} + {props.selectedPalette.name}</p>
           <span>{props.selectedFont.name}</span>
           <span>{props.payload.designPrompt}</span>
         </SummaryCard>
-        <SummaryCard icon={<Layers3 size={18} />} title="References">
+        <SummaryCard icon={<IconStack3 size={18} />} title="References">
           <p>{props.payload.brief?.referencePolicy}</p>
           <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
@@ -931,7 +932,7 @@ function PreviewStep(props: {
         <span>{props.job?.status ?? "ready"}</span>
         <span>{props.payload.slideCountRange.min} slides</span>
         <button type="button">
-          <ArrowDownToLine size={16} />
+          <IconDownload size={16} />
           PPTX export
         </button>
       </div>
@@ -1075,7 +1076,7 @@ function AdvisorPanel(props: {
           type="submit"
           disabled={!question.trim() || isAsking}
         >
-          <Sparkles size={16} />
+          <IconSparkles size={16} />
           {isAsking ? "확인 중" : "질문"}
         </button>
       </form>

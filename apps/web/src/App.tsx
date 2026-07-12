@@ -485,6 +485,14 @@ export function getRoute(
   if (normalized === "/mockup/live-presenter") return { name: "mockup", screen: "live-presenter" };
   if (normalized === "/mockup/login") return { name: "mockup", screen: "login" };
   if (normalized === "/mockup/signup") return { name: "mockup", screen: "signup" };
+  if (normalized === "/mockup/catalog") return { name: "mockup", screen: "catalog" };
+  if (normalized === "/mockup/brief") return { name: "mockup", screen: "brief" };
+  if (normalized === "/mockup/practice-plan") return { name: "mockup", screen: "practice-plan" };
+  if (normalized === "/mockup/focused-practice") return { name: "mockup", screen: "focused-practice" };
+  if (normalized === "/mockup/challenge-qna") return { name: "mockup", screen: "challenge-qna" };
+  if (normalized === "/mockup/audience") return { name: "mockup", screen: "audience" };
+  if (normalized === "/mockup/version-history") return { name: "mockup", screen: "version-history" };
+  if (normalized === "/mockup/ai-ppt") return { name: "mockup", screen: "ai-ppt" };
   if (normalized === "/createdeck") return { name: "create-deck" };
   if (normalized === "/project") return { name: "project-list" };
   if (normalized === "/reports") return { name: "report-list" };

@@ -179,6 +179,14 @@ describe("App shell routing", () => {
     expect(getRoute("/mockup/login")).toEqual({ name: "mockup", screen: "login" });
     expect(getRoute("/mockup/signup")).toEqual({ name: "mockup", screen: "signup" });
     expect(getRoute("/mockup/presenter")).toEqual({ name: "mockup", screen: "presenter" });
+    expect(getRoute("/mockup/catalog")).toEqual({ name: "mockup", screen: "catalog" });
+    expect(getRoute("/mockup/brief")).toEqual({ name: "mockup", screen: "brief" });
+    expect(getRoute("/mockup/practice-plan")).toEqual({ name: "mockup", screen: "practice-plan" });
+    expect(getRoute("/mockup/focused-practice")).toEqual({ name: "mockup", screen: "focused-practice" });
+    expect(getRoute("/mockup/challenge-qna")).toEqual({ name: "mockup", screen: "challenge-qna" });
+    expect(getRoute("/mockup/audience")).toEqual({ name: "mockup", screen: "audience" });
+    expect(getRoute("/mockup/version-history")).toEqual({ name: "mockup", screen: "version-history" });
+    expect(getRoute("/mockup/ai-ppt")).toEqual({ name: "mockup", screen: "ai-ppt" });
     expect(shouldRenderAppFrame({ name: "mockup", screen: "public" })).toBe(false);
   });
 

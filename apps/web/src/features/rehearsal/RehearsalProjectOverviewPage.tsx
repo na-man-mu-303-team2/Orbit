@@ -23,6 +23,7 @@ import {
   formatRunDate,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
+import "./rehearsal-project-report.css";
 
 export function RehearsalProjectOverviewPage({
   projectId,

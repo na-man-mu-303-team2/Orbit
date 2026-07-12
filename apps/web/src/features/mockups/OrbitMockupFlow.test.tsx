@@ -127,4 +127,48 @@ describe("Orbit mockup flow", () => {
     expect(html).toContain("Google로 가입하기");
     expect(html).toContain("무료로 시작하기");
   });
+
+  it("renders the missing-surface catalog", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="catalog" />);
+    expect(html).toContain("화면 밖에 있던 기능");
+    expect(html).toContain("발표 브리프 · 평가 관점");
+    expect(html).toContain("AI PPT 상세 위저드");
+  });
+
+  it("renders the presentation brief and evaluator lens mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="brief" />);
+    expect(html).toContain("누구에게, 무엇을 얻기 위해");
+    expect(html).toContain("평가 관점");
+    expect(html).toContain("브리프 저장하고 계속");
+  });
+
+  it("renders the adaptive practice plan mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="practice-plan" />);
+    expect(html).toContain("다음 연습은 이 세 가지에 집중하세요.");
+    expect(html).toContain("선택한 구간 연습");
+  });
+
+  it("renders the focused practice mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="focused-practice" />);
+    expect(html).toContain("한 구간만 짧게 반복하세요.");
+    expect(html).toContain("반복 기록");
+  });
+
+  it("renders the challenge Q&A mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="challenge-qna" />);
+    expect(html).toContain("질문 하나에 집중해 답해 보세요.");
+    expect(html).toContain("음성 답변 시작");
+  });
+
+  it("renders the audience entrance mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="audience" />);
+    expect(html).toContain("청중 입장");
+    expect(html).toContain("4자리 비밀번호");
+  });
+
+  it("renders the editor version history mockup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="version-history" />);
+    expect(html).toContain("이전 작업을 확인하고 안전하게 복원하세요.");
+    expect(html).toContain("이 버전 복원");
+  });
 });

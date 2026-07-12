@@ -1,7 +1,6 @@
 import {
   IconArrowLeft,
   IconArrowRight,
-  IconBell,
   IconChartBar,
   IconCheck,
   IconChevronDown,
@@ -33,11 +32,22 @@ import { OrbitLivePresentationMockup, OrbitLivePresenterMockup } from "./OrbitLi
 import { OrbitLoginMockup, OrbitSignupMockup } from "./OrbitAuthMockups";
 import { OrbitMicrophoneCheckMockup } from "./OrbitMicrophoneCheckMockup";
 import { OrbitProjectAccessMockup, OrbitProjectReportMockup } from "./OrbitProjectMockups";
+import { MockupHeader } from "./OrbitMockupHeader";
+import {
+  OrbitAiPptConnectedMockup,
+  OrbitAudienceEntranceMockup,
+  OrbitChallengeQnaMockup,
+  OrbitFocusedPracticeMockup,
+  OrbitMockupCatalog,
+  OrbitPracticePlanMockup,
+  OrbitPresentationBriefMockup,
+  OrbitVersionHistoryMockup
+} from "./OrbitGapMockups";
 import rehearsalEditorialImage from "./assets/rehearsal-editorial.png";
 import "../../design-system/orbit-design-system.css";
 import "./orbit-mockup.css";
 
-export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup";
+export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history" | "ai-ppt";
 
 type OrbitMockupFlowProps = {
   onNavigate: (path: string) => void;
@@ -80,6 +90,30 @@ const mockProjects = [
 ];
 
 export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
+  if (props.screen === "catalog") {
+    return <OrbitMockupCatalog onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "brief") {
+    return <OrbitPresentationBriefMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "practice-plan") {
+    return <OrbitPracticePlanMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "focused-practice") {
+    return <OrbitFocusedPracticeMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "challenge-qna") {
+    return <OrbitChallengeQnaMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "audience") {
+    return <OrbitAudienceEntranceMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "version-history") {
+    return <OrbitVersionHistoryMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "ai-ppt") {
+    return <OrbitAiPptConnectedMockup onNavigate={props.onNavigate} />;
+  }
   if (props.screen === "public") {
     return <OrbitPublicMockup onNavigate={props.onNavigate} />;
   }
@@ -600,46 +634,6 @@ export function OrbitCreateMockup(props: Pick<OrbitMockupFlowProps, "onNavigate"
         ) : null}
       </main>
     </div>
-  );
-}
-
-function MockupHeader(props: {
-  mode: "public" | "app";
-  onLoginClick?: () => void;
-  onLogoClick: () => void;
-  onPrimaryClick?: () => void;
-}) {
-  return (
-    <header className="mockup-header">
-      <button aria-label="ORBIT 목업 홈" className="mockup-logo-button" onClick={props.onLogoClick} type="button">
-        <img alt="ORBIT" src={orbitLogo} />
-      </button>
-      <nav aria-label={props.mode === "public" ? "공개 navigation" : "제품 navigation"}>
-        {(props.mode === "public"
-          ? ["제품", "활용 방법", "리허설", "템플릿"]
-          : ["홈", "프로젝트", "리허설", "리포트"]
-        ).map((item, index) => (
-          <button aria-current={index === 0 ? "page" : undefined} key={item} type="button">
-            {item}
-          </button>
-        ))}
-      </nav>
-      {props.mode === "public" ? (
-        <div className="mockup-header-public-actions">
-          <button onClick={props.onLoginClick} type="button">로그인</button>
-          <OrbitButton onClick={props.onPrimaryClick}>무료로 시작</OrbitButton>
-        </div>
-      ) : (
-        <div className="mockup-header-app-actions">
-          <label>
-            <IconSearch size={18} />
-            <input aria-label="전체 검색" placeholder="검색" />
-          </label>
-          <button aria-label="알림" type="button"><IconBell size={20} /></button>
-          <span><IconUserCircle size={28} /> 김지윤 <IconChevronDown size={16} /></span>
-        </div>
-      )}
-    </header>
   );
 }
 

@@ -15,10 +15,34 @@
 .rehearsal-preflight-start { background: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill); color: white; }
 .rehearsal-preflight-quiet { color: var(--orbit-ds-text-muted); }
 
+/* Keep the production preflight on the canonical ORBIT palette even though the
+   legacy global rehearsal theme is loaded later in the application bundle. */
+body .rehearsal-preflight-screen { background: var(--orbit-ds-surface); color: var(--orbit-ds-ink); font-family: var(--orbit-ds-font-sans); }
+body .rehearsal-preflight-banner { background: var(--orbit-ds-lime); border-bottom-color: var(--orbit-ds-border); color: var(--orbit-ds-ink); }
+body .rehearsal-preflight-banner svg,
+body .rehearsal-preflight-banner strong { color: var(--orbit-ds-ink); }
+body .rehearsal-preflight-mic { background: var(--orbit-ds-lilac); border-color: transparent; box-shadow: none; }
+body .rehearsal-preflight-mic span { background: transparent; color: var(--orbit-ds-ink); }
+body .rehearsal-preflight-chain { background: white; border-color: var(--orbit-ds-border); box-shadow: none; }
+body .rehearsal-preflight-inline-action,
+body .rehearsal-preflight-check { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill); color: white; }
+body .rehearsal-preflight-inline-action:hover:not(:disabled),
+body .rehearsal-preflight-check:hover:not(:disabled) { background: var(--orbit-ds-lilac-strong); color: white; }
+body .rehearsal-preflight-start { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); color: white; box-shadow: none; }
+body .rehearsal-preflight-start:hover:not(:disabled) { background: var(--orbit-ds-lilac-strong); border-color: var(--orbit-ds-lilac-strong); }
+body .rehearsal-preflight-start:disabled { background: var(--orbit-ds-surface-strong); border-color: var(--orbit-ds-border-strong); color: var(--orbit-ds-text-muted); opacity: 1; }
+body .rehearsal-preflight-quiet,
+body .rehearsal-preflight-quiet:hover { color: var(--orbit-ds-text-muted); }
+
 @media (max-width:760px) {
   .rehearsal-preflight-screen { padding: 28px 18px 54px; }
   .rehearsal-preflight-card { padding: 24px 18px; }
   .rehearsal-preflight-copy h1 { font-size: 34px; }
+  body .rehearsal-preflight-chain > div { grid-template-columns: 24px minmax(0, 1fr); }
+  body .rehearsal-preflight-status-meta { flex-wrap: wrap; grid-column: 2; justify-content: flex-start; width: 100%; }
+  body .rehearsal-preflight-status-meta small { text-align: left; }
+  body .rehearsal-preflight-inline-action { justify-content: center; width: 100%; }
+  body .rehearsal-preflight-status-details { grid-column: 1 / -1; }
   .rehearsal-preflight-actions { align-items: stretch; flex-direction: column; }
   .rehearsal-preflight-start-tooltip-wrap, .rehearsal-preflight-start { width: 100%; }
 }
