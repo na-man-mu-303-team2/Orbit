@@ -1128,22 +1128,26 @@ def _feature_comparison(
         )
     count = len(items)
     frames: list[tuple[int, int, int, int]]
-    if count == 3 and order % 2 == 1:
-        frames = [
-            (_grid_x(0), content_top, _grid_width(6), content_height),
-            (_grid_x(6), content_top, _grid_width(6), (content_height - 24) // 2),
+    if count == 3:
+        stacked_height = (content_height - 24) // 2
+        dominant_left = order % 2 == 1
+        dominant_frame = (
+            _grid_x(0 if dominant_left else 5),
+            content_top,
+            _grid_width(7),
+            content_height,
+        )
+        stack_x = _grid_x(7 if dominant_left else 0)
+        stack_frames = [
+            (stack_x, content_top, _grid_width(5), stacked_height),
             (
-                _grid_x(6),
-                content_top + (content_height - 24) // 2 + 24,
-                _grid_width(6),
-                (content_height - 24) // 2,
+                stack_x,
+                content_top + stacked_height + 24,
+                _grid_width(5),
+                stacked_height,
             ),
         ]
-    elif count == 3:
-        frames = [
-            (_grid_x(index * 4), content_top, _grid_width(4), content_height)
-            for index in range(3)
-        ]
+        frames = [dominant_frame, *stack_frames]
     elif count == 2 and order % 2 == 0:
         frames = [
             (_grid_x(0), content_top + 96, _grid_width(5), content_height - 192),
@@ -1682,8 +1686,8 @@ COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "metric-poster": CompositionSpec("metric-poster", ("data", "chart", "summary"), 1, 3, "none", ("light", "dark"), "poster-metric", "metric", _metric_poster),
     "kpi-strip-evidence": CompositionSpec("kpi-strip-evidence", ("data", "chart", "feature-grid", "solution"), 2, 4, "none", ("light", "dark"), "evidence-strip", "first-kpi", _kpi_strip),
     "image-evidence": CompositionSpec("image-evidence", ("data", "feature-grid", "solution", "quote"), 1, 3, "required", ("light", "dark"), "image-evidence", "evidence-image", _image_evidence),
-    "feature-comparison": CompositionSpec("feature-comparison", ("comparison", "feature-grid"), 2, 4, "none", ("light", "dark"), "comparison", "first-comparison", _feature_comparison),
-    "process-horizontal": CompositionSpec("process-horizontal", ("process", "architecture"), 3, 6, "none", ("light", "dark"), "process", "first-step", _process_horizontal),
+    "feature-comparison": CompositionSpec("feature-comparison", ("comparison", "feature-grid"), 2, 4, "none", ("light", "dark"), "segmented-fields", "first-comparison", _feature_comparison),
+    "process-horizontal": CompositionSpec("process-horizontal", ("process", "architecture"), 3, 6, "none", ("light", "dark"), "segmented-fields", "first-step", _process_horizontal),
     "timeline": CompositionSpec("timeline", ("process", "data", "summary"), 3, 6, "none", ("light", "dark"), "timeline", "first-milestone", _timeline),
     "diagram-hub": CompositionSpec("diagram-hub", ("architecture", "feature-grid", "solution"), 3, 6, "none", ("light", "dark"), "diagram", "hub", _diagram_hub),
     "cta-closing": CompositionSpec("cta-closing", ("summary",), 1, 3, "optional", ("light", "dark"), "closing", "cta", _cta_closing),

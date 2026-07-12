@@ -1022,10 +1022,73 @@ def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
     )
     body = [element for element in even.elements + odd.elements if element["role"] == "body"]
 
-    assert (even_field["x"], even_field["y"], even_field["width"]) == (120, 344, 544)
-    assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 344, 828)
+    assert (even_field["x"], even_field["y"], even_field["width"]) == (830, 344, 970)
+    assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 344, 970)
     assert all(element["props"]["fontSize"] >= 24 for element in body)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
+
+
+def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        slide_payload("process", 3),
+        slide_payload("comparison", 3),
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "minimal-cover",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "process-horizontal",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
+                "compositionId": "feature-comparison",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "comparison",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 4,
+                "compositionId": "cta-closing",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(
+        candidate,
+        slides,
+        media_policy="minimal",
+    )
+    silhouettes = [
+        COMPOSITION_SPECS[direction.composition_id].silhouette
+        for direction in normalized.slides
+    ]
+
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
+    assert normalized.slides[1].composition_id == "process-horizontal"
+    assert normalized.slides[2].composition_id == "editorial-split"
 
 
 def test_two_item_comparison_uses_asymmetric_contrasting_statement_panels() -> None:
