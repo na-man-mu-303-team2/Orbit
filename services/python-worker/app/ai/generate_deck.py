@@ -2700,7 +2700,7 @@ def program_v2_slide_summary(
     slide_plan: SlidePlan,
     raw_input: RawInput | None = None,
 ) -> dict[str, Any]:
-    summary = {
+    summary: dict[str, Any] = {
         "title": slide_plan.title,
         "message": slide_plan.message,
         "contentItems": [

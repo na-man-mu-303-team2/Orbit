@@ -300,7 +300,7 @@ def create_design_program(
     model: str | None = None,
     api_key: str | None = None,
 ) -> DeckDesignProgram:
-    api_client = client
+    api_client: Any = client
     if api_client is None:
         if not api_key:
             raise DesignProgramError("Art Director model is unavailable")

@@ -292,7 +292,7 @@ def review_deck_visuals(
     model: str | None = None,
     api_key: str | None = None,
 ) -> VisualQaResponse:
-    api_client = client
+    api_client: Any = client
     if api_client is None:
         if not api_key:
             raise VisualQaUnavailableError("Vision QA model is unavailable")

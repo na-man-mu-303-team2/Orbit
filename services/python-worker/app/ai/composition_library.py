@@ -2244,7 +2244,7 @@ def _first_supported(
     slide_type: str,
     item_count: int,
     *,
-    usage: Counter[str] | None = None,
+    usage: Counter[CompositionId] | None = None,
     forbidden_silhouette: str = "",
     allow_missing: bool = False,
 ) -> CompositionId | None:
@@ -2463,7 +2463,7 @@ def _media_candidate(
     slides: list[dict[str, Any]],
     index: int,
     *,
-    usage: Counter[str] | None = None,
+    usage: Counter[CompositionId] | None = None,
     allow_required: bool = False,
 ) -> CompositionId | None:
     direction = program.slides[index]
@@ -2616,7 +2616,7 @@ def _break_long_background_runs(program: DeckDesignProgram) -> None:
         run_length = run_end - index
         if mode in {"light", "dark"} and run_length > 4:
             pivot = index + run_length // 2
-            replacement = "dark" if mode == "light" else "light"
+            replacement: BackgroundMode = "dark" if mode == "light" else "light"
             program.slides[pivot].background_mode = replacement
             program.slides[pivot].variant = replacement
             index = pivot + 1
