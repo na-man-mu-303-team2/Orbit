@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
-  it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
+  it("no longer renders the semantic delivery or utterance coverage sections", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -28,23 +28,6 @@ describe("RehearsalReportDocument", () => {
               similarity: 0.87
             },
             { slideId: "slide_2", kind: "missed", sentenceId: "sentence_1" }
-          ],
-          semanticCueDecisions: [
-            {
-              slideId: "slide_1",
-              cueId: "scue_intro_1",
-              label: "covered",
-              measurementMode: "full",
-              finalScore: 0.82,
-              matchedBy: "nli",
-              fallbackUsed: false,
-              entailmentScore: 0.91,
-              premise: "보고서에 그대로 노출하지 않을 전사 근거",
-              hypothesis: "보고서에 그대로 노출하지 않을 가설",
-              provider: "browser-transformersjs",
-              modelId: "model",
-              reasonCodes: ["nli-entailment", "concept-coverage"]
-            }
           ],
           semanticEvaluation: {
             state: "partial",
@@ -72,23 +55,6 @@ describe("RehearsalReportDocument", () => {
               status: "missed",
               coveredConcepts: [],
               missingConcepts: ["고객 시간 절약"]
-            }),
-            semanticOutcome({
-              cueId: "cue-unmeasured",
-              measurementMode: "none",
-              reportLabelSnapshot: "시장 근거",
-              status: "unmeasured",
-              unmeasuredReason: "timeout",
-              coveredConcepts: [],
-              missingConcepts: []
-            }),
-            semanticOutcome({
-              cueId: "cue-excluded",
-              measurementMode: "none",
-              reportLabelSnapshot: "이전 Cue",
-              status: "excluded",
-              coveredConcepts: [],
-              missingConcepts: []
             })
           ]
         })}
@@ -108,124 +74,20 @@ describe("RehearsalReportDocument", () => {
           updatedAt: "2026-07-03T00:00:00.000Z"
         }}
         runNumber={1}
-        semanticRetryState={{ status: "idle" }}
-        totalRunCount={1}
-        onSemanticRetry={() => undefined}
-      />
-    );
-
-    expect(html).toContain("발화 커버리지");
-    expect(html).toContain("그대로 말한 문장");
-    expect(html).toContain("바꿔 말한 문장");
-    expect(html).toContain("추가로 말한 애드리브");
-    expect(html).toContain("설명하지 않은 문장");
-    expect(html).toContain("도입 문장입니다");
-    expect(html).toContain("핵심 메시지를 다르게 설명합니다");
-    expect(html).toContain("고객 사례를 하나 더 설명했습니다.");
-    expect(html).toContain("마무리 문장입니다");
-    expect(html).toContain("슬라이드 1 · Opening");
-    expect(html).toContain("93%");
-    expect(html).toContain("의미 전달 리포트");
-    expect(html).toContain("일부 의미 항목을 측정하지 못했어요");
-    expect(html).toContain("전달됨");
-    expect(html).toContain("일부 전달");
-    expect(html).toContain("놓친 의미");
-    expect(html).toContain("측정하지 못함");
-    expect(html).toContain("검토 제외");
-    expect(html).toContain("다음 연습 목표");
-    expect(html).toContain("고객 가치");
-    expect(html).toContain("비용 절감 효과");
-    expect(html).toContain("반복 업무를 줄였습니다.");
-    expect(html).toContain("정밀 의미 평가 시간 초과");
-    expect(html).toContain("서버 재평가");
-    expect(html).not.toContain("Semantic cue evidence");
-    expect(html).not.toContain("scue_intro_1");
-    expect(html).not.toContain("nli-entailment");
-    expect(html).not.toContain("보고서에 그대로 노출하지 않을 전사 근거");
-    expect(html).not.toContain("보고서에 그대로 노출하지 않을 가설");
-  });
-
-  it("shows the basic badge and N/A for a deck without keyword coverage", () => {
-    const html = renderToStaticMarkup(
-      <RehearsalReportDocument
-        deck={deck}
-        prevReports={[]}
-        projectId="project_a"
-        report={reportFixture({
-          metrics: {
-            ...reportFixture().metrics,
-            keywordCoverage: 0,
-            keywordCoverageMeasurement: {
-              state: "unmeasured",
-              reason: "no-keywords"
-            }
-          },
-          semanticEvaluation: {
-            state: "succeeded",
-            measurementMode: "basic",
-            reasons: [],
-            retryable: false
-          },
-          semanticCueOutcomes: [
-            semanticOutcome({
-              measurementMode: "basic",
-              status: "covered"
-            })
-          ]
-        })}
-        run={null}
-        runNumber={1}
-        semanticRetryState={{ status: "idle" }}
         totalRunCount={1}
       />
     );
 
-    expect(html).toContain("기본 의미 체크");
-    expect(html).toContain("N/A");
-    expect(html).toContain("저장된 장표 키워드가 없어 측정하지 않았어요.");
-    expect(html).not.toContain("키워드 커버리지</span><strong>0%");
-  });
+    expect(html).not.toContain("발화 커버리지");
+    expect(html).not.toContain("의미 전달 리포트");
+    expect(html).not.toContain("그대로 말한 문장");
+    expect(html).not.toContain("다음 연습 목표");
+    expect(html).not.toContain("고객 가치");
+    expect(html).not.toContain("비용 절감 효과");
+    expect(html).not.toContain("반복 업무를 줄였습니다.");
 
-  it("keeps failed retry and fallback copy in system status, not AI summary", () => {
-    const html = renderToStaticMarkup(
-      <RehearsalReportDocument
-        deck={deck}
-        prevReports={[]}
-        projectId="project_a"
-        report={reportFixture({
-          semanticEvaluation: {
-            state: "unavailable",
-            measurementMode: "none",
-            reasons: ["server_evaluation_failed"],
-            retryable: true
-          },
-          semanticCueOutcomes: [
-            semanticOutcome({
-              measurementMode: "none",
-              status: "unmeasured",
-              unmeasuredReason: "server_evaluation_failed",
-              coveredConcepts: [],
-              missingConcepts: []
-            })
-          ]
-        })}
-        run={null}
-        runNumber={1}
-        semanticRetryState={{
-          message: "서버 재평가를 완료하지 못했습니다.",
-          status: "failed"
-        }}
-        totalRunCount={1}
-        onSemanticRetry={() => undefined}
-      />
-    );
-
-    expect(html).toContain("시스템 상태 안내");
-    expect(html).toContain("서버 의미 평가 연결 실패");
-    expect(html).toContain("서버 재평가를 완료하지 못했습니다.");
-    expect(html).toContain('role="alert"');
-    expect(html).not.toContain("rrd-ai-summary");
-    expect(html).not.toContain("server_evaluation_failed");
+    expect(html).toContain("소요 시간 분석");
+    expect(html).not.toContain("키워드 커버리지");
   });
 });
 

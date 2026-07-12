@@ -51,7 +51,7 @@ export function RehearsalSlideAnalysisOverview({
   return (
     <section className="rrd-card">
       <header className="rrd-card-head">
-        <Layers size={16} className="rrd-card-icon" />
+        <Layers size={20} className="rrd-card-icon" />
         <h2>장표별 분석</h2>
         {problemCards.length > 0 && (
           <span className="rrd-card-count">{problemCards.length}장</span>

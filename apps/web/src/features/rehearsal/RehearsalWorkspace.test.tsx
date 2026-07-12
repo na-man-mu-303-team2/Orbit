@@ -1088,8 +1088,6 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("2026.06.29");
     expect(html).toContain("1분 30초");
     expect(html).toContain(String(deck.slides.length));
-    expect(html).toContain("75%");
-    expect(html).toContain("키워드 커버리지");
     expect(html).toContain("말버릇 총량");
     expect(html).toContain("긴 멈춤");
     expect(html).toContain("음");
@@ -1323,7 +1321,7 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("저장된 장표 키워드 기준");
+    expect(html).toContain("소요 시간 분석");
     expect(html).not.toContain(
       "핵심 키워드 커버리지가 낮을 때만 누락 후보를 표시합니다.",
     );
