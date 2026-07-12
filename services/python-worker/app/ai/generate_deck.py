@@ -3570,6 +3570,7 @@ def plan_deck_content(
                     deduplicate_speaker_notes_across_slides(slide_plans)
                 if is_program_v2(raw_input):
                     slide_plans = compact_program_v2_content_items(slide_plans)
+                    slide_plans = normalize_program_v2_action_titles(slide_plans)
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -4232,6 +4233,65 @@ def compact_program_v2_content_items(
             )
         compacted_plans.append(compacted)
     return compacted_plans
+
+
+def normalize_program_v2_action_titles(
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    normalized_plans: list[SlidePlan] = []
+    total_slides = len(slide_plans)
+    for slide_plan in slide_plans:
+        if (
+            slide_plan.order == 1
+            or slide_plan.order == total_slides
+            or slide_plan.slide_type in {"title", "cover", "quote", "summary"}
+            or not action_title_requires_attention(slide_plan.title)
+        ):
+            normalized_plans.append(slide_plan)
+            continue
+
+        candidate = program_v2_action_title_candidate(slide_plan)
+        if not candidate or candidate == slide_plan.title:
+            normalized_plans.append(slide_plan)
+            continue
+
+        normalized = slide_plan.model_copy(deep=True)
+        normalized.title = candidate
+        normalized_plans.append(normalized)
+    return normalized_plans
+
+
+def program_v2_action_title_candidate(slide_plan: SlidePlan) -> str:
+    title = " ".join(slide_plan.title.split()).strip()
+    without_label = re.sub(
+        r"^(?:총평|요약|결론|핵심|전망|정리)\s*[-–—:：]\s*",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    ).strip()
+    message_parts = [
+        part.strip()
+        for part in re.split(r"[\n;•]+", slide_plan.message)
+        if part.strip()
+    ]
+    item_texts = [item.text.strip() for item in slide_plan.content_items if item.text.strip()]
+    candidates = [without_label, *message_parts, *item_texts]
+
+    for candidate in candidates:
+        normalized = " ".join(candidate.split()).strip(" .,:;!?-–—_")
+        if (
+            6 <= len(normalized) <= 40
+            and not action_title_requires_attention(normalized)
+        ):
+            return normalized
+
+    fallback = next((candidate for candidate in candidates if candidate), title)
+    fallback = " ".join(fallback.split()).strip(" .,:;!?-–—_")
+    if len(fallback) > 40:
+        fallback = fallback[:39].rstrip() + "…"
+    if fallback and not action_title_requires_attention(fallback):
+        return fallback
+    return f"{title or '핵심 내용'}의 의미를 확인합니다"[:40]
 
 
 def repair_content_plan_with_llm(

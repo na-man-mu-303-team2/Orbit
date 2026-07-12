@@ -68,6 +68,7 @@ from app.ai.generate_deck import (
     merge_grounded_repair_notes,
     message_duplicates_content_items,
     normalize_design_pack_slide_title,
+    normalize_program_v2_action_titles,
     normalize_structural_content_text,
     remove_redundant_speaker_note_sentences,
     presentation_profile_for_request,
@@ -1826,6 +1827,61 @@ def test_program_v2_compacts_general_body_to_composition_capacity() -> None:
     assert len(compacted[1].content_items) == 4
     assert compacted[1].content_items[-1].text == "Point 4 · Point 5"
     assert compacted[1].message.endswith("Point 4 · Point 5")
+
+
+def test_program_v2_promotes_grounded_message_for_long_action_title() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Splatoon Raiders",
+            message="신작 공개",
+            speaker_notes="신작을 소개합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="신작 공개")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="feature-grid",
+            title="총평 – Splatoon Raiders로 한층 진화하는 Splatoon 시리즈",
+            message="새로운 모험과 협력 플레이를 통해 시리즈 진화",
+            speaker_notes="신작의 의미를 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="body-1",
+                    text="Nintendo Switch 2에서의 전략적 확장",
+                )
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="출시 정보를 확인하세요",
+            message="공식 웹사이트 방문",
+            speaker_notes="공식 정보를 확인하도록 안내합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="closing-1",
+                    text="공식 웹사이트 방문",
+                )
+            ],
+        ),
+    ]
+
+    normalized = normalize_program_v2_action_titles(plans)
+
+    assert normalized[1].title == "Splatoon Raiders로 한층 진화하는 Splatoon 시리즈"
+    assert len(normalized[1].title) <= 40
+    assert plans[1].title.startswith("총평")
+    assert normalized[0] is plans[0]
+    assert normalized[2] is plans[2]
 
 
 def test_program_v2_reclassifies_two_step_process_without_inventing_content() -> None:
