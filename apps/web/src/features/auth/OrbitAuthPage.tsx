@@ -56,7 +56,6 @@ export function OrbitPublicLandingPage(props: { onNavigate: Navigate }) {
             <p>아이디어 정리부터 슬라이드 생성, 리허설과 피드백까지 ORBIT이 발표의 전 과정을 함께합니다.</p>
             <div className="orbit-public-actions">
               <OrbitButton icon={<IconArrowRight aria-hidden="true" size={18} />} onClick={() => props.onNavigate("/signup")}>무료로 발표 만들기</OrbitButton>
-              <OrbitButton onClick={scrollToFlow} variant="secondary">예시 보기</OrbitButton>
             </div>
           </div>
           <ProductStage />
@@ -191,7 +190,7 @@ function ProductStage() {
   return (
     <section aria-label="ORBIT 제품 미리보기" className="orbit-public-stage">
       <div className="orbit-public-stage-flow"><span><IconSparkles aria-hidden="true" size={18} />AI 아이디어 정리</span><IconArrowRight aria-hidden="true" size={18} /><span><IconPresentation aria-hidden="true" size={18} />슬라이드 자동 생성</span><IconArrowRight aria-hidden="true" size={18} /><span><IconMicrophone aria-hidden="true" size={18} />리허설 &amp; 피드백</span></div>
-      <div className="orbit-public-product-preview">
+      <div className="orbit-public-product-preview" onDragStart={(event) => event.preventDefault()}>
         <header><img alt="ORBIT" src={orbitLogo} /><IconFileText aria-hidden="true" size={16} /></header>
         <aside><strong>AI 아이디어 정리</strong><small>핵심 메시지</small><p>고객 가치와 시장 성장에 집중합니다.</p><small>발표 개요</small><ol><li>시장 변화</li><li>제품 전략</li><li>실행 계획</li></ol></aside>
         <aside aria-label="슬라이드 목록" className="orbit-public-preview-slides">{[1, 2, 3, 4, 5].map((slide) => <span key={slide}>{slide}</span>)}</aside>

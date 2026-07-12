@@ -149,6 +149,7 @@
   grid-template-rows: 44px minmax(290px, 1fr);
   overflow: hidden;
   transform: rotate(-1.2deg);
+  user-select: none;
 }
 
 .orbit-public-product-preview > header {
@@ -515,9 +516,9 @@
 }
 
 .orbit-auth-password-field > .orbit-ds-icon-button {
-  bottom: 31px;
   position: absolute;
   right: 5px;
+  top: 25px;
 }
 
 .orbit-auth-password-field .orbit-ds-input { padding-right: 48px; }
