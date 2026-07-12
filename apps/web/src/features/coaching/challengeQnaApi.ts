@@ -1,4 +1,5 @@
 import { challengeQnaAnswerAttemptSchema, challengeQnaSessionSchema, type ChallengeQnaAnswerAttempt, type ChallengeQnaSession } from "@orbit/shared";
+import { normalizeCoachingAudioMimeType } from "./coachingAudioMimeType";
 
 export type ChallengeQuestionView = {
   questionId:string;revision:number;order:number;questionType:string;difficulty:string;questionText:string;
@@ -22,7 +23,7 @@ export async function submitTextAnswer(sessionId:string,question:ChallengeQuesti
   return challengeQnaAnswerAttemptSchema.parse(body.attempt);
 }
 export async function submitVoiceAnswer(sessionId:string,question:ChallengeQuestionView,capture:{blob:Blob;durationMs:number}){
-  const created=await parse(await fetch(`/api/v1/challenge-qna-sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(question.questionId)}/answers`,{method:"POST",headers:{"content-type":"application/json"},credentials:"include",body:JSON.stringify({clientRequestId:crypto.randomUUID(),questionRevision:question.revision,inputMode:"voice",mimeType:capture.blob.type||"audio/webm",size:capture.blob.size})}));
+  const created=await parse(await fetch(`/api/v1/challenge-qna-sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(question.questionId)}/answers`,{method:"POST",headers:{"content-type":"application/json"},credentials:"include",body:JSON.stringify({clientRequestId:crypto.randomUUID(),questionRevision:question.revision,inputMode:"voice",mimeType:normalizeCoachingAudioMimeType(capture.blob.type),size:capture.blob.size})}));
   await fetch(created.upload.uploadUrl,{method:created.upload.method,headers:created.upload.headers,body:capture.blob}).then((response)=>{if(!response.ok)throw new Error("음성 업로드에 실패했습니다.");});
   const completed=await parse(await fetch(`/api/v1/challenge-qna-answer-attempts/${encodeURIComponent(created.attempt.answerAttemptId)}/audio/complete`,{method:"POST",headers:{"content-type":"application/json"},credentials:"include",body:JSON.stringify({fileId:created.upload.fileId,durationMs:capture.durationMs})}));
   return challengeQnaAnswerAttemptSchema.parse(completed.attempt);

@@ -5,6 +5,7 @@ import {
   type FocusedPracticeSession,
   type PracticePlanResponse,
 } from "@orbit/shared";
+import { normalizeCoachingAudioMimeType } from "./coachingAudioMimeType";
 
 const jsonHeaders = { "content-type": "application/json" };
 async function json(response: Response) { if (!response.ok) throw new Error("부분 연습 요청에 실패했습니다."); return response.json(); }
@@ -28,7 +29,7 @@ export async function getFocusedSession(sessionId: string): Promise<{ session: F
 export async function submitFocusedAudio(sessionId: string, blob: Blob, durationMs: number, slideId: string) {
   const attemptData = await json(await fetch(`/api/v1/focused-practice-sessions/${encodeURIComponent(sessionId)}/attempts`, {
     method: "POST", headers: jsonHeaders, credentials: "include",
-    body: JSON.stringify({ clientRequestId: crypto.randomUUID(), mimeType: blob.type || "audio/webm", size: blob.size }),
+    body: JSON.stringify({ clientRequestId: crypto.randomUUID(), mimeType: normalizeCoachingAudioMimeType(blob.type), size: blob.size }),
   })) as { attempt: unknown; upload: { uploadUrl: string; method: string; headers: Record<string, string>; fileId: string } };
   const attempt = focusedPracticeAttemptSchema.parse(attemptData.attempt);
   const uploadResponse = await fetch(attemptData.upload.uploadUrl, { method: attemptData.upload.method, headers: attemptData.upload.headers, body: blob });
