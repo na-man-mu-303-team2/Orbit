@@ -587,25 +587,32 @@ def _statement_poster(
     order = direction.order
     items = _items(slide)
     support_items = _supporting_items_without_message_duplicate(slide, items)
+    promotes_play_focal = _promotes_play_focal(slide)
     panel_fill = style.surface if _is_dark(style.background) else style.text
     panel_text = _contrasting_text_color(panel_fill, style.text)
     panel_y = 272
     panel_height = 584
+    statement_text = str(slide.get("message", ""))
+    statement_width = 1120 if promotes_play_focal else 1512
+    statement_font_size = max(64, style.title_size + 8)
+    if not support_items and len(statement_text) <= 55:
+        statement_font_size = max(84, style.title_size + 20)
     statement = _text(
         order,
         "statement",
         "highlight",
-        str(slide.get("message", "")),
+        statement_text,
         184,
         328,
-        1512,
+        statement_width,
         336 if support_items else 424,
         5,
         panel_text,
-        max(64, style.title_size + 8),
+        statement_font_size,
         "bold",
         style.heading_font,
         line_height=1.2,
+        vertical="top" if support_items else "middle",
         content_item_ids=(
             [identifier for identifier, _ in items]
             if items and not support_items
@@ -677,7 +684,74 @@ def _statement_poster(
                 ),
             ]
         )
+    if promotes_play_focal:
+        play_x = 1450
+        play_y = 440
+        play_size = 184
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    "statement_play_field",
+                    "highlight",
+                    play_x,
+                    play_y,
+                    play_size,
+                    play_size,
+                    5,
+                    style.focal,
+                    radius=play_size // 2,
+                ),
+                _text(
+                    order,
+                    "statement_play_icon",
+                    "highlight",
+                    "▶",
+                    play_x + 18,
+                    play_y + 24,
+                    play_size - 36,
+                    play_size - 48,
+                    6,
+                    _contrasting_text_color(style.focal, style.text),
+                    76,
+                    "bold",
+                    style.heading_font,
+                    align="center",
+                    vertical="middle",
+                ),
+                _text(
+                    order,
+                    "statement_play_label",
+                    "caption",
+                    "TRAILER",
+                    play_x - 40,
+                    play_y + play_size + 28,
+                    play_size + 80,
+                    56,
+                    6,
+                    panel_text,
+                    max(26, style.caption_size),
+                    "bold",
+                    style.body_font,
+                    align="center",
+                ),
+            ]
+        )
     return elements, statement["elementId"]
+
+
+def _promotes_play_focal(slide: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            str(slide.get("title", "")),
+            str(slide.get("message", "")),
+            *[value for _, value in _items(slide)],
+        ]
+    ).casefold()
+    return any(
+        keyword in text
+        for keyword in ("trailer", "video", "트레일러", "영상", "demo", "데모")
+    )
 
 
 def _editorial_split(
@@ -690,12 +764,15 @@ def _editorial_split(
     duplicates_items = _message_duplicates_items(slide, items)
     elements = [_background(order, style), _title(order, slide, style)]
     if direction.asset_role != "none":
+        content_span = 5 if direction.asset_role == "atmosphere" else 6
+        media_span = 12 - content_span
+        support_span = content_span - 1
         elements.extend(
             _media(
                 order,
-                _grid_x(6),
+                _grid_x(content_span),
                 248,
-                _grid_width(6),
+                _grid_width(media_span),
                 640,
                 4,
                 style,
@@ -747,7 +824,7 @@ def _editorial_split(
                             value,
                             _grid_x(1),
                             y + 12,
-                            _grid_width(5),
+                            _grid_width(support_span),
                             row_height - 24,
                             5,
                             style.text,
@@ -767,7 +844,7 @@ def _editorial_split(
                             "decoration",
                             _grid_x(1),
                             y + row_height - 2,
-                            _grid_width(5),
+                            _grid_width(support_span),
                             2,
                             3,
                             style.secondary,
@@ -782,7 +859,7 @@ def _editorial_split(
                     str(slide.get("message", "")),
                     _grid_x(0),
                     304,
-                    _grid_width(6),
+                    _grid_width(content_span),
                     256,
                     5,
                     style.text,
@@ -801,7 +878,7 @@ def _editorial_split(
                         "\n".join(f"• {value}" for _, value in items),
                         _grid_x(0),
                         608,
-                        _grid_width(6),
+                        _grid_width(content_span),
                         264,
                         5,
                         style.muted_text,

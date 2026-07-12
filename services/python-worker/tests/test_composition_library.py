@@ -702,6 +702,47 @@ def test_statement_poster_uses_a_content_backed_full_width_field() -> None:
     assert statement["props"]["color"] == "#FFFFFF"
 
 
+def test_statement_poster_promotes_trailer_with_native_play_focal() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "statement-poster",
+        "variant": "light",
+        "backgroundMode": "light",
+        "focalType": "statement",
+        "assetRole": "none",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+    slide = slide_payload("quote", 1)
+    slide["title"] = "공식 공개 트레일러"
+    slide["message"] = slide["contentItems"][0]["text"]
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+
+    statement = next(
+        element for element in compiled.elements if element["elementId"].endswith("_statement")
+    )
+    play_field = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_statement_play_field")
+    )
+    play_icon = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_statement_play_icon")
+    )
+
+    assert statement["width"] == 1120
+    assert statement["props"]["verticalAlign"] == "middle"
+    assert (play_field["width"], play_field["height"]) == (184, 184)
+    assert play_icon["props"]["text"] == "▶"
+
+
 def test_closing_media_uses_equal_content_and_image_columns() -> None:
     direction = {
         "order": 1,
@@ -911,7 +952,7 @@ def test_short_hero_with_media_uses_balanced_six_column_split() -> None:
     assert (media["x"], media["width"], media["height"]) == (972, 828, 840)
 
 
-def test_editorial_media_duplicate_items_fill_balanced_six_column_area() -> None:
+def test_editorial_atmosphere_media_uses_five_seven_split() -> None:
     slide = slide_payload("solution", 3)
     slide["message"] = "\n".join(
         item["text"] for item in slide["contentItems"]
@@ -943,10 +984,10 @@ def test_editorial_media_duplicate_items_fill_balanced_six_column_area() -> None
     media = next(element for element in compiled.elements if element["role"] == "media")
 
     assert len(support) == 3
-    assert all((element["x"], element["width"]) == (262, 686) for element in support)
+    assert all((element["x"], element["width"]) == (262, 544) for element in support)
     assert all(element["props"]["fontSize"] >= 24 for element in support)
     assert all(element["props"]["verticalAlign"] == "middle" for element in support)
-    assert (media["x"], media["width"]) == (972, 828)
+    assert (media["x"], media["width"]) == (830, 970)
 
 
 def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
