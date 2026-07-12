@@ -373,6 +373,111 @@ def test_editorial_split_distinct_message_meets_no_media_height() -> None:
     assert message["height"] >= 376
 
 
+def test_short_hero_with_media_uses_balanced_six_column_split() -> None:
+    slide = slide_payload("cover", 2)
+    slide["title"] = "스플래툰 레이더스 공개"
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "hero-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "image",
+                "assetRole": "atmosphere",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    title = next(element for element in compiled.elements if element["role"] == "title")
+    media = next(element for element in compiled.elements if element["role"] == "media")
+
+    assert (title["x"], title["width"]) == (120, 828)
+    assert (media["x"], media["width"], media["height"]) == (972, 828, 840)
+
+
+def test_editorial_media_duplicate_items_fill_seven_column_content_area() -> None:
+    slide = slide_payload("solution", 3)
+    slide["message"] = "\n".join(
+        item["text"] for item in slide["contentItems"]
+    )
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "editorial-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "image",
+                "assetRole": "atmosphere",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    support = [
+        element
+        for element in compiled.elements
+        if element["role"] == "body"
+    ]
+    media = next(element for element in compiled.elements if element["role"] == "media")
+
+    assert len(support) == 3
+    assert all((element["x"], element["width"]) == (262, 828) for element in support)
+    assert all(element["props"]["fontSize"] >= 24 for element in support)
+    assert all(element["props"]["verticalAlign"] == "middle" for element in support)
+    assert (media["x"], media["width"]) == (1114, 686)
+
+
+def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
+    slide = slide_payload("feature-grid", 3)
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "feature-comparison",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "comparison",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+    even_direction = design_program.slides[0].model_copy(update={"order": 2})
+    odd_direction = design_program.slides[0].model_copy(update={"order": 7})
+
+    even = compile_composition(even_direction, slide, design_program)
+    odd = compile_composition(odd_direction, slide, design_program)
+    even_field = next(
+        element
+        for element in even.elements
+        if element["elementId"].endswith("_comparison_1_field")
+    )
+    odd_field = next(
+        element
+        for element in odd.elements
+        if element["elementId"].endswith("_comparison_1_field")
+    )
+    body = [element for element in even.elements + odd.elements if element["role"] == "body"]
+
+    assert (even_field["x"], even_field["y"], even_field["width"]) == (120, 344, 544)
+    assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 304, 828)
+    assert all(element["props"]["fontSize"] >= 24 for element in body)
+    assert all(element["props"]["verticalAlign"] == "middle" for element in body)
+
+
 def test_metric_poster_requires_numeric_evidence() -> None:
     qualitative = slide_payload("data", 2)
     qualitative["contentItems"] = [
@@ -384,6 +489,38 @@ def test_metric_poster_requires_numeric_evidence() -> None:
 
     assert content_supports_composition("metric-poster", qualitative) is False
     assert content_supports_composition("metric-poster", numeric) is True
+
+
+def test_metric_poster_promotes_complete_korean_date() -> None:
+    slide = slide_payload("data", 2)
+    slide["contentItems"][0]["text"] = "2026년 7월 23일 출시"
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "metric-poster",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "metric",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    metric = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_metric")
+    )
+
+    assert metric["props"]["text"] == "2026년 7월 23일"
+    assert metric["width"] == 1396
 
 
 def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
@@ -414,10 +551,19 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     hub = next(
         element for element in compiled.elements if element["elementId"].endswith("_hub")
     )
+    hub_field = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_hub_field")
+    )
+    nodes = [element for element in compiled.elements if element["role"] == "body"]
 
     assert hub["x"] == 712
     assert hub["width"] == 496
     assert hub["props"]["fontSize"] == 26
+    assert hub["props"]["color"] == "#FFFFFF"
+    assert hub_field["props"]["fill"] == "#06B6D4"
+    assert all(element["props"]["fontSize"] >= 24 for element in nodes)
 
 
 def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:
