@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ArrowUpRight,
   Loader2,
   Mic,
   Sparkles,
@@ -24,6 +25,7 @@ import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
 import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
+import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import {
   navigateTo,
   formatRunDate,
@@ -171,6 +173,34 @@ export function RehearsalProjectOverviewPage({
                   />
                 </div>
               </header>
+
+              {latestRun ? (
+                <section
+                  className="report-overview-latest"
+                  aria-label="최신 리포트"
+                >
+                  <div className="report-overview-latest-copy">
+                    <span className="report-section-kicker">LATEST REPORT</span>
+                    <h2>가장 최근 발표 리포트</h2>
+                    <p>
+                      {formatRunDate(latestRun.createdAt)} · {runs.length}회차 중
+                      최신 완료 리포트
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="report-overview-latest-action"
+                    onClick={() =>
+                      navigateTo(
+                        getRehearsalReportPath(projectId, latestRun.runId),
+                      )
+                    }
+                  >
+                    상세 리포트 보기
+                    <ArrowUpRight size={17} />
+                  </button>
+                </section>
+              ) : null}
 
               <section
                 className="report-overview-focus"

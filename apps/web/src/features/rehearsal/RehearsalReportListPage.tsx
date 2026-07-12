@@ -1,4 +1,9 @@
-import { ArrowUpRight, FileText, Loader2, Sparkles } from "lucide-react";
+import {
+  ArrowUpRight,
+  FileText,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Project, RehearsalRun } from "@orbit/shared";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
@@ -78,15 +83,15 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
             <span className="report-page-kicker">
               <Sparkles size={14} /> AI 발표 리포트
             </span>
-            <h1>리허설 리포트</h1>
+            <h1>프로젝트 리포트</h1>
             <p>
-              발표를 데이터로 돌아보고,
+              프로젝트의 전체 발표 흐름을 한눈에 돌아보고,
               <br className="report-list-hero-break" />
-              다음 발표의 집중 포인트를 찾아보세요.
+              다음 발표에서 바꿀 점을 찾아보세요.
             </p>
             <div className="report-list-hero-meta">
-              <span>{loading ? "분석 중" : `${items.length}개 발표자료`}</span>
-              <span>{loading ? "" : "최근 기록부터 정렬"}</span>
+              <span>{loading ? "분석 중" : `${items.length}개 프로젝트`}</span>
+              <span>{loading ? "" : "프로젝트별 누적 분석"}</span>
             </div>
           </div>
           <div className="report-mascot-wrap report-list-mascot-wrap">
@@ -100,10 +105,10 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
 
         <div className="report-list-header">
           <div>
-            <span className="report-section-kicker">YOUR PRESENTATIONS</span>
-            <h2>발표 자료</h2>
+            <span className="report-section-kicker">PROJECT REPORTS</span>
+            <h2>프로젝트별 전체 리포트</h2>
           </div>
-          <span>{loading ? "" : `${items.length}개`}</span>
+          <span>{loading ? "" : `${items.length}개 프로젝트`}</span>
         </div>
 
         {loading ? (
@@ -139,11 +144,13 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
                   </span>
                   <span className="report-list-item-body">
                     <strong>{project.title}</strong>
-                    <span>최근 업데이트 {formatRunDate(latestRun.createdAt)}</span>
+                    <span>
+                      최신 리포트 · {formatRunDate(latestRun.createdAt)}
+                    </span>
                   </span>
                   <span className="report-list-item-summary">
                     <strong>{totalCount}</strong>
-                    <span>회차 기록</span>
+                    <span>회차 분석</span>
                   </span>
                   <span className="report-list-item-arrow-wrap">
                     <ArrowUpRight size={17} className="report-list-item-arrow" />
