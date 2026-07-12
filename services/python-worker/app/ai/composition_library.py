@@ -2441,6 +2441,9 @@ def _enforce_background_rhythm(
 def _composition_slide_type(slide: dict[str, Any]) -> str:
     slide_type = str(slide.get("slideType", "summary"))
     if slide_type == "process":
+        item_count = len(_items(slide))
+        if item_count < 2:
+            return "solution"
         if _looks_like_release_fact_set(slide) and not _looks_like_ordered_process(
             slide
         ):

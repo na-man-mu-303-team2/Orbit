@@ -754,6 +754,56 @@ def test_release_facts_mislabeled_as_process_use_data_composition() -> None:
     }
 
 
+def test_single_release_fact_mislabeled_as_process_uses_statement() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        {
+            **slide_payload("process", 1),
+            "title": "Launch package availability",
+            "message": "The official package is ready for purchase.",
+            "contentItems": [
+                {"contentItemId": "package", "text": "Physical and digital editions"},
+            ],
+        },
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "minimal-cover",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "title",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 2,
+                "compositionId": "process-horizontal",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
+                "compositionId": "cta-closing",
+                "variant": "dark",
+                "backgroundMode": "dark",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+
+    assert normalized.slides[1].composition_id == "statement-poster"
+
+
 def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
     direction = {
         "order": 1,
