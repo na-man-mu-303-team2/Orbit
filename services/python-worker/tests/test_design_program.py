@@ -21,8 +21,11 @@ from app.ai.generate_deck import (
     GeneratedContentItem,
     MediaIntent,
     SlidePlan,
+    VisualIntent,
+    analyze_input,
     initial_source_records,
     is_expected_media_placeholder,
+    program_v2_visual_plan,
     program_v2_slide_summary,
     validate_presentation,
 )
@@ -148,6 +151,55 @@ def test_hybrid_official_asset_placeholder_is_expected_before_resolution() -> No
     }
 
     assert is_expected_media_placeholder(slide) is True
+
+
+def test_program_v2_visual_plan_replaces_generic_media_prompt_with_slide_subject() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            generationMode="design-pack",
+            topic="Splatoon Raiders",
+            design={
+                "engineVersion": "program-v2",
+                "mediaPolicy": "hybrid",
+                "constraints": {
+                    "forbiddenStyles": ["gradient", "pastel"],
+                },
+            },
+        )
+    )
+    slide = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Nintendo Switch 2 전용 경험",
+        message="공식 발표 사실을 확인한다",
+        speaker_notes="공식 발표 내용을 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="전용 플랫폼")
+        ],
+        media_intent=MediaIntent(prompt="none", alt="공식 제품 이미지"),
+        visual_intent=VisualIntent(mediaStyle="clean"),
+    )
+    design_program = DeckDesignProgram.model_validate(valid_program())
+    direction = design_program.slides[0].model_copy(
+        update={"asset_role": "evidence", "required_asset": True}
+    )
+
+    plan = program_v2_visual_plan(
+        raw_input,
+        slide,
+        design_program,
+        direction,
+    )
+
+    assert plan["imageSourcePolicy"] == "official-assets"
+    assert "Splatoon Raiders" in plan["imagePrompt"]
+    assert "Nintendo Switch 2 전용 경험" in plan["imagePrompt"]
+    assert "official product evidence" in plan["imagePrompt"]
+    assert "none" not in plan["imagePrompt"]
+    assert "avoid gradient and pastel" in plan["imagePrompt"]
 
 
 def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:

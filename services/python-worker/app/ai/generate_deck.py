@@ -6528,14 +6528,10 @@ def program_v2_visual_plan(
         source_policy = media_policy
     else:
         source_policy = "minimal"
-    prompt = " ".join(
-        part.strip()
-        for part in (
-            slide_plan.media_intent.prompt,
-            slide_plan.visual_intent.media_style,
-            program.image_style,
-        )
-        if part.strip()
+    prompt = (
+        program_v2_image_prompt(raw_input, slide_plan, program, direction)
+        if image_needed
+        else ""
     )
     alt = (
         slide_plan.media_intent.alt.strip()
@@ -6559,6 +6555,62 @@ def program_v2_visual_plan(
     if slide_plan.media_intent.placement.strip():
         result["imagePlacement"] = slide_plan.media_intent.placement.strip()
     return result
+
+
+def program_v2_image_prompt(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    program: DeckDesignProgram,
+    direction: SlideCompositionDirection,
+) -> str:
+    role_context = {
+        "evidence": "official product evidence",
+        "atmosphere": "atmospheric key visual",
+        "decoration": "editorial decorative visual",
+    }.get(direction.asset_role, "presentation visual")
+    style_parts = [
+        part
+        for value in (
+            slide_plan.media_intent.prompt,
+            slide_plan.visual_intent.media_style,
+            program.image_style,
+        )
+        if (part := descriptive_media_prompt_part(value))
+    ]
+    forbidden_styles = sorted(design_pack_forbidden_styles(raw_input))
+    constraints = (
+        f"avoid {' and '.join(forbidden_styles)}"
+        if forbidden_styles
+        else ""
+    )
+    return ". ".join(
+        unique_non_empty(
+            [
+                raw_input.topic,
+                slide_plan.title,
+                role_context,
+                *style_parts,
+                constraints,
+            ]
+        )
+    )
+
+
+def descriptive_media_prompt_part(value: str) -> str:
+    normalized = " ".join(value.casefold().split())
+    if not normalized:
+        return ""
+    tokens = set(re.findall(r"[0-9a-z가-힣]+", normalized))
+    generic_tokens = {
+        "auto",
+        "clean",
+        "default",
+        "image",
+        "media",
+        "minimal",
+        "none",
+    }
+    return "" if tokens and tokens <= generic_tokens else value.strip()
 
 
 def program_v2_visual_type(
