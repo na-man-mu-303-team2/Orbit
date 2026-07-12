@@ -905,7 +905,14 @@ def normalize_design_program(
             direction.required_asset = False
         elif selected_spec.media_requirement == "required":
             if direction.asset_role == "none":
-                direction.asset_role = "atmosphere" if index == 0 else "evidence"
+                if media_policy == "hybrid":
+                    direction.asset_role = (
+                        "evidence"
+                        if official_source_available is True
+                        else "atmosphere"
+                    )
+                else:
+                    direction.asset_role = "atmosphere" if index == 0 else "evidence"
             direction.required_asset = True
         if (
             media_policy == "hybrid"
@@ -1142,7 +1149,14 @@ def _enforce_media_budget(
 ) -> None:
     if media_policy in {"minimal", "avoid"}:
         return
-    selected = [slide for slide in program.slides if slide.asset_role != "none"]
+    if media_policy == "hybrid" and not any(
+        direction.asset_role == "evidence" for direction in program.slides
+    ):
+        _promote_official_evidence(program, slides)
+    selected = sorted(
+        (slide for slide in program.slides if slide.asset_role != "none"),
+        key=lambda direction: direction.asset_role != "evidence",
+    )
     for direction in selected[media_budget:]:
         if COMPOSITION_SPECS[direction.composition_id].media_requirement == "required":
             slide = slides[direction.order - 1]
@@ -1174,12 +1188,49 @@ def _enforce_media_budget(
             continue
         slide = slides[direction.order - 1]
         direction.asset_role = (
-            "evidence"
-            if slide.get("officialSourceAvailable") is not False
-            else "atmosphere"
+            "evidence" if slide.get("officialSourceAvailable") is True else "atmosphere"
         )
         direction.required_asset = False
         current += 1
+
+
+def _promote_official_evidence(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+) -> None:
+    usage = Counter(direction.composition_id for direction in program.slides)
+    for index, (direction, slide) in enumerate(
+        zip(program.slides, slides, strict=True)
+    ):
+        if slide.get("officialSourceAvailable") is not True:
+            continue
+        slide_type = "cover" if index == 0 else str(slide.get("slideType", "summary"))
+        item_count = len(_items(slide))
+        candidates = (
+            direction.composition_id,
+            *FALLBACK_COMPOSITIONS.get(slide_type, ()),
+        )
+        for candidate in dict.fromkeys(candidates):
+            spec = COMPOSITION_SPECS[candidate]
+            if (
+                spec.media_requirement == "none"
+                or not _supports(candidate, slide_type, item_count)
+                or not content_supports_composition(candidate, slide)
+                or usage[candidate] - (candidate == direction.composition_id) >= 2
+            ):
+                continue
+            neighboring_silhouettes = {
+                COMPOSITION_SPECS[program.slides[neighbor].composition_id].silhouette
+                for neighbor in (index - 1, index + 1)
+                if 0 <= neighbor < len(program.slides)
+            }
+            if spec.silhouette in neighboring_silhouettes:
+                continue
+            usage[direction.composition_id] -= 1
+            direction.composition_id = candidate
+            direction.asset_role = "evidence"
+            direction.required_asset = spec.media_requirement == "required"
+            return
 
 
 def _enforce_background_rhythm(

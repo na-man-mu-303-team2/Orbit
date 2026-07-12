@@ -142,6 +142,32 @@ def test_normalizer_enforces_composition_and_background_rhythm() -> None:
     assert 3 <= sum(slide.asset_role != "none" for slide in normalized.slides) <= 5
 
 
+def test_hybrid_media_budget_preserves_official_evidence_and_ai_atmosphere() -> None:
+    slides = launch_slides()
+    slides[6]["officialSourceAvailable"] = True
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+    )
+
+    evidence = [
+        direction for direction in normalized.slides if direction.asset_role == "evidence"
+    ]
+    atmosphere = [
+        direction
+        for direction in normalized.slides
+        if direction.asset_role == "atmosphere"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0].order == 7
+    assert COMPOSITION_SPECS[evidence[0].composition_id].media_requirement != "none"
+    assert atmosphere
+    assert 3 <= len(evidence) + len(atmosphere) <= 4
+
+
 def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -> None:
     definitions = [
         ("cover", 2, "minimal-cover"),
