@@ -344,7 +344,7 @@ def test_dark_background_repair_uses_dark_palette_roles() -> None:
     assert text["props"]["color"] == "#F8FAFC"
 
 
-def test_change_crop_repair_applies_incremental_visible_crop() -> None:
+def test_change_crop_repair_escalates_weak_official_asset_to_ai_generation() -> None:
     candidate = deck()
     candidate["slides"][0]["elements"].append(
         {
@@ -363,6 +363,13 @@ def test_change_crop_repair_applies_incremental_visible_crop() -> None:
                 "focusX": 0.5,
                 "focusY": 0.5,
             },
+        }
+    )
+    candidate["slides"][0]["aiNotes"]["visualPlan"].update(
+        {
+            "imageNeeded": True,
+            "imageSourcePolicy": "official-assets",
+            "asset": {"fileId": "file_visual", "provider": "official-web"},
         }
     )
     request = {
@@ -386,24 +393,23 @@ def test_change_crop_repair_applies_incremental_visible_crop() -> None:
         for element in first.deck["slides"][0]["elements"]
         if element.get("type") == "image"
     )
-    second_image = next(
+    second_placeholder = next(
         element
         for element in second.deck["slides"][0]["elements"]
-        if element.get("type") == "image"
+        if str(element.get("elementId", "")).endswith("_media_placeholder")
     )
 
     assert first_image["props"]["crop"] == {
-        "left": 0.08,
-        "top": 0.08,
-        "right": 0.08,
-        "bottom": 0.08,
+        "left": 0.12,
+        "top": 0.12,
+        "right": 0.12,
+        "bottom": 0.12,
     }
-    assert second_image["props"]["crop"] == {
-        "left": 0.16,
-        "top": 0.16,
-        "right": 0.16,
-        "bottom": 0.16,
-    }
+    assert second_placeholder["type"] == "rect"
+    assert second.asset_slide_ids == ["slide_1"]
+    assert second.deck["slides"][0]["aiNotes"]["visualPlan"][
+        "imageSourcePolicy"
+    ] == "ai-generated"
 
 
 def test_change_composition_recompiles_from_snapshot() -> None:

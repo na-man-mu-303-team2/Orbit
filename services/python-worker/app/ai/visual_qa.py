@@ -487,21 +487,35 @@ def apply_visual_repair_action(
     if action.action == "replaceImage":
         return reset_slide_image(slide)
     if action.action == "changeCrop":
-        for element in slide.get("elements", []):
-            if element.get("type") == "image" and element.get("role") == "media":
-                props = element.setdefault("props", {})
-                crop = props.get("crop") if isinstance(props.get("crop"), dict) else {}
-                props.update(
-                    {
-                        "fit": "cover",
-                        "focusX": float(props.get("focusX", 0.5)),
-                        "focusY": float(props.get("focusY", 0.5)),
-                        "crop": {
-                            edge: min(0.2, float(crop.get(edge, 0)) + 0.08)
-                            for edge in ("left", "top", "right", "bottom")
-                        },
-                    }
-                )
+        media_elements = [
+            element
+            for element in slide.get("elements", [])
+            if element.get("type") == "image" and element.get("role") == "media"
+        ]
+        if any(
+            max(
+                (
+                    float(value)
+                    for value in element.get("props", {}).get("crop", {}).values()
+                ),
+                default=0,
+            )
+            >= 0.1
+            for element in media_elements
+        ):
+            return reset_slide_image(slide)
+        for element in media_elements:
+            props = element.setdefault("props", {})
+            props.update(
+                {
+                    "fit": "cover",
+                    "focusX": float(props.get("focusX", 0.5)),
+                    "focusY": float(props.get("focusY", 0.5)),
+                    "crop": {
+                        edge: 0.12 for edge in ("left", "top", "right", "bottom")
+                    },
+                }
+            )
         return False
     if action.action == "switchBackgroundMode":
         switch_background(deck, slide, action.background_mode or "light")
@@ -799,6 +813,11 @@ def reset_slide_image(slide: dict[str, Any]) -> bool:
         }
         visual_plan = slide.setdefault("aiNotes", {}).setdefault("visualPlan", {})
         visual_plan.pop("asset", None)
+        if visual_plan.get("imageSourcePolicy") == "official-assets":
+            visual_plan["imageSourcePolicy"] = "ai-generated"
+            visual_plan["reason"] = (
+                "Official asset framing remained weak; regenerate a focused hybrid visual."
+            )
         composition_plan = slide.setdefault("aiNotes", {}).setdefault(
             "compositionPlan", {}
         )
