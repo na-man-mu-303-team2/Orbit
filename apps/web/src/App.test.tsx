@@ -145,7 +145,13 @@ describe("App shell routing", () => {
         projectId: "project_demo_1",
         runId: "run_demo_1"
       })
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      shouldRenderAppFrame({
+        name: "report-project-overview",
+        projectId: "project_demo_1"
+      })
+    ).toBe(true);
     expect(
       shouldRenderAppFrame({
         name: "present",

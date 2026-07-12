@@ -695,8 +695,6 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
-    route.name !== "rehearsal-report" &&
-    route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
     route.name !== "deck-render"
