@@ -3703,6 +3703,25 @@ def grounded_speaker_note_transitions(slide_plan: SlidePlan) -> list[str]:
     return []
 
 
+def grounded_source_attribution_candidates(
+    slide_title: str,
+    source_titles: list[str],
+    *,
+    maximum_chars: int,
+) -> list[str]:
+    candidates: list[str] = []
+    for source_title in unique_non_empty(source_titles):
+        for slide_limit, source_limit in ((12, 24), (8, 16), (4, 8), (2, 4)):
+            candidate = (
+                f"{slide_title[:slide_limit]}: "
+                f"{source_title[:source_limit]} 자료 확인."
+            )
+            if count_speaker_note_chars(candidate) <= maximum_chars:
+                candidates.append(candidate)
+                break
+    return candidates
+
+
 def speaker_note_fragments(text: str) -> list[str]:
     normalized = " ".join(text.split())
     if not normalized:
@@ -4291,10 +4310,21 @@ def repair_short_speaker_notes_with_llm(
         ]
         if not source_fragments:
             continue
+        current_chars = count_speaker_note_chars(slide.speaker_notes)
+        source_attributions = grounded_source_attribution_candidates(
+            slide.title,
+            [
+                source.title
+                for source_id in source_refs
+                if (source := source_records.get(source_id)) is not None
+            ],
+            maximum_chars=max(0, maximum_chars - current_chars),
+        )
         grounded_notes = fit_grounded_speaker_note_candidates(
             [
                 *speaker_note_fragments(slide.speaker_notes),
                 *source_fragments,
+                *source_attributions,
                 *[content_item.text for content_item in slide.content_items],
                 slide.message,
                 *grounded_speaker_note_transitions(slide),

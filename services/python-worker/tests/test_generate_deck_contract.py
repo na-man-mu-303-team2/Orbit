@@ -2921,6 +2921,58 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
     assert "전자 폐기물" in repaired.speaker_notes
 
 
+def test_short_speaker_note_near_miss_uses_source_title_attribution() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="예약 안내",
+            prompt="검증된 예약 정보를 설명합니다.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    repeated_fact = "A" * 281
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official pre-order announcement",
+            content=repeated_fact,
+            authority="official",
+        )
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="사전 예약 안내",
+        message=repeated_fact,
+        speaker_notes=repeated_fact,
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text=repeated_fact)
+        ],
+        source_refs=["web:official"],
+        target_seconds=60,
+        target_speaker_notes_chars=322,
+    )
+    fake_client = FakeOpenAIClient(
+        {"slides": [{"order": 1, "speakerNotes": repeated_fact}]}
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+    actual_chars = len("".join(repaired.speaker_notes.split()))
+
+    assert round(322 * 0.9) <= actual_chars <= round(322 * 1.1)
+    assert "Official pre-order" in repaired.speaker_notes
+
+
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
