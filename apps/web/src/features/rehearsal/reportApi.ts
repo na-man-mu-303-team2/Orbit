@@ -18,7 +18,9 @@ export async function fetchReportProjects(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
     { credentials: "include" },
   );
-  if (!response.ok) return [];
+  if (!response.ok) {
+    throw new Error(`프로젝트 목록을 불러오지 못했습니다. (${response.status})`);
+  }
   return (await response.json()) as Project[];
 }
 
@@ -30,7 +32,9 @@ export async function fetchProjectRehearsalSummary(
     `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsal-summary`,
     { credentials: "include" },
   );
-  if (!response.ok) return null;
+  if (!response.ok) {
+    throw new Error(`리허설 요약을 불러오지 못했습니다. (${response.status})`);
+  }
   const data = (await response.json()) as { summary: RehearsalProjectSummary | null };
   return data.summary ?? null;
 }
@@ -44,7 +48,9 @@ export async function fetchProjectRehearsalReportRuns(
     `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals?${params.toString()}`,
     { credentials: "include" },
   );
-  if (!response.ok) return { runs: [], total: 0 };
+  if (!response.ok) {
+    throw new Error(`리허설 기록을 불러오지 못했습니다. (${response.status})`);
+  }
   const data = (await response.json()) as { runs: RehearsalRun[]; total: number };
   return { runs: data.runs ?? [], total: data.total ?? 0 };
 }
@@ -58,7 +64,10 @@ export async function fetchRehearsalRunComparison(
     `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals/${encodeURIComponent(runId)}/comparison`,
     { credentials: "include" },
   );
-  if (!response.ok) return null;
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`리허설 비교를 불러오지 못했습니다. (${response.status})`);
+  }
 
   try {
     const result = rehearsalRunComparisonSchema.safeParse(await response.json());
