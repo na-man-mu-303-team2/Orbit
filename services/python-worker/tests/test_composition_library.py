@@ -297,6 +297,73 @@ def test_normalizer_preserves_explicit_dark_palette_across_compositions() -> Non
     assert background["props"]["fill"] == "#050505"
 
 
+def test_two_item_comparison_uses_distinct_even_and_odd_geometry() -> None:
+    directions = [
+        {
+            "order": order,
+            "compositionId": "feature-comparison",
+            "variant": "light",
+            "backgroundMode": "light",
+            "focalType": "comparison",
+            "assetRole": "none",
+            "requiredAsset": False,
+        }
+        for order in range(1, 4)
+    ]
+    design_program = program(directions)
+    slide = slide_payload("comparison", 2)
+
+    even = compile_composition(design_program.slides[1], slide, design_program)
+    odd = compile_composition(design_program.slides[2], slide, design_program)
+    even_frames = [
+        (element["x"], element["y"], element["width"], element["height"])
+        for element in even.elements
+        if str(element.get("elementId", "")).endswith("_field")
+    ]
+    odd_frames = [
+        (element["x"], element["y"], element["width"], element["height"])
+        for element in odd.elements
+        if str(element.get("elementId", "")).endswith("_field")
+    ]
+
+    assert even_frames != odd_frames
+
+
+def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "cta-closing",
+        "variant": "dark",
+        "backgroundMode": "dark",
+        "focalType": "cta",
+        "assetRole": "none",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+    slide = {
+        **slide_payload("summary", 0),
+        "message": "감사 인사와 기대 소감",
+        "contentItems": [
+            {"contentItemId": "duplicate", "text": "감사 인사와 기대 소감"},
+            {
+                "contentItemId": "action",
+                "text": "출시 정보를 확인하고 다음 행동을 선택하세요.",
+            },
+        ],
+    }
+
+    compiled = compile_composition(design_program.slides[0], slide, design_program)
+    visible_text = [
+        element["props"]["text"]
+        for element in compiled.elements
+        if element.get("type") == "text"
+    ]
+
+    assert visible_text.count("감사 인사와 기대 소감") == 1
+    assert "출시 정보를 확인하고 다음 행동을 선택하세요." in visible_text
+    assert compiled.primary_focal_element_id == "el_1_program_v2_actions"
+
+
 def test_hybrid_required_evidence_without_official_source_uses_atmosphere() -> None:
     slides = [
         slide_payload("cover", 2),

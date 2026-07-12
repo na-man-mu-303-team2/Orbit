@@ -263,6 +263,19 @@ def _message_duplicates_items(
     )
 
 
+def _supporting_items_without_message_duplicate(
+    slide: dict[str, Any],
+    items: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    message = _normalized_text(str(slide.get("message", "")))
+    if not message:
+        return items
+    filtered = [item for item in items if _normalized_text(item[1]) != message]
+    if len(filtered) != len(items):
+        return filtered
+    return [] if _message_duplicates_items(slide, items) else items
+
+
 def _deduplicate_exact_visible_text(
     elements: list[Element],
 ) -> list[Element]:
@@ -685,6 +698,11 @@ def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, A
             (_grid_x(index * 4), 344, _grid_width(4), 448)
             for index in range(3)
         ]
+    elif count == 2 and order % 2 == 0:
+        frames = [
+            (_grid_x(0), 320, _grid_width(7), 480),
+            (_grid_x(7), 400, _grid_width(5), 320),
+        ]
     elif count == 2:
         frames = [
             (_grid_x(index * 6), 352, _grid_width(6), 416)
@@ -808,14 +826,15 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
 def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    duplicates_items = _message_duplicates_items(slide, items)
+    action_items = _supporting_items_without_message_duplicate(slide, items)
+    duplicates_items = bool(items) and not action_items
     content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(12)
     title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
     message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 160, 5, style.text, 36 if duplicates_items else 30, "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
     elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
     action = None
-    if items and not duplicates_items:
-        action = _text(order, "actions", "body", "  →  ".join(value for _, value in items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items])
+    if action_items:
+        action = _text(order, "actions", "body", "  →  ".join(value for _, value in action_items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in action_items])
         elements.append(action)
     if direction.asset_role != "none":
         elements.extend(_media(order, _grid_x(7), 208, _grid_width(5), 624, 3, style, _media_caption(slide)))
