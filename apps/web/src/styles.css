@@ -5180,19 +5180,34 @@ button:disabled {
 }
 
 .rehearsal-report-page {
-  --report-bg: #ffffff;
-  --report-panel: #ffffff;
-  --report-panel-subtle: #f6f7f9;
-  --report-panel-strong: #eef1f4;
-  --report-border: #d6dbe1;
-  --report-border-strong: #aeb8c2;
-  --report-text: #111827;
-  --report-text-soft: #374151;
-  --report-text-muted: #6b7280;
-  --report-accent: #1f3a5f;
-  --report-accent-strong: #0f172a;
-  --report-danger: #9f1239;
-  --report-success: #166534;
+  /* Report aliases are derived from the shared ORBIT palette. Keep report CSS
+     semantic so future visual changes happen in one place. */
+  --report-bg: var(--orbit-ds-surface);
+  --report-panel: var(--orbit-ds-canvas);
+  --report-panel-subtle: var(--orbit-ds-surface-raised);
+  --report-panel-strong: var(--orbit-ds-surface);
+  --report-border: var(--orbit-ds-border);
+  --report-border-strong: var(--orbit-ds-border-strong);
+  --report-border-accent: var(--orbit-ds-lilac);
+  --report-text: var(--orbit-ds-ink);
+  --report-text-soft: var(--orbit-ds-navy);
+  --report-text-muted: var(--orbit-ds-text-muted);
+  --report-accent: var(--orbit-ds-lilac-strong);
+  --report-accent-strong: var(--orbit-ds-navy);
+  --report-accent-soft: var(--orbit-ds-lilac-soft);
+  --report-accent-tint: var(--orbit-ds-lilac);
+  --report-primary: var(--orbit-ds-lilac-strong);
+  --report-primary-hover: color-mix(in srgb, var(--orbit-ds-lilac-strong) 86%, var(--orbit-ds-ink));
+  --report-primary-contrast: var(--orbit-ds-canvas);
+  --report-danger: var(--orbit-ds-danger);
+  --report-danger-soft: var(--orbit-ds-danger-soft);
+  --report-success: var(--orbit-ds-success);
+  --report-success-soft: var(--orbit-ds-success-soft);
+  --report-warning: var(--orbit-ds-warning);
+  --report-warning-soft: var(--orbit-ds-warning-soft);
+  --report-info: var(--orbit-ds-info);
+  --report-info-soft: var(--orbit-ds-info-soft);
+  --report-shadow-primary: 0 6px 14px rgba(104, 70, 216, 0.18);
   background: var(--report-bg);
   color: var(--report-text);
   display: grid;
@@ -5265,17 +5280,17 @@ button:disabled {
 }
 
 .report-topbar-date {
-  color: #64748b;
+  color: var(--report-text-muted);
   font-size: 0.88rem;
   font-weight: 600;
 }
 
 .report-rehearsal-button {
   align-items: center;
-  background: #2563eb;
+  background: var(--report-primary);
   border: 0;
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--report-primary-contrast);
   cursor: pointer;
   display: inline-flex;
   font-size: 0.88rem;
@@ -5286,7 +5301,7 @@ button:disabled {
 }
 
 .report-rehearsal-button:hover {
-  background: #1d4ed8;
+  background: var(--report-primary-hover);
 }
 
 .rehearsal-report-body {

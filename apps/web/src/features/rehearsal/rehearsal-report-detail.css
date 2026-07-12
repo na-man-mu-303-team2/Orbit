@@ -21,8 +21,8 @@
 .rrd-next-practice > button { align-items: center; background: white; border: 0; border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: flex; flex: 0 0 auto; font-weight: 700; gap: 7px; min-height: 42px; padding: 0 17px; }
 
 body .rehearsal-report-page .rehearsal-report-body > .rehearsal-report-nav {
-  background: #fbfcff;
-  border-right: 1px solid #d8def1;
+  background: var(--report-panel-subtle);
+  border-right: 1px solid var(--report-border);
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-head {
@@ -30,7 +30,7 @@ body .rehearsal-report-page .rehearsal-report-nav-head {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-head h2 {
-  color: #536084;
+  color: var(--report-text-soft);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -38,14 +38,14 @@ body .rehearsal-report-page .rehearsal-report-nav-head h2 {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-head > span {
-  color: #7d8298;
+  color: var(--report-text-muted);
   font-size: 0.72rem;
   font-weight: 800;
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-current {
-  background: #f4f7ff;
-  border: 1px solid #cbd6fb;
+  background: var(--report-accent-soft);
+  border: 1px solid var(--report-border-accent);
   border-radius: 10px;
   display: grid;
   gap: 3px;
@@ -55,23 +55,23 @@ body .rehearsal-report-page .rehearsal-report-nav-current {
 
 body .rehearsal-report-page .rehearsal-report-nav-current span,
 body .rehearsal-report-page .rehearsal-report-nav-current small {
-  color: #7d8298;
+  color: var(--report-text-muted);
   font-size: 0.7rem;
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-current strong {
-  color: #202b63;
+  color: var(--report-text-soft);
   font-size: 0.82rem;
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-history {
-  border-top: 1px solid #e0e5f2;
+  border-top: 1px solid var(--report-border);
   margin: 0 8px;
   padding: 9px 4px 0;
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-history summary {
-  color: #536084;
+  color: var(--report-text-soft);
   cursor: pointer;
   font-size: 0.78rem;
   font-weight: 800;
@@ -79,7 +79,7 @@ body .rehearsal-report-page .rehearsal-report-nav-history summary {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-history summary:hover {
-  color: #3156c7;
+  color: var(--report-primary);
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-history .rehearsal-report-nav-list {
@@ -87,18 +87,18 @@ body .rehearsal-report-page .rehearsal-report-nav-history .rehearsal-report-nav-
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-item.active {
-  background: #5962e8;
-  box-shadow: 0 6px 14px rgba(89, 98, 232, 0.2);
-  color: #ffffff;
+  background: var(--report-primary);
+  box-shadow: var(--report-shadow-primary);
+  color: var(--report-primary-contrast);
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-item.active strong,
 body .rehearsal-report-page .rehearsal-report-nav-item.active span {
-  color: #ffffff;
+  color: var(--report-primary-contrast);
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-head-disabled h2 {
-  color: #b5bdcc;
+  color: var(--report-border-strong);
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-list-disabled {
@@ -107,7 +107,7 @@ body .rehearsal-report-page .rehearsal-report-nav-list-disabled {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-empty {
-  color: #9aa6bb;
+  color: var(--report-text-muted);
   font-size: 0.78rem;
   font-weight: 500;
   padding: 6px 12px 10px;
@@ -123,7 +123,7 @@ body .rehearsal-report-page .rehearsal-report-nav-empty {
   .rrd-next-practice > button { justify-content: center; }
 
   body .rehearsal-report-page .rehearsal-report-nav {
-    border-bottom: 1px solid #d8def1;
+    border-bottom: 1px solid var(--report-border);
     border-right: 0;
     padding: 18px;
   }
