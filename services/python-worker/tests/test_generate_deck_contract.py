@@ -1726,6 +1726,68 @@ def test_content_plan_repair_marks_structural_duplication() -> None:
     assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
 
 
+def test_content_plan_repair_rejects_numbers_missing_from_selected_sources() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="사업 방향 보고",
+            prompt="근거 없는 수치를 사용하지 않습니다.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+    slide_plan = SlidePlan(
+        order=20,
+        slide_type="cover",
+        title="전환율 20% 개선",
+        message="도입 후 전환율이 20% 개선됩니다.",
+        speaker_notes="검증된 근거만 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="전환율 20% 개선")
+        ],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert reasons == ["slide 20: unsupported numeric claim values 20"]
+    assert repair_reason_codes(reasons) == ["UNSUPPORTED_NUMERIC_CLAIM"]
+
+
+def test_content_plan_repair_accepts_grounded_and_structural_numbers() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="전환율 20% 개선 계획",
+            prompt="근거는 20% 개선 수치입니다.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="3가지 실행으로 전환율 20% 개선",
+        message="3가지 실행으로 전환율을 20% 개선합니다.",
+        speaker_notes="검증된 근거만 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(["진단", "실행", "검증"], start=1)
+        ],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons)
+
+
 def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
     original_texts = [
         "First difference",
@@ -2293,7 +2355,7 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     web_requests = [request for request in client.requests if request.get("tools")]
     assert len(web_requests) == 1
     assert web_requests[0]["tools"] == [
-        {"type": "web_search", "search_context_size": "medium"}
+        {"type": "web_search", "search_context_size": "high"}
     ]
     assert "at least two distinct authoritative public URLs" in str(
         web_requests[0]["instructions"]
@@ -2340,7 +2402,7 @@ def test_research_first_retries_then_rejects_fewer_than_two_url_citations() -> N
             client=client,
         )
 
-    assert len([request for request in client.requests if request.get("tools")]) == 2
+    assert len([request for request in client.requests if request.get("tools")]) == 3
 
 
 def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
@@ -2468,6 +2530,24 @@ def test_web_sources_canonicalize_and_dedupe_citation_urls() -> None:
     sources = web_sources_from_response(response)
 
     assert [source.url for source in sources] == ["https://example.com/news?id=7"]
+
+
+def test_web_sources_accept_inline_markdown_url_citations_without_annotations() -> None:
+    first_url = "https://publisher.example/release"
+    second_url = "https://news.example/report"
+    summary = "\n".join(
+        [
+            f"출시 일정은 공식 발표로 확인했습니다. [공식 발표]({first_url})",
+            f"시장 반응은 독립 보도로 교차 검증했습니다. [독립 보도]({second_url})",
+        ]
+    )
+    response = SimpleNamespace(output_text=summary, output=[])
+
+    sources = web_sources_from_response(response)
+
+    assert [source.url for source in sources] == [first_url, second_url]
+    assert "출시 일정" in sources[0].content
+    assert "시장 반응" in sources[1].content
 
 
 def test_web_sources_merge_claim_lines_for_repeated_citation_url() -> None:

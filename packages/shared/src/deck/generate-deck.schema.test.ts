@@ -636,6 +636,7 @@ describe("generateDeckResponseSchema", () => {
         repairReasons: [
           "SLIDE_COUNT_SHORT",
           "CONTENT_DUPLICATED",
+          "UNSUPPORTED_NUMERIC_CLAIM",
           "SPEAKER_NOTES_SHORT"
         ],
         uniqueCoreLayoutCount: 5,

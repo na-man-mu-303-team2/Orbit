@@ -71,6 +71,7 @@ RepairReasonCode = Literal[
     "SLIDE_COUNT_SHORT",
     "CONTENT_DUPLICATED",
     "CONTENT_CAPACITY",
+    "UNSUPPORTED_NUMERIC_CLAIM",
     "SPEAKER_NOTES_SHORT",
     "SPEAKER_NOTES_LONG",
     "SPEAKER_NOTES_REPEATED",
@@ -3053,7 +3054,7 @@ def research_web_sources(
         client=api_client,
         model=model,
     )
-    max_attempts = 2 if policy == "research-first" else 1
+    max_attempts = 3 if policy == "research-first" else 1
     for attempt in range(1, max_attempts + 1):
         attempts = attempt
         try:
@@ -3075,7 +3076,14 @@ def research_web_sources(
                     search_aliases=search_aliases,
                     diagnostic_urls=diagnostic_urls,
                 ),
-                tools=[{"type": "web_search", "search_context_size": "medium"}],
+                tools=[
+                    {
+                        "type": "web_search",
+                        "search_context_size": (
+                            "high" if policy == "research-first" else "medium"
+                        ),
+                    }
+                ],
                 include=["web_search_call.action.sources"],
             )
         except Exception:
@@ -3238,7 +3246,9 @@ def web_research_query(
                 "Retry requirement: The previous result did not satisfy source quality. "
                 "Search the exact topic again and cite the missing official or independent "
                 "source and missing core facts explicitly, including release date or status, "
-                "platform or availability, and defining features when applicable."
+                "platform or availability, and defining features when applicable. Write at "
+                "least three separate factual sentences; place one public URL citation "
+                "immediately after each sentence, and use different publisher domains."
                 if attempt > 1
                 else ""
             ),
@@ -3327,11 +3337,19 @@ def web_source_quality_satisfied(
     distinct_urls = {source.url for source in sources if source.url}
     if len(distinct_urls) < 2:
         return False
+    official_hosts = {
+        urlparse(source.url).hostname
+        for source in sources
+        if source.url and source.authority == "official"
+    }
+    independent_hosts = {
+        urlparse(source.url).hostname
+        for source in sources
+        if source.url and source.authority == "independent"
+    }
     if official_required:
-        return any(source.authority == "official" for source in sources) and any(
-            source.authority == "independent" for source in sources
-        )
-    return sum(source.authority == "independent" for source in sources) >= 2
+        return bool(official_hosts and independent_hosts - official_hosts)
+    return len(independent_hosts) >= 2
 
 
 def web_sources_from_response(response: Any) -> list[SourceRecord]:
@@ -3379,6 +3397,26 @@ def web_sources_from_response(response: Any) -> list[SourceRecord]:
             ),
             content=content,
             confidence=0.82,
+        )
+    for match in re.finditer(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", output_text):
+        url = canonicalize_web_url(match.group(2).strip())
+        if not is_http_url(url):
+            continue
+        content = web_citation_claim_excerpt(output_text, match.start(), match.end())
+        if not content:
+            continue
+        current = records_by_url.get(url)
+        if current is not None:
+            if content not in current.content:
+                current.content = "\n".join([current.content, content])[:4000]
+            continue
+        records_by_url[url] = SourceRecord(
+            sourceType="web",
+            sourceId=web_source_id(url),
+            url=url,
+            title=match.group(1).strip() or urlparse(url).hostname or url,
+            content=content,
+            confidence=0.78,
         )
     return list(records_by_url.values())
 
@@ -3516,7 +3554,10 @@ def plan_deck_content(
         if slide_plans:
             if raw_input.generation_mode == "design-pack":
                 slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
-                repair_reasons = content_plan_repair_reasons(slide_plans)
+                repair_reasons = content_plan_repair_reasons(
+                    slide_plans,
+                    raw_input=raw_input,
+                )
                 if repair_reasons:
                     raw_input.repair_attempted = True
                     raw_input.repair_reason_codes = repair_reason_codes(
@@ -3546,6 +3587,15 @@ def plan_deck_content(
                                 slide_plans,
                             )
                             generated_plan = repaired_plan
+                    remaining_numeric_reasons = unsupported_numeric_claim_reasons(
+                        raw_input,
+                        slide_plans,
+                    )
+                    if remaining_numeric_reasons:
+                        raise DeckContentGenerationError(
+                            "UNSUPPORTED_NUMERIC_CLAIM: "
+                            + "; ".join(remaining_numeric_reasons)
+                        )
                     for slide_plan in slide_plans:
                         slide_plan.speaker_notes = (
                             remove_redundant_speaker_note_sentences(
@@ -4106,7 +4156,11 @@ def message_duplicates_content_items(
     ) >= len(message_key) * 0.8
 
 
-def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
+def content_plan_repair_reasons(
+    slide_plans: list[SlidePlan],
+    *,
+    raw_input: RawInput | None = None,
+) -> list[str]:
     reasons: list[str] = []
     total_slides = len(slide_plans)
     for slide_plan in slide_plans:
@@ -4141,7 +4195,82 @@ def content_plan_repair_reasons(slide_plans: list[SlidePlan]) -> list[str]:
     )
     if repeated_order is not None:
         reasons.append(f"slide {repeated_order}: speaker notes repeat content")
+    if raw_input is not None:
+        reasons.extend(unsupported_numeric_claim_reasons(raw_input, slide_plans))
     return reasons
+
+
+def unsupported_numeric_claim_reasons(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[str]:
+    records = {
+        record.source_id: record
+        for record in (raw_input.source_records or initial_source_records(raw_input))
+    }
+    reasons: list[str] = []
+    for slide in slide_plans:
+        source_ids = slide.source_refs or default_source_refs(raw_input, slide.order)
+        supported_values = {
+            value
+            for source_id in source_ids
+            if (record := records.get(source_id)) is not None
+            for value in numeric_values(record.content)
+        }
+        claim_text = "\n".join(
+            [
+                slide.title,
+                slide.message,
+                *[item.text for item in slide.content_items],
+            ]
+        )
+        structural_values = structural_numeric_values(
+            claim_text,
+            len(slide.content_items),
+            slide.order,
+        )
+        unsupported = sorted(
+            numeric_values(claim_text) - supported_values - structural_values,
+            key=lambda value: (len(value), value),
+        )
+        if unsupported:
+            reasons.append(
+                f"slide {slide.order}: unsupported numeric claim values "
+                + ", ".join(unsupported)
+            )
+    return reasons
+
+
+def numeric_values(text: str) -> set[str]:
+    return {
+        match.group(0).replace(",", "").lstrip("+").lstrip("0") or "0"
+        for match in re.finditer(r"(?<![\w])[-+]?\d[\d,]*(?:\.\d+)?", text)
+    }
+
+
+def structural_numeric_values(
+    text: str,
+    item_count: int,
+    slide_order: int,
+) -> set[str]:
+    values: set[str] = set()
+    for match in re.finditer(r"(?<![\w])([1-9]\d*)", text):
+        value = match.group(1).lstrip("0") or "0"
+        number = int(value)
+        context = text[max(0, match.start() - 16) : match.end() + 16].casefold()
+        has_structural_label = bool(
+            re.search(
+                r"(?:slide|step|item|content|슬라이드|장표|단계|항목|가지|번째|개\s*축|개\s*원칙)",
+                context,
+            )
+        )
+        remainder = text[match.end() :]
+        is_trailing_slide_order = number == slide_order and not remainder.split("\n", 1)[0].strip()
+        if is_trailing_slide_order or (
+            number <= max(1, item_count) and has_structural_label
+        ):
+            values.add(value)
+    return values
 
 
 def repair_reason_codes(reasons: list[str]) -> list[RepairReasonCode]:
@@ -4152,6 +4281,8 @@ def repair_reason_codes(reasons: list[str]) -> list[RepairReasonCode]:
             code = "CONTENT_CAPACITY"
         elif "message duplicates content items" in reason:
             code = "CONTENT_DUPLICATED"
+        elif "unsupported numeric claim values" in reason:
+            code = "UNSUPPORTED_NUMERIC_CLAIM"
         elif "below target" in reason:
             code = "SPEAKER_NOTES_SHORT"
         elif "above target" in reason:
