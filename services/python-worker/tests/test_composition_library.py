@@ -490,7 +490,7 @@ def test_two_item_comparison_uses_distinct_even_and_odd_geometry() -> None:
     assert even_frames != odd_frames
 
 
-def test_feature_comparison_uses_a_single_filled_focal_card() -> None:
+def test_feature_comparison_uses_distinct_editorial_color_fields() -> None:
     design_program = program(
         [
             {
@@ -516,8 +516,12 @@ def test_feature_comparison_uses_a_single_filled_focal_card() -> None:
         if str(element.get("elementId", "")).endswith("_field")
     ]
 
-    assert fields[0]["props"]["fill"] == "#06B6D4"
-    assert all(field["props"]["fill"] == "#F3F4F6" for field in fields[1:])
+    assert [field["props"]["fill"] for field in fields] == [
+        "#6D28D9",
+        "#111827",
+        "#06B6D4",
+        "#F3F4F6",
+    ]
 
 
 def test_three_item_timeline_uses_full_grid_frames() -> None:
@@ -908,12 +912,12 @@ def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
     body = [element for element in even.elements + odd.elements if element["role"] == "body"]
 
     assert (even_field["x"], even_field["y"], even_field["width"]) == (120, 344, 544)
-    assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 304, 828)
+    assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 344, 828)
     assert all(element["props"]["fontSize"] >= 24 for element in body)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
 
 
-def test_two_item_comparison_uses_compact_contrasting_statement_panels() -> None:
+def test_two_item_comparison_uses_asymmetric_contrasting_statement_panels() -> None:
     slide = slide_payload("comparison", 2)
     design_program = program(
         [
@@ -942,10 +946,13 @@ def test_two_item_comparison_uses_compact_contrasting_statement_panels() -> None
     body = [element for element in compiled.elements if element["role"] == "body"]
 
     assert len(fields) == 2
-    assert all((field["y"], field["height"]) == (352, 416) for field in fields)
-    assert fields[0]["props"]["fill"] == "#06B6D4"
-    assert fields[1]["props"]["fill"] == "#F3F4F6"
-    assert all(element["props"]["fontSize"] == 30 for element in body)
+    assert [(field["x"], field["y"], field["width"], field["height"]) for field in fields] == [
+        (120, 344, 970, 528),
+        (1114, 440, 686, 336),
+    ]
+    assert fields[0]["props"]["fill"] == "#6D28D9"
+    assert fields[1]["props"]["fill"] == "#111827"
+    assert all(element["props"]["fontSize"] >= 38 for element in body)
 
 
 def test_metric_poster_requires_numeric_evidence() -> None:

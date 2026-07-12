@@ -1010,60 +1010,131 @@ def _image_evidence(direction: SlideCompositionDirection, slide: dict[str, Any],
     return elements, _id(order, "media_placeholder")
 
 
-def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _feature_comparison(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
     elements = [_background(order, style), _title(order, slide, style)]
+    duplicates_items = _message_duplicates_items(slide, items)
+    content_top = 288 if duplicates_items else 344
+    content_height = 584 if duplicates_items else 528
+    if not duplicates_items:
+        elements.append(
+            _text(
+                order,
+                "message",
+                "highlight",
+                str(slide.get("message", "")),
+                SAFE_X,
+                232,
+                SAFE_WIDTH,
+                80,
+                5,
+                style.muted_text,
+                max(34, style.body_size),
+                "semibold",
+                style.body_font,
+                vertical="middle",
+            )
+        )
     count = len(items)
     frames: list[tuple[int, int, int, int]]
     if count == 3 and order % 2 == 1:
         frames = [
-            (_grid_x(0), 304, _grid_width(6), 520),
-            (_grid_x(6), 304, _grid_width(6), 248),
-            (_grid_x(6), 576, _grid_width(6), 248),
+            (_grid_x(0), content_top, _grid_width(6), content_height),
+            (_grid_x(6), content_top, _grid_width(6), (content_height - 24) // 2),
+            (
+                _grid_x(6),
+                content_top + (content_height - 24) // 2 + 24,
+                _grid_width(6),
+                (content_height - 24) // 2,
+            ),
         ]
     elif count == 3:
         frames = [
-            (_grid_x(index * 4), 344, _grid_width(4), 448)
+            (_grid_x(index * 4), content_top, _grid_width(4), content_height)
             for index in range(3)
         ]
     elif count == 2 and order % 2 == 0:
         frames = [
-            (_grid_x(0), 320, _grid_width(7), 480),
-            (_grid_x(7), 400, _grid_width(5), 320),
+            (_grid_x(0), content_top + 96, _grid_width(5), content_height - 192),
+            (_grid_x(5), content_top, _grid_width(7), content_height),
         ]
     elif count == 2:
         frames = [
-            (_grid_x(index * 6), 352, _grid_width(6), 416)
-            for index in range(2)
+            (_grid_x(0), content_top, _grid_width(7), content_height),
+            (_grid_x(7), content_top + 96, _grid_width(5), content_height - 192),
         ]
     else:
         columns = 2
         rows = (count + columns - 1) // columns
         gap = 24
         width = _grid_width(6)
-        height = (544 - gap * (rows - 1)) // max(1, rows)
+        height = (content_height - gap * (rows - 1)) // max(1, rows)
         frames = [
             (
                 _grid_x((index % columns) * 6),
-                304 + (index // columns) * (height + gap),
+                content_top + (index // columns) * (height + gap),
                 width,
                 height,
             )
             for index in range(count)
         ]
+    colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)
     ):
-        text_y = y + 92
-        field_fill = style.secondary if index == 0 else style.surface
+        field_fill = colors[index % len(colors)]
         field_text = _contrasting_text_color(field_fill, style.text)
-        index_color = field_text if index == 0 else style.focal
         elements.extend(
             [
-                _rect(order, f"comparison_{index + 1}_field", "decoration", x, y, width, height, 3, field_fill, stroke=style.secondary, stroke_width=2, radius=8),
-                _text(order, f"comparison_{index + 1}_index", "highlight", f"{index + 1:02d}", x + 28, y + 24, width - 56, 52, 5, index_color, 28, "bold", style.heading_font),
-                _text(order, f"comparison_{index + 1}", "body", value, x + 28, text_y, width - 56, height - 120, 5, field_text, 30 if count == 2 else max(24, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                _rect(
+                    order,
+                    f"comparison_{index + 1}_field",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    height,
+                    3,
+                    field_fill,
+                    radius=8,
+                ),
+                _text(
+                    order,
+                    f"comparison_{index + 1}_index",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 32,
+                    y + 28,
+                    width - 64,
+                    72,
+                    5,
+                    field_text,
+                    52,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"comparison_{index + 1}",
+                    "body",
+                    value,
+                    x + 32,
+                    y + 120,
+                    width - 64,
+                    height - 156,
+                    5,
+                    field_text,
+                    max(38, style.body_size + 4),
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
             ]
         )
     focal = _id(order, "comparison_1") if items else _id(order, "title")
