@@ -260,6 +260,57 @@ describe("image providers", () => {
     ).toBe("louvre pyramid paris");
   });
 
+  it("falls back to the leading identity token for sparse branded results", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/splatoon.jpg",
+                width: 1024,
+                height: 683,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/splatoon",
+                title: "Splatoon amiibo",
+                tags: [{ name: "nintendo" }]
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "Splatoon fans celebrating none"
+    });
+
+    expect(result.sourceUrl).toBe("https://example.com/splatoon");
+    expect(
+      new URL(String(fetchMock.mock.calls[2]?.[0])).searchParams.get("q")
+    ).toBe("splatoon");
+  });
+
   it("rejects candidates that match only generic presentation words", async () => {
     vi.stubGlobal(
       "fetch",

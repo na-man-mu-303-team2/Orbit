@@ -142,6 +142,7 @@ const relevanceStopWords = new Set([
   "diagram",
   "image",
   "media",
+  "none",
   "presentation",
   "showing",
   "the",
@@ -161,11 +162,13 @@ const searchModifierWords = new Set([
 
 function openverseSearchQueries(query: string) {
   const normalized = query.replace(/\s+/g, " ").trim();
-  const compact = relevantTokens(normalized)
-    .filter((token) => !searchModifierWords.has(token))
+  const identityTokens = relevantTokens(normalized).filter(
+    (token) => !searchModifierWords.has(token)
+  );
+  const compact = identityTokens
     .slice(0, 4)
     .join(" ");
-  return [...new Set([normalized, compact].filter(Boolean))];
+  return [...new Set([normalized, compact, identityTokens[0]].filter(Boolean))];
 }
 
 function isRelevantOpenverseCandidate(query: string, candidate: OpenverseImage) {
