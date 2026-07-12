@@ -44,6 +44,7 @@ from app.ai.generate_deck import (
     design_pack_items,
     design_pack_recipe_elements,
     detect_text_overlap_candidates,
+    enforce_speaker_note_constraints,
     generate_content_plan_with_llm,
     generate_deck,
     icon_name_for_keyword,
@@ -711,6 +712,31 @@ def test_speaker_notes_are_capped_after_sentence_repairs() -> None:
     assert len("".join(capped.split())) <= 520
     assert capped.endswith(".")
     assert "근거 1번" in capped
+
+
+def test_final_deck_contract_caps_and_deduplicates_speaker_notes() -> None:
+    repeated = (
+        "안녕하세요, 오늘 발표에서는 ORBIT의 새로운 AI 생성 회귀 테스트 전략인 "
+        "Deck JSON 기반 생성 MVP를 소개하겠습니다. "
+    )
+    deck = {
+        "slides": [
+            {
+                "speakerNotes": repeated
+                + " ".join(
+                    f"서로 다른 근거 {index}번을 설명하는 충분히 긴 발표 문장입니다."
+                    for index in range(1, 24)
+                )
+                + repeated
+            }
+        ]
+    }
+
+    enforced = enforce_speaker_note_constraints(deck)
+    speaker_notes = enforced["slides"][0]["speakerNotes"]
+
+    assert len("".join(speaker_notes.split())) <= 520
+    assert speaker_notes.count("안녕하세요") == 1
 
 
 def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:

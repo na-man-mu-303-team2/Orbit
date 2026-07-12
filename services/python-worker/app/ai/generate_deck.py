@@ -788,7 +788,7 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v4"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v5"
 MAX_SPEAKER_NOTES_CHARS_PER_SLIDE = 520
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
@@ -2098,6 +2098,7 @@ class DeckGenerationOrchestrator:
         if raw_input.generation_mode == "design-pack":
             deck = enforce_design_pack_constraints(deck, raw_input)
             deck = repair_design_pack_deck(deck)
+            deck = enforce_speaker_note_constraints(deck)
             deck, validation = validate_and_patch(deck, include_design_in_passed=True)
         warnings = unique_warnings(
             [
@@ -3556,6 +3557,15 @@ def cap_speaker_note_chars(
             compact_chars += 1
         kept.append(character)
     return "".join(kept).rstrip(" ,;:") + "…"
+
+
+def enforce_speaker_note_constraints(deck: dict[str, Any]) -> dict[str, Any]:
+    for slide in deck.get("slides", []):
+        speaker_notes = str(slide.get("speakerNotes", ""))
+        slide["speakerNotes"] = cap_speaker_note_chars(
+            deduplicate_speaker_note_sentences(speaker_notes)
+        )
+    return deck
 
 
 def normalized_speaker_note_tokens(text: str) -> set[str]:
