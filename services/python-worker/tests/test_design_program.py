@@ -203,6 +203,40 @@ def test_program_v2_visual_plan_replaces_generic_media_prompt_with_slide_subject
     assert "avoid gradient and pastel" in plan["imagePrompt"]
 
 
+def test_program_v2_visual_plan_omits_icon_style_from_large_media_prompt() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            generationMode="design-pack",
+            topic="Splatoon Raiders",
+            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+        )
+    )
+    slide = SlidePlan(
+        order=2,
+        slide_type="solution",
+        title="차별화된 협동 모험",
+        message="협동 탐험 경험을 강조한다",
+        speaker_notes="협동 탐험 경험을 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="협동 탐험")
+        ],
+        media_intent=MediaIntent(alt="협동 모험 장면"),
+        visual_intent=VisualIntent(mediaStyle="icon"),
+    )
+    design_program = DeckDesignProgram.model_validate(valid_program())
+    direction = design_program.slides[0].model_copy(
+        update={"asset_role": "atmosphere", "required_asset": False}
+    )
+
+    plan = program_v2_visual_plan(raw_input, slide, design_program, direction)
+
+    assert "atmospheric key visual" in plan["imagePrompt"]
+    assert "icon" not in plan["imagePrompt"]
+
+
 def test_program_v2_slide_summary_reports_official_source_availability() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(

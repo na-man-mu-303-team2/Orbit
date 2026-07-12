@@ -6645,10 +6645,13 @@ def descriptive_media_prompt_part(value: str) -> str:
         "auto",
         "clean",
         "default",
+        "icon",
+        "icons",
         "image",
         "media",
         "minimal",
         "none",
+        "아이콘",
     }
     return "" if tokens and tokens <= generic_tokens else value.strip()
 

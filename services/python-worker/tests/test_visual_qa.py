@@ -292,6 +292,68 @@ def test_replace_image_repair_creates_resolvable_asset_slot() -> None:
     assert isinstance(result.validation.passed, bool)
 
 
+def test_change_crop_repair_applies_incremental_visible_crop() -> None:
+    candidate = deck()
+    candidate["slides"][0]["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 972,
+            "y": 120,
+            "width": 828,
+            "height": 840,
+            "zIndex": 5,
+            "props": {
+                "src": "/api/v1/projects/project_visual/assets/file_visual/content",
+                "alt": "Official hero",
+                "fit": "cover",
+                "focusX": 0.5,
+                "focusY": 0.5,
+            },
+        }
+    )
+    request = {
+        "actions": [
+            {
+                "action": "changeCrop",
+                "slideId": "slide_1",
+                "reason": "Remove excessive image whitespace",
+            }
+        ]
+    }
+
+    first = repair_deck_visuals(
+        VisualRepairRequest.model_validate({"deck": candidate, **request})
+    )
+    second = repair_deck_visuals(
+        VisualRepairRequest.model_validate({"deck": first.deck, **request})
+    )
+    first_image = next(
+        element
+        for element in first.deck["slides"][0]["elements"]
+        if element.get("type") == "image"
+    )
+    second_image = next(
+        element
+        for element in second.deck["slides"][0]["elements"]
+        if element.get("type") == "image"
+    )
+
+    assert first_image["props"]["crop"] == {
+        "left": 0.08,
+        "top": 0.08,
+        "right": 0.08,
+        "bottom": 0.08,
+    }
+    assert second_image["props"]["crop"] == {
+        "left": 0.16,
+        "top": 0.16,
+        "right": 0.16,
+        "bottom": 0.16,
+    }
+
+
 def test_change_composition_recompiles_from_snapshot() -> None:
     result = repair_deck_visuals(
         VisualRepairRequest.model_validate(

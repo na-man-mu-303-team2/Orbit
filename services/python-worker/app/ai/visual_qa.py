@@ -488,8 +488,18 @@ def apply_visual_repair_action(
     if action.action == "changeCrop":
         for element in slide.get("elements", []):
             if element.get("type") == "image" and element.get("role") == "media":
-                element.setdefault("props", {}).update(
-                    {"fit": "cover", "focusX": 0.5, "focusY": 0.5}
+                props = element.setdefault("props", {})
+                crop = props.get("crop") if isinstance(props.get("crop"), dict) else {}
+                props.update(
+                    {
+                        "fit": "cover",
+                        "focusX": float(props.get("focusX", 0.5)),
+                        "focusY": float(props.get("focusY", 0.5)),
+                        "crop": {
+                            edge: min(0.2, float(crop.get(edge, 0)) + 0.08)
+                            for edge in ("left", "top", "right", "bottom")
+                        },
+                    }
                 )
         return False
     if action.action == "switchBackgroundMode":
