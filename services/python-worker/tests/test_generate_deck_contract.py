@@ -1744,6 +1744,59 @@ def test_program_v2_compacts_quote_support_for_no_media_fallback() -> None:
     ]
 
 
+def test_program_v2_reclassifies_single_item_comparison_without_duplication() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="comparison",
+            title="Confirmed differentiator",
+            message="One confirmed differentiator",
+            speaker_notes="Explain the confirmed differentiator.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="comparison-1",
+                    text="Nintendo Switch 2 exclusive",
+                )
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "solution"
+    assert [item.text for item in normalized[1].content_items] == [
+        "Nintendo Switch 2 exclusive"
+    ]
+    assert plans[1].slide_type == "comparison"
+
+
 @pytest.mark.parametrize(
     ("recipe", "slide_type", "order"),
     [

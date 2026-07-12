@@ -4111,6 +4111,15 @@ def compact_program_v2_content_items(
             normalized.slide_type = "feature-grid"
             compacted_plans.append(normalized)
             continue
+        if (
+            len(slide_plan.content_items) < minimum_items
+            and len(slide_plan.content_items) == 1
+            and slide_plan.slide_type == "comparison"
+        ):
+            normalized = slide_plan.model_copy(deep=True)
+            normalized.slide_type = "solution"
+            compacted_plans.append(normalized)
+            continue
         if len(slide_plan.content_items) <= maximum_items:
             compacted_plans.append(slide_plan)
             continue
