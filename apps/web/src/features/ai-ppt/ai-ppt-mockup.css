@@ -2,7 +2,7 @@
   background: var(--orbit-ds-surface);
   color: var(--orbit-ds-ink);
   font-family: var(--orbit-ds-font-sans);
-  min-height: 100vh;
+  min-height: calc(100vh - 76px);
   padding: 34px 42px 28px;
 }
 

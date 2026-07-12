@@ -92,17 +92,17 @@ const steps: Array<{ id: StepId; label: string }> = [
 const fallbackPaletteOptions: PaletteOption[] = [
   {
     optionId: "brandlogy-blue",
-    name: "Brandlogy Blue",
-    rationale: "Clean default palette for a modern Korean product deck.",
+    name: "ORBIT Lilac",
+    rationale: "ORBIT의 Lilac과 Ink 대비를 사용하는 선명한 기본 팔레트입니다.",
     palette: {
-      primary: "#2563EB",
-      secondary: "#0F766E",
-      background: "#F8FAFC",
+      primary: "#6846D8",
+      secondary: "#1F1D3D",
+      background: "#F7F7F5",
       surface: "#FFFFFF",
-      muted: "#E0F2FE",
-      border: "#BAE6FD",
-      text: "#0F172A",
-      accentColor: "#F472B6"
+      muted: "#F1ECFF",
+      border: "#E6E6E6",
+      text: "#090909",
+      accentColor: "#C5B0F4"
     }
   },
   {
@@ -147,7 +147,7 @@ const initialState: AiPptWizardState = {
   duration: "15",
   slides: "",
   tone: "professional",
-  colorMood: "전문가스럽고 차분한 파란색, Brandlogy다운 포인트 컬러",
+  colorMood: "ORBIT Lilac 포인트와 Ink 대비, 차분하고 명확한 색감",
   fontMood: "professional trustworthy Korean sans font",
   mediaPolicy: "minimal",
   referencePolicy: "references-first"
@@ -540,7 +540,7 @@ export function AiPptMockupPage() {
           <h1>Design Pack으로 시작하는 새 발표 생성</h1>
           <p>
             템플릿 파일을 덮어쓰지 않고 brief, 색상 선택, 참고자료 정책을 모아
-            Brandlogy Design Pack 기반 Deck JSON을 생성합니다.
+            ORBIT Design Pack 기반 Deck JSON을 생성합니다.
           </p>
         </div>
         <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
@@ -723,7 +723,7 @@ function StyleStep(props: {
     <>
       <PanelHeading
         kicker="2. Style"
-        title="Brandlogy Design Pack에 얹을 톤 선택"
+        title="ORBIT Design Pack에 얹을 톤 선택"
       />
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
@@ -763,7 +763,7 @@ function StyleStep(props: {
               {font.name}
             </strong>
             <span style={{ fontFamily: font.bodyFontFamily }}>
-              Brandlogy 발표 자료
+              ORBIT 발표 자료
             </span>
             <small>{font.rationale}</small>
             <em>{font.license}</em>
@@ -901,7 +901,7 @@ function ReviewStep(props: {
           <span>{props.payload.brief?.audienceText}</span>
         </SummaryCard>
         <SummaryCard icon={<IconPalette size={18} />} title="Session Design Pack">
-          <p>{stylePackId} + {props.selectedPalette.name}</p>
+          <p>ORBIT Design Pack · {props.selectedPalette.name}</p>
           <span>{props.selectedFont.name}</span>
           <span>{props.payload.designPrompt}</span>
         </SummaryCard>
