@@ -13524,10 +13524,14 @@ def is_short_label_text_box_too_narrow(element: dict[str, Any]) -> bool:
         "highlight",
     }:
         return False
-    text = re.sub(r"\s+", " ", str(element.get("props", {}).get("text", ""))).strip()
+    raw_text = str(element.get("props", {}).get("text", ""))
+    text = re.sub(r"\s+", " ", raw_text).strip()
     if not text or len(text) > 36 or len(text.split()) > 5:
         return False
-    return estimated_single_line_text_width(element) + 8 > float(element.get("width", 1))
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()] or [text]
+    return max(estimated_single_line_text_width(element, line) for line in lines) + 8 > float(
+        element.get("width", 1)
+    )
 
 
 def expand_design_pack_short_label_width(
@@ -13539,7 +13543,11 @@ def expand_design_pack_short_label_width(
         element
     ):
         return
-    required_width = math.ceil(estimated_single_line_text_width(element) + 8)
+    raw_text = str(element.get("props", {}).get("text", ""))
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()] or [raw_text]
+    required_width = math.ceil(
+        max(estimated_single_line_text_width(element, line) for line in lines) + 8
+    )
     current_x = float(element.get("x", 0))
     current_width = float(element.get("width", 1))
     center_x = current_x + current_width / 2

@@ -301,6 +301,26 @@ def test_worker_detects_editor_short_label_width_risk() -> None:
     assert not is_short_label_text_box_too_narrow(label)
 
 
+def test_worker_accepts_intentional_multi_line_short_label() -> None:
+    label = {
+        "elementId": "el_4_program_v2_hub",
+        "type": "text",
+        "role": "highlight",
+        "x": 724,
+        "y": 384,
+        "width": 472,
+        "height": 256,
+        "props": {
+            "text": "3가지\n핵심 축",
+            "fontSize": 56,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.2,
+        },
+    }
+
+    assert not is_short_label_text_box_too_narrow(label)
+
+
 def test_worker_uses_cjk_width_for_editor_overflow_parity() -> None:
     element = {
         "elementId": "el_2_process_vertical_text_1",

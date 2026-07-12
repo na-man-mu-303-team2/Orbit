@@ -923,8 +923,15 @@ function isEditorLabelTextWrapped(
   }
 
   const metrics = getEditorTextContentMetrics(deck, slide, element, text);
+  const explicitLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  return metrics.lineCount > 1 || isShortLabelTextBoxTooNarrow(deck, slide, element, text);
+  return (
+    metrics.lineCount > Math.max(1, explicitLines.length) ||
+    isShortLabelTextBoxTooNarrow(deck, slide, element, explicitLines)
+  );
 }
 
 function isShortLabelText(text: string) {
@@ -935,14 +942,14 @@ function isShortLabelTextBoxTooNarrow(
   deck: Deck,
   slide: Slide,
   element: Extract<DeckElement, { type: "text" }>,
-  text: string
+  lines: string[]
 ) {
-  const singleLineText = text.replace(/\s+/g, " ").trim();
-  const metrics = getEditorTextContentMetrics(deck, slide, element, singleLineText, {
-    width: 10000
+  return lines.some((line) => {
+    const metrics = getEditorTextContentMetrics(deck, slide, element, line, {
+      width: 10000
+    });
+    return metrics.width + 8 > element.width;
   });
-
-  return metrics.width + 8 > element.width;
 }
 
 function isHexColor(value: string) {

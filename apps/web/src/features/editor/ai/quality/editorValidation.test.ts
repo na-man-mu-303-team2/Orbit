@@ -678,4 +678,39 @@ describe("editor design-pack validation", () => {
       })
     );
   });
+
+  it("accepts an intentional multi-line program-v2 focal label", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    slide.elements = [
+      {
+        elementId: "el_1_program_v2_hub",
+        type: "text",
+        role: "highlight",
+        x: 724,
+        y: 384,
+        width: 472,
+        height: 256,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 5,
+        locked: false,
+        visible: true,
+        props: {
+          text: "3가지\n핵심 축",
+          fontFamily: "Pretendard",
+          fontSize: 56,
+          fontWeight: "bold",
+          color: "#111827",
+          align: "center",
+          verticalAlign: "middle",
+          lineHeight: 1.2
+        }
+      }
+    ];
+
+    expect(
+      getEditorValidationItems(deck, slide).filter((item) => item.issue === "labelWrap")
+    ).toEqual([]);
+  });
 });
