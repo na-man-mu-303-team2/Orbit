@@ -5043,18 +5043,18 @@ def ensure_profile_closing_action(
     }:
         return
     closing = slide_plans[-1]
-    required_tokens = (
-        EXECUTIVE_CLOSING_TOKENS
-        if raw_input.presentation_profile == "executive-report"
-        else ACTION_CLOSING_TOKENS
-    )
     closing_text = " ".join(
         [closing.title, closing.message, *[item.text for item in closing.content_items]]
     ).casefold()
-    if has_any(closing_text, required_tokens):
+    if has_profile_closing_action(closing_text, raw_input.presentation_profile):
         return
 
     success_criteria = raw_input.brief.success_criteria.strip()
+    fallback_title = {
+        "proposal": "다음 실행을 결정하세요",
+        "product-launch": "지금 출시 정보를 확인하세요",
+        "executive-report": "다음 결정을 요청합니다",
+    }[raw_input.presentation_profile]
     fallback = {
         "proposal": "다음 실행을 결정하고 시작하세요.",
         "product-launch": "출시 정보를 확인하고 다음 행동을 선택하세요.",
@@ -5062,9 +5062,14 @@ def ensure_profile_closing_action(
     }[raw_input.presentation_profile]
     action = (
         success_criteria
-        if has_any(success_criteria.casefold(), required_tokens)
+        if has_profile_closing_action(
+            success_criteria.casefold(),
+            raw_input.presentation_profile,
+        )
         else fallback
     )
+    closing.title = fallback_title
+    closing.message = action
     action_item = GeneratedContentItem(
         contentItemId=f"content_{closing.order}_profile_action",
         text=action,
@@ -13666,12 +13671,7 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
     if profile in {"proposal", "product-launch", "executive-report"}:
         closing = deck["slides"][-1]
         closing_text = visible_slide_text(closing)
-        required_tokens = (
-            EXECUTIVE_CLOSING_TOKENS
-            if profile == "executive-report"
-            else ACTION_CLOSING_TOKENS
-        )
-        if not has_any(closing_text.casefold(), required_tokens):
+        if not has_profile_closing_action(closing_text.casefold(), profile):
             issues.append(
                 ValidationIssue(
                     code="CTA_MISSING",
@@ -13701,39 +13701,49 @@ GENERIC_ACTION_TITLES = {
     "핵심 특징",
     "주요 포인트",
 }
-ACTION_CLOSING_TOKENS = (
-    "다음",
-    "지금",
-    "시작",
-    "신청",
-    "참여",
-    "확인",
-    "선택",
-    "도입",
-    "실행",
-    "문의",
-    "출시",
-    "구매",
-    "예약",
-    "체험",
-    "next",
-    "start",
-    "join",
-    "contact",
-    "launch",
-    "pre-order",
+GENERAL_CLOSING_ACTION_PHRASES = (
+    "하세요",
+    "하십시오",
+    "해 주세요",
+    "합시다",
+    "시작해",
+    "신청해",
+    "참여해",
+    "확인해",
+    "선택해",
+    "도입해",
+    "실행해",
+    "문의해",
+    "구매해",
+    "예약해",
+    "체험해",
+    "결정해",
 )
-EXECUTIVE_CLOSING_TOKENS = (
-    "결정",
-    "승인",
-    "확정",
-    "선택",
-    "검토",
-    "의사결정",
-    "decision",
-    "approve",
-    "approval",
+EXECUTIVE_CLOSING_ACTION_PHRASES = (
+    "요청합니다",
+    "결정하세요",
+    "승인해",
+    "확정해",
+    "검토해",
+    "의사결정해",
 )
+
+
+def has_profile_closing_action(text: str, profile: str) -> bool:
+    normalized = " ".join(text.casefold().split())
+    phrases = (
+        EXECUTIVE_CLOSING_ACTION_PHRASES
+        if profile == "executive-report"
+        else GENERAL_CLOSING_ACTION_PHRASES
+    )
+    if has_any(normalized, phrases):
+        return True
+    english_verbs = (
+        r"\b(?:decide|approve|review|confirm)\b"
+        if profile == "executive-report"
+        else r"\b(?:start|join|contact|buy|purchase|reserve|pre-?order|visit|apply|choose|confirm)\b"
+    )
+    return bool(re.search(english_verbs, normalized))
 
 
 def action_title_requires_attention(title: str) -> bool:

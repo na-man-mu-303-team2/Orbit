@@ -59,6 +59,7 @@ from app.ai.generate_deck import (
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
+    ensure_profile_closing_action,
     icon_name_for_keyword,
     initial_source_records,
     is_text_overflowing,
@@ -798,6 +799,39 @@ def test_profile_fallback_closing_contains_required_action(
     }
 
 
+def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="New product",
+            generationMode="design-pack",
+            brief={
+                "presentationType": "신상품 공개",
+                "successCriteria": "출시 정보와 구매 조건을 이해한다.",
+            },
+        )
+    )
+    closing = SlidePlan(
+        order=3,
+        slide_type="summary",
+        title="출시 일정과 구매 정보",
+        message="출시 일정과 구매 조건을 정리합니다.",
+        speaker_notes="출시 정보를 정리합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="release", text="7월 출시"),
+            GeneratedContentItem(contentItemId="purchase", text="구매 조건 안내"),
+        ],
+    )
+
+    ensure_profile_closing_action(raw_input, [closing])
+
+    assert closing.title == "지금 출시 정보를 확인하세요"
+    assert closing.message == "출시 정보를 확인하고 다음 행동을 선택하세요."
+    assert closing.content_items[-1].text == closing.message
+
+
 def test_presentation_validation_detects_missing_profile_closing_action() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
@@ -815,6 +849,29 @@ def test_presentation_validation_detects_missing_profile_closing_action() -> Non
             "footer",
         }:
             element["props"]["text"] = "핵심 정리"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "CTA_MISSING" in codes
+
+
+def test_presentation_validation_rejects_release_nouns_without_action() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            brief={"presentationType": "신상품 공개"},
+        )
+    ).deck
+    closing = deck["slides"][-1]
+    closing["title"] = "출시 일정과 구매 정보"
+    for element in closing["elements"]:
+        if element.get("type") == "text" and element.get("role") not in {
+            "caption",
+            "footer",
+        }:
+            element["props"]["text"] = "출시 일정과 구매 정보"
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
