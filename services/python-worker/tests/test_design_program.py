@@ -39,6 +39,7 @@ def context() -> ArtDirectorContext:
         topic="Splatoon Raiders",
         presentationProfile="product-launch",
         brief={"presentationType": "제품 공개", "audience": "게임 팬"},
+        designDirection="강한 잉크 색상과 명확한 시각적 중심",
         palette={"background": "#FFFFFF", "primary": "#6D28D9"},
         typography={"headingFont": "Pretendard", "bodyFont": "Pretendard"},
         forbiddenStyles=["gradient", "pastel"],
@@ -144,6 +145,27 @@ def test_program_v2_typography_keeps_presentation_scale_floors() -> None:
     }
 
 
+def test_program_v2_palette_keeps_focal_and_secondary_roles_distinct() -> None:
+    design_program = DeckDesignProgram.model_validate(valid_program())
+    themed = apply_program_v2_design_tokens(
+        design_program,
+        {
+            "backgroundColor": "#FFFFFF",
+            "textColor": "#111827",
+            "accentColor": "#2563EB",
+            "palette": {
+                "surface": "#FFFFFF",
+                "primary": "#2563EB",
+                "secondary": "#2563EB",
+            },
+            "typography": {},
+        },
+    )
+
+    assert themed.palette_roles.focal == "#2563EB"
+    assert themed.palette_roles.secondary == "#22D3EE"
+
+
 class FakeResponses:
     def __init__(self, payloads: list[dict[str, Any]]) -> None:
         self.payloads = payloads
@@ -162,6 +184,8 @@ def test_art_director_prompt_uses_only_compact_slide_summaries() -> None:
     assert "프롬프트에 포함되면 안 되는 연구 원문" not in prompt
     assert "hero-split" in prompt
     assert "mediaBudget" in prompt
+    assert "강한 잉크 색상과 명확한 시각적 중심" in prompt
+    assert "visualIntent" in prompt
 
 
 def test_response_format_requires_exact_slide_count() -> None:
@@ -435,6 +459,7 @@ def test_create_design_program_retries_one_invalid_response() -> None:
     program = create_design_program(context(), slides(), client=client)
 
     assert program.visual_concept == "Energetic ink expedition"
+    assert "강한 잉크 색상과 명확한 시각적 중심" in program.image_style
     assert len(responses.requests) == 2
 
 

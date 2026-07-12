@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import OrderedDict
+import colorsys
 import hashlib
 import json
 import math
@@ -2667,6 +2668,7 @@ def art_director_context(
             "successCriteria": raw_input.brief.success_criteria,
             "durationMinutes": str(raw_input.target_duration_minutes),
         },
+        designDirection=" ".join(raw_input.design_prompt.split())[:600],
         palette={
             "background": str(theme.get("backgroundColor", "#FFFFFF")),
             "surface": str(palette.get("surface", "#F3F4F6")),
@@ -2740,12 +2742,17 @@ def apply_program_v2_design_tokens(
     palette = theme.get("palette", {})
     typography = theme.get("typography", {})
     updated = program.model_copy(deep=True)
+    focal = str(theme.get("accentColor", palette.get("primary", "#2563EB")))
     updated.palette_roles = PaletteRoles(
         dominant=str(theme.get("backgroundColor", "#FFFFFF")),
         surface=str(palette.get("surface", "#F3F4F6")),
         text=str(theme.get("textColor", "#111827")),
-        focal=str(theme.get("accentColor", palette.get("primary", "#2563EB"))),
-        secondary=str(palette.get("secondary", "#06B6D4")),
+        focal=focal,
+        secondary=program_v2_secondary_color(
+            focal,
+            str(palette.get("secondary", "#06B6D4")),
+            program.palette_roles.secondary,
+        ),
     )
     updated.typography = ProgramTypography(
         headingFont=str(
@@ -2762,6 +2769,37 @@ def apply_program_v2_design_tokens(
         },
     )
     return updated
+
+
+def program_v2_secondary_color(
+    focal: str,
+    theme_secondary: str,
+    art_director_secondary: str,
+) -> str:
+    for candidate in (theme_secondary, art_director_secondary):
+        if color_role_distance(focal, candidate) >= 96:
+            return candidate
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", focal):
+        return "#F4D40A"
+    red, green, blue = (
+        int(focal[index : index + 2], 16) / 255 for index in (1, 3, 5)
+    )
+    hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
+    derived = colorsys.hsv_to_rgb(
+        (hue + 0.5) % 1,
+        max(0.72, saturation),
+        max(0.88, value),
+    )
+    return "#" + "".join(f"{round(channel * 255):02X}" for channel in derived)
+
+
+def color_role_distance(left: str, right: str) -> int:
+    if not all(re.fullmatch(r"#[0-9A-Fa-f]{6}", value) for value in (left, right)):
+        return 0
+    return sum(
+        abs(int(left[index : index + 2], 16) - int(right[index : index + 2], 16))
+        for index in (1, 3, 5)
+    )
 
 
 def imported_blueprint_warnings(raw_input: RawInput) -> list[str]:

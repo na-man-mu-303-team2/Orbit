@@ -61,6 +61,10 @@ You are the visual art director for an editable 16:9 presentation.
 Return only the requested JSON.
 Choose one curated composition per slide; never invent coordinates or IDs.
 Give every slide one clear focal point and vary adjacent silhouettes.
+Translate designDirection and each slide visualIntent into a subject-specific visual
+concept, imageStyle, surfaceStyle, and composition sequence. Do not default to generic
+clean minimal styling unless the user explicitly requests it.
+Keep focal and secondary palette roles visibly distinct when brand locks allow it.
 Use evidence images only for factual proof, AI atmosphere only for mood, and native
 shapes for processes, comparisons, timelines, and diagrams.
 Use the requested media budget across the whole deck, not on every slide.
@@ -74,6 +78,7 @@ class ArtDirectorContext(BaseModel):
     topic: str
     presentation_profile: str = Field(alias="presentationProfile")
     brief: dict[str, str]
+    design_direction: str = Field(default="", alias="designDirection")
     palette: dict[str, str]
     typography: dict[str, Any]
     saved_design_preferences: dict[str, Any] = Field(
@@ -262,6 +267,16 @@ def art_director_prompt(
                 key: slide.get("mediaIntent", {}).get(key)
                 for key in ("kind", "prompt", "alt", "required")
             },
+            "visualIntent": {
+                key: slide.get("visualIntent", {}).get(key)
+                for key in (
+                    "composition",
+                    "paletteHint",
+                    "emphasisStyle",
+                    "mediaStyle",
+                    "decorationDensity",
+                )
+            },
         }
         for index, slide in enumerate(slides, start=1)
     ]
@@ -308,8 +323,28 @@ def create_design_program(
             )
             if len(program.slides) != len(slides):
                 raise ValueError("Art Director returned the wrong slide count")
-            return program
+            return apply_art_director_context(program, context)
         except Exception as error:
             last_error = error
             prompt += "\nThe previous response violated the strict schema. Return a corrected plan."
     raise DesignProgramError(f"Art Director response invalid: {last_error}")
+
+
+def apply_art_director_context(
+    program: DeckDesignProgram,
+    context: ArtDirectorContext,
+) -> DeckDesignProgram:
+    updated = program.model_copy(deep=True)
+    direction = " ".join(context.design_direction.split())[:240]
+    if direction:
+        existing_style = " ".join(updated.image_style.split())
+        updated.image_style = f"{existing_style}; {direction}"
+    elif context.media_policy not in {"minimal", "avoid"} and updated.image_style.casefold() in {
+        "none",
+        "no image",
+        "minimal",
+    }:
+        updated.image_style = (
+            "Subject-specific editorial imagery with a dominant crop-safe focal subject"
+        )
+    return updated
