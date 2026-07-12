@@ -85,23 +85,19 @@
 
 .report-overview-hero-visual {
   align-items: center;
-  background: linear-gradient(145deg, #5962e8, #b8a7ff 56%, #8de3db);
-  border: 8px solid rgba(255, 255, 255, 0.78);
-  border-radius: 50%;
-  box-shadow: 0 14px 28px rgba(68, 78, 180, 0.2);
-  color: #ffffff;
   display: flex;
-  flex-direction: column;
   height: 108px;
   justify-content: center;
   margin-right: 32px;
   width: 108px;
 }
 
-.report-overview-hero-visual span {
-  font-size: 1.45rem;
-  font-weight: 900;
-  line-height: 1;
+.report-overview-hero-mascot {
+  filter: drop-shadow(0 14px 18px rgba(78, 77, 174, 0.22));
+  max-width: 190px;
+  object-fit: contain;
+  transform: rotate(-4deg);
+  width: 175px;
 }
 
 .report-overview-latest {
@@ -239,16 +235,11 @@
   .report-overview-hero-visual {
     height: 76px;
     margin: 0 -14px 0 12px;
-    width: 76px;
+    width: 92px;
   }
 
-  .report-overview-hero-visual svg {
-    height: 20px;
-    width: 20px;
-  }
-
-  .report-overview-hero-visual span {
-    font-size: 1.1rem;
+  .report-overview-hero-mascot {
+    width: 145px;
   }
 
   .report-overview-latest,

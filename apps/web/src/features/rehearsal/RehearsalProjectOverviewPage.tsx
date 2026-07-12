@@ -27,6 +27,7 @@ import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
 import { OrbitButton, OrbitEmptyState } from "../../design-system";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
+import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 import {
   navigateTo,
   formatRunDate,
@@ -176,8 +177,11 @@ export function RehearsalProjectOverviewPage({
                   </span>
                 </div>
                 <div className="report-overview-hero-visual" aria-hidden="true">
-                  <Sparkles size={30} />
-                  <span>{runs.length}</span>
+                  <img
+                    src={orbitReportMascot}
+                    alt=""
+                    className="report-overview-hero-mascot"
+                  />
                 </div>
               </header>
 
