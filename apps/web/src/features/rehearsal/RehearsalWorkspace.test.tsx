@@ -1440,6 +1440,21 @@ describe("RehearsalWorkspace", () => {
     expect(shouldLoadPracticeGoalSummary(null)).toBe(false);
   });
 
+  it("stops report progress when a succeeded run has no report job or body", () => {
+    expect(
+      resolveRehearsalReportLoadState(
+        {
+          run: runFixture("succeeded", { jobId: null }),
+          report: null,
+        },
+        "project-a",
+      ),
+    ).toEqual({
+      error: "",
+      status: "unavailable",
+    });
+  });
+
   it("builds the dedicated report route for a completed rehearsal run", () => {
     expect(getRehearsalReportPath("project a", "run/1")).toBe(
       "/rehearsal/project%20a/report/run%2F1",

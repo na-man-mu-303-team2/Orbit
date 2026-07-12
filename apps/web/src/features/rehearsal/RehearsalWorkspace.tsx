@@ -293,6 +293,7 @@ type RehearsalReportStatus =
   | "loading"
   | "ready"
   | "not-ready"
+  | "unavailable"
   | "failed";
 type RehearsalRuntimeStatus = "idle" | "running" | "paused" | "stopping";
 
@@ -786,10 +787,15 @@ export function resolveRehearsalReportLoadState(
     };
   }
 
-  return {
-    error: "",
-    status: response.report ? "ready" : "not-ready",
-  };
+  if (response.report) {
+    return { error: "", status: "ready" };
+  }
+
+  if (response.run.status === "succeeded" && !response.run.jobId) {
+    return { error: "", status: "unavailable" };
+  }
+
+  return { error: "", status: "not-ready" };
 }
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
@@ -6440,6 +6446,9 @@ function formatEmptyReportMessage(
 ) {
   if (status === "loading") return "보고서를 불러오는 중입니다.";
   if (status === "not-ready") return "보고서 생성 중입니다.";
+  if (status === "unavailable") {
+    return "공식 리포트가 생성되지 않았습니다. 연습 계획은 계속 사용할 수 있습니다.";
+  }
   if (status === "failed") return error || "보고서를 불러오지 못했습니다.";
   return "보고서 대기 중";
 }
