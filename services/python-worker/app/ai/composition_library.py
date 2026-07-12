@@ -1215,7 +1215,7 @@ def _enforce_media_budget(
         if direction.asset_role != "none":
             continue
         index = direction.order - 1
-        candidate = _optional_media_candidate(program, slides, index)
+        candidate = _media_candidate(program, slides, index)
         if candidate is None:
             continue
         direction.composition_id = candidate
@@ -1237,22 +1237,31 @@ def _promote_official_evidence(
     ):
         if slide.get("officialSourceAvailable") is not True:
             continue
-        candidate = _optional_media_candidate(program, slides, index, usage=usage)
+        candidate = _media_candidate(
+            program,
+            slides,
+            index,
+            usage=usage,
+            allow_required=True,
+        )
         if candidate is None:
             continue
         usage[direction.composition_id] -= 1
         direction.composition_id = candidate
         direction.asset_role = "evidence"
-        direction.required_asset = False
+        direction.required_asset = (
+            COMPOSITION_SPECS[candidate].media_requirement == "required"
+        )
         return
 
 
-def _optional_media_candidate(
+def _media_candidate(
     program: DeckDesignProgram,
     slides: list[dict[str, Any]],
     index: int,
     *,
     usage: Counter[str] | None = None,
+    allow_required: bool = False,
 ) -> CompositionId | None:
     direction = program.slides[index]
     slide = slides[index]
@@ -1274,7 +1283,8 @@ def _optional_media_candidate(
         (
             candidate
             for candidate in dict.fromkeys(candidates)
-            if COMPOSITION_SPECS[candidate].media_requirement == "optional"
+            if COMPOSITION_SPECS[candidate].media_requirement
+            in ({"optional", "required"} if allow_required else {"optional"})
             and _supports(candidate, slide_type, item_count)
             and content_supports_composition(candidate, slide)
             and composition_usage[candidate]

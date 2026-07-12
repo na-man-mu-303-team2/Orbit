@@ -168,6 +168,31 @@ def test_hybrid_media_budget_preserves_official_evidence_and_ai_atmosphere() -> 
     assert 3 <= len(evidence) + len(atmosphere) <= 4
 
 
+def test_hybrid_official_metric_uses_required_image_evidence() -> None:
+    slides = [
+        slide_payload("cover", 2),
+        slide_payload("data", 1),
+        slide_payload("summary", 2),
+    ]
+    slides[1]["message"] = "2026년 7월 23일 출시"
+    slides[1]["contentItems"] = [
+        {"contentItemId": "release-date", "text": "2026년 7월 23일 출시"}
+    ]
+    slides[1]["officialSourceAvailable"] = True
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="hybrid",
+        media_budget=3,
+    )
+    evidence = normalized.slides[1]
+
+    assert evidence.composition_id == "image-evidence"
+    assert evidence.asset_role == "evidence"
+    assert evidence.required_asset is True
+
+
 def test_hybrid_media_budget_promotes_a_no_media_body_composition() -> None:
     definitions = [
         ("cover", 2),
