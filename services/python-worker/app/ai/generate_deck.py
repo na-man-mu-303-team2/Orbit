@@ -4182,6 +4182,8 @@ def compact_program_v2_content_items(
             slide_plan,
             total_slides,
         )
+        if slide_plan.slide_type not in {"process", "architecture"}:
+            maximum_items = min(maximum_items, 4)
         if (
             len(slide_plan.content_items) < minimum_items
             and len(slide_plan.content_items) == 2

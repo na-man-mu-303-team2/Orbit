@@ -1702,6 +1702,51 @@ def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
     assert compacted[2] is closing
 
 
+def test_program_v2_compacts_general_body_to_composition_capacity() -> None:
+    items = [
+        GeneratedContentItem(contentItemId=f"item-{index}", text=f"Point {index}")
+        for index in range(1, 6)
+    ]
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[items[0]],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="problem",
+            title="Five launch constraints",
+            message="\n".join(item.text for item in items),
+            speaker_notes="Explain all constraints.",
+            keywords=[],
+            evidence=[],
+            content_items=items,
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Closing",
+            message="Review",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[items[0]],
+        ),
+    ]
+
+    compacted = compact_program_v2_content_items(plans)
+
+    assert len(compacted[1].content_items) == 4
+    assert compacted[1].content_items[-1].text == "Point 4 · Point 5"
+    assert compacted[1].message.endswith("Point 4 · Point 5")
+
+
 def test_program_v2_reclassifies_two_step_process_without_inventing_content() -> None:
     plans = [
         SlidePlan(
