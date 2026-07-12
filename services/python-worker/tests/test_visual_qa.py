@@ -232,6 +232,14 @@ def test_visual_qa_instructions_exclude_subjective_color_and_crop_nits() -> None
     assert "mediaFit=contain is an intentional evidence mark" in instructions
 
 
+def test_visual_qa_instructions_reject_clean_but_undercomposed_slides() -> None:
+    instructions = " ".join(visual_qa_module.VISUAL_QA_INSTRUCTIONS.split())
+
+    assert "not acceptable merely because it is clean and readable" in instructions
+    assert "small island inside large unused canvas" in instructions
+    assert "short phrases are isolated in repeated outlined boxes" in instructions
+
+
 def test_visual_review_contract_removes_only_deterministically_false_deck_issues() -> None:
     candidate = deck()
     candidate["slides"] = []
