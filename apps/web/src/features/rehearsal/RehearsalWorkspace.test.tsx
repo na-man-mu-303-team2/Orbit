@@ -58,6 +58,7 @@ import {
   retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldLoadPracticeGoalSummary,
   shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
 } from "./RehearsalWorkspace";
@@ -1431,6 +1432,12 @@ describe("RehearsalWorkspace", () => {
       error: "요청한 프로젝트와 리허설 실행 정보가 일치하지 않습니다.",
       status: "failed",
     });
+  });
+
+  it("loads practice goals for succeeded runs even when the report body is unavailable", () => {
+    expect(shouldLoadPracticeGoalSummary(runFixture("succeeded"))).toBe(true);
+    expect(shouldLoadPracticeGoalSummary(runFixture("failed"))).toBe(false);
+    expect(shouldLoadPracticeGoalSummary(null)).toBe(false);
   });
 
   it("builds the dedicated report route for a completed rehearsal run", () => {

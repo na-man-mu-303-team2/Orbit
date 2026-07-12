@@ -5852,7 +5852,7 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
-          {report ? (
+          {shouldLoadPracticeGoalSummary(run) ? (
             <PracticeGoalSummary
               projectId={props.projectId}
               sourceFullRunId={props.runId}
@@ -5894,6 +5894,10 @@ export function RehearsalReportPage(props: {
       </div>
     </main>
   );
+}
+
+export function shouldLoadPracticeGoalSummary(run: RehearsalRun | null) {
+  return run?.status === "succeeded";
 }
 
 type RehearsalPrompterRows = {

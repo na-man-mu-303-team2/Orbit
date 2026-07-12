@@ -1,5 +1,10 @@
 import { loadOrbitConfig, type OrbitConfig } from "@orbit/config";
-import { deckSchema } from "@orbit/shared";
+import {
+  createRehearsalEvaluationSnapshot,
+  deckSchema,
+  type Deck,
+  type RehearsalEvaluationPlan,
+} from "@orbit/shared";
 import { createHash } from "node:crypto";
 import type { EntityManager } from "typeorm";
 import AppDataSource from "../database/data-source";
@@ -10,6 +15,17 @@ export function assertDemoResetAllowed(config: OrbitConfig) {
   if (!config.DEMO_COACHING_FIXTURE_ENABLED) throw new Error("DEMO_COACHING_FIXTURE_ENABLED must be true.");
   if (!config.DEMO_FIXTURE_ENV_ALLOWLIST.includes(config.APP_ENV)) throw new Error("APP_ENV is not included in DEMO_FIXTURE_ENV_ALLOWLIST.");
   if (!config.ADAPTIVE_COACHING_PROJECT_ALLOWLIST.includes("*") && !config.ADAPTIVE_COACHING_PROJECT_ALLOWLIST.includes(config.DEMO_PROJECT_ID)) throw new Error("Demo project is not included in ADAPTIVE_COACHING_PROJECT_ALLOWLIST.");
+}
+
+export function createDemoRunEvaluationSnapshot(
+  deck: Deck,
+  evaluationPlan: RehearsalEvaluationPlan,
+  capturedAt: string = new Date().toISOString(),
+) {
+  return createRehearsalEvaluationSnapshot(deck, capturedAt, {
+    deckContentHash: deckContentHash(deck),
+    evaluationPlan,
+  });
 }
 
 export async function resetCoachingDemo() {
@@ -29,11 +45,12 @@ export async function resetCoachingDemo() {
       if (!deckRow) throw new Error("Canonical demo deck does not exist.");
       const deck = deckSchema.parse(deckRow.deck_json);
       const evaluationPlan = buildRehearsalEvaluationPlan({ deck, brief: null, sourceGoalSetRef: null });
+      const evaluationSnapshot = createDemoRunEvaluationSnapshot(deck, evaluationPlan);
       const runId = "run_demo_coaching_baseline";
       const goalSetId = "goalset_demo_coaching_baseline";
       await manager.query(`INSERT INTO rehearsal_runs (run_id,project_id,deck_id,status,error,created_at,updated_at,transcript_retained,meta_json,deck_version,evaluation_snapshot_json,semantic_evaluation_mode,analysis_revision,analysis_finalized_at)
         VALUES ($1,$2,$3,'succeeded',NULL,now(),now(),false,'{}'::jsonb,$4,$5,'full',1,now()) ON CONFLICT (run_id) DO UPDATE SET status='succeeded',deck_version=EXCLUDED.deck_version,evaluation_snapshot_json=EXCLUDED.evaluation_snapshot_json,analysis_revision=1,analysis_finalized_at=now(),updated_at=now()`,
-        [runId,config.DEMO_PROJECT_ID,config.DEMO_DECK_ID,deck.version,{snapshotVersion:1,deckVersion:deck.version,deckContentHash:deckContentHash(deck),evaluationPlan}]);
+        [runId,config.DEMO_PROJECT_ID,config.DEMO_DECK_ID,deck.version,evaluationSnapshot]);
       await manager.query(`INSERT INTO practice_goal_sets (goal_set_id,project_id,source_full_run_id,revision,source_analysis_revision,derivation_version,analysis_state,data_origin,created_at) VALUES ($1,$2,$3,1,1,1,'final','fixture',now())`, [goalSetId,config.DEMO_PROJECT_ID,runId]);
       const slides = deck.slides.slice(0,3);
       for (let index=0;index<3;index+=1) {
