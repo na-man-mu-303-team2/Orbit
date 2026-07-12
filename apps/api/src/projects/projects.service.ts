@@ -67,6 +67,7 @@ export class ProjectsService {
     const now = new Date();
 
     const savedProject = await this.dataSource.transaction(async (manager) => {
+      await this.ensureDemoWorkspace(manager, userId, now);
       const project = manager.create(ProjectEntity, {
         projectId: `project_${randomUUID()}`,
         workspaceId,
@@ -89,6 +90,33 @@ export class ProjectsService {
     });
 
     return this.toProjectDto(savedProject);
+  }
+
+  private async ensureDemoWorkspace(
+    executor: Pick<DataSource["manager"], "query">,
+    userId: string,
+    now: Date,
+  ): Promise<void> {
+    const rows = await executor.query<Array<{ table_name: string | null }>>(
+      "SELECT to_regclass('public.workspaces') AS table_name",
+    );
+    if (!rows[0]?.table_name) return;
+
+    await executor.query(
+      `
+        INSERT INTO workspaces (
+          workspace_id,
+          name,
+          created_by,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, 'active', $4, $4)
+        ON CONFLICT (workspace_id) DO NOTHING
+      `,
+      [demoIds.workspaceId, "ORBIT Workspace", userId, now],
+    );
   }
 
   async list(workspaceId: string, userId: string): Promise<Project[]> {
