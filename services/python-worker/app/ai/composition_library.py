@@ -1345,27 +1345,8 @@ def _timeline(
     items = _items(slide)
     count = max(1, len(items))
     duplicates_items = _message_duplicates_items(slide, items)
-    content_top = 304
-    field_height = 500 if duplicates_items else 452
-    if count == 3:
-        frames = [
-            (_grid_x(index * 4), content_top, _grid_width(4), field_height)
-            for index in range(count)
-        ]
-    else:
-        gap = 16
-        width = (SAFE_WIDTH - gap * (count - 1)) // count
-        frames = [
-            (
-                SAFE_X + index * (width + gap),
-                content_top,
-                width,
-                field_height,
-            )
-            for index in range(count)
-        ]
-    centers = [x + width // 2 for x, _, width, _ in frames]
-    track_y = content_top + field_height + 50
+    frames = _timeline_column_frames(count)
+    track_y = 584
     elements = [
         _background(order, style),
         _title(order, slide, style),
@@ -1374,7 +1355,7 @@ def _timeline(
             "timeline_line",
             "decoration",
             SAFE_X,
-            track_y,
+            track_y - 5,
             SAFE_WIDTH,
             10,
             2,
@@ -1382,56 +1363,51 @@ def _timeline(
             radius=5,
         ),
     ]
-    colors = _editorial_field_colors(style)
-    for index, ((identifier, value), (x, y, width, height)) in enumerate(
+    for index, ((identifier, value), (x, width)) in enumerate(
         zip(items, frames, strict=True)
     ):
-        center = centers[index]
-        fill = colors[index % len(colors)]
-        text_color = _contrasting_text_color(fill, style.text)
+        above_track = index % 2 == 0
+        index_y = 292 if above_track else 668
+        body_y = 360 if above_track else 736
+        stem_y = 536 if above_track else 616
+        center = x + width // 2
+        marker_color = style.focal if index % 2 == 0 else style.secondary
+        marker_text = _contrasting_text_color(marker_color, style.text)
         elements.extend(
             [
-                _rect(
-                    order,
-                    f"timeline_{index + 1}_field",
-                    "decoration",
-                    x,
-                    y,
-                    width,
-                    height,
-                    3,
-                    fill,
-                    radius=8,
-                ),
                 _text(
                     order,
                     f"timeline_{index + 1}_index",
                     "highlight",
                     f"{index + 1:02d}",
-                    x + 28,
-                    y + 28,
-                    width - 56,
-                    72,
+                    x,
+                    index_y,
+                    width,
+                    56,
                     5,
-                    text_color,
-                    54 if count <= 4 else 44,
+                    marker_color,
+                    52 if count <= 4 else 44,
                     "bold",
                     style.heading_font,
+                    align="center",
                 ),
                 _text(
                     order,
                     f"timeline_{index + 1}",
                     "body",
                     value,
-                    x + 28,
-                    y + 120,
-                    width - 56,
-                    height - 156,
+                    x,
+                    body_y,
+                    width,
+                    168,
                     5,
-                    text_color,
-                    max(36, style.body_size + 4) if count <= 4 else style.body_size,
+                    style.text,
+                    max(36, style.body_size + 4)
+                    if count <= 4
+                    else style.body_size,
                     "semibold",
                     style.body_font,
+                    align="center",
                     vertical="middle",
                     content_item_ids=[identifier],
                 ),
@@ -1440,23 +1416,41 @@ def _timeline(
                     f"timeline_stem_{index + 1}",
                     "decoration",
                     center - 4,
-                    y + height,
+                    stem_y,
                     8,
-                    track_y - (y + height),
+                    32,
                     2,
-                    style.secondary,
+                    marker_color,
+                    radius=4,
                 ),
                 _rect(
                     order,
-                    f"timeline_dot_{index + 1}",
+                    f"timeline_marker_{index + 1}",
                     "decoration",
-                    center - 16,
-                    track_y - 11,
-                    32,
-                    32,
+                    center - 32,
+                    track_y - 32,
+                    64,
+                    64,
                     4,
-                    style.focal,
-                    radius=16,
+                    marker_color,
+                    radius=32,
+                ),
+                _text(
+                    order,
+                    f"timeline_marker_label_{index + 1}",
+                    "highlight",
+                    str(index + 1),
+                    center - 32,
+                    track_y - 24,
+                    64,
+                    48,
+                    5,
+                    marker_text,
+                    30,
+                    "bold",
+                    style.heading_font,
+                    align="center",
+                    vertical="middle",
                 ),
             ]
         )
@@ -1468,7 +1462,7 @@ def _timeline(
                 "highlight",
                 str(slide.get("message", "")),
                 SAFE_X,
-                track_y + 40,
+                920,
                 SAFE_WIDTH,
                 64,
                 5,
@@ -1481,6 +1475,21 @@ def _timeline(
             )
         )
     return elements, _id(order, "timeline_1")
+
+
+def _timeline_column_frames(count: int) -> list[tuple[int, int]]:
+    base_span, remainder = divmod(12, count)
+    spans = [base_span] * count
+    for offset in range(remainder):
+        index = round(offset * (count - 1) / max(1, remainder - 1))
+        spans[index] += 1
+
+    frames: list[tuple[int, int]] = []
+    column = 0
+    for span in spans:
+        frames.append((_grid_x(column), _grid_width(span)))
+        column += span
+    return frames
 
 
 def _diagram_hub(

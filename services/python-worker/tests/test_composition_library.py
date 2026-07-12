@@ -549,7 +549,7 @@ def test_feature_comparison_uses_distinct_editorial_color_fields() -> None:
     ]
 
 
-def test_three_item_timeline_uses_full_grid_frames() -> None:
+def test_three_item_timeline_uses_alternating_grid_track() -> None:
     design_program = program(
         [
             {
@@ -568,24 +568,26 @@ def test_three_item_timeline_uses_full_grid_frames() -> None:
         slide_payload("process", 3),
         design_program,
     )
-    fields = [
-        element
-        for element in compiled.elements
-        if "_timeline_" in str(element.get("elementId", ""))
-        and str(element.get("elementId", "")).endswith("_field")
-    ]
     labels = [
         element
         for element in compiled.elements
         if element.get("role") == "body"
     ]
+    markers = [
+        element
+        for element in compiled.elements
+        if "_timeline_marker_" in str(element.get("elementId", ""))
+        and element.get("type") == "rect"
+    ]
 
-    assert [(field["x"], field["width"], field["height"]) for field in fields] == [
-        (120, 544, 452),
-        (688, 544, 452),
-        (1256, 544, 452),
+    assert [(label["x"], label["y"], label["width"]) for label in labels] == [
+        (120, 360, 544),
+        (688, 736, 544),
+        (1256, 360, 544),
     ]
     assert all(label["props"]["fontSize"] >= 36 for label in labels)
+    assert len(markers) == 3
+    assert all((marker["width"], marker["height"]) == (64, 64) for marker in markers)
 
 
 def test_three_step_process_uses_connected_full_height_color_fields() -> None:
