@@ -3461,6 +3461,41 @@ def test_design_pack_content_response_format_uses_slide_range() -> None:
     assert slides_schema["maxItems"] == 8
 
 
+def test_design_pack_content_response_format_limits_source_refs_to_records() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official",
+            content="Official facts",
+            authority="official",
+        ),
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:independent",
+            url="https://example.com/news",
+            title="News",
+            content="Independent facts",
+            authority="independent",
+        ),
+    ]
+
+    slides_schema = deck_content_response_format_for(raw_input)["format"]["schema"][
+        "properties"
+    ]["slides"]
+    source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
+
+    assert source_ref_items["enum"] == ["web:independent", "web:official"]
+
+
 def test_design_pack_repairs_exact_slide_count_once() -> None:
     initial = {
         "title": "Too short",

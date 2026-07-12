@@ -2011,6 +2011,13 @@ def deck_content_response_format_for(
     else:
         slides_schema["minItems"] = raw_input.min_slide_count
         slides_schema["maxItems"] = raw_input.max_slide_count
+    source_ids = sorted(
+        source.source_id
+        for source in (raw_input.source_records or initial_source_records(raw_input))
+    )
+    source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
+    if source_ids:
+        source_ref_items["enum"] = source_ids
     return response_format
 
 
