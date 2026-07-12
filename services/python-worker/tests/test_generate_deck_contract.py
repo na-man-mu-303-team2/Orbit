@@ -48,6 +48,7 @@ from app.ai.generate_deck import (
     design_pack_insight_elements,
     design_pack_comparison_elements,
     design_pack_decision_actions_elements,
+    design_pack_locks_dark_canvas,
     design_pack_items,
     design_pack_overview_elements,
     design_pack_process_elements,
@@ -116,6 +117,33 @@ def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
     assert diagnostics["visualReviewAttempts"] == 0
     assert diagnostics["visualRepairAttempts"] == 0
     assert diagnostics["visualIssueCodes"] == []
+
+
+@pytest.mark.parametrize(
+    ("design_prompt", "expected"),
+    [
+        ("Use a black background with white text as the default.", False),
+        ("Use only black backgrounds.", True),
+        ("검은색 배경만 사용", True),
+    ],
+)
+def test_dark_canvas_requires_an_explicit_single_color_lock(
+    design_prompt: str,
+    expected: bool,
+) -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_dark_rhythm",
+            topic="Dark visual rhythm",
+            designPrompt=design_prompt,
+            design={
+                "engineVersion": "program-v2",
+                "colorIntent": {"backgroundPreference": "dark"},
+            },
+        )
+    )
+
+    assert design_pack_locks_dark_canvas(raw_input) is expected
 
 
 def client() -> TestClient:

@@ -2304,7 +2304,7 @@ class DeckGenerationOrchestrator:
                     program,
                     slide_summaries,
                     force_light=design_pack_wants_white_canvas(raw_input),
-                    force_dark=design_pack_wants_dark_canvas(raw_input),
+                    force_dark=design_pack_locks_dark_canvas(raw_input),
                     media_policy=raw_input.design.media_policy,
                     media_budget=4,
                 )
@@ -9746,12 +9746,36 @@ def design_pack_wants_white_canvas(raw_input: RawInput) -> bool:
     )
 
 
-def design_pack_wants_dark_canvas(raw_input: RawInput) -> bool:
-    color_intent = raw_input.design.color_intent
-    return bool(
-        not design_pack_wants_white_canvas(raw_input)
-        and color_intent is not None
-        and color_intent.background_preference == "dark"
+def design_pack_locks_dark_canvas(raw_input: RawInput) -> bool:
+    if design_pack_wants_white_canvas(raw_input):
+        return False
+    text = " ".join([raw_input.design_prompt, raw_input.prompt]).casefold()
+    compact_korean = re.sub(r"\s+", "", text)
+    korean_markers = (
+        "검은색배경만",
+        "검정색배경만",
+        "어두운배경만",
+        "배경은검은색만",
+        "배경은검정색만",
+        "배경을검은색으로만",
+        "배경을검정색으로만",
+    )
+    english_markers = (
+        "black background only",
+        "black backgrounds only",
+        "dark background only",
+        "dark backgrounds only",
+        "only black background",
+        "only black backgrounds",
+        "only dark background",
+        "only dark backgrounds",
+        "use only black background",
+        "use only black backgrounds",
+        "use only dark background",
+        "use only dark backgrounds",
+    )
+    return any(marker in compact_korean for marker in korean_markers) or any(
+        marker in text for marker in english_markers
     )
 
 
