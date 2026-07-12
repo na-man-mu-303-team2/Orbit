@@ -971,7 +971,7 @@ def _select_composition_sequence(
 ) -> list[CompositionId]:
     candidates_by_slide: list[tuple[CompositionId, ...]] = []
     for index, (direction, slide) in enumerate(zip(program.slides, slides, strict=True)):
-        slide_type = str(slide.get("slideType", "summary"))
+        slide_type = _composition_slide_type(slide)
         if index == 0:
             slide_type = "cover"
         elif index == len(slides) - 1:
@@ -1193,7 +1193,9 @@ def _enforce_media_budget(
     for direction in selected[media_budget:]:
         if COMPOSITION_SPECS[direction.composition_id].media_requirement == "required":
             slide = slides[direction.order - 1]
-            slide_type = "cover" if direction.order == 1 else str(slide.get("slideType", ""))
+            slide_type = (
+                "cover" if direction.order == 1 else _composition_slide_type(slide)
+            )
             item_count = len(_items(slide))
             alternatives = tuple(
                 candidate
@@ -1332,7 +1334,7 @@ def _media_candidate(
 ) -> CompositionId | None:
     direction = program.slides[index]
     slide = slides[index]
-    slide_type = "cover" if index == 0 else str(slide.get("slideType", "summary"))
+    slide_type = "cover" if index == 0 else _composition_slide_type(slide)
     item_count = len(_items(slide))
     composition_usage = usage or Counter(
         item.composition_id for item in program.slides
@@ -1405,6 +1407,16 @@ def _enforce_background_rhythm(
             slide.variant = "dark"
     _break_long_background_runs(program)
     program.background_sequence = [slide.background_mode for slide in program.slides]
+
+
+def _composition_slide_type(slide: dict[str, Any]) -> str:
+    slide_type = str(slide.get("slideType", "summary"))
+    if slide_type != "chart":
+        return slide_type
+    content = " ".join(
+        [str(slide.get("message", "")), *[value for _, value in _items(slide)]]
+    )
+    return "chart" if re.search(r"\d", content) else "feature-grid"
 
 
 def _break_long_background_runs(program: DeckDesignProgram) -> None:

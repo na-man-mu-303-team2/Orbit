@@ -278,6 +278,31 @@ def test_hybrid_media_budget_promotes_a_no_media_body_composition() -> None:
     assert any(1 < direction.order < len(slides) for direction in media_slides)
 
 
+def test_qualitative_chart_uses_a_general_feature_composition() -> None:
+    slides = [
+        slide_payload("cover", 2),
+        slide_payload("chart", 3),
+        slide_payload("summary", 2),
+    ]
+    slides[1]["message"] = "핵심 경험은 탐험과 협력으로 구성된다"
+    slides[1]["contentItems"] = [
+        {"contentItemId": "explore", "text": "섬 탐험"},
+        {"contentItemId": "cooperate", "text": "로컬 협력"},
+        {"contentItemId": "customize", "text": "장비 조합"},
+    ]
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="minimal",
+        media_budget=0,
+    )
+    body = normalized.slides[1]
+
+    assert body.composition_id not in {"metric-poster", "kpi-strip-evidence"}
+    assert compile_composition(body, slides[1], normalized).elements
+
+
 def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -> None:
     definitions = [
         ("cover", 2, "minimal-cover"),
