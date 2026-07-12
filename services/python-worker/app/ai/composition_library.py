@@ -570,13 +570,104 @@ def _minimal_cover(
     return elements, title["elementId"]
 
 
-def _statement_poster(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _statement_poster(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
-    statement = _text(order, "statement", "highlight", str(slide.get("message", "")), 180, 290, 1450, 390, 5, style.text, max(44, style.title_size + 8), "bold", style.heading_font, line_height=1.2)
-    elements = [_background(order, style), _title(order, slide, style), _rect(order, "poster_block", "decoration", _grid_x(11), 288, _grid_width(1), 480, 2, style.focal), statement]
     items = _items(slide)
-    if items:
-        elements.append(_text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 760, _grid_width(9), 112, 5, style.muted_text, style.body_size, "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    support_items = _supporting_items_without_message_duplicate(slide, items)
+    panel_fill = style.surface if _is_dark(style.background) else style.text
+    panel_text = _contrasting_text_color(panel_fill, style.text)
+    panel_y = 272
+    panel_height = 584
+    statement = _text(
+        order,
+        "statement",
+        "highlight",
+        str(slide.get("message", "")),
+        184,
+        328,
+        1512,
+        336 if support_items else 424,
+        5,
+        panel_text,
+        max(64, style.title_size + 8),
+        "bold",
+        style.heading_font,
+        line_height=1.2,
+        content_item_ids=(
+            [identifier for identifier, _ in items]
+            if items and not support_items
+            else None
+        ),
+    )
+    elements = [
+        _background(order, style),
+        _title(order, slide, style),
+        _rect(
+            order,
+            "poster_block",
+            "decoration",
+            SAFE_X,
+            panel_y,
+            SAFE_WIDTH,
+            panel_height,
+            2,
+            panel_fill,
+            radius=8,
+        ),
+        _rect(
+            order,
+            "poster_accent",
+            "decoration",
+            SAFE_X,
+            panel_y,
+            20,
+            panel_height,
+            3,
+            style.focal,
+            radius=8,
+        ),
+        statement,
+    ]
+    if support_items:
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    "support_rule",
+                    "decoration",
+                    184,
+                    718,
+                    180,
+                    12,
+                    4,
+                    style.secondary,
+                    radius=6,
+                ),
+                _text(
+                    order,
+                    "support",
+                    "body",
+                    "  /  ".join(value for _, value in support_items),
+                    184,
+                    754,
+                    1512,
+                    72,
+                    5,
+                    panel_text,
+                    style.body_size,
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[
+                        identifier for identifier, _ in support_items
+                    ],
+                ),
+            ]
+        )
     return elements, statement["elementId"]
 
 
@@ -1507,7 +1598,9 @@ def _is_dark(color: str) -> bool:
 
 
 def _contrasting_text_color(background: str, preferred: str) -> str:
-    return "#FFFFFF" if _is_dark(background) else preferred
+    if _is_dark(background):
+        return "#FFFFFF"
+    return preferred if _is_dark(preferred) else "#111827"
 
 
 def _metric_value(slide: dict[str, Any], items: list[tuple[str, str]]) -> str:

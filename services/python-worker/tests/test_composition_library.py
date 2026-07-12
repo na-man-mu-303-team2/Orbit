@@ -594,7 +594,7 @@ def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
     assert compiled.primary_focal_element_id == "el_1_program_v2_actions"
 
 
-def test_statement_poster_uses_accent_as_a_point_not_a_large_color_field() -> None:
+def test_statement_poster_uses_a_content_backed_full_width_field() -> None:
     direction = {
         "order": 1,
         "compositionId": "statement-poster",
@@ -611,14 +611,21 @@ def test_statement_poster_uses_accent_as_a_point_not_a_large_color_field() -> No
         slide_payload("solution", 1),
         design_program,
     )
-    accent = next(
+    panel = next(
         element
         for element in compiled.elements
         if str(element.get("elementId", "")).endswith("_poster_block")
     )
+    statement = next(
+        element
+        for element in compiled.elements
+        if str(element.get("elementId", "")).endswith("_statement")
+    )
 
-    assert accent["width"] == 118
-    assert accent["height"] == 480
+    assert (panel["x"], panel["width"], panel["height"]) == (120, 1680, 584)
+    assert statement["width"] >= 1500
+    assert statement["props"]["fontSize"] >= 64
+    assert statement["props"]["color"] == "#FFFFFF"
 
 
 def test_closing_media_uses_equal_content_and_image_columns() -> None:
