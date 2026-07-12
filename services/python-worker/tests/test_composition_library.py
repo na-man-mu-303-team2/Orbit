@@ -1255,12 +1255,13 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
 
     assert hub["x"] == 724
     assert hub["width"] == 472
-    assert hub["props"]["fontSize"] == 44
+    assert hub["props"]["fontSize"] == 56
     assert hub["props"]["color"] == "#FFFFFF"
     assert hub["props"]["text"] == "3가지\n핵심 축"
     assert hub_field["props"]["fill"] == "#6D28D9"
-    assert all(element["props"]["fontSize"] >= 32 for element in nodes)
+    assert all(element["props"]["fontSize"] >= 38 for element in nodes)
     assert all(element["width"] == 480 for element in nodes)
+    assert [element["height"] for element in nodes] == [296, 296, 80]
     assert sum(
         "_connector_" in element["elementId"] for element in compiled.elements
     ) == 3

@@ -1501,8 +1501,8 @@ def _diagram_hub(
     items = _items(slide)
     hub_x = _grid_x(4)
     hub_width = _grid_width(4)
-    hub_y = 344
-    hub_height = 336
+    hub_y = 336
+    hub_height = 352
     hub = _rect(
         order,
         "hub_field",
@@ -1525,7 +1525,7 @@ def _diagram_hub(
         if len(hub_copy) <= 28
         else textwrap.shorten(hub_copy, width=80, placeholder="...")
     )
-    hub_font_size = 44 if len(hub_copy) <= 16 else 38 if len(hub_copy) <= 28 else 34
+    hub_font_size = 56 if len(hub_copy) <= 16 else 44 if len(hub_copy) <= 28 else 36
     elements = [
         _background(order, style),
         _title(order, slide, style),
@@ -1550,9 +1550,9 @@ def _diagram_hub(
     ]
     if len(items) == 3:
         frames = [
-            (_grid_x(0), 400, _grid_width(4), 240),
-            (_grid_x(8), 400, _grid_width(4), 240),
-            (_grid_x(4), 736, _grid_width(4), 168),
+            (_grid_x(0), 312, _grid_width(4), 400),
+            (_grid_x(8), 312, _grid_width(4), 400),
+            (_grid_x(4), 744, _grid_width(4), 184),
         ]
         elements.extend(
             [
@@ -1596,10 +1596,10 @@ def _diagram_hub(
         )
     elif len(items) == 4:
         frames = [
-            (_grid_x(0), 304, _grid_width(3), 216),
-            (_grid_x(9), 304, _grid_width(3), 216),
-            (_grid_x(0), 688, _grid_width(3), 216),
-            (_grid_x(9), 688, _grid_width(3), 216),
+            (_grid_x(0), 288, _grid_width(3), 248),
+            (_grid_x(9), 288, _grid_width(3), 248),
+            (_grid_x(0), 664, _grid_width(3), 248),
+            (_grid_x(9), 664, _grid_width(3), 248),
         ]
     else:
         frames = [
@@ -1641,7 +1641,7 @@ def _diagram_hub(
                     56,
                     5,
                     text_color,
-                    42,
+                    48,
                     "bold",
                     style.heading_font,
                 ),
@@ -1656,7 +1656,7 @@ def _diagram_hub(
                     height - 104,
                     5,
                     text_color,
-                    max(32, style.body_size),
+                    max(38, style.body_size + 4) if len(items) <= 4 else style.body_size,
                     "semibold",
                     style.body_font,
                     align="center",
