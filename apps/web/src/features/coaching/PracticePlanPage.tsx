@@ -30,6 +30,8 @@ export function PracticePlanPage(props: {
     queryFn: () => fetchPracticePlan(props.projectId, props.sourceFullRunId),
     enabled: !props.previewPlan,
     retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.status === "processing" ? 1500 : false,
   });
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const capabilitiesQuery = useQuery({
@@ -67,10 +69,12 @@ export function PracticePlanPage(props: {
 
       {!props.previewPlan && planQuery.isLoading ? <PlanState title="연습 계획을 정리하고 있어요" copy="분석 결과에서 가장 효과가 큰 목표를 고르는 중입니다." /> : null}
       {!props.previewPlan && planQuery.isError ? <PlanState error title="계획을 불러오지 못했어요" copy="잠시 후 다시 시도해 주세요." onRetry={() => void planQuery.refetch()} /> : null}
-      {plan?.status === "processing" ? <PlanState title="분석이 아직 진행 중이에요" copy="최종 측정이 끝나면 연습할 Top 3를 보여드릴게요." /> : null}
-      {plan?.status === "no-goal" ? <PlanState title="지금 바로 반복할 목표가 없어요" copy="전체 흐름을 한 번 더 연습해 발표 감각을 유지해 보세요." /> : null}
-      {plan?.status === "stale" ? <PlanState error title="발표 자료가 변경됐어요" copy="현재 자료로 전체 리허설을 다시 실행해 주세요." /> : null}
-      {plan?.status === "error" ? <PlanState error title="연습 계획을 만들 수 없어요" copy="리허설 상태를 확인한 뒤 다시 시도해 주세요." /> : null}
+      {plan?.status === "processing" ? <PlanState title="분석이 아직 진행 중이에요" copy="완료되는 즉시 연습할 Top 3를 자동으로 보여드릴게요." /> : null}
+      {plan?.status === "no-goal" ? <PlanState actionHref={`/rehearsal/${encodeURIComponent(props.projectId)}`} actionLabel="전체 리허설 시작" title="지금 바로 반복할 목표가 없어요" copy="전체 흐름을 한 번 더 연습해 발표 감각을 유지해 보세요." /> : null}
+      {plan?.status === "stale" ? <PlanState actionHref={`/rehearsal/${encodeURIComponent(props.projectId)}`} actionLabel="현재 자료로 리허설" error title="발표 자료가 변경됐어요" copy="현재 자료로 전체 리허설을 다시 실행해 주세요." onRetry={() => void planQuery.refetch()} /> : null}
+      {plan?.status === "error" ? <PlanState actionHref={`/rehearsal/${encodeURIComponent(props.projectId)}`} actionLabel="전체 리허설 시작" error title="연습 계획을 만들 수 없어요" copy="리허설 상태를 확인한 뒤 다시 시도해 주세요." onRetry={() => void planQuery.refetch()} /> : null}
+
+      {!props.previewPlan && capabilitiesQuery.isError && plan?.status === "ready" ? <p className="practice-plan-state" role="status">고급 연습 기능을 확인하지 못했습니다. 전체 리허설은 계속 사용할 수 있습니다. <OrbitButton variant="quiet" onClick={() => void capabilitiesQuery.refetch()}>기능 다시 확인</OrbitButton></p> : null}
 
       {plan?.status === "ready" && selectedGoal ? (
         <section className="practice-plan-content" aria-labelledby="practice-plan-title">
@@ -135,13 +139,14 @@ export function PracticePlanPage(props: {
 }
 
 
-function PlanState(props: { title: string; copy: string; error?: boolean; onRetry?: () => void }) {
+function PlanState(props: { title: string; copy: string; error?: boolean; onRetry?: () => void; actionHref?: string; actionLabel?: string }) {
   return (
     <section className="practice-plan-state" role={props.error ? "alert" : "status"}>
       {props.error ? <IconAlertCircle aria-hidden="true" size={28} /> : <IconSparkles aria-hidden="true" size={28} />}
       <h1>{props.title}</h1>
       <p>{props.copy}</p>
       {props.onRetry ? <OrbitButton variant="secondary" onClick={props.onRetry}>다시 시도</OrbitButton> : null}
+      {props.actionHref ? <a href={props.actionHref}>{props.actionLabel ?? "전체 리허설 시작"}</a> : null}
     </section>
   );
 }

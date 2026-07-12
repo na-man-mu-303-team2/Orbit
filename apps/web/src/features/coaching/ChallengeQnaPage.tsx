@@ -33,6 +33,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
   const [drawer, setDrawer] = useState(false);
   const [busy, setBusy] = useState(false);
   const [previewRecording, setPreviewRecording] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const guideButton = useRef<HTMLButtonElement | null>(null);
   const audio = useFocusedPracticeAudio(120_000);
   const active = view?.questions.find((item) => item.order === view.session.activeQuestionOrder);
@@ -57,13 +58,13 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
           id = next.session.qnaSessionId;
           sessionStorage.setItem(storageKey, id);
         }
-        if (!cancelled) setView(next);
+        if (!cancelled) { setView(next); setError(""); }
       } catch (cause) {
-        if (!cancelled) setError(message(cause));
+        if (!cancelled) setError(toChallengeQnaUserMessage(cause));
       }
     })();
     return () => { cancelled = true; };
-  }, [props.projectId, props.sourceFullRunId]);
+  }, [props.projectId, props.sourceFullRunId, reloadKey]);
 
   useEffect(() => {
     if (props.previewView) return;
@@ -156,7 +157,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
     if (session.status === "completed") {
       sessionStorage.removeItem(storageKey);
       sessionStorage.removeItem(requestStorageKey);
-      window.location.href = `/rehearsal/${props.projectId}/plan/${props.sourceFullRunId}`;
+      window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`;
       return;
     }
     setView(await getChallengeQna(view.session.qnaSessionId));
@@ -164,7 +165,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
   }
 
   if (!view) {
-    return <div className="orbit-ds-page qna-page"><section className="qna-loading" role={error ? "alert" : "status"}><OrbitStatus tone="lilac">질문 준비 중</OrbitStatus><h1>발표를 바탕으로 질문을 만들고 있습니다.</h1>{error ? <p>{error}</p> : null}</section></div>;
+    return <div className="orbit-ds-page qna-page"><section className="qna-loading" role={error ? "alert" : "status"}>{error ? <><OrbitStatus tone="warning">준비 실패</OrbitStatus><h1>도전 질문을 준비하지 못했습니다.</h1><p>{error}</p><div><OrbitButton onClick={() => { sessionStorage.removeItem(storageKey); setError(""); setReloadKey((value) => value + 1); }}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></div></> : <><OrbitStatus tone="lilac">질문 준비 중</OrbitStatus><h1>발표를 바탕으로 질문을 만들고 있습니다.</h1></>}</section></div>;
   }
 
   const isVoiceRecording = props.previewView ? previewRecording : audio.recording;
@@ -241,4 +242,12 @@ function GuideDrawer(props: { guide: any; onClose: () => void }) {
 
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : "요청을 처리하지 못했습니다.";
+}
+
+export function toChallengeQnaUserMessage(cause: unknown) {
+  const detail = message(cause);
+  if (/not enabled|비활성|forbidden|403/i.test(detail)) {
+    return "이 프로젝트에서는 도전 Q&A를 사용할 수 없습니다. 전체 리허설로 연습해 주세요.";
+  }
+  return "질문 생성 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }

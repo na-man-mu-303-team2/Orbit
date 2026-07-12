@@ -30,10 +30,13 @@ export function FocusedPracticePage(props: {
   const [sessionId, setSessionId] = useState(() => props.preview ? "preview-session" : sessionStorage.getItem(sessionStorageKey));
   const [attempts, setAttempts] = useState<FocusedPracticeAttempt[]>(props.preview?.attempts ?? []); const [stabilized, setStabilized] = useState(props.preview?.stabilized ?? false);
   const [status, setStatus] = useState(props.preview ? "연습 가능" : "준비 중"); const [error, setError] = useState("");
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(props.preview ? "ready" : "loading");
+  const [reloadKey, setReloadKey] = useState(0);
   const audio = useFocusedPracticeAudio();
 
   useEffect(() => { if (props.preview) return; void (async () => {
     try {
+      setLoadState("loading"); setError(""); setStatus("준비 중");
       const nextPlan = await fetchPracticePlan(props.projectId, props.sourceFullRunId);
       if (nextPlan.status !== "ready") throw new Error("연습 계획이 준비되지 않았습니다.");
       setPlan(nextPlan);
@@ -45,9 +48,9 @@ export function FocusedPracticePage(props: {
         const session = await createFocusedSession(props.projectId, nextPlan, props.goalId, requestId);
         id = session.practiceSessionId; sessionStorage.setItem(sessionStorageKey, id); setSessionId(id);
       }
-      const current = await getFocusedSession(id); setAttempts(current.attempts); setStabilized(current.stabilization.find((item) => item.goalId === props.goalId)?.stabilized ?? false); setStatus("연습 가능");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "부분 연습을 준비하지 못했습니다."); }
-  })(); }, [props.goalId, props.projectId, props.sourceFullRunId]);
+      const current = await getFocusedSession(id); setAttempts(current.attempts); setStabilized(current.stabilization.find((item) => item.goalId === props.goalId)?.stabilized ?? false); setStatus("연습 가능"); setLoadState("ready");
+    } catch (cause) { sessionStorage.removeItem(sessionStorageKey); setSessionId(null); setError(cause instanceof Error ? cause.message : "부분 연습을 준비하지 못했습니다."); setLoadState("error"); }
+  })(); }, [props.goalId, props.projectId, props.sourceFullRunId, reloadKey]);
   const goal = plan?.goals.find((item) => item.goalId === props.goalId);
   const processing = attempts.some((attempt) => ["uploading", "queued", "processing"].includes(attempt.status));
 
@@ -94,6 +97,10 @@ export function FocusedPracticePage(props: {
 
   const isRecording = props.preview ? status === "녹음 중" : audio.recording;
 
+  if (loadState === "error") {
+    return <div className="orbit-ds-page focused-practice-page"><section className="focused-practice-shell"><p className="orbit-ds-eyebrow">FOCUSED PRACTICE</p><h1>집중 연습을 준비하지 못했습니다.</h1><p className="focused-practice-error" role="alert">{error}</p><footer><OrbitButton onClick={() => setReloadKey((value) => value + 1)} icon={<IconRefresh size={18} />}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></footer></section></div>;
+  }
+
   return <div className="orbit-ds-page focused-practice-page">
     <div className="focused-practice-breadcrumb"><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}><IconArrowLeft size={17} /> 연습 계획</a><span>/</span><strong>집중 연습</strong></div>
     <section className="focused-practice-shell">
@@ -104,7 +111,7 @@ export function FocusedPracticePage(props: {
         <article className="focused-practice-stage"><span><IconSparkles aria-hidden="true" size={22} /></span><small>현재 목표</small><h2>{goal?.problemLabel ?? "목표를 불러오는 중"}</h2><p>{goal?.nextAction}</p><div><IconCircleCheck aria-hidden="true" size={18} /><span>{goal?.successCondition}</span></div></article>
       </div>
       <section className="focused-attempt-history" aria-label="반복 결과"><header><h2>반복 기록</h2><span>{attempts.length}회 시도</span></header>{attempts.length === 0 ? <p>아직 반복 기록이 없습니다. 첫 녹음을 시작해 보세요.</p> : attempts.map((attempt) => <div key={attempt.attemptId}><span>{attempt.attemptNumber}회</span><strong>{attempt.status === "succeeded" ? attempt.result === "passed" ? "통과" : attempt.result === "unmeasured" ? "측정 불가" : "다시 연습" : "분석 중"}</strong><small>{attempt.status === "succeeded" ? attempt.result === "passed" ? "성공 기준을 안정적으로 충족했어요." : "근거 문장을 조금 더 짧게 말해 보세요." : "음성을 분석하고 있습니다."}</small><time>{attempt.durationMs ? `${Math.max(1, Math.round(attempt.durationMs / 1000))}초` : "-"}</time></div>)}</section>
-      <footer><OrbitButton disabled={!sessionId || processing} icon={isRecording ? <IconSquare size={18} /> : attempts.length ? <IconRefresh size={18} /> : <IconMicrophone size={18} />} onClick={() => void toggleRecording()}>{isRecording ? "녹음 끝내기" : attempts.length ? "한 번 더 연습" : "녹음 시작"}</OrbitButton><OrbitButton variant="quiet" disabled={!sessionId || isRecording || processing} onClick={() => props.preview ? setStatus("연습 완료") : void completeFocusedSession(sessionId!).then(() => { sessionStorage.removeItem(sessionStorageKey); sessionStorage.removeItem(requestStorageKey); window.location.href = `/rehearsal/${props.projectId}/plan/${props.sourceFullRunId}`; })}>연습 마치기</OrbitButton></footer>
+      <footer><OrbitButton disabled={!sessionId || processing} icon={isRecording ? <IconSquare size={18} /> : attempts.length ? <IconRefresh size={18} /> : <IconMicrophone size={18} />} onClick={() => void toggleRecording()}>{isRecording ? "녹음 끝내기" : attempts.length ? "한 번 더 연습" : "녹음 시작"}</OrbitButton><OrbitButton variant="quiet" disabled={!sessionId || isRecording || processing} onClick={() => props.preview ? setStatus("연습 완료") : void completeFocusedSession(sessionId!).then(() => { sessionStorage.removeItem(sessionStorageKey); sessionStorage.removeItem(requestStorageKey); window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`; })}>연습 마치기</OrbitButton></footer>
     </section>
   </div>;
 }
