@@ -70,6 +70,9 @@ visually indistinguishable uses. Use changeCrop only for framing inside an adequ
 sized image frame; use increaseFocalScale when the image frame itself is too small.
 Every repair action must directly address its paired issue without violating the
 declared palette, background modes, safe area, typography, or grid.
+BACKGROUND_RHYTHM_FLAT and LAYOUT_REPETITIVE are deck-level judgments; return at
+most one issue and one repair action for each code, targeting the single slide
+whose change best improves the whole deck.
 IMAGE_CROP_WEAK applies only to a slide whose slide map has hasMedia=true. Never use
 an image issue code for a solid color field, native shape, chart, or decoration.
 """.strip()
@@ -338,11 +341,22 @@ def build_montage(assets: list[ImportedDesignAsset]) -> bytes:
 
 def visual_review_prompt(deck: dict[str, Any]) -> str:
     snapshot = deck.get("metadata", {}).get("designProgramSnapshot", {})
-    background_sequence = [
+    deck_slides = deck.get("slides", [])
+    snapshot_background_sequence = [
         str(mode)
         for mode in snapshot.get("backgroundSequence", [])
         if mode in {"light", "dark", "image"}
     ]
+    live_background_sequence = [
+        str(slide.get("aiNotes", {}).get("compositionPlan", {}).get("backgroundMode"))
+        for slide in deck_slides
+    ]
+    background_sequence = (
+        live_background_sequence
+        if len(live_background_sequence) == len(deck_slides)
+        and all(mode in {"light", "dark", "image"} for mode in live_background_sequence)
+        else snapshot_background_sequence
+    )
     allowed_background_modes = list(dict.fromkeys(background_sequence)) or ["light"]
     composition_ids = [
         str(composition_id)
@@ -365,7 +379,7 @@ def visual_review_prompt(deck: dict[str, Any]) -> str:
                 for element in slide.get("elements", [])
             ),
         }
-        for slide in deck.get("slides", [])
+        for slide in deck_slides
     ]
     review_contract = {
         "visualConcept": snapshot.get("visualConcept"),
@@ -861,9 +875,15 @@ def switch_background(
         )
         text_color = role_text if role_text and not is_dark_hex(role_text) else "#FFFFFF"
     slide.setdefault("style", {})["backgroundColor"] = background
-    slide.setdefault("aiNotes", {}).setdefault("compositionPlan", {})[
-        "backgroundMode"
-    ] = mode
+    composition_plan = slide.setdefault("aiNotes", {}).setdefault(
+        "compositionPlan", {}
+    )
+    composition_plan["backgroundMode"] = mode
+    composition_plan["variant"] = mode
+    background_sequence = snapshot.get("backgroundSequence")
+    slide_index = deck.get("slides", []).index(slide)
+    if isinstance(background_sequence, list) and slide_index < len(background_sequence):
+        background_sequence[slide_index] = mode
     for element in slide.get("elements", []):
         if element.get("role") == "background":
             element.setdefault("props", {})["fill"] = background

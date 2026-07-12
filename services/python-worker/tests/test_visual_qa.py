@@ -224,6 +224,17 @@ def test_visual_review_prompt_includes_design_program_contract() -> None:
     assert '"hasMedia": false' in prompt
 
 
+def test_visual_review_prompt_prefers_live_background_sequence() -> None:
+    candidate = deck()
+    candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]
+    candidate["slides"][0]["aiNotes"]["compositionPlan"]["backgroundMode"] = "dark"
+
+    prompt = visual_qa_module.visual_review_prompt(candidate)
+
+    assert '"backgroundSequence": ["dark"]' in prompt
+    assert '"allowedBackgroundModes": ["dark"]' in prompt
+
+
 def test_visual_review_requires_issues_when_failed() -> None:
     with pytest.raises(ValueError):
         VisualQaReview(passed=False, issues=[], repairActions=[])
@@ -314,7 +325,7 @@ def test_dark_background_repair_uses_dark_palette_roles() -> None:
             "text": "#F8FAFC",
         }
     )
-    snapshot["backgroundSequence"] = ["dark"]
+    snapshot["backgroundSequence"] = ["light", "dark"]
 
     result = repair_deck_visuals(
         VisualRepairRequest.model_validate(
@@ -342,6 +353,12 @@ def test_dark_background_repair_uses_dark_palette_roles() -> None:
     assert repaired["style"]["backgroundColor"] == "#050505"
     assert background["props"]["fill"] == "#050505"
     assert text["props"]["color"] == "#F8FAFC"
+    assert snapshot["backgroundSequence"] == ["light", "dark"]
+    assert result.deck["metadata"]["designProgramSnapshot"]["backgroundSequence"] == [
+        "dark",
+        "dark",
+    ]
+    assert repaired["aiNotes"]["compositionPlan"]["variant"] == "dark"
 
 
 def test_change_crop_repair_escalates_weak_official_asset_to_ai_generation() -> None:
