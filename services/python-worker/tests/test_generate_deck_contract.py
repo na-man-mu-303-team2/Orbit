@@ -36,6 +36,7 @@ from app.ai.generate_deck import (
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
+    cap_speaker_note_chars,
     deck_content_prompt,
     deck_content_response_format_for,
     deduplicate_speaker_note_sentences,
@@ -697,6 +698,19 @@ def test_speaker_notes_remove_semantically_repeated_introduction() -> None:
 
     assert deduplicated.count("안녕하세요") == 1
     assert "기존 템플릿 덮어쓰기 방식" in deduplicated
+
+
+def test_speaker_notes_are_capped_after_sentence_repairs() -> None:
+    notes = " ".join(
+        f"서로 다른 근거 {index}번을 설명하는 충분히 긴 발표 문장입니다."
+        for index in range(1, 24)
+    )
+
+    capped = cap_speaker_note_chars(notes)
+
+    assert len("".join(capped.split())) <= 520
+    assert capped.endswith(".")
+    assert "근거 1번" in capped
 
 
 def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:

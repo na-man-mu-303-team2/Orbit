@@ -3274,10 +3274,10 @@ def plan_deck_content(
                         model=model,
                         api_key=api_key,
                     )
-                    for slide_plan in slide_plans:
-                        slide_plan.speaker_notes = deduplicate_speaker_note_sentences(
-                            slide_plan.speaker_notes
-                        )
+                for slide_plan in slide_plans:
+                    slide_plan.speaker_notes = cap_speaker_note_chars(
+                        deduplicate_speaker_note_sentences(slide_plan.speaker_notes)
+                    )
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -3528,6 +3528,34 @@ def deduplicate_speaker_note_sentences(text: str) -> str:
         selected.append(fragment)
         selected_tokens.append(tokens)
     return " ".join(selected)
+
+
+def cap_speaker_note_chars(
+    text: str,
+    max_chars: int = MAX_SPEAKER_NOTES_CHARS_PER_SLIDE,
+) -> str:
+    normalized = " ".join(text.split())
+    if count_speaker_note_chars(normalized) <= max_chars:
+        return normalized
+
+    selected: list[str] = []
+    for fragment in speaker_note_fragments(normalized):
+        prospective = " ".join([*selected, fragment])
+        if count_speaker_note_chars(prospective) > max_chars:
+            break
+        selected.append(fragment)
+    if selected:
+        return " ".join(selected)
+
+    kept: list[str] = []
+    compact_chars = 0
+    for character in normalized:
+        if not character.isspace():
+            if compact_chars >= max_chars - 1:
+                break
+            compact_chars += 1
+        kept.append(character)
+    return "".join(kept).rstrip(" ,;:") + "…"
 
 
 def normalized_speaker_note_tokens(text: str) -> set[str]:
