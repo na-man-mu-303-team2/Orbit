@@ -727,9 +727,9 @@ def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, A
         zip(items, frames, strict=True)
     ):
         text_y = y + 92
-        field_fill = style.secondary if count == 2 and index == 0 else style.surface
+        field_fill = style.secondary if index == 0 else style.surface
         field_text = _contrasting_text_color(field_fill, style.text)
-        index_color = field_text if count == 2 and index == 0 else style.focal
+        index_color = field_text if index == 0 else style.focal
         elements.extend(
             [
                 _rect(order, f"comparison_{index + 1}_field", "decoration", x, y, width, height, 3, field_fill, stroke=style.secondary, stroke_width=2, radius=8),
@@ -761,17 +761,48 @@ def _process_horizontal(direction: SlideCompositionDirection, slide: dict[str, A
 def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    elements = [_background(order, style), _title(order, slide, style), _rect(order, "timeline_line", "decoration", 180, 520, 1560, 8, 2, style.secondary, radius=4)]
     count = max(1, len(items))
-    step = 1560 // max(1, count - 1) if count > 1 else 0
-    for index, (identifier, value) in enumerate(items):
-        center = 180 + index * step
-        x = max(120, min(center - 150, 1500))
-        y = 300 if index % 2 == 0 else 610
+    if count == 3:
+        frames = [
+            (_grid_x(index * 4), 280 if index % 2 == 0 else 620, _grid_width(4), 200)
+            for index in range(count)
+        ]
+    else:
+        step = 1560 // max(1, count - 1) if count > 1 else 0
+        frames = [
+            (
+                max(120, min(180 + index * step - 150, 1500)),
+                300 if index % 2 == 0 else 610,
+                300,
+                152,
+            )
+            for index in range(count)
+        ]
+    centers = [x + width // 2 for x, _, width, _ in frames]
+    elements = [
+        _background(order, style),
+        _title(order, slide, style),
+        _rect(
+            order,
+            "timeline_line",
+            "decoration",
+            centers[0],
+            520,
+            max(8, centers[-1] - centers[0]),
+            8,
+            2,
+            style.secondary,
+            radius=4,
+        ),
+    ]
+    for index, ((identifier, value), (x, y, width, height)) in enumerate(
+        zip(items, frames, strict=True)
+    ):
+        center = centers[index]
         elements.extend([
             _rect(order, f"timeline_dot_{index + 1}", "decoration", center - 14, 506, 28, 28, 4, style.focal, radius=14),
-            _rect(order, f"timeline_{index + 1}_field", "decoration", x, y, 300, 152, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-            _text(order, f"timeline_{index + 1}", "body", value, x, y, 300, 150, 5, style.text, style.body_size, "semibold", style.body_font, align="center", content_item_ids=[identifier]),
+            _rect(order, f"timeline_{index + 1}_field", "decoration", x, y, width, height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
+            _text(order, f"timeline_{index + 1}", "body", value, x + 24, y + 20, width - 48, height - 40, 5, style.text, max(26, style.body_size + 4) if count == 3 else style.body_size, "semibold", style.body_font, align="center", vertical="middle", content_item_ids=[identifier]),
         ])
     return elements, _id(order, "timeline_dot_1")
 
@@ -791,9 +822,9 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
     elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), hub_x + 24, 440, hub_width - 48, 160, 5, _contrasting_text_color(style.secondary, style.text), hub_font_size, "bold", style.heading_font, align="center", vertical="middle")]
     if len(items) == 3:
         frames = [
-            (_grid_x(0), 304, _grid_width(3), 176),
-            (_grid_x(9), 304, _grid_width(3), 176),
-            (_grid_x(4), 720, _grid_width(4), 160),
+            (_grid_x(0), 300, _grid_width(4), 200),
+            (_grid_x(8), 300, _grid_width(4), 200),
+            (_grid_x(4), 700, _grid_width(4), 180),
         ]
     elif len(items) == 4:
         frames = [
@@ -1294,6 +1325,8 @@ def _style(program: DeckDesignProgram, mode: BackgroundMode) -> Style:
         text = roles.text if _is_dark(roles.text) else "#111827"
         surface = roles.surface if not _is_dark(roles.surface) else "#F3F4F6"
         muted_text = "#475569"
+    if surface.casefold() == background.casefold():
+        surface = "#1F2937" if mode in {"dark", "image"} else "#F3F4F6"
     return Style(
         background=background,
         surface=surface,

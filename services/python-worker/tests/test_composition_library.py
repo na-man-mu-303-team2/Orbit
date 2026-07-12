@@ -355,6 +355,75 @@ def test_two_item_comparison_uses_distinct_even_and_odd_geometry() -> None:
     assert even_frames != odd_frames
 
 
+def test_feature_comparison_uses_a_single_filled_focal_card() -> None:
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "feature-comparison",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "comparison",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+    design_program.palette_roles.surface = "#FFFFFF"
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide_payload("feature-grid", 4),
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if str(element.get("elementId", "")).endswith("_field")
+    ]
+
+    assert fields[0]["props"]["fill"] == "#06B6D4"
+    assert all(field["props"]["fill"] == "#F3F4F6" for field in fields[1:])
+
+
+def test_three_item_timeline_uses_full_grid_frames() -> None:
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "timeline",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "timeline",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide_payload("process", 3),
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if "_timeline_" in str(element.get("elementId", ""))
+        and str(element.get("elementId", "")).endswith("_field")
+    ]
+    labels = [
+        element
+        for element in compiled.elements
+        if element.get("role") == "body"
+    ]
+
+    assert [(field["x"], field["width"], field["height"]) for field in fields] == [
+        (120, 544, 200),
+        (688, 544, 200),
+        (1256, 544, 200),
+    ]
+    assert all(label["props"]["fontSize"] >= 26 for label in labels)
+
+
 def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
     direction = {
         "order": 1,
@@ -827,6 +896,7 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     assert hub["props"]["color"] == "#111827"
     assert hub_field["props"]["fill"] == "#06B6D4"
     assert all(element["props"]["fontSize"] >= 24 for element in nodes)
+    assert all(element["width"] == 504 for element in nodes)
 
 
 def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:
