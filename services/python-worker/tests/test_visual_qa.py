@@ -328,6 +328,40 @@ def test_visual_review_contract_removes_only_deterministically_false_deck_issues
     assert normalized.passed is False
 
 
+def test_visual_review_contract_removes_preference_only_crop_and_orphan_action() -> None:
+    candidate = deck()
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "IMAGE_CROP_WEAK",
+                    "slideOrder": 1,
+                    "message": "The focal subject is not ideally framed and could have more impact.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "changeCrop",
+                    "slideId": "slide_1",
+                    "reason": "Improve the framing preference.",
+                },
+                {
+                    "action": "reduceCards",
+                    "slideId": "slide_1",
+                    "reason": "Break a repetition issue that is no longer present.",
+                },
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
     candidate = deck()
     candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]

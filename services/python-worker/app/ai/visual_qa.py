@@ -367,6 +367,15 @@ def enforce_visual_review_contract(
     ):
         invalid_codes.add("BACKGROUND_RHYTHM_FLAT")
 
+    removed_issues = [
+        issue
+        for issue in review.issues
+        if issue.code in invalid_codes
+        or (
+            issue.code == "IMAGE_CROP_WEAK"
+            and not _describes_concrete_crop_defect(issue.message)
+        )
+    ]
     slide_ids_by_order = {
         int(slide.get("order", index + 1)): str(slide.get("slideId", ""))
         for index, slide in enumerate(deck.get("slides", []))
@@ -374,12 +383,13 @@ def enforce_visual_review_contract(
     removed_issue_slides = {
         code: {
             slide_ids_by_order.get(issue.slide_order, "")
-            for issue in review.issues
+            for issue in removed_issues
             if issue.code == code
         }
-        for code in invalid_codes
+        for code in {issue.code for issue in removed_issues}
     }
-    issues = [issue for issue in review.issues if issue.code not in invalid_codes]
+    issues = [issue for issue in review.issues if issue not in removed_issues]
+    remaining_codes = {issue.code for issue in issues}
     repair_actions = [
         action
         for action in review.repair_actions
@@ -392,6 +402,17 @@ def enforce_visual_review_contract(
             action.action == "switchBackgroundMode"
             and action.slide_id
             in removed_issue_slides.get("BACKGROUND_RHYTHM_FLAT", set())
+        )
+        and not (
+            action.action == "changeCrop"
+            and action.slide_id
+            in removed_issue_slides.get("IMAGE_CROP_WEAK", set())
+        )
+        and not (
+            action.action == "reduceCards"
+            and not remaining_codes.intersection(
+                {"CARD_OVERUSED", "LAYOUT_REPETITIVE"}
+            )
         )
     ]
     return VisualQaReview(
@@ -410,6 +431,26 @@ def _maximum_consecutive_values(values: list[str]) -> int:
         previous = value
         maximum = max(maximum, current)
     return maximum
+
+
+def _describes_concrete_crop_defect(message: str) -> bool:
+    normalized = " ".join(message.casefold().split())
+    return any(
+        marker in normalized
+        for marker in (
+            "cut off",
+            "cutoff",
+            "clipped",
+            "obscured",
+            "cropped out",
+            "excessive empty",
+            "too much empty",
+            "large empty",
+            "잘리",
+            "가려",
+            "과도한 여백",
+        )
+    )
 
 
 def build_montage(assets: list[ImportedDesignAsset]) -> bytes:
