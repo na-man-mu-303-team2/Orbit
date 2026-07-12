@@ -221,6 +221,7 @@ def test_visual_review_prompt_includes_design_program_contract() -> None:
     assert '"allowedBackgroundModes": ["light"]' in prompt
     assert '"focal": "#6D28D9"' in prompt
     assert '"compositionUsage": {"minimal-cover": 1}' in prompt
+    assert '"hasMedia": false' in prompt
 
 
 def test_visual_review_requires_issues_when_failed() -> None:

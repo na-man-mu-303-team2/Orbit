@@ -69,6 +69,8 @@ visually indistinguishable uses. Use changeCrop only for framing inside an adequ
 sized image frame; use increaseFocalScale when the image frame itself is too small.
 Every repair action must directly address its paired issue without violating the
 declared palette, background modes, safe area, typography, or grid.
+IMAGE_CROP_WEAK applies only to a slide whose slide map has hasMedia=true. Never use
+an image issue code for a solid color field, native shape, chart, or decoration.
 """.strip()
 
 
@@ -357,6 +359,10 @@ def visual_review_prompt(deck: dict[str, Any]) -> str:
             "focalType": slide.get("aiNotes", {})
             .get("compositionPlan", {})
             .get("focalType"),
+            "hasMedia": any(
+                element.get("type") == "image" and element.get("role") == "media"
+                for element in slide.get("elements", [])
+            ),
         }
         for slide in deck.get("slides", [])
     ]
