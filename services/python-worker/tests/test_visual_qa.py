@@ -372,6 +372,14 @@ def test_visual_response_schema_limits_slide_order() -> None:
     assert issue["maximum"] == 10
 
 
+def test_visual_response_schema_limits_repair_composition_ids() -> None:
+    composition_id = visual_review_response_format(10)["format"]["schema"][
+        "properties"
+    ]["repairActions"]["items"]["properties"]["compositionId"]
+
+    assert composition_id["enum"] == [*visual_qa_module.COMPOSITION_SPECS, None]
+
+
 def test_montage_contains_all_rendered_slides() -> None:
     montage = Image.open(BytesIO(build_montage([rendered_asset(1), rendered_asset(2)])))
 

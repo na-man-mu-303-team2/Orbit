@@ -234,7 +234,10 @@ def visual_review_response_format(slide_count: int) -> dict[str, Any]:
                                 "targetElementId": {
                                     "type": ["string", "null"],
                                 },
-                                "compositionId": {"type": ["string", "null"]},
+                                "compositionId": {
+                                    "type": ["string", "null"],
+                                    "enum": [*COMPOSITION_SPECS, None],
+                                },
                                 "backgroundMode": {
                                     "type": ["string", "null"],
                                     "enum": ["light", "dark", "image", None],
