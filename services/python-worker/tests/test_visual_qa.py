@@ -268,6 +268,12 @@ def test_replace_image_repair_creates_resolvable_asset_slot() -> None:
             "asset": {"fileId": "file_old", "provider": "openai"},
         }
     )
+    slide["aiNotes"]["compositionPlan"]["primaryFocalElementId"] = (
+        "el_1_program_v2_media_asset"
+    )
+    slide["animations"] = [
+        {"animationId": "anim-1", "elementId": "el_1_program_v2_media_asset"}
+    ]
     result = repair_deck_visuals(
         VisualRepairRequest.model_validate(
             {
@@ -289,7 +295,53 @@ def test_replace_image_repair_creates_resolvable_asset_slot() -> None:
         for element in result.deck["slides"][0]["elements"]
     )
     assert "asset" not in result.deck["slides"][0]["aiNotes"]["visualPlan"]
+    assert result.deck["slides"][0]["aiNotes"]["compositionPlan"][
+        "primaryFocalElementId"
+    ].endswith("_media_placeholder")
+    assert result.deck["slides"][0]["animations"][0]["elementId"].endswith(
+        "_media_placeholder"
+    )
     assert isinstance(result.validation.passed, bool)
+
+
+def test_dark_background_repair_uses_dark_palette_roles() -> None:
+    candidate = deck()
+    snapshot = candidate["metadata"]["designProgramSnapshot"]
+    snapshot["paletteRoles"].update(
+        {
+            "dominant": "#050505",
+            "surface": "#111827",
+            "text": "#F8FAFC",
+        }
+    )
+    snapshot["backgroundSequence"] = ["dark"]
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "switchBackgroundMode",
+                        "slideId": "slide_1",
+                        "backgroundMode": "dark",
+                        "reason": "Restore the declared dark palette",
+                    }
+                ],
+            }
+        )
+    )
+    repaired = result.deck["slides"][0]
+    background = next(
+        element for element in repaired["elements"] if element["role"] == "background"
+    )
+    text = next(
+        element for element in repaired["elements"] if element["type"] == "text"
+    )
+
+    assert repaired["style"]["backgroundColor"] == "#050505"
+    assert background["props"]["fill"] == "#050505"
+    assert text["props"]["color"] == "#F8FAFC"
 
 
 def test_change_crop_repair_applies_incremental_visible_crop() -> None:

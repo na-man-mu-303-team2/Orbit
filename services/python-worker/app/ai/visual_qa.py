@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import textwrap
 from copy import deepcopy
 from io import BytesIO
@@ -780,12 +781,14 @@ def reset_slide_image(slide: dict[str, Any]) -> bool:
     for index, element in enumerate(slide.get("elements", [])):
         if element.get("type") != "image" or element.get("role") != "media":
             continue
+        asset_element_id = str(element["elementId"])
+        placeholder_element_id = asset_element_id.replace(
+            "_media_asset",
+            "_media_placeholder",
+        )
         slide["elements"][index] = {
             **element,
-            "elementId": str(element["elementId"]).replace(
-                "_media_asset",
-                "_media_placeholder",
-            ),
+            "elementId": placeholder_element_id,
             "type": "rect",
             "props": {
                 "fill": "#E2E8F0",
@@ -796,6 +799,14 @@ def reset_slide_image(slide: dict[str, Any]) -> bool:
         }
         visual_plan = slide.setdefault("aiNotes", {}).setdefault("visualPlan", {})
         visual_plan.pop("asset", None)
+        composition_plan = slide.setdefault("aiNotes", {}).setdefault(
+            "compositionPlan", {}
+        )
+        if composition_plan.get("primaryFocalElementId") == asset_element_id:
+            composition_plan["primaryFocalElementId"] = placeholder_element_id
+        for animation in slide.get("animations", []):
+            if animation.get("elementId") == asset_element_id:
+                animation["elementId"] = placeholder_element_id
         return True
     return False
 
@@ -816,12 +827,20 @@ def switch_background(
             f"background mode {mode} is outside the design program contract"
         )
     roles = snapshot.get("paletteRoles", {})
-    background = (
-        roles.get("dominant", "#FFFFFF")
-        if mode == "light"
-        else roles.get("text", "#101828")
-    )
-    text_color = roles.get("text", "#111827") if mode == "light" else "#FFFFFF"
+    if mode == "light":
+        background = roles.get("dominant", "#FFFFFF")
+        text_color = roles.get("text", "#111827")
+    else:
+        dominant = str(roles.get("dominant", ""))
+        role_text = str(roles.get("text", ""))
+        background = (
+            dominant
+            if dominant and is_dark_hex(dominant)
+            else role_text
+            if role_text and is_dark_hex(role_text)
+            else "#101828"
+        )
+        text_color = role_text if role_text and not is_dark_hex(role_text) else "#FFFFFF"
     slide.setdefault("style", {})["backgroundColor"] = background
     slide.setdefault("aiNotes", {}).setdefault("compositionPlan", {})[
         "backgroundMode"
@@ -831,6 +850,13 @@ def switch_background(
             element.setdefault("props", {})["fill"] = background
         elif element.get("type") == "text":
             element.setdefault("props", {})["color"] = text_color
+
+
+def is_dark_hex(value: str) -> bool:
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        return False
+    red, green, blue = (int(value[index : index + 2], 16) for index in (1, 3, 5))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue < 128
 
 
 def scale_focal_element(slide: dict[str, Any], target_id: str | None) -> None:
