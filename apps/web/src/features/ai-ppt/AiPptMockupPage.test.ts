@@ -459,7 +459,7 @@ describe("AI PPT wizard payload", () => {
         duration: "3",
         slides: "",
         tone: "professional",
-        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션과 파스텔톤은 사용하지 않기",
         fontMood: "formal trustworthy Korean sans",
         mediaPolicy: "minimal",
         referencePolicy: "topic-only"

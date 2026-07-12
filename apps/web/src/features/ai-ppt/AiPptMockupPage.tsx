@@ -2242,7 +2242,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "no gradient",
       "without gradient",
       "그라데이션 금지",
-      "그라데이션 제외"
+      "그라데이션 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("gradient");
@@ -2253,7 +2255,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "without pastel",
       "파스텔 금지",
       "파스텔톤 금지",
-      "파스텔 제외"
+      "파스텔 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("pastel");
