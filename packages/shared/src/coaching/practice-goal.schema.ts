@@ -95,8 +95,13 @@ export const coachingActionSchema = z
   .object({
     actionId: coachingIdSchema,
     priority: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    criterionRef: criterionRefSchema,
+    observationIds: z.array(coachingIdSchema).max(20),
     label: z.string().trim().min(1).max(120),
     detail: z.string().trim().min(1).max(240),
+    audienceImpact: z.string().trim().min(1).max(240),
+    instruction: z.string().trim().min(1).max(240),
+    successCondition: z.string().trim().min(1).max(240),
     target: coachingActionTargetSchema,
     availability: z.enum(["available", "unavailable"]),
     unavailableReason: coachingActionUnavailableReasonSchema.nullable(),

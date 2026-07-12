@@ -4,7 +4,10 @@ import {
   criterionResultSchema,
   reportObservationSchema,
 } from "./evaluation-criterion.schema";
-import { practiceVerificationSummarySchema } from "./focused-practice.schema";
+import {
+  focusedPracticeGoalOutcomeSchema,
+  practiceVerificationSummarySchema,
+} from "./focused-practice.schema";
 import { coachingActionSchema } from "./practice-goal.schema";
 import {
   coachingReportViewSchema,
@@ -44,8 +47,13 @@ const criterionResult = {
 const action = {
   actionId: "action_1",
   priority: 1 as const,
+  criterionRef: observation.criterionRef,
+  observationIds: [observation.observationId],
   label: "2번 슬라이드 습관어 다시 연습",
   detail: "문제 구간을 확인한 뒤 같은 문장을 짧게 반복합니다.",
+  audienceImpact: "핵심 수치의 신뢰도가 낮아질 수 있습니다.",
+  instruction: "습관어 없이 수치를 한 문장으로 설명합니다.",
+  successCondition: "습관어를 한 번 이하로 사용합니다.",
   target: {
     type: "focused-practice" as const,
     projectId: "project_1",
@@ -66,6 +74,7 @@ const verification = {
     {
       goalId: "goal_1",
       resolutionStatus: "repeated" as const,
+      resolutionReasonCode: "FAILED" as const,
       criterionResult,
     },
   ],
@@ -78,8 +87,10 @@ const trend = {
   seriesId: "trend_filler_1",
   projectId: "project_1",
   metric: "filler-word-count" as const,
+  metricDefinitionVersion: 1,
   unit: "count" as const,
   direction: "lower-is-better" as const,
+  targetRange: null,
   points: [
     {
       runId: "run_2",
@@ -110,6 +121,16 @@ describe("CriterionResult and ReportObservation contracts", () => {
         ...criterionResult,
         measurementState: "measured",
         evaluationStatus: "not-evaluated",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects reason codes that contradict the evaluation status", () => {
+    expect(
+      criterionResultSchema.safeParse({
+        ...criterionResult,
+        evaluationStatus: "passed",
+        reasonCode: "NO_MEASUREMENT",
       }).success,
     ).toBe(false);
   });
@@ -213,6 +234,53 @@ describe("PracticeVerificationSummary contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("rejects resolution and summary statuses that contradict criterion results", () => {
+    expect(
+      practiceVerificationSummarySchema.safeParse({
+        ...verification,
+        verificationStatus: "verified",
+        items: [
+          {
+            ...verification.items[0],
+            resolutionStatus: "resolved",
+            resolutionReasonCode: "PASSED",
+          },
+        ],
+        counts: { resolved: 1, repeated: 0, unmeasured: 0, incomparable: 0 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects verification actions for another project", () => {
+    expect(
+      practiceVerificationSummarySchema.safeParse({
+        ...verification,
+        nextActions: [
+          {
+            ...action,
+            target: { ...action.target, projectId: "project_other" },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("FocusedPracticeGoalOutcome contract", () => {
+  it("rejects measurement, outcome, and reason combinations that contradict each other", () => {
+    expect(
+      focusedPracticeGoalOutcomeSchema.safeParse({
+        goalId: "goal_1",
+        criterionRef: observation.criterionRef,
+        measurementState: "measured",
+        outcome: "unmeasured",
+        observation: { kind: "count", metric: "filler-word-count", value: 1 },
+        threshold: { kind: "max-count", metric: "filler-word-count", value: 1 },
+        reasonCode: "PASSED",
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("TrendSeries contract", () => {
@@ -244,6 +312,26 @@ describe("TrendSeries contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("rejects metric, unit, and direction combinations with different meanings", () => {
+    expect(
+      trendSeriesSchema.safeParse({
+        ...trend,
+        unit: "ratio",
+        direction: "higher-is-better",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      trendSeriesSchema.safeParse({
+        ...trend,
+        metric: "duration-seconds",
+        unit: "seconds",
+        direction: "target-range",
+        targetRange: null,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("CoachingReportView contract", () => {
@@ -252,11 +340,33 @@ describe("CoachingReportView contract", () => {
     runId: "run_2",
     projectId: "project_1",
     viewState: "ready" as const,
+    readiness: "needs-practice" as const,
     criterionResults: [criterionResult],
     observations: [observation],
     topActions: [action],
     practiceVerification: verification,
     trendSeries: [trend],
+    timelineEvents: [
+      {
+        eventId: "timeline_1",
+        observationId: observation.observationId,
+        category: "delivery" as const,
+        slideId: "slide_1",
+        startMs: 1_000,
+        endMs: 2_500,
+        severity: "high" as const,
+      },
+    ],
+    qnaAssessment: {
+      qnaSessionId: "qna_1",
+      projectId: "project_1",
+      sourceFullRunId: "run_2",
+      criterionResults: [criterionResult],
+      assessedAt: evaluatedAt,
+    },
+    nextPracticePlan: {
+      steps: [{ order: 1 as const, action }],
+    },
     generatedAt: evaluatedAt,
   };
 
@@ -272,6 +382,35 @@ describe("CoachingReportView contract", () => {
       coachingReportViewSchema.safeParse({
         ...view,
         criterionResults: [{ ...criterionResult, observationId: "observation_missing" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects criterion results linked to an observation from another criterion or scope", () => {
+    expect(
+      coachingReportViewSchema.safeParse({
+        ...view,
+        criterionResults: [
+          {
+            ...criterionResult,
+            criterionRef: { criterionId: "criterion_other", revision: 1 },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires evidence-backed Top actions and valid timeline references", () => {
+    expect(
+      coachingReportViewSchema.safeParse({
+        ...view,
+        topActions: [{ ...action, observationIds: [] }],
+      }).success,
+    ).toBe(false);
+    expect(
+      coachingReportViewSchema.safeParse({
+        ...view,
+        timelineEvents: [{ ...view.timelineEvents[0], observationId: "missing" }],
       }).success,
     ).toBe(false);
   });

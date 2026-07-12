@@ -50,7 +50,71 @@ export const focusedPracticeGoalOutcomeSchema = z
       "EVALUATION_UNAVAILABLE",
     ]),
   })
-  .strict();
+  .strict()
+  .superRefine((result, context) => {
+    const isMeasured = result.measurementState === "measured";
+    if (isMeasured !== (result.outcome !== "unmeasured")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "measured focused-practice outcomes must be passed or failed.",
+        path: ["outcome"],
+      });
+    }
+
+    const hasObservation = result.observation.kind !== "none";
+    const hasThreshold = result.threshold.kind !== "none";
+    if (isMeasured !== hasObservation || isMeasured !== hasThreshold) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "measured outcomes require an observation and threshold; unmeasured outcomes require none.",
+        path: ["observation"],
+      });
+    }
+
+    const reasonMatches =
+      (result.outcome === "passed" && result.reasonCode === "PASSED") ||
+      (result.outcome === "failed" &&
+        (result.reasonCode === "THRESHOLD_EXCEEDED" || result.reasonCode === "CONCEPT_MISSED")) ||
+      (result.outcome === "unmeasured" &&
+        (result.reasonCode === "TRANSCRIPT_INCOMPLETE" ||
+          result.reasonCode === "EVALUATION_UNAVAILABLE"));
+    if (!reasonMatches) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "focused-practice reason must match its outcome.",
+        path: ["reasonCode"],
+      });
+    }
+
+    const valueKindsMatch =
+      (result.observation.kind === "duration-seconds" &&
+        result.threshold.kind === "max-duration-seconds") ||
+      (result.observation.kind === "semantic" &&
+        result.threshold.kind === "semantic-required") ||
+      (result.observation.kind === "none" && result.threshold.kind === "none") ||
+      (result.observation.kind === "count" &&
+        result.threshold.kind === "max-count" &&
+        result.observation.metric === result.threshold.metric);
+    if (!valueKindsMatch) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "focused-practice observation and threshold must use the same metric.",
+        path: ["threshold"],
+      });
+    }
+  });
+
+export const practiceVerificationResolutionReasonCodeSchema = z.enum([
+  "PASSED",
+  "FAILED",
+  "NO_MEASUREMENT",
+  "DECK_CHANGED",
+  "BRIEF_CHANGED",
+  "CRITERION_CHANGED",
+  "SCOPE_CHANGED",
+  "METRIC_DEFINITION_CHANGED",
+  "LENS_CHANGED",
+]);
 
 export const practiceVerificationItemSchema = z
   .object({
@@ -61,28 +125,42 @@ export const practiceVerificationItemSchema = z
       "unmeasured",
       "incomparable",
     ]),
+    resolutionReasonCode: practiceVerificationResolutionReasonCodeSchema,
     criterionResult: criterionResultSchema,
   })
   .strict()
   .superRefine((item, context) => {
-    if (
+    const result = item.criterionResult;
+    const isResolved =
+      item.resolutionStatus === "resolved" &&
+      item.resolutionReasonCode === "PASSED" &&
+      result.measurementState === "measured" &&
+      result.evaluationStatus === "passed";
+    const isRepeated =
+      item.resolutionStatus === "repeated" &&
+      item.resolutionReasonCode === "FAILED" &&
+      result.measurementState === "measured" &&
+      (result.evaluationStatus === "partial" || result.evaluationStatus === "failed");
+    const isUnmeasured =
       item.resolutionStatus === "unmeasured" &&
-      item.criterionResult.measurementState !== "unmeasured"
-    ) {
+      item.resolutionReasonCode === "NO_MEASUREMENT" &&
+      result.measurementState === "unmeasured";
+    const incomparableReasons = new Set([
+      "DECK_CHANGED",
+      "BRIEF_CHANGED",
+      "CRITERION_CHANGED",
+      "SCOPE_CHANGED",
+      "METRIC_DEFINITION_CHANGED",
+      "LENS_CHANGED",
+    ]);
+    const isIncomparable =
+      item.resolutionStatus === "incomparable" &&
+      incomparableReasons.has(item.resolutionReasonCode);
+    if (!isResolved && !isRepeated && !isUnmeasured && !isIncomparable) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "unmeasured resolutions require an unmeasured criterion result.",
-        path: ["criterionResult", "measurementState"],
-      });
-    }
-    if (
-      (item.resolutionStatus === "resolved" || item.resolutionStatus === "repeated") &&
-      item.criterionResult.measurementState !== "measured"
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "resolved and repeated resolutions require a measured criterion result.",
-        path: ["criterionResult", "measurementState"],
+        message: "practice verification resolution, reason, and criterion result must agree.",
+        path: ["resolutionStatus"],
       });
     }
   });
@@ -139,6 +217,31 @@ export const practiceVerificationSummarySchema = z
         });
       }
     }
+
+    const expectedStatus = summary.counts.repeated > 0
+      ? "needs-follow-up"
+      : summary.counts.unmeasured > 0
+        ? "incomplete"
+        : summary.counts.incomparable > 0
+          ? "incomparable"
+          : "verified";
+    if (summary.verificationStatus !== expectedStatus) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "practice verification status must be derived from item resolutions.",
+        path: ["verificationStatus"],
+      });
+    }
+
+    summary.nextActions.forEach((action, index) => {
+      if (action.target.projectId !== summary.projectId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "practice verification actions must belong to the summary project.",
+          path: ["nextActions", index, "target", "projectId"],
+        });
+      }
+    });
   });
 
 export const focusedPracticeSnapshotSchema = z

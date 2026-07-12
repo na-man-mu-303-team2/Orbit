@@ -1524,6 +1524,7 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - `evaluationStatus`는 criterion 평가 결과이며 `passed`, `partial`, `failed`, `not-evaluated`만 허용한다.
 - `measurementState=measured`이면 `evaluationStatus`는 `not-evaluated`일 수 없고 `observationId`가 필요하다.
 - `measurementState=unmeasured`이면 `evaluationStatus=not-evaluated`, `observationId=null`이어야 한다.
+- `evaluationStatus`와 `reasonCode`는 고정 행렬을 사용한다. `passed=PASSED`, `partial=PARTIAL`, `failed=THRESHOLD_EXCEEDED|CONCEPT_MISSED`, `not-evaluated=NO_MEASUREMENT|NOT_APPLICABLE|SOURCE_INCOMPARABLE|EVALUATION_UNAVAILABLE`만 허용한다.
 - `resolutionStatus`는 목표의 full-run 검증 결과인 `resolved`, `repeated`, `unmeasured`, `incomparable`이다.
 - `verificationStatus`는 검증 summary의 UI 상태인 `verified`, `needs-follow-up`, `incomplete`, `incomparable`이다.
 - `comparability`는 회차 간 비교 가능 여부인 `comparable`, `incomparable`이며 `measurementState`와 별도 축이다.
@@ -1537,10 +1538,12 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - rate metric은 keyword/semantic coverage, timing balance, volume consistency, pronunciation confidence만 허용하고 값은 0~1이다.
 - evidence ref는 `time-range`, `semantic-cue`, `issue`만 허용한다. time range는 `startMs <= endMs`여야 한다.
 - 측정된 observation은 `none`을 사용할 수 없고 미측정 observation은 반드시 `none`을 사용한다.
+- `CriterionResult.observationId`가 가리키는 observation은 같은 `criterionRef`와 scope를 가져야 한다.
+- Focused Practice와 Q&A의 저장 aggregate 결과는 별도 형태를 유지할 수 있지만, 공통 리포트로 조합할 때는 같은 `CriterionResult`와 `ReportObservation` 계약으로 정규화한다.
 
 #### `CoachingAction`
 
-- action은 우선순위 1~3, 짧은 label/detail, availability와 typed target을 가진다.
+- action은 우선순위 1~3, `criterionRef`, bounded `observationIds`, 짧은 label/detail, audience impact, instruction, success condition, availability와 typed target을 가진다.
 - target은 `focused-practice`, `full-rehearsal`, `report-evidence`, `deck-edit`, `challenge-qna`만 허용한다.
 - action 계약에 `href`를 넣지 않는다. Web은 target ID로 route를 생성하고 API는 target ID로 권한을 다시 확인한다.
 - `availability=available`이면 `unavailableReason=null`이고, `unavailable`이면 bounded reason이 필요하다.
@@ -1549,23 +1552,29 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 
 - summary는 source goal set과 이를 검증한 full run을 명시하고 목표별 `CriterionResult`를 포함한다.
 - item은 별도 `measurementState`를 복제하지 않고 내장 `CriterionResult.measurementState`를 단일 원본으로 사용한다.
-- `resolved`, `repeated` item은 measured result가 필요하고 `unmeasured` item은 unmeasured result가 필요하다.
+- item은 비교 결과의 `resolutionReasonCode`를 별도로 가진다. `resolved=PASSED+measured/passed`, `repeated=FAILED+measured/partial|failed`, `unmeasured=NO_MEASUREMENT+unmeasured` 조합만 허용하며 `incomparable`은 bounded compatibility reason을 사용한다.
 - counts는 items의 resolution status별 실제 개수와 일치해야 하며 같은 `goalId`를 중복할 수 없다.
+- `verificationStatus`는 item counts에서 파생한다. repeated가 있으면 `needs-follow-up`, 그다음 unmeasured가 있으면 `incomplete`, 그다음 incomparable이 있으면 `incomparable`, 모두 resolved이면 `verified`다.
+- summary의 next action은 summary와 같은 `projectId`를 사용한다.
 - 부분 연습 attempt만으로 summary를 만들지 않는다. `evaluatedFullRunId`의 full run에서만 발행한다.
 
 #### `TrendSeries`
 
 - metric은 filler count, duration seconds, words per minute, timing balance, semantic coverage, volume consistency, pronunciation confidence를 허용한다.
-- 단위는 `count`, `seconds`, `words-per-minute`, `ratio`, 방향은 `lower-is-better`, `higher-is-better`, `target-range`를 사용한다.
+- 모든 series는 양의 `metricDefinitionVersion`을 가진다.
+- metric별 단위와 방향은 고정한다. filler는 `count/lower-is-better`, duration과 WPM은 각 단위의 `target-range`, 나머지 ratio metric은 `ratio/higher-is-better`다.
+- `target-range` metric은 `{ minimum, maximum }`을 필수로 가지며 다른 metric은 target range를 갖지 않는다.
 - point는 `runId`, `createdAt`, `measurementState`, `comparability`, nullable value, nullable `reasonCode`를 가진다.
 - measured point만 numeric value를 가질 수 있다. unmeasured point의 value는 `null`이다.
 - 한 series 안에서 `runId`는 중복될 수 없으며 최근 최대 5개 point만 포함한다.
 
 #### `CoachingReportView`
 
-- view는 `criterionResults`, `observations`, `topActions`, nullable `practiceVerification`, `trendSeries`를 조합한다.
+- view는 readiness, `criterionResults`, `observations`, `topActions`, nullable `practiceVerification`, `trendSeries`, timeline events, nullable Q&A assessment, next practice plan을 조합한다.
 - Top action은 최대 3개, criterion result는 최대 100개, observation은 최대 500개, trend series는 최대 7개다.
-- measured criterion result의 `observationId`는 같은 view의 observations에 반드시 존재해야 한다.
+- measured criterion result의 `observationId`는 같은 view의 observations에 반드시 존재하고 같은 criterion/scope를 사용해야 한다.
+- Top action은 하나 이상의 observation을 참조하고 action의 `criterionRef`와 observation criterion이 일치해야 한다.
+- timeline event는 같은 view의 observation을 참조하며 Q&A assessment는 같은 project/source full run에 속한다.
 - action, verification, trend는 view와 같은 `projectId`에 속해야 하고 verification은 같은 `runId`를 평가해야 한다.
 - 이 view는 server-generated bounded read model이며 프론트엔드가 공식 평가 상태나 추세를 재계산하지 않는다.
 
@@ -1585,6 +1594,7 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - `focused-practice-analysis`, `challenge-qna-generation`, `challenge-qna-answer-analysis`, `private-audio-cleanup`은 internal Job type이다.
 - public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job을 거부한다.
 - Job payload/result에는 canonical ID와 bounded result만 넣고 audio key/URL/bytes, transcript, typed answer, Question/AnswerGuide 원문, reference chunk 원문, speaker notes, provider raw error를 넣지 않는다.
+- Worker는 Job 완료 결과를 generic `z.record(z.unknown())`에 직접 저장하지 않고 해당 Job type의 shared result schema로 검증한 값만 저장한다.
 - Question과 AnswerGuide 원문은 project-private canonical table에만 저장한다.
 - transcript와 typed answer는 non-persistent private-evidence Redis에서 최대 30분만 보존한다.
 - raw audio cleanup 실패는 분석 결과를 실패로 되돌리지 않고 최대 5회 idempotent retry 후 exhausted를 관측한다.

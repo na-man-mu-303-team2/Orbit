@@ -1,6 +1,7 @@
 import type { StoragePort } from "@orbit/storage";
 import {
   focusedPracticeAnalysisJobPayloadSchema,
+  focusedPracticeAnalysisJobResultSchema,
   focusedPracticeGoalOutcomeSchema,
   jobSchema,
   type Job,
@@ -90,9 +91,19 @@ export async function processFocusedPracticeAnalysisJob(
        completed_at = now() WHERE attempt_id = $1 AND status = 'processing'`,
       [payload.attemptId, aggregate, JSON.stringify(result.outcomes), deletedAt ? "deleted" : "pending", deletedAt],
     );
-    return updateJob(dataSource, payload.jobId, "succeeded", 100, "부분 연습 분석 완료", {
-      attemptId: payload.attemptId, result: aggregate, goalOutcomes: result.outcomes,
-    }, null);
+    const jobResult = focusedPracticeAnalysisJobResultSchema.parse({
+      attemptId: payload.attemptId,
+      result: aggregate,
+    });
+    return updateJob(
+      dataSource,
+      payload.jobId,
+      "succeeded",
+      100,
+      "부분 연습 분석 완료",
+      jobResult,
+      null,
+    );
   } catch (error) {
     const code = error instanceof Error && ["TRANSCRIPTION_FAILED", "ANALYSIS_FAILED"].includes(error.message)
       ? error.message : "ANALYSIS_FAILED";
