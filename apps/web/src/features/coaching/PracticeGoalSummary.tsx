@@ -1,21 +1,55 @@
 import type { PracticePlanResponse } from "@orbit/shared";
-import { ArrowRight, CheckCircle2, Clock3, MessageCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { OrbitStatus } from "../../design-system";
 import { fetchPracticePlan } from "./practicePlanApi";
 import { practiceGoalCategoryLabel, practiceHistoryLabel } from "./practicePlanViewModel";
 
-export function PracticeGoalSummary(props: { projectId: string; sourceFullRunId: string }) {
-  const [plan, setPlan] = useState<PracticePlanResponse | null>(null);
+type PracticeGoalSummaryState =
+  | { status: "loading" }
+  | { status: "loaded"; plan: PracticePlanResponse }
+  | { status: "failed" };
+
+export function PracticeGoalSummary(props: {
+  initialPlan?: PracticePlanResponse;
+  projectId: string;
+  sourceFullRunId: string;
+}) {
+  const [state, setState] = useState<PracticeGoalSummaryState>(
+    props.initialPlan
+      ? { status: "loaded", plan: props.initialPlan }
+      : { status: "loading" },
+  );
   useEffect(() => {
+    if (props.initialPlan) {
+      setState({ status: "loaded", plan: props.initialPlan });
+      return;
+    }
     let active = true;
     void fetchPracticePlan(props.projectId, props.sourceFullRunId)
-      .then((value) => { if (active) setPlan(value); })
-      .catch(() => { if (active) setPlan(null); });
+      .then((value) => { if (active) setState({ status: "loaded", plan: value }); })
+      .catch(() => { if (active) setState({ status: "failed" }); });
     return () => { active = false; };
-  }, [props.projectId, props.sourceFullRunId]);
-  if (!plan || plan.status !== "ready") return null;
+  }, [props.initialPlan, props.projectId, props.sourceFullRunId]);
+
+  const planHref = `/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`;
+  if (state.status !== "loaded") {
+    return (
+      <PracticeGoalSummaryStateCard
+        copy={state.status === "loading"
+          ? "리포트 분석 결과에서 이어서 연습할 수 있는 계획을 확인하고 있습니다."
+          : "연습 계획 상태를 확인하지 못했습니다. 계획 화면에서 다시 시도할 수 있습니다."}
+        href={planHref}
+        title={state.status === "loading" ? "연습 계획 확인 중" : "연습 계획을 확인해 주세요"}
+      />
+    );
+  }
+
+  const plan = state.plan;
+  if (plan.status !== "ready") {
+    return <PracticeGoalSummaryStateCard {...nonReadyPlanSummary(plan)} href={planHref} />;
+  }
 
   return (
     <section className="practice-report-summary" aria-labelledby="practice-report-summary-title">
@@ -24,7 +58,7 @@ export function PracticeGoalSummary(props: { projectId: string; sourceFullRunId:
           <p className="orbit-ds-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">다음 연습에서 먼저 바꿀 것</h2>
         </div>
-        <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>
+        <a href={planHref}>
           연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
         </a>
       </header>
@@ -46,4 +80,49 @@ export function PracticeGoalSummary(props: { projectId: string; sourceFullRunId:
       </ol>
     </section>
   );
+}
+
+function PracticeGoalSummaryStateCard(props: { copy: string; href: string; title: string }) {
+  return (
+    <section className="practice-report-summary practice-report-summary-state" aria-labelledby="practice-report-summary-title">
+      <header>
+        <div>
+          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
+          <h2 id="practice-report-summary-title">{props.title}</h2>
+        </div>
+        <a href={props.href}>
+          연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
+        </a>
+      </header>
+      <p>
+        <RefreshCw aria-hidden="true" size={16} />
+        {props.copy}
+      </p>
+    </section>
+  );
+}
+
+function nonReadyPlanSummary(plan: Exclude<PracticePlanResponse, { status: "ready" }>) {
+  if (plan.status === "processing") {
+    return {
+      title: "연습 계획 준비 중",
+      copy: "분석이 끝나는 즉시 다음 연습에서 볼 Top 3 목표를 보여드립니다.",
+    };
+  }
+  if (plan.status === "no-goal") {
+    return {
+      title: "지금 바로 반복할 목표가 없어요",
+      copy: "현재 리포트에서 우선 반복할 목표를 찾지 못했습니다. 전체 흐름을 다시 연습해 감각을 유지할 수 있습니다.",
+    };
+  }
+  if (plan.status === "stale") {
+    return {
+      title: "발표 자료가 변경됐어요",
+      copy: "현재 자료 기준으로 연습 계획을 다시 만들려면 전체 리허설을 실행해 주세요.",
+    };
+  }
+  return {
+    title: "연습 계획을 만들 수 없어요",
+    copy: "리허설 상태를 확인한 뒤 계획 화면에서 다시 시도해 주세요.",
+  };
 }
