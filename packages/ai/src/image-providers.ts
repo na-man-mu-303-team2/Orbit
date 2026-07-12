@@ -177,29 +177,45 @@ export class OfficialWebImageProvider implements OfficialImageProvider {
         if (html.length > 1_500_000) {
           throw new Error("Official source page exceeds the HTML size limit");
         }
-        const imageUrl = officialImageUrl(html, page.url || sourceUrl);
-        if (!imageUrl) throw new Error("Official source page has no representative image");
-        const image = await fetchPublicUrl(imageUrl, {
-          accept: "image/*",
-          signal: input.abortSignal
-        });
-        if (!image.ok) {
-          throw new Error(`Official image download failed with status ${image.status}`);
+        const imageUrls = officialImageUrls(html, page.url || sourceUrl);
+        if (imageUrls.length === 0) {
+          throw new Error("Official source page has no representative image");
         }
-        const mimeType = supportedImageMimeType(image.headers.get("content-type"));
-        const body = new Uint8Array(await image.arrayBuffer());
-        assertImageSize(body);
-        return {
-          body,
-          mimeType,
-          fileName: fileNameForMime(input.query || "official-image", mimeType),
-          provider: "official-web",
-          sourceUrl: page.url || sourceUrl,
-          sourceAssetUrl: image.url || imageUrl,
-          sourceAuthority: "official",
-          usageBasis: "official-reference",
-          checkedAt: new Date().toISOString()
-        };
+        for (const imageUrl of imageUrls) {
+          try {
+            const image = await fetchPublicUrl(imageUrl, {
+              accept: "image/*",
+              signal: input.abortSignal
+            });
+            if (!image.ok) {
+              throw new Error(
+                `Official image download failed with status ${image.status}`
+              );
+            }
+            const mimeType = supportedImageMimeType(
+              image.headers.get("content-type")
+            );
+            const body = new Uint8Array(await image.arrayBuffer());
+            assertImageSize(body);
+            return {
+              body,
+              mimeType,
+              fileName: fileNameForMime(
+                input.query || "official-image",
+                mimeType
+              ),
+              provider: "official-web",
+              sourceUrl: page.url || sourceUrl,
+              sourceAssetUrl: image.url || imageUrl,
+              sourceAuthority: "official",
+              usageBasis: "official-reference",
+              checkedAt: new Date().toISOString()
+            };
+          } catch (error) {
+            lastError = error;
+          }
+        }
+        throw lastError ?? new Error("Official image candidates were unavailable");
       } catch (error) {
         lastError = error;
       }
@@ -225,6 +241,36 @@ function officialImageUrl(html: string, baseUrl: string) {
     }
   }
   return null;
+}
+
+function officialImageUrls(html: string, baseUrl: string) {
+  const representative = officialImageUrl(html, baseUrl);
+  const trailerThumbnails = officialYoutubeVideoIds(html).map(
+    (videoId) => `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`
+  );
+  return [
+    ...(representative && /(?:^|[\W_])logo(?:[\W_]|$)/i.test(representative)
+      ? trailerThumbnails
+      : []),
+    representative,
+    ...trailerThumbnails
+  ].filter((value, index, values): value is string =>
+    Boolean(value) && values.indexOf(value) === index
+  );
+}
+
+function officialYoutubeVideoIds(html: string) {
+  const ids: string[] = [];
+  const urlPattern =
+    /(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/gi;
+  const contentPattern =
+    /"contentType"[\s\S]{0,300}?"id":"youTubeVideo"[\s\S]{0,600}?"fields":\{[\s\S]{0,300}?"id":"([a-zA-Z0-9_-]{6,})"/gi;
+  for (const pattern of [urlPattern, contentPattern]) {
+    for (const match of html.matchAll(pattern)) {
+      if (match[1]) ids.push(match[1]);
+    }
+  }
+  return [...new Set(ids)];
 }
 
 async function fetchPublicUrl(

@@ -378,6 +378,38 @@ describe("image providers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("prefers an official embedded trailer thumbnail over a logo social image", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          '<meta property="og:image" content="/media/Game_Logo.png">' +
+            '<script>{"contentType":{"sys":{"id":"youTubeVideo"}},' +
+            '"fields":{"internalName":"Official trailer","id":"d7ve2zWmkEA"}}</script>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OfficialWebImageProvider().fetch({
+      sourceUrls: ["https://official.example/game"],
+      query: "Game key art"
+    });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://i.ytimg.com/vi/d7ve2zWmkEA/maxresdefault.jpg"
+    );
+    expect(result.sourceAssetUrl).toBe(
+      "https://i.ytimg.com/vi/d7ve2zWmkEA/maxresdefault.jpg"
+    );
+  });
+
   it("blocks private official source URLs before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
