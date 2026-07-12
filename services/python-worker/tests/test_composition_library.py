@@ -198,6 +198,32 @@ def test_hybrid_media_budget_preserves_official_evidence_and_ai_atmosphere() -> 
     assert 3 <= len(evidence) + len(atmosphere) <= 4
 
 
+def test_hybrid_media_budget_reserves_ai_atmosphere_when_official_sources_repeat() -> None:
+    slides = launch_slides()
+    for slide in slides[:6]:
+        slide["officialSourceAvailable"] = True
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+    )
+
+    evidence = [
+        direction for direction in normalized.slides if direction.asset_role == "evidence"
+    ]
+    atmosphere = [
+        direction
+        for direction in normalized.slides
+        if direction.asset_role == "atmosphere"
+    ]
+    assert len(evidence) == 1
+    assert len(atmosphere) >= 2
+    assert normalized.slides[0].asset_role == "atmosphere"
+    assert 3 <= len(evidence) + len(atmosphere) <= 4
+
+
 def test_hybrid_official_metric_uses_required_image_evidence() -> None:
     slides = [
         slide_payload("cover", 2),

@@ -954,6 +954,8 @@ def normalize_design_program(
             direction.required_asset = False
 
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
+    if media_policy == "hybrid":
+        _enforce_hybrid_media_mix(normalized, slides, media_budget)
     _enforce_background_rhythm(normalized, force_light, force_dark)
     return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
 
@@ -1253,6 +1255,71 @@ def _promote_official_evidence(
             COMPOSITION_SPECS[candidate].media_requirement == "required"
         )
         return
+
+
+def _enforce_hybrid_media_mix(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    media_budget: int,
+) -> None:
+    evidence = [
+        direction
+        for direction in program.slides
+        if direction.asset_role == "evidence"
+    ]
+    if evidence:
+        keeper = max(
+            evidence,
+            key=lambda direction: (
+                direction.required_asset,
+                direction.order not in {1, len(program.slides)},
+                -direction.order,
+            ),
+        )
+        for direction in evidence:
+            if direction is keeper:
+                continue
+            spec = COMPOSITION_SPECS[direction.composition_id]
+            if direction.order in {1, len(program.slides)} and spec.media_requirement == "optional":
+                direction.asset_role = "atmosphere"
+                direction.required_asset = False
+            elif spec.media_requirement == "optional":
+                direction.asset_role = "none"
+                direction.required_asset = False
+
+    target_atmosphere = min(2, max(1, media_budget - 1))
+    preferred_indices = list(
+        dict.fromkeys(
+            [
+                0,
+                len(program.slides) - 1,
+                *[
+                    index
+                    for index, slide in enumerate(slides)
+                    if slide.get("officialSourceAvailable") is not True
+                ],
+                *range(len(program.slides)),
+            ]
+        )
+    )
+    for index in preferred_indices:
+        if (
+            sum(
+                direction.asset_role == "atmosphere"
+                for direction in program.slides
+            )
+            >= target_atmosphere
+        ):
+            break
+        direction = program.slides[index]
+        if direction.asset_role != "none":
+            continue
+        candidate = _media_candidate(program, slides, index)
+        if candidate is None:
+            continue
+        direction.composition_id = candidate
+        direction.asset_role = "atmosphere"
+        direction.required_asset = False
 
 
 def _media_candidate(
