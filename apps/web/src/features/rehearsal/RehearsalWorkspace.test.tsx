@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import {
   LiveSttAdapterError,
+  RehearsalFailureScreen,
   RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
@@ -112,6 +113,23 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalFailureScreen
+        error="마이크를 시작하지 못했습니다."
+        onPracticeWithoutVoice={() => undefined}
+        onRetry={() => undefined}
+        projectId="project retry"
+      />,
+    );
+
+    expect(html).toContain("리허설을 시작하지 못했습니다.");
+    expect(html).toContain("마이크를 시작하지 못했습니다.");
+    expect(html).toContain("다시 시도");
+    expect(html).toContain("마이크 없이 연습");
+    expect(html).toContain("/project/project%20retry");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

@@ -84,10 +84,6 @@ export function shouldShowSemanticSpeechDebugPanel(options: {
   isDevelopment: boolean;
   storage?: Pick<Storage, "getItem"> | null;
 }) {
-  if (options.isDevelopment) {
-    return true;
-  }
-
   try {
     return options.storage?.getItem(semanticSpeechDebugPanelStorageKey) === "1";
   } catch {

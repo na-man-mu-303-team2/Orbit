@@ -1787,7 +1787,7 @@ export function RehearsalWorkspace(props: {
   const [phase, setPhase] = useState<RehearsalPhase>(
     props.initialDeck ? "idle" : "loading",
   );
-  const [, setError] = useState("");
+  const [error, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
@@ -4074,6 +4074,7 @@ export function RehearsalWorkspace(props: {
     setHasLocalCompletion(false);
     setLiveStatus("idle");
     setLiveError("");
+    setError("");
     setPracticeWithoutVoiceAt(null);
     setSemanticCapabilityEvents([]);
     setComparisonReminderState(createComparisonReminderState());
@@ -4086,6 +4087,17 @@ export function RehearsalWorkspace(props: {
     if (phase !== "uploading" && phase !== "processing") {
       setPhase("idle");
     }
+  };
+  const startPracticeWithoutVoice = () => {
+    const disabledAt = Date.now();
+    setError("");
+    setPhase("idle");
+    setElapsedSeconds(0);
+    setSlideElapsedSeconds(0);
+    setHasLocalCompletion(false);
+    setIsTimerRunning(true);
+    setPracticeWithoutVoiceAt(disabledAt);
+    setSemanticCapabilityNowMs(disabledAt);
   };
   const persistCurrentPracticeSummary = () => {
     if (!deck) {
@@ -4195,6 +4207,17 @@ export function RehearsalWorkspace(props: {
         : null,
     [deck, presentationChannelState, triggerAnimationIds],
   );
+
+  if (phase === "failed" && error) {
+    return (
+      <RehearsalFailureScreen
+        error={error}
+        onPracticeWithoutVoice={deck ? startPracticeWithoutVoice : undefined}
+        onRetry={deck ? returnToPreflight : () => window.location.reload()}
+        projectId={deck?.projectId ?? props.projectId}
+      />
+    );
+  }
 
   if (
     props.presenterWindow &&
@@ -4324,15 +4347,7 @@ export function RehearsalWorkspace(props: {
         deck={deck}
         previousSummary={previousPracticeSummary}
         resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
-        onPracticeWithoutVoice={() => {
-          const disabledAt = Date.now();
-          setElapsedSeconds(0);
-          setSlideElapsedSeconds(0);
-          setHasLocalCompletion(false);
-          setIsTimerRunning(true);
-          setPracticeWithoutVoiceAt(disabledAt);
-          setSemanticCapabilityNowMs(disabledAt);
-        }}
+        onPracticeWithoutVoice={startPracticeWithoutVoice}
         onStart={() => void startRecording()}
       />
     );
@@ -4833,6 +4848,38 @@ export function RehearsalWorkspace(props: {
           onExportJson={exportSemanticCueDebugJson}
         />
       ) : null}
+    </main>
+  );
+}
+
+export function RehearsalFailureScreen(props: {
+  error: string;
+  onPracticeWithoutVoice?: () => void;
+  onRetry: () => void;
+  projectId?: string;
+}) {
+  return (
+    <main className="rehearsal-preflight-screen" aria-label="리허설 오류">
+      <section className="rehearsal-preflight-card" role="alert">
+        <div className="rehearsal-preflight-copy">
+          <span className="orbit-ds-eyebrow">REHEARSAL ERROR</span>
+          <h1>리허설을 시작하지 못했습니다.</h1>
+          <p>{props.error}</p>
+        </div>
+        <div className="rehearsal-preflight-actions">
+          <button className="rehearsal-preflight-start" onClick={props.onRetry} type="button">
+            다시 시도
+          </button>
+          {props.onPracticeWithoutVoice ? (
+            <button className="rehearsal-preflight-quiet" onClick={props.onPracticeWithoutVoice} type="button">
+              마이크 없이 연습
+            </button>
+          ) : null}
+          <a href={props.projectId ? `/project/${encodeURIComponent(props.projectId)}` : "/project"}>
+            프로젝트로 돌아가기
+          </a>
+        </div>
+      </section>
     </main>
   );
 }
