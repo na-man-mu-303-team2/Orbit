@@ -447,8 +447,17 @@ def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
         media_policy="hybrid",
     )
 
-    assert normalized.slides[5].composition_id == "feature-comparison"
-    assert normalized.slides[6].composition_id == "editorial-split"
+    comparison_ids = {
+        normalized.slides[5].composition_id,
+        normalized.slides[6].composition_id,
+    }
+    silhouettes = [
+        COMPOSITION_SPECS[direction.composition_id].silhouette
+        for direction in normalized.slides
+    ]
+
+    assert comparison_ids == {"feature-comparison", "editorial-split"}
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
 def test_create_design_program_retries_one_invalid_response() -> None:
