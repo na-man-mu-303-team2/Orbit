@@ -289,6 +289,47 @@ def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body_elements)
 
 
+def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:
+    slide = slide_payload("summary", 1)
+    slide["message"] = slide["contentItems"][0]["text"]
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "cta-closing",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "cta",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    focal = next(
+        element
+        for element in compiled.elements
+        if element["elementId"] == compiled.primary_focal_element_id
+    )
+    visible_matches = [
+        element
+        for element in compiled.elements
+        if element.get("type") == "text"
+        and element.get("props", {}).get("text") == slide["message"]
+    ]
+
+    assert focal["elementId"].endswith("_message")
+    assert focal["role"] == "highlight"
+    assert focal["height"] >= 376
+    assert focal["props"]["verticalAlign"] == "middle"
+    assert len(visible_matches) == 1
+
+
 def test_white_canvas_forces_light_variants() -> None:
     slides = launch_slides()
     normalized = normalize_design_program(

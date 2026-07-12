@@ -725,16 +725,20 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
 def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
+    duplicates_items = _message_duplicates_items(slide, items)
     content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(10)
     title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
-    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 160, 5, style.text, 30, "semibold", style.body_font)]
-    if items:
-        elements.append(_text(order, "actions", "body", "  →  ".join(value for _, value in items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 160, 5, style.text, 36 if duplicates_items else 30, "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
+    elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
+    action = None
+    if items and not duplicates_items:
+        action = _text(order, "actions", "body", "  →  ".join(value for _, value in items), _grid_x(0), 736, content_width, 120, 5, style.text, style.body_size + 2, "bold", style.body_font, content_item_ids=[identifier for identifier, _ in items])
+        elements.append(action)
     if direction.asset_role != "none":
         elements.extend(_media(order, _grid_x(7), 208, _grid_width(5), 624, 3, style, _media_caption(slide)))
     else:
         elements.append(_rect(order, "closing_field", "decoration", _grid_x(10), 240, _grid_width(2), 560, 2, style.focal, radius=8))
-    return elements, title["elementId"]
+    return elements, (action or message)["elementId"]
 
 
 COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
