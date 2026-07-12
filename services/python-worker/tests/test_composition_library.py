@@ -753,6 +753,41 @@ def test_statement_poster_promotes_trailer_with_native_play_focal() -> None:
     assert play_icon["props"]["text"] == "▶"
 
 
+def test_statement_poster_promotes_reservation_with_action_focal() -> None:
+    direction = {
+        "order": 1,
+        "compositionId": "statement-poster",
+        "variant": "light",
+        "backgroundMode": "light",
+        "focalType": "statement",
+        "assetRole": "none",
+        "requiredAsset": False,
+    }
+    design_program = program([direction])
+    slide = slide_payload("quote", 1)
+    slide["title"] = "지금 바로 예약 주문하세요"
+    slide["message"] = slide["contentItems"][0]["text"]
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    action_icon = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_statement_action_icon")
+    )
+    action_label = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_statement_action_label")
+    )
+
+    assert action_icon["props"]["text"] == "→"
+    assert action_label["props"]["text"] == "NEXT ACTION"
+
+
 def test_closing_media_uses_equal_content_and_image_columns() -> None:
     direction = {
         "order": 1,

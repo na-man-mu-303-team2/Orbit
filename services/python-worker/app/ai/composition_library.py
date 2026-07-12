@@ -588,12 +588,14 @@ def _statement_poster(
     items = _items(slide)
     support_items = _supporting_items_without_message_duplicate(slide, items)
     promotes_play_focal = _promotes_play_focal(slide)
+    promotes_action_focal = _promotes_action_focal(slide)
+    promotes_native_focal = promotes_play_focal or promotes_action_focal
     panel_fill = style.surface if _is_dark(style.background) else style.text
     panel_text = _contrasting_text_color(panel_fill, style.text)
     panel_y = 272
     panel_height = 584
     statement_text = str(slide.get("message", ""))
-    statement_width = 1120 if promotes_play_focal else 1512
+    statement_width = 1120 if promotes_native_focal else 1512
     statement_font_size = max(64, style.title_size + 8)
     if not support_items and len(statement_text) <= 55:
         statement_font_size = max(84, style.title_size + 20)
@@ -684,15 +686,18 @@ def _statement_poster(
                 ),
             ]
         )
-    if promotes_play_focal:
+    if promotes_native_focal:
         play_x = 1450
         play_y = 440
         play_size = 184
+        marker_name = "statement_play" if promotes_play_focal else "statement_action"
+        marker_icon = "▶" if promotes_play_focal else "→"
+        marker_label = "TRAILER" if promotes_play_focal else "NEXT ACTION"
         elements.extend(
             [
                 _rect(
                     order,
-                    "statement_play_field",
+                    f"{marker_name}_field",
                     "highlight",
                     play_x,
                     play_y,
@@ -704,9 +709,9 @@ def _statement_poster(
                 ),
                 _text(
                     order,
-                    "statement_play_icon",
+                    f"{marker_name}_icon",
                     "highlight",
-                    "▶",
+                    marker_icon,
                     play_x + 18,
                     play_y + 24,
                     play_size - 36,
@@ -721,9 +726,9 @@ def _statement_poster(
                 ),
                 _text(
                     order,
-                    "statement_play_label",
+                    f"{marker_name}_label",
                     "caption",
-                    "TRAILER",
+                    marker_label,
                     play_x - 40,
                     play_y + play_size + 28,
                     play_size + 80,
@@ -751,6 +756,30 @@ def _promotes_play_focal(slide: dict[str, Any]) -> bool:
     return any(
         keyword in text
         for keyword in ("trailer", "video", "트레일러", "영상", "demo", "데모")
+    )
+
+
+def _promotes_action_focal(slide: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            str(slide.get("title", "")),
+            str(slide.get("message", "")),
+            *[value for _, value in _items(slide)],
+        ]
+    ).casefold()
+    return any(
+        keyword in text
+        for keyword in (
+            "reserve",
+            "order",
+            "purchase",
+            "buy",
+            "register",
+            "예약",
+            "주문",
+            "구매",
+            "신청",
+        )
     )
 
 
