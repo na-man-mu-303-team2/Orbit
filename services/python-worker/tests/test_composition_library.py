@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 from itertools import groupby
 from typing import Any
@@ -561,6 +562,51 @@ def test_three_item_timeline_uses_full_grid_frames() -> None:
         (1256, 544, 200),
     ]
     assert all(label["props"]["fontSize"] >= 26 for label in labels)
+
+
+def test_three_step_process_uses_connected_full_height_color_fields() -> None:
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "process-horizontal",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+    slide = slide_payload("process", 3)
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if re.search(r"_step_\d+_field$", element["elementId"])
+    ]
+    connectors = [
+        element
+        for element in compiled.elements
+        if "_step_connector_" in element["elementId"]
+    ]
+    labels = [element for element in compiled.elements if element["role"] == "body"]
+
+    assert len(fields) == 3
+    assert all(field["height"] == 552 for field in fields)
+    assert [field["props"]["fill"] for field in fields] == [
+        "#6D28D9",
+        "#111827",
+        "#06B6D4",
+    ]
+    assert len(connectors) == 2
+    assert all(label["props"]["fontSize"] >= 36 for label in labels)
 
 
 def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:

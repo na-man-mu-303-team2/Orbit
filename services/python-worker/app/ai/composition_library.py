@@ -1141,20 +1141,108 @@ def _feature_comparison(
     return elements, focal
 
 
-def _process_horizontal(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _process_horizontal(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
     elements = [_background(order, style), _title(order, slide, style)]
+    duplicates_items = _message_duplicates_items(slide, items)
     count = max(1, len(items))
-    gap = 18
+    gap = 24
     width = (SAFE_WIDTH - gap * (count - 1)) // count
+    field_y = 304
+    field_height = 552 if duplicates_items else 496
+    colors = _editorial_field_colors(style)
     for index, (identifier, value) in enumerate(items):
         x = SAFE_X + index * (width + gap)
-        elements.extend([
-            _text(order, f"step_number_{index + 1}", "highlight", f"{index + 1:02d}", x, 300, width, 90, 5, style.focal, 44, "bold", style.heading_font),
-            _rect(order, f"step_{index + 1}_field", "decoration", x, 408, width, 384, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-            _text(order, f"step_{index + 1}", "body", value, x + 24, 448, width - 48, 304, 5, style.text, max(20, style.body_size + (4 if count <= 4 else 0)), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
-        ])
+        fill = colors[index % len(colors)]
+        text_color = _contrasting_text_color(fill, style.text)
+        if index > 0:
+            elements.append(
+                _rect(
+                    order,
+                    f"step_connector_{index}",
+                    "decoration",
+                    x - gap,
+                    field_y + field_height // 2 - 5,
+                    gap,
+                    10,
+                    2,
+                    style.secondary,
+                    radius=5,
+                )
+            )
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    f"step_{index + 1}_field",
+                    "decoration",
+                    x,
+                    field_y,
+                    width,
+                    field_height,
+                    3,
+                    fill,
+                    radius=8,
+                ),
+                _text(
+                    order,
+                    f"step_number_{index + 1}",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 32,
+                    field_y + 28,
+                    width - 64,
+                    80,
+                    5,
+                    text_color,
+                    58 if count <= 4 else 48,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"step_{index + 1}",
+                    "body",
+                    value,
+                    x + 32,
+                    field_y + 132,
+                    width - 64,
+                    field_height - 176,
+                    5,
+                    text_color,
+                    max(36, style.body_size + (4 if count <= 4 else 0)),
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
+            ]
+        )
+    if not duplicates_items:
+        elements.append(
+            _text(
+                order,
+                "process_message",
+                "highlight",
+                str(slide.get("message", "")),
+                SAFE_X,
+                832,
+                SAFE_WIDTH,
+                80,
+                5,
+                style.text,
+                max(34, style.body_size),
+                "bold",
+                style.body_font,
+                align="center",
+                vertical="middle",
+            )
+        )
     return elements, _id(order, "step_1")
 
 
