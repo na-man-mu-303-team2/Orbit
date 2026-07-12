@@ -1994,7 +1994,10 @@ def test_program_v2_compacts_quote_support_for_no_media_fallback() -> None:
     ]
 
 
-def test_program_v2_reclassifies_single_item_comparison_without_duplication() -> None:
+@pytest.mark.parametrize("slide_type", ["comparison", "process", "architecture"])
+def test_program_v2_reclassifies_single_item_structure_without_duplication(
+    slide_type: str,
+) -> None:
     plans = [
         SlidePlan(
             order=1,
@@ -2010,7 +2013,7 @@ def test_program_v2_reclassifies_single_item_comparison_without_duplication() ->
         ),
         SlidePlan(
             order=2,
-            slide_type="comparison",
+            slide_type=slide_type,
             title="Confirmed differentiator",
             message="One confirmed differentiator",
             speaker_notes="Explain the confirmed differentiator.",
@@ -2044,7 +2047,7 @@ def test_program_v2_reclassifies_single_item_comparison_without_duplication() ->
     assert [item.text for item in normalized[1].content_items] == [
         "Nintendo Switch 2 exclusive"
     ]
-    assert plans[1].slide_type == "comparison"
+    assert plans[1].slide_type == slide_type
 
 
 @pytest.mark.parametrize(
