@@ -2078,12 +2078,19 @@ def _select_composition_sequence(
         len(supported_body_compositions),
     )
 
-    def choose(index: int, previous_silhouette: str, required_assets: int) -> bool:
+    def choose(
+        index: int,
+        previous_silhouette: str,
+        required_assets: int,
+        *,
+        usage_limit: int,
+        unique_target: int,
+    ) -> bool:
         if index == len(candidates_by_slide):
-            return len(set(selected[1:-1])) >= required_unique_body
+            return len(set(selected[1:-1])) >= unique_target
         selected_body = set(selected[1:])
         remaining_body = max(0, len(candidates_by_slide) - 1 - max(index, 1))
-        if len(selected_body) + remaining_body < required_unique_body:
+        if len(selected_body) + remaining_body < unique_target:
             return False
         candidates = candidates_by_slide[index]
         if 0 < index < len(candidates_by_slide) - 1:
@@ -2095,20 +2102,50 @@ def _select_composition_sequence(
             spec = COMPOSITION_SPECS[candidate]
             next_required_assets = required_assets + (spec.media_requirement == "required")
             if (
-                usage[candidate] >= 2
+                usage[candidate] >= usage_limit
                 or spec.silhouette == previous_silhouette
                 or next_required_assets > media_budget
             ):
                 continue
             usage[candidate] += 1
             selected.append(candidate)
-            if choose(index + 1, spec.silhouette, next_required_assets):
+            if choose(
+                index + 1,
+                spec.silhouette,
+                next_required_assets,
+                usage_limit=usage_limit,
+                unique_target=unique_target,
+            ):
                 return True
             selected.pop()
             usage[candidate] -= 1
         return False
 
-    if not choose(0, "", 0):
+    if not choose(
+        0,
+        "",
+        0,
+        usage_limit=2,
+        unique_target=required_unique_body,
+    ):
+        selected.clear()
+        usage.clear()
+    if not selected and not choose(
+        0,
+        "",
+        0,
+        usage_limit=3,
+        unique_target=required_unique_body,
+    ):
+        selected.clear()
+        usage.clear()
+    if not selected and not choose(
+        0,
+        "",
+        0,
+        usage_limit=3,
+        unique_target=max(0, required_unique_body - 1),
+    ):
         raise CompositionCompileError("No composition sequence satisfies the deck constraints")
     return selected
 

@@ -1488,6 +1488,42 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
     assert normalized.slides[2].composition_id == "editorial-split"
 
 
+def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        *[slide_payload("process", 3) for _ in range(5)],
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": index,
+                "compositionId": (
+                    "minimal-cover"
+                    if index == 1
+                    else "cta-closing"
+                    if index == len(slides)
+                    else "process-horizontal"
+                ),
+                "variant": "dark" if index in {1, len(slides)} else "light",
+                "backgroundMode": "dark" if index in {1, len(slides)} else "light",
+                "focalType": "process",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+            for index in range(1, len(slides) + 1)
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+    body = [direction.composition_id for direction in normalized.slides[1:-1]]
+    silhouettes = [COMPOSITION_SPECS[value].silhouette for value in body]
+
+    assert set(body) == {"process-horizontal", "timeline"}
+    assert max(Counter(body).values()) == 3
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
+
+
 def test_two_item_comparison_uses_asymmetric_contrasting_statement_panels() -> None:
     slide = slide_payload("comparison", 2)
     design_program = program(
