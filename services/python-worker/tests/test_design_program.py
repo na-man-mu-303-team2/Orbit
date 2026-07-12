@@ -304,6 +304,55 @@ def test_program_v2_slide_summary_reports_official_source_availability() -> None
     assert summary["officialSourceAvailable"] is True
 
 
+def test_program_v2_hybrid_cover_reserves_deck_official_source() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            generationMode="design-pack",
+            topic="Splatoon Raiders",
+            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official announcement",
+            content="Official product facts",
+            authority="official",
+        ),
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:independent",
+            url="https://example.com/news",
+            title="Independent coverage",
+            content="Independent product coverage",
+            authority="independent",
+        ),
+    ]
+    cover = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Official reveal",
+        message="The official reveal is available.",
+        speaker_notes="Introduce the official reveal.",
+        keywords=[],
+        evidence=[],
+        source_refs=["web:independent"],
+    )
+    body = cover.model_copy(
+        update={"order": 2, "slide_type": "context", "title": "Coverage"}
+    )
+
+    assert program_v2_slide_summary(cover, raw_input)[
+        "officialSourceAvailable"
+    ] is True
+    assert program_v2_slide_summary(body, raw_input)[
+        "officialSourceAvailable"
+    ] is False
+
+
 def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
     plans = golden_slide_plans()
     plans[6].slide_type = "comparison"

@@ -2712,12 +2712,23 @@ def program_v2_slide_summary(
             raw_input,
             slide_plan.order,
         )
-        summary["officialSourceAvailable"] = any(
+        referenced_official_source = any(
             (source := records.get(source_id)) is not None
             and source.source_type == "web"
             and source.authority == "official"
             and bool(source.url)
             for source_id in source_refs
+        )
+        deck_official_source = any(
+            source.source_type == "web"
+            and source.authority == "official"
+            and bool(source.url)
+            for source in records.values()
+        )
+        summary["officialSourceAvailable"] = referenced_official_source or (
+            raw_input.design.media_policy == "hybrid"
+            and slide_plan.order == 1
+            and deck_official_source
         )
     return summary
 
