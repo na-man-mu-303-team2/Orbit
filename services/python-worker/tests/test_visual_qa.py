@@ -342,6 +342,64 @@ def test_change_composition_without_id_uses_compatible_alternative() -> None:
     assert not any("requires compositionId" in warning for warning in result.warnings)
 
 
+def test_change_composition_preserves_resolved_media_focal_id() -> None:
+    candidate = deck()
+    candidate["slides"][0]["aiNotes"]["compositionPlan"].update(
+        {
+            "compositionId": "hero-split",
+            "primaryFocalElementId": "el_1_program_v2_media_asset",
+            "assetRole": "atmosphere",
+            "requiredAsset": False,
+        }
+    )
+    candidate["metadata"]["designProgramSnapshot"]["compositionIds"] = [
+        "hero-split"
+    ]
+    candidate["slides"][0]["aiNotes"]["visualPlan"].update(
+        {
+            "imageNeeded": True,
+            "imageSourcePolicy": "hybrid",
+            "reason": "Hero atmosphere",
+        }
+    )
+    candidate["slides"][0]["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 972,
+            "y": 120,
+            "width": 828,
+            "height": 840,
+            "zIndex": 5,
+            "props": {
+                "src": "/api/v1/projects/project_visual/assets/file_visual/content",
+                "alt": "Official hero",
+                "fit": "cover",
+            },
+        }
+    )
+
+    action = visual_qa_module.VisualRepairAction.model_validate(
+        {
+            "action": "changeComposition",
+            "slideId": "slide_1",
+            "compositionId": "hero-split",
+            "backgroundMode": "light",
+            "reason": "Rebalance resolved hero",
+        }
+    )
+    visual_qa_module.recompile_slide(candidate, candidate["slides"][0], action)
+
+    plan = candidate["slides"][0]["aiNotes"]["compositionPlan"]
+    element_ids = {
+        element["elementId"] for element in candidate["slides"][0]["elements"]
+    }
+
+    assert plan["primaryFocalElementId"].endswith("_media_asset")
+    assert plan["primaryFocalElementId"] in element_ids
+
+
 def test_increase_text_focal_scale_preserves_grid_frame() -> None:
     candidate = deck()
     before = next(

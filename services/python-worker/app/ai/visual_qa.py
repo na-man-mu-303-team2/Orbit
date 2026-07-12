@@ -569,19 +569,23 @@ def recompile_slide(
         ),
         None,
     )
+    focal_element_id = compiled.primary_focal_element_id
     if old_media is not None and placeholder is not None:
+        restored_media_id = str(placeholder["elementId"]).replace(
+            "_media_placeholder",
+            "_media_asset",
+        )
         elements[elements.index(placeholder)] = {
             **old_media,
-            "elementId": str(placeholder["elementId"]).replace(
-                "_media_placeholder",
-                "_media_asset",
-            ),
+            "elementId": restored_media_id,
             "x": placeholder["x"],
             "y": placeholder["y"],
             "width": placeholder["width"],
             "height": placeholder["height"],
             "zIndex": placeholder["zIndex"],
         }
+        if focal_element_id == placeholder["elementId"]:
+            focal_element_id = restored_media_id
     slide["elements"] = elements
     slide.setdefault("style", {}).update(
         {
@@ -595,12 +599,12 @@ def recompile_slide(
             "compositionId": direction.composition_id,
             "variant": direction.variant,
             "backgroundMode": direction.background_mode,
-            "primaryFocalElementId": compiled.primary_focal_element_id,
+            "primaryFocalElementId": focal_element_id,
         }
     )
     update_snapshot_composition(deck, slide_index, direction.composition_id)
     if slide.get("animations"):
-        slide["animations"][0]["elementId"] = compiled.primary_focal_element_id
+        slide["animations"][0]["elementId"] = focal_element_id
     return old_media is None and placeholder is not None
 
 
