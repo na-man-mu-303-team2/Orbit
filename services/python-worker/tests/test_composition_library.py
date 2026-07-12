@@ -1123,13 +1123,17 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     )
     nodes = [element for element in compiled.elements if element["role"] == "body"]
 
-    assert hub["x"] == 712
-    assert hub["width"] == 496
-    assert hub["props"]["fontSize"] == 26
-    assert hub["props"]["color"] == "#111827"
-    assert hub_field["props"]["fill"] == "#06B6D4"
-    assert all(element["props"]["fontSize"] >= 24 for element in nodes)
-    assert all(element["width"] == 504 for element in nodes)
+    assert hub["x"] == 724
+    assert hub["width"] == 472
+    assert hub["props"]["fontSize"] == 44
+    assert hub["props"]["color"] == "#FFFFFF"
+    assert hub["props"]["text"] == "3가지\n핵심 축"
+    assert hub_field["props"]["fill"] == "#6D28D9"
+    assert all(element["props"]["fontSize"] >= 32 for element in nodes)
+    assert all(element["width"] == 480 for element in nodes)
+    assert sum(
+        "_connector_" in element["elementId"] for element in compiled.elements
+    ) == 3
 
 
 def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:

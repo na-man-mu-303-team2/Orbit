@@ -1393,48 +1393,177 @@ def _timeline(
     return elements, _id(order, "timeline_1")
 
 
-def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _diagram_hub(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
     hub_x = _grid_x(4)
     hub_width = _grid_width(4)
-    hub = _rect(order, "hub_field", "highlight", hub_x, 390, hub_width, 260, 4, style.secondary, radius=8)
+    hub_y = 344
+    hub_height = 336
+    hub = _rect(
+        order,
+        "hub_field",
+        "highlight",
+        hub_x,
+        hub_y,
+        hub_width,
+        hub_height,
+        4,
+        style.focal,
+        radius=8,
+    )
     hub_copy = (
-        str(slide.get("title", ""))
+        f"{len(items)}가지\n핵심 축"
         if _message_duplicates_items(slide, items)
         else str(slide.get("message", ""))
     )
-    hub_font_size = 26 if len(hub_copy) <= 16 else 22 if len(hub_copy) <= 20 else 18
-    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), hub_x + 24, 440, hub_width - 48, 160, 5, _contrasting_text_color(style.secondary, style.text), hub_font_size, "bold", style.heading_font, align="center", vertical="middle")]
+    hub_display = (
+        hub_copy
+        if len(hub_copy) <= 28
+        else textwrap.shorten(hub_copy, width=80, placeholder="...")
+    )
+    hub_font_size = 44 if len(hub_copy) <= 16 else 38 if len(hub_copy) <= 28 else 34
+    elements = [
+        _background(order, style),
+        _title(order, slide, style),
+        hub,
+        _text(
+            order,
+            "hub",
+            "highlight",
+            hub_display,
+            hub_x + 36,
+            hub_y + 48,
+            hub_width - 72,
+            hub_height - 96,
+            5,
+            _contrasting_text_color(style.focal, style.text),
+            hub_font_size,
+            "bold",
+            style.heading_font,
+            align="center",
+            vertical="middle",
+        ),
+    ]
     if len(items) == 3:
         frames = [
-            (_grid_x(0), 300, _grid_width(4), 200),
-            (_grid_x(8), 300, _grid_width(4), 200),
-            (_grid_x(4), 700, _grid_width(4), 180),
+            (_grid_x(0), 400, _grid_width(4), 240),
+            (_grid_x(8), 400, _grid_width(4), 240),
+            (_grid_x(4), 736, _grid_width(4), 168),
         ]
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    "connector_left",
+                    "decoration",
+                    _grid_x(0) + _grid_width(4),
+                    508,
+                    hub_x - (_grid_x(0) + _grid_width(4)),
+                    8,
+                    2,
+                    style.secondary,
+                    radius=4,
+                ),
+                _rect(
+                    order,
+                    "connector_right",
+                    "decoration",
+                    hub_x + hub_width,
+                    508,
+                    _grid_x(8) - (hub_x + hub_width),
+                    8,
+                    2,
+                    style.secondary,
+                    radius=4,
+                ),
+                _rect(
+                    order,
+                    "connector_bottom",
+                    "decoration",
+                    hub_x + hub_width // 2 - 4,
+                    hub_y + hub_height,
+                    8,
+                    56,
+                    2,
+                    style.secondary,
+                    radius=4,
+                ),
+            ]
+        )
     elif len(items) == 4:
         frames = [
-            (_grid_x(0), 304, _grid_width(3), 176),
-            (_grid_x(9), 304, _grid_width(3), 176),
-            (_grid_x(0), 704, _grid_width(3), 176),
-            (_grid_x(9), 704, _grid_width(3), 176),
+            (_grid_x(0), 304, _grid_width(3), 216),
+            (_grid_x(9), 304, _grid_width(3), 216),
+            (_grid_x(0), 688, _grid_width(3), 216),
+            (_grid_x(9), 688, _grid_width(3), 216),
         ]
     else:
         frames = [
-            (_grid_x(0), 280, _grid_width(3), 144),
-            (_grid_x(9), 280, _grid_width(3), 144),
-            (_grid_x(0), 472, _grid_width(3), 144),
-            (_grid_x(9), 472, _grid_width(3), 144),
-            (_grid_x(0), 664, _grid_width(3), 144),
-            (_grid_x(9), 664, _grid_width(3), 144),
+            (_grid_x(0), 288, _grid_width(3), 176),
+            (_grid_x(9), 288, _grid_width(3), 176),
+            (_grid_x(0), 512, _grid_width(3), 176),
+            (_grid_x(9), 512, _grid_width(3), 176),
+            (_grid_x(0), 736, _grid_width(3), 168),
+            (_grid_x(9), 736, _grid_width(3), 168),
         ][: len(items)]
+    colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)
     ):
+        fill = colors[(index + 1) % len(colors)]
+        text_color = _contrasting_text_color(fill, style.text)
         elements.extend(
             [
-                _rect(order, f"node_{index + 1}_field", "decoration", x, y, width, height, 3, style.surface, stroke=style.focal, stroke_width=2, radius=8),
-                _text(order, f"node_{index + 1}", "body", value, x + 20, y + 20, width - 40, height - 40, 5, style.text, max(22, style.body_size + 2), "semibold", style.body_font, align="center", vertical="middle", content_item_ids=[identifier]),
+                _rect(
+                    order,
+                    f"node_{index + 1}_field",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    height,
+                    3,
+                    fill,
+                    radius=8,
+                ),
+                _text(
+                    order,
+                    f"node_{index + 1}_index",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 32,
+                    y + 20,
+                    width - 64,
+                    56,
+                    5,
+                    text_color,
+                    42,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"node_{index + 1}",
+                    "body",
+                    value,
+                    x + 32,
+                    y + 80,
+                    width - 64,
+                    height - 104,
+                    5,
+                    text_color,
+                    max(32, style.body_size),
+                    "semibold",
+                    style.body_font,
+                    align="center",
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
             ]
         )
     return elements, _id(order, "hub")
