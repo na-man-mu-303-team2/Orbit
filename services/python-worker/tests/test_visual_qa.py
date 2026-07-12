@@ -45,6 +45,13 @@ def deck() -> dict[str, Any]:
         "metadata": {
             "language": "ko",
             "locale": "ko-KR",
+            "sourceType": "ai",
+            "generatedBy": "ai",
+            "createdFrom": {
+                "topic": "Visual deck",
+                "references": [],
+                "designReferences": [],
+            },
             "designProgramSnapshot": {
                 "version": "program-v2",
                 "visualConcept": "Bold product reveal",
@@ -77,6 +84,7 @@ def deck() -> dict[str, Any]:
             "height": 1080,
             "aspectRatio": "16:9",
         },
+        "targetDurationMinutes": 5,
         "theme": {
             "name": "program-v2",
             "fontFamily": "Pretendard",
@@ -272,6 +280,7 @@ def test_replace_image_repair_creates_resolvable_asset_slot() -> None:
         for element in result.deck["slides"][0]["elements"]
     )
     assert "asset" not in result.deck["slides"][0]["aiNotes"]["visualPlan"]
+    assert isinstance(result.validation.passed, bool)
 
 
 def test_change_composition_recompiles_from_snapshot() -> None:
@@ -298,3 +307,72 @@ def test_change_composition_recompiles_from_snapshot() -> None:
         element["elementId"] == plan["primaryFocalElementId"]
         for element in result.deck["slides"][0]["elements"]
     )
+    assert result.deck["metadata"]["designProgramSnapshot"]["compositionIds"] == [
+        "hero-split"
+    ]
+
+
+def test_optional_media_failure_recompiles_to_no_media_composition() -> None:
+    candidate = deck()
+    candidate["slides"][0]["aiNotes"]["compositionPlan"].update(
+        {
+            "compositionId": "hero-split",
+            "assetRole": "atmosphere",
+            "requiredAsset": False,
+        }
+    )
+    candidate["metadata"]["designProgramSnapshot"]["compositionIds"] = [
+        "hero-split"
+    ]
+    with_media = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "changeComposition",
+                        "slideId": "slide_1",
+                        "compositionId": "hero-split",
+                        "backgroundMode": "light",
+                        "reason": "Prepare an optional hero image",
+                    }
+                ],
+            }
+        )
+    ).deck
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": with_media,
+                "actions": [],
+                "dropOptionalMediaSlideIds": ["slide_1"],
+            }
+        )
+    )
+
+    repaired = result.deck["slides"][0]
+    assert repaired["aiNotes"]["compositionPlan"]["compositionId"] == "minimal-cover"
+    assert repaired["aiNotes"]["compositionPlan"]["assetRole"] == "none"
+    assert repaired["aiNotes"]["visualPlan"]["imageNeeded"] is False
+    assert not any(element.get("role") == "media" for element in repaired["elements"])
+    assert result.asset_slide_ids == []
+
+
+def test_required_media_cannot_use_optional_fallback() -> None:
+    candidate = deck()
+    candidate["slides"][0]["aiNotes"]["compositionPlan"]["requiredAsset"] = True
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [],
+                "dropOptionalMediaSlideIds": ["slide_1"],
+            }
+        )
+    )
+
+    assert result.warnings == [
+        "Optional media fallback skipped: required media cannot use optional fallback"
+    ]

@@ -10,9 +10,20 @@ from typing import Any, Literal
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.ai.composition_library import compile_composition
+from app.ai.composition_library import (
+    COMPOSITION_SPECS,
+    FALLBACK_COMPOSITIONS,
+    compile_composition,
+)
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.design_program import CompositionId, DeckDesignProgram
+from app.ai.generate_deck import (
+    ValidationResult,
+    validate_content,
+    validate_design,
+    validate_layout,
+    validate_presentation,
+)
 from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.ai.pptx_ooxml_generation import CanvasSpec, render_pptx_to_png_assets
 
@@ -113,14 +124,21 @@ class VisualQaResponse(BaseModel):
 
 
 class VisualRepairRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     deck: dict[str, Any]
     actions: list[VisualRepairAction]
+    drop_optional_media_slide_ids: list[str] = Field(
+        default_factory=list,
+        alias="dropOptionalMediaSlideIds",
+    )
 
 
 class VisualRepairResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     deck: dict[str, Any]
+    validation: ValidationResult
     asset_slide_ids: list[str] = Field(default_factory=list, alias="assetSlideIds")
     warnings: list[str] = Field(default_factory=list)
 
@@ -329,6 +347,22 @@ def repair_deck_visuals(request: VisualRepairRequest) -> VisualRepairResponse:
     deck = deepcopy(request.deck)
     asset_slide_ids: list[str] = []
     warnings: list[str] = []
+    for slide_id in request.drop_optional_media_slide_ids:
+        slide = next(
+            (
+                candidate
+                for candidate in deck.get("slides", [])
+                if candidate.get("slideId") == slide_id
+            ),
+            None,
+        )
+        if slide is None:
+            warnings.append(f"Optional media fallback skipped missing slide: {slide_id}")
+            continue
+        try:
+            drop_optional_media(deck, slide)
+        except Exception as error:
+            warnings.append(f"Optional media fallback skipped: {error}")
     for action in request.actions:
         slide = next(
             (
@@ -349,8 +383,28 @@ def repair_deck_visuals(request: VisualRepairRequest) -> VisualRepairResponse:
             warnings.append(f"Visual repair skipped {action.action}: {error}")
     return VisualRepairResponse(
         deck=deck,
+        validation=validate_repaired_deck(deck),
         assetSlideIds=asset_slide_ids,
         warnings=warnings,
+    )
+
+
+def validate_repaired_deck(deck: dict[str, Any]) -> ValidationResult:
+    layout_issues = validate_layout(deck)
+    content_issues = validate_content(deck)
+    design_issues = validate_design(deck)
+    presentation_issues = validate_presentation(deck)
+    return ValidationResult(
+        passed=not (
+            layout_issues
+            or content_issues
+            or design_issues
+            or presentation_issues
+        ),
+        layoutIssues=layout_issues,
+        contentIssues=content_issues,
+        designIssues=design_issues,
+        presentationIssues=presentation_issues,
     )
 
 
@@ -455,9 +509,90 @@ def recompile_slide(
             "primaryFocalElementId": compiled.primary_focal_element_id,
         }
     )
+    update_snapshot_composition(deck, slide_index, direction.composition_id)
     if slide.get("animations"):
         slide["animations"][0]["elementId"] = compiled.primary_focal_element_id
     return old_media is None and placeholder is not None
+
+
+def drop_optional_media(deck: dict[str, Any], slide: dict[str, Any]) -> None:
+    plan = slide.get("aiNotes", {}).get("compositionPlan", {})
+    if plan.get("requiredAsset") is True:
+        raise ValueError("required media cannot use optional fallback")
+    program = design_program_from_deck(deck)
+    slide_index = deck.get("slides", []).index(slide)
+    direction = program.slides[slide_index]
+    summary = slide_summary_from_deck(slide)
+    slide_type = str(summary.get("slideType", "summary"))
+    item_count = len(summary.get("contentItems", []))
+    candidates = (
+        direction.composition_id,
+        *FALLBACK_COMPOSITIONS.get(slide_type, ()),
+    )
+    selected: CompositionId | None = None
+    for candidate in dict.fromkeys(candidates):
+        spec = COMPOSITION_SPECS[candidate]
+        if (
+            spec.media_requirement == "none"
+            and slide_type in spec.purposes
+            and spec.min_items <= item_count <= spec.max_items
+        ):
+            selected = candidate
+            break
+    if selected is None:
+        current = COMPOSITION_SPECS[direction.composition_id]
+        if current.media_requirement != "optional":
+            raise ValueError("no compatible no-media composition is available")
+        selected = direction.composition_id
+
+    direction.composition_id = selected
+    direction.asset_role = "none"
+    direction.required_asset = False
+    selected_spec = COMPOSITION_SPECS[selected]
+    if direction.background_mode not in selected_spec.variants:
+        direction.background_mode = selected_spec.variants[0]
+    direction.variant = direction.background_mode
+    compiled = compile_composition(direction, summary, program)
+    slide["elements"] = [
+        {key: value for key, value in element.items() if key != "_contentItemIds"}
+        for element in compiled.elements
+    ]
+    slide.setdefault("style", {}).update(
+        {
+            "layout": compiled.layout,
+            "backgroundColor": compiled.background_color,
+        }
+    )
+    composition_plan = slide.setdefault("aiNotes", {}).setdefault(
+        "compositionPlan", {}
+    )
+    composition_plan.update(
+        {
+            "compositionId": selected,
+            "variant": direction.variant,
+            "backgroundMode": direction.background_mode,
+            "primaryFocalElementId": compiled.primary_focal_element_id,
+            "assetRole": "none",
+            "requiredAsset": False,
+        }
+    )
+    visual_plan = slide.setdefault("aiNotes", {}).setdefault("visualPlan", {})
+    visual_plan["imageNeeded"] = False
+    visual_plan.pop("asset", None)
+    update_snapshot_composition(deck, slide_index, selected)
+    if slide.get("animations"):
+        slide["animations"][0]["elementId"] = compiled.primary_focal_element_id
+
+
+def update_snapshot_composition(
+    deck: dict[str, Any],
+    slide_index: int,
+    composition_id: CompositionId,
+) -> None:
+    snapshot = deck.get("metadata", {}).get("designProgramSnapshot", {})
+    composition_ids = snapshot.get("compositionIds")
+    if isinstance(composition_ids, list) and slide_index < len(composition_ids):
+        composition_ids[slide_index] = composition_id
 
 
 def design_program_from_deck(deck: dict[str, Any]) -> DeckDesignProgram:

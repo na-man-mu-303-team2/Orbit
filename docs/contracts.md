@@ -763,6 +763,7 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - review는 rendered slide PNG와 montage를 기준으로 시각 issue와 허용된 repair action만 반환한다.
 - 허용 issue는 `FOCAL_POINT_WEAK`, `BALANCE_WEAK`, `IMAGE_CONTENT_MISMATCH`, `IMAGE_CROP_WEAK`, `LAYOUT_REPETITIVE`, `BACKGROUND_RHYTHM_FLAT`, `CARD_OVERUSED`, `COLOR_HARMONY_WEAK`, `VISUAL_STYLE_INCONSISTENT`다.
 - repair는 `changeComposition`, `increaseFocalScale`, `replaceImage`, `changeCrop`, `switchBackgroundMode`, `reduceCards`, `promoteMetric`, `shortenCopy`, `moveSupportingContent`만 허용하며 모델이 Deck JSON을 직접 수정하지 않는다.
+- `repair-deck-visuals`는 repair 이후 Deck과 결정론적 `validation`을 함께 반환한다. 선택 이미지가 해소되지 않은 slide는 `dropOptionalMediaSlideIds`로 전달하며, `requiredAsset=false`인 경우에만 호환 가능한 no-media composition으로 재컴파일한다.
 - `AI_PPT_VISUAL_QA_MODEL`이 비어 있으면 `OPENAI_MODEL`을 사용한다. Vision QA를 실행할 수 없으면 `program-v2`를 `recipe-v1`로 fallback하지 않는다.
 
 ### AI PPT 기본 의미 기반 QA 계약
