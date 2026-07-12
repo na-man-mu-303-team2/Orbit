@@ -84,6 +84,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
           {props.isAuthenticated ? (
             <>
               <button
+                aria-label={`계정 메뉴: ${props.userLabel || "사용자"}`}
                 aria-expanded={isMenuOpen}
                 aria-haspopup="menu"
                 className="orbit-app-header-user"

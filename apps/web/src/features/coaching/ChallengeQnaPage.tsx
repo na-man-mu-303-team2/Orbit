@@ -209,7 +209,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
             {resultFeedback ? (
               <section className="qna-result" aria-live="polite">
                 <span><IconChevronRight size={22} /></span>
-                <div><small>답변 피드백</small><h2>{resultFeedback.headline}</h2><p>청중 적합성: {resultFeedback.audienceFit}</p></div>
+                <div><h2>답변 피드백</h2><h3>{resultFeedback.headline}</h3><p>청중 적합성: {resultFeedback.audienceFit}</p></div>
                 <OrbitButton icon={<IconChevronRight size={18} />} onClick={() => void next()}>{view.session.activeQuestionOrder === view.session.source.questionCount ? "질문 연습 마치기" : "다음 질문"}</OrbitButton>
               </section>
             ) : null}

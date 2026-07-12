@@ -18,7 +18,7 @@
     "demo:coaching:reset": "pnpm --filter @orbit/api demo:coaching:reset",
     "test:coaching:migrations": "bash infra/scripts/test-adaptive-coaching-migrations.sh",
     "test:coaching:integration": "bash infra/scripts/test-adaptive-coaching-integration.sh",
-    "test:coaching:e2e": "pnpm test:smoke --grep \"adaptive coaching\"",
+    "test:coaching:e2e": "pnpm --filter @orbit/shared build && pnpm --filter @orbit/editor-core build && pnpm test:smoke --grep \"adaptive coaching\"",
     "test:coaching:python": "cd services/python-worker && uv sync --locked && uv run ruff check . && uv run mypy app && uv run pytest",
     "dev": "turbo run dev --parallel",
     "format": "prettier --write .",

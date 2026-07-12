@@ -12,7 +12,7 @@
     "migration:run": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && typeorm-ts-node-commonjs -d src/database/data-source.ts migration:run",
     "demo:coaching:reset": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && ts-node src/scripts/reset-coaching-demo.ts",
     "start": "node dist/main.js",
-    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/editor-core build && corepack pnpm --filter @orbit/storage build && vitest run --passWithNoTests",
+    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/editor-core build && corepack pnpm --filter @orbit/storage build && corepack pnpm --filter @orbit/job-queue build && corepack pnpm --filter @orbit/realtime build && vitest run --passWithNoTests",
     "typecheck": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/editor-core build && corepack pnpm --filter @orbit/storage build && corepack pnpm --filter @orbit/job-queue build && corepack pnpm --filter @orbit/realtime build && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

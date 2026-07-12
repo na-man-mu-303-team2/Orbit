@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import OrderedDict
+from collections.abc import Sequence
 import hashlib
 import json
 import math
@@ -4053,10 +4054,11 @@ def generate_content_plan_with_llm(
     )
     if raw_input.generation_mode == "design-pack" and needs_count_repair:
         raw_input.repair_attempted = True
-        if actual_slide_count < raw_input.slide_count:
-            raw_input.repair_reason_codes = unique_non_empty(
-                [*raw_input.repair_reason_codes, "SLIDE_COUNT_SHORT"]
-            )
+        if (
+            actual_slide_count < raw_input.slide_count
+            and "SLIDE_COUNT_SHORT" not in raw_input.repair_reason_codes
+        ):
+            raw_input.repair_reason_codes.append("SLIDE_COUNT_SHORT")
         repaired_plan = repair_slide_count_with_llm(
             raw_input,
             plan,
@@ -5695,7 +5697,7 @@ def design_profile_for_visual_rhythm(
     return None
 
 
-def has_any(text: str, candidates: list[str]) -> bool:
+def has_any(text: str, candidates: Sequence[str]) -> bool:
     return any(candidate in text for candidate in candidates)
 
 
