@@ -112,7 +112,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
           questionId: active.questionId,
           status: "succeeded",
           clarity: "clear",
-          audienceFit: "의사결정자가 실행 조건을 비교할 수 있도록 중단 기준을 덧붙이면 더 설득력 있어요.",
+          audienceFit: "appropriate",
           conceptOutcomes: [],
         } as any],
       });
@@ -169,6 +169,9 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
   }
 
   const isVoiceRecording = props.previewView ? previewRecording : audio.recording;
+  const resultFeedback = active && result?.status === "succeeded"
+    ? getChallengeAnswerFeedback(active.questionType, result.clarity, result.audienceFit)
+    : null;
 
   return (
     <div className="orbit-ds-page qna-page">
@@ -182,7 +185,7 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
         {active ? (
           <>
             <article className="qna-question">
-              <small>{active.questionType} · {active.difficulty}</small>
+              <small>{getChallengeQuestionMetaLabel(active.questionType, active.difficulty)}</small>
               <h2>{active.questionText}</h2>
               {active.answerGuide?.supportState === "insufficient" ? <p className="qna-warning">승인된 근거가 부족합니다. 참고자료를 추가하거나 주장을 좁혀 주세요.</p> : null}
             </article>
@@ -203,10 +206,10 @@ export function ChallengeQnaPage(props: { previewView?: ChallengeQnaView; projec
                 <div className="qna-voice-answer"><span><IconMicrophone size={24} /></span><div><strong>{isVoiceRecording ? "녹음 중입니다." : "음성 답변이 기본이에요."}</strong><p>{isVoiceRecording ? "최대 2분 뒤 자동으로 멈춥니다." : "준비되면 녹음을 시작하세요."}</p></div><OrbitButton disabled={busy} icon={isVoiceRecording ? <IconSquare size={18} /> : <IconMicrophone size={18} />} onClick={() => void submit()}>{isVoiceRecording ? "녹음 끝내기" : "음성 답변 시작"}</OrbitButton></div>
               )}
             </section>
-            {result?.status === "succeeded" ? (
+            {resultFeedback ? (
               <section className="qna-result" aria-live="polite">
                 <span><IconChevronRight size={22} /></span>
-                <div><small>답변 피드백</small><h2>{result.clarity === "clear" ? "결론은 명확해요. 실행 기준을 한 가지 더 붙여 보세요." : "핵심 결론을 먼저 말하고 근거를 한 가지로 좁혀 보세요."}</h2><p>청중 적합성: {result.audienceFit}</p></div>
+                <div><small>답변 피드백</small><h2>{resultFeedback.headline}</h2><p>청중 적합성: {resultFeedback.audienceFit}</p></div>
                 <OrbitButton icon={<IconChevronRight size={18} />} onClick={() => void next()}>{view.session.activeQuestionOrder === view.session.source.questionCount ? "질문 연습 마치기" : "다음 질문"}</OrbitButton>
               </section>
             ) : null}
@@ -250,4 +253,50 @@ export function toChallengeQnaUserMessage(cause: unknown) {
     return "이 프로젝트에서는 도전 Q&A를 사용할 수 없습니다. 전체 리허설로 연습해 주세요.";
   }
   return "질문 생성 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+export function getChallengeQuestionMetaLabel(questionType: string, difficulty: string) {
+  const questionTypeLabels: Record<string, string> = {
+    clarification: "명확화",
+    evidence: "근거 확인",
+    objection: "반론 대응",
+    decision: "의사결정",
+  };
+  const difficultyLabels: Record<string, string> = {
+    standard: "기본",
+    challenging: "심화",
+  };
+  return `${questionTypeLabels[questionType] ?? questionType} · ${difficultyLabels[difficulty] ?? difficulty}`;
+}
+
+export function getChallengeAnswerFeedback(
+  questionType: string,
+  clarity: string | null,
+  audienceFit: string | null,
+) {
+  const clearHeadlines: Record<string, string> = {
+    clarification: "설명이 명확해요. 핵심 용어의 범위를 한 문장으로 고정해 보세요.",
+    evidence: "근거가 명확해요. 검증 기준을 한 문장으로 덧붙여 보세요.",
+    objection: "반론 대응이 분명해요. 수용 조건과 한계를 함께 말해 보세요.",
+    decision: "결정 요청이 명확해요. 담당자와 시점을 붙여 마무리해 보세요.",
+  };
+  const audienceFitLabels: Record<string, string> = {
+    appropriate: "청중 수준에 잘 맞습니다.",
+    "too-technical": "전문 용어를 줄이고 청중의 판단 언어로 바꿔 보세요.",
+    "too-vague": "수치·사례·결정 기준 중 하나를 더 구체적으로 제시해 보세요.",
+    unmeasured: "청중 적합성을 측정하지 못했습니다.",
+  };
+
+  const headline = clarity === "clear"
+    ? clearHeadlines[questionType] ?? "결론이 명확해요. 질문에 맞는 판단 기준을 한 가지 더 붙여 보세요."
+    : clarity === "unmeasured"
+      ? "답변을 분석하지 못했습니다. 핵심 결론과 근거를 다시 한 번 말해 보세요."
+      : "핵심 결론을 먼저 말하고 근거를 한 가지로 좁혀 보세요.";
+
+  return {
+    headline,
+    audienceFit: audienceFitLabels[audienceFit ?? ""]
+      ?? audienceFit
+      ?? "청중 적합성을 측정하지 못했습니다.",
+  };
 }
