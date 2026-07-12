@@ -229,6 +229,7 @@ def test_visual_qa_instructions_exclude_subjective_color_and_crop_nits() -> None
 
     assert "a preference for more vibrancy" in instructions
     assert "a merely better possible emphasis is not a defect" in instructions
+    assert "mediaFit=contain is an intentional evidence mark" in instructions
 
 
 def test_visual_review_contract_removes_only_deterministically_false_deck_issues() -> None:
@@ -336,6 +337,25 @@ def test_visual_review_prompt_prefers_live_background_sequence() -> None:
 
     assert '"backgroundSequence": ["dark"]' in prompt
     assert '"allowedBackgroundModes": ["dark"]' in prompt
+
+
+def test_visual_review_prompt_exposes_media_fit_and_asset_role() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "props": {"src": "data:image/png;base64,AA==", "fit": "contain"},
+        }
+    )
+    slide["aiNotes"]["compositionPlan"]["assetRole"] = "evidence"
+
+    prompt = visual_qa_module.visual_review_prompt(candidate)
+
+    assert '"mediaFit": "contain"' in prompt
+    assert '"assetRole": "evidence"' in prompt
 
 
 def test_visual_review_requires_issues_when_failed() -> None:
