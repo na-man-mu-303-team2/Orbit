@@ -825,7 +825,7 @@ def _select_composition_sequence(
                 (preferred, *FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",)))
             )
             if _supports(candidate, slide_type, item_count)
-            and _content_supports_composition(candidate, slide)
+            and content_supports_composition(candidate, slide)
             and not (force_light and candidate == "hero-full-bleed")
             and not (
                 media_policy in {"minimal", "avoid"}
@@ -866,7 +866,7 @@ def _select_composition_sequence(
     return selected
 
 
-def _content_supports_composition(
+def content_supports_composition(
     composition_id: CompositionId,
     slide: dict[str, Any],
 ) -> bool:

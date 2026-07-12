@@ -312,6 +312,61 @@ def test_change_composition_recompiles_from_snapshot() -> None:
     ]
 
 
+def test_change_composition_without_id_uses_compatible_alternative() -> None:
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": deck(),
+                "actions": [
+                    {
+                        "action": "changeComposition",
+                        "slideId": "slide_1",
+                        "reason": "Cover silhouette is too repetitive",
+                    }
+                ],
+            }
+        )
+    )
+
+    plan = result.deck["slides"][0]["aiNotes"]["compositionPlan"]
+    assert plan["compositionId"] == "hero-split"
+    assert not any("requires compositionId" in warning for warning in result.warnings)
+
+
+def test_increase_text_focal_scale_preserves_grid_frame() -> None:
+    candidate = deck()
+    before = next(
+        element
+        for element in candidate["slides"][0]["elements"]
+        if element["elementId"] == "el_1_program_v2_title"
+    )
+    frame = tuple(before[key] for key in ("x", "y", "width", "height"))
+    font_size = before["props"]["fontSize"]
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "increaseFocalScale",
+                        "slideId": "slide_1",
+                        "reason": "Cover title needs more emphasis",
+                    }
+                ],
+            }
+        )
+    )
+
+    after = next(
+        element
+        for element in result.deck["slides"][0]["elements"]
+        if element["elementId"] == "el_1_program_v2_title"
+    )
+    assert tuple(after[key] for key in ("x", "y", "width", "height")) == frame
+    assert after["props"]["fontSize"] > font_size
+
+
 def test_optional_media_failure_recompiles_to_no_media_composition() -> None:
     candidate = deck()
     candidate["slides"][0]["aiNotes"]["compositionPlan"].update(

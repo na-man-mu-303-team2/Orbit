@@ -14,6 +14,7 @@ from app.ai.composition_library import (
     COMPOSITION_SPECS,
     FALLBACK_COMPOSITIONS,
     compile_composition,
+    content_supports_composition,
 )
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.design_program import CompositionId, DeckDesignProgram
@@ -449,16 +450,37 @@ def recompile_slide(
     slide: dict[str, Any],
     action: VisualRepairAction,
 ) -> bool:
-    if not action.composition_id:
-        raise ValueError("changeComposition requires compositionId")
     program = design_program_from_deck(deck)
     slide_index = deck.get("slides", []).index(slide)
     direction = program.slides[slide_index]
-    direction.composition_id = action.composition_id
+    summary = slide_summary_from_deck(slide)
+    composition_id = action.composition_id
+    if composition_id is None:
+        slide_type = str(summary.get("slideType", "summary"))
+        item_count = len(summary.get("contentItems", []))
+        composition_id = next(
+            (
+                candidate
+                for candidate in FALLBACK_COMPOSITIONS.get(slide_type, ())
+                if candidate != direction.composition_id
+                and slide_type in COMPOSITION_SPECS[candidate].purposes
+                and COMPOSITION_SPECS[candidate].min_items
+                <= item_count
+                <= COMPOSITION_SPECS[candidate].max_items
+                and not (
+                    direction.asset_role == "none"
+                    and COMPOSITION_SPECS[candidate].media_requirement == "required"
+                )
+                and content_supports_composition(candidate, summary)
+            ),
+            None,
+        )
+        if composition_id is None:
+            raise ValueError("no compatible alternative composition is available")
+    direction.composition_id = composition_id
     if action.background_mode:
         direction.background_mode = action.background_mode
         direction.variant = action.background_mode
-    summary = slide_summary_from_deck(slide)
     compiled = compile_composition(direction, summary, program)
     old_media = next(
         (
@@ -730,6 +752,13 @@ def scale_focal_element(slide: dict[str, Any], target_id: str | None) -> None:
     )
     if element is None:
         raise ValueError("Focal element is unavailable")
+    if element.get("type") == "text":
+        props = element.setdefault("props", {})
+        props["fontSize"] = min(
+            96,
+            round(float(props.get("fontSize", 24)) * 1.12),
+        )
+        return
     width = min(1680, round(float(element["width"]) * 1.12))
     height = min(904, round(float(element["height"]) * 1.12))
     center_x = float(element["x"]) + float(element["width"]) / 2
