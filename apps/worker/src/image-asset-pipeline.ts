@@ -105,10 +105,16 @@ export async function resolveDeckImageAssets(
   storage: Pick<StoragePort, "putObject">,
   deck: Deck,
   runtime: ImageAssetRuntime,
-  scope: ImageAssetScope
+  scope: ImageAssetScope,
+  onlySlideIds?: ReadonlySet<string>
 ): Promise<{ deck: Deck; warnings: string[] }> {
   const warnings: string[] = [];
-  const candidates = deck.slides.filter(isResolvableImageSlide);
+  const candidates = deck.slides.filter(
+    (slide) =>
+      isResolvableImageSlide(slide) &&
+      (onlySlideIds === undefined || onlySlideIds.has(slide.slideId))
+  );
+  if (candidates.length === 0) return { deck, warnings };
   const selected = candidates.slice(0, Math.max(0, runtime.maxPerDeck));
   if (candidates.length > selected.length) {
     warnings.push(

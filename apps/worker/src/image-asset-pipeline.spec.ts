@@ -362,6 +362,66 @@ describe("image asset pipeline", () => {
       element.elementId.endsWith("_media_placeholder")
     )).toBe(true);
   });
+
+  it("re-resolves only the visual repair slide set", async () => {
+    const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
+      body: pngHeader(1280, 720),
+      mimeType: "image/png",
+      fileName: "generated.png",
+      provider: "openai"
+    }));
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([]);
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const first = imageDeck("ai-generated");
+    const second = {
+      ...first.slides[0],
+      slideId: "slide_2",
+      order: 2,
+      elements: first.slides[0].elements.map((element) => ({
+        ...element,
+        elementId: element.elementId.replace("el_", "el_2_")
+      }))
+    };
+    const candidate = deckSchema.parse({
+      ...first,
+      slides: [first.slides[0], second]
+    });
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      candidate,
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" },
+      new Set(["slide_2"])
+    );
+
+    expect(generate).toHaveBeenCalledOnce();
+    expect(
+      result.deck.slides[0].elements.some((element) =>
+        element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(true);
+    expect(
+      result.deck.slides[1].elements.some((element) =>
+        element.elementId.endsWith("_media_asset")
+      )
+    ).toBe(true);
+  });
 });
 
 function imageDeck(
