@@ -38,6 +38,7 @@ from app.ai.generate_deck import (
     core_geometry_fingerprint,
     deck_content_prompt,
     deck_content_response_format_for,
+    deduplicate_speaker_note_sentences,
     design_pack_insight_elements,
     design_pack_items,
     design_pack_recipe_elements,
@@ -681,6 +682,21 @@ def test_sparse_short_deck_caps_speaker_notes_instead_of_padding_to_full_duratio
         slide.target_speaker_notes_chars <= 520 for slide in slide_plans
     )
     assert sum(slide.target_speaker_notes_chars for slide in slide_plans) < 3120
+
+
+def test_speaker_notes_remove_semantically_repeated_introduction() -> None:
+    notes = (
+        "안녕하세요, 오늘 발표에서는 ORBIT의 새로운 AI 생성 회귀 테스트 전략인 "
+        "Deck JSON 기반 생성 MVP를 소개하겠습니다. "
+        "기존 템플릿 덮어쓰기 방식은 확장성에 한계가 있었습니다. "
+        "안녕하세요, 오늘은 ORBIT에서 진행하는 AI 생성 회귀 테스트의 핵심인 "
+        "Deck JSON 기반 생성 MVP에 대해 소개드리겠습니다."
+    )
+
+    deduplicated = deduplicate_speaker_note_sentences(notes)
+
+    assert deduplicated.count("안녕하세요") == 1
+    assert "기존 템플릿 덮어쓰기 방식" in deduplicated
 
 
 def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:

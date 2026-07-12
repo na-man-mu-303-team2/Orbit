@@ -788,7 +788,7 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v3"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v4"
 MAX_SPEAKER_NOTES_CHARS_PER_SLIDE = 520
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
@@ -3274,6 +3274,10 @@ def plan_deck_content(
                         model=model,
                         api_key=api_key,
                     )
+                    for slide_plan in slide_plans:
+                        slide_plan.speaker_notes = deduplicate_speaker_note_sentences(
+                            slide_plan.speaker_notes
+                        )
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -3509,6 +3513,42 @@ def speaker_note_fragments(text: str) -> list[str]:
         for fragment in re.split(r"(?<=[.!?])\s+", normalized)
         if fragment.strip()
     ]
+
+
+def deduplicate_speaker_note_sentences(text: str) -> str:
+    selected: list[str] = []
+    selected_tokens: list[set[str]] = []
+    for fragment in speaker_note_fragments(text):
+        tokens = normalized_speaker_note_tokens(fragment)
+        if tokens and any(
+            speaker_note_token_sets_are_similar(tokens, existing)
+            for existing in selected_tokens
+        ):
+            continue
+        selected.append(fragment)
+        selected_tokens.append(tokens)
+    return " ".join(selected)
+
+
+def normalized_speaker_note_tokens(text: str) -> set[str]:
+    particles = ("에서", "에게", "으로", "은", "는", "이", "가", "을", "를", "에", "의", "와", "과", "로")
+    tokens: set[str] = set()
+    for raw_token in re.findall(r"[0-9A-Za-z가-힣]+", text.casefold()):
+        token = raw_token
+        for particle in particles:
+            if len(token) > len(particle) + 1 and token.endswith(particle):
+                token = token[: -len(particle)]
+                break
+        if len(token) >= 2:
+            tokens.add(token)
+    return tokens
+
+
+def speaker_note_token_sets_are_similar(left: set[str], right: set[str]) -> bool:
+    if min(len(left), len(right)) < 5:
+        return False
+    overlap = len(left & right)
+    return overlap >= 5 and overlap / min(len(left), len(right)) >= 0.72
 
 
 def fit_grounded_speaker_note_candidates(
