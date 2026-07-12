@@ -967,6 +967,87 @@ def _editorial_split(
             )
         return elements, message["elementId"]
 
+    if len(items) >= 4:
+        row_top = 288
+        row_height = 584 // len(items)
+        for index, (identifier, value) in enumerate(items):
+            y = row_top + index * row_height
+            is_focal = index == 0
+            text_color = (
+                _contrasting_text_color(style.focal, style.text)
+                if is_focal
+                else style.text
+            )
+            if is_focal:
+                elements.append(
+                    _rect(
+                        order,
+                        "item_1_focal_rail",
+                        "decoration",
+                        SAFE_X,
+                        y,
+                        SAFE_WIDTH,
+                        row_height,
+                        3,
+                        style.focal,
+                    )
+                )
+            elif index < len(items):
+                elements.append(
+                    _rect(
+                        order,
+                        f"item_{index + 1}_divider",
+                        "decoration",
+                        _grid_x(2),
+                        y + row_height - 2,
+                        _grid_width(10),
+                        2,
+                        3,
+                        style.secondary,
+                    )
+                )
+            elements.extend(
+                [
+                    _text(
+                        order,
+                        f"item_{index + 1}_index",
+                        "highlight",
+                        f"{index + 1:02d}",
+                        _grid_x(0),
+                        y + 16,
+                        _grid_width(2),
+                        row_height - 32,
+                        5,
+                        text_color if is_focal else style.focal,
+                        52 if is_focal else 44,
+                        "bold",
+                        style.heading_font,
+                        align="center",
+                        vertical="middle",
+                    ),
+                    _text(
+                        order,
+                        f"item_{index + 1}",
+                        "body",
+                        value,
+                        _grid_x(2),
+                        y + 16,
+                        _grid_width(10),
+                        row_height - 32,
+                        5,
+                        text_color,
+                        max(42, style.body_size + 8)
+                        if is_focal
+                        else max(36, style.body_size + 4),
+                        "bold" if is_focal else "semibold",
+                        style.body_font,
+                        vertical="middle",
+                        content_item_ids=[identifier],
+                    ),
+                ]
+            )
+        return elements, _id(order, "item_1")
+
     if len(items) == 2:
         frames = [
             (_grid_x(0), 288, _grid_width(7), 584),
@@ -979,15 +1060,7 @@ def _editorial_split(
             (_grid_x(7), 592, _grid_width(5), 280),
         ]
     else:
-        frames = [
-            (
-                _grid_x((index % 2) * 6),
-                288 + (index // 2) * 304,
-                _grid_width(6),
-                280,
-            )
-            for index in range(len(items))
-        ]
+        frames = []
     colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)

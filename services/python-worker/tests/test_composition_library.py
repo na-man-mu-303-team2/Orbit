@@ -1030,6 +1030,51 @@ def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
 
 
+def test_editorial_split_four_items_uses_single_focal_rail() -> None:
+    slide = slide_payload("feature-grid", 4)
+    slide["message"] = "\n".join(item["text"] for item in slide["contentItems"])
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "editorial-split",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "statement",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    rails = [
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_focal_rail")
+    ]
+    dividers = [
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_divider")
+    ]
+    bodies = [element for element in compiled.elements if element["role"] == "body"]
+
+    assert len(rails) == 1
+    assert (rails[0]["x"], rails[0]["width"], rails[0]["height"]) == (
+        120,
+        1680,
+        146,
+    )
+    assert len(dividers) == 3
+    assert all((body["x"], body["width"]) == (404, 1396) for body in bodies)
+    assert bodies[0]["props"]["fontSize"] > bodies[1]["props"]["fontSize"]
+
+
 def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
     slides = [
         slide_payload("cover", 1),
