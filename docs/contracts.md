@@ -662,7 +662,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `design.slidePresetId`는 선택 필드이며 worker 내부 slide recipe ID를 강제한다. 값이 없으면 worker selector가 slide intent와 step count를 기준으로 자동 선택한다.
 - `design.visualRhythm`은 `auto`, `clean`, `editorial`, `bold`, `technical`만 허용한다.
 - `design.densityTarget`은 `low`, `medium`, `high`만 허용한다.
-- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`, `provided-only`, `public-assets`, `ai-generated`, `hybrid`, `minimal`을 허용한다. `hybrid`는 evidence에는 사용자 제공 또는 공식 asset, atmosphere에는 AI 생성 asset, 구조화 시각물에는 native element를 사용한다.
+- `design.mediaPolicy`는 `avoid`, `balanced`, `placeholder-ok`, `provided-only`, `public-assets`, `ai-generated`, `hybrid`, `minimal`을 허용한다. `hybrid`는 evidence에는 사용자 제공 또는 공식 asset, atmosphere에는 AI 생성 asset, 구조화 시각물에는 native element를 사용한다. `program-v2` hybrid Deck은 최종 발행 시 실제 media asset 3~5개를 유지해야 하며, asset 예산이나 provider 실패로 3개 미만이 남으면 `MEDIA_BUDGET_UNDERSUPPLIED` 품질 issue로 발행을 차단한다.
 - `design.layoutDiversity`는 `stable`, `varied`만 허용한다.
 - `generationMode`는 `legacy`, `design-pack`만 허용하며 기본값은 `legacy`다. 기존 AI 덱 생성과 템플릿 기반 생성은 `legacy` 경로를 유지하고, `/ai-ppt` wizard만 `design-pack`을 명시한다.
 - AI PPT wizard는 `brief`를 함께 보낼 수 있다. `brief.referencePolicy`는 `topic-only`, `user-input-only`, `references-first`, `references-only`, `research-first`를 허용하며, `references-only`는 web에서 참고 파일 1개 이상을 요구한다.

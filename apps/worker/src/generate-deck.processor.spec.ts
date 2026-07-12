@@ -610,6 +610,75 @@ describe("processGenerateDeckJob", () => {
     ).toBe(false);
   });
 
+  it("rejects a hybrid program-v2 deck below the resolved media floor", async () => {
+    const deck = programV2DeckWithResolvedMediaCount(2);
+    const query = dynamicJobQuery();
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.endsWith("/ai/generate-deck")) {
+        return generateDeckResponse(deck);
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      hybridProgramV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.result).toMatchObject({
+      validation: {
+        passed: false,
+        designIssues: [
+          expect.objectContaining({ code: "MEDIA_BUDGET_UNDERSUPPLIED" })
+        ]
+      }
+    });
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).endsWith("/ai/review-deck-visuals")
+      )
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("publishes a hybrid program-v2 deck with three resolved media assets", async () => {
+    const deck = programV2DeckWithResolvedMediaCount(3);
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      hybridProgramV2Payload()
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
+  });
+
   it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
@@ -1349,6 +1418,21 @@ function programV2Payload() {
   };
 }
 
+function hybridProgramV2Payload() {
+  const base = programV2Payload();
+  return {
+    ...base,
+    request: {
+      ...base.request,
+      design: {
+        ...base.request.design,
+        mediaPolicy: "hybrid" as const
+      },
+      visualPlanPolicy: { mediaPolicy: "hybrid" as const }
+    }
+  };
+}
+
 function programV2Deck() {
   const base = createDeck();
   return deckSchema.parse({
@@ -1505,6 +1589,62 @@ function programV2DeckWithResolvedMedia() {
         }
       }
     ]
+  });
+}
+
+function programV2DeckWithResolvedMediaCount(count: number) {
+  const base = programV2DeckWithResolvedMedia();
+  const source = base.slides[0];
+  const slides = Array.from({ length: count }, (_, index) => {
+    const order = index + 1;
+    const replaceElementId = (value: string) =>
+      value.replace("el_1_", `el_${order}_`);
+    return {
+      ...source,
+      slideId: `slide_${order}`,
+      order,
+      title: `Visual deck ${order}`,
+      elements: source.elements.map((element) => ({
+        ...element,
+        elementId: replaceElementId(element.elementId),
+        props:
+          element.type === "image"
+            ? {
+                ...element.props,
+                src: `https://assets.example/visual-${order}.png`
+              }
+            : element.props
+      })),
+      aiNotes: {
+        ...source.aiNotes,
+        visualPlan: {
+          ...source.aiNotes?.visualPlan,
+          asset: {
+            ...source.aiNotes?.visualPlan?.asset,
+            fileId: `file_visual_${order}`
+          }
+        },
+        compositionPlan: {
+          ...source.aiNotes?.compositionPlan,
+          primaryFocalElementId: replaceElementId(
+            source.aiNotes?.compositionPlan?.primaryFocalElementId ??
+              "el_1_program_v2_title"
+          )
+        }
+      }
+    };
+  });
+  return deckSchema.parse({
+    ...base,
+    metadata: {
+      ...base.metadata,
+      designProgramSnapshot: {
+        ...designProgramSnapshot(),
+        backgroundSequence: Array.from({ length: count }, () => "light"),
+        compositionIds: Array.from({ length: count }, () => "hero-split")
+      }
+    },
+    slides
   });
 }
 

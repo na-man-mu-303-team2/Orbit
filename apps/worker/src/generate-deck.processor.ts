@@ -197,6 +197,7 @@ const designPackGenerateDeckTimeoutMs = 300_000;
 const visualQaTimeoutMs = 300_000;
 const visualRepairTimeoutMs = 120_000;
 const maxVisualRepairAttempts = 2;
+const hybridMediaBudget = { min: 3, max: 5 } as const;
 
 export async function processGenerateDeckJob(
   dataSource: DataSource,
@@ -233,6 +234,8 @@ export async function processGenerateDeckJob(
   const usesProgramV2 =
     payload.request.generationMode === "design-pack" &&
     payload.request.design.engineVersion === "program-v2";
+  const enforcesHybridMediaBudget =
+    usesProgramV2 && payload.request.design.mediaPolicy === "hybrid";
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 15,
@@ -470,6 +473,29 @@ export async function processGenerateDeckJob(
         unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
         unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
       });
+      if (enforcesHybridMediaBudget) {
+        deterministicValidation = withHybridMediaBudgetIssue(
+          deterministicValidation,
+          deck
+        );
+        if (hasQualityGateIssues(deterministicValidation)) {
+          emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+            jobId: payload.jobId,
+            projectId: payload.projectId,
+            deckId: deck.deckId,
+            issueCount: allValidationIssues(deterministicValidation).length,
+            stage: "asset-budget"
+          });
+          return failQualityGate(
+            dataSource,
+            payload.jobId,
+            workerPayload,
+            deck,
+            deterministicValidation,
+            [...workerPayload.warnings, ...imageWarnings]
+          );
+        }
+      }
       await updateJob(dataSource, payload.jobId, {
         status: "running",
         progress: 65,
@@ -546,6 +572,7 @@ export async function processGenerateDeckJob(
           validation,
           imageRuntime,
           imageAssetScope: payload.imageAssetScope,
+          enforcesHybridMediaBudget,
           eventLogger,
           jobId: payload.jobId,
           projectId: payload.projectId
@@ -714,7 +741,49 @@ function isUnresolvedMediaSlide(deckSlide: Deck["slides"][number]) {
 }
 
 function resolvedVisualAssetCount(deck: Deck) {
-  return deck.slides.filter((slide) => slide.aiNotes?.visualPlan?.asset).length;
+  return deck.slides.filter(
+    (slide) =>
+      slide.aiNotes?.visualPlan?.asset &&
+      slide.elements.some(
+        (element) =>
+          element.visible && element.role === "media" && element.type === "image"
+      )
+  ).length;
+}
+
+function withHybridMediaBudgetIssue(
+  validation: GenerateDeckValidation,
+  deck: Deck
+): GenerateDeckValidation {
+  const resolvedCount = resolvedVisualAssetCount(deck);
+  if (
+    resolvedCount >= hybridMediaBudget.min &&
+    resolvedCount <= hybridMediaBudget.max
+  ) {
+    return validation;
+  }
+  const code =
+    resolvedCount < hybridMediaBudget.min
+      ? "MEDIA_BUDGET_UNDERSUPPLIED"
+      : "MEDIA_BUDGET_EXCEEDED";
+  if (validation.designIssues.some((issue) => issue.code === code)) {
+    return { ...validation, passed: false };
+  }
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [
+      ...validation.designIssues,
+      {
+        code,
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message: `Hybrid media requires ${hybridMediaBudget.min}-${hybridMediaBudget.max} resolved visual assets; received ${resolvedCount}.`
+      }
+    ]
+  };
 }
 
 function withUnresolvedMediaIssue(
@@ -777,6 +846,7 @@ async function runProgramV2VisualQa(input: {
   validation: GenerateDeckValidation;
   imageRuntime?: ImageAssetRuntime;
   imageAssetScope?: { userId: string; organizationId?: string };
+  enforcesHybridMediaBudget: boolean;
   eventLogger?: GenerateDeckEventLogger;
   jobId: string;
   projectId: string;
@@ -917,6 +987,9 @@ async function runProgramV2VisualQa(input: {
     };
     if (hasMediaPlaceholder(deck)) {
       validation = withUnresolvedMediaIssue(validation);
+    }
+    if (input.enforcesHybridMediaBudget) {
+      validation = withHybridMediaBudgetIssue(validation, deck);
     }
     if (hasQualityGateIssues(validation)) {
       return {
