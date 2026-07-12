@@ -387,13 +387,13 @@ export async function fetchRehearsalDeck(
   projectId: string = demoIds.projectId,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/deck`);
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "deck",
       await readErrorMessage(
         response,
-        "諛쒗몴?먮즺瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+        "발표 자료를 불러오지 못했습니다.",
       ),
     );
   }
@@ -412,7 +412,7 @@ export async function fetchOrCreateRehearsalDeck(
   const projectId =
     options.projectId ?? options.fallbackDeck?.projectId ?? demoIds.projectId;
   const fetcher = options.fetcher ?? fetch;
-  const response = await fetcher(`/api/v1/projects/${projectId}/deck`);
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`);
 
   if (response.ok) {
     const payload = (await response.json()) as GetDeckResponse;
@@ -420,7 +420,7 @@ export async function fetchOrCreateRehearsalDeck(
   }
 
   if (response.status === 404 && options.fallbackDeck) {
-    const putResponse = await fetcher(`/api/v1/projects/${projectId}/deck`, {
+    const putResponse = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -434,7 +434,7 @@ export async function fetchOrCreateRehearsalDeck(
         "deck",
         await readErrorMessage(
           putResponse,
-          "由ы뿀??諛쒗몴?먮즺瑜?珥덇린?뷀븯吏 紐삵뻽?듬땲??",
+          "리허설 발표 자료를 초기화하지 못했습니다.",
         ),
       );
     }
@@ -452,7 +452,7 @@ export async function fetchOrCreateRehearsalDeck(
 
   throw new RehearsalFlowError(
     "deck",
-    await readErrorMessage(response, "諛쒗몴?먮즺瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??"),
+    await readErrorMessage(response, "발표 자료를 불러오지 못했습니다."),
   );
 }
 
@@ -470,7 +470,7 @@ export async function createRehearsalRun(
     };
   } = {},
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/rehearsals`, {
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -488,7 +488,7 @@ export async function createRehearsalRun(
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run",
-      await readErrorMessage(response, "由ы뿀??run??留뚮뱾吏 紐삵뻽?듬땲??"),
+      await readErrorMessage(response, "리허설 실행을 만들지 못했습니다."),
       response.status,
     );
   }
@@ -500,7 +500,7 @@ export async function cancelRehearsalRun(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/cancel`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
   });
 
@@ -620,7 +620,7 @@ export async function requestRehearsalAudioUploadUrl(
   fetcher: Fetcher = fetch,
 ) {
   const response = await fetcher(
-    `/api/v1/rehearsals/${runId}/audio/upload-url`,
+    `/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/upload-url`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -637,7 +637,7 @@ export async function requestRehearsalAudioUploadUrl(
       "upload-url",
       await readErrorMessage(
         response,
-        "由ы뿀???ㅻ뵒???낅줈??URL??諛쒓툒?섏? 紐삵뻽?듬땲??",
+        "리허설 오디오 업로드 URL을 발급하지 못했습니다.",
       ),
     );
   }
@@ -661,7 +661,7 @@ export async function uploadRehearsalAudio(
       "storage-put",
       await readErrorMessage(
         response,
-        "由ы뿀???ㅻ뵒???낅줈?쒓? 以묐떒?섏뿀?듬땲??",
+        "리허설 오디오 업로드가 중단되었습니다.",
       ),
     );
   }
@@ -672,7 +672,7 @@ export async function completeRehearsalAudioUpload(
   fileId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/audio/complete`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ fileId }),
@@ -683,7 +683,7 @@ export async function completeRehearsalAudioUpload(
       "complete",
       await readErrorMessage(
         response,
-        "由ы뿀??STT ?묒뾽???쒖옉?섏? 紐삵뻽?듬땲??",
+        "리허설 음성 분석 작업을 시작하지 못했습니다.",
       ),
     );
   }
@@ -696,7 +696,7 @@ export async function updateRehearsalRunMeta(
   meta: UpdateRehearsalRunMetaRequest,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/meta`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/meta`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(meta),
@@ -717,13 +717,13 @@ export async function fetchRehearsalRun(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}`);
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run-fetch",
       await readErrorMessage(
         response,
-        "由ы뿀??run ?곹깭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+        "리허설 실행 상태를 불러오지 못했습니다.",
       ),
     );
   }
@@ -736,7 +736,7 @@ export async function fetchRehearsalReport(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/report`);
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/report`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "report-fetch",
@@ -752,7 +752,7 @@ export async function retryRehearsalSemanticEvaluation(
   fetcher: Fetcher = fetch,
 ) {
   const response = await fetcher(
-    `/api/v1/rehearsals/${runId}/semantic-evaluation/retry`,
+    `/api/v1/rehearsals/${encodeURIComponent(runId)}/semantic-evaluation/retry`,
     { method: "POST" },
   );
   if (!response.ok) {
@@ -886,13 +886,13 @@ export async function pollRehearsalJob(
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
 
   for (;;) {
-    const response = await fetcher(`/api/jobs/${jobId}`);
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
       throw new RehearsalFlowError(
         "job-poll",
         await readErrorMessage(
           response,
-          "由ы뿀???묒뾽 ?곹깭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+          "리허설 분석 작업 상태를 불러오지 못했습니다.",
         ),
       );
     }
@@ -906,7 +906,7 @@ export async function pollRehearsalJob(
     if (Date.now() > timeoutAt) {
       throw new RehearsalFlowError(
         "job-poll",
-        "由ы뿀???묒뾽???쒓컙 ?댁뿉 ?앸굹吏 ?딆븯?듬땲??",
+        "리허설 분석 작업이 제한 시간 안에 끝나지 않았습니다.",
       );
     }
 
@@ -1040,11 +1040,11 @@ export function createRecordingSession(
     }
   };
   recorder.onerror = () => {
-    options.onError(new Error("?뱀쓬 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎."));
+    options.onError(new Error("녹음 중 오류가 발생했습니다."));
   };
   recorder.onstop = () => {
     if (chunks.length === 0) {
-      options.onError(new Error("?뱀쓬???ㅻ뵒?ㅺ? 鍮꾩뼱 ?덉뒿?덈떎."));
+      options.onError(new Error("녹음된 오디오가 비어 있습니다."));
       return;
     }
 
@@ -3606,7 +3606,7 @@ export function RehearsalWorkspace(props: {
         setError(
           result.job.error?.message ||
             result.job.message ||
-            "由ы뿀??遺꾩꽍???ㅽ뙣?덉뒿?덈떎.",
+            "리허설 분석에 실패했습니다.",
         );
         return;
       }
@@ -6617,11 +6617,11 @@ function toMicrophoneErrorMessage(cause: unknown) {
 function toRehearsalFlowMessage(cause: unknown) {
   if (cause instanceof RehearsalFlowError) {
     if (cause.stage === "storage-put") {
-      return "?낅줈?쒓? 以묐떒?섏뿀?듬땲?? ?ㅽ듃?뚰겕? ?ㅽ넗由ъ? ?곌껐???뺤씤?섏꽭??";
+      return "업로드가 중단되었습니다. 네트워크와 스토리지 연결을 확인해 주세요.";
     }
 
     if (cause.stage === "complete" || cause.stage === "job-poll") {
-      return cause.message || "STT ?먮뒗 肄붿묶 遺꾩꽍 ?묒뾽???ㅽ뙣?덉뒿?덈떎.";
+      return cause.message || "음성 인식 또는 코칭 분석 작업에 실패했습니다.";
     }
   }
 
@@ -6673,7 +6673,7 @@ function getBiasPhrasesFromContext(
 function toErrorMessage(cause: unknown) {
   return cause instanceof Error
     ? cause.message
-    : "?붿껌??泥섎━?섏? 紐삵뻽?듬땲??";
+    : "요청을 처리하지 못했습니다.";
 }
 
 function extensionForMimeType(mimeType: string) {

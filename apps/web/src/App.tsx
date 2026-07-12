@@ -2934,7 +2934,7 @@ export async function pollExtractJob(
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
 
   for (;;) {
-    const response = await fetcher(`/api/jobs/${jobId}`);
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
       throw new Error((await response.text()) || "Job status lookup failed.");
     }
