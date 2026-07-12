@@ -145,7 +145,7 @@ describe("image asset pipeline", () => {
     expect(generate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         prompt:
-          "A focused hybrid workspace with calm editorial lighting. Presentation visual, no text, clear focal subject."
+          "A focused hybrid workspace with calm editorial lighting. Designed for a 1.32:1 frame. Single dominant subject fills 70-80% of the frame. Keep the complete subject inside the central 70% crop-safe area. No text, logo, watermark, or large empty margins."
       })
     );
     expect(putObject).toHaveBeenCalledOnce();
@@ -322,6 +322,61 @@ describe("image asset pipeline", () => {
       sourceAuthority: "official",
       usageBasis: "official-reference"
     });
+  });
+
+  it("preserves a complete official logo instead of cover-cropping it", async () => {
+    const fetch = vi.fn<OfficialImageProvider["fetch"]>(async () => ({
+      body: pngHeader(1280, 720),
+      mimeType: "image/png",
+      fileName: "SplatoonRaiders_Logo.png",
+      provider: "official-web",
+      sourceUrl: "https://official.example/game",
+      sourceAssetUrl: "https://official.example/SplatoonRaiders_Logo.png",
+      sourceAuthority: "official",
+      usageBasis: "official-reference"
+    }));
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([]);
+    const deck = imageDeck("official-assets");
+    deck.slides[0].aiNotes = {
+      ...deck.slides[0].aiNotes,
+      emphasisPoints: [],
+      sourceEvidence: [],
+      sourceLedger: [
+        {
+          claim: "Official announcement",
+          source: "https://official.example/game",
+          sourceType: "web",
+          sourceId: "web:official",
+          url: "https://official.example/game",
+          authority: "official",
+          confidence: 0.9,
+          usedInSlideId: "slide_1"
+        }
+      ]
+    };
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject: vi.fn() } as unknown as Pick<StoragePort, "putObject">,
+      deck,
+      {
+        official: { fetch },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" }
+    );
+    const image = result.deck.slides[0].elements.find(
+      (element) => element.type === "image"
+    );
+
+    expect(image?.type === "image" ? image.props.fit : undefined).toBe(
+      "contain"
+    );
   });
 
   it("does not use a generic fallback query when specific searches fail", async () => {

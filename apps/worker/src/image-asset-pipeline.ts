@@ -495,7 +495,7 @@ function replaceSlideImagePlaceholder(
             props: {
               src: url,
               alt: plan?.imageAlt ?? plan?.reason ?? slide.title,
-              fit: "cover" as const,
+              fit: imageFit(asset),
               focusX: 0.5,
               focusY: 0.5
             }
@@ -545,11 +545,21 @@ function replaceSlideImagePlaceholder(
 
 function imagePrompt(deck: Deck, slide: Slide) {
   const plan = slide.aiNotes?.visualPlan;
+  const media = slide.elements.find((element) => element.role === "media");
+  const aspectRatio = media
+    ? Math.round((media.width / media.height) * 100) / 100
+    : 1.5;
+  const framing = `Designed for a ${aspectRatio}:1 frame. Single dominant subject fills 70-80% of the frame. Keep the complete subject inside the central 70% crop-safe area. No text, logo, watermark, or large empty margins.`;
   if (plan?.imagePrompt?.trim()) {
-    return `${plan.imagePrompt.trim()}. Presentation visual, no text, clear focal subject.`;
+    return `${plan.imagePrompt.trim()}. ${framing}`;
   }
   const reason = plan?.reason ?? "support the key message";
-  return `${deck.title}. ${slide.title}. ${reason}. Presentation visual, no text, clear focal subject.`;
+  return `${deck.title}. ${slide.title}. ${reason}. ${framing}`;
+}
+
+function imageFit(asset: ImageAssetCandidate): "contain" | "cover" {
+  const identity = `${asset.fileName} ${asset.sourceAssetUrl ?? ""}`;
+  return /(?:^|[\W_])logo(?:[\W_]|$)/i.test(identity) ? "contain" : "cover";
 }
 
 async function searchPublicImage(
