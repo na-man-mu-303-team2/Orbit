@@ -95,6 +95,8 @@ describe("rehearsalRunSchema", () => {
     expect(run.deckVersion).toBeNull();
     expect(run.evaluationSnapshot).toBeNull();
     expect(run.semanticEvaluationMode).toBe("full");
+    expect(run.analysisRevision).toBe(0);
+    expect(run.analysisFinalizedAt).toBeNull();
   });
 
   it("accepts cancelled runs without report processing fields", () => {
@@ -136,6 +138,26 @@ describe("createRehearsalRunRequestSchema", () => {
         semanticEvaluationMode: "delivery-only"
       }).semanticEvaluationMode
     ).toBe("delivery-only");
+  });
+
+  it("requires a complete adaptive evaluation context", () => {
+    expect(
+      createRehearsalRunRequestSchema.safeParse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7,
+        briefRef: { mode: "generic" }
+      }).success
+    ).toBe(false);
+
+    expect(
+      createRehearsalRunRequestSchema.parse({
+        deckId: "deck_demo_1",
+        expectedDeckVersion: 7,
+        briefRef: { mode: "generic" },
+        evaluatorLensRef: { lensId: "general-novice", revision: 1 },
+        sourceGoalSetId: null
+      }).sourceGoalSetId
+    ).toBeNull();
   });
 });
 

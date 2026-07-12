@@ -67,6 +67,7 @@ export class ProjectsService {
     const now = new Date();
 
     const savedProject = await this.dataSource.transaction(async (manager) => {
+      await this.ensureDemoWorkspace(manager, userId, now);
       const project = manager.create(ProjectEntity, {
         projectId: `project_${randomUUID()}`,
         workspaceId,
@@ -89,6 +90,54 @@ export class ProjectsService {
     });
 
     return this.toProjectDto(savedProject);
+  }
+
+  private async ensureDemoWorkspace(
+    executor: Pick<DataSource["manager"], "query">,
+    userId: string,
+    now: Date,
+  ): Promise<void> {
+    const rows = await executor.query<
+      Array<{ members_table: string | null; workspace_table: string | null }>
+    >(
+      `SELECT
+        to_regclass('public.workspaces') AS workspace_table,
+        to_regclass('public.workspace_members') AS members_table`,
+    );
+    if (!rows[0]?.workspace_table) return;
+
+    await executor.query(
+      `
+        INSERT INTO workspaces (
+          workspace_id,
+          name,
+          created_by,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, 'active', $4, $4)
+        ON CONFLICT (workspace_id) DO NOTHING
+      `,
+      [demoIds.workspaceId, "ORBIT Workspace", userId, now],
+    );
+
+    if (!rows[0].members_table) return;
+    await executor.query(
+      `
+        INSERT INTO workspace_members (
+          workspace_id,
+          user_id,
+          role,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, 'editor', 'accepted', $3, $3)
+        ON CONFLICT (workspace_id, user_id) DO NOTHING
+      `,
+      [demoIds.workspaceId, userId, now],
+    );
   }
 
   async list(workspaceId: string, userId: string): Promise<Project[]> {

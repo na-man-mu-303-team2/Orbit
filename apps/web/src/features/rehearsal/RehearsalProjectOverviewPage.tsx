@@ -18,11 +18,13 @@ import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
 import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
+import { OrbitButton, OrbitEmptyState } from "../../design-system";
 import {
   navigateTo,
   formatRunDate,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
+import "./rehearsal-project-report.css";
 
 export function RehearsalProjectOverviewPage({
   projectId,
@@ -35,7 +37,8 @@ export function RehearsalProjectOverviewPage({
   const [deck, setDeck] = useState<Deck | null>(null);
   const [comparison, setComparison] =
     useState<RehearsalRunComparison | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -44,7 +47,7 @@ export function RehearsalProjectOverviewPage({
     setSummary(null);
     setDeck(null);
     setComparison(null);
-    setLoading(true);
+    setState("loading");
 
     void (async () => {
       try {
@@ -70,7 +73,7 @@ export function RehearsalProjectOverviewPage({
         setSummary(projectSummary);
         setDeck(deckPayload?.deck ?? null);
         setComparison(latestComparison);
-        setLoading(false);
+        setState("ready");
       } catch {
         if (!isMounted) return;
         setProject(null);
@@ -78,13 +81,13 @@ export function RehearsalProjectOverviewPage({
         setSummary(null);
         setDeck(null);
         setComparison(null);
-        setLoading(false);
+        setState("error");
       }
     })();
     return () => {
       isMounted = false;
     };
-  }, [projectId]);
+  }, [projectId, reloadKey]);
 
   const latestRun = runs[runs.length - 1] ?? null;
   const showSummary = runs.length >= 2;
@@ -128,14 +131,26 @@ export function RehearsalProjectOverviewPage({
       </header>
 
       <div className="rehearsal-report-body">
-        <RehearsalRunNav runs={runs} projectId={projectId} loading={loading} />
+        <RehearsalRunNav runs={runs} projectId={projectId} loading={state === "loading"} />
 
         <section className="report-overview-panel">
-          {loading ? (
+          {state === "loading" ? (
             <div className="report-overview-loading">
               <Loader2 size={22} />
               <span>불러오는 중</span>
             </div>
+          ) : state === "error" ? (
+            <OrbitEmptyState
+              action={<OrbitButton onClick={() => setReloadKey((value) => value + 1)} variant="secondary">다시 시도</OrbitButton>}
+              description="연결을 확인한 뒤 프로젝트 리포트를 다시 불러오세요."
+              title="프로젝트 리포트를 불러오지 못했습니다."
+            />
+          ) : runs.length === 0 ? (
+            <OrbitEmptyState
+              action={<OrbitButton onClick={() => navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)}>리포트용 리허설 시작</OrbitButton>}
+              description="마이크 녹음과 AI 분석을 완료하면 이곳에서 변화와 코칭 요약을 확인할 수 있습니다."
+              title="아직 분석된 리허설이 없습니다."
+            />
           ) : (
             <>
               <div className="report-overview-stats">

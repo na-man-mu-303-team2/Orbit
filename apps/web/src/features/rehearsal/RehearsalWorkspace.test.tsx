@@ -15,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import {
   LiveSttAdapterError,
+  RehearsalFailureScreen,
+  RehearsalCompletionScreen,
   RehearsalReportPage,
   RehearsalFlowError,
   RehearsalWorkspace,
@@ -44,6 +46,7 @@ import {
   getLiveSttDebugDecodingMethod,
   getOccurrenceTriggerProgress,
   getRehearsalMicrophoneAudioConstraints,
+  getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
@@ -57,6 +60,7 @@ import {
   retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  shouldLoadPracticeGoalSummary,
   shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
 } from "./RehearsalWorkspace";
@@ -112,6 +116,23 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalFailureScreen
+        error="마이크를 시작하지 못했습니다."
+        onPracticeWithoutVoice={() => undefined}
+        onRetry={() => undefined}
+        projectId="project retry"
+      />,
+    );
+
+    expect(html).toContain("리허설을 시작하지 못했습니다.");
+    expect(html).toContain("마이크를 시작하지 못했습니다.");
+    expect(html).toContain("다시 시도");
+    expect(html).toContain("마이크 없이 연습");
+    expect(html).toContain("/project/project%20retry");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -126,21 +147,58 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설");
     expect(html).toContain("리허설을 시작할까요?");
     expect(html).toContain("마이크 권한 확인");
-    expect(html).toContain("권한 허용 요청");
+    expect(html).toContain("마이크 연결 확인");
     expect(html).not.toContain("음성 인식 준비");
     expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
     expect(html).toContain("음성 트리거");
     expect(html).toContain("리허설 시작");
     expect(html).toContain("disabled=\"\"");
-    expect(html).toContain("마이크 권한을 허용해야 리허설을 시작할 수 있습니다.");
+    expect(html).toContain("마이크 연결을 확인해야 리허설을 시작할 수 있습니다.");
     expect(html).toContain("음성 없이 연습하기");
     expect(html).toContain("이번 목표는");
     expect(html).not.toContain("지난번보다");
-    expect(html).toContain("Live STT");
+    expect(html).not.toContain("Live STT");
     expect(html).not.toContain(deck.slides[0]?.title);
     expect(html).not.toContain("Partial transcript");
-    expect(html).toContain("Report AI");
-    expect(html).toContain("Speaker notes");
+    expect(html).not.toContain("Report AI");
+    expect(html).not.toContain("Speaker notes");
+  });
+
+  it("shows an already granted browser microphone permission as allowed", () => {
+    expect(getPreflightMicrophonePermissionHint("granted")).toBe("granted");
+    expect(getPreflightMicrophonePermissionHint("denied")).toBe("denied");
+    expect(getPreflightMicrophonePermissionHint("prompt")).toBe("prompt");
+  });
+
+  it("keeps explicit editor and home exits on the rehearsal completion screen", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        hasReportTarget={false}
+        isReportPending={false}
+        onGoHome={() => undefined}
+        onOpenProject={() => undefined}
+        onPracticeAgain={() => undefined}
+        onPrimaryAction={() => undefined}
+        summary={{
+          comparisonLabel: "",
+          coverageLabel: "측정 안 됨",
+          coveragePercent: 0,
+          durationLabel: "01:00",
+          durationSeconds: 60,
+          hasSpeechTrackingData: false,
+          missedKeywordRows: [],
+          missedKeywordCount: 0,
+          missedKeywordCountLabel: "-",
+          missedKeywordEmptyLabel: "음성 추적 데이터가 없습니다.",
+          targetDeltaLabel: "목표와 같음",
+          targetLabel: "01:00",
+          targetSeconds: 60,
+        }}
+      />,
+    );
+
+    expect(html).toContain("프로젝트 편집기로");
+    expect(html).toContain("홈으로");
   });
 
   it("uses the stored previous rehearsal summary on the preflight screen", () => {
@@ -1230,7 +1288,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("report-page-state");
   });
 
-  it("shows retained transcript download controls during the 30 minute window", () => {
+  it("does not render private transcript controls even when legacy input contains transcript data", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <RehearsalReportPage
@@ -1246,9 +1304,9 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("발표 전사본");
-    expect(html).toContain("DOCX 내려받기");
-    expect(html).toContain("펼치기");
+    expect(html).not.toContain("발표 전사본");
+    expect(html).not.toContain("DOCX 내려받기");
+    expect(html).not.toContain("펼치기");
     expect(html).not.toContain("민감한 전사 원문");
   });
 
@@ -1412,6 +1470,27 @@ describe("RehearsalWorkspace", () => {
     ).toEqual({
       error: "요청한 프로젝트와 리허설 실행 정보가 일치하지 않습니다.",
       status: "failed",
+    });
+  });
+
+  it("loads practice goals for succeeded runs even when the report body is unavailable", () => {
+    expect(shouldLoadPracticeGoalSummary(runFixture("succeeded"))).toBe(true);
+    expect(shouldLoadPracticeGoalSummary(runFixture("failed"))).toBe(false);
+    expect(shouldLoadPracticeGoalSummary(null)).toBe(false);
+  });
+
+  it("stops report progress when a succeeded run has no report job or body", () => {
+    expect(
+      resolveRehearsalReportLoadState(
+        {
+          run: runFixture("succeeded", { jobId: null }),
+          report: null,
+        },
+        "project-a",
+      ),
+    ).toEqual({
+      error: "",
+      status: "unavailable",
     });
   });
 
@@ -2652,6 +2731,8 @@ function runFixture(
     createdAt,
     updatedAt: createdAt,
     ...patch,
+    analysisRevision: patch.analysisRevision ?? 0,
+    analysisFinalizedAt: patch.analysisFinalizedAt ?? null,
   };
 }
 

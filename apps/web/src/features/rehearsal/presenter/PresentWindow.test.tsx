@@ -84,6 +84,8 @@ describe("PresentWindow", () => {
     );
 
     expect(html).toContain("발표자 화면에서 슬라이드 창을 열어주세요");
+    expect(html).toContain('alt="ORBIT"');
+    expect(html).toContain("SLIDE DISPLAY");
     expect(html).not.toContain("첫 문장입니다");
     expect(html).not.toContain("Partial transcript");
     expectNoAutoAdvancePresenterStatus(html);

@@ -151,6 +151,16 @@ describe("DisplayControls", () => {
       effectBody.indexOf("mountedRef.current = false"),
     );
   });
+
+  it("captures checkbox values before scheduling display option updates", () => {
+    const source = fs.readFileSync(displayControlsSourcePath, "utf8");
+
+    expect(source).not.toContain(
+      "startFromBeginning: event.currentTarget.checked",
+    );
+    expect(source).not.toContain("autoPlace: event.currentTarget.checked");
+    expect(source).not.toContain("fullscreen: event.currentTarget.checked");
+  });
 });
 
 function createScreen(options: {

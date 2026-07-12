@@ -41,6 +41,11 @@ import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
+import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
+import {
+  buildRehearsalEvaluationPlan,
+  deckContentHash,
+} from "../practice-goals/evaluation-plan";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { buildRehearsalRunComparison } from "./rehearsal-run-comparison";
@@ -58,7 +63,8 @@ export const REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB =
 export class RehearsalsService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
   private readonly rehearsalAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
-    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "rehearsal-audio"
   });
 
   constructor(
@@ -68,6 +74,7 @@ export class RehearsalsService {
     private readonly projects: Repository<ProjectEntity>,
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
+    private readonly presentationBriefs: PresentationBriefsService,
     private readonly filesService: FilesService,
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
@@ -100,9 +107,25 @@ export class RehearsalsService {
     }
 
     const now = new Date();
+    const adaptiveBrief = request.briefRef
+      ? await this.resolveAdaptiveBrief(projectId, request.briefRef, request.evaluatorLensRef)
+      : undefined;
+    const sourceGoalSetRef = request.briefRef
+      ? await this.resolveSourceGoalSetRef(projectId, request.sourceGoalSetId ?? null)
+      : null;
+    const evaluationPlan = request.briefRef
+      ? buildRehearsalEvaluationPlan({
+          deck: deckResponse.deck,
+          brief: adaptiveBrief ?? null,
+          sourceGoalSetRef
+        })
+      : null;
     const evaluationSnapshot =
       request.semanticEvaluationMode === "full"
-        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString())
+        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString(), {
+            deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
+            evaluationPlan
+          })
         : null;
     const run = await this.rehearsalRuns.save(
       this.rehearsalRuns.create({
@@ -114,6 +137,8 @@ export class RehearsalsService {
         deckVersion: evaluationSnapshot?.deckVersion ?? null,
         evaluationSnapshot,
         semanticEvaluationMode: request.semanticEvaluationMode,
+        analysisRevision: 0,
+        analysisFinalizedAt: null,
         status: "created",
         error: null,
         rehearsalReport: null,
@@ -144,6 +169,67 @@ export class RehearsalsService {
     }
 
     return createRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
+  }
+
+  private async resolveAdaptiveBrief(
+    projectId: string,
+    briefRef: { mode: "generic" } | { mode: "briefed"; briefId: string; expectedRevision: number },
+    evaluatorLensRef:
+      | { lensId: "general-novice" | "decision-maker" | "strict-reviewer"; revision: 1 }
+      | undefined
+  ) {
+    if (!evaluatorLensRef) {
+      throw new BadRequestException("Evaluator Lens is required for adaptive rehearsal.");
+    }
+    if (briefRef.mode === "generic") {
+      if (evaluatorLensRef.lensId !== "general-novice") {
+        throw new ConflictException({
+          code: "SOURCE_INCOMPATIBLE",
+          message: "Generic rehearsal must use the general novice evaluator lens."
+        });
+      }
+      return null;
+    }
+
+    const brief = await this.presentationBriefs.getCurrent(projectId);
+    if (
+      !brief ||
+      brief.briefId !== briefRef.briefId ||
+      brief.revision !== briefRef.expectedRevision ||
+      brief.evaluatorLensRef.lensId !== evaluatorLensRef.lensId ||
+      brief.evaluatorLensRef.revision !== evaluatorLensRef.revision
+    ) {
+      throw new ConflictException({
+        code: "SOURCE_INCOMPATIBLE",
+        message: "Brief or evaluator lens revision is no longer current."
+      });
+    }
+    return brief;
+  }
+
+  private async resolveSourceGoalSetRef(projectId: string, goalSetId: string | null) {
+    if (!goalSetId) return null;
+    const rows = await this.rehearsalRuns.manager.query(
+      `
+        SELECT sets.goal_set_id, sets.revision
+        FROM practice_goal_sets sets
+        JOIN practice_goal_heads heads
+          ON heads.project_id = sets.project_id
+         AND heads.current_goal_set_id = sets.goal_set_id
+        WHERE sets.project_id = $1
+          AND sets.goal_set_id = $2
+          AND sets.analysis_state = 'final'
+      `,
+      [projectId, goalSetId]
+    );
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (!row || typeof row.goal_set_id !== "string" || typeof row.revision !== "number") {
+      throw new ConflictException({
+        code: "SOURCE_INCOMPATIBLE",
+        message: "The selected practice goal set is no longer current and final."
+      });
+    }
+    return { goalSetId: row.goal_set_id, revision: row.revision };
   }
 
   async createAudioUploadUrl(runId: string, body: unknown) {
@@ -188,7 +274,7 @@ export class RehearsalsService {
 
     await this.filesService.completeUpload(run.projectId, {
       fileId: request.fileId
-    });
+    }, "rehearsal-audio");
     await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
 
     const claimedRun = await this.claimAudioUpload(run, request.fileId);
@@ -352,12 +438,11 @@ export class RehearsalsService {
     const run = await this.getRunEntity(runId);
     const report =
       run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
-    const transcript = report ? await this.getCachedTranscript(run.runId) : null;
     const responseReport = report
       ? {
           ...report,
-          transcriptRetained: transcript !== null,
-          transcript
+          transcriptRetained: false,
+          transcript: null
         }
       : null;
 
@@ -504,22 +589,6 @@ export class RehearsalsService {
     });
   }
 
-  private async getCachedTranscript(runId: string) {
-    try {
-      return await this.transcriptCache.get(runId);
-    } catch (error) {
-      this.logger.warn(
-        {
-          event: "rehearsal.transcript_cache_read_failed",
-          runId,
-          error: serializeLogError(error)
-        },
-        "Failed to read rehearsal transcript cache."
-      );
-      return null;
-    }
-  }
-
   private async getRunEntity(runId: string) {
     const run = await this.rehearsalRuns.findOne({ where: { runId } });
     if (!run) {
@@ -651,6 +720,8 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     deckVersion: run.deckVersion,
     evaluationSnapshot: run.evaluationSnapshot,
     semanticEvaluationMode: run.semanticEvaluationMode,
+    analysisRevision: run.analysisRevision ?? 0,
+    analysisFinalizedAt: run.analysisFinalizedAt?.toISOString() ?? null,
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,

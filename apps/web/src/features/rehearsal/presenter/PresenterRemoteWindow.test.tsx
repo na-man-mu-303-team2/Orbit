@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
   applyPresenterRemoteMessage,
@@ -26,6 +26,10 @@ const identity = {
 };
 
 describe("PresenterRemoteWindow", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders presenter-only notes and remote controls", () => {
     const html = renderToStaticMarkup(
       <PresenterRemoteWindow
@@ -167,6 +171,13 @@ describe("PresenterRemoteWindow", () => {
   });
 
   it("renders semantic debug panel from owner presenter speech state", () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) =>
+          key === "orbit.semanticSpeech.debugPanel" ? "1" : null,
+      },
+    });
+
     const html = renderToStaticMarkup(
       <PresenterRemoteWindow
         deck={p0AnimationDeck}

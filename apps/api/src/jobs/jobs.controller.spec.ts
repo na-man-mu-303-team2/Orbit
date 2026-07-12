@@ -47,6 +47,22 @@ describe("JobsController", () => {
     });
   });
 
+  it("rejects internal coaching job types on the public endpoint", async () => {
+    const { controller, jobsService } = createController();
+
+    await expect(
+      controller.createJob(
+        {
+          projectId: "project-a",
+          type: "focused-practice-analysis",
+          payload: { attemptId: "attempt-1" },
+        },
+        signedRequest(),
+      ),
+    ).rejects.toThrow();
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
   it("requires project read permission before returning a job result", async () => {
     const { controller, jobsService, projectsService } = createController();
 

@@ -1,11 +1,11 @@
 import {
-  AlertCircle,
-  ChevronDown,
-  Maximize2,
-  Monitor,
-  RefreshCcw,
-  X,
-} from "lucide-react";
+  IconAlertCircle as AlertCircle,
+  IconChevronDown as ChevronDown,
+  IconMaximize as Maximize2,
+  IconDeviceDesktop as Monitor,
+  IconRefresh as RefreshCcw,
+  IconX as X,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import type {
   DisplayManagerErrorCode,
@@ -328,12 +328,13 @@ export function DisplayControls(props: {
             <input
               checked={options.startFromBeginning}
               type="checkbox"
-              onChange={(event) =>
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
                 setOptions((current) => ({
                   ...current,
-                  startFromBeginning: event.currentTarget.checked,
-                }))
-              }
+                  startFromBeginning: checked,
+                }));
+              }}
             />
             <span>
               <strong>첫 슬라이드부터 표시</strong>
@@ -346,12 +347,13 @@ export function DisplayControls(props: {
             <input
               checked={options.autoPlace}
               type="checkbox"
-              onChange={(event) =>
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
                 setOptions((current) => ({
                   ...current,
-                  autoPlace: event.currentTarget.checked,
-                }))
-              }
+                  autoPlace: checked,
+                }));
+              }}
             />
             <span>
               <strong>발표 모니터 자동 배치</strong>
@@ -409,12 +411,13 @@ export function DisplayControls(props: {
             <input
               checked={options.fullscreen}
               type="checkbox"
-              onChange={(event) =>
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
                 setOptions((current) => ({
                   ...current,
-                  fullscreen: event.currentTarget.checked,
-                }))
-              }
+                  fullscreen: checked,
+                }));
+              }}
             />
             <span>
               <strong>전체화면</strong>

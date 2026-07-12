@@ -1,6 +1,7 @@
 import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
+  privateAudioPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -152,6 +153,7 @@ export class FilesService {
   async completeUpload(
     projectId: string,
     input: CompleteAssetUploadRequest,
+    expectedPurpose?: FilePurpose,
   ): Promise<UploadedFile> {
     await this.projectsService.getAccessibleProject(projectId);
 
@@ -165,6 +167,13 @@ export class FilesService {
 
     if (asset.projectId !== projectId) {
       throw new ForbiddenException("Project asset access denied");
+    }
+
+    if (
+      (expectedPurpose && asset.purpose !== expectedPurpose) ||
+      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+    ) {
+      throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
 
     if (asset.status === "deleted") {
@@ -207,6 +216,10 @@ export class FilesService {
 
     if (purpose && asset.purpose !== purpose) {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
+    }
+
+    if (!purpose && privateAudioPurposes.has(asset.purpose)) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
     return asset;
@@ -285,7 +298,9 @@ export class FilesService {
       order: { createdAt: "ASC" },
     });
 
-    return assets.map((asset) => this.toUploadedFile(asset));
+    return assets
+      .filter((asset) => !privateAudioPurposes.has(asset.purpose))
+      .map((asset) => this.toUploadedFile(asset));
   }
 
   async readUploadedAssetContent(

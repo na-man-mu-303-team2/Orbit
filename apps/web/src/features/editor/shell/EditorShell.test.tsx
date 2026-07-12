@@ -34,6 +34,7 @@ import {
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
+  parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
@@ -447,6 +448,15 @@ describe("editor shell", () => {
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
+    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain("파일");
+    expect(html).toContain("편집 중");
+    expect(html).toContain("공유");
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
+    expect(html).toContain("AI 채팅");
+    expect(html).toContain("AI 도구");
+    expect(html).toContain("발표 메시지");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -1004,6 +1014,40 @@ describe("editor shell", () => {
         version: acknowledgement.version + 1
       })
     ).toThrow("acknowledgement version");
+  });
+
+  it("accepts both lightweight acknowledgements and legacy full deck responses", () => {
+    const deck = createDemoDeck();
+    const patch: DeckPatch = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [{ type: "update_deck", title: "호환 저장" }]
+    };
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: "2026-07-10T00:00:00.000Z"
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+
+    const acknowledgement = {
+      deckId: deck.deckId,
+      version: applied.deck.version,
+      changeRecord: applied.changeRecord,
+      updatedAt: applied.changeRecord.createdAt
+    };
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, acknowledgement).deck
+    ).toEqual(applied.deck);
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, {
+        deck: applied.deck,
+        changeRecord: applied.changeRecord,
+        snapshot: null,
+        updatedAt: applied.changeRecord.createdAt
+      }).deck
+    ).toEqual(applied.deck);
+    expect(() => parseDeckPatchPersistenceResponse(deck, patch, {})).toThrow();
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {

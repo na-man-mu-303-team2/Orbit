@@ -208,7 +208,8 @@ export async function processGenerateDeckJob(
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
-      deck
+      deck,
+      coachingProvenance: payload.request.coachingContext
     });
 
     return updateJob(dataSource, payload.jobId, {

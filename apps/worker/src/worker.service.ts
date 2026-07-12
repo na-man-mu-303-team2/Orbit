@@ -11,6 +11,9 @@ import {
   rehearsalSttQueueName,
   semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
+  focusedPracticeAnalysisQueueName,
+  challengeQnaGenerationQueueName,
+  challengeQnaAnswerAnalysisQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -33,6 +36,11 @@ import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
+import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
+import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
+import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
+import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
+import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -49,9 +57,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
     workerHealthCheckQueueName,
+    focusedPracticeAnalysisQueueName,
+    challengeQnaGenerationQueueName,
+    challengeQnaAnswerAnalysisQueueName,
   ];
   private workers: BullMqWorker[] = [];
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
+  private challengeQnaEvidenceCache: ChallengeQnaEvidenceCache | null = null;
+  private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -73,7 +86,22 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const storage = workerStorage();
-    this.transcriptCache = new RedisRehearsalTranscriptCache(this.config.REDIS_URL);
+    const reconcileDeletions = () => {
+      void reconcileStorageDeletionOutbox(this.dataSource, storage).catch((error) => {
+        this.logger.error(
+          { event: "storage_deletion.reconcile_failed", error: serializeLogError(error) },
+          "Storage deletion reconciliation failed."
+        );
+      });
+    };
+    reconcileDeletions();
+    this.storageDeletionTimer = setInterval(reconcileDeletions, 30_000);
+    this.transcriptCache = new RedisRehearsalTranscriptCache(
+      this.config.PRIVATE_EVIDENCE_REDIS_URL
+    );
+    this.challengeQnaEvidenceCache = new ChallengeQnaEvidenceCache(
+      this.config.PRIVATE_EVIDENCE_REDIS_URL
+    );
     this.workers = [
       this.createWorker(referenceExtractQueueName, (job) =>
         processReferenceExtractJob(
@@ -174,12 +202,38 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           job.data,
         ),
       ),
+      this.createWorker(focusedPracticeAnalysisQueueName, (job) =>
+        processFocusedPracticeAnalysisJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(challengeQnaGenerationQueueName, (job) =>
+        processChallengeQnaGenerationJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(challengeQnaAnswerAnalysisQueueName, (job) =>
+        processChallengeQnaAnswerJob(
+          this.dataSource,
+          storage,
+          this.challengeQnaEvidenceCache!,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
     ];
   }
 
   async onModuleDestroy() {
+    if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.transcriptCache?.close();
+    await this.challengeQnaEvidenceCache?.close();
     this.logger.info(
       {
         event: "worker.stopped",

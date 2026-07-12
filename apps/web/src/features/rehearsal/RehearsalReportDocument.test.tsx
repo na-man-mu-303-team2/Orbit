@@ -101,6 +101,8 @@ describe("RehearsalReportDocument", () => {
           deckVersion: null,
           evaluationSnapshot: null,
           semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
           rawAudioDeletedAt: null,
           status: "succeeded",
           error: null,

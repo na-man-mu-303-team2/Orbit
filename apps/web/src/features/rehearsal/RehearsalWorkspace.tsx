@@ -30,6 +30,8 @@ import {
   type SemanticCapabilityEvent,
   type Slide,
   type UpdateRehearsalRunMetaRequest,
+  type BriefRef,
+  type EvaluatorLensRef,
 } from "@orbit/shared";
 import {
   ArrowLeft,
@@ -39,6 +41,7 @@ import {
   CheckCircle2,
   Download,
   Gauge,
+  Home,
   Mic,
   Monitor,
   MoreHorizontal,
@@ -59,6 +62,9 @@ import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import "./rehearsal-preflight.css";
+import "./rehearsal-report-detail.css";
+import "./rehearsal-workspace-orbit.css";
 import {
   fetchProjectRehearsalReportRuns,
   fetchRehearsalRunComparison,
@@ -235,6 +241,9 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
+import { PracticeGoalSummary } from "../coaching/PracticeGoalSummary";
+import { PracticeGoalReminder } from "../coaching/PracticeGoalReminder";
+import { fetchPresentationBrief } from "../coaching/presentationBriefApi";
 
 export {
   LiveSttAdapterError,
@@ -285,6 +294,7 @@ type RehearsalReportStatus =
   | "loading"
   | "ready"
   | "not-ready"
+  | "unavailable"
   | "failed";
 type RehearsalRuntimeStatus = "idle" | "running" | "paused" | "stopping";
 
@@ -379,13 +389,13 @@ export async function fetchRehearsalDeck(
   projectId: string = demoIds.projectId,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/deck`);
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "deck",
       await readErrorMessage(
         response,
-        "諛쒗몴?먮즺瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+        "발표 자료를 불러오지 못했습니다.",
       ),
     );
   }
@@ -404,7 +414,7 @@ export async function fetchOrCreateRehearsalDeck(
   const projectId =
     options.projectId ?? options.fallbackDeck?.projectId ?? demoIds.projectId;
   const fetcher = options.fetcher ?? fetch;
-  const response = await fetcher(`/api/v1/projects/${projectId}/deck`);
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`);
 
   if (response.ok) {
     const payload = (await response.json()) as GetDeckResponse;
@@ -412,7 +422,7 @@ export async function fetchOrCreateRehearsalDeck(
   }
 
   if (response.status === 404 && options.fallbackDeck) {
-    const putResponse = await fetcher(`/api/v1/projects/${projectId}/deck`, {
+    const putResponse = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -426,7 +436,7 @@ export async function fetchOrCreateRehearsalDeck(
         "deck",
         await readErrorMessage(
           putResponse,
-          "由ы뿀??諛쒗몴?먮즺瑜?珥덇린?뷀븯吏 紐삵뻽?듬땲??",
+          "리허설 발표 자료를 초기화하지 못했습니다.",
         ),
       );
     }
@@ -444,7 +454,7 @@ export async function fetchOrCreateRehearsalDeck(
 
   throw new RehearsalFlowError(
     "deck",
-    await readErrorMessage(response, "諛쒗몴?먮즺瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??"),
+    await readErrorMessage(response, "발표 자료를 불러오지 못했습니다."),
   );
 }
 
@@ -455,9 +465,14 @@ export async function createRehearsalRun(
   options: {
     expectedDeckVersion?: number;
     semanticEvaluationMode?: "full" | "delivery-only";
+    coachingContext?: {
+      briefRef: BriefRef;
+      evaluatorLensRef: EvaluatorLensRef;
+      sourceGoalSetId: string | null;
+    };
   } = {},
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/rehearsals`, {
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -468,13 +483,14 @@ export async function createRehearsalRun(
       ...(options.semanticEvaluationMode === undefined
         ? {}
         : { semanticEvaluationMode: options.semanticEvaluationMode }),
+      ...(options.coachingContext ?? {}),
     }),
   });
 
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run",
-      await readErrorMessage(response, "由ы뿀??run??留뚮뱾吏 紐삵뻽?듬땲??"),
+      await readErrorMessage(response, "리허설 실행을 만들지 못했습니다."),
       response.status,
     );
   }
@@ -486,7 +502,7 @@ export async function cancelRehearsalRun(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/cancel`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
   });
 
@@ -506,11 +522,17 @@ export async function createRehearsalRunForUpload(
   deckId: string,
   expectedDeckVersion: number,
   fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
 ) {
   try {
     const created = await createRehearsalRun(projectId, deckId, fetcher, {
       expectedDeckVersion,
       semanticEvaluationMode: "full",
+      coachingContext,
     });
     return { run: created.run, evaluationSnapshotMismatch: false };
   } catch (cause) {
@@ -529,6 +551,11 @@ export async function createRehearsalRunForUpload(
 export async function prepareRehearsalEvaluationRun(
   deck: Deck,
   fetcher: Fetcher = fetch,
+  coachingContext?: {
+    briefRef: BriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+    sourceGoalSetId: string | null;
+  },
 ): Promise<{
   run: RehearsalRun | null;
   evaluationSnapshot: RehearsalEvaluationSnapshot;
@@ -545,6 +572,7 @@ export async function prepareRehearsalEvaluationRun(
       {
         expectedDeckVersion: deck.version,
         semanticEvaluationMode: "full",
+        coachingContext,
       },
     );
     return {
@@ -561,13 +589,40 @@ export async function prepareRehearsalEvaluationRun(
   }
 }
 
+async function resolveRehearsalCoachingContext(
+  projectId: string,
+  sourceGoalSetId?: string,
+) {
+  try {
+    const brief = await fetchPresentationBrief(projectId);
+    if (brief) {
+      return {
+        briefRef: {
+          mode: "briefed" as const,
+          briefId: brief.briefId,
+          expectedRevision: brief.revision,
+        },
+        evaluatorLensRef: brief.evaluatorLensRef,
+        sourceGoalSetId: sourceGoalSetId ?? null,
+      };
+    }
+  } catch {
+    // Brief 조회 실패 시에도 일반 모드 리허설은 계속할 수 있다.
+  }
+  return {
+    briefRef: { mode: "generic" as const },
+    evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const },
+    sourceGoalSetId: sourceGoalSetId ?? null,
+  };
+}
+
 export async function requestRehearsalAudioUploadUrl(
   runId: string,
   file: File,
   fetcher: Fetcher = fetch,
 ) {
   const response = await fetcher(
-    `/api/v1/rehearsals/${runId}/audio/upload-url`,
+    `/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/upload-url`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -584,7 +639,7 @@ export async function requestRehearsalAudioUploadUrl(
       "upload-url",
       await readErrorMessage(
         response,
-        "由ы뿀???ㅻ뵒???낅줈??URL??諛쒓툒?섏? 紐삵뻽?듬땲??",
+        "리허설 오디오 업로드 URL을 발급하지 못했습니다.",
       ),
     );
   }
@@ -608,7 +663,7 @@ export async function uploadRehearsalAudio(
       "storage-put",
       await readErrorMessage(
         response,
-        "由ы뿀???ㅻ뵒???낅줈?쒓? 以묐떒?섏뿀?듬땲??",
+        "리허설 오디오 업로드가 중단되었습니다.",
       ),
     );
   }
@@ -619,7 +674,7 @@ export async function completeRehearsalAudioUpload(
   fileId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/audio/complete`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ fileId }),
@@ -630,7 +685,7 @@ export async function completeRehearsalAudioUpload(
       "complete",
       await readErrorMessage(
         response,
-        "由ы뿀??STT ?묒뾽???쒖옉?섏? 紐삵뻽?듬땲??",
+        "리허설 음성 분석 작업을 시작하지 못했습니다.",
       ),
     );
   }
@@ -643,7 +698,7 @@ export async function updateRehearsalRunMeta(
   meta: UpdateRehearsalRunMetaRequest,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/meta`, {
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/meta`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(meta),
@@ -664,13 +719,13 @@ export async function fetchRehearsalRun(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}`);
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "run-fetch",
       await readErrorMessage(
         response,
-        "由ы뿀??run ?곹깭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+        "리허설 실행 상태를 불러오지 못했습니다.",
       ),
     );
   }
@@ -683,7 +738,7 @@ export async function fetchRehearsalReport(
   runId: string,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${runId}/report`);
+  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/report`);
   if (!response.ok) {
     throw new RehearsalFlowError(
       "report-fetch",
@@ -699,7 +754,7 @@ export async function retryRehearsalSemanticEvaluation(
   fetcher: Fetcher = fetch,
 ) {
   const response = await fetcher(
-    `/api/v1/rehearsals/${runId}/semantic-evaluation/retry`,
+    `/api/v1/rehearsals/${encodeURIComponent(runId)}/semantic-evaluation/retry`,
     { method: "POST" },
   );
   if (!response.ok) {
@@ -733,10 +788,15 @@ export function resolveRehearsalReportLoadState(
     };
   }
 
-  return {
-    error: "",
-    status: response.report ? "ready" : "not-ready",
-  };
+  if (response.report) {
+    return { error: "", status: "ready" };
+  }
+
+  if (response.run.status === "succeeded" && !response.run.jobId) {
+    return { error: "", status: "unavailable" };
+  }
+
+  return { error: "", status: "not-ready" };
 }
 
 export function getRehearsalReportPath(projectId: string, runId: string) {
@@ -833,13 +893,13 @@ export async function pollRehearsalJob(
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
 
   for (;;) {
-    const response = await fetcher(`/api/jobs/${jobId}`);
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
       throw new RehearsalFlowError(
         "job-poll",
         await readErrorMessage(
           response,
-          "由ы뿀???묒뾽 ?곹깭瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+          "리허설 분석 작업 상태를 불러오지 못했습니다.",
         ),
       );
     }
@@ -853,7 +913,7 @@ export async function pollRehearsalJob(
     if (Date.now() > timeoutAt) {
       throw new RehearsalFlowError(
         "job-poll",
-        "由ы뿀???묒뾽???쒓컙 ?댁뿉 ?앸굹吏 ?딆븯?듬땲??",
+        "리허설 분석 작업이 제한 시간 안에 끝나지 않았습니다.",
       );
     }
 
@@ -987,11 +1047,11 @@ export function createRecordingSession(
     }
   };
   recorder.onerror = () => {
-    options.onError(new Error("?뱀쓬 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎."));
+    options.onError(new Error("녹음 중 오류가 발생했습니다."));
   };
   recorder.onstop = () => {
     if (chunks.length === 0) {
-      options.onError(new Error("?뱀쓬???ㅻ뵒?ㅺ? 鍮꾩뼱 ?덉뒿?덈떎."));
+      options.onError(new Error("녹음된 오디오가 비어 있습니다."));
       return;
     }
 
@@ -1721,6 +1781,8 @@ export function RehearsalWorkspace(props: {
   presenterSessionId?: string;
   presenterWindow?: boolean;
   projectId?: string;
+  sourceFullRunId?: string;
+  sourceGoalSetId?: string;
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(
@@ -1732,7 +1794,7 @@ export function RehearsalWorkspace(props: {
   const [phase, setPhase] = useState<RehearsalPhase>(
     props.initialDeck ? "idle" : "loading",
   );
-  const [, setError] = useState("");
+  const [error, setError] = useState("");
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
@@ -3516,6 +3578,8 @@ export function RehearsalWorkspace(props: {
           activeDeck.projectId,
           activeDeck.deckId,
           activeDeck.version,
+          fetch,
+          await resolveRehearsalCoachingContext(activeDeck.projectId, props.sourceGoalSetId),
         );
         uploadRun = recovered.run;
         if (recovered.evaluationSnapshotMismatch) {
@@ -3549,7 +3613,7 @@ export function RehearsalWorkspace(props: {
         setError(
           result.job.error?.message ||
             result.job.message ||
-            "由ы뿀??遺꾩꽍???ㅽ뙣?덉뒿?덈떎.",
+            "리허설 분석에 실패했습니다.",
         );
         return;
       }
@@ -3568,7 +3632,11 @@ export function RehearsalWorkspace(props: {
   }
 
   async function prepareEvaluationSnapshot(activeDeck: Deck) {
-    const prepared = await prepareRehearsalEvaluationRun(activeDeck);
+    const coachingContext = await resolveRehearsalCoachingContext(
+      activeDeck.projectId,
+      props.sourceGoalSetId,
+    );
+    const prepared = await prepareRehearsalEvaluationRun(activeDeck, fetch, coachingContext);
     activeRunRef.current = prepared.run;
     setRun(prepared.run);
     if (prepared.serverEvaluation.state === "unavailable") {
@@ -4013,6 +4081,7 @@ export function RehearsalWorkspace(props: {
     setHasLocalCompletion(false);
     setLiveStatus("idle");
     setLiveError("");
+    setError("");
     setPracticeWithoutVoiceAt(null);
     setSemanticCapabilityEvents([]);
     setComparisonReminderState(createComparisonReminderState());
@@ -4025,6 +4094,17 @@ export function RehearsalWorkspace(props: {
     if (phase !== "uploading" && phase !== "processing") {
       setPhase("idle");
     }
+  };
+  const startPracticeWithoutVoice = () => {
+    const disabledAt = Date.now();
+    setError("");
+    setPhase("idle");
+    setElapsedSeconds(0);
+    setSlideElapsedSeconds(0);
+    setHasLocalCompletion(false);
+    setIsTimerRunning(true);
+    setPracticeWithoutVoiceAt(disabledAt);
+    setSemanticCapabilityNowMs(disabledAt);
   };
   const persistCurrentPracticeSummary = () => {
     if (!deck) {
@@ -4135,6 +4215,17 @@ export function RehearsalWorkspace(props: {
     [deck, presentationChannelState, triggerAnimationIds],
   );
 
+  if (phase === "failed" && error) {
+    return (
+      <RehearsalFailureScreen
+        error={error}
+        onPracticeWithoutVoice={deck ? startPracticeWithoutVoice : undefined}
+        onRetry={deck ? returnToPreflight : () => window.location.reload()}
+        projectId={deck?.projectId ?? props.projectId}
+      />
+    );
+  }
+
   if (
     props.presenterWindow &&
     (!deck || !slideReceiverIdentity || !presentationChannelState)
@@ -4241,6 +4332,8 @@ export function RehearsalWorkspace(props: {
       <RehearsalCompletionScreen
         hasReportTarget={Boolean(run?.runId)}
         isReportPending={phase === "uploading" || phase === "processing"}
+        onGoHome={() => navigateToPath("/")}
+        onOpenProject={() => navigateToPath(`/project/${encodeURIComponent(deck.projectId)}`)}
         onPrimaryAction={handleCompletionPrimaryAction}
         onPracticeAgain={handleCompletionPracticeAgain}
         summary={rehearsalSummary}
@@ -4263,15 +4356,7 @@ export function RehearsalWorkspace(props: {
         deck={deck}
         previousSummary={previousPracticeSummary}
         resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
-        onPracticeWithoutVoice={() => {
-          const disabledAt = Date.now();
-          setElapsedSeconds(0);
-          setSlideElapsedSeconds(0);
-          setHasLocalCompletion(false);
-          setIsTimerRunning(true);
-          setPracticeWithoutVoiceAt(disabledAt);
-          setSemanticCapabilityNowMs(disabledAt);
-        }}
+        onPracticeWithoutVoice={startPracticeWithoutVoice}
         onStart={() => void startRecording()}
       />
     );
@@ -4303,9 +4388,6 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
-      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
-        Live STT / Report AI / Speaker notes
-      </div>
       {isLiveStopModalOpen ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section
@@ -4482,6 +4564,12 @@ export function RehearsalWorkspace(props: {
         </button>
         {hasDeletedRawAudio ? <span>raw audio 삭제 완료</span> : null}
       </div>
+
+      <PracticeGoalReminder
+        projectId={props.projectId ?? demoIds.projectId}
+        sourceFullRunId={props.sourceFullRunId}
+        slideId={currentSlide?.slideId}
+      />
 
       <section className="rehearsal-presenter-layout">
         <PresenterStageSection
@@ -4770,6 +4858,38 @@ export function RehearsalWorkspace(props: {
   );
 }
 
+export function RehearsalFailureScreen(props: {
+  error: string;
+  onPracticeWithoutVoice?: () => void;
+  onRetry: () => void;
+  projectId?: string;
+}) {
+  return (
+    <main className="rehearsal-preflight-screen" aria-label="리허설 오류">
+      <section className="rehearsal-preflight-card" role="alert">
+        <div className="rehearsal-preflight-copy">
+          <span className="orbit-ds-eyebrow">REHEARSAL ERROR</span>
+          <h1>리허설을 시작하지 못했습니다.</h1>
+          <p>{props.error}</p>
+        </div>
+        <div className="rehearsal-preflight-actions">
+          <button className="rehearsal-preflight-start" onClick={props.onRetry} type="button">
+            다시 시도
+          </button>
+          {props.onPracticeWithoutVoice ? (
+            <button className="rehearsal-preflight-quiet" onClick={props.onPracticeWithoutVoice} type="button">
+              마이크 없이 연습
+            </button>
+          ) : null}
+          <a href={props.projectId ? `/project/${encodeURIComponent(props.projectId)}` : "/project"}>
+            프로젝트로 돌아가기
+          </a>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function RehearsalPreflightScreen(props: {
   canStart: boolean;
   comparisonModel: RehearsalRunComparisonViewModel | null;
@@ -4841,10 +4961,10 @@ function RehearsalPreflightScreen(props: {
         if (isCancelled) {
           return;
         }
-        setMicrophonePermission(toPreflightMicrophonePermission(permissionStatus.state));
+        setMicrophonePermission(getPreflightMicrophonePermissionHint(permissionStatus.state));
         permissionStatus.onchange = () => {
           setMicrophonePermission(
-            toPreflightMicrophonePermission(permissionStatus?.state ?? "prompt"),
+            getPreflightMicrophonePermissionHint(permissionStatus?.state ?? "prompt"),
           );
         };
       } catch {
@@ -4885,7 +5005,7 @@ function RehearsalPreflightScreen(props: {
   const startDisabledReason = !props.canStart
     ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
     : !isMicrophoneGranted
-      ? "마이크 권한을 허용해야 리허설을 시작할 수 있습니다."
+      ? "마이크 연결을 확인해야 리허설을 시작할 수 있습니다."
       : "";
 
   async function requestPreflightMicrophonePermission() {
@@ -5053,9 +5173,6 @@ function RehearsalPreflightScreen(props: {
 
   return (
     <main className="rehearsal-preflight-screen" aria-label="리허설 시작 전">
-      <div className="rehearsal-legacy-test-marker" aria-hidden="true">
-        Live STT / Report AI / Speaker notes
-      </div>
       <div className="rehearsal-preflight-banner">
         <Zap size={17} />
         <span>{preflightBanner}</span>
@@ -5089,7 +5206,7 @@ function RehearsalPreflightScreen(props: {
                   onClick={() => void requestPreflightMicrophonePermission()}
                 >
                   <Mic size={14} />
-                  권한 허용 요청
+                  마이크 연결 확인
                 </button>
               ) : null
             }
@@ -5254,7 +5371,7 @@ function PreflightStatusRow(props: {
   );
 }
 
-function toPreflightMicrophonePermission(
+export function getPreflightMicrophonePermissionHint(
   state: PermissionState,
 ): PreflightMicrophonePermission {
   if (state === "granted") {
@@ -5279,7 +5396,7 @@ function getPreflightMicrophoneStatus(
     case "checking":
       return { icon: "info", tone: "info", value: "권한 상태 확인 중" };
     case "prompt":
-      return { icon: "warning", tone: "warning", value: "시작 전 권한 허용 필요" };
+      return { icon: "warning", tone: "warning", value: "마이크 연결 확인 필요" };
   }
 }
 
@@ -5360,9 +5477,11 @@ type RehearsalCompletionSummary = {
   targetSeconds: number;
 };
 
-function RehearsalCompletionScreen(props: {
+export function RehearsalCompletionScreen(props: {
   hasReportTarget: boolean;
   isReportPending: boolean;
+  onGoHome: () => void;
+  onOpenProject: () => void;
   onPracticeAgain: () => void;
   onPrimaryAction: () => void;
   summary: RehearsalCompletionSummary;
@@ -5432,6 +5551,17 @@ function RehearsalCompletionScreen(props: {
                 : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
           </p>
         </div>
+
+        <nav className="rehearsal-completion-exits" aria-label="리허설 종료 후 이동">
+          <button type="button" onClick={props.onGoHome}>
+            <Home aria-hidden="true" size={16} />
+            홈으로
+          </button>
+          <button type="button" onClick={props.onOpenProject}>
+            <Presentation aria-hidden="true" size={16} />
+            프로젝트 편집기로
+          </button>
+        </nav>
 
         <footer>
           <button type="button" onClick={props.onPracticeAgain}>
@@ -5744,6 +5874,12 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
+          {shouldLoadPracticeGoalSummary(run) ? (
+            <PracticeGoalSummary
+              projectId={props.projectId}
+              sourceFullRunId={props.runId}
+            />
+          ) : null}
           {status === "loading" ? (
             <RehearsalReportLoadingShell />
           ) : report ? (
@@ -5780,6 +5916,10 @@ export function RehearsalReportPage(props: {
       </div>
     </main>
   );
+}
+
+export function shouldLoadPracticeGoalSummary(run: RehearsalRun | null) {
+  return run?.status === "succeeded";
 }
 
 type RehearsalPrompterRows = {
@@ -6322,6 +6462,9 @@ function formatEmptyReportMessage(
 ) {
   if (status === "loading") return "보고서를 불러오는 중입니다.";
   if (status === "not-ready") return "보고서 생성 중입니다.";
+  if (status === "unavailable") {
+    return "공식 리포트가 생성되지 않았습니다. 연습 계획은 계속 사용할 수 있습니다.";
+  }
   if (status === "failed") return error || "보고서를 불러오지 못했습니다.";
   return "보고서 대기 중";
 }
@@ -6497,11 +6640,11 @@ function toMicrophoneErrorMessage(cause: unknown) {
 function toRehearsalFlowMessage(cause: unknown) {
   if (cause instanceof RehearsalFlowError) {
     if (cause.stage === "storage-put") {
-      return "?낅줈?쒓? 以묐떒?섏뿀?듬땲?? ?ㅽ듃?뚰겕? ?ㅽ넗由ъ? ?곌껐???뺤씤?섏꽭??";
+      return "업로드가 중단되었습니다. 네트워크와 스토리지 연결을 확인해 주세요.";
     }
 
     if (cause.stage === "complete" || cause.stage === "job-poll") {
-      return cause.message || "STT ?먮뒗 肄붿묶 遺꾩꽍 ?묒뾽???ㅽ뙣?덉뒿?덈떎.";
+      return cause.message || "음성 인식 또는 코칭 분석 작업에 실패했습니다.";
     }
   }
 
@@ -6553,7 +6696,7 @@ function getBiasPhrasesFromContext(
 function toErrorMessage(cause: unknown) {
   return cause instanceof Error
     ? cause.message
-    : "?붿껌??泥섎━?섏? 紐삵뻽?듬땲??";
+    : "요청을 처리하지 못했습니다.";
 }
 
 function extensionForMimeType(mimeType: string) {

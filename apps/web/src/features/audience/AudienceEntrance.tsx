@@ -1,5 +1,6 @@
-import { MessageSquareText, MonitorPlay } from "lucide-react";
+import { IconMessageCircleQuestion, IconPresentation } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
+import orbitLogo from "../../assets/orbit-logo.png";
 
 import {
   getAudienceSessionAccess,
@@ -76,8 +77,9 @@ export function AudienceEntrance({ sessionId }: AudienceEntranceProps) {
   return (
     <main className="audience-page">
       <section className="audience-entry-panel" aria-labelledby="audience-title">
+        <img className="audience-logo" src={orbitLogo} alt="ORBIT" />
         <div className="audience-entry-heading">
-          <span>ORBIT Audience</span>
+          <span>LIVE AUDIENCE</span>
           <h1 id="audience-title">청중 입장</h1>
           <p>
             {isVerified
@@ -136,7 +138,7 @@ export function AudienceEntrance({ sessionId }: AudienceEntranceProps) {
                 type="button"
                 onClick={() => setSelectedRoom("questions")}
               >
-                <MessageSquareText size={20} />
+                <IconMessageCircleQuestion size={22} stroke={1.8} />
                 <strong>질문방</strong>
                 <small>발표자에게 질문을 남깁니다.</small>
               </button>
@@ -145,7 +147,7 @@ export function AudienceEntrance({ sessionId }: AudienceEntranceProps) {
                 type="button"
                 onClick={() => setSelectedRoom("stream")}
               >
-                <MonitorPlay size={20} />
+                <IconPresentation size={22} stroke={1.8} />
                 <strong>스트리밍 방</strong>
                 <small>발표 화면을 함께 봅니다.</small>
               </button>

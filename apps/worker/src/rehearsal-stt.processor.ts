@@ -18,8 +18,13 @@ import {
   type SemanticFallbackReason
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import {
+  derivePracticeGoalSet,
+  publishPracticeGoalSet
+} from "./practice-goal-derivation";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -55,7 +60,8 @@ const rehearsalRunInputRowSchema = z.object({
   run_id: z.string().min(1),
   meta_json: z.record(z.unknown()).nullable().optional(),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
-  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full")
+  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
+  analysis_revision: z.number().int().nonnegative().default(0)
 });
 
 const transcribeSegmentSchema = z
@@ -341,17 +347,11 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
-  let rawAudioDeletedAt: string;
+  let rawAudioDeletedAt: string | null = null;
   try {
     rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
-  } catch (error) {
-    return failJobAndRun(
-      dataSource,
-      payload,
-      85,
-      "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed."
-    );
+  } catch {
+    await scheduleRawAudioDeletion(dataSource, asset);
   }
 
   let report: RehearsalReport;
@@ -360,7 +360,7 @@ export async function processRehearsalSttJob(
       payload,
       transcribePayload,
       analysis,
-      rawAudioDeletedAt,
+      rawAudioDeletedAt ?? new Date().toISOString(),
       deckContext,
       runMeta,
       semanticResult
@@ -372,14 +372,8 @@ export async function processRehearsalSttJob(
       85,
       "REHEARSAL_REPORT_INVALID",
       error instanceof Error ? error.message : "Rehearsal report validation failed.",
-      { rawAudioDeletedAt }
+      { ...(rawAudioDeletedAt ? { rawAudioDeletedAt } : {}) }
     );
-  }
-
-  try {
-    await transcriptCache?.set(payload.runId, transcribePayload.transcript);
-  } catch {
-    // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
   }
 
   try {
@@ -390,13 +384,30 @@ export async function processRehearsalSttJob(
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
   }
 
-  await updateRun(dataSource, payload, {
+  const completedRun = await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
-    rawAudioDeletedAt,
+    ...(rawAudioDeletedAt ? { rawAudioDeletedAt } : {}),
     rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
+
+  if (completedRun.evaluation_snapshot_json) {
+    const goalSet = derivePracticeGoalSet({
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      sourceAnalysisRevision: completedRun.analysis_revision,
+      snapshot: completedRun.evaluation_snapshot_json,
+      report
+    });
+    if (goalSet) {
+      await publishPracticeGoalSet(dataSource, goalSet, {
+        evaluatedFullRunId: payload.runId,
+        snapshot: completedRun.evaluation_snapshot_json,
+        report
+      });
+    }
+  }
 
   try {
     await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
@@ -465,7 +476,7 @@ function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
   transcription: z.infer<typeof transcribeResponseSchema>,
   report: RehearsalReport,
-  rawAudioDeletedAt: string
+  rawAudioDeletedAt: string | null
 ) {
   return {
     runId: payload.runId,
@@ -473,7 +484,6 @@ function buildReportGenerationRecord(
     deckId: payload.deckId,
     audioFileId: payload.audioFileId,
     transcriptRetained: report.transcriptRetained,
-    transcript: report.transcript,
     language: transcription.language,
     provider: transcription.provider,
     model: transcription.model,
@@ -1215,14 +1225,32 @@ async function failAfterDelete(
       rawAudioDeletedAt
     });
   } catch (error) {
-    return failJobAndRun(
-      dataSource,
-      payload,
-      progress,
-      "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed."
-    );
+    await scheduleRawAudioDeletion(dataSource, asset);
+    return failJobAndRun(dataSource, payload, progress, code, message);
   }
+}
+
+async function scheduleRawAudioDeletion(dataSource: DataSource, asset: AudioAssetRow) {
+  const now = new Date().toISOString();
+  const storageKeyHash = createHash("sha256").update(asset.storage_key).digest("hex");
+  await dataSource.query(
+    `
+      INSERT INTO storage_deletion_outbox (
+        deletion_id, project_id, file_id, storage_key, storage_key_hash,
+        purpose, status, attempt_count, next_attempt_at, created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,'pending',0,$7,$7)
+      ON CONFLICT (storage_key_hash) DO NOTHING
+    `,
+    [
+      `deletion_${storageKeyHash.slice(0, 32)}`,
+      asset.project_id,
+      asset.file_id,
+      asset.storage_key,
+      storageKeyHash,
+      asset.purpose,
+      now,
+    ],
+  );
 }
 
 async function deleteRawAudio(
@@ -1297,9 +1325,19 @@ async function updateRun(
           raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
           report_json = COALESCE($6::jsonb, report_json),
           transcript_retained = COALESCE($7::boolean, transcript_retained),
+          analysis_revision = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_revision
+            ELSE analysis_revision + 1
+          END,
+          analysis_finalized_at = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_finalized_at
+            WHEN $9::boolean THEN now()
+            ELSE NULL
+          END,
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id, meta_json, evaluation_snapshot_json, semantic_evaluation_mode
+      RETURNING run_id, meta_json, evaluation_snapshot_json,
+                semantic_evaluation_mode, analysis_revision
     `,
     [
       payload.runId,
@@ -1309,7 +1347,10 @@ async function updateRun(
       patch.rawAudioDeletedAt ?? null,
       patch.rehearsalReport ? JSON.stringify(patch.rehearsalReport) : null,
       patch.transcriptRetained ?? null,
-      payload.projectId
+      payload.projectId,
+      patch.rehearsalReport
+        ? !patch.rehearsalReport.semanticEvaluation.retryable
+        : false
     ]
   );
 

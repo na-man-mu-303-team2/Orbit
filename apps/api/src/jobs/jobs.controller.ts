@@ -1,4 +1,4 @@
-import { demoIds, jobTypeSchema } from "@orbit/shared";
+import { demoIds, publicCreatableJobTypeSchema } from "@orbit/shared";
 import { Body, Controller, Get, NotFoundException, Param, Post, Req } from "@nestjs/common";
 import { z } from "zod";
 import { AuthService } from "../auth/auth.service";
@@ -11,9 +11,9 @@ import { JobsService } from "./jobs.service";
 
 const createJobSchema = z.object({
   projectId: z.string().min(1).optional(),
-  type: jobTypeSchema,
+  type: publicCreatableJobTypeSchema,
   payload: z.record(z.unknown()).optional()
-});
+}).strict();
 
 @Controller(["jobs", "api/v1/jobs"])
 export class JobsController {
