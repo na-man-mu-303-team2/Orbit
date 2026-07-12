@@ -14,7 +14,7 @@ describe("processChallengeQnaAnswerJob",()=>{
     const evidence={take:vi.fn(async()=>"비공개 답변 원문"),delete:vi.fn(async()=>undefined)};
     vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({conceptOutcomes:[],clarity:"needs-focus",audienceFit:"appropriate"}),{status:200})));
     const job=await processChallengeQnaAnswerJob({query} as unknown as DataSource,{} as never,evidence as never,"http://python:8000",{jobId:"job-answer",projectId:"project-a",answerAttemptId:"answer-a"});
-    expect(job.status).toBe("succeeded");expect(evidence.take).toHaveBeenCalledOnce();expect(JSON.stringify(job)).not.toContain("비공개 답변 원문");
+    expect(job.status).toBe("succeeded");expect(job.result).toEqual({answerAttemptId:"answer-a",measuredConceptCount:0});expect(evidence.take).toHaveBeenCalledOnce();expect(JSON.stringify(job)).not.toContain("비공개 답변 원문");
   });
 });
 function jobRow(status:"running"|"succeeded",result:unknown,error:unknown){return {job_id:"job-answer",project_id:"project-a",type:"challenge-qna-answer-analysis",status,progress:status==="running"?20:100,message:"answer",result,error,created_at:"2026-07-11T00:00:00.000Z",updated_at:"2026-07-11T00:00:01.000Z"};}

@@ -15,7 +15,7 @@ describe("processChallengeQnaGenerationJob",()=>{
     const dataSource={query,transaction:vi.fn(async(callback:any)=>callback({query:managerQuery}))} as unknown as DataSource;
     vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({questions:[question()]}),{status:200})));
     const job=await processChallengeQnaGenerationJob(dataSource,"http://python:8000",{jobId:"job-qna",projectId:"project-a",qnaSessionId:"qna-a",generationRevision:1});
-    expect(job.status).toBe("succeeded");expect(job.result).not.toHaveProperty("questionText");
+    expect(job.status).toBe("succeeded");expect(job.result).toEqual({qnaSessionId:"qna-a",generationRevision:1,questionCount:1});
     expect(managerQuery.mock.calls.some(([sql])=>String(sql).includes("INSERT INTO challenge_qna_questions"))).toBe(true);
   });
 });

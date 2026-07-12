@@ -204,6 +204,25 @@ export const criterionResultSchema = z
         path: ["observationId"],
       });
     }
+
+    const allowedReasonsByStatus = {
+      passed: ["PASSED"],
+      partial: ["PARTIAL"],
+      failed: ["THRESHOLD_EXCEEDED", "CONCEPT_MISSED"],
+      "not-evaluated": [
+        "NO_MEASUREMENT",
+        "NOT_APPLICABLE",
+        "SOURCE_INCOMPARABLE",
+        "EVALUATION_UNAVAILABLE",
+      ],
+    } as const;
+    if (!(allowedReasonsByStatus[result.evaluationStatus] as readonly string[]).includes(result.reasonCode)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "criterion result reason must match its evaluation status.",
+        path: ["reasonCode"],
+      });
+    }
   });
 
 export { criterionRefSchema };
