@@ -494,7 +494,7 @@ describe("AI PPT wizard payload", () => {
         duration: "7",
         slides: "",
         tone: "friendly",
-        colorMood: "black background with readable accents",
+        colorMood: "black background with white text and readable accents",
         fontMood: "funny easy read Korean sans font",
         mediaPolicy: "ai-generated",
         referencePolicy: "references-first"
@@ -506,6 +506,8 @@ describe("AI PPT wizard payload", () => {
     expect(payload.design.mediaPolicy).toBe("ai-generated");
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "ai-generated" });
     expect(payload.designPrompt).toContain("mediaPolicy=ai-generated");
+    expect(payload.design.colorIntent).toMatchObject({ backgroundPreference: "dark" });
+    expect(payload.design.constraints).toMatchObject({ canvasBackground: "auto" });
   });
 
   it("includes only usable extraction context and de-duplicated keywords", () => {

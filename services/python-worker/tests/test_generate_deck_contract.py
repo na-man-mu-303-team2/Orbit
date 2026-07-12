@@ -3703,6 +3703,40 @@ def test_deck_color_options_apply_intent_constraints() -> None:
     assert all(option["palette"]["border"] == "#D1D5DB" for option in options)
 
 
+def test_deck_color_options_preserve_dark_background_without_pastels() -> None:
+    response = client().post(
+        "/ai/deck-color-options",
+        json={
+            "topic": "Energetic game reveal",
+            "colorMood": "black background, vivid cyan, no pastel",
+            "stylePackId": "brandlogy-modern",
+            "colorIntent": {
+                "mood": "energetic",
+                "trustLevel": "medium",
+                "energyLevel": "high",
+                "formality": "professional",
+                "preferredHue": "teal",
+                "backgroundPreference": "dark",
+                "forbiddenStyles": ["pastel"],
+            },
+            "constraints": {
+                "canvasBackground": "auto",
+                "forbiddenStyles": ["pastel"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    options = response.json()["options"]
+
+    assert len(options) == 3
+    assert all(option["palette"]["background"] == "#050505" for option in options)
+    assert all(option["palette"]["surface"] == "#111827" for option in options)
+    assert all(option["palette"]["muted"] == "#1F2937" for option in options)
+    assert all(option["palette"]["border"] == "#374151" for option in options)
+    assert all(option["palette"]["text"] == "#F8FAFC" for option in options)
+
+
 def test_export_deck_pptx_creates_pptx_binary() -> None:
     deck = {
         "deckId": "deck_ai_1",

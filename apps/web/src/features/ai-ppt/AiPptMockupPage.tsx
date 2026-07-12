@@ -2175,7 +2175,15 @@ function presentationSlideRatioFor(state: AiPptWizardState) {
 function resolveDesignConstraints(state: AiPptWizardState): DesignConstraints {
   const source = colorSource(state);
   return {
-    canvasBackground: hasAny(source, ["white", "흰", "화이트", "백색"])
+    canvasBackground: hasAny(source, [
+      "white background",
+      "background white",
+      "흰색 배경",
+      "흰 색 배경",
+      "흰 배경",
+      "화이트 배경",
+      "백색 배경"
+    ])
       ? "white"
       : "auto",
     forbiddenStyles: resolveForbiddenStyles(source)
@@ -2202,9 +2210,20 @@ function resolveColorIntent(state: AiPptWizardState): ColorIntent {
         ? "casual"
         : "professional",
     preferredHue: resolvePreferredHue(source),
-    backgroundPreference: constraints.canvasBackground === "white" ? "white" : "auto",
+    backgroundPreference: resolveBackgroundPreference(source, constraints),
     forbiddenStyles: constraints.forbiddenStyles
   };
+}
+
+function resolveBackgroundPreference(
+  source: string,
+  constraints: DesignConstraints
+): ColorIntent["backgroundPreference"] {
+  if (constraints.canvasBackground === "white") return "white";
+  if (hasAny(source, ["black", "dark", "검은", "검정", "블랙", "어두운", "다크"])) {
+    return "dark";
+  }
+  return "auto";
 }
 
 function resolveMood(source: string): ColorIntent["mood"] {

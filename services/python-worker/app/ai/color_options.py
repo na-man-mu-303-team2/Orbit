@@ -341,15 +341,36 @@ def apply_color_constraints(
     wants_white = constraints.canvas_background == "white" or (
         intent is not None and intent.background_preference == "white"
     )
-    if wants_white:
+    wants_dark = intent is not None and intent.background_preference == "dark"
+    if wants_dark:
+        palette["background"] = "#050505"
+        palette["surface"] = "#111827"
+        palette["muted"] = "#1F2937"
+        palette["border"] = "#374151"
+    elif wants_white:
         palette["background"] = "#FFFFFF"
         palette["surface"] = "#FFFFFF"
     if "pastel" in forbidden_styles:
+        replacements = (
+            {
+                "background": "#050505",
+                "surface": "#111827",
+                "muted": "#1F2937",
+                "border": "#374151",
+            }
+            if wants_dark
+            else {
+                "background": "#FFFFFF" if wants_white else "#F8FAFC",
+                "surface": "#FFFFFF",
+                "muted": "#F3F4F6",
+                "border": "#D1D5DB",
+            }
+        )
         for key, replacement in (
-            ("background", "#FFFFFF" if wants_white else "#F8FAFC"),
-            ("surface", "#FFFFFF"),
-            ("muted", "#F3F4F6"),
-            ("border", "#D1D5DB"),
+            ("background", replacements["background"]),
+            ("surface", replacements["surface"]),
+            ("muted", replacements["muted"]),
+            ("border", replacements["border"]),
         ):
             if key in palette and (is_pastel_hex(palette[key]) or key in {"muted", "border"}):
                 palette[key] = replacement
