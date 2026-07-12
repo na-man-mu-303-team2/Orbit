@@ -2626,6 +2626,8 @@ def test_deck_color_options_endpoint_returns_three_fallback_options() -> None:
 
     assert len(options) == 3
     assert options[0]["optionId"] == "resort-blue"
+    assert options[0]["name"] == "리조트 블루"
+    assert options[0]["rationale"].endswith("팔레트입니다.")
     assert all(
         set(option["palette"].keys())
         == {

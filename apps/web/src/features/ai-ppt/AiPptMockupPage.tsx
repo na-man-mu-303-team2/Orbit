@@ -107,8 +107,8 @@ const fallbackPaletteOptions: PaletteOption[] = [
   },
   {
     optionId: "executive-slate",
-    name: "Executive Slate",
-    rationale: "Restrained contrast for internal decision meetings.",
+    name: "이그제큐티브 슬레이트",
+    rationale: "내부 의사결정 회의에 어울리는 절제된 대비의 팔레트입니다.",
     palette: {
       primary: "#334155",
       secondary: "#64748B",
@@ -122,8 +122,8 @@ const fallbackPaletteOptions: PaletteOption[] = [
   },
   {
     optionId: "modern-violet",
-    name: "Modern Violet",
-    rationale: "Expressive palette for AI, product, and creative narratives.",
+    name: "모던 바이올렛",
+    rationale: "AI, 제품, 창의적인 이야기를 또렷하게 전달하는 팔레트입니다.",
     palette: {
       primary: "#7C3AED",
       secondary: "#4F46E5",
@@ -150,7 +150,7 @@ const initialState: AiPptWizardState = {
   colorMood: "ORBIT Lilac 포인트와 Ink 대비, 차분하고 명확한 색감",
   fontMood: "professional trustworthy Korean sans font",
   mediaPolicy: "minimal",
-  referencePolicy: "references-first"
+  referencePolicy: "user-input-only"
 };
 
 const generationStages = [
@@ -250,8 +250,13 @@ export function getAiPptWizardValidationMessage(
   if (state.slides.trim() && parsePositiveInteger(state.slides, 0) < 1) {
     return "슬라이드 수는 1장 이상이어야 합니다.";
   }
-  if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
-    return "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.";
+  if (
+    ["references-first", "references-only"].includes(state.referencePolicy) &&
+    referenceFiles.length === 0
+  ) {
+    return state.referencePolicy === "references-only"
+      ? "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요."
+      : "참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.";
   }
   return "";
 }
@@ -318,6 +323,8 @@ export function AiPptMockupPage() {
     form.colorMood
   ].join("|");
   const loadedColorRequestKey = useRef("");
+  const panelRef = useRef<HTMLElement>(null);
+  const previousStepRef = useRef<StepId>(currentStep);
   const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
   const selectedPalette =
     paletteOptions.find((palette) => palette.optionId === selectedPaletteId) ??
@@ -344,6 +351,12 @@ export function AiPptMockupPage() {
     void loadColorOptions();
   }, [colorRequestKey, currentStep]);
 
+  useEffect(() => {
+    if (previousStepRef.current === currentStep) return;
+    previousStepRef.current = currentStep;
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [currentStep]);
+
   function updateForm<K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
@@ -361,8 +374,15 @@ export function AiPptMockupPage() {
       void submitGeneration();
       return;
     }
+    if (currentStep === "brief" || currentStep === "references") {
+      const validationMessage = getAiPptWizardValidationMessage(form, referenceFiles);
+      if (validationMessage) {
+        setError(validationMessage);
+        return;
+      }
+    }
     const nextStep = steps[Math.min(currentStepIndex + 1, steps.length - 1)];
-    setCurrentStep(nextStep.id);
+    goToStep(nextStep.id);
   }
 
   async function loadColorOptions() {
@@ -569,7 +589,7 @@ export function AiPptMockupPage() {
         </aside>
 
         <main className="ai-ppt-workspace">
-          <section className="ai-ppt-panel">
+          <section className="ai-ppt-panel" ref={panelRef}>
             {currentStep === "brief" ? (
               <BriefStep
                 briefMode={briefMode}
@@ -911,7 +931,10 @@ function ReviewStep(props: {
           <span>{props.referenceFiles.length} files selected</span>
         </SummaryCard>
       </div>
-      <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
+      <details>
+        <summary>고급 설정 JSON 보기</summary>
+        <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
+      </details>
     </>
   );
 }
@@ -1339,7 +1362,7 @@ function parsePositiveInteger(value: string, fallback: number) {
 function resolveSlideCountRange(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
   if (requested > 0) {
-    return { min: Math.max(1, requested - 2), max: requested + 2 };
+    return { min: requested, max: requested };
   }
   const derived = deriveSlideCountFromState(state);
   return { min: derived, max: derived };
