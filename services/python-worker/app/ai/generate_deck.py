@@ -18,6 +18,21 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.ai.composition_library import (
+    CompiledComposition,
+    compile_composition,
+    design_program_snapshot,
+    normalize_design_program,
+)
+from app.ai.design_program import (
+    ArtDirectorContext,
+    DeckDesignProgram,
+    DesignProgramError,
+    PaletteRoles,
+    ProgramTypography,
+    SlideCompositionDirection,
+    create_design_program,
+)
 from app.ai.pptx_design_importer import ImportedDesignBlueprint
 
 
@@ -269,6 +284,19 @@ class VisualPlanPolicy(BaseModel):
     media_policy: MediaPolicy = Field(default="balanced", alias="mediaPolicy")
 
 
+class InternalDesignProgramContext(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    saved_design_preferences: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="savedDesignPreferences",
+    )
+    brand_kit_locked_values: dict[str, Any] = Field(
+        default_factory=dict,
+        alias="brandKitLockedValues",
+    )
+
+
 class ColorIntent(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -385,6 +413,10 @@ class GenerateDeckRequest(BaseModel):
         default=None,
         alias="imageReviewMode",
     )
+    design_program_context: InternalDesignProgramContext = Field(
+        default_factory=InternalDesignProgramContext,
+        alias="designProgramContext",
+    )
 
 
 class PresentationTimingPlan(BaseModel):
@@ -434,6 +466,9 @@ class RawInput(BaseModel):
     research_attempts: int = 0
     relevant_web_source_count: int = 0
     official_web_source_count: int = 0
+    design_program_context: InternalDesignProgramContext = Field(
+        default_factory=InternalDesignProgramContext,
+    )
 
 
 class DeckOutline(BaseModel):
@@ -2107,13 +2142,18 @@ class DeckGenerationOrchestrator:
         self.reference_context = reference_context
         self.image_review_mode = image_review_mode
         self.agent_outputs: dict[str, AgentOutput] = {}
+        self.design_program: DeckDesignProgram | None = None
 
     def run(self) -> GenerateDeckResponse:
         raw_input = self.run_brief_agent()
         raw_input = self.run_source_grounding_agent(raw_input)
         outline, slide_plans = self.run_narrative_agent(raw_input)
         slide_plans, theme = self.run_design_director_agent(raw_input, slide_plans)
-        template_selection = template_selection_for_slide_plans(raw_input, slide_plans)
+        template_selection = (
+            []
+            if is_program_v2(raw_input)
+            else template_selection_for_slide_plans(raw_input, slide_plans)
+        )
         slides = self.run_layout_agent(raw_input, slide_plans, theme, template_selection)
         deck = self.build_deck(raw_input, outline, theme, slides)
         deck = enforce_design_pack_constraints(deck, raw_input)
@@ -2123,7 +2163,8 @@ class DeckGenerationOrchestrator:
         deck, validation = self.run_refiner_agent(deck, reviewer_validation)
         if raw_input.generation_mode == "design-pack":
             deck = enforce_design_pack_constraints(deck, raw_input)
-            deck = repair_design_pack_deck(deck)
+            if not is_program_v2(raw_input):
+                deck = repair_design_pack_deck(deck)
             deck, validation = validate_and_patch(deck, include_design_in_passed=True)
         warnings = unique_warnings(
             [
@@ -2235,11 +2276,32 @@ class DeckGenerationOrchestrator:
         slide_plans: list[SlidePlan],
     ) -> tuple[list[SlidePlan], dict[str, Any]]:
         slide_plans = apply_design_options(raw_input, slide_plans)
-        theme = imported_theme_from_blueprint(raw_input) or direct_design(
-            raw_input,
-            slide_plans,
+        theme = (
+            direct_design(raw_input, slide_plans)
+            if is_program_v2(raw_input)
+            else imported_theme_from_blueprint(raw_input)
+            or direct_design(raw_input, slide_plans)
         )
         theme = apply_font_override(theme, raw_input.design.font_override)
+        if is_program_v2(raw_input):
+            try:
+                program = create_design_program(
+                    art_director_context(raw_input, theme),
+                    [program_v2_slide_summary(slide) for slide in slide_plans],
+                    client=self.client,
+                    model=self.model,
+                    api_key=self.api_key,
+                )
+                program = apply_program_v2_design_tokens(program, theme)
+                self.design_program = normalize_design_program(
+                    program,
+                    [program_v2_slide_summary(slide) for slide in slide_plans],
+                    force_light=design_pack_wants_white_canvas(raw_input),
+                    media_policy=raw_input.design.media_policy,
+                    media_budget=4,
+                )
+            except DesignProgramError as error:
+                raise DeckContentGenerationError(str(error)) from error
         self.record(
             "DesignDirectorAgent",
             "Selected theme and design direction.",
@@ -2247,6 +2309,7 @@ class DeckGenerationOrchestrator:
                 "theme": theme,
                 "designBlueprint": raw_input.design_blueprint,
                 "slidePlans": slide_plans,
+                "designProgram": self.design_program,
             },
         )
         return slide_plans, theme
@@ -2261,12 +2324,23 @@ class DeckGenerationOrchestrator:
         recipes = (
             select_design_pack_recipes(raw_input, slide_plans)
             if raw_input.generation_mode == "design-pack"
+            and not is_program_v2(raw_input)
             and not has_imported_design_blueprint(raw_input)
             else []
         )
         slides: list[dict[str, Any]] = []
         for slide_plan in slide_plans:
-            if has_imported_design_blueprint(raw_input):
+            if is_program_v2(raw_input):
+                if self.design_program is None:
+                    raise DeckContentGenerationError("Design Program is missing")
+                slide = assemble_program_v2_slide(
+                    raw_input,
+                    slide_plan,
+                    theme,
+                    self.design_program,
+                    self.design_program.slides[slide_plan.order - 1],
+                )
+            elif has_imported_design_blueprint(raw_input):
                 slide = assemble_slide_from_imported_blueprint(
                     raw_input,
                     slide_plan,
@@ -2301,7 +2375,7 @@ class DeckGenerationOrchestrator:
                 "uniqueCoreLayoutCount": len(
                     {core_geometry_fingerprint(slide) for slide in slides[1:-1]}
                 )
-                if recipes
+                if recipes or is_program_v2(raw_input)
                 else 0,
             },
         )
@@ -2416,6 +2490,12 @@ class DeckGenerationOrchestrator:
         }
         if raw_input.generation_mode == "design-pack":
             metadata["presentationProfile"] = raw_input.presentation_profile
+        if is_program_v2(raw_input):
+            if self.design_program is None:
+                raise DeckContentGenerationError("Design Program is missing")
+            metadata["designProgramSnapshot"] = design_program_snapshot(
+                self.design_program
+            )
 
         return {
             "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
@@ -2557,6 +2637,92 @@ def has_imported_design_blueprint(raw_input: RawInput) -> bool:
     return isinstance(raw_input.design_blueprint, dict)
 
 
+def is_program_v2(raw_input: RawInput) -> bool:
+    return (
+        raw_input.generation_mode == "design-pack"
+        and raw_input.design.engine_version == "program-v2"
+    )
+
+
+def art_director_context(
+    raw_input: RawInput,
+    theme: dict[str, Any],
+) -> ArtDirectorContext:
+    palette = theme.get("palette", {})
+    return ArtDirectorContext(
+        topic=raw_input.topic,
+        presentationProfile=raw_input.presentation_profile,
+        brief={
+            "presentationContext": raw_input.brief.presentation_context,
+            "audienceText": raw_input.brief.audience_text,
+            "presentationType": raw_input.brief.presentation_type,
+            "successCriteria": raw_input.brief.success_criteria,
+            "durationMinutes": str(raw_input.target_duration_minutes),
+        },
+        palette={
+            "background": str(theme.get("backgroundColor", "#FFFFFF")),
+            "surface": str(palette.get("surface", "#F3F4F6")),
+            "text": str(theme.get("textColor", "#111827")),
+            "primary": str(palette.get("primary", "#2563EB")),
+            "secondary": str(palette.get("secondary", "#06B6D4")),
+        },
+        typography=dict(theme.get("typography", {})),
+        savedDesignPreferences=(
+            raw_input.design_program_context.saved_design_preferences
+        ),
+        brandKitLockedValues=(
+            raw_input.design_program_context.brand_kit_locked_values
+        ),
+        forbiddenStyles=sorted(design_pack_forbidden_styles(raw_input)),
+        mediaPolicy=raw_input.design.media_policy,
+        mediaBudget=4,
+    )
+
+
+def program_v2_slide_summary(slide_plan: SlidePlan) -> dict[str, Any]:
+    return {
+        "title": slide_plan.title,
+        "message": slide_plan.message,
+        "contentItems": [
+            item.model_dump(by_alias=True) for item in slide_plan.content_items
+        ],
+        "slideType": slide_plan.slide_type,
+        "visualIntent": slide_plan.visual_intent.model_dump(by_alias=True),
+        "mediaIntent": slide_plan.media_intent.model_dump(),
+    }
+
+
+def apply_program_v2_design_tokens(
+    program: DeckDesignProgram,
+    theme: dict[str, Any],
+) -> DeckDesignProgram:
+    palette = theme.get("palette", {})
+    typography = theme.get("typography", {})
+    updated = program.model_copy(deep=True)
+    updated.palette_roles = PaletteRoles(
+        dominant=str(theme.get("backgroundColor", "#FFFFFF")),
+        surface=str(palette.get("surface", "#F3F4F6")),
+        text=str(theme.get("textColor", "#111827")),
+        focal=str(theme.get("accentColor", palette.get("primary", "#2563EB"))),
+        secondary=str(palette.get("secondary", "#06B6D4")),
+    )
+    updated.typography = ProgramTypography(
+        headingFont=str(
+            typography.get("headingFontFamily", theme.get("fontFamily", "Inter"))
+        ),
+        bodyFont=str(
+            typography.get("bodyFontFamily", theme.get("fontFamily", "Inter"))
+        ),
+        typeScale={
+            "cover": max(44, int(typography.get("titleSize", 60))),
+            "title": max(32, int(typography.get("headingSize", 40))),
+            "body": max(18, int(typography.get("bodySize", 22))),
+            "caption": max(14, int(typography.get("captionSize", 14))),
+        },
+    )
+    return updated
+
+
 def imported_blueprint_warnings(raw_input: RawInput) -> list[str]:
     blueprint = raw_input.design_blueprint
     if not isinstance(blueprint, dict):
@@ -2693,6 +2859,7 @@ def analyze_input(
         reference_context=resolved_reference_context,
         template_blueprint=normalize_template_blueprint(request.template_blueprint),
         design_blueprint=normalize_imported_design_blueprint(request.design_blueprint),
+        design_program_context=request.design_program_context,
     ).model_copy(
         update={
             "presentation_profile": presentation_profile_for_request(request),
@@ -6160,6 +6327,161 @@ def assemble_design_pack_slide(
         ],
         "aiNotes": design_pack_ai_notes(raw_input, slide_plan, recipe),
     }
+
+
+def assemble_program_v2_slide(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    theme: dict[str, Any],
+    program: DeckDesignProgram,
+    direction: SlideCompositionDirection,
+) -> dict[str, Any]:
+    summary = program_v2_slide_summary(slide_plan)
+    compiled: CompiledComposition = compile_composition(
+        direction,
+        summary,
+        program,
+    )
+    elements = cap_elements(compiled.elements, limit=48)
+    build_design_pack_content_manifest(slide_plan, elements)
+    for element in elements:
+        element.pop("_contentItemIds", None)
+    title_element = next(element for element in elements if element["role"] == "title")
+    slide_id = f"slide_{slide_plan.order}"
+    return {
+        "slideId": slide_id,
+        "order": slide_plan.order,
+        "title": slide_plan.title,
+        "thumbnailUrl": "",
+        "style": {
+            "layout": compiled.layout,
+            "backgroundColor": compiled.background_color,
+            "textColor": str(
+                next(
+                    element["props"]["color"]
+                    for element in elements
+                    if element["elementId"] == title_element["elementId"]
+                )
+            ),
+            "accentColor": program.palette_roles.focal,
+        },
+        "estimatedSeconds": (
+            slide_plan.target_seconds
+            or raw_input.timing_plan.target_seconds_per_slide
+        ),
+        "speakerNotes": slide_plan.speaker_notes,
+        "elements": elements,
+        "keywords": [
+            {
+                "keywordId": f"kw_{slide_plan.order}_{index}",
+                "text": keyword,
+                "synonyms": [],
+                "abbreviations": [],
+            }
+            for index, keyword in enumerate(slide_plan.keywords, start=1)
+        ],
+        "animations": [
+            {
+                "animationId": f"anim_{slide_plan.order}_1",
+                "elementId": compiled.primary_focal_element_id,
+                "type": "fade-in",
+                "order": 1,
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out",
+            }
+        ],
+        "aiNotes": program_v2_ai_notes(
+            raw_input,
+            slide_plan,
+            program,
+            direction,
+            compiled,
+        ),
+    }
+
+
+def program_v2_ai_notes(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    program: DeckDesignProgram,
+    direction: SlideCompositionDirection,
+    compiled: CompiledComposition,
+) -> dict[str, Any]:
+    return {
+        "emphasisPoints": [slide_plan.message],
+        "sourceEvidence": [
+            evidence.model_dump(by_alias=True) for evidence in slide_plan.evidence
+        ],
+        "visualPlan": program_v2_visual_plan(
+            raw_input,
+            slide_plan,
+            program,
+            direction,
+        ),
+        "sourceLedger": design_pack_source_ledgers(raw_input, slide_plan),
+        "timingPlan": design_pack_timing_plan(raw_input, slide_plan),
+        "compositionPlan": {
+            "compositionId": direction.composition_id,
+            "variant": direction.variant,
+            "backgroundMode": direction.background_mode,
+            "focalType": direction.focal_type,
+            "primaryFocalElementId": compiled.primary_focal_element_id,
+            "assetRole": direction.asset_role,
+            "requiredAsset": direction.required_asset,
+        },
+    }
+
+
+def program_v2_visual_plan(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+    program: DeckDesignProgram,
+    direction: SlideCompositionDirection,
+) -> dict[str, Any]:
+    image_needed = direction.asset_role != "none"
+    media_policy = raw_input.design.media_policy
+    if not image_needed:
+        source_policy = "minimal"
+    elif media_policy == "hybrid":
+        source_policy = (
+            "public-assets" if direction.asset_role == "evidence" else "ai-generated"
+        )
+    elif media_policy in {"ai-generated", "public-assets", "provided-only"}:
+        source_policy = media_policy
+    else:
+        source_policy = "minimal"
+    prompt = " ".join(
+        part.strip()
+        for part in (
+            slide_plan.media_intent.prompt,
+            slide_plan.visual_intent.media_style,
+            program.image_style,
+        )
+        if part.strip()
+    )
+    alt = (
+        slide_plan.media_intent.alt.strip()
+        or slide_plan.media_intent.caption.strip()
+        or slide_plan.title
+    )
+    result: dict[str, Any] = {
+        "visualType": direction.composition_id,
+        "imageNeeded": image_needed,
+        "imageSourcePolicy": source_policy,
+        "reason": (
+            f"{direction.asset_role} asset supports the slide focal point."
+            if image_needed
+            else "Native composition uses typography and editable shapes."
+        ),
+    }
+    if prompt:
+        result["imagePrompt"] = prompt
+    if alt:
+        result["imageAlt"] = alt
+    if slide_plan.media_intent.placement.strip():
+        result["imagePlacement"] = slide_plan.media_intent.placement.strip()
+    return result
 
 
 def design_pack_ai_notes(
@@ -11756,8 +12078,11 @@ def element_limit_for_slide(slide: dict[str, Any]) -> int:
 
 
 def is_design_pack_slide(slide: dict[str, Any]) -> bool:
+    if isinstance(slide.get("aiNotes", {}).get("compositionPlan"), dict):
+        return True
     return any(
         "_design_pack_" in str(element.get("elementId", ""))
+        or "_program_v2_" in str(element.get("elementId", ""))
         for element in slide.get("elements", [])
     )
 
