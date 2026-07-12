@@ -5075,10 +5075,14 @@ def ensure_profile_closing_action(
         text=action,
     )
     _, maximum = DESIGN_PACK_RECIPE_CAPACITIES["closing_summary"]
-    if len(closing.content_items) >= maximum:
-        closing.content_items[-1] = action_item
-    else:
-        closing.content_items.append(action_item)
+    supporting_items = [
+        item
+        for item in closing.content_items
+        if item.content_item_id != action_item.content_item_id
+        and normalize_structural_content_text(item.text)
+        != normalize_structural_content_text(action)
+    ]
+    closing.content_items = [action_item, *supporting_items][:maximum]
 
 
 def apply_design_pack_media_plan(

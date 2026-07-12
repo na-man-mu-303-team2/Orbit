@@ -56,6 +56,7 @@ from app.ai.generate_deck import (
     design_pack_recipe_for,
     design_pack_recipe_elements,
     design_pack_recipe_variant_for,
+    design_pack_source_ledgers,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
@@ -829,7 +830,8 @@ def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
 
     assert closing.title == "지금 출시 정보를 확인하세요"
     assert closing.message == "출시 정보를 확인하고 다음 행동을 선택하세요."
-    assert closing.content_items[-1].text == closing.message
+    assert closing.content_items[0].text == closing.message
+    assert design_pack_source_ledgers(raw_input, closing)[0]["claim"] == closing.message
 
 
 def test_presentation_validation_detects_missing_profile_closing_action() -> None:
