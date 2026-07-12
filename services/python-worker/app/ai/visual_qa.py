@@ -75,6 +75,11 @@ most one issue and one repair action for each code, targeting the single slide
 whose change best improves the whole deck.
 IMAGE_CROP_WEAK applies only to a slide whose slide map has hasMedia=true. Never use
 an image issue code for a solid color field, native shape, chart, or decoration.
+COLOR_HARMONY_WEAK requires a visible off-palette clash, unreadable contrast, or an
+image that visibly conflicts with adjacent palette fields; a preference for more
+vibrancy, playfulness, or decoration is not a defect. IMAGE_CROP_WEAK requires a cut
+off or obscured focal subject, or clearly excessive empty image area; a merely better
+possible emphasis is not a defect.
 """.strip()
 
 

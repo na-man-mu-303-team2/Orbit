@@ -224,6 +224,13 @@ def test_visual_review_prompt_includes_design_program_contract() -> None:
     assert '"hasMedia": false' in prompt
 
 
+def test_visual_qa_instructions_exclude_subjective_color_and_crop_nits() -> None:
+    instructions = " ".join(visual_qa_module.VISUAL_QA_INSTRUCTIONS.split())
+
+    assert "a preference for more vibrancy" in instructions
+    assert "a merely better possible emphasis is not a defect" in instructions
+
+
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
     candidate = deck()
     candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]
