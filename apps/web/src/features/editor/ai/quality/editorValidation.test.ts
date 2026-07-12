@@ -209,6 +209,19 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("accepts hybrid official asset placeholders before resolution", () => {
+    const deck = structuredClone(designPackDeck);
+    const visualPlan = deck.slides[0].aiNotes?.visualPlan;
+    if (!visualPlan) throw new Error("visual plan missing");
+    visualPlan.imageSourcePolicy = "official-assets";
+
+    expect(getEditorValidationItems(deck)).not.toContainEqual(
+      expect.objectContaining({
+        elementId: "el_1_design_pack_visual_media_placeholder"
+      })
+    );
+  });
+
   it("reports undersized planned media with the canonical hierarchy issue", () => {
     const deck = structuredClone(designPackDeck);
     deck.metadata.presentationProfile = "general-inform";

@@ -853,7 +853,7 @@ function isExpectedEditorMediaPlaceholder(slide: Slide) {
   const visualPlan = slide.aiNotes?.visualPlan;
   return Boolean(
     visualPlan?.imageNeeded &&
-      ["ai-generated", "public-assets", "placeholder-ok"].includes(
+      ["ai-generated", "public-assets", "official-assets", "placeholder-ok"].includes(
         visualPlan.imageSourcePolicy
       )
   );
