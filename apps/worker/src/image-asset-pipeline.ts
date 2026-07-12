@@ -476,6 +476,10 @@ function replaceSlideImagePlaceholder(
       );
       if (!placeholder) return slide;
       const plan = slide.aiNotes?.visualPlan;
+      const assetElementId = placeholder.elementId.replace(
+        /_media_placeholder$/,
+        "_media_asset"
+      );
       return {
         ...slide,
         elements: [
@@ -486,10 +490,7 @@ function replaceSlideImagePlaceholder(
           ),
           {
             ...placeholder,
-            elementId: placeholder.elementId.replace(
-              /_media_placeholder$/,
-              "_media_asset"
-            ),
+            elementId: assetElementId,
             type: "image" as const,
             props: {
               src: url,
@@ -503,6 +504,18 @@ function replaceSlideImagePlaceholder(
         aiNotes: slide.aiNotes
           ? {
               ...slide.aiNotes,
+              ...(slide.aiNotes.compositionPlan
+                ? {
+                    compositionPlan: {
+                      ...slide.aiNotes.compositionPlan,
+                      primaryFocalElementId:
+                        slide.aiNotes.compositionPlan.primaryFocalElementId ===
+                        placeholder.elementId
+                          ? assetElementId
+                          : slide.aiNotes.compositionPlan.primaryFocalElementId
+                    }
+                  }
+                : {}),
               visualPlan: plan
                 ? {
                     ...plan,

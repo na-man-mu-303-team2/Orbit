@@ -155,6 +155,9 @@ describe("image asset pipeline", () => {
       (element) => element.type === "image"
     );
     expect(image?.elementId).toMatch(/_media_asset$/);
+    expect(
+      result.deck.slides[0].aiNotes?.compositionPlan?.primaryFocalElementId
+    ).toBe(image?.elementId);
     expect(image).toMatchObject({ x: 1114, y: 256, width: 686, height: 520 });
     expect(
       result.deck.slides[0].elements.some((element) =>
@@ -386,6 +389,15 @@ describe("image asset pipeline", () => {
       ...first.slides[0],
       slideId: "slide_2",
       order: 2,
+      aiNotes: {
+        ...first.slides[0].aiNotes,
+        compositionPlan: first.slides[0].aiNotes?.compositionPlan
+          ? {
+              ...first.slides[0].aiNotes.compositionPlan,
+              primaryFocalElementId: "el_2_media_placeholder"
+            }
+          : undefined
+      },
       elements: first.slides[0].elements.map((element) => ({
         ...element,
         elementId: element.elementId.replace("el_", "el_2_")
@@ -469,6 +481,15 @@ function imageDeck(
           }
         ],
         aiNotes: {
+          compositionPlan: {
+            compositionId: "hero-split",
+            variant: "light",
+            backgroundMode: "light",
+            focalType: "image",
+            primaryFocalElementId: "el_media_placeholder",
+            assetRole: policy === "ai-generated" ? "atmosphere" : "evidence",
+            requiredAsset: false
+          },
           visualPlan: {
             visualType: "image",
             imageNeeded: true,
