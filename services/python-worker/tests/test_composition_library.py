@@ -833,9 +833,21 @@ def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
         for element in compiled.elements
         if element.get("type") == "text"
     ]
+    message = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_closing_message")
+    )
+    action = next(
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_closing_action_1")
+    )
 
     assert visible_text.count("감사 인사와 기대 소감") == 1
     assert "출시 정보를 확인하고 다음 행동을 선택하세요." in visible_text
+    assert message["_contentItemIds"] == ["duplicate"]
+    assert action["_contentItemIds"] == ["action"]
     assert compiled.primary_focal_element_id == "el_1_program_v2_closing_message"
 
 

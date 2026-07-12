@@ -276,6 +276,23 @@ def _supporting_items_without_message_duplicate(
     return [] if _message_duplicates_items(slide, items) else items
 
 
+def _message_backed_item_ids(
+    slide: dict[str, Any],
+    items: list[tuple[str, str]],
+) -> list[str]:
+    message = _normalized_text(str(slide.get("message", "")))
+    if not message:
+        return []
+    exact = [identifier for identifier, value in items if _normalized_text(value) == message]
+    if exact:
+        return exact
+    if _message_duplicates_items(slide, items) and not _supporting_items_without_message_duplicate(
+        slide, items
+    ):
+        return [identifier for identifier, _ in items]
+    return []
+
+
 def _deduplicate_exact_visible_text(
     elements: list[Element],
 ) -> list[Element]:
@@ -1837,11 +1854,12 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     order = direction.order
     items = _items(slide)
     action_items = _supporting_items_without_message_duplicate(slide, items)
+    message_item_ids = _message_backed_item_ids(slide, items)
     duplicates_items = bool(items) and not action_items
     if direction.asset_role != "none":
         content_width = _grid_width(6)
         title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
-        message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 176, 5, style.text, max(44, style.body_size + 8) if duplicates_items else max(42, style.body_size + 6), "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
+        message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 176, 5, style.text, max(44, style.body_size + 8) if duplicates_items else max(42, style.body_size + 6), "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=message_item_ids or None)
         elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
         action = None
         if action_items:
@@ -1870,7 +1888,7 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
         _contrasting_text_color(style.focal, style.text),
         max(52, style.body_size + 14), "bold", style.heading_font,
         vertical="middle",
-        content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None,
+        content_item_ids=message_item_ids or None,
     )
     elements = [
         _background(order, style),
