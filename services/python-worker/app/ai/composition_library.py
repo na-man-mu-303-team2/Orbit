@@ -335,12 +335,7 @@ def _hero_split(
 ) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
-    uses_expanded_media = (
-        direction.asset_role != "none"
-        and len(str(slide.get("title", ""))) <= 28
-        and len(items) <= 2
-    )
-    content_columns = 6 if uses_expanded_media else 7
+    content_columns = 6 if direction.asset_role != "none" else 7
     media_columns = 12 - content_columns
     elements = [_background(order, style)]
     elements.append(
@@ -576,13 +571,14 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
     order = direction.order
     items = _items(slide)
     duplicates_items = _message_duplicates_items(slide, items)
+    content_columns = 6 if direction.asset_role != "none" else 7
     elements = [_background(order, style), _title(order, slide, style)]
     message_height = 240 if direction.asset_role != "none" else 376
-    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(7), message_height, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
+    message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 304, _grid_width(content_columns), message_height, 5, style.text, max(30, style.body_size + 8), "bold", style.heading_font, line_height=1.2)
     if not duplicates_items:
         elements.append(message)
     if direction.asset_role != "none":
-        elements.extend(_media(order, _grid_x(7), 248, _grid_width(5), 624, 4, style, _media_caption(slide)))
+        elements.extend(_media(order, _grid_x(6), 248, _grid_width(6), 624, 4, style, _media_caption(slide)))
         if items:
             if duplicates_items:
                 gap = 24
@@ -592,11 +588,11 @@ def _editorial_split(direction: SlideCompositionDirection, slide: dict[str, Any]
                     elements.extend(
                         [
                             _text(order, f"support_index_{index + 1}", "highlight", f"{index + 1:02d}", _grid_x(0), y, _grid_width(1), row_height, 5, style.focal, 24, "bold", style.heading_font, vertical="middle"),
-                            _text(order, f"support_{index + 1}", "body", value, _grid_x(1), y, _grid_width(6), row_height, 5, style.text, max(24, style.body_size + 2), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                            _text(order, f"support_{index + 1}", "body", value, _grid_x(1), y, _grid_width(5), row_height, 5, style.text, max(24, style.body_size + 2), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
                         ]
                     )
             else:
-                elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 584, _grid_width(7), 288, 5, style.muted_text, max(22, style.body_size), "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
+                elements.append(_text(order, "support", "body", "\n".join(f"• {value}" for _, value in items), _grid_x(0), 584, _grid_width(6), 288, 5, style.muted_text, max(22, style.body_size), "normal", style.body_font, content_item_ids=[identifier for identifier, _ in items]))
         return elements, _id(order, "media_placeholder")
     panel_widths = (
         (_grid_width(6), _grid_width(6))
@@ -689,6 +685,11 @@ def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, A
             (_grid_x(index * 4), 344, _grid_width(4), 448)
             for index in range(3)
         ]
+    elif count == 2:
+        frames = [
+            (_grid_x(index * 6), 352, _grid_width(6), 416)
+            for index in range(2)
+        ]
     else:
         columns = 2
         rows = (count + columns - 1) // columns
@@ -708,11 +709,14 @@ def _feature_comparison(direction: SlideCompositionDirection, slide: dict[str, A
         zip(items, frames, strict=True)
     ):
         text_y = y + 92
+        field_fill = style.secondary if count == 2 and index == 0 else style.surface
+        field_text = _contrasting_text_color(field_fill, style.text)
+        index_color = field_text if count == 2 and index == 0 else style.focal
         elements.extend(
             [
-                _rect(order, f"comparison_{index + 1}_field", "decoration", x, y, width, height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-                _text(order, f"comparison_{index + 1}_index", "highlight", f"{index + 1:02d}", x + 28, y + 24, width - 56, 52, 5, style.focal, 28, "bold", style.heading_font),
-                _text(order, f"comparison_{index + 1}", "body", value, x + 28, text_y, width - 56, height - 120, 5, style.text, max(24, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+                _rect(order, f"comparison_{index + 1}_field", "decoration", x, y, width, height, 3, field_fill, stroke=style.secondary, stroke_width=2, radius=8),
+                _text(order, f"comparison_{index + 1}_index", "highlight", f"{index + 1:02d}", x + 28, y + 24, width - 56, 52, 5, index_color, 28, "bold", style.heading_font),
+                _text(order, f"comparison_{index + 1}", "body", value, x + 28, text_y, width - 56, height - 120, 5, field_text, 30 if count == 2 else max(24, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
             ]
         )
     focal = _id(order, "comparison_1") if items else _id(order, "title")
@@ -766,7 +770,7 @@ def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], st
         else str(slide.get("message", ""))
     )
     hub_font_size = 26 if len(hub_copy) <= 16 else 22 if len(hub_copy) <= 20 else 18
-    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), hub_x + 24, 440, hub_width - 48, 160, 5, "#FFFFFF", hub_font_size, "bold", style.heading_font, align="center", vertical="middle")]
+    elements = [_background(order, style), _title(order, slide, style), hub, _text(order, "hub", "highlight", textwrap.shorten(hub_copy, width=80, placeholder="..."), hub_x + 24, 440, hub_width - 48, 160, 5, _contrasting_text_color(style.secondary, style.text), hub_font_size, "bold", style.heading_font, align="center", vertical="middle")]
     if len(items) == 3:
         frames = [
             (_grid_x(0), 304, _grid_width(3), 176),
@@ -805,7 +809,7 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     order = direction.order
     items = _items(slide)
     duplicates_items = _message_duplicates_items(slide, items)
-    content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(10)
+    content_width = _grid_width(7) if direction.asset_role != "none" else _grid_width(12)
     title = _text(order, "title", "title", str(slide.get("title", "")), _grid_x(0), 224, content_width, 216, 5, style.text, max(style.cover_size - 4, 48), "bold", style.heading_font, line_height=1.05)
     message = _text(order, "message", "highlight", str(slide.get("message", "")), _grid_x(0), 496, content_width, 376 if duplicates_items else 160, 5, style.text, 36 if duplicates_items else 30, "bold" if duplicates_items else "semibold", style.body_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier for identifier, _ in items] if duplicates_items else None)
     elements = [_background(order, style), _rect(order, "closing_mark", "decoration", 120, 152, 180, 16, 2, style.focal), title, message]
@@ -815,8 +819,6 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
         elements.append(action)
     if direction.asset_role != "none":
         elements.extend(_media(order, _grid_x(7), 208, _grid_width(5), 624, 3, style, _media_caption(slide)))
-    else:
-        elements.append(_rect(order, "closing_field", "decoration", _grid_x(10), 240, _grid_width(2), 560, 2, style.focal, radius=8))
     return elements, (action or message)["elementId"]
 
 
@@ -1222,6 +1224,10 @@ def _is_dark(color: str) -> bool:
         return False
     red, green, blue = (int(color[index : index + 2], 16) for index in (1, 3, 5))
     return (red * 299 + green * 587 + blue * 114) / 1000 < 128
+
+
+def _contrasting_text_color(background: str, preferred: str) -> str:
+    return "#FFFFFF" if _is_dark(background) else preferred
 
 
 def _metric_value(slide: dict[str, Any], items: list[tuple[str, str]]) -> str:

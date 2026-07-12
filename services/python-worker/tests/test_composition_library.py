@@ -402,7 +402,7 @@ def test_short_hero_with_media_uses_balanced_six_column_split() -> None:
     assert (media["x"], media["width"], media["height"]) == (972, 828, 840)
 
 
-def test_editorial_media_duplicate_items_fill_seven_column_content_area() -> None:
+def test_editorial_media_duplicate_items_fill_balanced_six_column_area() -> None:
     slide = slide_payload("solution", 3)
     slide["message"] = "\n".join(
         item["text"] for item in slide["contentItems"]
@@ -434,10 +434,10 @@ def test_editorial_media_duplicate_items_fill_seven_column_content_area() -> Non
     media = next(element for element in compiled.elements if element["role"] == "media")
 
     assert len(support) == 3
-    assert all((element["x"], element["width"]) == (262, 828) for element in support)
+    assert all((element["x"], element["width"]) == (262, 686) for element in support)
     assert all(element["props"]["fontSize"] >= 24 for element in support)
     assert all(element["props"]["verticalAlign"] == "middle" for element in support)
-    assert (media["x"], media["width"]) == (1114, 686)
+    assert (media["x"], media["width"]) == (972, 828)
 
 
 def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
@@ -476,6 +476,41 @@ def test_repeated_three_item_comparison_uses_alternate_silhouette() -> None:
     assert (odd_field["x"], odd_field["y"], odd_field["width"]) == (120, 304, 828)
     assert all(element["props"]["fontSize"] >= 24 for element in body)
     assert all(element["props"]["verticalAlign"] == "middle" for element in body)
+
+
+def test_two_item_comparison_uses_compact_contrasting_statement_panels() -> None:
+    slide = slide_payload("comparison", 2)
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "feature-comparison",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "comparison",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    fields = [
+        element
+        for element in compiled.elements
+        if element["elementId"].endswith("_field")
+    ]
+    body = [element for element in compiled.elements if element["role"] == "body"]
+
+    assert len(fields) == 2
+    assert all((field["y"], field["height"]) == (352, 416) for field in fields)
+    assert fields[0]["props"]["fill"] == "#06B6D4"
+    assert fields[1]["props"]["fill"] == "#F3F4F6"
+    assert all(element["props"]["fontSize"] == 30 for element in body)
 
 
 def test_metric_poster_requires_numeric_evidence() -> None:
@@ -561,7 +596,7 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     assert hub["x"] == 712
     assert hub["width"] == 496
     assert hub["props"]["fontSize"] == 26
-    assert hub["props"]["color"] == "#FFFFFF"
+    assert hub["props"]["color"] == "#111827"
     assert hub_field["props"]["fill"] == "#06B6D4"
     assert all(element["props"]["fontSize"] >= 24 for element in nodes)
 
@@ -605,6 +640,10 @@ def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:
     assert focal["height"] >= 376
     assert focal["props"]["verticalAlign"] == "middle"
     assert len(visible_matches) == 1
+    assert not any(
+        element["elementId"].endswith("_closing_field")
+        for element in compiled.elements
+    )
 
 
 def test_white_canvas_forces_light_variants() -> None:
