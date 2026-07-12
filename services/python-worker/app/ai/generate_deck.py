@@ -2304,6 +2304,7 @@ class DeckGenerationOrchestrator:
                     program,
                     slide_summaries,
                     force_light=design_pack_wants_white_canvas(raw_input),
+                    force_dark=design_pack_wants_dark_canvas(raw_input),
                     media_policy=raw_input.design.media_policy,
                     media_budget=4,
                 )
@@ -9739,6 +9740,15 @@ def design_pack_wants_white_canvas(raw_input: RawInput) -> bool:
         and constraints.canvas_background == "white"
         or color_intent is not None
         and color_intent.background_preference == "white"
+    )
+
+
+def design_pack_wants_dark_canvas(raw_input: RawInput) -> bool:
+    color_intent = raw_input.design.color_intent
+    return bool(
+        not design_pack_wants_white_canvas(raw_input)
+        and color_intent is not None
+        and color_intent.background_preference == "dark"
     )
 
 

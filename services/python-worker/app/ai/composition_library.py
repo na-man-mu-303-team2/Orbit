@@ -860,6 +860,7 @@ def normalize_design_program(
     slides: list[dict[str, Any]],
     *,
     force_light: bool = False,
+    force_dark: bool = False,
     media_policy: str = "hybrid",
     media_budget: int = 4,
 ) -> DeckDesignProgram:
@@ -870,6 +871,7 @@ def normalize_design_program(
         normalized,
         slides,
         force_light=force_light,
+        force_dark=force_dark,
         media_policy=media_policy,
         media_budget=media_budget,
     )
@@ -895,7 +897,7 @@ def normalize_design_program(
             direction.required_asset = False
 
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
-    _enforce_background_rhythm(normalized, force_light)
+    _enforce_background_rhythm(normalized, force_light, force_dark)
     return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
 
 
@@ -904,6 +906,7 @@ def _select_composition_sequence(
     slides: list[dict[str, Any]],
     *,
     force_light: bool,
+    force_dark: bool,
     media_policy: str,
     media_budget: int,
 ) -> list[CompositionId]:
@@ -930,7 +933,7 @@ def _select_composition_sequence(
                 index,
                 media_policy,
             )
-            and not (force_light and candidate == "hero-full-bleed")
+            and not ((force_light or force_dark) and candidate == "hero-full-bleed")
             and not (
                 media_policy in {"minimal", "avoid"}
                 and COMPOSITION_SPECS[candidate].media_requirement == "required"
@@ -1160,7 +1163,11 @@ def _enforce_media_budget(
         current += 1
 
 
-def _enforce_background_rhythm(program: DeckDesignProgram, force_light: bool) -> None:
+def _enforce_background_rhythm(
+    program: DeckDesignProgram,
+    force_light: bool,
+    force_dark: bool,
+) -> None:
     if force_light:
         for slide in program.slides:
             if slide.composition_id == "hero-full-bleed":
@@ -1168,6 +1175,14 @@ def _enforce_background_rhythm(program: DeckDesignProgram, force_light: bool) ->
             slide.background_mode = "light"
             slide.variant = "light"
         program.background_sequence = ["light"] * len(program.slides)
+        return
+    if force_dark:
+        for slide in program.slides:
+            if slide.composition_id == "hero-full-bleed":
+                slide.composition_id = "hero-split"
+            slide.background_mode = "dark"
+            slide.variant = "dark"
+        program.background_sequence = ["dark"] * len(program.slides)
         return
     if len(program.slides) >= 6 and len({slide.background_mode for slide in program.slides}) < 2:
         for index, slide in enumerate(program.slides):
@@ -1194,9 +1209,15 @@ def _style(program: DeckDesignProgram, mode: BackgroundMode) -> Style:
     roles = program.palette_roles
     scale = program.typography.type_scale
     if mode in {"dark", "image"}:
-        background = roles.text if _is_dark(roles.text) else "#101828"
-        text = "#FFFFFF"
-        surface = "#1F2937"
+        background = (
+            roles.dominant
+            if _is_dark(roles.dominant)
+            else roles.text
+            if _is_dark(roles.text)
+            else "#101828"
+        )
+        text = roles.text if not _is_dark(roles.text) else "#FFFFFF"
+        surface = roles.surface if _is_dark(roles.surface) else "#1F2937"
         muted_text = "#D1D5DB"
     else:
         background = roles.dominant if not _is_dark(roles.dominant) else "#FFFFFF"

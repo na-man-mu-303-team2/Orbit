@@ -256,6 +256,47 @@ def test_normalizer_meets_body_layout_diversity_gate() -> None:
     )
 
 
+def test_normalizer_preserves_explicit_dark_palette_across_compositions() -> None:
+    definitions = [
+        ("cover", 2, "hero-split"),
+        ("feature-grid", 3, "feature-comparison"),
+        ("summary", 2, "cta-closing"),
+    ]
+    slides = [slide_payload(slide_type, count) for slide_type, count, _ in definitions]
+    design_program = program(
+        [
+            {
+                "order": index,
+                "compositionId": composition_id,
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+            for index, (_, _, composition_id) in enumerate(definitions, start=1)
+        ]
+    )
+    design_program.palette_roles.dominant = "#050505"
+    design_program.palette_roles.surface = "#111827"
+    design_program.palette_roles.text = "#F8FAFC"
+
+    normalized = normalize_design_program(
+        design_program,
+        slides,
+        force_dark=True,
+        media_policy="minimal",
+    )
+    compiled = compile_composition(normalized.slides[1], slides[1], normalized)
+    background = next(
+        element for element in compiled.elements if element["role"] == "background"
+    )
+
+    assert normalized.background_sequence == ["dark", "dark", "dark"]
+    assert all(slide.background_mode == "dark" for slide in normalized.slides)
+    assert background["props"]["fill"] == "#050505"
+
+
 def test_hybrid_required_evidence_without_official_source_uses_atmosphere() -> None:
     slides = [
         slide_payload("cover", 2),
