@@ -844,11 +844,34 @@ def _select_composition_sequence(
 
     selected: list[CompositionId] = []
     usage: Counter[str] = Counter()
+    body_slide_count = max(0, len(slides) - 2)
+    validator_unique_target = (
+        (body_slide_count * 3 + 3) // 4 if body_slide_count >= 5 else 0
+    )
+    supported_body_compositions = {
+        composition_id
+        for candidates in candidates_by_slide[1:-1]
+        for composition_id in candidates
+    }
+    required_unique_body = min(
+        validator_unique_target,
+        len(supported_body_compositions),
+    )
 
     def choose(index: int, previous_silhouette: str, required_assets: int) -> bool:
         if index == len(candidates_by_slide):
-            return True
-        for candidate in candidates_by_slide[index]:
+            return len(set(selected[1:-1])) >= required_unique_body
+        selected_body = set(selected[1:])
+        remaining_body = max(0, len(candidates_by_slide) - 1 - max(index, 1))
+        if len(selected_body) + remaining_body < required_unique_body:
+            return False
+        candidates = candidates_by_slide[index]
+        if 0 < index < len(candidates_by_slide) - 1:
+            candidates = tuple(
+                [candidate for candidate in candidates if candidate not in selected_body]
+                + [candidate for candidate in candidates if candidate in selected_body]
+            )
+        for candidate in candidates:
             spec = COMPOSITION_SPECS[candidate]
             next_required_assets = required_assets + (spec.media_requirement == "required")
             if (

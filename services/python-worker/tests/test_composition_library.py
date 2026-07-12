@@ -202,6 +202,59 @@ def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -
     assert "\n".join(data_items) not in visible_text
 
 
+def test_normalizer_meets_body_layout_diversity_gate() -> None:
+    definitions = [
+        ("cover", 2, "minimal-cover", "none"),
+        ("feature-grid", 3, "feature-comparison", "none"),
+        ("solution", 3, "editorial-split", "evidence"),
+        ("feature-grid", 3, "feature-comparison", "none"),
+        ("data", 3, "metric-poster", "none"),
+        ("process", 3, "process-horizontal", "none"),
+        ("solution", 2, "editorial-split", "evidence"),
+        ("summary", 2, "cta-closing", "atmosphere"),
+    ]
+    slides = [
+        slide_payload(slide_type, count)
+        for slide_type, count, _, _ in definitions
+    ]
+    design_program = program(
+        [
+            {
+                "order": index,
+                "compositionId": composition_id,
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "text",
+                "assetRole": asset_role,
+                "requiredAsset": False,
+            }
+            for index, (_, _, composition_id, asset_role) in enumerate(
+                definitions,
+                start=1,
+            )
+        ]
+    )
+
+    normalized = normalize_design_program(
+        design_program,
+        slides,
+        force_light=True,
+        media_policy="hybrid",
+    )
+    body_compositions = [
+        slide.composition_id for slide in normalized.slides[1:-1]
+    ]
+    body_silhouettes = [
+        COMPOSITION_SPECS[value].silhouette for value in body_compositions
+    ]
+
+    assert len(set(body_compositions)) >= 5
+    assert all(
+        left != right
+        for left, right in zip(body_silhouettes, body_silhouettes[1:])
+    )
+
+
 def test_editorial_split_pair_uses_full_height_statement_panels() -> None:
     slide = slide_payload("solution", 2)
     slide["message"] = "\n".join(
