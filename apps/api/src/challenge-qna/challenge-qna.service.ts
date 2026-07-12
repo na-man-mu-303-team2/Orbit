@@ -45,32 +45,44 @@ export class ChallengeQnaService {
     if (!this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED || !this.config.CHALLENGE_QNA_ENABLED || !isAdaptiveCoachingProjectAllowed(this.config, projectId)) {
       throw new ForbiddenException("Challenge Q&A is not enabled for this project.");
     }
-    const session = await this.dataSource.transaction(async (manager) => {
-      const existing = first(await manager.query(`SELECT * FROM challenge_qna_sessions WHERE project_id=$1 AND client_request_id=$2`, [projectId, request.clientRequestId]));
-      if (existing) return toSession(existing, false);
-      const source = await buildChallengeQnaSource(manager, projectId, request.source);
-      const now = new Date().toISOString();
-      const created = challengeQnaSessionSchema.parse({
-        qnaSessionId: `qna_${randomUUID()}`, projectId, deckId: source.sourceSnapshot.deck.deckId,
-        source: request.source, sourceSnapshot: source.sourceSnapshot, groundingSnapshot: source.groundingSnapshot,
-        status: "preparing", generationRevision: 1, generationJobId: null, activeQuestionOrder: null,
-        executionMode: "provider", errorCode: null, createdBy: actorUserId, createdAt: now, completedAt: null,
+    let result: { created: boolean; session: ChallengeQnaSession };
+    try {
+      result = await this.dataSource.transaction(async (manager) => {
+        const existing = first(await manager.query(`SELECT * FROM challenge_qna_sessions WHERE project_id=$1 AND client_request_id=$2`, [projectId, request.clientRequestId]));
+        if (existing) return { created: false, session: toSession(existing, false) };
+        const source = await buildChallengeQnaSource(manager, projectId, request.source);
+        const now = new Date().toISOString();
+        const created = challengeQnaSessionSchema.parse({
+          qnaSessionId: `qna_${randomUUID()}`, projectId, deckId: source.sourceSnapshot.deck.deckId,
+          source: request.source, sourceSnapshot: source.sourceSnapshot, groundingSnapshot: source.groundingSnapshot,
+          status: "preparing", generationRevision: 1, generationJobId: null, activeQuestionOrder: null,
+          executionMode: "provider", errorCode: null, createdBy: actorUserId, createdAt: now, completedAt: null,
+        });
+        await manager.query(`INSERT INTO challenge_qna_sessions (
+          qna_session_id, project_id, deck_id, client_request_id, source_json,
+          source_full_run_id, source_practice_session_id, source_attempt_id,
+          source_snapshot_json, grounding_snapshot_json, status, generation_revision,
+          generation_job_id, active_question_order, execution_mode, error_code, created_by, created_at, completed_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,NULL,$14,$15,NULL)`, [
+          created.qnaSessionId, projectId, created.deckId, request.clientRequestId, request.source,
+          request.source.mode === "final" ? request.source.sourceFullRunId : null,
+          request.source.mode === "checkpoint" ? request.source.sourcePracticeSessionId : null,
+          request.source.mode === "checkpoint" ? request.source.sourceAttemptId : null,
+          created.sourceSnapshot, source.groundingSnapshot, created.status, 1, created.executionMode, actorUserId, now,
+        ]);
+        return { created: true, session: created };
       });
-      await manager.query(`INSERT INTO challenge_qna_sessions (
-        qna_session_id, project_id, deck_id, client_request_id, source_json,
-        source_full_run_id, source_practice_session_id, source_attempt_id,
-        source_snapshot_json, grounding_snapshot_json, status, generation_revision,
-        generation_job_id, active_question_order, execution_mode, error_code, created_by, created_at, completed_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,NULL,$14,$15,NULL)`, [
-        created.qnaSessionId, projectId, created.deckId, request.clientRequestId, request.source,
-        request.source.mode === "final" ? request.source.sourceFullRunId : null,
-        request.source.mode === "checkpoint" ? request.source.sourcePracticeSessionId : null,
-        request.source.mode === "checkpoint" ? request.source.sourceAttemptId : null,
-        created.sourceSnapshot, source.groundingSnapshot, created.status, 1, created.executionMode, actorUserId, now,
-      ]);
-      return created;
-    });
-    if (!session.generationJobId) await this.dispatchGeneration(session);
+    } catch (error) {
+      if (!isQnaClientRequestConflict(error)) throw error;
+      const existing = first(await this.dataSource.query(
+        `SELECT * FROM challenge_qna_sessions WHERE project_id=$1 AND client_request_id=$2`,
+        [projectId, request.clientRequestId],
+      ));
+      if (!existing) throw error;
+      result = { created: false, session: toSession(existing, false) };
+    }
+    if (result.created) await this.dispatchGeneration(result.session);
+    const session = result.session;
     return this.getSession(session.qnaSessionId, actorUserId);
   }
 
@@ -294,4 +306,8 @@ function toAttempt(row: Record<string, any>): ChallengeQnaAnswerAttempt {
 }
 
 function first(rows: unknown): Record<string, any> | undefined { if(!Array.isArray(rows))return undefined;const value=Array.isArray(rows[0])?rows[0][0]:rows[0];return value&&typeof value==="object"?value as Record<string,any>:undefined; }
+function isQnaClientRequestConflict(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "23505"
+    && "constraint" in error && error.constraint === "uq_qna_session_client");
+}
 function iso(value: unknown) { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }

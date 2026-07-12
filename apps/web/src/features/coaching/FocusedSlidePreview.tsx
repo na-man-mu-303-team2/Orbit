@@ -9,11 +9,12 @@ export default function FocusedSlidePreview(props: { deck: Deck; slideId: string
   const slide = props.deck.slides.find((candidate) => candidate.slideId === props.slideId);
 
   useEffect(() => {
-    if (!shell.current) return;
-    const update = () => setScale(Math.min(0.4, shell.current!.clientWidth / props.deck.canvas.width));
+    const target = shell.current;
+    if (!target) return;
+    const update = () => setScale(Math.min(0.4, target.clientWidth / props.deck.canvas.width));
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(shell.current);
+    observer.observe(target);
     return () => observer.disconnect();
   }, [props.deck.canvas.width]);
 

@@ -58,4 +58,83 @@ describe("ChallengeQnaService grounding", () => {
       level: "full-guide",
     })).rejects.toMatchObject({ response: { code: "INVALID_STATE_TRANSITION" } });
   });
+
+  it("returns the existing session when concurrent idempotent creation collides", async () => {
+    const row = challengeSessionRow();
+    const duplicate = Object.assign(new Error("duplicate request"), {
+      code: "23505",
+      constraint: "uq_qna_session_client",
+    });
+    const query = vi.fn()
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const createJob = vi.fn();
+    const service = new ChallengeQnaService(
+      {
+        query,
+        transaction: vi.fn(async () => { throw duplicate; }),
+      } as unknown as DataSource,
+      {
+        assertCanReadProject: vi.fn(async () => ({})),
+        assertCanWriteProject: vi.fn(async () => ({})),
+      } as unknown as ProjectsService,
+      {} as FilesService,
+      { create: createJob } as unknown as JobsService,
+      {} as ChallengeQnaEvidenceCache,
+    );
+
+    await expect(service.createSession("project-a", "user-a", {
+      clientRequestId: "request-concurrent-a",
+      source: { mode: "final", sourceFullRunId: "run-a", questionCount: 3 },
+    })).resolves.toMatchObject({
+      session: { qnaSessionId: "qna-existing" },
+      questions: [],
+      attempts: [],
+    });
+    expect(createJob).not.toHaveBeenCalled();
+  });
 });
+
+function challengeSessionRow() {
+  const capturedAt = "2026-07-12T09:00:00.000Z";
+  return {
+    qna_session_id: "qna-existing",
+    project_id: "project-a",
+    deck_id: "deck-a",
+    client_request_id: "request-concurrent-a",
+    source_json: { mode: "final", sourceFullRunId: "run-a", questionCount: 3 },
+    source_snapshot_json: {
+      snapshotVersion: 1,
+      projectId: "project-a",
+      deck: {
+        deckId: "deck-a",
+        deckVersion: 1,
+        deckContentHash: "a".repeat(64),
+        slides: [{
+          slideId: "slide-a",
+          order: 1,
+          title: "Opening",
+          visibleText: "Opening",
+          contentHash: "b".repeat(64),
+        }],
+      },
+      briefRef: { mode: "generic" },
+      evaluatorLensRef: { lensId: "general-novice", revision: 1 },
+      linkedGoalRefs: [],
+      approvedReferences: [],
+      capturedAt,
+    },
+    grounding_snapshot_json: { snapshotVersion: 1, chunks: [], capturedAt },
+    status: "preparing",
+    generation_revision: 1,
+    generation_job_id: null,
+    active_question_order: null,
+    execution_mode: "fixture",
+    error_code: null,
+    created_by: "user-a",
+    created_at: capturedAt,
+    completed_at: null,
+  };
+}
