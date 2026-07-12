@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ai.composition_library import (
     CompiledComposition,
+    CompositionCompileError,
     compile_composition,
     design_program_snapshot,
     normalize_design_program,
@@ -2300,7 +2301,7 @@ class DeckGenerationOrchestrator:
                     media_policy=raw_input.design.media_policy,
                     media_budget=4,
                 )
-            except DesignProgramError as error:
+            except (CompositionCompileError, DesignProgramError) as error:
                 raise DeckContentGenerationError(str(error)) from error
         self.record(
             "DesignDirectorAgent",
@@ -3473,6 +3474,8 @@ def plan_deck_content(
                         model=model,
                         api_key=api_key,
                     )
+                if is_program_v2(raw_input):
+                    slide_plans = compact_program_v2_content_items(slide_plans)
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -4038,6 +4041,41 @@ def content_item_capacity_for_slide(
     if slide_plan.slide_type == "comparison":
         return DESIGN_PACK_RECIPE_CAPACITIES["comparison_split"]
     return 1, 5
+
+
+def compact_program_v2_content_items(
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    total_slides = len(slide_plans)
+    compacted_plans: list[SlidePlan] = []
+    for slide_plan in slide_plans:
+        _, maximum_items = content_item_capacity_for_slide(
+            slide_plan,
+            total_slides,
+        )
+        if len(slide_plan.content_items) <= maximum_items:
+            compacted_plans.append(slide_plan)
+            continue
+
+        compacted = slide_plan.model_copy(deep=True)
+        retained_items = compacted.content_items[: maximum_items - 1]
+        merged_items = compacted.content_items[maximum_items - 1 :]
+        compacted.content_items = [
+            *retained_items,
+            GeneratedContentItem(
+                contentItemId=merged_items[0].content_item_id,
+                text=" · ".join(item.text for item in merged_items),
+            ),
+        ]
+        if message_duplicates_content_items(
+            compacted.message,
+            slide_plan.content_items,
+        ):
+            compacted.message = "\n".join(
+                item.text for item in compacted.content_items
+            )
+        compacted_plans.append(compacted)
+    return compacted_plans
 
 
 def repair_content_plan_with_llm(

@@ -39,6 +39,7 @@ from app.ai.generate_deck import (
     choose_slide_count,
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
+    compact_program_v2_content_items,
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
@@ -1537,6 +1538,64 @@ def test_content_plan_repair_marks_structural_duplication() -> None:
 
     assert "slide 1: message duplicates content items" in reasons
     assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
+
+
+def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
+    original_texts = [
+        "First difference",
+        "Second difference",
+        "Third difference",
+        "Fourth difference",
+        "Fifth difference",
+    ]
+    cover = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Comparison deck",
+        message="Comparison premise",
+        speaker_notes="Introduce the comparison.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="cover-1", text="Comparison premise")
+        ],
+    )
+    slide_plan = SlidePlan(
+        order=2,
+        slide_type="comparison",
+        title="Five-way comparison",
+        message="\n".join(original_texts),
+        speaker_notes="Explain each comparison point.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(original_texts, start=1)
+        ],
+    )
+    closing = SlidePlan(
+        order=3,
+        slide_type="summary",
+        title="Closing",
+        message="Next step\nDecision",
+        speaker_notes="Close the presentation.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="closing-1", text="Next step"),
+            GeneratedContentItem(contentItemId="closing-2", text="Decision"),
+        ],
+    )
+
+    compacted = compact_program_v2_content_items([cover, slide_plan, closing])
+
+    assert compacted[0] is cover
+    assert len(compacted[1].content_items) == 4
+    assert compacted[1].content_items[-1].content_item_id == "item-4"
+    assert all(text in compacted[1].content_items[-1].text for text in original_texts[3:])
+    assert all(text in compacted[1].message for text in original_texts)
+    assert slide_plan.content_items[-1].content_item_id == "item-5"
+    assert compacted[2] is closing
 
 
 @pytest.mark.parametrize(
