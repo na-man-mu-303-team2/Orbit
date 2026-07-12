@@ -1,0 +1,300 @@
+import base64
+import json
+from io import BytesIO
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+from PIL import Image
+
+import app.ai.visual_qa as visual_qa_module
+from app.ai.pptx_design_importer import ImportedDesignAsset
+from app.ai.visual_qa import (
+    VisualQaRequest,
+    VisualQaReview,
+    VisualRepairRequest,
+    build_montage,
+    repair_deck_visuals,
+    review_deck_visuals,
+    visual_review_response_format,
+)
+
+
+def png_base64(color: str = "#FFFFFF") -> str:
+    image = Image.new("RGB", (1920, 1080), color)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return base64.b64encode(output.getvalue()).decode("ascii")
+
+
+def rendered_asset(order: int) -> ImportedDesignAsset:
+    return ImportedDesignAsset(
+        assetId=f"slide_render_{order}",
+        fileName=f"slide-{order:02d}.png",
+        mimeType="image/png",
+        contentBase64=png_base64("#FFFFFF" if order % 2 else "#111827"),
+    )
+
+
+def deck() -> dict[str, Any]:
+    return {
+        "deckId": "deck_visual",
+        "projectId": "project_visual",
+        "title": "Visual deck",
+        "version": 1,
+        "metadata": {
+            "language": "ko",
+            "locale": "ko-KR",
+            "designProgramSnapshot": {
+                "version": "program-v2",
+                "visualConcept": "Bold product reveal",
+                "paletteRoles": {
+                    "dominant": "#FFFFFF",
+                    "surface": "#F3F4F6",
+                    "text": "#111827",
+                    "focal": "#6D28D9",
+                    "secondary": "#06B6D4",
+                },
+                "typography": {
+                    "headingFont": "Pretendard",
+                    "bodyFont": "Pretendard",
+                    "typeScale": {
+                        "cover": 64,
+                        "title": 40,
+                        "body": 22,
+                        "caption": 14,
+                    },
+                },
+                "backgroundSequence": ["light"],
+                "imageStyle": "Official evidence",
+                "surfaceStyle": "Flat ink fields",
+                "compositionIds": ["minimal-cover"],
+            },
+        },
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": 1920,
+            "height": 1080,
+            "aspectRatio": "16:9",
+        },
+        "theme": {
+            "name": "program-v2",
+            "fontFamily": "Pretendard",
+            "backgroundColor": "#FFFFFF",
+            "textColor": "#111827",
+            "accentColor": "#6D28D9",
+            "palette": {
+                "primary": "#6D28D9",
+                "secondary": "#06B6D4",
+                "surface": "#F3F4F6",
+                "muted": "#E2E8F0",
+                "border": "#CBD5E1",
+            },
+            "typography": {
+                "headingFontFamily": "Pretendard",
+                "bodyFontFamily": "Pretendard",
+                "titleSize": 64,
+                "headingSize": 40,
+                "bodySize": 22,
+                "captionSize": 14,
+            },
+            "effects": {"borderRadius": 8},
+        },
+        "slides": [
+            {
+                "slideId": "slide_1",
+                "order": 1,
+                "title": "새로운 모험",
+                "style": {"backgroundColor": "#FFFFFF"},
+                "speakerNotes": "공식 공개 내용을 소개합니다.",
+                "elements": [
+                    {
+                        "elementId": "el_1_program_v2_background",
+                        "type": "rect",
+                        "role": "background",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1920,
+                        "height": 1080,
+                        "zIndex": 0,
+                        "props": {"fill": "#FFFFFF"},
+                    },
+                    {
+                        "elementId": "el_1_program_v2_title",
+                        "type": "text",
+                        "role": "title",
+                        "x": 220,
+                        "y": 300,
+                        "width": 1480,
+                        "height": 250,
+                        "zIndex": 4,
+                        "props": {
+                            "text": "새로운 모험",
+                            "fontFamily": "Pretendard",
+                            "fontSize": 64,
+                            "color": "#111827",
+                        },
+                    },
+                ],
+                "animations": [],
+                "aiNotes": {
+                    "emphasisPoints": ["새로운 경험을 연다"],
+                    "sourceLedger": [
+                        {
+                            "claim": "공식 공개 정보",
+                            "source": "topic",
+                            "sourceType": "topic",
+                            "confidence": 0.8,
+                            "usedInSlideId": "slide_1",
+                        }
+                    ],
+                    "visualPlan": {
+                        "visualType": "minimal-cover",
+                        "imageNeeded": False,
+                        "imageSourcePolicy": "minimal",
+                        "reason": "Native composition",
+                    },
+                    "compositionPlan": {
+                        "compositionId": "minimal-cover",
+                        "variant": "light",
+                        "backgroundMode": "light",
+                        "focalType": "title",
+                        "primaryFocalElementId": "el_1_program_v2_title",
+                        "assetRole": "none",
+                        "requiredAsset": False,
+                    },
+                },
+            }
+        ],
+    }
+
+
+class FakeResponses:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.requests: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        return SimpleNamespace(output_text=json.dumps(self.payload))
+
+
+def test_review_uses_exported_pptx_render_and_montage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        visual_qa_module,
+        "export_deck_pptx",
+        lambda _request: SimpleNamespace(
+            content_base64=base64.b64encode(b"pptx").decode("ascii"),
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        visual_qa_module,
+        "render_pptx_to_png_assets",
+        lambda _content, _canvas: [rendered_asset(1)],
+    )
+    responses = FakeResponses({"passed": True, "issues": [], "repairActions": []})
+
+    result = review_deck_visuals(
+        VisualQaRequest(deck=deck()),
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert result.review.passed is True
+    assert len(result.rendered_slides) == 1
+    request_content = responses.requests[0]["input"][0]["content"]
+    assert request_content[1]["type"] == "input_image"
+    assert request_content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_visual_review_requires_issues_when_failed() -> None:
+    with pytest.raises(ValueError):
+        VisualQaReview(passed=False, issues=[], repairActions=[])
+
+
+def test_visual_response_schema_limits_slide_order() -> None:
+    issue = visual_review_response_format(10)["format"]["schema"]["properties"][
+        "issues"
+    ]["items"]["properties"]["slideOrder"]
+
+    assert issue["minimum"] == 1
+    assert issue["maximum"] == 10
+
+
+def test_montage_contains_all_rendered_slides() -> None:
+    montage = Image.open(BytesIO(build_montage([rendered_asset(1), rendered_asset(2)])))
+
+    assert montage.width == 1920
+    assert montage.height == 576
+
+
+def test_replace_image_repair_creates_resolvable_asset_slot() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 1090,
+            "y": 120,
+            "width": 710,
+            "height": 840,
+            "zIndex": 5,
+            "props": {"src": "data:image/png;base64,AA==", "alt": "old"},
+        }
+    )
+    slide["aiNotes"]["visualPlan"].update(
+        {
+            "imageNeeded": True,
+            "imageSourcePolicy": "ai-generated",
+            "asset": {"fileId": "file_old", "provider": "openai"},
+        }
+    )
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [
+                    {
+                        "action": "replaceImage",
+                        "slideId": "slide_1",
+                        "reason": "Image is unrelated",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert result.asset_slide_ids == ["slide_1"]
+    assert any(
+        element["elementId"].endswith("_media_placeholder")
+        for element in result.deck["slides"][0]["elements"]
+    )
+    assert "asset" not in result.deck["slides"][0]["aiNotes"]["visualPlan"]
+
+
+def test_change_composition_recompiles_from_snapshot() -> None:
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": deck(),
+                "actions": [
+                    {
+                        "action": "changeComposition",
+                        "slideId": "slide_1",
+                        "compositionId": "hero-split",
+                        "backgroundMode": "light",
+                        "reason": "Cover needs stronger hierarchy",
+                    }
+                ],
+            }
+        )
+    )
+
+    plan = result.deck["slides"][0]["aiNotes"]["compositionPlan"]
+    assert plan["compositionId"] == "hero-split"
+    assert any(
+        element["elementId"] == plan["primaryFocalElementId"]
+        for element in result.deck["slides"][0]["elements"]
+    )

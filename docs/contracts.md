@@ -755,6 +755,16 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - `apps/worker/src/deck-export.processor.ts`
 - `apps/api/src/database/migrations/2026071103000-AddImageAssetProvenance.ts`
 
+### AI PPT 실제 렌더링 시각 QA 계약
+
+`program-v2`는 asset이 연결된 후보 Deck을 실제 PPTX로 export하고 LibreOffice로 PNG 렌더링한 뒤 Vision QA를 수행한다.
+
+- 내부 endpoint는 `POST /ai/review-deck-visuals`, `POST /ai/repair-deck-visuals`를 사용한다.
+- review는 rendered slide PNG와 montage를 기준으로 시각 issue와 허용된 repair action만 반환한다.
+- 허용 issue는 `FOCAL_POINT_WEAK`, `BALANCE_WEAK`, `IMAGE_CONTENT_MISMATCH`, `IMAGE_CROP_WEAK`, `LAYOUT_REPETITIVE`, `BACKGROUND_RHYTHM_FLAT`, `CARD_OVERUSED`, `COLOR_HARMONY_WEAK`, `VISUAL_STYLE_INCONSISTENT`다.
+- repair는 `changeComposition`, `increaseFocalScale`, `replaceImage`, `changeCrop`, `switchBackgroundMode`, `reduceCards`, `promoteMetric`, `shortenCopy`, `moveSupportingContent`만 허용하며 모델이 Deck JSON을 직접 수정하지 않는다.
+- `AI_PPT_VISUAL_QA_MODEL`이 비어 있으면 `OPENAI_MODEL`을 사용한다. Vision QA를 실행할 수 없으면 `program-v2`를 `recipe-v1`로 fallback하지 않는다.
+
 ### AI PPT 기본 의미 기반 QA 계약
 
 `metadata.presentationProfile`이 있는 `design-pack` Deck은 Worker 저장 전과 Editor AI 검증에서 같은 shared semantic QA를 사용한다. legacy/import Deck에는 적용하지 않는다.
