@@ -559,6 +559,47 @@ def test_metric_poster_promotes_complete_korean_date() -> None:
     assert metric["props"]["lineHeight"] == 1.2
 
 
+def test_duplicate_kpi_strip_uses_full_height_primary_frames() -> None:
+    slide = slide_payload("data", 4)
+    slide["contentItems"] = [
+        {
+            "contentItemId": f"kpi-{index}",
+            "text": value,
+        }
+        for index, value in enumerate(
+            ["2026년 7월 23일", "$49.99", "$59.99", "Switch 2 전용"],
+            start=1,
+        )
+    ]
+    slide["message"] = "\n".join(
+        item["text"] for item in slide["contentItems"]
+    )
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "kpi-strip-evidence",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "kpi",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    kpis = [element for element in compiled.elements if element["role"] == "highlight"]
+
+    assert len(kpis) == 4
+    assert all(element["height"] == 376 for element in kpis)
+    assert all(element["props"]["verticalAlign"] == "middle" for element in kpis)
+
+
 def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     slide = slide_payload("feature-grid", 3)
     slide["title"] = "딥컷 아미보 피규어 출시 예고"

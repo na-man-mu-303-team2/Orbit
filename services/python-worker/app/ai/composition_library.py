@@ -652,7 +652,7 @@ def _kpi_strip(direction: SlideCompositionDirection, slide: dict[str, Any], styl
         x = SAFE_X + index * (width + gap)
         elements.extend([
             _rect(order, f"kpi_{index + 1}_field", "decoration", x, field_y, width, 460 if duplicates_items else 360, 3, style.surface, stroke=style.focal if index == 0 else style.secondary, stroke_width=2, radius=8),
-            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 280 if duplicates_items else 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, content_item_ids=[identifier]),
+            _text(order, f"kpi_{index + 1}", "highlight", value, x + 28, field_y + 55, width - 56, 376 if duplicates_items else 220, 5, style.text, max(26, style.body_size + 4), "bold", style.heading_font, vertical="middle" if duplicates_items else "top", content_item_ids=[identifier]),
         ])
     return elements, _id(order, "kpi_1")
 
