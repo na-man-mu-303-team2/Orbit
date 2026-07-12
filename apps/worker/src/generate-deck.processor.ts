@@ -741,6 +741,10 @@ function isUnresolvedMediaSlide(deckSlide: Deck["slides"][number]) {
 }
 
 function resolvedVisualAssetCount(deck: Deck) {
+  return resolvedVisualAssetSlides(deck).length;
+}
+
+function resolvedVisualAssetSlides(deck: Deck) {
   return deck.slides.filter(
     (slide) =>
       slide.aiNotes?.visualPlan?.asset &&
@@ -748,7 +752,7 @@ function resolvedVisualAssetCount(deck: Deck) {
         (element) =>
           element.visible && element.role === "media" && element.type === "image"
       )
-  ).length;
+  );
 }
 
 function withHybridMediaBudgetIssue(
@@ -760,7 +764,54 @@ function withHybridMediaBudgetIssue(
     resolvedCount >= hybridMediaBudget.min &&
     resolvedCount <= hybridMediaBudget.max
   ) {
-    return validation;
+    const resolvedSlides = resolvedVisualAssetSlides(deck);
+    const hasOfficialEvidence = resolvedSlides.some(
+      (slide) =>
+        slide.aiNotes?.compositionPlan?.assetRole === "evidence" &&
+        slide.aiNotes?.visualPlan?.imageSourcePolicy === "official-assets"
+    );
+    const hasGeneratedAtmosphere = resolvedSlides.some(
+      (slide) =>
+        slide.aiNotes?.compositionPlan?.assetRole === "atmosphere" &&
+        slide.aiNotes?.visualPlan?.imageSourcePolicy === "ai-generated"
+    );
+    const assetIdentities = resolvedSlides
+      .map((slide) => {
+        const asset = slide.aiNotes?.visualPlan?.asset;
+        return asset?.sourceAssetUrl ?? asset?.fileId ?? "";
+      })
+      .filter(Boolean);
+    const hasDuplicateAssets =
+      new Set(assetIdentities).size !== assetIdentities.length;
+    const contractIssues: GenerateDeckValidation["designIssues"] = [];
+    if (!hasOfficialEvidence || !hasGeneratedAtmosphere) {
+      contractIssues.push({
+        code: "MEDIA_MIX_UNDERSUPPLIED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "Hybrid media requires at least one official evidence asset and one AI-generated atmosphere asset."
+      });
+    }
+    if (hasDuplicateAssets) {
+      contractIssues.push({
+        code: "MEDIA_ASSET_DUPLICATED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "Hybrid media contains a repeated visual asset; each media slide requires a distinct asset."
+      });
+    }
+    if (contractIssues.length === 0) return validation;
+    return {
+      ...validation,
+      passed: false,
+      designIssues: [...validation.designIssues, ...contractIssues]
+    };
   }
   const code =
     resolvedCount < hybridMediaBudget.min

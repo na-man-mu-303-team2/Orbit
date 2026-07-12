@@ -679,6 +679,91 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
+  it("rejects hybrid media without sourced evidence and generated atmosphere", async () => {
+    const deck = programV2DeckWithResolvedMediaCount(3);
+    for (const slide of deck.slides) {
+      if (!slide.aiNotes?.visualPlan || !slide.aiNotes.compositionPlan) continue;
+      slide.aiNotes.visualPlan.imageSourcePolicy = "official-assets";
+      slide.aiNotes.compositionPlan.assetRole = "evidence";
+    }
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      hybridProgramV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.result).toMatchObject({
+      validation: {
+        designIssues: [
+          expect.objectContaining({ code: "MEDIA_MIX_UNDERSUPPLIED" })
+        ]
+      }
+    });
+  });
+
+  it("rejects repeated visual assets in a hybrid deck", async () => {
+    const deck = programV2DeckWithResolvedMediaCount(4);
+    const repeatedAssetUrl =
+      deck.slides[0].aiNotes?.visualPlan?.asset?.sourceAssetUrl;
+    const secondEvidence = deck.slides[2];
+    const secondAsset = secondEvidence.aiNotes?.visualPlan?.asset;
+    if (
+      !repeatedAssetUrl ||
+      !secondEvidence.aiNotes?.visualPlan ||
+      !secondEvidence.aiNotes.compositionPlan ||
+      !secondAsset
+    ) {
+      throw new Error("Hybrid fixture is missing visual plans");
+    }
+    secondEvidence.aiNotes.visualPlan.imageSourcePolicy = "official-assets";
+    secondEvidence.aiNotes.visualPlan.asset = {
+      ...secondAsset,
+      provider: "official-web",
+      sourceUrl: "https://official.example/product",
+      sourceAssetUrl: repeatedAssetUrl,
+      sourceAuthority: "official",
+      usageBasis: "official-reference"
+    };
+    secondEvidence.aiNotes.compositionPlan.assetRole = "evidence";
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      hybridProgramV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.result).toMatchObject({
+      validation: {
+        designIssues: [
+          expect.objectContaining({ code: "MEDIA_ASSET_DUPLICATED" })
+        ]
+      }
+    });
+  });
+
   it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
@@ -1597,6 +1682,7 @@ function programV2DeckWithResolvedMediaCount(count: number) {
   const source = base.slides[0];
   const slides = Array.from({ length: count }, (_, index) => {
     const order = index + 1;
+    const isEvidence = index === 0;
     const replaceElementId = (value: string) =>
       value.replace("el_1_", `el_${order}_`);
     return {
@@ -1619,13 +1705,29 @@ function programV2DeckWithResolvedMediaCount(count: number) {
         ...source.aiNotes,
         visualPlan: {
           ...source.aiNotes?.visualPlan,
+          imageSourcePolicy: isEvidence ? "official-assets" : "ai-generated",
           asset: {
             ...source.aiNotes?.visualPlan?.asset,
-            fileId: `file_visual_${order}`
+            fileId: `file_visual_${order}`,
+            provider: isEvidence ? "official-web" : "openai",
+            ...(isEvidence
+              ? {
+                  sourceUrl: "https://official.example/product",
+                  sourceAssetUrl: "https://official.example/product.png",
+                  sourceAuthority: "official" as const,
+                  usageBasis: "official-reference" as const
+                }
+              : {
+                  sourceUrl: undefined,
+                  sourceAssetUrl: undefined,
+                  sourceAuthority: undefined,
+                  usageBasis: "generated" as const
+                })
           }
         },
         compositionPlan: {
           ...source.aiNotes?.compositionPlan,
+          assetRole: isEvidence ? "evidence" : "atmosphere",
           primaryFocalElementId: replaceElementId(
             source.aiNotes?.compositionPlan?.primaryFocalElementId ??
               "el_1_program_v2_title"
