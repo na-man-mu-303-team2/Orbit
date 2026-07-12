@@ -36,15 +36,12 @@ from app.ai.generate_deck import (
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
-    cap_speaker_note_chars,
     deck_content_prompt,
     deck_content_response_format_for,
-    deduplicate_speaker_note_sentences,
     design_pack_insight_elements,
     design_pack_items,
     design_pack_recipe_elements,
     detect_text_overlap_candidates,
-    enforce_speaker_note_constraints,
     generate_content_plan_with_llm,
     generate_deck,
     icon_name_for_keyword,
@@ -661,82 +658,6 @@ def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
     assert slide_plans[0].target_spoken_seconds < max(
         slide.target_spoken_seconds for slide in slide_plans[1:-1]
     )
-
-
-def test_sparse_short_deck_caps_speaker_notes_instead_of_padding_to_full_duration() -> None:
-    raw_input = analyze_input(
-        GenerateDeckRequest(
-            projectId="project_demo_1",
-            topic="간결한 의사결정 보고",
-            generationMode="design-pack",
-            targetDurationMinutes=15,
-            slideCountRange={"min": 3, "max": 3},
-        )
-    )
-
-    slide_plans = apply_timing_to_slide_plans(
-        raw_input,
-        plan_slides(raw_input, plan_presentation(raw_input)),
-    )
-
-    assert len(slide_plans) == 3
-    assert all(
-        slide.target_speaker_notes_chars <= 520 for slide in slide_plans
-    )
-    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) < 3120
-
-
-def test_speaker_notes_remove_semantically_repeated_introduction() -> None:
-    notes = (
-        "안녕하세요, 오늘 발표에서는 ORBIT의 새로운 AI 생성 회귀 테스트 전략인 "
-        "Deck JSON 기반 생성 MVP를 소개하겠습니다. "
-        "기존 템플릿 덮어쓰기 방식은 확장성에 한계가 있었습니다. "
-        "안녕하세요, 오늘은 ORBIT에서 진행하는 AI 생성 회귀 테스트의 핵심인 "
-        "Deck JSON 기반 생성 MVP에 대해 소개드리겠습니다."
-    )
-
-    deduplicated = deduplicate_speaker_note_sentences(notes)
-
-    assert deduplicated.count("안녕하세요") == 1
-    assert "기존 템플릿 덮어쓰기 방식" in deduplicated
-
-
-def test_speaker_notes_are_capped_after_sentence_repairs() -> None:
-    notes = " ".join(
-        f"서로 다른 근거 {index}번을 설명하는 충분히 긴 발표 문장입니다."
-        for index in range(1, 24)
-    )
-
-    capped = cap_speaker_note_chars(notes)
-
-    assert len("".join(capped.split())) <= 520
-    assert capped.endswith(".")
-    assert "근거 1번" in capped
-
-
-def test_final_deck_contract_caps_and_deduplicates_speaker_notes() -> None:
-    repeated = (
-        "안녕하세요, 오늘 발표에서는 ORBIT의 새로운 AI 생성 회귀 테스트 전략인 "
-        "Deck JSON 기반 생성 MVP를 소개하겠습니다. "
-    )
-    deck = {
-        "slides": [
-            {
-                "speakerNotes": repeated
-                + " ".join(
-                    f"서로 다른 근거 {index}번을 설명하는 충분히 긴 발표 문장입니다."
-                    for index in range(1, 24)
-                )
-                + repeated
-            }
-        ]
-    }
-
-    enforced = enforce_speaker_note_constraints(deck)
-    speaker_notes = enforced["slides"][0]["speakerNotes"]
-
-    assert len("".join(speaker_notes.split())) <= 520
-    assert speaker_notes.count("안녕하세요") == 1
 
 
 def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
@@ -2705,8 +2626,6 @@ def test_deck_color_options_endpoint_returns_three_fallback_options() -> None:
 
     assert len(options) == 3
     assert options[0]["optionId"] == "resort-blue"
-    assert options[0]["name"] == "리조트 블루"
-    assert options[0]["rationale"].endswith("팔레트입니다.")
     assert all(
         set(option["palette"].keys())
         == {

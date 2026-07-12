@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal, Sequence, cast
+from typing import Any, Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -788,8 +788,7 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v5"
-MAX_SPEAKER_NOTES_CHARS_PER_SLIDE = 520
+DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
@@ -2098,7 +2097,6 @@ class DeckGenerationOrchestrator:
         if raw_input.generation_mode == "design-pack":
             deck = enforce_design_pack_constraints(deck, raw_input)
             deck = repair_design_pack_deck(deck)
-            deck = enforce_speaker_note_constraints(deck)
             deck, validation = validate_and_patch(deck, include_design_in_passed=True)
         warnings = unique_warnings(
             [
@@ -3275,10 +3273,6 @@ def plan_deck_content(
                         model=model,
                         api_key=api_key,
                     )
-                for slide_plan in slide_plans:
-                    slide_plan.speaker_notes = cap_speaker_note_chars(
-                        deduplicate_speaker_note_sentences(slide_plan.speaker_notes)
-                    )
             return (
                 DeckOutline(
                     title=deck_title_for_topic(raw_input.topic, generated_plan.title),
@@ -3420,10 +3414,7 @@ def apply_timing_to_slide_plans(
     ):
         slide_plan.target_seconds = target_seconds
         slide_plan.target_spoken_seconds = target_spoken_seconds
-        slide_plan.target_speaker_notes_chars = min(
-            target_chars,
-            MAX_SPEAKER_NOTES_CHARS_PER_SLIDE,
-        )
+        slide_plan.target_speaker_notes_chars = target_chars
         slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
         compact_dense_speaker_notes(slide_plan)
     if raw_input.generation_mode == "design-pack":
@@ -3514,79 +3505,6 @@ def speaker_note_fragments(text: str) -> list[str]:
         for fragment in re.split(r"(?<=[.!?])\s+", normalized)
         if fragment.strip()
     ]
-
-
-def deduplicate_speaker_note_sentences(text: str) -> str:
-    selected: list[str] = []
-    selected_tokens: list[set[str]] = []
-    for fragment in speaker_note_fragments(text):
-        tokens = normalized_speaker_note_tokens(fragment)
-        if tokens and any(
-            speaker_note_token_sets_are_similar(tokens, existing)
-            for existing in selected_tokens
-        ):
-            continue
-        selected.append(fragment)
-        selected_tokens.append(tokens)
-    return " ".join(selected)
-
-
-def cap_speaker_note_chars(
-    text: str,
-    max_chars: int = MAX_SPEAKER_NOTES_CHARS_PER_SLIDE,
-) -> str:
-    normalized = " ".join(text.split())
-    if count_speaker_note_chars(normalized) <= max_chars:
-        return normalized
-
-    selected: list[str] = []
-    for fragment in speaker_note_fragments(normalized):
-        prospective = " ".join([*selected, fragment])
-        if count_speaker_note_chars(prospective) > max_chars:
-            break
-        selected.append(fragment)
-    if selected:
-        return " ".join(selected)
-
-    kept: list[str] = []
-    compact_chars = 0
-    for character in normalized:
-        if not character.isspace():
-            if compact_chars >= max_chars - 1:
-                break
-            compact_chars += 1
-        kept.append(character)
-    return "".join(kept).rstrip(" ,;:") + "…"
-
-
-def enforce_speaker_note_constraints(deck: dict[str, Any]) -> dict[str, Any]:
-    for slide in deck.get("slides", []):
-        speaker_notes = str(slide.get("speakerNotes", ""))
-        slide["speakerNotes"] = cap_speaker_note_chars(
-            deduplicate_speaker_note_sentences(speaker_notes)
-        )
-    return deck
-
-
-def normalized_speaker_note_tokens(text: str) -> set[str]:
-    particles = ("에서", "에게", "으로", "은", "는", "이", "가", "을", "를", "에", "의", "와", "과", "로")
-    tokens: set[str] = set()
-    for raw_token in re.findall(r"[0-9A-Za-z가-힣]+", text.casefold()):
-        token = raw_token
-        for particle in particles:
-            if len(token) > len(particle) + 1 and token.endswith(particle):
-                token = token[: -len(particle)]
-                break
-        if len(token) >= 2:
-            tokens.add(token)
-    return tokens
-
-
-def speaker_note_token_sets_are_similar(left: set[str], right: set[str]) -> bool:
-    if min(len(left), len(right)) < 5:
-        return False
-    overlap = len(left & right)
-    return overlap >= 5 and overlap / min(len(left), len(right)) >= 0.72
 
 
 def fit_grounded_speaker_note_candidates(
@@ -4135,11 +4053,10 @@ def generate_content_plan_with_llm(
     )
     if raw_input.generation_mode == "design-pack" and needs_count_repair:
         raw_input.repair_attempted = True
-        if (
-            actual_slide_count < raw_input.slide_count
-            and "SLIDE_COUNT_SHORT" not in raw_input.repair_reason_codes
-        ):
-            raw_input.repair_reason_codes.append("SLIDE_COUNT_SHORT")
+        if actual_slide_count < raw_input.slide_count:
+            raw_input.repair_reason_codes = unique_non_empty(
+                [*raw_input.repair_reason_codes, "SLIDE_COUNT_SHORT"]
+            )
         repaired_plan = repair_slide_count_with_llm(
             raw_input,
             plan,
@@ -5778,7 +5695,7 @@ def design_profile_for_visual_rhythm(
     return None
 
 
-def has_any(text: str, candidates: Sequence[str]) -> bool:
+def has_any(text: str, candidates: list[str]) -> bool:
     return any(candidate in text for candidate in candidates)
 
 
