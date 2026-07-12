@@ -240,6 +240,22 @@ def test_visual_qa_instructions_reject_clean_but_undercomposed_slides() -> None:
     assert "short phrases are isolated in repeated outlined boxes" in instructions
 
 
+def test_visual_review_response_limits_repair_targets_to_current_deck_ids() -> None:
+    schema = visual_review_response_format(
+        2,
+        slide_ids=["slide_1", "slide_2"],
+        element_ids=["el_1_program_v2_title", "el_2_program_v2_message"],
+    )["format"]["schema"]
+    action = schema["properties"]["repairActions"]["items"]["properties"]
+
+    assert action["slideId"]["enum"] == ["slide_1", "slide_2"]
+    assert action["targetElementId"]["enum"] == [
+        "el_1_program_v2_title",
+        "el_2_program_v2_message",
+        None,
+    ]
+
+
 def test_visual_review_contract_removes_only_deterministically_false_deck_issues() -> None:
     candidate = deck()
     candidate["slides"] = []

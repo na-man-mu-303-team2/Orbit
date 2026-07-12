@@ -178,7 +178,12 @@ class VisualQaUnavailableError(RuntimeError):
     pass
 
 
-def visual_review_response_format(slide_count: int) -> dict[str, Any]:
+def visual_review_response_format(
+    slide_count: int,
+    *,
+    slide_ids: list[str] | None = None,
+    element_ids: list[str] | None = None,
+) -> dict[str, Any]:
     issue_codes = [
         "FOCAL_POINT_WEAK",
         "BALANCE_WEAK",
@@ -235,9 +240,17 @@ def visual_review_response_format(slide_count: int) -> dict[str, Any]:
                             "additionalProperties": False,
                             "properties": {
                                 "action": {"type": "string", "enum": action_types},
-                                "slideId": {"type": "string"},
+                                "slideId": {
+                                    "type": "string",
+                                    **({"enum": slide_ids} if slide_ids else {}),
+                                },
                                 "targetElementId": {
                                     "type": ["string", "null"],
+                                    **(
+                                        {"enum": [*element_ids, None]}
+                                        if element_ids
+                                        else {}
+                                    ),
                                 },
                                 "compositionId": {
                                     "type": ["string", "null"],
@@ -310,7 +323,19 @@ def review_deck_visuals(
                     ],
                 }
             ],
-            text=visual_review_response_format(len(assets)),
+            text=visual_review_response_format(
+                len(assets),
+                slide_ids=[
+                    str(slide.get("slideId", f"slide_{index + 1}"))
+                    for index, slide in enumerate(deck.get("slides", []))
+                ],
+                element_ids=[
+                    str(element.get("elementId"))
+                    for slide in deck.get("slides", [])
+                    for element in slide.get("elements", [])
+                    if element.get("elementId")
+                ],
+            ),
         )
         review = VisualQaReview.model_validate_json(
             str(getattr(response, "output_text", "")).strip()
