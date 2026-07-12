@@ -40,6 +40,7 @@ from app.ai.generate_deck import (
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
     compact_program_v2_content_items,
+    deduplicate_speaker_notes_across_slides,
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
@@ -217,6 +218,45 @@ def test_python_repeated_note_detection_matches_shared_semantic_qa() -> None:
     assert repeated_speaker_notes_slide_order([(1, notes)]) == 1
     deduplicated = remove_redundant_speaker_note_sentences(notes)
     assert "오늘 교육의 핵심 목표" not in deduplicated
+
+
+def test_speaker_notes_are_deduplicated_after_short_note_repair() -> None:
+    repeated = (
+        "오늘 발표를 통해 스플래툰 레이더스의 주요 차별점과 "
+        "공식 출시 정보를 모두 공유해 드렸습니다."
+    )
+    slides = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="스플래툰 레이더스",
+            message="공식 정보를 소개합니다.",
+            speaker_notes=repeated,
+            keywords=[],
+            evidence=[],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="summary",
+            title="다음 모험",
+            message="새로운 모험을 기대해 주세요.",
+            speaker_notes=(
+                "새로운 모험을 함께 기대해 주세요. "
+                "오늘 발표를 통해 스플래툰 레이더스의 주요 차별점과 "
+                "공식 출시 정보를 모두 공유해 드렸습니다."
+            ),
+            keywords=[],
+            evidence=[],
+        ),
+    ]
+
+    deduplicate_speaker_notes_across_slides(slides)
+
+    assert slides[0].speaker_notes == repeated
+    assert slides[1].speaker_notes == "새로운 모험을 함께 기대해 주세요."
+    assert repeated_speaker_notes_slide_order(
+        [(slide.order, slide.speaker_notes) for slide in slides]
+    ) is None
 
 
 @pytest.mark.parametrize(

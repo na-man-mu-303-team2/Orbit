@@ -3503,6 +3503,15 @@ def plan_deck_content(
                         model=model,
                         api_key=api_key,
                     )
+                    deduplicate_speaker_notes_across_slides(slide_plans)
+                    slide_plans = repair_short_speaker_notes_with_llm(
+                        raw_input,
+                        slide_plans,
+                        client=client,
+                        model=model,
+                        api_key=api_key,
+                    )
+                    deduplicate_speaker_notes_across_slides(slide_plans)
                 if is_program_v2(raw_input):
                     slide_plans = compact_program_v2_content_items(slide_plans)
             return (
@@ -3845,6 +3854,27 @@ def remove_redundant_speaker_note_sentences(text: str) -> str:
             continue
         selected.append(sentence)
     return " ".join(selected)
+
+
+def deduplicate_speaker_notes_across_slides(
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    seen_sentences: set[str] = set()
+    for slide in slide_plans:
+        selected: list[str] = []
+        for sentence in speaker_note_fragments(slide.speaker_notes):
+            key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
+            if len(key) >= 20 and key in seen_sentences:
+                continue
+            if selected and speaker_note_token_overlap(selected[-1], sentence) >= 0.8:
+                continue
+            if speaker_note_repeats_prior(sentence, selected):
+                continue
+            selected.append(sentence)
+            if len(key) >= 20:
+                seen_sentences.add(key)
+        slide.speaker_notes = " ".join(selected)
+    return slide_plans
 
 
 def fit_grounded_speaker_note_candidates(
