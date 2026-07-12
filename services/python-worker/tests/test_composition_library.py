@@ -168,6 +168,35 @@ def test_hybrid_media_budget_preserves_official_evidence_and_ai_atmosphere() -> 
     assert 3 <= len(evidence) + len(atmosphere) <= 4
 
 
+def test_hybrid_media_budget_promotes_a_no_media_body_composition() -> None:
+    definitions = [
+        ("cover", 2),
+        ("comparison", 4),
+        ("process", 3),
+        ("architecture", 3),
+        ("process", 3),
+        ("data", 1),
+        ("quote", 1),
+        ("data", 1),
+        ("process", 3),
+        ("summary", 2),
+    ]
+    slides = [slide_payload(slide_type, count) for slide_type, count in definitions]
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+    )
+    media_slides = [
+        direction for direction in normalized.slides if direction.asset_role != "none"
+    ]
+
+    assert 3 <= len(media_slides) <= 4
+    assert any(1 < direction.order < len(slides) for direction in media_slides)
+
+
 def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -> None:
     definitions = [
         ("cover", 2, "minimal-cover"),

@@ -1214,10 +1214,12 @@ def _enforce_media_budget(
             break
         if direction.asset_role != "none":
             continue
-        spec = COMPOSITION_SPECS[direction.composition_id]
-        if spec.media_requirement != "optional":
+        index = direction.order - 1
+        candidate = _optional_media_candidate(program, slides, index)
+        if candidate is None:
             continue
-        slide = slides[direction.order - 1]
+        direction.composition_id = candidate
+        slide = slides[index]
         direction.asset_role = (
             "evidence" if slide.get("officialSourceAvailable") is True else "atmosphere"
         )
@@ -1235,33 +1237,54 @@ def _promote_official_evidence(
     ):
         if slide.get("officialSourceAvailable") is not True:
             continue
-        slide_type = "cover" if index == 0 else str(slide.get("slideType", "summary"))
-        item_count = len(_items(slide))
-        candidates = (
-            direction.composition_id,
-            *FALLBACK_COMPOSITIONS.get(slide_type, ()),
-        )
-        for candidate in dict.fromkeys(candidates):
-            spec = COMPOSITION_SPECS[candidate]
-            if (
-                spec.media_requirement == "none"
-                or not _supports(candidate, slide_type, item_count)
-                or not content_supports_composition(candidate, slide)
-                or usage[candidate] - (candidate == direction.composition_id) >= 2
-            ):
-                continue
-            neighboring_silhouettes = {
-                COMPOSITION_SPECS[program.slides[neighbor].composition_id].silhouette
-                for neighbor in (index - 1, index + 1)
-                if 0 <= neighbor < len(program.slides)
-            }
-            if spec.silhouette in neighboring_silhouettes:
-                continue
-            usage[direction.composition_id] -= 1
-            direction.composition_id = candidate
-            direction.asset_role = "evidence"
-            direction.required_asset = spec.media_requirement == "required"
-            return
+        candidate = _optional_media_candidate(program, slides, index, usage=usage)
+        if candidate is None:
+            continue
+        usage[direction.composition_id] -= 1
+        direction.composition_id = candidate
+        direction.asset_role = "evidence"
+        direction.required_asset = False
+        return
+
+
+def _optional_media_candidate(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    index: int,
+    *,
+    usage: Counter[str] | None = None,
+) -> CompositionId | None:
+    direction = program.slides[index]
+    slide = slides[index]
+    slide_type = "cover" if index == 0 else str(slide.get("slideType", "summary"))
+    item_count = len(_items(slide))
+    composition_usage = usage or Counter(
+        item.composition_id for item in program.slides
+    )
+    neighboring_silhouettes = {
+        COMPOSITION_SPECS[program.slides[neighbor].composition_id].silhouette
+        for neighbor in (index - 1, index + 1)
+        if 0 <= neighbor < len(program.slides)
+    }
+    candidates = (
+        direction.composition_id,
+        *FALLBACK_COMPOSITIONS.get(slide_type, ()),
+    )
+    return next(
+        (
+            candidate
+            for candidate in dict.fromkeys(candidates)
+            if COMPOSITION_SPECS[candidate].media_requirement == "optional"
+            and _supports(candidate, slide_type, item_count)
+            and content_supports_composition(candidate, slide)
+            and composition_usage[candidate]
+            - int(candidate == direction.composition_id)
+            < 2
+            and COMPOSITION_SPECS[candidate].silhouette
+            not in neighboring_silhouettes
+        ),
+        None,
+    )
 
 
 def _enforce_background_rhythm(
