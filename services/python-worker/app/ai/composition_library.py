@@ -1315,22 +1315,68 @@ def _process_horizontal(
     duplicates_items = _message_duplicates_items(slide, items)
     count = max(1, len(items))
     gap = 24
-    width = (SAFE_WIDTH - gap * (count - 1)) // count
     field_y = 304
     field_height = 552 if duplicates_items else 496
+    if count == 3:
+        stacked_height = (field_height - gap) // 2
+        frames = [
+            (_grid_x(0), field_y, _grid_width(6), field_height),
+            (_grid_x(6), field_y, _grid_width(6), stacked_height),
+            (
+                _grid_x(6),
+                field_y + stacked_height + gap,
+                _grid_width(6),
+                stacked_height,
+            ),
+        ]
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    "step_connector_1",
+                    "decoration",
+                    _grid_x(0) + _grid_width(6),
+                    field_y + stacked_height // 2 - 5,
+                    gap,
+                    10,
+                    2,
+                    style.secondary,
+                    radius=5,
+                ),
+                _rect(
+                    order,
+                    "step_connector_2",
+                    "decoration",
+                    _grid_x(6) + _grid_width(6) // 2 - 5,
+                    field_y + stacked_height,
+                    10,
+                    gap,
+                    2,
+                    style.secondary,
+                    radius=5,
+                ),
+            ]
+        )
+    else:
+        width = (SAFE_WIDTH - gap * (count - 1)) // count
+        frames = [
+            (SAFE_X + index * (width + gap), field_y, width, field_height)
+            for index in range(count)
+        ]
     colors = _editorial_field_colors(style)
-    for index, (identifier, value) in enumerate(items):
-        x = SAFE_X + index * (width + gap)
+    for index, ((identifier, value), (x, y, width, height)) in enumerate(
+        zip(items, frames, strict=True)
+    ):
         fill = colors[index % len(colors)]
         text_color = _contrasting_text_color(fill, style.text)
-        if index > 0:
+        if count != 3 and index > 0:
             elements.append(
                 _rect(
                     order,
                     f"step_connector_{index}",
                     "decoration",
                     x - gap,
-                    field_y + field_height // 2 - 5,
+                    y + height // 2 - 5,
                     gap,
                     10,
                     2,
@@ -1345,9 +1391,9 @@ def _process_horizontal(
                     f"step_{index + 1}_field",
                     "decoration",
                     x,
-                    field_y,
+                    y,
                     width,
-                    field_height,
+                    height,
                     3,
                     fill,
                     radius=8,
@@ -1358,12 +1404,12 @@ def _process_horizontal(
                     "highlight",
                     f"{index + 1:02d}",
                     x + 32,
-                    field_y + 28,
+                    y + 24,
                     width - 64,
-                    80,
+                    72,
                     5,
                     text_color,
-                    58 if count <= 4 else 48,
+                    64 if count == 3 and index == 0 else 48 if count <= 4 else 44,
                     "bold",
                     style.heading_font,
                 ),
@@ -1373,12 +1419,14 @@ def _process_horizontal(
                     "body",
                     value,
                     x + 32,
-                    field_y + 132,
+                    y + 112,
                     width - 64,
-                    field_height - 176,
+                    height - 144,
                     5,
                     text_color,
-                    max(36, style.body_size + (4 if count <= 4 else 0)),
+                    max(44, style.body_size + 10)
+                    if count == 3 and index == 0
+                    else max(36, style.body_size + (4 if count <= 4 else 0)),
                     "semibold",
                     style.body_font,
                     vertical="middle",

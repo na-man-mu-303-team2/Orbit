@@ -590,7 +590,7 @@ def test_three_item_timeline_uses_alternating_grid_track() -> None:
     assert all((marker["width"], marker["height"]) == (64, 64) for marker in markers)
 
 
-def test_three_step_process_uses_connected_full_height_color_fields() -> None:
+def test_three_step_process_uses_dominant_first_stage_and_stacked_followups() -> None:
     design_program = program(
         [
             {
@@ -625,7 +625,14 @@ def test_three_step_process_uses_connected_full_height_color_fields() -> None:
     labels = [element for element in compiled.elements if element["role"] == "body"]
 
     assert len(fields) == 3
-    assert all(field["height"] == 552 for field in fields)
+    assert [
+        (field["x"], field["y"], field["width"], field["height"])
+        for field in fields
+    ] == [
+        (120, 304, 828, 552),
+        (972, 304, 828, 264),
+        (972, 592, 828, 264),
+    ]
     assert [field["props"]["fill"] for field in fields] == [
         "#6D28D9",
         "#111827",
@@ -633,6 +640,7 @@ def test_three_step_process_uses_connected_full_height_color_fields() -> None:
     ]
     assert len(connectors) == 2
     assert all(label["props"]["fontSize"] >= 36 for label in labels)
+    assert labels[0]["props"]["fontSize"] > labels[1]["props"]["fontSize"]
 
 
 def test_closing_keeps_unique_action_after_duplicate_message_item() -> None:
