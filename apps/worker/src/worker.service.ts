@@ -93,6 +93,11 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           this.config.PYTHON_WORKER_URL,
           job.data,
           createImageAssetRuntime(this.config),
+          (event, fields) =>
+            this.logger.info(
+              { event, ...fields },
+              "AI PPT generation event.",
+            ),
         ),
       ),
       this.createWorker(deckExportQueueName, (job) =>
@@ -275,6 +280,16 @@ function jobDiagnosticFields(result: unknown) {
       diagnostics,
       "validationIssueCount",
     ),
+    visualQaStatus: readString(diagnostics, "visualQaStatus"),
+    visualReviewAttempts: readNonNegativeNumber(
+      diagnostics,
+      "visualReviewAttempts",
+    ),
+    visualRepairAttempts: readNonNegativeNumber(
+      diagnostics,
+      "visualRepairAttempts",
+    ),
+    visualIssueCodes: readStringArray(diagnostics, "visualIssueCodes"),
   };
 }
 
@@ -286,6 +301,14 @@ function readNonNegativeNumber(value: Record<string, unknown>, key: string) {
 function readString(value: Record<string, unknown>, key: string) {
   const raw = value[key];
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
+function readStringArray(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  if (!Array.isArray(raw) || !raw.every((item) => typeof item === "string")) {
+    return undefined;
+  }
+  return raw;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

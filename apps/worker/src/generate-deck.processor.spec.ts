@@ -290,7 +290,10 @@ describe("processGenerateDeckJob", () => {
     let pythonRequestBody = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: unknown, init?: RequestInit) => {
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
         pythonRequestBody = String(init?.body ?? "");
         return new Response(
           JSON.stringify({
@@ -336,6 +339,377 @@ describe("processGenerateDeckJob", () => {
     expect(designProgramContext.brandKitLockedValues).toEqual(
       brandKitSnapshot.values
     );
+  });
+
+  it("publishes a program-v2 deck only after rendered visual QA passes", async () => {
+    const deck = programV2Deck();
+    const query = dynamicJobQuery();
+    const events: string[] = [];
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.endsWith("/ai/generate-deck")) {
+        return generateDeckResponse(deck);
+      }
+      if (url.endsWith("/ai/review-deck-visuals")) {
+        return visualPassResponse();
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload(),
+      undefined,
+      (event) => events.push(event)
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(job.result?.diagnostics).toMatchObject({
+      visualQaStatus: "passed",
+      visualReviewAttempts: 1,
+      visualRepairAttempts: 0,
+      visualIssueCodes: []
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        "ai-ppt.design-program.created",
+        "ai-ppt.composition.completed",
+        "ai-ppt.asset.resolved",
+        "ai-ppt.visual-review.completed",
+        "ai-ppt.deck.published"
+      ])
+    );
+  });
+
+  it("embeds stored image assets only in the visual review request", async () => {
+    const deck = programV2DeckWithResolvedMedia();
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_visual",
+            storage_key: "projects/project-a/assets/file_visual.png",
+            mime_type: "image/png"
+          }
+        ];
+      }
+      return [];
+    });
+    const reviewStorage = {
+      ...storage,
+      getSignedReadUrl: vi.fn(async () => "http://storage.local/visual.png")
+    };
+    let reviewImageSource = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url === "http://storage.local/visual.png") {
+          return new Response(new Uint8Array([1, 2, 3]));
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          const body = JSON.parse(String(init?.body));
+          reviewImageSource = body.deck.slides[0].elements.find(
+            (element: { role?: string }) => element.role === "media"
+          ).props.src;
+          return visualPassResponse();
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      reviewStorage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(reviewImageSource).toBe("data:image/png;base64,AQID");
+    const savedDeck = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
+    )?.[1]?.[2] as Deck;
+    const savedImage = savedDeck.slides[0].elements.find(
+      (element) => element.role === "media"
+    );
+    expect(savedImage?.type === "image" ? savedImage.props.src : "").toBe(
+      "/api/v1/projects/project-a/assets/file_visual/content"
+    );
+  });
+
+  it("applies one bounded visual repair and reviews the rendered deck again", async () => {
+    const deck = programV2Deck();
+    const query = dynamicJobQuery();
+    let reviewCount = 0;
+    const repairBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          reviewCount += 1;
+          return reviewCount === 1
+            ? visualFailureResponse("FOCAL_POINT_WEAK")
+            : visualPassResponse();
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          repairBodies.push(JSON.parse(String(init?.body)));
+          return visualRepairResponse(deck);
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(job.result?.diagnostics).toMatchObject({
+      visualQaStatus: "passed",
+      visualReviewAttempts: 2,
+      visualRepairAttempts: 1,
+      visualIssueCodes: []
+    });
+    expect(repairBodies).toHaveLength(1);
+    expect(repairBodies[0]?.actions).toEqual([
+      expect.objectContaining({
+        action: "increaseFocalScale",
+        slideId: "slide_1"
+      })
+    ]);
+  });
+
+  it("retains a twice-repaired visual failure without publishing the deck", async () => {
+    const deck = programV2Deck();
+    const query = dynamicJobQuery();
+    let repairCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualFailureResponse("BALANCE_WEAK");
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          repairCount += 1;
+          return visualRepairResponse(deck);
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe(
+      "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
+    );
+    expect(repairCount).toBe(2);
+    expect(job.result).toMatchObject({
+      validation: {
+        passed: false,
+        designIssues: [expect.objectContaining({ code: "BALANCE_WEAK" })]
+      },
+      diagnostics: {
+        visualQaStatus: "failed",
+        visualReviewAttempts: 3,
+        visualRepairAttempts: 2,
+        visualIssueCodes: ["BALANCE_WEAK"]
+      }
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("converts an unresolved optional image to a no-media composition", async () => {
+    const deck = programV2DeckWithOptionalMedia();
+    const noMediaDeck = deckSchema.parse({
+      ...deck,
+      metadata: {
+        ...deck.metadata,
+        designProgramSnapshot: {
+          ...deck.metadata.designProgramSnapshot,
+          compositionIds: ["minimal-cover"]
+        }
+      },
+      slides: [
+        {
+          ...deck.slides[0],
+          elements: [],
+          aiNotes: {
+            ...deck.slides[0].aiNotes,
+            visualPlan: {
+              ...deck.slides[0].aiNotes?.visualPlan,
+              imageNeeded: false
+            },
+            compositionPlan: {
+              compositionId: "minimal-cover",
+              variant: "light",
+              backgroundMode: "light",
+              focalType: "title",
+              assetRole: "none",
+              requiredAsset: false
+            }
+          }
+        }
+      ]
+    });
+    const query = dynamicJobQuery();
+    let fallbackBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          fallbackBody = JSON.parse(String(init?.body));
+          return visualRepairResponse(noMediaDeck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(fallbackBody).toMatchObject({
+      actions: [],
+      dropOptionalMediaSlideIds: ["slide_1"]
+    });
+    expect(
+      (job.result as GenerateDeckJobResult).deck.slides[0].elements.some(
+        (element) => element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(false);
+  });
+
+  it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
+    const deck = programV2Deck();
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) =>
+        String(input).endsWith("/ai/generate-deck")
+          ? generateDeckResponse(deck)
+          : new Response("vision provider unavailable", { status: 503 })
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.result).toMatchObject({
+      deck: { deckId: deck.deckId },
+      diagnostics: {
+        visualQaStatus: "failed",
+        visualReviewAttempts: 1,
+        visualRepairAttempts: 0
+      }
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("retains the latest repaired candidate when a later visual review is unavailable", async () => {
+    const deck = programV2Deck();
+    const repairedDeck = deckSchema.parse({
+      ...deck,
+      title: "Latest repaired candidate"
+    });
+    const query = dynamicJobQuery();
+    let reviewCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          reviewCount += 1;
+          return reviewCount === 1
+            ? visualFailureResponse("FOCAL_POINT_WEAK")
+            : new Response("vision provider unavailable", { status: 503 });
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          return visualRepairResponse(repairedDeck);
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.result).toMatchObject({
+      deck: { title: "Latest repaired candidate" },
+      diagnostics: {
+        visualReviewAttempts: 2,
+        visualRepairAttempts: 1
+      }
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
   });
 
   it("fails before saving a deck when blocking validation issues remain", async () => {
@@ -979,6 +1353,273 @@ describe("processGenerateDeckJob", () => {
     expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
   });
 });
+
+function programV2Payload() {
+  return {
+    ...payload,
+    request: {
+      ...payload.request,
+      generationMode: "design-pack" as const,
+      design: {
+        ...payload.request.design,
+        engineVersion: "program-v2" as const
+      }
+    }
+  };
+}
+
+function programV2Deck() {
+  const base = createDeck();
+  return deckSchema.parse({
+    ...base,
+    metadata: {
+      ...base.metadata,
+      designProgramSnapshot: designProgramSnapshot()
+    },
+    slides: [
+      {
+        ...base.slides[0],
+        elements: [
+          {
+            elementId: "el_1_program_v2_title",
+            type: "text",
+            role: "title",
+            x: 120,
+            y: 220,
+            width: 1320,
+            height: 180,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 3,
+            locked: false,
+            visible: true,
+            props: {
+              text: "Visual deck",
+              fontFamily: "Pretendard",
+              fontSize: 64,
+              color: "#111827"
+            }
+          }
+        ],
+        aiNotes: {
+          ...base.slides[0].aiNotes,
+          visualPlan: {
+            visualType: "minimal-cover",
+            imageNeeded: false,
+            imageSourcePolicy: "minimal",
+            reason: "Native composition"
+          },
+          compositionPlan: {
+            compositionId: "minimal-cover",
+            variant: "light",
+            backgroundMode: "light",
+            focalType: "title",
+            primaryFocalElementId: "el_1_program_v2_title",
+            assetRole: "none",
+            requiredAsset: false
+          }
+        }
+      }
+    ]
+  });
+}
+
+function programV2DeckWithOptionalMedia() {
+  const base = programV2Deck();
+  return deckSchema.parse({
+    ...base,
+    metadata: {
+      ...base.metadata,
+      designProgramSnapshot: {
+        ...designProgramSnapshot(),
+        compositionIds: ["hero-split"]
+      }
+    },
+    slides: [
+      {
+        ...base.slides[0],
+        elements: [
+          ...base.slides[0].elements,
+          {
+            elementId: "el_1_program_v2_media_placeholder",
+            type: "rect",
+            role: "media",
+            x: 1114,
+            y: 220,
+            width: 686,
+            height: 520,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 4,
+            locked: false,
+            visible: true,
+            props: {
+              fill: "#E2E8F0",
+              stroke: "#64748B",
+              strokeWidth: 2,
+              borderRadius: 8
+            }
+          }
+        ],
+        aiNotes: {
+          ...base.slides[0].aiNotes,
+          visualPlan: {
+            visualType: "hero-image",
+            imageNeeded: true,
+            imageSourcePolicy: "ai-generated",
+            reason: "Optional atmosphere"
+          },
+          compositionPlan: {
+            compositionId: "hero-split",
+            variant: "light",
+            backgroundMode: "light",
+            focalType: "title",
+            primaryFocalElementId: "el_1_program_v2_title",
+            assetRole: "atmosphere",
+            requiredAsset: false
+          }
+        }
+      }
+    ]
+  });
+}
+
+function programV2DeckWithResolvedMedia() {
+  const deck = programV2DeckWithOptionalMedia();
+  return deckSchema.parse({
+    ...deck,
+    slides: [
+      {
+        ...deck.slides[0],
+        elements: deck.slides[0].elements.map((element) =>
+          element.elementId.endsWith("_media_placeholder")
+            ? {
+                ...element,
+                elementId: element.elementId.replace(
+                  "_media_placeholder",
+                  "_media_asset"
+                ),
+                type: "image",
+                props: {
+                  src: "/api/v1/projects/project-a/assets/file_visual/content",
+                  alt: "Official product visual",
+                  fit: "cover"
+                }
+              }
+            : element
+        ),
+        aiNotes: {
+          ...deck.slides[0].aiNotes,
+          visualPlan: {
+            ...deck.slides[0].aiNotes?.visualPlan,
+            asset: {
+              fileId: "file_visual",
+              provider: "official-web",
+              sourceUrl: "https://official.example/product",
+              sourceAssetUrl: "https://official.example/product.png",
+              sourceAuthority: "official",
+              usageBasis: "official-reference"
+            }
+          }
+        }
+      }
+    ]
+  });
+}
+
+function designProgramSnapshot() {
+  return {
+    version: "program-v2",
+    visualConcept: "Editorial product reveal",
+    paletteRoles: {
+      dominant: "#FFFFFF",
+      surface: "#F3F4F6",
+      text: "#111827",
+      focal: "#6D28D9",
+      secondary: "#06B6D4"
+    },
+    typography: {
+      headingFont: "Pretendard",
+      bodyFont: "Pretendard",
+      typeScale: { cover: 64, title: 40, body: 22, caption: 14 }
+    },
+    backgroundSequence: ["light" as const],
+    imageStyle: "Official evidence with expressive atmosphere",
+    surfaceStyle: "Flat editorial fields",
+    compositionIds: ["minimal-cover" as const]
+  };
+}
+
+function generateDeckResponse(deck: Deck) {
+  return new Response(
+    JSON.stringify({
+      deck,
+      warnings: [],
+      validation: validation(),
+      diagnostics: diagnostics()
+    })
+  );
+}
+
+function visualPassResponse() {
+  return new Response(
+    JSON.stringify({
+      review: { passed: true, issues: [], repairActions: [] },
+      warnings: []
+    })
+  );
+}
+
+function visualFailureResponse(
+  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK"
+) {
+  return new Response(
+    JSON.stringify({
+      review: {
+        passed: false,
+        issues: [{ code, slideOrder: 1, message: "Visual hierarchy is weak." }],
+        repairActions: [
+          {
+            action: "increaseFocalScale",
+            slideId: "slide_1",
+            targetElementId: "el_1_program_v2_title",
+            compositionId: null,
+            backgroundMode: null,
+            reason: "Strengthen the primary focal point."
+          }
+        ]
+      },
+      warnings: []
+    })
+  );
+}
+
+function visualRepairResponse(deck: Deck) {
+  return new Response(
+    JSON.stringify({
+      deck,
+      validation: validation(),
+      assetSlideIds: [],
+      warnings: []
+    })
+  );
+}
+
+function dynamicJobQuery() {
+  return vi.fn(async (sql: string, params: unknown[] = []) => {
+    if (sql.includes("UPDATE jobs")) {
+      return [
+        jobRow(
+          params[1] as "running" | "succeeded" | "failed",
+          params[2] as number,
+          params[4] as Record<string, unknown> | null,
+          params[5] as { code: string; message: string } | null
+        )
+      ];
+    }
+    return [];
+  });
+}
 
 function createDeck(overrides: Record<string, unknown> = {}) {
   return {

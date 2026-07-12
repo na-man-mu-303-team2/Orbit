@@ -764,6 +764,9 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - 허용 issue는 `FOCAL_POINT_WEAK`, `BALANCE_WEAK`, `IMAGE_CONTENT_MISMATCH`, `IMAGE_CROP_WEAK`, `LAYOUT_REPETITIVE`, `BACKGROUND_RHYTHM_FLAT`, `CARD_OVERUSED`, `COLOR_HARMONY_WEAK`, `VISUAL_STYLE_INCONSISTENT`다.
 - repair는 `changeComposition`, `increaseFocalScale`, `replaceImage`, `changeCrop`, `switchBackgroundMode`, `reduceCards`, `promoteMetric`, `shortenCopy`, `moveSupportingContent`만 허용하며 모델이 Deck JSON을 직접 수정하지 않는다.
 - `repair-deck-visuals`는 repair 이후 Deck과 결정론적 `validation`을 함께 반환한다. 선택 이미지가 해소되지 않은 slide는 `dropOptionalMediaSlideIds`로 전달하며, `requiredAsset=false`인 경우에만 호환 가능한 no-media composition으로 재컴파일한다.
+- Node Worker는 저장된 image asset을 Vision 검토 요청에만 data URL로 주입하며, 원본 Deck JSON의 project asset URL은 유지한다.
+- 시각 검토는 최초 1회와 최대 2회의 bounded repair 후 재검토로 제한한다. repair가 새 이미지 슬롯을 만들면 해당 slide만 asset을 다시 해소한다.
+- 최종 시각 issue가 남으면 `GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED`, 렌더 또는 Vision provider를 사용할 수 없으면 `GENERATE_DECK_VISUAL_QA_UNAVAILABLE`로 실패한다. 두 경우 모두 후보 Deck과 validation은 `jobs.result`에 보존하고 기존 project Deck은 변경하지 않는다.
 - `AI_PPT_VISUAL_QA_MODEL`이 비어 있으면 `OPENAI_MODEL`을 사용한다. Vision QA를 실행할 수 없으면 `program-v2`를 `recipe-v1`로 fallback하지 않는다.
 
 ### AI PPT 기본 의미 기반 QA 계약
