@@ -1246,27 +1246,36 @@ def _process_horizontal(
     return elements, _id(order, "step_1")
 
 
-def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:
+def _timeline(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
     count = max(1, len(items))
+    duplicates_items = _message_duplicates_items(slide, items)
+    content_top = 304
+    field_height = 500 if duplicates_items else 452
     if count == 3:
         frames = [
-            (_grid_x(index * 4), 280 if index % 2 == 0 else 620, _grid_width(4), 200)
+            (_grid_x(index * 4), content_top, _grid_width(4), field_height)
             for index in range(count)
         ]
     else:
-        step = 1560 // max(1, count - 1) if count > 1 else 0
+        gap = 16
+        width = (SAFE_WIDTH - gap * (count - 1)) // count
         frames = [
             (
-                max(120, min(180 + index * step - 150, 1500)),
-                300 if index % 2 == 0 else 610,
-                300,
-                152,
+                SAFE_X + index * (width + gap),
+                content_top,
+                width,
+                field_height,
             )
             for index in range(count)
         ]
     centers = [x + width // 2 for x, _, width, _ in frames]
+    track_y = content_top + field_height + 50
     elements = [
         _background(order, style),
         _title(order, slide, style),
@@ -1274,25 +1283,114 @@ def _timeline(direction: SlideCompositionDirection, slide: dict[str, Any], style
             order,
             "timeline_line",
             "decoration",
-            centers[0],
-            520,
-            max(8, centers[-1] - centers[0]),
-            8,
+            SAFE_X,
+            track_y,
+            SAFE_WIDTH,
+            10,
             2,
             style.secondary,
-            radius=4,
+            radius=5,
         ),
     ]
+    colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)
     ):
         center = centers[index]
-        elements.extend([
-            _rect(order, f"timeline_dot_{index + 1}", "decoration", center - 14, 506, 28, 28, 4, style.focal, radius=14),
-            _rect(order, f"timeline_{index + 1}_field", "decoration", x, y, width, height, 3, style.surface, stroke=style.secondary, stroke_width=2, radius=8),
-            _text(order, f"timeline_{index + 1}", "body", value, x + 24, y + 20, width - 48, height - 40, 5, style.text, max(26, style.body_size + 4) if count == 3 else style.body_size, "semibold", style.body_font, align="center", vertical="middle", content_item_ids=[identifier]),
-        ])
-    return elements, _id(order, "timeline_dot_1")
+        fill = colors[index % len(colors)]
+        text_color = _contrasting_text_color(fill, style.text)
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    f"timeline_{index + 1}_field",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    height,
+                    3,
+                    fill,
+                    radius=8,
+                ),
+                _text(
+                    order,
+                    f"timeline_{index + 1}_index",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 28,
+                    y + 28,
+                    width - 56,
+                    72,
+                    5,
+                    text_color,
+                    54 if count <= 4 else 44,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"timeline_{index + 1}",
+                    "body",
+                    value,
+                    x + 28,
+                    y + 120,
+                    width - 56,
+                    height - 156,
+                    5,
+                    text_color,
+                    max(36, style.body_size + 4) if count <= 4 else style.body_size,
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
+                _rect(
+                    order,
+                    f"timeline_stem_{index + 1}",
+                    "decoration",
+                    center - 4,
+                    y + height,
+                    8,
+                    track_y - (y + height),
+                    2,
+                    style.secondary,
+                ),
+                _rect(
+                    order,
+                    f"timeline_dot_{index + 1}",
+                    "decoration",
+                    center - 16,
+                    track_y - 11,
+                    32,
+                    32,
+                    4,
+                    style.focal,
+                    radius=16,
+                ),
+            ]
+        )
+    if not duplicates_items:
+        elements.append(
+            _text(
+                order,
+                "timeline_message",
+                "highlight",
+                str(slide.get("message", "")),
+                SAFE_X,
+                track_y + 40,
+                SAFE_WIDTH,
+                64,
+                5,
+                style.text,
+                max(32, style.body_size),
+                "bold",
+                style.body_font,
+                align="center",
+                vertical="middle",
+            )
+        )
+    return elements, _id(order, "timeline_1")
 
 
 def _diagram_hub(direction: SlideCompositionDirection, slide: dict[str, Any], style: Style) -> tuple[list[Element], str]:

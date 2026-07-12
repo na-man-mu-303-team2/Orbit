@@ -557,11 +557,11 @@ def test_three_item_timeline_uses_full_grid_frames() -> None:
     ]
 
     assert [(field["x"], field["width"], field["height"]) for field in fields] == [
-        (120, 544, 200),
-        (688, 544, 200),
-        (1256, 544, 200),
+        (120, 544, 452),
+        (688, 544, 452),
+        (1256, 544, 452),
     ]
-    assert all(label["props"]["fontSize"] >= 26 for label in labels)
+    assert all(label["props"]["fontSize"] >= 36 for label in labels)
 
 
 def test_three_step_process_uses_connected_full_height_color_fields() -> None:
