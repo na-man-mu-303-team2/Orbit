@@ -1303,7 +1303,7 @@ function ReferencesStep(props: {
           ["provided-only", "첨부 이미지만"],
           ["public-assets", "공개 이미지 검색"],
           ["ai-generated", "AI 이미지 생성"],
-          ["hybrid", "공식 이미지 + AI 이미지"]
+          ["hybrid", "공식 + AI 이미지"]
         ].map(([value, label]) => (
           <button
             key={value}
