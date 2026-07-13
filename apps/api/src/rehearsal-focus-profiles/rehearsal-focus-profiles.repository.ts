@@ -71,7 +71,7 @@ export class RehearsalFocusProfilesRepository {
             profile_id, project_id, revision, items_json,
             created_by, updated_by, created_at, updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8)
           ON CONFLICT (project_id) DO UPDATE SET
             revision = EXCLUDED.revision,
             items_json = EXCLUDED.items_json,
@@ -82,7 +82,7 @@ export class RehearsalFocusProfilesRepository {
           profile.profileId,
           projectId,
           profile.revision,
-          profile.items,
+          JSON.stringify(profile.items),
           profile.createdBy,
           profile.updatedBy,
           profile.createdAt,

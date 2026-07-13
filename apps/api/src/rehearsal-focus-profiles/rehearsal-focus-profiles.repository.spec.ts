@@ -58,6 +58,11 @@ describe("RehearsalFocusProfilesRepository", () => {
     expect(queries[0]).toContain("SELECT project_id FROM projects");
     expect(queries[1]).toContain("FOR UPDATE");
     expect(queries[2]).toContain("INSERT INTO rehearsal_focus_profiles");
+    expect(queries[2]).toContain("$4::jsonb");
+    expect(manager.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("INSERT INTO rehearsal_focus_profiles"),
+      expect.arrayContaining([JSON.stringify(currentItems)]),
+    );
   });
 
   it("returns the current profile without writing when the revision is stale", async () => {
