@@ -597,8 +597,16 @@ export const createRehearsalAudioUploadUrlResponseSchema = z.object({
   upload: assetUploadUrlResponseSchema
 });
 
+export const rehearsalRecordingDurationSecondsSchema = z
+  .number()
+  .finite()
+  .positive()
+  .nullable()
+  .default(null);
+
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
-  fileId: z.string().min(1)
+  fileId: z.string().min(1),
+  recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema
 });
 
 export const rehearsalAudioSha256Schema = z
@@ -629,7 +637,8 @@ export const completeRehearsalAudioChunkUploadRequestSchema = z
     chunkCount: z.number().int().positive(),
     totalDurationMs: z.number().int().positive(),
     totalSizeBytes: z.number().int().positive(),
-    sha256: rehearsalAudioSha256Schema
+    sha256: rehearsalAudioSha256Schema,
+    recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema
   })
   .strict();
 
@@ -640,6 +649,7 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
 
 export const rehearsalRunMetaSchema = z
   .object({
+    recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
     slideTimeline: z
       .array(
         z

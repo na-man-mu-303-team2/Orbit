@@ -1171,8 +1171,9 @@ API:
   - `size`는 service runtime schema에서 `REPORT_STT_PROVIDER`와 `REHEARSAL_AUDIO_MAX_BYTES` 기준으로 검증한다.
   - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
 - `POST /api/v1/rehearsals/:runId/audio/complete`
-  - request: `{ "fileId": "file_audio_1" }`
-  - run에 연결된 `fileId`만 허용하고, 업로드 완료 확인 뒤 `rehearsal-stt` Job을 enqueue한다.
+  - request: `{ "fileId": "file_audio_1", "recordingDurationSeconds": 90.25 }`
+  - `recordingDurationSeconds`는 생략하거나 `null`일 수 있고, 값이 있으면 양수 finite number여야 한다.
+  - run에 연결된 `fileId`만 허용하고, 업로드 완료 확인 뒤 `rehearsal-stt` Job을 enqueue한다. Web/API producer는 enqueue 전에 `recordingDurationSeconds`를 Run meta에 저장한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
 - `GET /api/v1/rehearsals/:runId`
   - response: `{ "run": RehearsalRun }`
@@ -1195,7 +1196,8 @@ API:
   - cache가 만료됐으면 HTTP 409 `{ "code": "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED", "retryable": false }`를 반환한다.
   - Job payload에는 `jobId`, `projectId`, `runId`만 포함하고 transcript/segment 원문은 넣지 않는다.
 - `PATCH /api/v1/rehearsals/:runId/meta`
-  - request: `{ "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - request: `{ "recordingDurationSeconds": 90.25, "slideTimeline": [{ "slideId": "slide_1", "enteredAt": "2026-07-02T00:00:00.000Z" }], "missedKeywords": [{ "slideId": "slide_1", "keywordId": "kw_1" }], "adviceEvents": [{ "type": "pace-too-fast", "at": "2026-07-02T00:00:30.000Z" }] }`
+  - 기존 Run meta는 `recordingDurationSeconds=null`로 읽는다. 값이 있으면 양수 finite number만 허용하며 `0`을 자료 없음 sentinel로 사용하지 않는다.
   - transcript, speaker notes, raw audio, script 원문은 받지 않는다.
   - response: `{ "run": RehearsalRun }`
 
@@ -1209,7 +1211,8 @@ API:
   - body: `audio/flac` chunk binary. 서버는 chunk별 hash 검증과 중복 업로드 멱등 처리를 담당한다.
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/audio-complete`
-  - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>" }`
+  - request: `{ "chunkCount": 3, "totalDurationMs": 90000, "totalSizeBytes": 1048576, "sha256": "<64 hex>", "recordingDurationSeconds": 90.25 }`
+  - `recordingDurationSeconds`는 legacy upload complete와 같은 nullable 양수 finite number 계약을 사용한다.
   - 청크 수, 전체 길이, runtime 크기 한도, 조립 결과 sha256을 검증한 뒤 `rehearsal-stt` Job을 enqueue한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
 
@@ -1296,6 +1299,8 @@ Report 응답 구조:
 결정 사항:
 
 - `audio/complete`는 run에 연결된 `fileId`만 허용한다.
+- `recordingDurationSeconds`는 Web recorder가 측정한 실제 전체 경과시간의 canonical transport다. legacy upload와 chunk upload 모두 분석 enqueue 전에 같은 값을 Run meta에 저장한다.
+- worker는 Run meta의 `recordingDurationSeconds`를 v2 분석 요청에 그대로 전달하며 provider duration으로 덮어쓰지 않는다. 이 runtime 연결은 P1 sender/parser PR에서 구현한다.
 - worker는 시작 시 run을 `processing`으로 갱신하고, 성공 시 `succeeded`, 실패 시 `failed`로 갱신한다.
 - STT와 코칭 분석이 끝난 직후 raw audio object를 삭제한다.
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.

@@ -10,6 +10,7 @@ import {
   rehearsalRunComparisonSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticCueDecisionSchema,
+  rehearsalRecordingDurationSecondsSchema,
   rehearsalRunMetaSchema,
   rehearsalReportSchema,
   rehearsalRunSchema,
@@ -566,6 +567,7 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     });
 
     expect(request.fileId).toBe("file_audio_1");
+    expect(request.recordingDurationSeconds).toBeNull();
   });
 });
 
@@ -579,6 +581,7 @@ describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
     });
 
     expect(manifest.chunkCount).toBe(3);
+    expect(manifest.recordingDurationSeconds).toBeNull();
   });
 
   it.each([
@@ -596,6 +599,62 @@ describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("rehearsalRecordingDurationSecondsSchema", () => {
+  it("preserves the same measured duration across complete requests and run meta", () => {
+    const recordingDurationSeconds = 90.25;
+    const legacyComplete = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1",
+      recordingDurationSeconds
+    });
+    const chunkComplete = completeRehearsalAudioChunkUploadRequestSchema.parse({
+      chunkCount: 3,
+      totalDurationMs: 90000,
+      totalSizeBytes: 1024,
+      sha256: "a".repeat(64),
+      recordingDurationSeconds
+    });
+    const runMeta = rehearsalRunMetaSchema.parse({ recordingDurationSeconds });
+
+    expect([
+      legacyComplete.recordingDurationSeconds,
+      chunkComplete.recordingDurationSeconds,
+      runMeta.recordingDurationSeconds
+    ]).toEqual([recordingDurationSeconds, recordingDurationSeconds, recordingDurationSeconds]);
+  });
+
+  it("defaults missing recording duration to null for legacy payloads", () => {
+    expect(rehearsalRecordingDurationSecondsSchema.parse(undefined)).toBeNull();
+    expect(rehearsalRunMetaSchema.parse({}).recordingDurationSeconds).toBeNull();
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -1],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY]
+  ])("rejects %s recording duration across every transport", (_label, value) => {
+    expect(rehearsalRecordingDurationSecondsSchema.safeParse(value).success).toBe(false);
+    expect(
+      completeRehearsalAudioUploadRequestSchema.safeParse({
+        fileId: "file_audio_1",
+        recordingDurationSeconds: value
+      }).success
+    ).toBe(false);
+    expect(
+      completeRehearsalAudioChunkUploadRequestSchema.safeParse({
+        chunkCount: 3,
+        totalDurationMs: 90000,
+        totalSizeBytes: 1024,
+        sha256: "a".repeat(64),
+        recordingDurationSeconds: value
+      }).success
+    ).toBe(false);
+    expect(
+      rehearsalRunMetaSchema.safeParse({ recordingDurationSeconds: value }).success
+    ).toBe(false);
   });
 });
 
@@ -689,6 +748,7 @@ describe("rehearsalRunMetaSchema", () => {
     expect(meta.utteranceOutcomes).toEqual([]);
     expect(meta.semanticCueDecisions).toEqual([]);
     expect(meta.semanticCapabilityEvents).toEqual([]);
+    expect(meta.recordingDurationSeconds).toBeNull();
   });
 
   it("deduplicates bounded capability cue IDs without accepting sensitive fields", () => {
