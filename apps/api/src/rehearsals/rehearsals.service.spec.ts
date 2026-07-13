@@ -3,7 +3,8 @@ import {
   type AssetUploadUrlResponse,
   type Deck,
   type Job,
-  type PresentationBrief
+  type PresentationBrief,
+  type RehearsalFocusProfile
 } from "@orbit/shared";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
@@ -14,6 +15,7 @@ import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
 import type { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
+import type { RehearsalFocusProfilesService } from "../rehearsal-focus-profiles/rehearsal-focus-profiles.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import type { ProjectEntity } from "../projects/project.entity";
 import type {
@@ -165,6 +167,7 @@ describe("RehearsalsService", () => {
     expect(JSON.stringify(result.run.evaluationSnapshot)).not.toContain(
       "민감한 발표자 노트"
     );
+    expect(result.run.evaluationSnapshot?.focusProfileSnapshot).toBeNull();
     expect(service.testLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "rehearsal.evaluation_snapshot.created",
@@ -204,6 +207,50 @@ describe("RehearsalsService", () => {
     expect(stored.run.deckVersion).toBe(3);
     expect(stored.run.evaluationSnapshot?.slides[0]?.semanticCues[0]?.meaning).toBe(
       "승인된 원래 의미"
+    );
+  });
+
+  it("freezes the current focus profile revision and items at run creation", async () => {
+    const focusProfile = {
+      profileId: "focus_profile_1",
+      projectId: "project-a",
+      revision: 2,
+      items: [
+        {
+          focusItemId: "focus_item_1",
+          priority: 1 as const,
+          kind: "opening" as const,
+          label: "도입부에서 발표 목적 먼저 말하기",
+          targetScope: null
+        }
+      ],
+      createdBy: "owner_1",
+      updatedBy: "editor_1",
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T01:00:00.000Z"
+    } satisfies RehearsalFocusProfile;
+    const service = createService({ focusProfile });
+
+    const created = await service.createRun("project-a", { deckId: "deck-a" });
+    focusProfile.items[0].label = "나중에 변경된 목표";
+    const stored = await service.getRun(created.run.runId);
+
+    expect(stored.run.evaluationSnapshot?.focusProfileSnapshot).toEqual({
+      profileRef: { profileId: "focus_profile_1", revision: 2 },
+      items: [
+        expect.objectContaining({
+          focusItemId: "focus_item_1",
+          label: "도입부에서 발표 목적 먼저 말하기"
+        })
+      ]
+    });
+    expect(service.testLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "rehearsal.evaluation_snapshot.created",
+        focusProfileId: "focus_profile_1",
+        focusProfileRevision: 2
+      }),
+      "Rehearsal evaluation snapshot created."
     );
   });
 
@@ -914,6 +961,7 @@ function createService(
     transcriptCache?: RehearsalTranscriptCache;
     deck?: Deck;
     presentationBrief?: PresentationBrief | null;
+    focusProfile?: RehearsalFocusProfile | null;
   } = {}
 ) {
   const logger = createLogger();
@@ -966,6 +1014,9 @@ function createService(
     {
       getCurrent: vi.fn(async () => options.presentationBrief ?? null)
     } as unknown as PresentationBriefsService,
+    {
+      getCurrent: vi.fn(async () => options.focusProfile ?? null)
+    } as unknown as RehearsalFocusProfilesService,
     filesService,
     options.jobsService ??
       ({

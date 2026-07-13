@@ -11,6 +11,7 @@ import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { ProjectEntity } from "../projects/project.entity";
 import { PresentationBriefsModule } from "../presentation-briefs/presentation-briefs.module";
+import { RehearsalFocusProfilesModule } from "../rehearsal-focus-profiles/rehearsal-focus-profiles.module";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { RehearsalsController } from "./rehearsals.controller";
@@ -28,7 +29,8 @@ import {
     FilesModule,
     JobsModule,
     ProjectsModule,
-    PresentationBriefsModule
+    PresentationBriefsModule,
+    RehearsalFocusProfilesModule
   ],
   controllers: [RehearsalsController],
   providers: [

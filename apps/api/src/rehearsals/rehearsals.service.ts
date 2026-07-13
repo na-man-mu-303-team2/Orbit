@@ -45,6 +45,7 @@ import { serializeLogError } from "../logging";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
+import { RehearsalFocusProfilesService } from "../rehearsal-focus-profiles/rehearsal-focus-profiles.service";
 import {
   buildRehearsalEvaluationPlan,
   deckContentHash,
@@ -78,6 +79,7 @@ export class RehearsalsService {
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
     private readonly presentationBriefs: PresentationBriefsService,
+    private readonly rehearsalFocusProfiles: RehearsalFocusProfilesService,
     private readonly filesService: FilesService,
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
@@ -123,6 +125,10 @@ export class RehearsalsService {
           sourceGoalSetRef
         })
       : null;
+    const focusProfile =
+      request.semanticEvaluationMode === "full"
+        ? await this.rehearsalFocusProfiles.getCurrent(projectId)
+        : null;
     let evaluationSnapshot: RehearsalEvaluationSnapshot | null = null;
     if (request.semanticEvaluationMode === "full") {
       try {
@@ -131,7 +137,16 @@ export class RehearsalsService {
           now.toISOString(),
           {
             deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
-            evaluationPlan
+            evaluationPlan,
+            focusProfileSnapshot: focusProfile
+              ? {
+                  profileRef: {
+                    profileId: focusProfile.profileId,
+                    revision: focusProfile.revision
+                  },
+                  items: focusProfile.items
+                }
+              : null
           }
         );
       } catch (error) {
@@ -192,7 +207,11 @@ export class RehearsalsService {
           cueCount: evaluationSnapshot.slides.reduce(
             (count, slide) => count + slide.semanticCues.length,
             0
-          )
+          ),
+          focusProfileId:
+            evaluationSnapshot.focusProfileSnapshot?.profileRef.profileId ?? null,
+          focusProfileRevision:
+            evaluationSnapshot.focusProfileSnapshot?.profileRef.revision ?? null
         },
         "Rehearsal evaluation snapshot created."
       );
