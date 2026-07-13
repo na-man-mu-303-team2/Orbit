@@ -124,14 +124,27 @@ describe("image asset pipeline", () => {
       size: 24
     }));
 
+    const candidate = imageDeck("ai-generated", {
+      imagePrompt: "A focused hybrid workspace with calm editorial lighting",
+      imageAlt: "A hybrid team working in a focused workspace",
+      imagePlacement: "right"
+    });
+    candidate.slides[0].animations = [
+      {
+        animationId: "anim_media_1",
+        elementId: "el_media_placeholder",
+        type: "fade-in",
+        order: 1,
+        durationMs: 400,
+        delayMs: 0,
+        easing: "ease-out"
+      }
+    ];
+
     const result = await resolveDeckImageAssets(
       { query } as unknown as DataSource,
       { putObject } as Pick<StoragePort, "putObject">,
-      imageDeck("ai-generated", {
-        imagePrompt: "A focused hybrid workspace with calm editorial lighting",
-        imageAlt: "A hybrid team working in a focused workspace",
-        imagePlacement: "right"
-      }),
+      candidate,
       {
         generated: { generate },
         maxPerDeck: 4,
@@ -155,6 +168,9 @@ describe("image asset pipeline", () => {
       (element) => element.type === "image"
     );
     expect(image?.elementId).toMatch(/_media_asset$/);
+    expect(result.deck.slides[0].animations[0]?.elementId).toBe(
+      image?.elementId
+    );
     expect(
       result.deck.slides[0].aiNotes?.compositionPlan?.primaryFocalElementId
     ).toBe(image?.elementId);

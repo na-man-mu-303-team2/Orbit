@@ -492,6 +492,11 @@ function replaceSlideImagePlaceholder(
       );
       return {
         ...slide,
+        animations: slide.animations.map((animation) =>
+          animation.elementId === placeholder.elementId
+            ? { ...animation, elementId: assetElementId }
+            : animation
+        ),
         elements: [
           ...slide.elements.filter(
             (element) =>
