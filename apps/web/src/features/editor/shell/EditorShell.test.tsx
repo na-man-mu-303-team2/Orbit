@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  appendAppliedDesignProposalHistory,
   applyDeckPatchAcknowledgement,
   buildSlideThumbnailPatch,
   buildPatchBatch,
@@ -275,6 +276,24 @@ describe("editor shell", () => {
         stack: []
       })
     ).toBeNull();
+  });
+
+  it("keeps the pre-AI deck in undo history when a proposal is applied", () => {
+    const previousDeck = createDemoDeck();
+    const olderEntries = Array.from({ length: 50 }, (_, index) => ({
+      deck: { ...previousDeck, title: `이전 편집 ${index}` },
+      slideIndex: index % previousDeck.slides.length
+    }));
+
+    const history = appendAppliedDesignProposalHistory({
+      currentDeck: previousDeck,
+      currentSlideIndex: 1,
+      undoStack: olderEntries
+    });
+
+    expect(history).toHaveLength(50);
+    expect(history[0]?.deck.title).toBe("이전 편집 1");
+    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

@@ -364,6 +364,17 @@ export function resolveHistoryNavigation(args: {
     )
   };
 }
+export function appendAppliedDesignProposalHistory(args: {
+  currentDeck: Deck;
+  currentSlideIndex: number;
+  undoStack: HistoryEntry[];
+}) {
+  return [
+    ...args.undoStack.slice(-49),
+    { deck: args.currentDeck, slideIndex: args.currentSlideIndex }
+  ];
+}
+
 type ImageUploadTarget =
   | {
       type: "insert";
@@ -2040,10 +2051,18 @@ export function EditorShell(props: { projectId?: string }) {
   function handleDesignAgentProposalApplied(
     response: ApplyDesignAgentProposalResponse
   ) {
+    const previousDeck = workingDeckRef.current;
+
     queryClient.setQueryData(["deck", projectId], response.deck);
     markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
-    setUndoStack([]);
+    setUndoStack((current) =>
+      appendAppliedDesignProposalHistory({
+        currentDeck: previousDeck,
+        currentSlideIndex,
+        undoStack: current
+      })
+    );
     setRedoStack([]);
     setSelectedElementIds([]);
     setEditingElementId(null);

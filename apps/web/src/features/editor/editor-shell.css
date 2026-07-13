@@ -3213,6 +3213,11 @@
   background: #eef2f6;
 }
 
+.design-proposal-stage-shell {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
 .design-proposal-warning {
   margin: 0;
   padding: 10px 12px;

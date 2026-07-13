@@ -6719,8 +6719,6 @@ def assemble_design_pack_slide(
     build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
         element.pop("_contentItemIds", None)
-    title_element = next(element for element in elements if element["role"] == "title")
-
     return {
         "slideId": f"slide_{slide_plan.order}",
         "order": slide_plan.order,
@@ -6747,17 +6745,7 @@ def assemble_design_pack_slide(
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
         ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": title_element["elementId"],
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
-        ],
+        "animations": [],
         "aiNotes": design_pack_ai_notes(raw_input, slide_plan, recipe),
     }
 
@@ -10154,8 +10142,6 @@ def assemble_slide(
     elements.extend(media_elements(slide_plan, visual_plan, slot_by_role, theme))
     elements.extend(design_elements(slide_plan, visual_plan, theme))
     elements = cap_elements(elements)
-    title_element = next(element for element in elements if element["role"] == "title")
-
     return {
         "slideId": f"slide_{slide_plan.order}",
         "order": slide_plan.order,
@@ -10178,17 +10164,7 @@ def assemble_slide(
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
         ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": title_element["elementId"],
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
-        ],
+        "animations": [],
         "aiNotes": {
             "emphasisPoints": [slide_plan.message],
             "sourceEvidence": [
