@@ -289,9 +289,8 @@ export async function processRehearsalSttJob(
     });
 
     if (!response.ok) {
-      return failAfterDelete(
+      return failAndScheduleRawAudioDeletion(
         dataSource,
-        storage,
         asset,
         payload,
         30,
@@ -302,9 +301,8 @@ export async function processRehearsalSttJob(
 
     transcribePayload = transcribeResponseSchema.parse(await response.json());
   } catch (error) {
-    return failAfterDelete(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
-      storage,
       asset,
       payload,
       30,
@@ -325,9 +323,8 @@ export async function processRehearsalSttJob(
       runMeta
     );
   } catch (error) {
-    return failAfterDelete(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
-      storage,
       asset,
       payload,
       65,
@@ -347,32 +344,25 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
-  let rawAudioDeletedAt: string | null = null;
-  try {
-    rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
-  } catch {
-    await scheduleRawAudioDeletion(dataSource, asset);
-  }
-
   let report: RehearsalReport;
   try {
     report = buildRehearsalReport(
       payload,
       transcribePayload,
       analysis,
-      rawAudioDeletedAt ?? new Date().toISOString(),
+      new Date().toISOString(),
       deckContext,
       runMeta,
       semanticResult
     );
   } catch (error) {
-    return failJobAndRun(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
+      asset,
       payload,
       85,
       "REHEARSAL_REPORT_INVALID",
-      error instanceof Error ? error.message : "Rehearsal report validation failed.",
-      { ...(rawAudioDeletedAt ? { rawAudioDeletedAt } : {}) }
+      error instanceof Error ? error.message : "Rehearsal report validation failed."
     );
   }
 
@@ -387,7 +377,6 @@ export async function processRehearsalSttJob(
   const completedRun = await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
-    ...(rawAudioDeletedAt ? { rawAudioDeletedAt } : {}),
     rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
@@ -415,13 +404,16 @@ export async function processRehearsalSttJob(
     // summary 업데이트 실패는 리포트 저장을 막지 않는다.
   }
 
-  return updateJob(dataSource, payload.jobId, {
+  const completedJob = await updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
     message: "리포트 생성 완료",
-    result: buildReportGenerationRecord(payload, transcribePayload, report, rawAudioDeletedAt),
+    result: buildReportGenerationRecord(payload, transcribePayload, report, null),
     error: null
   });
+
+  await scheduleRawAudioDeletion(dataSource, asset);
+  return completedJob;
 }
 
 function buildRehearsalReport(
@@ -1210,24 +1202,17 @@ function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {
   return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
 }
 
-async function failAfterDelete(
+async function failAndScheduleRawAudioDeletion(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "removeObject">,
   asset: AudioAssetRow,
   payload: RehearsalSttPayload,
   progress: number,
   code: string,
   message: string
 ) {
-  try {
-    const rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
-    return failJobAndRun(dataSource, payload, progress, code, message, {
-      rawAudioDeletedAt
-    });
-  } catch (error) {
-    await scheduleRawAudioDeletion(dataSource, asset);
-    return failJobAndRun(dataSource, payload, progress, code, message);
-  }
+  const failedJob = await failJobAndRun(dataSource, payload, progress, code, message);
+  await scheduleRawAudioDeletion(dataSource, asset);
+  return failedJob;
 }
 
 async function scheduleRawAudioDeletion(dataSource: DataSource, asset: AudioAssetRow) {
@@ -1251,25 +1236,6 @@ async function scheduleRawAudioDeletion(dataSource: DataSource, asset: AudioAsse
       now,
     ],
   );
-}
-
-async function deleteRawAudio(
-  dataSource: DataSource,
-  storage: Pick<StoragePort, "removeObject">,
-  asset: AudioAssetRow
-) {
-  await storage.removeObject(asset.storage_key);
-  const deletedAt = new Date().toISOString();
-  await dataSource.query(
-    `
-      UPDATE project_assets
-      SET status = 'deleted',
-          deleted_at = $3
-      WHERE file_id = $1 AND project_id = $2
-    `,
-    [asset.file_id, asset.project_id, deletedAt]
-  );
-  return deletedAt;
 }
 
 async function failJobAndRun(

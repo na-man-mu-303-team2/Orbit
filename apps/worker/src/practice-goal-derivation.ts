@@ -179,7 +179,7 @@ export async function persistPracticeGoalSetWithExecutor(
           goal.criterionRef,
           goal.targetScope,
           goal.recommendedPracticeMode,
-          goal.evidenceRefs,
+          JSON.stringify(goal.evidenceRefs),
           goal.problemLabel,
           goal.nextAction,
           goal.successCondition,
