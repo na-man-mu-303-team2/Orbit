@@ -240,6 +240,25 @@ type EditorSessionDebugState =
     }
   | { status: "error"; message: string };
 
+const defaultEditorStageScale = 0.44;
+const compactEditorBreakpoint = 760;
+const compactEditorCanvasInset = 32;
+
+export function getResponsiveEditorStageScale(
+  canvasWidth: number,
+  viewportWidth: number | null
+) {
+  if (!viewportWidth || viewportWidth > compactEditorBreakpoint || canvasWidth <= 0) {
+    return defaultEditorStageScale;
+  }
+
+  const availableWidth = Math.max(0, viewportWidth - compactEditorCanvasInset);
+  return Math.min(
+    defaultEditorStageScale,
+    Math.max(0.16, availableWidth / canvasWidth)
+  );
+}
+
 export function shouldPromptSpeakerNotesDraftDiscard(input: {
   draft: string;
   isEditing: boolean;
@@ -1682,7 +1701,17 @@ export function EditorShell(props: { projectId?: string }) {
     () => getEditorValidationItems(deck, currentSlide ?? undefined),
     [deck, currentSlide]
   );
-  const stageScale = 0.44;
+  const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const syncEditorViewportWidth = () => setEditorViewportWidth(window.innerWidth);
+    syncEditorViewportWidth();
+    window.addEventListener("resize", syncEditorViewportWidth);
+    return () => window.removeEventListener("resize", syncEditorViewportWidth);
+  }, []);
+  const stageScale = getResponsiveEditorStageScale(
+    deck.canvas.width,
+    editorViewportWidth
+  );
   const currentSlideAnimations = useMemo(
     () =>
       currentSlide

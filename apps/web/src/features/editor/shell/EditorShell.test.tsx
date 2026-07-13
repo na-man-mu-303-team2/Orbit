@@ -35,6 +35,7 @@ import {
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
+  getResponsiveEditorStageScale,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
@@ -136,6 +137,12 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("fits the editor canvas inside compact viewports", () => {
+    expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
+    expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, null)).toBe(0.44);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {

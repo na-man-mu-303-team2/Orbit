@@ -92,6 +92,50 @@ final result: passed
 
 ---
 
+## Compact Editor Annotations (2026-07-14)
+
+- Source visual truth: `/tmp/orbit-editor-720-before-responsive-fix-ready.png` and the current task's Browser Comments for the element quickbar scrollbar and the header-to-slide-strip gap.
+- Implementation screenshots: `/tmp/orbit-editor-720-final-ready.png`, `/tmp/orbit-editor-720-element-quickbar-final.png`, `/tmp/orbit-editor-desktop-quickbar-after.png`.
+- Full comparison: `/tmp/orbit-editor-720-responsive-comparison.png`.
+- Focused comparison: `/tmp/orbit-editor-720-responsive-focused-comparison.png`.
+- Viewport/state: `720x900`, project editor slide 1 in the default and chart-selected states; desktop regression at `2163x1324` with the chart selected.
+
+### Full-view comparison evidence
+
+The compact editor now follows one vertical reading flow: the two-row application header is followed immediately by the horizontal slide strip, responsive editor controls, a fully visible slide canvas, and the AI tools panel. The desktop-only fixed control offsets and side-panel columns no longer reserve or overlap space at `720px`.
+
+### Focused region comparison evidence
+
+The supplied header annotation showed a `116px` empty band between the application header and slide strip. Compact editor rows now use intrinsic `max-content` sizing and zero desktop control offset, removing that band. The chart-selected quickbar wraps its fields into two rows and reports no horizontal or vertical overflow; the slide strip remains horizontally operable while its visual scrollbar is hidden.
+
+### Comparison history
+
+1. P1: fixed desktop positions caused the slide rail, canvas, and AI panel to overlap or clip in the initial `720x900` rendering.
+2. P1: the first compact pass still allowed the stage grid row to shrink, which overlaid the AI panel and produced a vertical scrollbar inside the element quickbar.
+3. P2: the desktop quickbar reservation left the annotated `116px` blank area above the slide strip.
+4. Fixes: compact rows now size to content, desktop padding is removed, the stage scale derives from available viewport width, and element controls wrap without nested scrollbars.
+5. Post-fix measurements: page `clientWidth` and `scrollWidth` are both `720px`; stage shell `clientWidth` and `scrollWidth` are both `688px`; element quickbar `clientWidth` and `scrollWidth` are both `692px`.
+
+### Required fidelity surfaces
+
+- Layout and hierarchy: passed. Existing ORBIT header, slide strip, toolbar, canvas, and tools order is preserved.
+- Typography, color, radius, and border tokens: passed. No new visual language or one-off token was introduced.
+- Responsive behavior: passed. Compact controls reflow; the canvas fits; the tools panel returns to document flow; desktop controls remain fully visible.
+- Accessibility: passed. Existing control labels remain available, and hidden scrollbars do not remove horizontal slide-strip input behavior.
+- Browser console: no errors.
+
+### Verification
+
+- Web suite: 133 files, 926 tests passed.
+- Web lint: passed.
+- Latest Docker Web build: passed.
+- `git diff --check`: passed.
+- Findings after the final full and focused comparisons: no actionable P0/P1/P2/P3 issue.
+
+final result: passed
+
+---
+
 ## Reference Upload Annotations (2026-07-13)
 
 - Source visual truth: current task attachment, `Browser Comment 2` (`/createdeck`, 2192 x 1164)
@@ -180,4 +224,3 @@ At `720px`, tool labels collapse to accessible icon controls and the slide prope
 - `git diff --check`: passed.
 
 final result: passed
-
