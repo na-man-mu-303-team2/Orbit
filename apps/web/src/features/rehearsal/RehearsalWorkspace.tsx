@@ -3668,12 +3668,14 @@ export function RehearsalWorkspace(props: {
       activeDeck.projectId,
       props.sourceGoalSetId,
     );
-    const slideSnapshots = readPreparedRehearsalSlideSnapshots({
-      deckId: activeDeck.deckId,
-      deckVersion: activeDeck.version,
-      preparationId: props.snapshotPreparationId,
-      projectId: activeDeck.projectId,
-    });
+    const slideSnapshots =
+      preparedSlideSnapshotsRef.current ??
+      readPreparedRehearsalSlideSnapshots({
+        deckId: activeDeck.deckId,
+        deckVersion: activeDeck.version,
+        preparationId: props.snapshotPreparationId,
+        projectId: activeDeck.projectId,
+      });
     preparedSlideSnapshotsRef.current = slideSnapshots;
     const prepared = await prepareRehearsalEvaluationRun(
       activeDeck,

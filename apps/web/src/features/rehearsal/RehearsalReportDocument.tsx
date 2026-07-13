@@ -67,10 +67,10 @@ export function RehearsalReportDocument({
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
   const reportDeck = useMemo(() => {
-    if (!deck || !run?.evaluationSnapshot) return deck;
+    if (!deck) return deck;
 
     const snapshots = new Map(
-      run.evaluationSnapshot.slides.map((slide) => [slide.slideId, slide]),
+      run?.evaluationSnapshot?.slides.map((slide) => [slide.slideId, slide]) ?? [],
     );
     return {
       ...deck,
@@ -80,8 +80,7 @@ export function RehearsalReportDocument({
           snapshots.get(slide.slideId)?.estimatedSeconds ?? slide.estimatedSeconds,
         order: snapshots.get(slide.slideId)?.order ?? slide.order,
         title: snapshots.get(slide.slideId)?.title ?? slide.title,
-        thumbnailUrl:
-          snapshots.get(slide.slideId)?.thumbnailUrl || slide.thumbnailUrl,
+        thumbnailUrl: snapshots.get(slide.slideId)?.thumbnailUrl ?? "",
       })),
     };
   }, [deck, run?.evaluationSnapshot]);

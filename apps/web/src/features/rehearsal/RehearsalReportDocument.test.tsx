@@ -265,6 +265,86 @@ describe("RehearsalReportDocument", () => {
     expect(html).toContain("file_run_slide/content");
     expect(html).not.toContain("current-deck-thumbnail");
   });
+
+  it("does not fall back to a stale Deck thumbnail when the run snapshot is missing", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
+    const evaluationSnapshot = createRehearsalEvaluationSnapshot(
+      currentDeck,
+      "2026-07-03T00:00:00.000Z",
+    );
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: 1,
+          evaluationSnapshot,
+          semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).not.toContain("stale-deck-thumbnail");
+  });
+
+  it("does not show a Deck thumbnail when the run has no evaluation snapshot", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: null,
+          evaluationSnapshot: null,
+          semanticEvaluationMode: "delivery-only",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).not.toContain("stale-deck-thumbnail");
+  });
 });
 
 const deck: Deck = deckSchema.parse({

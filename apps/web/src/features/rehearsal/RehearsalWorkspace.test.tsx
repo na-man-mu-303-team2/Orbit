@@ -858,6 +858,25 @@ describe("RehearsalWorkspace", () => {
     expect(stopRecordingBody).toContain("setP3RunMeta(meta)");
   });
 
+  it("reuses prepared slide snapshots when practicing again", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const prepareStart = source.indexOf(
+      "async function prepareEvaluationSnapshot",
+    );
+    const prepareEnd = source.indexOf(
+      "function cancelPendingEvaluationRun",
+      prepareStart,
+    );
+    const prepareBody = source.slice(prepareStart, prepareEnd);
+
+    expect(prepareBody).toContain(
+      "preparedSlideSnapshotsRef.current ??\n      readPreparedRehearsalSlideSnapshots",
+    );
+    expect(prepareBody).toContain(
+      "preparedSlideSnapshotsRef.current = slideSnapshots",
+    );
+  });
+
   it("continues report upload when optional P3 run meta fails", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const stopStart = source.indexOf("function stopRecording");
