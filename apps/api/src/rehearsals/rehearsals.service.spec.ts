@@ -3,7 +3,8 @@ import {
   type AssetUploadUrlResponse,
   type Deck,
   type Job,
-  type PresentationBrief
+  type PresentationBrief,
+  type RehearsalFocusProfile
 } from "@orbit/shared";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
@@ -251,8 +252,34 @@ describe("RehearsalsService", () => {
       createdAt: "2026-07-11T00:00:00.000Z",
       updatedAt: "2026-07-11T00:00:00.000Z"
     } as PresentationBrief;
+    const focusProfile = {
+      profileId: "focus_profile_1",
+      projectId: "project-a",
+      revision: 2,
+      items: [
+        {
+          focusItemId: "focus_item_1",
+          priority: 1,
+          kind: "semantic-coverage",
+          label: "고객 가치를 우선 확인한다.",
+          targetScope: {
+            type: "slide",
+            scopeId: "focus_scope_slide_1",
+            slideId: "slide_1"
+          }
+        }
+      ],
+      createdBy: "user-a",
+      updatedBy: "user-a",
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:00.000Z"
+    } as RehearsalFocusProfile;
     const currentDeck = createDeck();
-    const service = createService({ presentationBrief: brief, deck: currentDeck });
+    const service = createService({
+      presentationBrief: brief,
+      focusProfile,
+      deck: currentDeck
+    });
 
     const response = await service.createRun("project-a", {
       deckId: currentDeck.deckId,
@@ -269,6 +296,19 @@ describe("RehearsalsService", () => {
       revision: 1
     });
     expect(response.run.evaluationSnapshot?.evaluationPlan?.criteria.length).toBeGreaterThan(0);
+    expect(response.run.evaluationSnapshot?.focusProfileSnapshot).toEqual({
+      profileRef: { profileId: "focus_profile_1", revision: 2 },
+      items: focusProfile.items
+    });
+
+    focusProfile.revision = 3;
+    focusProfile.items[0]!.label = "변경된 목표";
+    expect(response.run.evaluationSnapshot?.focusProfileSnapshot).toEqual({
+      profileRef: { profileId: "focus_profile_1", revision: 2 },
+      items: [
+        expect.objectContaining({ label: "고객 가치를 우선 확인한다." })
+      ]
+    });
   });
 
   it("rejects run creation when the deckId does not match the project deck", async () => {
@@ -914,10 +954,11 @@ function createService(
     transcriptCache?: RehearsalTranscriptCache;
     deck?: Deck;
     presentationBrief?: PresentationBrief | null;
+    focusProfile?: RehearsalFocusProfile | null;
   } = {}
 ) {
   const logger = createLogger();
-  const repository = createRunRepository();
+  const repository = createRunRepository(options.focusProfile ?? null);
   const transcriptCache = options.transcriptCache ?? {
     hasSemanticEvidence: vi.fn(async () => false)
   };
@@ -990,7 +1031,7 @@ function createService(
   });
 }
 
-function createRunRepository() {
+function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) {
   const runs = new Map<string, RehearsalRunEntity>();
 
   return {
@@ -1074,6 +1115,21 @@ function createRunRepository() {
         .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 
       return [matching.slice(options.skip, options.skip + options.take), matching.length];
+    },
+    async query(sql: string) {
+      if (!sql.includes("FROM rehearsal_focus_profiles") || !focusProfile) {
+        return [];
+      }
+      return [{
+        profile_id: focusProfile.profileId,
+        project_id: focusProfile.projectId,
+        revision: focusProfile.revision,
+        items_json: structuredClone(focusProfile.items),
+        created_by: focusProfile.createdBy,
+        updated_by: focusProfile.updatedBy,
+        created_at: focusProfile.createdAt,
+        updated_at: focusProfile.updatedAt
+      }];
     }
   } as unknown as Repository<RehearsalRunEntity>;
 }
