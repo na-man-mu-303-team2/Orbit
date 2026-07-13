@@ -30,8 +30,11 @@ import { rehearsalEvaluationPlanSchema } from "../coaching/evaluator-lens.schema
 import { practiceVerificationSummarySchema } from "../coaching/focused-practice.schema";
 import { coachingActionSchema } from "../coaching/practice-goal.schema";
 import { rehearsalFocusProfileSnapshotSchema } from "../coaching/rehearsal-focus-profile.schema";
+import { rehearsalAnalyzePauseV2DetailSchema } from "../coaching/rehearsal-analyze.schema";
 import {
-  pauseV2DetailSchema,
+  rehearsalReportAnalysisCapabilitiesSchema,
+  rehearsalReportMeasurementsSchema,
+  rehearsalReportSttQualityGateSchema,
   speechRateMeasurementSchema,
 } from "../coaching/speech-evidence.schema";
 
@@ -125,23 +128,117 @@ export const rehearsalRunSchema = z.object({
   updatedAt: isoDateTimeSchema
 });
 
-export const rehearsalReportMetricsSchema = z.object({
-  durationSeconds: z.number().nonnegative(),
-  wordsPerMinute: z.number().nonnegative(),
-  speechRate: speechRateMeasurementSchema.optional(),
-  fillerWordCount: z.number().int().nonnegative(),
-  pauseCount: z.number().int().nonnegative(),
-  keywordCoverage: z.number().min(0).max(1),
-  keywordCoverageMeasurement: z
-    .object({
-      state: z.enum(["measured", "unmeasured"]),
-      reason: z
-        .enum(["no-keywords", "stt-unavailable", "transcript-incomplete"])
-        .optional()
-    })
-    .strict()
-    .default({ state: "measured" })
-}).strict();
+const legacyReportMeasurements = {
+  duration: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  charactersPerMinute: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  wordsPerMinute: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  fillerWordCount: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  pauseV1: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  pauseV2: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 2,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  },
+  keywordCoverage: {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+  }
+};
+
+const legacyReportSttQualityGate = {
+  version: 1 as const,
+  state: "unavailable" as const,
+  reasonCode: "LEGACY_QUALITY_GATE_UNKNOWN" as const,
+  confidence: null,
+  threshold: null,
+  policyId: null
+};
+
+const legacyReportAnalysisCapabilities = {
+  recordingDuration: { state: "unavailable" as const, source: "none" as const },
+  providerDuration: { state: "unavailable" as const, source: "none" as const },
+  segmentTimestamps: { state: "unavailable" as const, source: "none" as const },
+  sttConfidence: { state: "unavailable" as const, source: "none" as const },
+  sentenceBoundaries: { state: "unavailable" as const, source: "none" as const },
+  pauseIntentClassification: {
+    state: "unavailable" as const,
+    source: "none" as const
+  }
+};
+
+export const legacyRehearsalReportMetricsDefaults = {
+  charactersPerMinute: null,
+  measurements: legacyReportMeasurements,
+  sttQualityGate: legacyReportSttQualityGate,
+  analysisCapabilities: legacyReportAnalysisCapabilities
+};
+
+export const rehearsalReportMetricsSchema = z
+  .object({
+    durationSeconds: z.number().nonnegative(),
+    charactersPerMinute: z.number().finite().nonnegative().nullable().default(null),
+    wordsPerMinute: z.number().nonnegative(),
+    speechRate: speechRateMeasurementSchema.optional(),
+    fillerWordCount: z.number().int().nonnegative(),
+    pauseCount: z.number().int().nonnegative(),
+    keywordCoverage: z.number().min(0).max(1),
+    measurements: rehearsalReportMeasurementsSchema.default(
+      legacyRehearsalReportMetricsDefaults.measurements
+    ),
+    sttQualityGate: rehearsalReportSttQualityGateSchema.default(
+      legacyRehearsalReportMetricsDefaults.sttQualityGate
+    ),
+    analysisCapabilities: rehearsalReportAnalysisCapabilitiesSchema.default(
+      legacyRehearsalReportMetricsDefaults.analysisCapabilities
+    ),
+    keywordCoverageMeasurement: z
+      .object({
+        state: z.enum(["measured", "unmeasured"]),
+        reason: z
+          .enum([
+            "no-keywords",
+            "stt-unavailable",
+            "transcript-incomplete",
+            "low-transcription-confidence"
+          ])
+          .optional()
+      })
+      .strict()
+      .default({ state: "measured" })
+  })
+  .strict()
+  .superRefine((metrics, context) => {
+    const cpmMeasured =
+      metrics.measurements.charactersPerMinute.measurementState === "measured";
+    if (cpmMeasured !== (metrics.charactersPerMinute !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "characters per minute must match its measurement state.",
+        path: ["charactersPerMinute"]
+      });
+    }
+  });
 
 export const rehearsalReportSpeedSampleSchema = z
   .object({
@@ -495,7 +592,7 @@ export const rehearsalReportSchema = z
     speedSamples: z.array(rehearsalReportSpeedSampleSchema).default([]),
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
-    pauseV2Details: z.array(pauseV2DetailSchema).optional(),
+    pauseV2Details: z.array(rehearsalAnalyzePauseV2DetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
@@ -526,6 +623,61 @@ export const rehearsalReportSchema = z
         code: z.ZodIssueCode.custom,
         message: "transcript must be null when transcriptRetained is false.",
         path: ["transcript"]
+      });
+    }
+
+    if (report.metrics.sttQualityGate.state === "failed") {
+      const dependentMetrics = [
+        "charactersPerMinute",
+        "wordsPerMinute",
+        "fillerWordCount",
+        "pauseV1",
+        "pauseV2",
+        "keywordCoverage"
+      ] as const;
+      dependentMetrics.forEach((metric) => {
+        const measurement = report.metrics.measurements[metric];
+        if (
+          measurement.measurementState !== "unmeasured" ||
+          measurement.reasonCode !== "LOW_TRANSCRIPTION_CONFIDENCE"
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "failed STT quality gate requires unmeasured dependent metrics.",
+            path: ["metrics", "measurements", metric]
+          });
+        }
+      });
+
+      if (
+        report.metrics.keywordCoverageMeasurement.state !== "unmeasured" ||
+        report.metrics.keywordCoverageMeasurement.reason !==
+          "low-transcription-confidence"
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "failed STT quality gate requires unmeasured keyword coverage.",
+          path: ["metrics", "keywordCoverageMeasurement"]
+        });
+      }
+
+      const dependentDetails = [
+        ["speedSamples", report.speedSamples],
+        ["fillerWordDetails", report.fillerWordDetails],
+        ["pauseDetails", report.pauseDetails],
+        ["pauseV2Details", report.pauseV2Details],
+        ["missedKeywords", report.missedKeywords],
+        ["slideInsights", report.slideInsights]
+      ] as const;
+      dependentDetails.forEach(([field, details]) => {
+        if (details.length > 0) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "failed STT quality gate requires empty dependent evidence.",
+            path: [field]
+          });
+        }
       });
     }
   });
@@ -822,7 +974,12 @@ export const trendSeriesSchema = z
       "words-per-minute",
       "ratio"
     ]),
-    direction: z.enum(["lower-is-better", "higher-is-better", "target-range"]),
+    direction: z.enum([
+      "lower-is-better",
+      "higher-is-better",
+      "target-range",
+      "neutral"
+    ]),
     targetRange: trendTargetRangeSchema.nullable(),
     points: z.array(trendSeriesPointSchema).max(5),
     calculatedAt: isoDateTimeSchema
@@ -841,7 +998,7 @@ export const trendSeriesSchema = z
     const expectedPresentation = {
       "filler-word-count": { unit: "count", direction: "lower-is-better", hasRange: false },
       "duration-seconds": { unit: "seconds", direction: "target-range", hasRange: true },
-      "characters-per-minute": { unit: "characters-per-minute", direction: "target-range", hasRange: true },
+      "characters-per-minute": { unit: "characters-per-minute", direction: "neutral", hasRange: false },
       "words-per-minute": { unit: "words-per-minute", direction: "target-range", hasRange: true },
       "timing-balance": { unit: "ratio", direction: "higher-is-better", hasRange: false },
       "semantic-coverage": { unit: "ratio", direction: "higher-is-better", hasRange: false },
