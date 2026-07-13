@@ -23,18 +23,19 @@ import {
   IconChevronRight,
   IconDownload,
   IconFileText,
+  IconInfoCircle,
   IconPalette,
   IconPaperclip,
   IconPlayerPlay,
+  IconTrash,
+  IconUpload,
   IconSparkles,
   IconStack3
 } from "@tabler/icons-react";
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  createProject,
-  uploadProjectAsset
-} from "../projects/ProjectAssetWorkspace";
+import { OrbitIconButton } from "../../design-system";
+import { createProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
 import "./ai-ppt-mockup.css";
 
@@ -77,6 +78,65 @@ type ReferenceGrounding = Pick<
   GenerateDeckRequest,
   "referenceContext" | "referenceKeywords"
 >;
+
+type PolicyChoiceOption<T extends string> = {
+  description: string;
+  label: string;
+  value: T;
+};
+
+export const referencePolicyOptions = [
+  {
+    value: "user-input-only",
+    label: "사용자 입력만",
+    description:
+      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다."
+  },
+  {
+    value: "references-first",
+    label: "참고자료 우선",
+    description:
+      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다."
+  },
+  {
+    value: "references-only",
+    label: "참고자료만 사용",
+    description:
+      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다."
+  },
+  {
+    value: "research-first",
+    label: "웹 리서치 구조",
+    description:
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 서로 다른 관련 출처 2개 이상을 확보하지 못하면 생성이 중단됩니다."
+  }
+] satisfies readonly PolicyChoiceOption<ReferencePolicy>[];
+
+export const mediaPolicyOptions = [
+  {
+    value: "minimal",
+    label: "이미지 최소화",
+    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다."
+  },
+  {
+    value: "provided-only",
+    label: "첨부 이미지만",
+    description:
+      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다."
+  },
+  {
+    value: "public-assets",
+    label: "공개 이미지 구조",
+    description:
+      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다."
+  },
+  {
+    value: "ai-generated",
+    label: "AI 이미지 구조",
+    description:
+      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다."
+  }
+] satisfies readonly PolicyChoiceOption<MediaPolicy>[];
 
 const stylePackId = "brandlogy-modern";
 
@@ -171,7 +231,10 @@ export function buildAiPptGenerateDeckPayload(
     referenceContext: [],
     referenceKeywords: []
   },
-  coachingContext?: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef }
+  coachingContext?: {
+    briefRef: FrozenBriefRef;
+    evaluatorLensRef: EvaluatorLensRef;
+  }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 10);
   const slideCountRange = resolveSlideCountRange(state);
@@ -473,7 +536,10 @@ export function AiPptMockupPage() {
         }
       }
 
-      let coachingContext: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef };
+      let coachingContext: {
+        briefRef: FrozenBriefRef;
+        evaluatorLensRef: EvaluatorLensRef;
+      };
       if (briefMode === "custom") {
         setStatus("맞춤 Brief 저장 중...");
         const presentationBrief = await putPresentationBrief(project.projectId, {
@@ -698,31 +764,75 @@ function BriefStep(props: {
   briefMode: "custom" | "generic";
   form: AiPptWizardState;
   onBriefModeChange: (value: "custom" | "generic") => void;
-  onChange: <K extends keyof AiPptWizardState>(
-    key: K,
-    value: AiPptWizardState[K]
-  ) => void;
+  onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
 }) {
   return (
     <>
-      <PanelHeading
-        kicker="1. Brief"
-        title="발표 상황과 청중을 먼저 고정"
-      />
+      <PanelHeading kicker="1. Brief" title="발표 상황과 청중을 먼저 고정" />
       <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
-        <button className={props.briefMode === "custom" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("custom")}>맞춤 Brief</button>
-        <button className={props.briefMode === "generic" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("generic")}>일반 모드</button>
+        <button
+          className={props.briefMode === "custom" ? "selected" : ""}
+          type="button"
+          onClick={() => props.onBriefModeChange("custom")}
+        >
+          맞춤 Brief
+        </button>
+        <button
+          className={props.briefMode === "generic" ? "selected" : ""}
+          type="button"
+          onClick={() => props.onBriefModeChange("generic")}
+        >
+          일반 모드
+        </button>
       </div>
-      {props.briefMode === "generic" ? <p className="ai-ppt-status">일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.</p> : null}
+      {props.briefMode === "generic" ? (
+        <p className="ai-ppt-status">
+          일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.
+        </p>
+      ) : null}
       <div className="ai-ppt-field-grid">
-        <TextField label="발표 주제" value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
-        <TextField label="발표 목적" value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
-        <TextField label="발표 맥락" value={props.form.context} onChange={(value) => props.onChange("context", value)} />
-        <TextField label="청중" value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
-        <TextField label="발표 유형" value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
-        <TextField label="성공 기준" value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
-        <TextField label="발표 시간" value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-        <TextField label="슬라이드 수" value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+        <TextField
+          label="발표 주제"
+          value={props.form.topic}
+          onChange={(value) => props.onChange("topic", value)}
+        />
+        <TextField
+          label="발표 목적"
+          value={props.form.purpose}
+          onChange={(value) => props.onChange("purpose", value)}
+        />
+        <TextField
+          label="발표 맥락"
+          value={props.form.context}
+          onChange={(value) => props.onChange("context", value)}
+        />
+        <TextField
+          label="청중"
+          value={props.form.audience}
+          onChange={(value) => props.onChange("audience", value)}
+        />
+        <TextField
+          label="발표 유형"
+          value={props.form.presentationType}
+          onChange={(value) => props.onChange("presentationType", value)}
+        />
+        <TextField
+          label="성공 기준"
+          value={props.form.successCriteria}
+          onChange={(value) => props.onChange("successCriteria", value)}
+        />
+        <TextField
+          label="발표 시간"
+          value={props.form.duration}
+          suffix="분"
+          onChange={(value) => props.onChange("duration", value)}
+        />
+        <TextField
+          label="슬라이드 수"
+          value={props.form.slides}
+          suffix="장"
+          onChange={(value) => props.onChange("slides", value)}
+        />
       </div>
     </>
   );
@@ -837,69 +947,189 @@ function ColorStep(props: {
 function ReferencesStep(props: {
   files: File[];
   form: AiPptWizardState;
-  onChange: <K extends keyof AiPptWizardState>(
-    key: K,
-    value: AiPptWizardState[K]
-  ) => void;
+  onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
   onFilesChange: (files: File[]) => void;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  function handleDragEnter(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+    if (
+      event.currentTarget.contains(event.relatedTarget as Node | null)
+    ) {
+      return;
+    }
+    setIsDragging(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = filesFromDataTransfer(event.dataTransfer);
+    if (droppedFiles.length > 0) {
+      props.onFilesChange(mergeReferenceFiles(props.files, droppedFiles));
+    }
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = filesFromEvent(event);
+    if (selectedFiles.length > 0) {
+      props.onFilesChange(mergeReferenceFiles(props.files, selectedFiles));
+    }
+    event.currentTarget.value = "";
+  }
+
+  function removeFile(fileIndex: number) {
+    props.onFilesChange(removeReferenceFileAt(props.files, fileIndex));
+  }
+
   return (
     <>
-      <PanelHeading
-        kicker="4. References"
-        title="참고자료 사용 정책 선택"
-      />
-      <label className="ai-ppt-reference-drop">
-        <IconPaperclip size={28} />
+      <PanelHeading kicker="4. References" title="참고자료와 활용 방식" />
+      <p className="ai-ppt-reference-intro">
+        발표 생성에 참고할 자료를 추가하고, 내용과 이미지의 반영 기준을 선택하세요.
+      </p>
+      <label
+        className={[
+          "ai-ppt-reference-drop",
+          isDragging ? "is-dragging" : "",
+          props.files.length > 0 ? "has-files" : ""
+        ].join(" ")}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        <span className="ai-ppt-reference-icon" aria-hidden="true">
+          <IconUpload size={23} />
+        </span>
         <strong>
-          {props.files.length
-            ? `${props.files.length}개 파일 선택됨`
-            : "PDF, PPTX, DOCX, 이미지 파일 첨부"}
+          {isDragging
+            ? "여기에 놓아 추가하세요"
+            : props.files.length
+              ? "파일을 더 추가하세요"
+              : "파일을 드래그해서 추가하세요"}
         </strong>
-        <span>1차에서는 참고자료 파일 ID를 생성 요청에 연결합니다.</span>
+        <span>PDF, PPTX, DOCX, 이미지 · 파일당 최대 50MB · 여러 파일 선택 가능</span>
+        <span className="ai-ppt-reference-action">
+          <IconPaperclip size={16} />
+          {props.files.length ? "파일 추가" : "파일 선택"}
+        </span>
         <input
+          accept=".pdf,.ppt,.pptx,.doc,.docx,image/*,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          aria-label="참고자료 파일 선택"
+          className="ai-ppt-reference-input"
           multiple
           type="file"
-          onChange={(event) => props.onFilesChange(filesFromEvent(event))}
+          onChange={handleFileInputChange}
         />
       </label>
-      <div className="ai-ppt-choice-list">
-        {[
-          ["minimal", "이미지 최소화"],
-          ["provided-only", "첨부 이미지만"],
-          ["public-assets", "공개 이미지 구조"],
-          ["ai-generated", "AI 이미지 구조"]
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            className={props.form.mediaPolicy === value ? "selected" : ""}
-            type="button"
-            onClick={() => props.onChange("mediaPolicy", value as MediaPolicy)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="ai-ppt-choice-list">
-        {[
-          ["user-input-only", "사용자 입력만"],
-          ["references-first", "참고자료 우선"],
-          ["references-only", "참고자료만 사용"],
-          ["research-first", "웹 리서치 구조"]
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            className={props.form.referencePolicy === value ? "selected" : ""}
-            type="button"
-            onClick={() =>
-              props.onChange("referencePolicy", value as ReferencePolicy)
-            }
-          >
-            {label}
-          </button>
-        ))}
+      {props.files.length > 0 ? (
+        <section className="ai-ppt-reference-files" aria-labelledby="ai-ppt-reference-files-title">
+          <header>
+            <div>
+              <h3 id="ai-ppt-reference-files-title">첨부 파일</h3>
+              <span className="ai-ppt-reference-count">{props.files.length}개</span>
+            </div>
+            <button
+              className="ai-ppt-reference-clear"
+              onClick={() => props.onFilesChange([])}
+              type="button"
+            >
+              전체 삭제
+            </button>
+          </header>
+          <ul>
+            {props.files.map((file, index) => (
+              <li key={referenceFileKey(file)}>
+                <span className="ai-ppt-reference-file-icon" aria-hidden="true">
+                  <IconFileText size={20} stroke={1.8} />
+                </span>
+                <div>
+                  <strong title={file.name}>{file.name}</strong>
+                  <small>{referenceFileMeta(file)}</small>
+                </div>
+                <OrbitIconButton
+                  aria-label={`${file.name} 삭제`}
+                  className="ai-ppt-reference-remove"
+                  onClick={() => removeFile(index)}
+                  variant="plain"
+                >
+                  <IconTrash aria-hidden="true" size={18} stroke={1.8} />
+                </OrbitIconButton>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <div className="ai-ppt-reference-policy-grid">
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>참고자료 활용 기준</legend>
+          <p>발표 내용에서 참고자료가 차지할 우선순위를 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {referencePolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.referencePolicy === option.value}
+                tooltipId={`reference-policy-${option.value}`}
+                onSelect={(value) => props.onChange("referencePolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>이미지 구성</legend>
+          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {mediaPolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.mediaPolicy === option.value}
+                tooltipId={`media-policy-${option.value}`}
+                onSelect={(value) => props.onChange("mediaPolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
       </div>
     </>
+  );
+}
+
+function PolicyChoiceButton<T extends string>(props: {
+  onSelect: (value: T) => void;
+  option: PolicyChoiceOption<T>;
+  selected: boolean;
+  tooltipId: string;
+}) {
+  return (
+    <span className="ai-ppt-policy-option">
+      <button
+        aria-describedby={props.tooltipId}
+        aria-pressed={props.selected}
+        className={props.selected ? "selected" : ""}
+        onClick={() => props.onSelect(props.option.value)}
+        type="button"
+      >
+        {props.option.label}
+        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
+      </button>
+      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
+        {props.option.description}
+      </span>
+    </span>
   );
 }
 
@@ -1210,11 +1440,7 @@ function PanelHeading(props: { kicker: string; title: string }) {
   );
 }
 
-function SummaryCard(props: {
-  children: ReactNode;
-  icon: ReactNode;
-  title: string;
-}) {
+function SummaryCard(props: { children: ReactNode; icon: ReactNode; title: string }) {
   return (
     <article className="ai-ppt-summary-card">
       <div>{props.icon}</div>
@@ -1351,7 +1577,42 @@ export async function pollJob(jobId: string): Promise<Job> {
 }
 
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
-  return Array.from(event.target.files ?? []);
+  return filesFromFileList(event.target.files);
+}
+
+export function filesFromDataTransfer(dataTransfer: DataTransfer) {
+  return filesFromFileList(dataTransfer.files);
+}
+
+export function filesFromFileList(fileList: FileList | null) {
+  return Array.from(fileList ?? []);
+}
+
+export function mergeReferenceFiles(currentFiles: File[], incomingFiles: File[]) {
+  const filesByKey = new Map(currentFiles.map((file) => [referenceFileKey(file), file]));
+  for (const file of incomingFiles) {
+    filesByKey.set(referenceFileKey(file), file);
+  }
+  return Array.from(filesByKey.values());
+}
+
+export function removeReferenceFileAt(files: File[], fileIndex: number) {
+  return files.filter((_, index) => index !== fileIndex);
+}
+
+function referenceFileKey(file: File) {
+  return [file.name, file.size, file.type, file.lastModified].join(":");
+}
+
+function referenceFileMeta(file: File) {
+  const extension = file.name.includes(".") ? file.name.split(".").pop()?.toUpperCase() : "FILE";
+  return `${extension || "FILE"} · ${formatFileSize(file.size)}`;
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function parsePositiveInteger(value: string, fallback: number) {
@@ -1633,7 +1894,10 @@ export function toAiPptUserErrorMessage(message: string, fallback = "AI PPT 생�
   let detail = message.trim();
   if (detail.startsWith("{")) {
     try {
-      const parsed = JSON.parse(detail) as { detail?: unknown; message?: unknown };
+      const parsed = JSON.parse(detail) as {
+        detail?: unknown;
+        message?: unknown;
+      };
       const candidate = parsed.detail ?? parsed.message;
       if (typeof candidate === "string") detail = candidate.trim();
     } catch {
