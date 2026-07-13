@@ -197,6 +197,12 @@ const designPackGenerateDeckTimeoutMs = 300_000;
 const visualQaTimeoutMs = 300_000;
 const visualRepairTimeoutMs = 120_000;
 const maxVisualRepairAttempts = 2;
+const advisoryVisualIssueCodes = new Set<VisualQaIssue["code"]>([
+  "BALANCE_WEAK",
+  "LAYOUT_REPETITIVE",
+  "BACKGROUND_RHYTHM_FLAT",
+  "CARD_OVERUSED"
+]);
 const hybridMediaBudget = { min: 3, max: 5 } as const;
 
 export async function processGenerateDeckJob(
@@ -1077,8 +1083,21 @@ async function runProgramV2VisualQa(input: {
     emitVisualReviewEvent(input, deck, review, reviewAttempts);
   }
 
+  const passed = visualReviewMeetsAcceptanceThreshold(review, deck.slides.length);
+  if (passed && !review.passed) {
+    warnings.push(
+      `Vision QA accepted ${review.issues.length} advisory issue(s) after bounded repair.`
+    );
+    emitGenerateDeckEvent(input.eventLogger, "ai-ppt.visual-gate.advisory-accepted", {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      deckId: deck.deckId,
+      issueCodes: review.issues.map((issue) => issue.code),
+      affectedSlideCount: new Set(review.issues.map((issue) => issue.slideOrder)).size
+    });
+  }
   return {
-    passed: review.passed,
+    passed,
     deck,
     validation,
     warnings,
@@ -1086,6 +1105,18 @@ async function runProgramV2VisualQa(input: {
     repairAttempts,
     issues: review.issues
   };
+}
+
+function visualReviewMeetsAcceptanceThreshold(
+  review: NormalizedVisualQaReview,
+  slideCount: number
+) {
+  if (review.passed) return true;
+  if (!review.issues.every((issue) => advisoryVisualIssueCodes.has(issue.code))) {
+    return false;
+  }
+  const affectedSlideCount = new Set(review.issues.map((issue) => issue.slideOrder)).size;
+  return affectedSlideCount <= Math.max(1, Math.floor(slideCount * 0.2));
 }
 
 function unavailableVisualQaError(

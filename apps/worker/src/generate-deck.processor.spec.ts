@@ -487,7 +487,7 @@ describe("processGenerateDeckJob", () => {
     ]);
   });
 
-  it("retains a twice-repaired visual failure without publishing the deck", async () => {
+  it("publishes after bounded repair when only one advisory slide remains", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     let repairCount = 0;
@@ -516,6 +516,55 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
+    expect(job.status).toBe("succeeded");
+    expect(repairCount).toBe(2);
+    expect(job.result).toMatchObject({
+      validation: {
+        passed: true,
+        designIssues: []
+      },
+      diagnostics: {
+        visualQaStatus: "passed",
+        visualReviewAttempts: 3,
+        visualRepairAttempts: 2,
+        visualIssueCodes: ["BALANCE_WEAK"]
+      },
+      warnings: [expect.stringContaining("advisory issue")]
+    });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
+  });
+
+  it("retains a twice-repaired blocking visual failure without publishing", async () => {
+    const deck = programV2Deck();
+    const query = dynamicJobQuery();
+    let repairCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualFailureResponse("IMAGE_CONTENT_MISMATCH");
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          repairCount += 1;
+          return visualRepairResponse(deck);
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe(
       "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
@@ -524,13 +573,15 @@ describe("processGenerateDeckJob", () => {
     expect(job.result).toMatchObject({
       validation: {
         passed: false,
-        designIssues: [expect.objectContaining({ code: "BALANCE_WEAK" })]
+        designIssues: [
+          expect.objectContaining({ code: "IMAGE_CONTENT_MISMATCH" })
+        ]
       },
       diagnostics: {
         visualQaStatus: "failed",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
-        visualIssueCodes: ["BALANCE_WEAK"]
+        visualIssueCodes: ["IMAGE_CONTENT_MISMATCH"]
       }
     });
     expect(
@@ -1794,7 +1845,7 @@ function visualPassResponse() {
 }
 
 function visualFailureResponse(
-  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK"
+  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH"
 ) {
   return new Response(
     JSON.stringify({
