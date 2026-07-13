@@ -3239,9 +3239,9 @@
 }
 
 .design-proposal-modal-footer button.primary {
-  border-color: var(--blue);
-  background: var(--blue);
-  color: #fff;
+  border-color: #ded3ff;
+  background: #ded3ff;
+  color: #000000;
 }
 
 .design-proposal-modal-footer button:disabled {
