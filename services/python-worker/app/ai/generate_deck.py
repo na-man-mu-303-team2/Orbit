@@ -1812,6 +1812,8 @@ Rules:
   transitions. Never use generic or repeated filler to reach the range.
 - A short script is invalid even when the JSON shape is otherwise correct.
 - Do not add unsupported claims or source references.
+- When a repair reason lists unsupported numeric claim values, rewrite the full claim
+  qualitatively and remove every listed value. Never replace it with another number.
 - Keep message as the conclusion and contentItems as distinct supporting evidence,
   steps, comparisons, or actions. Remove structural duplication between them.
 - Do not output coordinates, sizes, zIndex, or final Deck JSON.
@@ -4936,6 +4938,14 @@ def clear_deck_content_plan_cache() -> None:
 def deck_content_prompt(raw_input: RawInput) -> str:
     keywords = reference_keywords_for(raw_input.reference_keywords)
     source_records = raw_input.source_records or initial_source_records(raw_input)
+    allowed_numeric_values = sorted(
+        {
+            value
+            for source in source_records
+            for value in numeric_values(source.content)
+        },
+        key=lambda value: (len(value), value),
+    )
     context = "\n\n".join(
         "\n".join(
             [
@@ -4966,6 +4976,14 @@ def deck_content_prompt(raw_input: RawInput) -> str:
         f"Presentation type: {raw_input.brief.presentation_type or '(none)'}",
         f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
         f"Reference policy: {raw_input.brief.reference_policy}",
+        (
+            "Allowed factual numeric values from source records: "
+            + (", ".join(allowed_numeric_values) if allowed_numeric_values else "(none)")
+        ),
+        (
+            "Slide count, duration, timing, and speaker-note targets are operational "
+            "instructions, not evidence. Never repeat them as presentation claims."
+        ),
     ]
     if raw_input.generation_mode == "design-pack":
         lines.extend(presentation_rule_prompt(raw_input))

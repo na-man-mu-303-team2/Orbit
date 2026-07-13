@@ -1808,6 +1808,36 @@ def test_content_plan_repair_accepts_grounded_and_structural_numbers() -> None:
     assert not any("unsupported numeric claim" in reason for reason in reasons)
 
 
+def test_content_prompt_separates_operational_and_grounded_numbers() -> None:
+    without_numbers = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="정성 운영 보고",
+            targetDurationMinutes=6,
+            slideCountRange={"min": 6, "max": 6},
+        )
+    )
+    with_numbers = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="전환율 20% 개선 보고",
+            prompt="검증된 전환율 개선 수치는 20%입니다.",
+            targetDurationMinutes=6,
+            slideCountRange={"min": 6, "max": 6},
+        )
+    )
+
+    assert "Allowed factual numeric values from source records: (none)" in deck_content_prompt(
+        without_numbers
+    )
+    assert "Allowed factual numeric values from source records: 20" in deck_content_prompt(
+        with_numbers
+    )
+    assert "operational instructions, not evidence" in deck_content_prompt(without_numbers)
+
+
 def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
     original_texts = [
         "First difference",
