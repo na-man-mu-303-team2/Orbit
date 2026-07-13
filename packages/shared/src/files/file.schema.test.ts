@@ -10,9 +10,31 @@ describe("filePurposeSchema", () => {
   it("accepts internal design assets", () => {
     expect(filePurposeSchema.parse("design-asset")).toBe("design-asset");
   });
+
+  it("accepts rehearsal slide snapshots", () => {
+    expect(filePurposeSchema.parse("rehearsal-slide-snapshot")).toBe(
+      "rehearsal-slide-snapshot",
+    );
+  });
 });
 
 describe("assetUploadUrlRequestSchema", () => {
+  it("accepts rendered rehearsal slide snapshots", () => {
+    expect(
+      assetUploadUrlRequestSchema.parse({
+        originalName: "slide-01-thumbnail.png",
+        mimeType: "image/png",
+        size: 101_524,
+        purpose: "rehearsal-slide-snapshot",
+      }),
+    ).toEqual({
+      originalName: "slide-01-thumbnail.png",
+      mimeType: "image/png",
+      size: 101_524,
+      purpose: "rehearsal-slide-snapshot",
+    });
+  });
+
   it("reserves all private audio purposes from generic uploads", () => {
     for (const purpose of [
       "rehearsal-audio",

@@ -618,38 +618,6 @@ describe("editor design-pack validation", () => {
       slideId: "slide_semantic_duplicate",
       order: 2
     });
-    deck.metadata.brandKitSnapshot = {
-      id: "brand_kit_1",
-      organizationId: "organization_1",
-      name: "ORBIT",
-      version: 1,
-      values: {
-        palette: {
-          primary: "#FF0000",
-          secondary: "#00FF00",
-          background: "#FFFFFF",
-          surface: "#FFFFFF",
-          muted: "#F3F4F6",
-          border: "#D1D5DB",
-          text: "#111827",
-          accentColor: "#FF00FF"
-        },
-        forbiddenColors: [],
-        typography: {
-          headingFontFamily: "Pretendard",
-          bodyFontFamily: "Pretendard",
-          fallbackFamily: "Arial"
-        },
-        tone: "professional",
-        mediaPolicy: "public-assets",
-        writingStyle: "",
-        coverRules: "",
-        footerRules: "",
-        approvedAssetIds: [],
-        lockedFields: ["palette"]
-      }
-    };
-
     const issues = new Set(
       getEditorValidationItems(deck).map((item) => item.issue)
     );
@@ -658,7 +626,6 @@ describe("editor design-pack validation", () => {
       "NARRATIVE_FLOW_WEAK",
       "EVIDENCE_MISMATCH",
       "IMAGE_RELEVANCE_WEAK",
-      "BRAND_KIT_VIOLATION",
       "IMAGE_LICENSE_MISSING"
     ]));
   });

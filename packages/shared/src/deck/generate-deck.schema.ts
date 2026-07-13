@@ -13,7 +13,6 @@ import {
 } from "./composition.schema";
 import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
 import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
-import { brandKitSelectionSchema } from "./brand-kit.schema";
 import { templateBlueprintIdSchema } from "./template-blueprint.schema";
 import { themeColorSchema } from "./theme.schema";
 
@@ -221,7 +220,6 @@ export const generateDeckRequestSchema = z.object({
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
   savedDesignPack: savedDesignPackSelectionSchema.optional(),
-  brandKit: brandKitSelectionSchema.optional(),
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
   referenceFileIds: z.array(z.string().min(1)).default([]),

@@ -5325,6 +5325,10 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
     assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
     assert not has_element(deck["slides"][0], "el_1_design_pack_background")
+    assert not any(
+        element.get("role") == "background"
+        for element in deck["slides"][0]["elements"]
+    )
     assert has_element(deck["slides"][0], "el_1_cover_summary_card_1_text")
     assert not has_element(deck["slides"][0], "el_1_body")
 
@@ -6949,6 +6953,11 @@ def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
     assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
     assert response.deck["theme"]["backgroundColor"] == "#0f172a"
     assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert all(
+        element.get("role") != "background"
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+    )
     assert_validation_result_consistent(response.validation)
 
 
@@ -7868,6 +7877,10 @@ def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -
     ]
     assert all(
         element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert any(
+        element.get("role") == "background"
         for element in slide["elements"]
     )
     assert "Original confidential" not in text

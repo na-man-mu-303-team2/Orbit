@@ -12,6 +12,7 @@ export const filePurposeSchema = z.enum([
   "export-result",
   "report-result",
   "thumbnail",
+  "rehearsal-slide-snapshot",
   "design-asset",
 ]);
 

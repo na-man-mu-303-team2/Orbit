@@ -7,9 +7,6 @@ import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
-import { BrandKitEntity } from "../organizations/brand-kit.entity";
-import { OrganizationEntity } from "../organizations/organization.entity";
-import { OrganizationMemberEntity } from "../organizations/organization-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
@@ -39,6 +36,7 @@ import { CreateFocusedPractice2026071104000 } from "./migrations/2026071104000-C
 import { CreateChallengeQna2026071105000 } from "./migrations/2026071105000-CreateChallengeQna";
 import { BackfillFallbackPracticeGoals2026071201000 } from "./migrations/2026071201000-BackfillFallbackPracticeGoals";
 import { CreateP0CoachingContracts2026071301000 } from "./migrations/2026071301000-CreateP0CoachingContracts";
+import { DropOrganizationsAndBrandKits2026071401000 } from "./migrations/2026071401000-DropOrganizationsAndBrandKits";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -52,9 +50,6 @@ export const databaseOptions: DataSourceOptions = {
   entities: [
     ProjectEntity,
     ProjectMemberEntity,
-    OrganizationEntity,
-    OrganizationMemberEntity,
-    BrandKitEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
     SavedDesignPackEntity,
@@ -89,7 +84,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateChallengeQna2026071105000,
     AddOfficialImageAssetProvenance2026071201000,
     BackfillFallbackPracticeGoals2026071201000,
-    CreateP0CoachingContracts2026071301000
+    CreateP0CoachingContracts2026071301000,
+    DropOrganizationsAndBrandKits2026071401000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

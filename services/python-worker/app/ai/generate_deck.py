@@ -295,10 +295,6 @@ class InternalDesignProgramContext(BaseModel):
         default_factory=dict,
         alias="savedDesignPreferences",
     )
-    brand_kit_locked_values: dict[str, Any] = Field(
-        default_factory=dict,
-        alias="brandKitLockedValues",
-    )
 
 
 class ColorIntent(BaseModel):
@@ -2690,9 +2686,6 @@ def art_director_context(
         typography=dict(theme.get("typography", {})),
         savedDesignPreferences=(
             raw_input.design_program_context.saved_design_preferences
-        ),
-        brandKitLockedValues=(
-            raw_input.design_program_context.brand_kit_locked_values
         ),
         forbiddenStyles=sorted(design_pack_forbidden_styles(raw_input)),
         mediaPolicy=raw_input.design.media_policy,
@@ -6264,6 +6257,16 @@ def is_canvas_background_element(element: dict[str, Any]) -> bool:
     )
 
 
+def without_canvas_background_elements(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        element
+        for element in elements
+        if not is_canvas_background_element(element)
+    ]
+
+
 def is_pastel_hex(color: str) -> bool:
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         return False
@@ -6606,7 +6609,6 @@ def plan_visuals(slide_plan: SlidePlan) -> VisualPlan:
     preset = PRESET_REGISTRY[slot_preset]
     layout = "chart-focus" if slide_plan.slide_type == "chart" else preset.layout
     intents = [
-        ElementIntent(role="background"),
         ElementIntent(role="title", text=slide_plan.title),
         ElementIntent(role="body", text=slide_plan.message),
     ]
@@ -6715,7 +6717,10 @@ def assemble_design_pack_slide(
     recipe = recipe or design_pack_recipe_for(raw_input, slide_plan, slide_plans)
     elements = design_pack_recipe_elements(raw_input, slide_plan, recipe, theme)
     align_design_pack_core_geometry(elements)
-    elements = cap_elements(elements, limit=48)
+    elements = cap_elements(
+        without_canvas_background_elements(elements),
+        limit=48,
+    )
     build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
         element.pop("_contentItemIds", None)
@@ -6763,7 +6768,10 @@ def assemble_program_v2_slide(
         summary,
         program,
     )
-    elements = cap_elements(compiled.elements, limit=48)
+    elements = cap_elements(
+        without_canvas_background_elements(compiled.elements),
+        limit=48,
+    )
     build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
         element.pop("_contentItemIds", None)
@@ -6801,17 +6809,7 @@ def assemble_program_v2_slide(
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
         ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": compiled.primary_focal_element_id,
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
-        ],
+        "animations": [],
         "aiNotes": program_v2_ai_notes(
             raw_input,
             slide_plan,
@@ -10141,7 +10139,7 @@ def assemble_slide(
     ]
     elements.extend(media_elements(slide_plan, visual_plan, slot_by_role, theme))
     elements.extend(design_elements(slide_plan, visual_plan, theme))
-    elements = cap_elements(elements)
+    elements = cap_elements(without_canvas_background_elements(elements))
     return {
         "slideId": f"slide_{slide_plan.order}",
         "order": slide_plan.order,
@@ -10875,7 +10873,7 @@ def assemble_process_cards_slide(
     )
     elements = process_cards_elements(slide_plan, theme, style_pack)
     elements = cap_elements(
-        elements,
+        without_canvas_background_elements(elements),
         limit=int(slide_preset.get("maxElements", 64)),
     )
     return {
@@ -12264,17 +12262,9 @@ def element_for_intent(
         "visible": True,
     }
     if intent.role == "background":
-        return {
-            **base,
-            "type": "rect",
-            "locked": True,
-            "props": {
-                "fill": theme["palette"]["muted"],
-                "stroke": "transparent",
-                "strokeWidth": 0,
-                "borderRadius": 0,
-            },
-        }
+        raise ValueError(
+            "canvas background must use slide.style.backgroundColor"
+        )
     if intent.role == "highlight":
         return {
             **base,

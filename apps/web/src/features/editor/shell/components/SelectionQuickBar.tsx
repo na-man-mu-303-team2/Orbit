@@ -13,7 +13,7 @@ import type {
   TableElementProps,
   TextElementProps
 } from "@orbit/shared";
-import { AlignCenter, ArrowDown, ArrowUp, Eye, EyeOff, Lock, LockOpen, PenLine } from "lucide-react";
+import { AlignCenter, ArrowDown, ArrowUp, Eye, EyeOff, PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -55,7 +55,6 @@ export function SelectionQuickBar(props: {
     rotation?: number;
     opacity?: number;
     zIndex?: number;
-    locked?: boolean;
     visible?: boolean;
   }) => void;
   onChangeProps: (props: Record<string, unknown>) => void;
@@ -266,15 +265,6 @@ export function SelectionQuickBar(props: {
             value={element.opacity}
           />
         ) : null}
-        <button
-          className={`quickbar-toggle ${element.locked ? "active" : ""}`}
-          aria-label={element.locked ? "잠금 해제" : "잠금"}
-          title={element.locked ? "잠금 해제" : "잠금"}
-          type="button"
-          onClick={() => onChangeFrame({ locked: !element.locked })}
-        >
-          {element.locked ? <Lock size={16} /> : <LockOpen size={16} />}
-        </button>
         <button
           className={`quickbar-toggle ${element.visible ? "active" : ""}`}
           aria-label={element.visible ? "숨기기" : "표시"}

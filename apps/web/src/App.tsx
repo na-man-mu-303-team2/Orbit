@@ -233,6 +233,7 @@ export type Route =
       presenterInitialStepIndex?: number;
       presenterSessionId?: string;
       presenterWindow?: boolean;
+      snapshotPreparationId?: string;
       sourceFullRunId?: string;
       sourceGoalSetId?: string;
       projectId: string;
@@ -589,6 +590,7 @@ export function getRoute(
       presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
+      snapshotPreparationId: searchParams.get("snapshotPreparationId") ?? undefined,
       sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
       sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
       projectId: decodeURIComponent(rehearsalMatch[1])
@@ -751,6 +753,7 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
+        snapshotPreparationId={route.snapshotPreparationId}
         sourceFullRunId={route.sourceFullRunId}
         sourceGoalSetId={route.sourceGoalSetId}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}

@@ -31,9 +31,11 @@ import {
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
+  getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
+  getResponsiveEditorStageScale,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
@@ -135,6 +137,12 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("fits the editor canvas inside compact viewports", () => {
+    expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
+    expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, null)).toBe(0.44);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -475,7 +483,7 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 도구");
-    expect(html).toContain("발표 메시지");
+    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -519,7 +527,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('id="editor-semantic-cue-tab"');
+    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
     expect(html).toContain('id="editor-semantic-cue-panel"');
     expect(html).toContain("발표 메시지");
     expect(html).toContain("AI로 전체 덱 다시 분석");
@@ -734,6 +742,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("http://assets.example.test/slide_1.png");
+    expect(html).toContain("aspect-ratio:1920 / 1080");
     expect(html).not.toContain("미리보기 준비됨");
   });
 
@@ -847,6 +856,27 @@ describe("editor shell", () => {
         source: "user"
       })
     ).toEqual([firstSlide.slideId, secondSlide.slideId]);
+  });
+
+  it("rerenders only slides whose visual state changed", () => {
+    const previousDeck = createDemoDeck();
+    const nextDeck = structuredClone(previousDeck);
+    nextDeck.version += 1;
+    nextDeck.slides[0]!.elements[0]!.x += 12;
+
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, nextDeck)).toEqual([
+      nextDeck.slides[0]!.slideId,
+    ]);
+
+    const versionOnlyDeck = structuredClone(previousDeck);
+    versionOnlyDeck.version += 1;
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, versionOnlyDeck)).toEqual([]);
+
+    const themeDeck = structuredClone(previousDeck);
+    themeDeck.theme.backgroundColor = "#111827";
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, themeDeck)).toEqual(
+      themeDeck.slides.map((slide) => slide.slideId),
+    );
   });
 
   it("keeps table quickbar edits in editable table props", () => {

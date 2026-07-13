@@ -45,7 +45,6 @@ export type EditorValidationItem = {
     | "NARRATIVE_FLOW_WEAK"
     | "EVIDENCE_MISMATCH"
     | "IMAGE_RELEVANCE_WEAK"
-    | "BRAND_KIT_VIOLATION"
     | "IMAGE_LICENSE_MISSING"
     | "SPEAKER_NOTES_REPEATED";
   level?: "warning";

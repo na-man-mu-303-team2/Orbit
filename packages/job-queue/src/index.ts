@@ -19,7 +19,6 @@ import {
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
   type SavedDesignPackSnapshot,
-  type BrandKitSnapshot,
   type SemanticCueExtractionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
@@ -137,10 +136,8 @@ export interface GenerateDeckBullMqPayload {
   projectId: string;
   request: GenerateDeckRequest;
   designPackSnapshot?: SavedDesignPackSnapshot;
-  brandKitSnapshot?: BrandKitSnapshot;
   imageAssetScope?: {
     userId: string;
-    organizationId?: string;
   };
 }
 
@@ -317,7 +314,6 @@ export async function enqueueGenerateDeckJob(
       ...(input.designPackSnapshot
         ? { designPackSnapshot: input.designPackSnapshot }
         : {}),
-      ...(input.brandKitSnapshot ? { brandKitSnapshot: input.brandKitSnapshot } : {}),
       ...(input.imageAssetScope ? { imageAssetScope: input.imageAssetScope } : {}),
     } satisfies GenerateDeckBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {

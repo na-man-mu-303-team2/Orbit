@@ -205,7 +205,7 @@ API:
 - AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.presentationProfile`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
 - `/ai-ppt`의 design-pack deck은 `metadata.presentationProfile`에 `proposal`, `executive-report`, `product-launch`, `education`, `technical`, `research`, `general-inform` 중 하나를 저장한다. 기존 legacy/import deck은 이 필드를 생략할 수 있다.
 - `program-v2` deck은 `metadata.designProgramSnapshot`에 visual concept, palette role, typography, background sequence, image/surface style과 사용한 composition ID를 기록한다. 기존 Deck은 이 필드를 생략할 수 있다.
-- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"` until the editor captures canvas thumbnails, then update it to `"canvas"`.
+- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"`. The editor keeps current-slide thumbnails in browser memory and does not update Deck versions only to refresh thumbnails.
 - `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
@@ -221,9 +221,11 @@ API:
 - `slide.style.backgroundImage`는 `src`, `alt`, `fit`, `opacity`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
 - `slide.style`이 생략되면 schema parse 후 `{}`로 정규화하고, renderer/export/AI normalize 단계에서 필요한 값은 `deck.theme`에서 해석한다.
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
+- 신규 AI 생성 slide의 단색 canvas 배경 원본은 `slide.style.backgroundColor`다. 같은 색을 full-canvas `background` element로 중복 생성하지 않는다.
+- PPTX import와 기존 Deck 호환을 위해 이미 존재하는 full-canvas `background` element는 보존할 수 있으며, 이 경우 배경 변경 동작은 `slide.style.backgroundColor`와 element fill을 함께 동기화한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에만 사용하고, 일반 편집 썸네일 캐시는 Deck에 저장하지 않는다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - design-pack slide의 `aiNotes.timingPlan`은 선택적으로 `speakingTimeRatio`와 `targetSpokenSeconds`를 포함할 수 있다. `targetSeconds`는 전환을 포함한 장표 점유 시간이고 `targetSpokenSeconds`는 해당 장표의 발화 목표 시간이다. 기존 Deck은 두 필드를 생략할 수 있다.
@@ -238,10 +240,10 @@ API:
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`, `table`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
-- AI가 생성한 배경, 장식, 강조 박스, 라인, 아이콘도 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다.
+- AI가 생성한 배경 이미지나 시각 요소, 장식, 강조 박스, 라인, 아이콘은 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다. 단색 canvas 배경은 `slide.style.backgroundColor`를 사용한다.
 - 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `table`, `highlight`, `footer`만 허용한다.
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
-- `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
+- `background`, `decoration` 역할의 element는 `role`과 낮은 `zIndex`로 의미를 표현한다. 기존 Deck 호환을 위해 `locked` 필드는 유지하지만 현재 에디터와 AI는 해당 값으로 편집을 차단하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`, `bullet`을 사용한다. `runs`는 기존 단일 paragraph 호환 field이고, `paragraphs`는 PPTX OOXML import에서 paragraph별 run/font/color/spacing/indent/bullet을 보존하기 위한 optional field다. `bodyInset`은 PPT text box 내부 여백을 px 단위로 보존한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
@@ -258,7 +260,7 @@ API:
 - 1차 스프린트 MVP에서는 객체 기준점이 음수 좌표가 되는 것까지만 금지한다.
 - `x + width > canvas.width`, `y + height > canvas.height`처럼 객체가 오른쪽/아래쪽으로 캔버스 밖에 일부 노출되는 경우는 현재 schema에서 막지 않는다.
 - 캔버스 밖 일부 노출을 완전히 금지할지는 PPTX import/export 구현 중 실제 잘림, 누락, 위치 보정 필요성을 확인한 뒤 다시 결정한다.
-- 객체 공통 상태 필드는 `rotation`, `opacity`, `zIndex`, `locked`, `visible`을 사용한다.
+- 객체 공통 상태 필드는 `rotation`, `opacity`, `zIndex`, `locked`(하위 호환용), `visible`을 사용한다.
 - `opacity`는 `0`부터 `1`까지만 허용하고, `zIndex`는 `0` 이상의 정수만 허용한다.
 - `chart` 객체의 `props`는 `chart.schema.ts`로 검증하며, 지원하지 않는 chart type은 거부한다.
 - 지원하는 chart type은 `bar`, `line`, `pie`, `doughnut`, `scatter`이다.
@@ -671,14 +673,14 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 ### Saved Design Pack 계약
 
-Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
+Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는 사용자 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
 
 - 저장 필드: `palette`, `typography`, `tone`, `density`, `titleStyle`, `layoutPreference`, `imageDensity`, `mediaPolicy`, `referencePolicy`, `qaStrictness`와 optional `preferredCompositionIds`, `avoidedCompositionIds`, `backgroundRhythm`, `imageTreatment`
-- 소유권: `ownerType`은 `system`, `user`, `organization` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
+- 소유권: `ownerType`은 `system`, `user` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
 - 버전: 수정할 때마다 `version`을 증가시키며 생성 요청은 `savedDesignPack: { id, version }`으로 선택 버전을 고정한다.
 - 재현성: `design-pack` 생성 결과의 `metadata.designPackSnapshot`에는 최종 적용된 pack 이름, version, base style pack과 preferences를 기록한다.
 - Hard Rule 보호: contrast, overflow, safe area, 최소 본문 크기, visible font family 최대 개수는 Saved Design Pack에 저장하지 않으며 platform validator가 항상 적용한다.
-- 적용 우선순위: `schema fallback < base Design Pack < Saved Design Pack < Session override < Brand Kit locked fields < platform Hard Rules`
+- 적용 우선순위: `schema fallback < base Design Pack < Saved Design Pack < Session override < platform Hard Rules`
 - legacy/import Deck은 `savedDesignPack`과 `metadata.designPackSnapshot` 없이 기존 계약으로 정상 parse된다.
 
 구현 위치:
@@ -686,27 +688,6 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직
 - `packages/shared/src/deck/saved-design-pack.schema.ts`
 - `packages/shared/src/deck/generate-deck.schema.ts`
 - `packages/shared/src/deck/deck.schema.ts`
-
-### Organization Brand Kit 계약
-
-Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저장하며 일반 조직 멤버는 조회·적용만 가능하다.
-
-- 조직 역할: `admin`, `member`
-- Brand Kit 값: `logoAssetId`, palette, forbidden colors, 공식 font와 fallback, tone, writing style, cover/footer 규칙, 승인 asset ID, `lockedFields`. `mediaPolicy`는 `hybrid`를 포함한 생성 요청 정책을 그대로 저장할 수 있다.
-- 잠금 가능 필드: `palette`, `typography`, `tone`, `mediaPolicy`, `logo`, `cover`, `footer`
-- 생성 요청은 `brandKit: { id, version }`으로 선택 버전을 고정한다.
-- 생성 결과는 `metadata.brandKitSnapshot`에 최종 적용 Brand Kit을 기록한다.
-- Brand Kit 잠금 필드는 Saved Design Pack과 Session override보다 우선한다.
-- platform Hard Rule은 Brand Kit에서도 해제할 수 없다.
-- 관리 API는 `GET/POST /api/v1/organizations/:organizationId/brand-kits`, `PATCH/DELETE /api/v1/organizations/:organizationId/brand-kits/:brandKitId`를 사용한다. 생성·수정·삭제는 조직 `admin`만 가능하다.
-- `logoAssetId`와 `approvedAssetIds`는 관리자가 accepted member인 프로젝트의 uploaded asset만 참조할 수 있다.
-- 생성 시 `logoAssetId`가 다른 프로젝트에 있으면 기존 `StoragePort`와 `project_assets`를 사용해 대상 프로젝트로 복제하고, 각 슬라이드에는 내부 content URL을 사용하는 `footer` image element를 기록한다. `lockedFields`에 `logo`가 있으면 해당 element도 잠근다.
-- Brand Kit 공식 font가 현재 font catalog에서 embeddable로 확인되지 않으면 fallback font를 유지하고 생성 warning을 남긴다.
-
-구현 위치:
-
-- `packages/shared/src/projects/organization.schema.ts`
-- `packages/shared/src/deck/brand-kit.schema.ts`
 
 ### AI PPT 이미지 asset 계약
 
@@ -722,8 +703,8 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - Deck의 placeholder는 내부 `/api/v1/projects/:projectId/assets/:fileId/content` URL을 쓰는 editable image element로 교체한다.
 - `aiNotes.visualPlan.asset`에는 file ID와 공개 가능한 provenance를 기록한다.
 - Editor의 현재 슬라이드 출처 패널은 image asset의 provider, usage basis, author, license, 원문 페이지와 실제 asset URL을 구분해 표시한다.
-- provider timeout, 제한된 재시도 실패, deck·user·organization 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
-- 기본 한도는 deck 4개, user 일 30개, organization 일 100개이며 환경변수로 조정한다.
+- provider timeout, 제한된 재시도 실패, deck·user 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
+- 기본 한도는 deck 4개, user 일 30개이며 환경변수로 조정한다.
 - PPTX export worker는 저장된 내부 image asset을 일시적인 data URL로 hydrate해 Python exporter에 전달한다. 원본 Deck JSON의 내부 URL은 변경하지 않는다.
 - Side AI는 구조화 capability 상태를 받아 실제 provider가 사용 가능한 경우에만 실제 이미지 삽입을 안내한다.
 
@@ -752,11 +733,10 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 
 `metadata.presentationProfile`이 있는 `design-pack` Deck은 Worker 저장 전과 Editor AI 검증에서 같은 shared semantic QA를 사용한다. legacy/import Deck에는 적용하지 않는다.
 
-- issue code: `SLIDE_MESSAGE_MULTIPLE`, `NARRATIVE_FLOW_WEAK`, `EVIDENCE_MISMATCH`, `IMAGE_RELEVANCE_WEAK`, `BRAND_KIT_VIOLATION`, `IMAGE_LICENSE_MISSING`
+- issue code: `SLIDE_MESSAGE_MULTIPLE`, `NARRATIVE_FLOW_WEAK`, `EVIDENCE_MISMATCH`, `IMAGE_RELEVANCE_WEAK`, `IMAGE_LICENSE_MISSING`
 - Worker는 다중 핵심 메시지와 이미지 대체 텍스트 관련 항목만 결정론적으로 최대 1회 보정한 뒤 전체 issue를 다시 계산한다.
-- 이미지 관련성은 `role=media`인 실제 본문 이미지에만 적용하며 Brand Kit logo와 footer image는 제외한다.
+- 이미지 관련성은 `role=media`인 실제 본문 이미지에만 적용한다.
 - 공개 이미지는 `aiNotes.visualPlan.asset`의 원본 URL과 license가 없으면 `IMAGE_LICENSE_MISSING`을 남긴다.
-- Brand Kit locked palette, typography, tone, logo가 최종 Deck에 유지되지 않으면 `BRAND_KIT_VIOLATION`을 남긴다.
 - semantic issue는 모두 `severity=warning`, `blocking=false`다. Deck 저장은 허용하지만 하나라도 남으면 `validation.passed=false`이며 Worker와 Editor가 같은 code를 표시한다.
 
 구현 위치:
@@ -1069,6 +1049,7 @@ Implementation locations:
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `rehearsal-slide-snapshot`
 - `design-asset`
 
 결정 사항:
@@ -1177,9 +1158,10 @@ Run 응답 구조:
 API:
 
 - `POST /api/v1/projects/:projectId/rehearsals`
-  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full" }`
+  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full", "slideSnapshots": [{ "slideId": "slide_1", "fileId": "file_1" }] }`
   - `expectedDeckVersion`은 optional이며 `full` run에서 현재 서버 deck version과 다르면 `REHEARSAL_DECK_VERSION_MISMATCH` 충돌로 거부한다.
   - `semanticEvaluationMode`는 `full | delivery-only`이고 기본값은 `full`이다.
+  - `slideSnapshots`는 optional이며 `rehearsal-slide-snapshot` purpose로 업로드 완료된 현재 Deck 이미지의 `slideId/fileId` 매핑만 허용한다. API는 이 매핑을 run의 immutable `evaluationSnapshot.slides[].thumbnailUrl`로 고정한다.
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/cancel`
   - audio processing 시작 전 `created/uploading` run만 `cancelled`로 바꾼다.
@@ -1319,7 +1301,8 @@ Report 응답 구조:
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
-- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, run-scoped `thumbnailUrl`, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- 에디터 썸네일은 현재 Deck JSON을 렌더링한 browser-memory Blob URL이며 Deck patch/version 또는 `project_assets`를 생성하지 않는다. 영속 이미지는 리허설 시작 준비 시에만 `rehearsal-slide-snapshot`으로 업로드하고 리포트는 현재 Deck의 `thumbnailUrl`보다 run snapshot URL을 우선한다.
 - `freshness=stale`인 reviewed cue도 snapshot에 유지해 최종 결과를 `unmeasured(stale_cue)`로 설명할 수 있게 한다.
 - snapshot은 생성 후 수정하지 않는다. `deckVersion`과 cue `revision`은 해당 run의 immutable 평가 기준이다.
 - `delivery-only`와 legacy run은 `deckVersion=null`, `evaluationSnapshot=null`이며 Semantic Cue 최종 평가는 각각 `evaluation_snapshot_mismatch`, `evaluation_not_run`으로 구분한다.

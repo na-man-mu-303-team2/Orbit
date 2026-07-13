@@ -36,6 +36,7 @@ const publicAssetContentPurposes = new Set<FilePurpose>([
   "reference-material",
   "export-result",
   "report-result",
+  "rehearsal-slide-snapshot",
   "design-asset",
 ]);
 

@@ -359,8 +359,7 @@
 
 .ai-ppt-font-grid,
 .ai-ppt-palette-grid,
-.ai-ppt-slide-grid,
-.ai-ppt-review-grid {
+.ai-ppt-slide-grid {
   display: grid;
   gap: 12px;
   margin-top: 18px;
@@ -370,8 +369,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.ai-ppt-palette-grid,
-.ai-ppt-review-grid {
+.ai-ppt-palette-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -382,7 +380,6 @@
 .ai-ppt-font-grid button,
 .ai-ppt-palette-grid button,
 .ai-ppt-slide-grid article,
-.ai-ppt-summary-card,
 .ai-ppt-advisor-suggestion {
   background: var(--orbit-ds-canvas);
   border: 1px solid var(--orbit-ds-border);
@@ -415,8 +412,7 @@
 .ai-ppt-font-grid span,
 .ai-ppt-font-grid small,
 .ai-ppt-palette-grid span,
-.ai-ppt-slide-grid span,
-.ai-ppt-summary-card span {
+.ai-ppt-slide-grid span {
   color: var(--orbit-ds-text-muted);
   font-size: var(--orbit-ds-type-caption);
   line-height: 1.45;
@@ -710,42 +706,6 @@
   visibility: visible;
 }
 
-.ai-ppt-summary-card {
-  display: grid;
-  gap: 8px;
-}
-
-.ai-ppt-summary-card > div {
-  align-items: center;
-  background: var(--orbit-ds-lilac-soft);
-  border-radius: var(--orbit-ds-radius-control);
-  display: flex;
-  height: 36px;
-  justify-content: center;
-  width: 36px;
-}
-
-.ai-ppt-summary-card p {
-  font-size: var(--orbit-ds-type-ui-small);
-  font-weight: 700;
-  line-height: 1.45;
-  margin: 0;
-}
-
-.ai-ppt-payload {
-  background: var(--orbit-ds-navy);
-  border-radius: var(--orbit-ds-radius-control);
-  color: #f4f1ff;
-  font-family: var(--orbit-ds-font-mono);
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 16px 0 0;
-  max-height: 420px;
-  overflow: auto;
-  padding: 18px;
-  white-space: pre-wrap;
-}
-
 .ai-ppt-mini-slide {
   aspect-ratio: 16 / 9;
   border: 1px solid;
@@ -973,21 +933,18 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.ai-ppt-pack-manager label,
-.ai-ppt-brand-kit-select {
+.ai-ppt-pack-manager label {
   display: grid;
   gap: 7px;
 }
 
-.ai-ppt-pack-manager label span,
-.ai-ppt-brand-kit-select span {
+.ai-ppt-pack-manager label span {
   color: var(--orbit-ds-text-muted);
   font-size: var(--orbit-ds-type-caption);
   font-weight: 800;
 }
 
-.ai-ppt-pack-manager select,
-.ai-ppt-brand-kit-select select {
+.ai-ppt-pack-manager select {
   background: var(--orbit-ds-surface);
   border: 1px solid var(--orbit-ds-border);
   border-radius: var(--orbit-ds-radius-control);
@@ -1110,7 +1067,6 @@
   .ai-ppt-field-grid,
   .ai-ppt-font-grid,
   .ai-ppt-palette-grid,
-  .ai-ppt-review-grid,
   .ai-ppt-slide-grid,
   .ai-ppt-live-preview {
     grid-template-columns: 1fr;

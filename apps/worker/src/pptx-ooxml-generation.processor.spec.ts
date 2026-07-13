@@ -247,19 +247,7 @@ describe("processPptxOoxmlGenerationJob", () => {
         })
       ])
     );
-    expect(deck.slides[0].elements).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          elementId: "el_slot_title",
-          type: "rect",
-          role: "title",
-          props: expect.objectContaining({
-            fill: "transparent",
-            stroke: "transparent"
-          })
-        })
-      ])
-    );
+    expect(deck.slides[0].elements).toEqual([]);
   });
 
   it("keeps resolved object fallback images as editable image elements", async () => {

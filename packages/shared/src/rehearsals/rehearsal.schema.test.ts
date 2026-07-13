@@ -140,6 +140,26 @@ describe("createRehearsalRunRequestSchema", () => {
     ).toBe("delivery-only");
   });
 
+  it("accepts one persistent slide snapshot asset per slide", () => {
+    const request = createRehearsalRunRequestSchema.parse({
+      deckId: "deck_demo_1",
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file_snapshot_1" }]
+    });
+
+    expect(request.slideSnapshots).toEqual([
+      { slideId: "slide_1", fileId: "file_snapshot_1" }
+    ]);
+    expect(
+      createRehearsalRunRequestSchema.safeParse({
+        deckId: "deck_demo_1",
+        slideSnapshots: [
+          { slideId: "slide_1", fileId: "file_snapshot_1" },
+          { slideId: "slide_1", fileId: "file_snapshot_2" }
+        ]
+      }).success
+    ).toBe(false);
+  });
+
   it("requires a complete adaptive evaluation context", () => {
     expect(
       createRehearsalRunRequestSchema.safeParse({

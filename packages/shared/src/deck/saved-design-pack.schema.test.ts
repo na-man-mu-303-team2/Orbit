@@ -41,6 +41,22 @@ describe("saved design pack schema", () => {
     expect(pack.preferences.typography.titleSizeScale).toBe(1);
   });
 
+  it("rejects removed organization ownership", () => {
+    const result = savedDesignPackSchema.safeParse({
+      id: "design_pack_organization_1",
+      ownerType: "organization",
+      ownerId: "organization_1",
+      name: "Legacy organization pack",
+      version: 1,
+      baseStylePackId: "brandlogy-modern",
+      preferences,
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z"
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("does not accept platform hard-rule overrides", () => {
     const result = createSavedDesignPackRequestSchema.safeParse({
       name: "Unsafe pack",

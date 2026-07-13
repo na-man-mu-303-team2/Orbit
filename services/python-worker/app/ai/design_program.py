@@ -64,7 +64,7 @@ Give every slide one clear focal point and vary adjacent silhouettes.
 Translate designDirection and each slide visualIntent into a subject-specific visual
 concept, imageStyle, surfaceStyle, and composition sequence. Do not default to generic
 clean minimal styling unless the user explicitly requests it.
-Keep focal and secondary palette roles visibly distinct when brand locks allow it.
+Keep focal and secondary palette roles visibly distinct when constraints allow it.
 Use evidence images only for factual proof, AI atmosphere only for mood, and native
 shapes for processes, comparisons, timelines, and diagrams.
 Use the requested media budget across the whole deck, not on every slide.
@@ -84,10 +84,6 @@ class ArtDirectorContext(BaseModel):
     saved_design_preferences: dict[str, Any] = Field(
         default_factory=dict,
         alias="savedDesignPreferences",
-    )
-    brand_kit_locked_values: dict[str, Any] = Field(
-        default_factory=dict,
-        alias="brandKitLockedValues",
     )
     forbidden_styles: list[str] = Field(default_factory=list, alias="forbiddenStyles")
     media_policy: str = Field(alias="mediaPolicy")

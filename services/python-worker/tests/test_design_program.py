@@ -572,6 +572,12 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
         for slide in deck["slides"]
         for element in slide["elements"]
     )
+    assert all(
+        element.get("role") != "background"
+        for slide in deck["slides"]
+        for element in slide["elements"]
+    )
+    assert all(slide["animations"] == [] for slide in deck["slides"])
 
 
 def test_splatoon_product_launch_golden_composition_contract() -> None:
