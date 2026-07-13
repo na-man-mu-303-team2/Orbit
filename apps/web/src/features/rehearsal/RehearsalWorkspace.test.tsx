@@ -8,6 +8,7 @@ import {
   type RehearsalReport,
   type RehearsalRun,
 } from "@orbit/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -116,6 +117,16 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("requires the saved rehearsal focus profile state before microphone rehearsal starts", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("<RehearsalFocusProfilePanel");
+    expect(source).toContain("onReadyChange={setFocusProfileReady}");
+    expect(source).toContain(
+      "props.canStart && isMicrophoneGranted && focusProfileReady",
+    );
+  });
+
   it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
     const html = renderToStaticMarkup(
       <RehearsalFailureScreen
@@ -141,7 +152,9 @@ describe("RehearsalWorkspace", () => {
   it("renders the pre-rehearsal preflight screen before recording starts", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
-      <RehearsalWorkspace initialDeck={deck} />,
+      <QueryClientProvider client={new QueryClient()}>
+        <RehearsalWorkspace initialDeck={deck} />
+      </QueryClientProvider>,
     );
 
     expect(html).toContain("리허설");
@@ -222,7 +235,9 @@ describe("RehearsalWorkspace", () => {
     });
 
     const html = renderToStaticMarkup(
-      <RehearsalWorkspace initialDeck={deck} />,
+      <QueryClientProvider client={new QueryClient()}>
+        <RehearsalWorkspace initialDeck={deck} />
+      </QueryClientProvider>,
     );
 
     expect(html).toContain("지난 리허설은 4:30였습니다.");
@@ -1119,7 +1134,9 @@ describe("RehearsalWorkspace", () => {
   it("keeps final report content out of the presenter workspace", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
-      <RehearsalWorkspace initialDeck={deck} />,
+      <QueryClientProvider client={new QueryClient()}>
+        <RehearsalWorkspace initialDeck={deck} />
+      </QueryClientProvider>,
     );
 
     expect(html).not.toContain("리허설 보고서");

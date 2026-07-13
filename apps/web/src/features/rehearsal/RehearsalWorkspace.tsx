@@ -59,6 +59,7 @@ import {
   type ReactNode,
 } from "react";
 import { JobProgressDisplay } from "./JobProgressDisplay";
+import { RehearsalFocusProfilePanel } from "../coaching/RehearsalFocusProfilePanel";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
@@ -4938,6 +4939,7 @@ function RehearsalPreflightScreen(props: {
     useState<PreflightVoiceCheckStatus>("idle");
   const [voiceCheckError, setVoiceCheckError] = useState("");
   const [voiceCheckTranscript, setVoiceCheckTranscript] = useState("");
+  const [focusProfileReady, setFocusProfileReady] = useState(false);
   const [voiceCheckLatencyMs, setVoiceCheckLatencyMs] = useState<number | null>(
     null,
   );
@@ -5014,11 +5016,14 @@ function RehearsalPreflightScreen(props: {
     triggerCount,
   );
   const isMicrophoneGranted = microphonePermission === "granted";
-  const canStartWithMicrophone = props.canStart && isMicrophoneGranted;
+  const canStartWithMicrophone =
+    props.canStart && isMicrophoneGranted && focusProfileReady;
   const startDisabledReason = !props.canStart
     ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
     : !isMicrophoneGranted
       ? "마이크 연결을 확인해야 리허설을 시작할 수 있습니다."
+      : !focusProfileReady
+        ? "연습 목표를 확인하고 변경 사항을 저장하거나 취소해 주세요."
       : "";
 
   async function requestPreflightMicrophonePermission() {
@@ -5197,6 +5202,11 @@ function RehearsalPreflightScreen(props: {
           model={props.comparisonModel}
         />
       ) : null}
+
+      <RehearsalFocusProfilePanel
+        onReadyChange={setFocusProfileReady}
+        projectId={props.deck.projectId}
+      />
 
       <section className="rehearsal-preflight-card">
         <div className="rehearsal-preflight-mic" aria-hidden="true">
