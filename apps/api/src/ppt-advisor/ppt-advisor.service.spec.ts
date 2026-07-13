@@ -105,6 +105,7 @@ describe("PptAdvisorService", () => {
     const init = fetcher.mock.calls[0]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("gpt-4.1-mini");
+    expect(body.instructions).toContain("Never tell the user to edit an unpublished draft");
     expect(body.text.format.name).toBe("ppt_advisor_response");
     expect(
       body.text.format.schema.properties.suggestions.items.anyOf.every(

@@ -372,7 +372,7 @@ export async function processGenerateDeckJob(
     }
     if (
       payload.request.generationMode === "design-pack" &&
-      hasQualityGateIssues(workerPayload.validation)
+      hasBlockingQualityGateIssues(workerPayload.validation)
     ) {
       if (usesProgramV2) {
         emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
@@ -483,7 +483,7 @@ export async function processGenerateDeckJob(
         deterministicValidation,
         deck
       );
-      if (hasQualityGateIssues(deterministicValidation)) {
+      if (hasBlockingQualityGateIssues(deterministicValidation)) {
         emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
           jobId: payload.jobId,
           projectId: payload.projectId,
@@ -505,7 +505,7 @@ export async function processGenerateDeckJob(
           deterministicValidation,
           deck
         );
-        if (hasQualityGateIssues(deterministicValidation)) {
+        if (hasBlockingQualityGateIssues(deterministicValidation)) {
           emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
             jobId: payload.jobId,
             projectId: payload.projectId,
@@ -553,7 +553,7 @@ export async function processGenerateDeckJob(
     const unresolvedMedia = hasMediaPlaceholder(deck);
     if (
       payload.request.generationMode === "design-pack" &&
-      (hasQualityGateIssues(validation) || unresolvedMedia)
+      (hasBlockingQualityGateIssues(validation) || unresolvedMedia)
     ) {
       const finalValidation = unresolvedMedia
         ? withUnresolvedMediaIssue(validation)
@@ -725,10 +725,10 @@ function allValidationIssues(
   ];
 }
 
-function hasQualityGateIssues(
+function hasBlockingQualityGateIssues(
   validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"]
 ) {
-  return !validation.passed || allValidationIssues(validation).length > 0;
+  return allValidationIssues(validation).some((issue) => issue.blocking);
 }
 
 function hasMediaPlaceholder(deck: Deck) {
@@ -1089,7 +1089,7 @@ async function runProgramV2VisualQa(input: {
     if (input.enforcesHybridMediaBudget) {
       validation = withHybridMediaBudgetIssue(validation, deck);
     }
-    if (hasQualityGateIssues(validation)) {
+    if (hasBlockingQualityGateIssues(validation)) {
       return {
         passed: false,
         deck,

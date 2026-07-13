@@ -661,13 +661,16 @@ describe("processGenerateDeckJob", () => {
     ).toBe(false);
   });
 
-  it("rejects a hybrid program-v2 deck below the resolved media floor", async () => {
+  it("publishes a hybrid program-v2 deck below the resolved media floor with a warning", async () => {
     const deck = programV2DeckWithResolvedMediaCount(2);
     const query = dynamicJobQuery();
     const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.endsWith("/ai/generate-deck")) {
         return generateDeckResponse(deck);
+      }
+      if (url.endsWith("/ai/review-deck-visuals")) {
+        return visualPassResponse();
       }
       throw new Error(`Unexpected URL: ${url}`);
     });
@@ -680,8 +683,7 @@ describe("processGenerateDeckJob", () => {
       hybridProgramV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.status).toBe("succeeded");
     expect(job.result).toMatchObject({
       validation: {
         passed: false,
@@ -694,10 +696,10 @@ describe("processGenerateDeckJob", () => {
       fetchMock.mock.calls.some(([input]) =>
         String(input).endsWith("/ai/review-deck-visuals")
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("publishes a hybrid program-v2 deck with three resolved media assets", async () => {
@@ -730,7 +732,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("rejects hybrid media without sourced evidence and generated atmosphere", async () => {
+  it("publishes hybrid media without the full source mix with a warning", async () => {
     const deck = programV2DeckWithResolvedMediaCount(3);
     for (const slide of deck.slides) {
       if (!slide.aiNotes?.visualPlan || !slide.aiNotes.compositionPlan) continue;
@@ -743,6 +745,7 @@ describe("processGenerateDeckJob", () => {
       vi.fn(async (input: unknown) => {
         const url = String(input);
         if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        if (url.endsWith("/ai/review-deck-visuals")) return visualPassResponse();
         throw new Error(`Unexpected URL: ${url}`);
       })
     );
@@ -754,7 +757,7 @@ describe("processGenerateDeckJob", () => {
       hybridProgramV2Payload()
     );
 
-    expect(job.status).toBe("failed");
+    expect(job.status).toBe("succeeded");
     expect(job.result).toMatchObject({
       validation: {
         designIssues: [
@@ -762,9 +765,12 @@ describe("processGenerateDeckJob", () => {
         ]
       }
     });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
   });
 
-  it("rejects repeated visual assets in a hybrid deck", async () => {
+  it("publishes repeated visual assets in a hybrid deck with a warning", async () => {
     const deck = programV2DeckWithResolvedMediaCount(4);
     const repeatedAssetUrl =
       deck.slides[0].aiNotes?.visualPlan?.asset?.sourceAssetUrl;
@@ -794,6 +800,7 @@ describe("processGenerateDeckJob", () => {
       vi.fn(async (input: unknown) => {
         const url = String(input);
         if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        if (url.endsWith("/ai/review-deck-visuals")) return visualPassResponse();
         throw new Error(`Unexpected URL: ${url}`);
       })
     );
@@ -805,7 +812,7 @@ describe("processGenerateDeckJob", () => {
       hybridProgramV2Payload()
     );
 
-    expect(job.status).toBe("failed");
+    expect(job.status).toBe("succeeded");
     expect(job.result).toMatchObject({
       validation: {
         designIssues: [
@@ -813,9 +820,12 @@ describe("processGenerateDeckJob", () => {
         ]
       }
     });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
   });
 
-  it("rejects repeated visual assets in a public-assets deck", async () => {
+  it("publishes repeated visual assets in a public-assets deck with a warning", async () => {
     const deck = programV2DeckWithResolvedMediaCount(2);
     const repeatedAssetUrl =
       deck.slides[0].aiNotes?.visualPlan?.asset?.sourceAssetUrl;
@@ -841,6 +851,7 @@ describe("processGenerateDeckJob", () => {
       vi.fn(async (input: unknown) => {
         const url = String(input);
         if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        if (url.endsWith("/ai/review-deck-visuals")) return visualPassResponse();
         throw new Error(`Unexpected URL: ${url}`);
       })
     );
@@ -863,7 +874,7 @@ describe("processGenerateDeckJob", () => {
       }
     );
 
-    expect(job.status).toBe("failed");
+    expect(job.status).toBe("succeeded");
     expect(job.result).toMatchObject({
       validation: {
         designIssues: [
@@ -871,6 +882,9 @@ describe("processGenerateDeckJob", () => {
         ]
       }
     });
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
   });
 
   it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
@@ -1010,7 +1024,7 @@ describe("processGenerateDeckJob", () => {
     });
   });
 
-  it("fails design-pack quality before calling the image provider", async () => {
+  it("publishes a design-pack deck with non-blocking quality warnings", async () => {
     const deck = createDeck();
     const deckValidation = validation({
       passed: false,
@@ -1023,19 +1037,27 @@ describe("processGenerateDeckJob", () => {
           path: "slides.0.elements.0",
           message: "Text overflows."
         }
+      ],
+      presentationIssues: [
+        {
+          code: "SPEAKER_NOTES_SHORT",
+          scope: "deck",
+          severity: "warning",
+          blocking: false,
+          path: "slides",
+          message: "Speaker notes are six characters below the target."
+        },
+        {
+          code: "LAYOUT_DIVERSITY_LOW",
+          scope: "deck",
+          severity: "warning",
+          blocking: false,
+          path: "slides",
+          message: "Core geometry diversity is below the target."
+        }
       ]
     });
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
-        jobRow(
-          "failed",
-          90,
-          params[4] as Record<string, unknown>,
-          params[5] as { code: string; message: string }
-        )
-      ]);
+    const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -1068,16 +1090,22 @@ describe("processGenerateDeckJob", () => {
       }
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
     expect(generate).not.toHaveBeenCalled();
     expect(job.result).toMatchObject({
       deck: { deckId: deck.deckId },
-      validation: { passed: false }
+      validation: {
+        passed: false,
+        presentationIssues: [
+          expect.objectContaining({ code: "SPEAKER_NOTES_SHORT" }),
+          expect.objectContaining({ code: "LAYOUT_DIVERSITY_LOW" })
+        ]
+      }
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("keeps an unresolved media candidate out of the decks table", async () => {
