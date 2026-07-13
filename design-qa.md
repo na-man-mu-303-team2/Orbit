@@ -89,3 +89,47 @@
 - Regression verification: Web suite — 123 files, 852 tests passed; `git diff --check` passed.
 
 final result: passed
+---
+
+## Reference Upload Annotations (2026-07-13)
+
+- Source visual truth: current task attachment, `Browser Comment 2` (`/createdeck`, 2192 x 1164)
+- Implementation screenshot: `/private/tmp/orbit-reference-panel-multi-file.png`
+- Viewport: 2192 x 1164; focused panel capture: 740 x 743
+- State: References step with two files attached
+
+## Full-view comparison evidence
+
+The existing three-column wizard shell, step rail, main work panel, and right preview column remain unchanged. The References panel intentionally replaces the single selected-file drop surface from the source with a compact add-files surface followed by a row list. The surrounding ORBIT hierarchy and panel proportions remain consistent with the source screen.
+
+## Focused region comparison evidence
+
+The focused implementation capture was compared with the selected References panel in Browser Comment 2. File names are now visible as separate rows below the drop surface, each row has a Tabler file icon, type and size metadata, and an accessible delete action. A count badge and `전체 삭제` action provide list-level feedback. Reference and image policies are separated into labeled groups instead of one undifferentiated chip area.
+
+## Findings
+
+- Fonts and typography: Passed. Pretendard/ORBIT type tokens, heading hierarchy, 13-14px interactive text, and non-negative letter spacing are retained.
+- Spacing and layout rhythm: Passed. The upload, list, and policy groups follow the 8/12/16/24px spacing scale. Rows grow vertically and are not placed in a nested card.
+- Colors and visual tokens: Passed. Canvas, Surface, Lilac, Success, Danger, and border tokens are used semantically. Success is limited to the small file-count badge.
+- Image quality and asset fidelity: Passed. No new raster assets were needed; visible UI uses the existing Tabler outline icon family.
+- Copy and content: Passed. Accepted formats, the 50MB per-file limit, multiple selection, file count, and policy purposes are explicit.
+- Accessibility: Passed. The file input has an accessible name, policy buttons expose `aria-pressed`, and per-file delete buttons include the filename in `aria-label`.
+
+## Comparison history
+
+- Earlier P1: only one selected filename was summarized inside the drop surface, so users could not scan or remove individual files. Fixed with an unbounded row list, per-file delete, and `전체 삭제`.
+- Earlier P2: image and reference policies appeared as visually identical adjacent chip groups without labels. Fixed with separate fieldsets, legends, and helper copy.
+- Post-fix evidence: `/private/tmp/orbit-reference-panel-multi-file.png` shows both fixes in the same two-file state. No actionable P0/P1/P2 visual findings remain.
+
+## Verification
+
+- Primary behavior: file-list normalization, append/deduplication, and removal covered by 17 focused unit tests.
+- Browser rendering: two-file list state rendered successfully; `multiple` is present on the file input.
+- Browser console: no errors or warnings.
+- Residual test gap: the operating-system file picker and physical drag gesture were not automated in the in-app browser.
+
+## Follow-up polish
+
+- P3: validate very long filenames and a larger file set with real user documents during manual QA.
+
+final result: passed

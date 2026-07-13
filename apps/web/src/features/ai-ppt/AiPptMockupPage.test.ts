@@ -7,7 +7,9 @@ import {
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
   miniSlideFontStyles,
+  mergeReferenceFiles,
   pollJob,
+  removeReferenceFileAt,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
   startReferenceExtraction,
@@ -49,6 +51,24 @@ describe("AI PPT wizard payload", () => {
 
     expect(filesFromFileList(fileList)).toEqual(files);
     expect(filesFromFileList(null)).toEqual([]);
+  });
+
+  it("appends newly selected reference files without duplicating the same file", () => {
+    const first = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const duplicate = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const second = new File(["deck"], "deck.pptx", {
+      lastModified: 2,
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+
+    expect(mergeReferenceFiles([first], [duplicate, second])).toEqual([duplicate, second]);
+    expect(removeReferenceFileAt([first, second], 0)).toEqual([second]);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {
