@@ -1,9 +1,9 @@
 # 리허설 음성 측정·Evidence DTO 계약
 
-> 상태: **P0 구현 계약 확정**<br>
-> 결정일: 2026-07-13<br>
-> 담당: 김동현<br>
-> 범위: Report STT 이후 TypeScript↔Python 분석 DTO, CPM/WPM, STT Quality Gate, filler, pause v1·v2, slide timing 원천값, Evidence Audio Clip 보관·삭제·권한<br>
+> 상태: **P0 구현 계약 확정**  
+> 결정일: 2026-07-13  
+> 담당: 김동현  
+> 범위: Report STT 이후 TypeScript↔Python 분석 DTO, CPM/WPM, STT Quality Gate, filler, pause v1·v2, slide timing 원천값, Evidence Audio Clip 보관·삭제·권한  
 > 기준 코드: `origin/develop@1edda998` 및 2026-07-13 로컬 `develop`
 
 이 문서는 `docs/Orbit-업무분담.md`에서 김동현이 결정·작성하도록 지정한 P0 계약을 구현 가능한 수준으로 고정한다. 현재 런타임 계약의 원본은 여전히 `packages/shared`와 `docs/contracts.md`다. 따라서 이 문서의 목표 계약은 선행 공통 계약 PR에서 shared schema, schema test, migration, `docs/contracts.md`, `docs/decision-log.md`에 반영된 뒤 런타임 효력을 갖는다.
