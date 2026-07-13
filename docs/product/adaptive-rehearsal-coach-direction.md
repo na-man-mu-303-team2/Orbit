@@ -2803,7 +2803,10 @@ API는 deck, Brief, Lens, approved cue, timing/delivery definition, optional goa
 
 #### Report·comparison
 
-- `GET /api/v1/rehearsals/:runId/report` response에 `currentPracticeGoalSet`을 추가하고 UI는 AI summary보다 먼저 렌더한다.
+- 기존 `GET /api/v1/rehearsals/:runId/report`의 경로와 응답 구조는 하위 호환을 위해 유지한다.
+- 신규 코칭 결과는 `GET /api/v1/projects/:projectId/rehearsals/:runId/coaching-report`의 `CoachingReportView`로 조회한다.
+- 현재 연습 목표는 `GET /api/v1/projects/:projectId/practice-plan?sourceFullRunId=:runId`에서 조회하며, UI는 준비된 목표를 기존 AI summary보다 먼저 렌더한다.
+- 신규 코칭 결과가 없는 과거 run은 기존 report 화면으로 대체한다.
 - `GET /api/v1/projects/:projectId/rehearsals/:runId/comparison`은 `PracticeGoalResolution[]`과 `comparisonState=ready|no-compatible-history`를 반환한다.
 - 서버 오류는 `200 null`이 아니라 정상 HTTP 오류로 반환한다.
 

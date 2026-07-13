@@ -1102,6 +1102,7 @@ API:
   - 프로젝트 read 권한과 run 소속을 확인한 뒤 여러 담당자의 저장 결과를 재계산하지 않고 조립한다.
   - 일부 결과만 준비됐으면 HTTP 200과 `viewState=partial`을 반환한다. P0 조립 결과가 없는 과거 run은 HTTP 404 `COACHING_REPORT_NOT_FOUND`를 반환하며 Web은 기존 report 응답으로 대체한다.
   - 기존 `GET /api/v1/rehearsals/:runId/report`의 경로와 응답 구조는 변경하지 않는다.
+  - 현재 연습 목표는 이 응답에 중복하지 않고 `GET /api/v1/projects/:projectId/practice-plan?sourceFullRunId=:runId`에서 조회한다.
 - `GET /api/v1/projects/:projectId/rehearsals/:runId/comparison`
   - 현재 run과 같은 프로젝트의 직전 `succeeded` run을 비교하며, 프로젝트 read 권한과 run 소속을 모두 검증한다.
   - response: `RehearsalRunComparison`
