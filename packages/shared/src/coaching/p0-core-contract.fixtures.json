@@ -228,7 +228,7 @@
     "runId": "run_fixture_1",
     "durationSeconds": 12.5,
     "durationSource": "recording",
-    "charactersPerMinute": 177.6,
+    "charactersPerMinute": 100.8,
     "wordsPerMinute": 28.8,
     "fillerWordCount": 1,
     "pauseCount": 1,

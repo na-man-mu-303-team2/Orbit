@@ -345,10 +345,17 @@ export const rehearsalAnalyzePauseV2DetailSchema = z
         path: ["intent"],
       });
     }
-    if (pause.positionSource === "none" && pause.position !== "unknown") {
+    const validPositionSource =
+      (pause.positionSource === "none" && pause.position === "unknown") ||
+      (pause.positionSource === "slide-timeline" &&
+        pause.position === "slide-transition") ||
+      (pause.positionSource === "provider" &&
+        (pause.position === "between-sentences" ||
+          pause.position === "within-sentence"));
+    if (!validPositionSource) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "pause position must remain unknown without evidence.",
+        message: "pause position must match its evidence source.",
         path: ["position"],
       });
     }
@@ -685,6 +692,20 @@ export const rehearsalAnalyzeResponseV2Schema = z
       }
     });
 
+    if (
+      (response.measurements.fillerWordCount.measurementState ===
+        "unmeasured" ||
+        response.measurements.pauseV1.measurementState === "unmeasured") &&
+      response.slideInsights.length > 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "slide insights require measured filler word count and pause v1 metrics.",
+        path: ["slideInsights"],
+      });
+    }
+
     if (response.sttQualityGate.state === "failed") {
       for (const name of [
         "charactersPerMinute",
@@ -711,7 +732,8 @@ export const rehearsalAnalyzeResponseV2Schema = z
         response.fillerWordDetails.length > 0 ||
         response.pauseDetails.length > 0 ||
         response.pauseV2Details.length > 0 ||
-        response.missedKeywords.length > 0
+        response.missedKeywords.length > 0 ||
+        response.slideInsights.length > 0
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,

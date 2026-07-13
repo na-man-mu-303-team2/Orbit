@@ -8,6 +8,7 @@ import {
   rehearsalAnalyzeRequestSchema,
   rehearsalAnalyzeRequestV1Schema,
   rehearsalAnalyzeRequestV2Schema,
+  rehearsalAnalyzePauseV2DetailSchema,
   rehearsalAnalyzeResponseV2Schema,
   rehearsalAnalyzeSttQualityGateSchema,
 } from "./rehearsal-analyze.schema";
@@ -246,6 +247,23 @@ describe("P0 speech evidence contracts", () => {
     ).toBe(false);
   });
 
+  it("keeps the canonical CPM fixture aligned with the Unicode calculation", () => {
+    const normalizedTranscript =
+      fixtures.rehearsalAnalyzeRequest.transcript.normalize("NFKC");
+    const characterCount = Array.from(normalizedTranscript).filter(
+      (character) => /[\p{L}\p{N}]/u.test(character),
+    ).length;
+    const expectedCharactersPerMinute =
+      (characterCount * 60) /
+      fixtures.rehearsalAnalyzeRequest.recordingDurationSeconds;
+
+    expect(characterCount).toBe(21);
+    expect(expectedCharactersPerMinute).toBe(100.8);
+    expect(fixtures.rehearsalAnalyzeResponse.charactersPerMinute).toBe(
+      expectedCharactersPerMinute,
+    );
+  });
+
   it("enforces response measurement, count, and quality gate invariants", () => {
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse({
@@ -293,6 +311,154 @@ describe("P0 speech evidence contracts", () => {
         policyId: "quality-policy-1",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects slide insights when filler or pause v1 is unmeasured", () => {
+    const fillerUnmeasured = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      fillerWordCount: null,
+      fillerWordDetails: [],
+      measurements: {
+        ...fixtures.rehearsalAnalyzeResponse.measurements,
+        fillerWordCount: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 1,
+          reasonCode: "EMPTY_TRANSCRIPT",
+        },
+      },
+    };
+    const pauseV1Unmeasured = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      pauseCount: null,
+      pauseDetails: [],
+      measurements: {
+        ...fixtures.rehearsalAnalyzeResponse.measurements,
+        pauseV1: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 1,
+          reasonCode: "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+        },
+      },
+    };
+
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(fillerUnmeasured).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fillerUnmeasured,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(pauseV1Unmeasured).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...pauseV1Unmeasured,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects slide insights when the STT quality gate fails", () => {
+    const lowConfidenceMeasurementV1 = {
+      measurementState: "unmeasured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE" as const,
+    };
+    const failedQualityGateResponse = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      charactersPerMinute: null,
+      wordsPerMinute: null,
+      fillerWordCount: null,
+      pauseCount: null,
+      keywordCoverage: null,
+      sttQualityGate: {
+        version: 1,
+        state: "failed",
+        reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
+        confidence: 0.4,
+        threshold: 0.7,
+        policyId: "quality-policy-1",
+      },
+      measurements: {
+        duration: fixtures.rehearsalAnalyzeResponse.measurements.duration,
+        charactersPerMinute: lowConfidenceMeasurementV1,
+        wordsPerMinute: lowConfidenceMeasurementV1,
+        fillerWordCount: lowConfidenceMeasurementV1,
+        pauseV1: lowConfidenceMeasurementV1,
+        pauseV2: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 2,
+          reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
+        },
+        keywordCoverage: lowConfidenceMeasurementV1,
+      },
+      speedSamples: [],
+      fillerWordDetails: [],
+      pauseDetails: [],
+      pauseV2Details: [],
+      missedKeywords: [],
+    };
+
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(failedQualityGateResponse)
+        .success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...failedQualityGateResponse,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires pause v2 position values to match their evidence source", () => {
+    const pause = fixtures.rehearsalAnalyzeResponse.pauseV2Details[0];
+
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "none",
+        position: "slide-transition",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "slide-timeline",
+        position: "within-sentence",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "slide-transition",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "none",
+        position: "unknown",
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "between-sentences",
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "within-sentence",
+      }).success,
+    ).toBe(true);
   });
 
   it("uses CPM v1 as canonical and keeps WPM as a compatibility value", () => {
