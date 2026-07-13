@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   derivePracticeGoalSet,
+  deriveProblemCandidates,
+  evaluateFullRunCriteria,
   persistPracticeGoalSet,
   persistSourceGoalResolutions
 } from "./practice-goal-derivation";
@@ -48,7 +50,7 @@ describe("practice goal derivation", () => {
     expect(recovered?.goalSetId).not.toBe(first?.goalSetId);
   });
 
-  it("creates fallback practice goals when the report has no failing candidates", () => {
+  it("keeps the goal set empty when the report has no failing candidates", () => {
     const set = derivePracticeGoalSet({
       projectId: "project-a",
       sourceFullRunId: "run-a",
@@ -58,14 +60,97 @@ describe("practice goal derivation", () => {
     });
 
     expect(set?.analysisState).toBe("final");
-    expect(set?.goals).toHaveLength(3);
-    expect(set?.goals[0]).toMatchObject({
-      category: "semantic",
-      recommendedPracticeMode: "focused",
-      targetScope: { type: "slide", slideId: "slide_1" },
-      measurementState: "measured"
+    expect(set?.goals).toEqual([]);
+  });
+
+  it("prioritizes a measured failing user focus without turning passed items into problems", () => {
+    const focusedSnapshot = rehearsalEvaluationSnapshotSchema.parse({
+      ...snapshot(),
+      focusProfileSnapshot: {
+        profileRef: { profileId: "profile_1", revision: 2 },
+        items: [
+          {
+            focusItemId: "focus_filler",
+            priority: 1,
+            kind: "filler-words",
+            label: "반복 말버릇 줄이기",
+            targetScope: null
+          },
+          {
+            focusItemId: "focus_passing_pause",
+            priority: 2,
+            kind: "pauses",
+            label: "긴 멈춤 줄이기",
+            targetScope: null
+          }
+        ]
+      }
     });
-    expect(set?.goals[0]?.problemLabel).toContain("다음 리허설");
+    const set = derivePracticeGoalSet({
+      projectId: "project-a",
+      sourceFullRunId: "run-a",
+      sourceAnalysisRevision: 1,
+      snapshot: focusedSnapshot,
+      report: report(false)
+    });
+
+    expect(set?.goals[0]?.criterionRef.criterionId).toBe(
+      "criterion_system_filler_v1"
+    );
+    expect(
+      set?.goals.some(
+        (goal) => goal.criterionRef.criterionId === "criterion_system_pause_v1"
+      )
+    ).toBe(false);
+  });
+
+  it("merges duplicate criterion scopes and keeps ordering independent from input order", () => {
+    const sourceSnapshot = snapshot();
+    const evaluation = evaluateFullRunCriteria({
+      sourceFullRunId: "run-a",
+      snapshot: sourceSnapshot,
+      report: report(false)
+    });
+    const firstResult = evaluation.results[0];
+    const firstObservation = evaluation.observations.find(
+      (observation) => observation.observationId === firstResult?.observationId
+    );
+    if (!firstResult?.observationId || !firstObservation) {
+      throw new Error("Expected a measured semantic fixture.");
+    }
+    const duplicateObservation = {
+      ...firstObservation,
+      observationId: "observation_duplicate"
+    };
+    const duplicateResult = {
+      ...firstResult,
+      observationId: duplicateObservation.observationId
+    };
+    const sharedInput = {
+      criteria: sourceSnapshot.evaluationPlan?.criteria ?? [],
+      focusProfileSnapshot: null,
+      evaluatorLensId: "decision-maker" as const,
+      slideOrder: new Map([["slide_1", 1]]),
+      repeatedPatternKeys: new Set<string>()
+    };
+    const forward = deriveProblemCandidates({
+      ...sharedInput,
+      results: [...evaluation.results, duplicateResult],
+      observations: [...evaluation.observations, duplicateObservation]
+    });
+    const reversed = deriveProblemCandidates({
+      ...sharedInput,
+      results: [...evaluation.results, duplicateResult].reverse(),
+      observations: [...evaluation.observations, duplicateObservation].reverse()
+    });
+
+    expect(forward).toEqual(reversed);
+    expect(
+      forward.filter(
+        (candidate) =>
+          candidate.criterion.criterionId === firstResult.criterionRef.criterionId
+      )
+    ).toHaveLength(1);
   });
 
   it("persists the immutable set before advancing the current head with revision CAS", async () => {
@@ -185,6 +270,19 @@ function snapshot(sourceGoalSetId: string | null = null) {
             type: "max-count",
             metric: "filler-word-count",
             maximum: 1
+          }
+        },
+        {
+          criterionId: "criterion_system_pause_v1",
+          revision: 1,
+          category: "delivery",
+          source: "system",
+          scope: { type: "run" },
+          label: "긴 멈춤",
+          measurement: {
+            type: "max-count",
+            metric: "pause-count",
+            maximum: 0
           }
         }
       ],
