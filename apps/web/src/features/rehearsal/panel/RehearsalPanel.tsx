@@ -2,7 +2,8 @@ import {
   AlertTriangle,
   Clock3,
   Gauge,
-  Timer
+  Timer,
+  X
 } from "lucide-react";
 import {
   useCallback,
@@ -27,6 +28,16 @@ import {
   type KeywordHighlightOccurrence,
   type KeywordHighlightKeyword
 } from "../../shared/KeywordHighlightedText";
+import { PresenterScriptList, type PresenterScriptListRow } from "../presenter/PresenterScriptList";
+import {
+  createRehearsalScriptPrompterRows,
+  getRehearsalScriptFocusSentenceId
+} from "./rehearsalScriptPrompter";
+import { SemanticCapabilityStatus } from "./SemanticCapabilityStatus";
+import type { SemanticCapabilityStatusItem } from "./semanticCapabilityStatusModel";
+import type { ComparisonReminder } from "../rehearsalRunComparisonModel";
+import type { P3SemanticCueProgressItem } from "../speech/p3RehearsalSession";
+import { SemanticCueChecklist } from "./SemanticCueChecklist";
 
 export type RehearsalPanelMode = "rehearsal" | "live";
 
@@ -42,9 +53,15 @@ export type RehearsalPanelProps = {
   liveSlot?: ReactNode;
   showAdvicePanel?: boolean;
   showScriptPanel?: boolean;
+  scriptAutoFollowKey?: number | string;
   speakerNotes?: string;
   sentences: readonly ExtractedSentence[];
   snapshot: SpeechTrackerSnapshot;
+  semanticCapabilityItems?: readonly SemanticCapabilityStatusItem[];
+  semanticCueItems?: readonly P3SemanticCueProgressItem[];
+  onSemanticCapabilityAction?: (item: SemanticCapabilityStatusItem) => void;
+  comparisonReminder?: ComparisonReminder | null;
+  onDismissComparisonReminder?: () => void;
 };
 
 export function RehearsalPanel(props: RehearsalPanelProps) {
@@ -60,7 +77,7 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     () => getSentenceTextOffsets(props.speakerNotes ?? "", props.sentences),
     [props.speakerNotes, props.sentences]
   );
-  const sentenceRefs = useRef(new Map<string, HTMLParagraphElement>());
+  const sentenceRefs = useRef(new Map<string, HTMLLIElement>());
   const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] = useState(true);
   const focusSentenceId = useMemo(
     () =>
@@ -70,7 +87,22 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
       ),
     [props.sentences, props.snapshot.coveredSentenceIds]
   );
+  const prompterRows = useMemo(
+    () =>
+      createRehearsalScriptPrompterRows({
+        sentences: props.sentences,
+        coveredSentenceIds,
+        coveredSentenceMatchKinds: props.snapshot.coveredSentenceMatchKinds
+      }),
+    [coveredSentenceIds, props.sentences, props.snapshot.coveredSentenceMatchKinds]
+  );
   const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
+  const semanticCoveragePercent = Math.round(
+    props.snapshot.effectiveCoverage * 100
+  );
+  const scriptProgressPercent = Math.round(
+    (props.snapshot.scriptProgress?.ratio ?? 0) * 100
+  );
 
   const scrollScriptToFocus = useCallback(
     (behavior: ScrollBehavior) => {
@@ -100,6 +132,7 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     isScriptAutoFollowEnabled,
     props.snapshot.coveredSentenceIds,
     props.snapshot.slideId,
+    props.scriptAutoFollowKey,
     scrollScriptToFocus
   ]);
 
@@ -121,6 +154,34 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
           tone={props.timing.currentSlideOvertime ? "warning" : "normal"}
         />
       </div>
+
+      <SemanticCapabilityStatus
+        items={props.semanticCapabilityItems ?? []}
+        onAction={props.onSemanticCapabilityAction}
+      />
+
+      {props.comparisonReminder ? (
+        <section
+          className="rehearsal-comparison-reminder"
+          aria-label="지난 회차 반복 이슈"
+          role="status"
+        >
+          <AlertTriangle size={16} aria-hidden="true" />
+          <strong>지난 회차 반복</strong>
+          <span>
+            {props.comparisonReminder.label}: {props.comparisonReminder.reason}
+          </span>
+          <button
+            type="button"
+            aria-label="반복 이슈 알림 닫기"
+            onClick={props.onDismissComparisonReminder}
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        </section>
+      ) : null}
+
+      <SemanticCueChecklist items={props.semanticCueItems ?? []} />
 
       <div className="rehearsal-panel-top-grid">
         <section className="rehearsal-panel-section" aria-label="키워드 체크리스트">
@@ -149,7 +210,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                       .join(" ")}
                     key={keyword.keywordId}
                   >
-                    <em>{hit ? "체크" : provisionalMissing ? "미확인" : "대기"}</em>
+                    <em>
+                      {hit ? "체크" : provisionalMissing ? "미확인" : "미언급"}
+                    </em>
                     <span>{keyword.text}</span>
                   </li>
                 );
@@ -204,7 +267,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   따라가기
                 </button>
               ) : null}
-              <strong>{Math.round(props.snapshot.effectiveCoverage * 100)}%</strong>
+              <strong title="의미 커버리지와 원문 기준 실시간 진행률">
+                의미 {semanticCoveragePercent}% · 원문 {scriptProgressPercent}%
+              </strong>
             </div>
           </div>
           <div
@@ -213,86 +278,44 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
             onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
             onWheel={() => setIsScriptAutoFollowEnabled(false)}
           >
-            {props.sentences.length > 0 ? (
-              props.sentences.map((sentence) => {
-                const covered = coveredSentenceIds.has(sentence.sentenceId);
-                return (
-                  <p
-                    className={[
-                      "rehearsal-panel-sentence",
-                      covered ? "rehearsal-panel-sentence-covered" : "",
-                      !sentence.matchable ? "rehearsal-panel-sentence-unmatchable" : ""
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    data-sentence-id={sentence.sentenceId}
-                    key={sentence.sentenceId}
-                    ref={(node) => {
-                      if (node) {
-                        sentenceRefs.current.set(sentence.sentenceId, node);
-                        return;
-                      }
+            <PresenterScriptList
+              emptyLabel="대본 없음"
+              getRowRef={(row) => (node) => {
+                if (node) {
+                  sentenceRefs.current.set(row.id, node);
+                  return;
+                }
 
-                      sentenceRefs.current.delete(sentence.sentenceId);
-                    }}
-                  >
-                    <span>
-                      <KeywordHighlightedText
-                        highlightedOccurrences={props.highlightedKeywordOccurrences}
-                        keywords={props.keywords}
-                        textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
-                        text={sentence.text}
-                      />
-                    </span>
-                    {covered ? <em>체크됨</em> : null}
-                  </p>
-                );
-              })
-            ) : (
-              <p className="rehearsal-panel-empty">대본 없음</p>
-            )}
+                sentenceRefs.current.delete(row.id);
+              }}
+              rows={prompterRows.map((row): PresenterScriptListRow => {
+                const { sentence } = row;
+                const matchKind =
+                  props.snapshot.coveredSentenceMatchKinds?.[sentence.sentenceId];
+                return {
+                  content: (
+                    <KeywordHighlightedText
+                      highlightedOccurrences={props.highlightedKeywordOccurrences}
+                      keywords={props.keywords}
+                      textOffset={sentenceTextOffsets.get(sentence.sentenceId) ?? 0}
+                      text={sentence.text}
+                    />
+                  ),
+                  id: sentence.sentenceId,
+                  label:
+                    matchKind === "paraphrased"
+                      ? "의미 전달"
+                      : row.status === "covered"
+                        ? "체크됨"
+                        : undefined,
+                  status: row.status
+                };
+              })}
+            />
           </div>
         </section>
       ) : null}
     </section>
-  );
-}
-
-export function getRehearsalScriptFocusSentenceId(
-  sentences: readonly ExtractedSentence[],
-  coveredSentenceIdsInput: ReadonlySet<string> | readonly string[]
-) {
-  const coveredSentenceIds =
-    coveredSentenceIdsInput instanceof Set
-      ? coveredSentenceIdsInput
-      : new Set(coveredSentenceIdsInput);
-  let lastCoveredMatchableIndex = -1;
-
-  sentences.forEach((sentence, index) => {
-    if (sentence.matchable && coveredSentenceIds.has(sentence.sentenceId)) {
-      lastCoveredMatchableIndex = index;
-    }
-  });
-
-  const nextMatchableSentence = sentences
-    .slice(lastCoveredMatchableIndex + 1)
-    .find(
-      (sentence) =>
-        sentence.matchable && !coveredSentenceIds.has(sentence.sentenceId)
-    );
-
-  if (nextMatchableSentence) {
-    return nextMatchableSentence.sentenceId;
-  }
-
-  if (lastCoveredMatchableIndex >= 0) {
-    return sentences[lastCoveredMatchableIndex]?.sentenceId ?? null;
-  }
-
-  return (
-    sentences.find((sentence) => sentence.matchable)?.sentenceId ??
-    sentences[0]?.sentenceId ??
-    null
   );
 }
 

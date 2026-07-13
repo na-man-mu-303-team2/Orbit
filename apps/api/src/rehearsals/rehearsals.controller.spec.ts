@@ -40,6 +40,50 @@ describe("RehearsalsController", () => {
     ).toBeLessThan(rehearsalsService.getReport.mock.invocationCallOrder[0]);
   });
 
+  it("requires project read permission before returning a run comparison", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.getComparison("project-a", "run-1", signedRequest());
+
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1"
+    );
+    expect(rehearsalsService.getComparison).toHaveBeenCalledWith(
+      "project-a",
+      "run-1"
+    );
+    expect(
+      projectsService.assertCanReadProject.mock.invocationCallOrder[0]
+    ).toBeLessThan(rehearsalsService.getComparison.mock.invocationCallOrder[0]);
+  });
+
+  it("requires project write permission before cancelling a rehearsal run", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.cancelRun("run-1", signedRequest());
+
+    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1"
+    );
+    expect(rehearsalsService.cancelRun).toHaveBeenCalledWith("run-1");
+  });
+
+  it("requires project write permission before retrying semantic evaluation", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.retrySemanticEvaluation("run-1", signedRequest());
+
+    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1"
+    );
+    expect(rehearsalsService.retrySemanticEvaluation).toHaveBeenCalledWith("run-1");
+  });
+
   it("does not call the rehearsal service without a signed session", async () => {
     const { controller, rehearsalsService } = createController();
 
@@ -65,6 +109,17 @@ function createController() {
   };
   const rehearsalsService = {
     createRun: vi.fn(async () => ({ run: { runId: "run-1" } })),
+    cancelRun: vi.fn(async () => ({ run: { runId: "run-1", status: "cancelled" } })),
+    retrySemanticEvaluation: vi.fn(async () => ({ job: { jobId: "job-1" } })),
+    getComparison: vi.fn(async () => ({
+      currentRunId: "run-1",
+      previousRunId: null,
+      improved: [],
+      repeated: [],
+      newIssues: [],
+      incomparable: [],
+      briefing: []
+    })),
     getReport: vi.fn(async () => ({ report: null })),
     getRunProjectId: vi.fn(async () => "project-a"),
   };

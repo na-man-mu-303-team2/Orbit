@@ -1,8 +1,9 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { config as loadDotenv } from "dotenv";
 import { DataSource, DataSourceOptions } from "typeorm";
-import { AiSuggestionEntity } from "../ai-suggestions/ai-suggestion.entity";
 import { SavedDesignPackEntity } from "../saved-design-packs/saved-design-pack.entity";
+import { DesignAgentMessageEntity } from "../design-agent/design-agent-message.entity";
+import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
@@ -30,6 +31,13 @@ import { CreateSavedDesignPacks2026071101000 } from "./migrations/2026071101000-
 import { CreateOrganizationsAndBrandKits2026071102000 } from "./migrations/2026071102000-CreateOrganizationsAndBrandKits";
 import { AddImageAssetProvenance2026071103000 } from "./migrations/2026071103000-AddImageAssetProvenance";
 import { AddOfficialImageAssetProvenance2026071201000 } from "./migrations/2026071201000-AddOfficialImageAssetProvenance";
+import { CreateDesignAgentTables2026071101000 } from "./migrations/2026071101000-CreateDesignAgentTables";
+import { AddRehearsalEvaluationSnapshot2026071001000 } from "./migrations/2026071001000-AddRehearsalEvaluationSnapshot";
+import { DropAiSuggestions2026071102000 } from "./migrations/2026071102000-DropAiSuggestions";
+import { CreateAdaptiveCoachingCore2026071103000 } from "./migrations/2026071103000-CreateAdaptiveCoachingCore";
+import { CreateFocusedPractice2026071104000 } from "./migrations/2026071104000-CreateFocusedPractice";
+import { CreateChallengeQna2026071105000 } from "./migrations/2026071105000-CreateChallengeQna";
+import { BackfillFallbackPracticeGoals2026071201000 } from "./migrations/2026071201000-BackfillFallbackPracticeGoals";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -48,8 +56,9 @@ export const databaseOptions: DataSourceOptions = {
     BrandKitEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
-    AiSuggestionEntity,
-    SavedDesignPackEntity
+    SavedDesignPackEntity,
+    DesignAgentMessageEntity,
+    DesignAgentProposalEntity
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -68,10 +77,17 @@ export const databaseOptions: DataSourceOptions = {
     CreateTemplateBlueprints2026070301000,
     CreateProjectRehearsalSummaries2026070801000,
     ReplaceRehearsalSummaryWithProjectComment2026070802000,
+    AddRehearsalEvaluationSnapshot2026071001000,
     CreateSavedDesignPacks2026071101000,
+    CreateDesignAgentTables2026071101000,
     CreateOrganizationsAndBrandKits2026071102000,
+    DropAiSuggestions2026071102000,
     AddImageAssetProvenance2026071103000,
-    AddOfficialImageAssetProvenance2026071201000
+    CreateAdaptiveCoachingCore2026071103000,
+    CreateFocusedPractice2026071104000,
+    CreateChallengeQna2026071105000,
+    AddOfficialImageAssetProvenance2026071201000,
+    BackfillFallbackPracticeGoals2026071201000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

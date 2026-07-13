@@ -7,11 +7,10 @@ import {
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
-  AiSuggestion,
   Deck,
   DeckPatch,
   DeckElement,
-  ListAiSuggestionsResponse,
+  SemanticCue,
   TableElementProps
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -26,6 +25,7 @@ import {
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  createSemanticCueExtractionJob,
   createDistributeSelectionPatch,
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
@@ -34,6 +34,7 @@ import {
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   mergeDeckIntoQueryCache,
+  parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
@@ -52,7 +53,6 @@ import {
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
-import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -207,11 +207,47 @@ describe("editor shell", () => {
   });
 
   it("resolves undo redo history navigation without state updater side effects", () => {
-    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const cue = {
+      cueId: "scue_history_1",
+      slideId: "slide_demo_1",
+      meaning: "발표자는 이전 핵심 메시지를 설명한다",
+      importance: "core",
+      reviewStatus: "approved",
+      freshness: "current",
+      origin: "manual",
+      revision: 1,
+      sourceRefs: [],
+      qualityWarnings: [],
+      required: true,
+      priority: 1,
+      candidateKeywords: [],
+      aliases: {},
+      requiredConcepts: ["핵심 메시지"],
+      nliHypotheses: ["발표자는 이전 핵심 메시지를 설명했다"],
+      negativeHints: [],
+      targetElementIds: [],
+      triggerActionIds: []
+    } satisfies SemanticCue;
+    const previousBase = createDemoDeck();
+    const previousDeck = {
+      ...previousBase,
+      title: "Previous deck",
+      slides: previousBase.slides.map((slide, index) =>
+        index === 0 ? { ...slide, semanticCues: [cue] } : slide
+      )
+    };
     const currentDeck = {
-      ...createDemoDeck(),
+      ...previousDeck,
       title: "Current deck",
-      version: previousDeck.version + 1
+      version: previousDeck.version + 1,
+      slides: previousDeck.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              semanticCues: [{ ...cue, freshness: "stale" as const }]
+            }
+          : slide
+      )
     };
 
     const transition = resolveHistoryNavigation({
@@ -226,6 +262,12 @@ describe("editor shell", () => {
       targetEntry: { deck: previousDeck },
       targetSlideIndex: previousDeck.slides.length - 1
     });
+    expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "current"
+    );
+    expect(transition?.currentEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "stale"
+    );
     expect(
       resolveHistoryNavigation({
         currentDeck,
@@ -400,10 +442,70 @@ describe("editor shell", () => {
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
-    expect(html).toContain("AI 제안 검토");
+    expect(html).toContain("AI 채팅");
+    expect(html).toContain("AI 도구");
+    expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
+    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain("파일");
+    expect(html).toContain("편집 중");
+    expect(html).toContain("공유");
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
+    expect(html).toContain("AI 채팅");
+    expect(html).toContain("AI 도구");
+    expect(html).toContain("발표 메시지");
+  });
+
+  it("integrates imported Semantic Cue review into the right panel", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_imported_review",
+        slideId: deck.slides[0].slideId,
+        meaning: "발표자는 도입 효과를 설명한다",
+        reportLabel: "도입 효과",
+        presenterTag: "효과",
+        cueType: "result",
+        importance: "supporting",
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "ai",
+        revision: 1,
+        sourceRefs: [
+          {
+            kind: "slide-title",
+            refId: deck.slides[0].slideId,
+            sourceHash: "a".repeat(64)
+          }
+        ],
+        qualityWarnings: [],
+        required: false,
+        priority: 2,
+        candidateKeywords: ["도입 효과"],
+        aliases: {},
+        requiredConcepts: ["도입 효과"],
+        nliHypotheses: ["발표자는 도입 효과를 설명했다"],
+        negativeHints: [],
+        targetElementIds: [],
+        triggerActionIds: []
+      }
+    ];
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('id="editor-semantic-cue-tab"');
+    expect(html).toContain('id="editor-semantic-cue-panel"');
+    expect(html).toContain("발표 메시지");
+    expect(html).toContain("AI로 전체 덱 다시 분석");
+    expect(html).toContain("도입 효과");
+    expect(html).toContain("슬라이드 제목");
   });
 
   it("returns a warning for unreadable text overlap", () => {
@@ -451,63 +553,6 @@ describe("editor shell", () => {
         severity: "warning"
       })
     );
-  });
-
-  it("loads AI suggestions with the route project id", () => {
-    const queryClient = createTestQueryClient();
-    const projectId = "project_real_1";
-    const deck = {
-      ...createDemoDeck(),
-      projectId
-    } as Deck;
-    const slideId = deck.slides[0].slideId;
-    const suggestion = {
-      suggestionId: "suggestion_real_project",
-      projectId,
-      deckId: deck.deckId,
-      slideId,
-      baseVersion: deck.version,
-      title: "실제 프로젝트 제안",
-      summary: "라우트 projectId로 조회한 제안입니다.",
-      patch: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        source: "ai",
-        operations: [
-          {
-            type: "update_speaker_notes",
-            slideId,
-            speakerNotes: "현재 프로젝트의 발표 메모를 개선합니다."
-          }
-        ]
-      },
-      status: "pending",
-      createdAt: "2026-06-29T00:00:00.000Z",
-      updatedAt: "2026-06-29T00:00:01.000Z"
-    } satisfies AiSuggestion;
-    const response = {
-      projectId,
-      suggestions: [suggestion]
-    } satisfies ListAiSuggestionsResponse;
-
-    queryClient.setQueryData(["deck", projectId], deck);
-    queryClient.setQueryData(["health"], {
-      app: "orbit-api",
-      demo: demoIds,
-      status: "ok"
-    });
-    queryClient.setQueryData(
-      aiSuggestionsQueryKey(projectId, {
-        deckId: deck.deckId,
-        slideId
-      }),
-      response
-    );
-
-    const html = renderApp(queryClient, projectId);
-
-    expect(html).toContain("실제 프로젝트 제안");
-    expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
   });
 
   it("uploads a PPTX file, creates an import job, and polls until completion", async () => {
@@ -643,6 +688,21 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a semantic cue extraction job with the requested regeneration policy", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ force: true });
+      return new Response(JSON.stringify({ job: jobPayload("queued") }));
+    });
+
+    await expect(
+      createSemanticCueExtractionJob("project-a", true, fetcher)
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(
+      "/api/v1/projects/project-a/deck/semantic-cues"
+    );
   });
 
   it("renders stored slide thumbnail images in the slide list", () => {
@@ -954,6 +1014,40 @@ describe("editor shell", () => {
         version: acknowledgement.version + 1
       })
     ).toThrow("acknowledgement version");
+  });
+
+  it("accepts both lightweight acknowledgements and legacy full deck responses", () => {
+    const deck = createDemoDeck();
+    const patch: DeckPatch = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [{ type: "update_deck", title: "호환 저장" }]
+    };
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: "2026-07-10T00:00:00.000Z"
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+
+    const acknowledgement = {
+      deckId: deck.deckId,
+      version: applied.deck.version,
+      changeRecord: applied.changeRecord,
+      updatedAt: applied.changeRecord.createdAt
+    };
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, acknowledgement).deck
+    ).toEqual(applied.deck);
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, {
+        deck: applied.deck,
+        changeRecord: applied.changeRecord,
+        snapshot: null,
+        updatedAt: applied.changeRecord.createdAt
+      }).deck
+    ).toEqual(applied.deck);
+    expect(() => parseDeckPatchPersistenceResponse(deck, patch, {})).toThrow();
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {

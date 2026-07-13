@@ -3,12 +3,18 @@ import {
   InMemoryJobQueue,
   aiTemplateDeckGenerationJobName,
   aiTemplateDeckGenerationQueueName,
+  enqueueSemanticCueExtractionJob,
   enqueueAiTemplateDeckGenerationJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
+  enqueueRehearsalSemanticEvaluationJob,
   enqueueWorkerHealthCheckJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
+  rehearsalSemanticEvaluationJobName,
+  rehearsalSemanticEvaluationQueueName,
+  semanticCueExtractionJobName,
+  semanticCueExtractionQueueName,
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
@@ -33,6 +39,29 @@ beforeEach(() => {
     add: queueMock.add,
     close: queueMock.close
   }));
+});
+
+describe("enqueueRehearsalSemanticEvaluationJob", () => {
+  it("adds an ID-only semantic evaluation retry job to BullMQ", async () => {
+    await enqueueRehearsalSemanticEvaluationJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-retry",
+      projectId: "project-a",
+      runId: "run-1"
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      rehearsalSemanticEvaluationQueueName,
+      { connection: expect.objectContaining({ host: "localhost", port: 6379 }) }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(
+      rehearsalSemanticEvaluationJobName,
+      { jobId: "job-semantic-retry", projectId: "project-a", runId: "run-1" },
+      expect.objectContaining({ jobId: "job-semantic-retry", attempts: 5 })
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain("transcript");
+  });
 });
 
 describe("InMemoryJobQueue", () => {
@@ -87,10 +116,11 @@ describe("enqueueWorkerHealthCheckJob", () => {
         port: 6379
       })
     });
-    expect(queueMock.add).toHaveBeenCalledWith(workerHealthCheckJobName, {
-      jobId: "job-1",
-      projectId: "project-a"
-    });
+    expect(queueMock.add).toHaveBeenCalledWith(
+      workerHealthCheckJobName,
+      { jobId: "job-1", projectId: "project-a" },
+      expect.objectContaining({ jobId: "job-1", attempts: 5 })
+    );
     expect(queueMock.close).toHaveBeenCalled();
   });
 });
@@ -111,11 +141,11 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
         port: 6379
       })
     });
-    expect(queueMock.add).toHaveBeenCalledWith(pptxOoxmlGenerationJobName, {
-      jobId: "job-1",
-      projectId: "project-a",
-      request: { fileId: "file_1", topic: "Topic" }
-    });
+    expect(queueMock.add).toHaveBeenCalledWith(
+      pptxOoxmlGenerationJobName,
+      { jobId: "job-1", projectId: "project-a", request: { fileId: "file_1", topic: "Topic" } },
+      expect.objectContaining({ jobId: "job-1", attempts: 5 })
+    );
     expect(queueMock.close).toHaveBeenCalled();
   });
 });
@@ -157,14 +187,54 @@ describe("enqueueAiTemplateDeckGenerationJob", () => {
         })
       }
     );
-    expect(queueMock.add).toHaveBeenCalledWith(aiTemplateDeckGenerationJobName, {
-      jobId: "job-template",
+    expect(queueMock.add).toHaveBeenCalledWith(
+      aiTemplateDeckGenerationJobName,
+      {
+        jobId: "job-template",
+        projectId: "project-a",
+        request: expect.objectContaining({
+          topic: "ORBIT",
+          assets: [{ fileId: "file_design", role: "design" }]
+        })
+      },
+      expect.objectContaining({ jobId: "job-template", attempts: 5 })
+    );
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueSemanticCueExtractionJob", () => {
+  it("adds a semantic cue extraction job to BullMQ", async () => {
+    await enqueueSemanticCueExtractionJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-cues",
       projectId: "project-a",
-      request: expect.objectContaining({
-        topic: "ORBIT",
-        assets: [{ fileId: "file_design", role: "design" }]
-      })
+      request: {
+        deckId: "deck_demo_1",
+        force: false,
+        baseVersion: 3
+      }
     });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      semanticCueExtractionQueueName,
+      {
+        connection: expect.objectContaining({
+          host: "localhost",
+          port: 6379
+        })
+      }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(
+      semanticCueExtractionJobName,
+      {
+        jobId: "job-semantic-cues",
+        projectId: "project-a",
+        request: { deckId: "deck_demo_1", force: false, baseVersion: 3 }
+      },
+      expect.objectContaining({ jobId: "job-semantic-cues", attempts: 5 })
+    );
     expect(queueMock.close).toHaveBeenCalled();
   });
 });

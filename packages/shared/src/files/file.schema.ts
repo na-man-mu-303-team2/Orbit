@@ -7,11 +7,20 @@ export const filePurposeSchema = z.enum([
   "pptx-import",
   "reference-material",
   "rehearsal-audio",
+  "focused-practice-audio",
+  "qna-answer-audio",
   "export-result",
   "report-result",
   "thumbnail",
   "design-asset",
 ]);
+
+export const privateAudioPurposeSchema = z.enum([
+  "rehearsal-audio",
+  "focused-practice-audio",
+  "qna-answer-audio",
+]);
+export const privateAudioPurposes = new Set<string>(privateAudioPurposeSchema.options);
 
 export const allowedAssetMimeTypes = [
   "application/pdf",
@@ -58,6 +67,7 @@ const documentAssetMimeTypes = new Set<string>(
 
 export interface AssetUploadUrlRequestSchemaOptions {
   maxRehearsalAudioUploadSizeBytes?: number;
+  allowedPrivatePurpose?: z.infer<typeof privateAudioPurposeSchema>;
 }
 
 export const uploadedFileSchema = z.object({
@@ -102,7 +112,18 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
-    if (value.purpose === "rehearsal-audio" && !isAudio) {
+    if (
+      privateAudioPurposes.has(value.purpose) &&
+      value.purpose !== options.allowedPrivatePurpose
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.purpose} is reserved for a dedicated private audio command.`,
+        path: ["purpose"],
+      });
+    }
+
+    if (privateAudioPurposes.has(value.purpose) && !isAudio) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "rehearsal-audio 업로드는 지원하는 오디오 MIME type이어야 합니다.",
@@ -110,10 +131,7 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
-    if (
-      value.purpose === "rehearsal-audio" &&
-      value.size > rehearsalAudioMaxBytes
-    ) {
+    if (privateAudioPurposes.has(value.purpose) && value.size > rehearsalAudioMaxBytes) {
       context.addIssue({
         code: z.ZodIssueCode.too_big,
         maximum: rehearsalAudioMaxBytes,
@@ -124,7 +142,7 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
-    if (value.purpose !== "rehearsal-audio" && !isDocument) {
+    if (!privateAudioPurposes.has(value.purpose) && !isDocument) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${value.purpose} uploads do not accept audio MIME types.`,
@@ -132,7 +150,7 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
-    if (value.purpose !== "rehearsal-audio" && value.size > maxAssetUploadSizeBytes) {
+    if (!privateAudioPurposes.has(value.purpose) && value.size > maxAssetUploadSizeBytes) {
       context.addIssue({
         code: z.ZodIssueCode.too_big,
         maximum: maxAssetUploadSizeBytes,

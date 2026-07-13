@@ -15,10 +15,39 @@ export const jobTypeSchema = z.enum([
   "reference-extract",
   "ai-deck-generation",
   "ai-template-deck-generation",
+  "semantic-cue-extraction",
   "pptx-ooxml-generation",
   "pptx-ooxml-sync",
   "worker-health-check",
   "rehearsal-stt",
+  "rehearsal-semantic-evaluation",
+  "final-report-generation",
+  "report-pdf-export",
+  "focused-practice-analysis",
+  "challenge-qna-generation",
+  "challenge-qna-answer-analysis",
+  "private-audio-cleanup",
+]);
+
+export const internalCoachingJobTypeSchema = z.enum([
+  "focused-practice-analysis",
+  "challenge-qna-generation",
+  "challenge-qna-answer-analysis",
+  "private-audio-cleanup",
+]);
+
+export const publicCreatableJobTypeSchema = z.enum([
+  "pptx-import",
+  "deck-export",
+  "reference-extract",
+  "ai-deck-generation",
+  "ai-template-deck-generation",
+  "semantic-cue-extraction",
+  "pptx-ooxml-generation",
+  "pptx-ooxml-sync",
+  "worker-health-check",
+  "rehearsal-stt",
+  "rehearsal-semantic-evaluation",
   "final-report-generation",
   "report-pdf-export",
 ]);
@@ -44,3 +73,5 @@ export const jobSchema = z.object({
 export type Job = z.infer<typeof jobSchema>;
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 export type JobType = z.infer<typeof jobTypeSchema>;
+export type InternalCoachingJobType = z.infer<typeof internalCoachingJobTypeSchema>;
+export type PublicCreatableJobType = z.infer<typeof publicCreatableJobTypeSchema>;

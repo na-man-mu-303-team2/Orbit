@@ -1,14 +1,10 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { jobSchema, type Job } from "../jobs/job.schema";
-import { deckSchema, type Deck } from "./deck.schema";
+import { jobSchema } from "../jobs/job.schema";
+import { deckSchema } from "./deck.schema";
 import { deckIdSchema } from "./id.schema";
-import {
-  deckChangeRecordSchema,
-  deckPatchSchema,
-  type DeckChangeRecord
-} from "./patch.schema";
+import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
 type DeckApiIssuePath = Array<string | number>;
 
@@ -167,7 +163,11 @@ export const putDeckResponseSchema = z
     );
   });
 
-export const appendDeckPatchRequestSchema = z.object({
+export const appendDeckPatchRequestSchema: z.ZodObject<{
+  patch: typeof deckPatchSchema;
+  responseMode: z.ZodOptional<z.ZodLiteral<"ack">>;
+  snapshotReason: z.ZodOptional<typeof deckSnapshotReasonSchema>;
+}> = z.object({
   patch: deckPatchSchema,
   responseMode: z.literal("ack").optional(),
   snapshotReason: deckSnapshotReasonSchema.optional(),
@@ -205,27 +205,23 @@ export const appendDeckPatchAckResponseSchema = z
     }
   });
 
-export type AppendDeckPatchResponse = {
-  deck: Deck;
-  changeRecord: DeckChangeRecord;
-  snapshot: DeckSnapshot | null;
-  ooxmlSyncJob?: Job;
-  updatedAt: string;
-};
+const appendDeckPatchResponseObjectSchema: z.ZodObject<{
+  deck: typeof deckSchema;
+  changeRecord: typeof deckChangeRecordSchema;
+  snapshot: z.ZodNullable<typeof deckSnapshotSchema>;
+  ooxmlSyncJob: z.ZodOptional<typeof jobSchema>;
+  updatedAt: typeof isoDateTimeSchema;
+}> = z.object({
+  deck: deckSchema,
+  changeRecord: deckChangeRecordSchema,
+  snapshot: deckSnapshotSchema.nullable(),
+  ooxmlSyncJob: jobSchema.optional(),
+  updatedAt: isoDateTimeSchema,
+});
 
-export const appendDeckPatchResponseSchema: z.ZodType<
-  AppendDeckPatchResponse,
-  z.ZodTypeDef,
-  unknown
-> = z
-  .object({
-    deck: deckSchema,
-    changeRecord: deckChangeRecordSchema,
-    snapshot: deckSnapshotSchema.nullable(),
-    ooxmlSyncJob: jobSchema.optional(),
-    updatedAt: isoDateTimeSchema,
-  })
-  .superRefine((response, ctx) => {
+export const appendDeckPatchResponseSchema: z.ZodEffects<
+  typeof appendDeckPatchResponseObjectSchema
+> = appendDeckPatchResponseObjectSchema.superRefine((response, ctx) => {
     requireMatchingDeckId(
       ctx,
       response.changeRecord.deckId,
@@ -258,7 +254,7 @@ export const appendDeckPatchResponseSchema: z.ZodType<
         ["snapshot", "version"],
       );
     }
-  });
+});
 
 export const listDeckSnapshotsResponseSchema = z
   .object({
@@ -328,6 +324,9 @@ export type AppendDeckPatchFullRequest = Omit<
 > & { responseMode?: undefined };
 export type AppendDeckPatchAckResponse = z.infer<
   typeof appendDeckPatchAckResponseSchema
+>;
+export type AppendDeckPatchResponse = z.infer<
+  typeof appendDeckPatchResponseSchema
 >;
 export type ListDeckSnapshotsResponse = z.infer<
   typeof listDeckSnapshotsResponseSchema

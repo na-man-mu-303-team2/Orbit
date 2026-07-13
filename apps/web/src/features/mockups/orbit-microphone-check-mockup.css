@@ -1,0 +1,98 @@
+.orbit-microphone-check-mockup { background: var(--orbit-ds-surface); color: var(--orbit-ds-ink); font-family: var(--orbit-ds-font-sans); min-height: 100vh; }
+.orbit-microphone-check-mockup *, .orbit-microphone-check-mockup *::before, .orbit-microphone-check-mockup *::after { box-sizing: border-box; }
+.orbit-microphone-check-mockup button, .orbit-microphone-check-mockup select { font: inherit; }
+.microphone-check-header { align-items: center; background: white; border-bottom: 1px solid var(--orbit-ds-border); display: flex; height: 68px; justify-content: space-between; padding: 0 24px; }
+.microphone-check-header > div { align-items: center; display: flex; gap: 12px; }
+.microphone-check-header > div:first-child > button { align-items: center; background: transparent; border: 0; border-radius: var(--orbit-ds-radius-control); display: flex; height: 38px; justify-content: center; width: 38px; }
+.microphone-check-header > div:first-child > button:hover { background: var(--orbit-ds-surface); }
+.microphone-check-header img { height: 30px; mix-blend-mode: multiply; object-fit: contain; width: auto; }
+.microphone-check-header > div:first-child > span { background: var(--orbit-ds-border); height: 26px; width: 1px; }
+.microphone-check-header strong { font-size: 15px; }
+.microphone-check-header > div:last-child > span:first-child { color: var(--orbit-ds-text-muted); font-size: 12px; }
+
+.microphone-check-main { margin: 0 auto; max-width: 1180px; padding: 68px 32px 80px; }
+.microphone-check-intro { margin-bottom: 34px; max-width: 760px; }
+.microphone-check-intro h1 { font-size: clamp(38px, 4.2vw, 58px); letter-spacing: -0.055em; line-height: 1.02; margin: 0; word-break: keep-all; }
+.microphone-check-intro > p:last-child { color: var(--orbit-ds-text-muted); font-size: 15px; line-height: 1.65; margin: 17px 0 0; }
+.microphone-check-layout { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.58fr) minmax(300px, 0.82fr); }
+
+.microphone-check-primary { align-items: center; background: white; border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); display: flex; flex-direction: column; min-height: 555px; padding: 42px 48px; text-align: center; }
+.microphone-check-primary.ready { align-items: stretch; text-align: left; }
+.microphone-check-primary.blocked { border-color: color-mix(in srgb, var(--orbit-ds-danger) 30%, var(--orbit-ds-border)); }
+.microphone-check-hero-icon { align-items: center; background: var(--orbit-ds-lilac-soft); border-radius: 50%; color: var(--orbit-ds-lilac-strong); display: flex; height: 88px; justify-content: center; margin-bottom: 20px; width: 88px; }
+.microphone-check-primary.ready .microphone-check-hero-icon { align-self: center; }
+.microphone-check-primary.blocked .microphone-check-hero-icon { background: var(--orbit-ds-danger-soft); color: var(--orbit-ds-danger); }
+.microphone-check-primary > .orbit-ds-status { align-self: center; }
+.microphone-check-primary h2 { font-size: 29px; letter-spacing: -0.045em; line-height: 1.16; margin: 18px 0 0; word-break: keep-all; }
+.microphone-check-description { color: var(--orbit-ds-text-muted); font-size: 14px; line-height: 1.65; margin: 12px auto 0; max-width: 520px; }
+.microphone-permission-note { align-items: center; background: var(--orbit-ds-cream); border-radius: 12px; display: flex; gap: 13px; margin-top: 28px; max-width: 510px; padding: 16px; text-align: left; width: 100%; }
+.microphone-permission-note > svg { flex: 0 0 auto; }
+.microphone-permission-note > div { display: grid; gap: 4px; }
+.microphone-permission-note strong { font-size: 13px; }
+.microphone-permission-note small { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.5; }
+.microphone-check-actions { display: flex; flex-direction: column; gap: 8px; margin-top: auto; max-width: 510px; padding-top: 30px; width: 100%; }
+.microphone-check-actions .orbit-ds-button { justify-content: center; width: 100%; }
+.microphone-check-actions > button:not(.orbit-ds-button) { align-items: center; background: transparent; border: 0; color: var(--orbit-ds-text-muted); display: inline-flex; font-size: 12px; gap: 7px; justify-content: center; min-height: 38px; }
+.microphone-check-actions > button:not(.orbit-ds-button):hover { color: var(--orbit-ds-ink); }
+
+.microphone-device-field { display: grid; gap: 8px; margin-top: 28px; }
+.microphone-device-field > label { font-size: 12px; font-weight: 700; }
+.microphone-device-field > div { align-items: center; border: 1px solid var(--orbit-ds-border-strong); border-radius: 10px; display: grid; gap: 9px; grid-template-columns: auto minmax(0, 1fr) auto; min-height: 48px; padding: 0 13px; }
+.microphone-device-field > div:focus-within { border-color: var(--orbit-ds-lilac-strong); box-shadow: var(--orbit-ds-focus); }
+.microphone-device-field select { appearance: none; background: transparent; border: 0; color: var(--orbit-ds-ink); min-width: 0; outline: 0; width: 100%; }
+.microphone-device-field svg { color: var(--orbit-ds-text-muted); }
+.microphone-level-card { background: var(--orbit-ds-lilac-soft); border-radius: 12px; margin-top: 15px; padding: 17px; }
+.microphone-level-card > div { align-items: center; display: flex; justify-content: space-between; }
+.microphone-level-card span { align-items: center; display: inline-flex; font-size: 12px; font-weight: 700; gap: 7px; }
+.microphone-level-card strong { color: var(--orbit-ds-success); font-size: 12px; }
+.microphone-level-card progress { accent-color: var(--orbit-ds-lilac-strong); height: 10px; margin: 13px 0 8px; width: 100%; }
+.microphone-level-card p { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); margin: 0; }
+.microphone-check-actions.ready-actions { display: grid; grid-template-columns: 1fr 1.25fr; max-width: none; padding-top: 22px; }
+.microphone-check-actions.ready-actions > button:not(.orbit-ds-button) { border: 1px solid var(--orbit-ds-border-strong); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); min-height: 44px; }
+.microphone-check-actions.ready-actions > button[aria-pressed="true"] { background: var(--orbit-ds-success-soft); border-color: var(--orbit-ds-success); color: var(--orbit-ds-success); }
+
+.microphone-permission-steps { display: grid; gap: 10px; list-style: none; margin: 28px 0 0; max-width: 510px; padding: 0; text-align: left; width: 100%; }
+.microphone-permission-steps li { align-items: center; background: var(--orbit-ds-surface); border-radius: 12px; display: grid; gap: 12px; grid-template-columns: auto 1fr; padding: 14px; }
+.microphone-permission-steps li > span { align-items: center; background: white; border: 1px solid var(--orbit-ds-border); border-radius: 50%; display: flex; font-family: var(--orbit-ds-font-mono); font-size: var(--orbit-ds-type-ui-small); height: 30px; justify-content: center; width: 30px; }
+.microphone-permission-steps li > div { display: grid; gap: 3px; }
+.microphone-permission-steps strong { font-size: 12px; }
+.microphone-permission-steps small { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.45; }
+
+.microphone-check-summary { background: white; border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); padding: 24px; }
+.microphone-check-summary > header { align-items: center; display: grid; gap: 11px; grid-template-columns: auto 1fr; }
+.microphone-check-summary > header > span { align-items: center; background: var(--orbit-ds-lilac-soft); border-radius: 50%; color: var(--orbit-ds-lilac-strong); display: flex; height: 42px; justify-content: center; width: 42px; }
+.microphone-check-summary > header > div { display: grid; gap: 3px; }
+.microphone-check-summary > header strong { font-size: 15px; }
+.microphone-check-summary > header small { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); }
+.microphone-check-summary ul { display: grid; list-style: none; margin: 22px 0 0; padding: 0; }
+.microphone-check-summary li { align-items: center; border-top: 1px solid var(--orbit-ds-border); display: grid; gap: 11px; grid-template-columns: auto 1fr; padding: 15px 0; }
+.microphone-check-summary li > span { align-items: center; color: var(--orbit-ds-text-muted); display: flex; height: 32px; justify-content: center; width: 32px; }
+.microphone-check-summary li.active > span { color: var(--orbit-ds-success); }
+.microphone-check-summary li > div { display: grid; gap: 4px; min-width: 0; }
+.microphone-check-summary li strong { font-size: 12px; }
+.microphone-check-summary li small { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.microphone-check-tip { align-items: flex-start; background: var(--orbit-ds-cream); border-radius: 12px; display: flex; gap: 10px; margin-top: 10px; padding: 14px; }
+.microphone-check-tip svg { flex: 0 0 auto; }
+.microphone-check-tip p { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.55; margin: 0; }
+.microphone-check-tip strong { color: var(--orbit-ds-ink); font-size: 12px; }
+.microphone-check-next { border-top: 1px solid var(--orbit-ds-border); display: grid; gap: 5px; margin-top: 22px; padding-top: 20px; }
+.microphone-check-next span { color: var(--orbit-ds-lilac-strong); font-family: var(--orbit-ds-font-mono); font-size: var(--orbit-ds-type-caption); font-weight: 750; letter-spacing: 0.06em; }
+.microphone-check-next strong { font-size: 13px; }
+.microphone-check-next small { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.45; }
+
+@media (max-width: 760px) {
+  .microphone-check-header { height: 64px; padding: 0 12px; }
+  .microphone-check-header > div:first-child > span,
+  .microphone-check-header > div:first-child > strong,
+  .microphone-check-header > div:last-child > span:first-child { display: none; }
+  .microphone-check-header img { height: 28px; }
+  .microphone-check-main { padding: 38px 16px 54px; }
+  .microphone-check-intro { margin-bottom: 24px; }
+  .microphone-check-intro h1 { font-size: 36px; }
+  .microphone-check-intro > p:last-child { font-size: 14px; }
+  .microphone-check-layout { grid-template-columns: 1fr; }
+  .microphone-check-primary { min-height: 520px; padding: 30px 20px; }
+  .microphone-check-primary h2 { font-size: 25px; }
+  .microphone-check-summary { padding: 20px; }
+  .microphone-check-actions.ready-actions { grid-template-columns: 1fr; }
+}

@@ -15,6 +15,7 @@ describe("AutoAdvanceSettings", () => {
 
     expect(html).toContain("리허설 자동 전환");
     expect(html).toContain("실전 자동 전환");
+    expect(html).toContain("E5 대본 따라가기");
     expect(html).toContain("70%");
   });
 
@@ -31,14 +32,18 @@ describe("AutoAdvanceSettings", () => {
   it("persists rehearsal and live toggle changes through settings updaters", () => {
     const saveSettings = vi.fn();
     const element = renderSettingsElement(saveSettings);
-    const [rehearsalToggle, liveToggle] = findElementsByType(element, "input");
+    const [rehearsalToggle, liveToggle, semanticToggle] = findElementsByType(
+      element,
+      "input"
+    );
 
     rehearsalToggle.props.onChange({ target: { checked: false } });
     liveToggle.props.onChange({ target: { checked: false } });
+    semanticToggle.props.onChange({ target: { checked: false } });
 
     expect(applySettingsUpdater(saveSettings.mock.calls[0]![0])).toMatchObject({
       advancePolicy: {
-        live: true,
+        live: false,
         rehearsal: false
       }
     });
@@ -48,6 +53,12 @@ describe("AutoAdvanceSettings", () => {
         rehearsal: true
       }
     });
+    expect(applySettingsUpdater(saveSettings.mock.calls[2]![0])).toMatchObject({
+      advancePolicy: {
+        semanticMatching: false
+      }
+    });
+    expect(semanticToggle.props.checked).toBe(true);
   });
 
   it("persists threshold changes in five percent steps within the allowed range", () => {

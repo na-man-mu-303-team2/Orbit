@@ -157,6 +157,33 @@ type DeckValidationInput = {
             kind: "go-to-next-slide";
           };
     }>;
+    semanticCues?: Array<{
+      cueId: string;
+      slideId: string;
+      meaning: string;
+      required: boolean;
+      priority: 1 | 2 | 3;
+      candidateKeywords: string[];
+      aliases: Record<string, string[]>;
+      requiredConcepts: string[];
+      nliHypotheses: string[];
+      negativeHints?: string[];
+      targetElementIds?: string[];
+      triggerActionIds?: string[];
+      reviewStatus?: "suggested" | "approved" | "excluded";
+      freshness?: "current" | "stale";
+      sourceRefs?: Array<{
+        kind:
+          | "slide-title"
+          | "speaker-notes"
+          | "element"
+          | "table"
+          | "chart"
+          | "image-analysis";
+        refId?: string;
+        sourceHash: string;
+      }>;
+    }>;
   }>;
 };
 
@@ -352,6 +379,105 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.slides[0].actions).toEqual([]);
+  });
+
+  it("defaults slide semantic cues to an empty list", () => {
+    const result = deckSchema.parse(createValidDeck());
+
+    expect(result.slides[0].semanticCues).toEqual([]);
+  });
+
+  it("accepts semantic cues that reference slide elements and actions", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].actions = [
+      {
+        actionId: "act_1",
+        trigger: {
+          kind: "cue",
+          cue: "CAC"
+        },
+        effect: {
+          kind: "play-animation",
+          animationId: "anim_1"
+        }
+      }
+    ];
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_1",
+        meaning: "CAC가 높은 원인은 초기 영업 비용입니다",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["CAC", "영업 비용"],
+        aliases: {
+          CAC: ["고객 획득 비용"]
+        },
+        requiredConcepts: ["초기 영업 비용", "고객 획득 비용"],
+        nliHypotheses: ["고객 획득 비용이 초기 영업 비용 때문에 높다"],
+        negativeHints: ["CAC가 단순히 중요하다는 설명"],
+        targetElementIds: ["el_1"],
+        triggerActionIds: ["act_1"]
+      }
+    ];
+
+    const result = deckSchema.parse(deck);
+
+    expect(result.slides[0].semanticCues[0]?.nliHypotheses).toHaveLength(1);
+    expect(result.slides[0].semanticCues[0]).toMatchObject({
+      importance: "supporting",
+      reviewStatus: "suggested",
+      freshness: "current",
+      origin: "imported",
+      revision: 1
+    });
+  });
+
+  it("rejects semantic cue references outside the same slide", () => {
+    const deck = createValidDeck();
+
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_other",
+        meaning: "의미 단위",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["CAC"],
+        aliases: {},
+        requiredConcepts: ["초기 영업 비용"],
+        nliHypotheses: ["CAC가 초기 영업 비용 때문에 높다"],
+        targetElementIds: ["el_missing"],
+        triggerActionIds: ["act_missing"]
+      }
+    ];
+
+    expectInvalidDeck(deck);
+  });
+
+  it("accepts an approved stale cue after element and action references are removed", () => {
+    const deck = createValidDeck();
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_1",
+        slideId: "slide_1",
+        meaning: "발표자는 핵심 원인을 설명한다",
+        required: true,
+        priority: 1,
+        candidateKeywords: ["원인"],
+        aliases: {},
+        requiredConcepts: ["핵심 원인"],
+        nliHypotheses: ["발표자는 핵심 원인을 설명했다"],
+        targetElementIds: [],
+        triggerActionIds: [],
+        sourceRefs: [],
+        reviewStatus: "approved",
+        freshness: "stale"
+      }
+    ];
+
+    expectValidDeck(deck);
   });
 
   it("accepts explicit deck and slide presenter timing fields", () => {
@@ -1473,6 +1599,39 @@ describe("deckPatchSchema validation", () => {
     };
 
     expect(deckPatchSchema.safeParse(patch).success).toBe(false);
+  });
+
+  it("accepts a slide-scoped semantic cue replacement patch", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "replace_semantic_cues",
+          slideId: "slide_1",
+          semanticCues: [
+            {
+              cueId: "scue_1",
+              slideId: "slide_1",
+              meaning: "발표자는 핵심 원인을 설명한다",
+              nliHypotheses: ["발표자는 핵심 원인을 설명했다"]
+            }
+          ]
+        }
+      ]
+    };
+
+    const result = deckPatchSchema.parse(patch);
+    const operation = result.operations[0];
+
+    expect(operation.type).toBe("replace_semantic_cues");
+    if (operation.type === "replace_semantic_cues") {
+      expect(operation.semanticCues[0]).toMatchObject({
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "imported",
+        revision: 1
+      });
+    }
   });
 
   it("rejects empty patch operations", () => {

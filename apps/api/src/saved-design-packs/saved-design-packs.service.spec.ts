@@ -151,6 +151,7 @@ function baseRequest(overrides: Partial<GenerateDeckRequest>): GenerateDeckReque
     designReferences: [],
     referenceKeywords: [],
     referenceContext: [],
+    coachingContext: null,
     ...overrides
   };
 }

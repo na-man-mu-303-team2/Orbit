@@ -38,6 +38,9 @@ export class ProjectAssetEntity {
   @Column({ type: "text" })
   status!: ProjectAssetStatus;
 
+  @Column({ name: "content_hash", nullable: true, type: "text" })
+  contentHash!: string | null;
+
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 

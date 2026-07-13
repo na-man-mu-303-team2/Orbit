@@ -23,6 +23,7 @@ import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
 import { OrganizationsService } from "../organizations/organizations.service";
 import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
+import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
 const generateDeckJobResponseSchema = z.object({
   job: jobSchema
@@ -48,7 +49,9 @@ export class GenerateDeckService {
     @Optional()
     private readonly savedDesignPacksService?: SavedDesignPacksService,
     @Optional()
-    private readonly organizationsService?: OrganizationsService
+    private readonly organizationsService?: OrganizationsService,
+    @Optional()
+    private readonly presentationBriefs?: PresentationBriefsService
   ) {}
 
   async createJob(
@@ -75,6 +78,7 @@ export class GenerateDeckService {
           )
         : { request: resolved.request };
     const request = brandResolved.request;
+    await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertDesignReferences(projectId, request.designReferences);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const queuedJob = await this.jobsService.create({
@@ -210,6 +214,29 @@ export class GenerateDeckService {
       if (!asset.mimeType.startsWith("image/")) {
         throw new BadRequestException("Official assets must be uploaded image files.");
       }
+    }
+  }
+
+  private async assertCoachingContext(
+    projectId: string,
+    context: ReturnType<typeof generateDeckRequestSchema.parse>["coachingContext"]
+  ) {
+    if (!context) return;
+    if (context.briefRef.mode === "generic") {
+      if (context.evaluatorLensRef.lensId !== "general-novice") {
+        throw new BadRequestException("Generic generation must use the general novice lens.");
+      }
+      return;
+    }
+    const brief = await this.presentationBriefs?.getCurrent(projectId);
+    if (
+      !brief ||
+      brief.briefId !== context.briefRef.briefId ||
+      brief.revision !== context.briefRef.revision ||
+      brief.evaluatorLensRef.lensId !== context.evaluatorLensRef.lensId ||
+      brief.evaluatorLensRef.revision !== context.evaluatorLensRef.revision
+    ) {
+      throw new BadRequestException("Brief generation context is no longer current.");
     }
   }
 }

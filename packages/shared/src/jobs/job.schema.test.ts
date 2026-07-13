@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { jobTypeSchema } from "./job.schema";
+import {
+  internalCoachingJobTypeSchema,
+  jobTypeSchema,
+  publicCreatableJobTypeSchema,
+} from "./job.schema";
 
 describe("jobTypeSchema", () => {
   it("accepts worker health check jobs", () => {
@@ -22,5 +26,18 @@ describe("jobTypeSchema", () => {
 
   it("accepts PPTX OOXML sync jobs", () => {
     expect(jobTypeSchema.parse("pptx-ooxml-sync")).toBe("pptx-ooxml-sync");
+  });
+
+  it("accepts rehearsal semantic evaluation retry jobs", () => {
+    expect(jobTypeSchema.parse("rehearsal-semantic-evaluation")).toBe(
+      "rehearsal-semantic-evaluation"
+    );
+  });
+
+  it("accepts internal coaching jobs but never exposes them as public create types", () => {
+    for (const type of internalCoachingJobTypeSchema.options) {
+      expect(jobTypeSchema.parse(type)).toBe(type);
+      expect(publicCreatableJobTypeSchema.safeParse(type).success).toBe(false);
+    }
   });
 });

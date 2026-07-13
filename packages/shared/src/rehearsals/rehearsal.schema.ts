@@ -6,15 +6,94 @@ import {
   assetUploadUrlResponseSchema
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
-import { deckKeywordIdSchema, deckSlideIdSchema } from "../deck/id.schema";
+import {
+  deckKeywordIdSchema,
+  deckSemanticCueIdSchema,
+  deckSlideIdSchema
+} from "../deck/id.schema";
+import { keywordSchema } from "../deck/deck.schema";
+import {
+  semanticCueImportanceSchema,
+  semanticCueSchema
+} from "../deck/semantic-cue.schema";
+import {
+  briefRefSchema,
+  coachingIdSchema,
+  evaluatorLensRefSchema
+} from "../coaching/coaching-common.schema";
+import {
+  criterionResultSchema,
+  measurementStateSchema,
+  reportObservationSchema
+} from "../coaching/evaluation-criterion.schema";
+import { rehearsalEvaluationPlanSchema } from "../coaching/evaluator-lens.schema";
+import { practiceVerificationSummarySchema } from "../coaching/focused-practice.schema";
+import { coachingActionSchema } from "../coaching/practice-goal.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
   "uploading",
   "processing",
   "succeeded",
-  "failed"
+  "failed",
+  "cancelled"
 ]);
+
+export const rehearsalSemanticEvaluationModeSchema = z.enum([
+  "full",
+  "delivery-only"
+]);
+
+export const rehearsalEvaluationSnapshotKeywordSchema = keywordSchema
+  .pick({
+    keywordId: true,
+    text: true,
+    synonyms: true,
+    abbreviations: true,
+    required: true
+  })
+  .strict();
+
+export const rehearsalEvaluationSnapshotSlideSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    order: z.number().int().positive(),
+    title: z.string().trim().min(1).max(240),
+    estimatedSeconds: z.number().int().positive(),
+    keywords: z.array(rehearsalEvaluationSnapshotKeywordSchema),
+    semanticCues: z.array(semanticCueSchema)
+  })
+  .strict()
+  .superRefine((slide, context) => {
+    slide.semanticCues.forEach((cue, cueIndex) => {
+      if (cue.slideId !== slide.slideId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must reference its containing slide.",
+          path: ["semanticCues", cueIndex, "slideId"]
+        });
+      }
+
+      if (cue.reviewStatus !== "approved" && cue.reviewStatus !== "excluded") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "snapshot semantic cue must be approved or excluded.",
+          path: ["semanticCues", cueIndex, "reviewStatus"]
+        });
+      }
+    });
+  });
+
+export const rehearsalEvaluationSnapshotSchema = z
+  .object({
+    deckId: z.string().trim().min(1),
+    deckVersion: z.number().int().positive(),
+    deckContentHash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().default(null),
+    evaluationPlan: rehearsalEvaluationPlanSchema.nullable().default(null),
+    capturedAt: isoDateTimeSchema,
+    slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
+  })
+  .strict();
 
 export const rehearsalRunErrorSchema = z.object({
   code: z.string().min(1),
@@ -28,6 +107,11 @@ export const rehearsalRunSchema = z.object({
   audioFileId: z.string().min(1).nullable(),
   jobId: z.string().min(1).nullable(),
   status: rehearsalRunStatusSchema,
+  deckVersion: z.number().int().positive().nullable().default(null),
+  evaluationSnapshot: rehearsalEvaluationSnapshotSchema.nullable().default(null),
+  semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full"),
+  analysisRevision: z.number().int().nonnegative().default(0),
+  analysisFinalizedAt: isoDateTimeSchema.nullable().default(null),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
@@ -39,7 +123,16 @@ export const rehearsalReportMetricsSchema = z.object({
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
-  keywordCoverage: z.number().min(0).max(1)
+  keywordCoverage: z.number().min(0).max(1),
+  keywordCoverageMeasurement: z
+    .object({
+      state: z.enum(["measured", "unmeasured"]),
+      reason: z
+        .enum(["no-keywords", "stt-unavailable", "transcript-incomplete"])
+        .optional()
+    })
+    .strict()
+    .default({ state: "measured" })
 }).strict();
 
 export const rehearsalReportSpeedSampleSchema = z
@@ -120,6 +213,268 @@ export const rehearsalReportCoachingSchema = z.object({
   message: z.string().default("")
 });
 
+export const rehearsalUtteranceOutcomeKindSchema = z.enum([
+  "covered",
+  "paraphrased",
+  "ad-lib",
+  "missed"
+]);
+
+export const rehearsalUtteranceOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    kind: rehearsalUtteranceOutcomeKindSchema,
+    sentenceId: z.string().trim().min(1).optional(),
+    text: z.string().trim().min(1).max(600).optional(),
+    similarity: z.number().min(-1).max(1).optional(),
+    lexicalOverlap: z.number().min(0).max(1).optional(),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict();
+
+export const semanticCueDecisionLabelSchema = z.enum([
+  "covered",
+  "partial",
+  "not_covered",
+  "contradicted"
+]);
+
+export const semanticCueNliProviderSchema = z.enum([
+  "browser-transformersjs",
+  "browser-onnx",
+  "mock"
+]);
+
+export const semanticCapabilitySchema = z.enum([
+  "stt",
+  "semantic_runtime",
+  "embedding",
+  "nli",
+  "server_evaluation",
+  "cue_freshness",
+  "transcript_evidence"
+]);
+
+export const semanticCapabilityStateSchema = z.enum([
+  "available",
+  "degraded",
+  "unavailable"
+]);
+
+export const semanticMeasurementModeSchema = z.enum(["full", "basic", "none"]);
+
+export const semanticFallbackReasonSchema = z.enum([
+  "user_disabled",
+  "permission_denied",
+  "stt_unavailable",
+  "network_error",
+  "provider_unavailable",
+  "model_not_ready",
+  "model_load_failed",
+  "timeout",
+  "runtime_error",
+  "server_evaluation_failed",
+  "stale_cue",
+  "transcript_incomplete",
+  "no_transcript",
+  "insufficient_evidence",
+  "slide_not_visited",
+  "evaluation_not_run",
+  "evaluation_snapshot_mismatch",
+  "queue_dropped",
+  "needs_confirmation"
+]);
+
+export const semanticCueMatchedBySchema = z.enum([
+  "lexical",
+  "alias",
+  "embedding",
+  "nli"
+]);
+
+const dedupedSemanticCueIdsSchema = z
+  .array(deckSemanticCueIdSchema)
+  .transform((cueIds) => [...new Set(cueIds)])
+  .pipe(z.array(deckSemanticCueIdSchema).max(50));
+
+export const semanticCapabilityEventSchema = z
+  .object({
+    eventId: z.string().trim().min(1).max(160),
+    capability: semanticCapabilitySchema,
+    fromState: semanticCapabilityStateSchema.nullable(),
+    toState: semanticCapabilityStateSchema,
+    reason: semanticFallbackReasonSchema.optional(),
+    measurementMode: semanticMeasurementModeSchema,
+    retryable: z.boolean(),
+    slideId: deckSlideIdSchema.optional(),
+    cueIds: dedupedSemanticCueIdsSchema,
+    provider: z.string().trim().min(1).max(160).optional(),
+    latencyMs: z.number().finite().nonnegative().optional(),
+    at: isoDateTimeSchema
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (event.toState !== "available" && event.reason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "degraded or unavailable capability events require a reason.",
+        path: ["reason"]
+      });
+    }
+
+    if (event.toState === "available" && event.fromState === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "available recovery capability events require fromState.",
+        path: ["fromState"]
+      });
+    }
+  });
+
+export const rehearsalSemanticCueDecisionSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema,
+    label: semanticCueDecisionLabelSchema,
+    finalScore: z.number().finite().min(0).max(1),
+    embeddingScore: z.number().finite().min(-1).max(1).optional(),
+    lexicalScore: z.number().finite().min(0).max(1).optional(),
+    conceptCoverage: z.number().finite().min(0).max(1).optional(),
+    entailmentScore: z.number().finite().min(0).max(1).optional(),
+    neutralScore: z.number().finite().min(0).max(1).optional(),
+    contradictionScore: z.number().finite().min(0).max(1).optional(),
+    premise: z.string().trim().min(1).max(600).optional(),
+    hypothesis: z.string().trim().min(1).max(300).optional(),
+    matchedBy: semanticCueMatchedBySchema.default("nli"),
+    measurementMode: semanticMeasurementModeSchema.default("full"),
+    fallbackUsed: z.boolean().default(false),
+    fallbackReason: semanticFallbackReasonSchema.optional(),
+    provider: semanticCueNliProviderSchema.optional(),
+    modelId: z.string().trim().min(1).max(160).optional(),
+    reasonCodes: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
+    at: isoDateTimeSchema.optional()
+  })
+  .strict()
+  .superRefine((decision, context) => {
+    if (decision.fallbackUsed && decision.fallbackReason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fallbackUsed decisions require fallbackReason.",
+        path: ["fallbackReason"]
+      });
+    }
+  });
+
+export const rehearsalSemanticCueOutcomeStatusSchema = z.enum([
+  "covered",
+  "partial",
+  "missed",
+  "unmeasured",
+  "excluded"
+]);
+
+export const rehearsalSemanticCueOutcomeMatchedBySchema = z.enum([
+  "lexical",
+  "alias",
+  "embedding",
+  "nli",
+  "post_run_semantic"
+]);
+
+const normalizedEvidenceExcerptSchema = z
+  .string()
+  .transform((value) => value.normalize("NFC").replace(/\s+/g, " ").trim())
+  .pipe(z.string().min(1).max(300));
+
+export const rehearsalSemanticCueOutcomeSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema,
+    cueRevision: z.number().int().positive(),
+    cueMeaningSnapshot: z.string().trim().min(1).max(240),
+    reportLabelSnapshot: z.string().trim().min(1).max(80),
+    importance: semanticCueImportanceSchema,
+    status: rehearsalSemanticCueOutcomeStatusSchema,
+    confidence: z.number().finite().min(0).max(1).optional(),
+    matchedBy: rehearsalSemanticCueOutcomeMatchedBySchema.optional(),
+    measurementMode: semanticMeasurementModeSchema,
+    fallbackUsed: z.boolean(),
+    fallbackReason: semanticFallbackReasonSchema.optional(),
+    unmeasuredReason: semanticFallbackReasonSchema.optional(),
+    evidence: z
+      .object({
+        excerpt: normalizedEvidenceExcerptSchema,
+        startMs: z.number().finite().nonnegative(),
+        endMs: z.number().finite().nonnegative()
+      })
+      .strict()
+      .optional(),
+    coveredConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
+    missingConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
+    feedback: z.string().trim().min(1).max(300).optional()
+  })
+  .strict()
+  .superRefine((outcome, context) => {
+    if (
+      outcome.status === "unmeasured" &&
+      (outcome.measurementMode !== "none" || outcome.unmeasuredReason === undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unmeasured outcomes require mode none and unmeasuredReason.",
+        path: ["unmeasuredReason"]
+      });
+    }
+
+    if (
+      outcome.status === "excluded" &&
+      (outcome.measurementMode !== "none" || outcome.evidence !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "excluded outcomes require mode none and cannot include evidence.",
+        path: ["status"]
+      });
+    }
+
+    if (outcome.status === "missed" && outcome.measurementMode !== "full") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "missed outcomes require full measurement mode.",
+        path: ["measurementMode"]
+      });
+    }
+
+    if (outcome.fallbackUsed && outcome.fallbackReason === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fallbackUsed outcomes require fallbackReason.",
+        path: ["fallbackReason"]
+      });
+    }
+
+    if (
+      outcome.measurementMode === "basic" &&
+      outcome.status !== "covered" &&
+      outcome.status !== "partial"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "basic measurement mode only supports covered or partial outcomes.",
+        path: ["status"]
+      });
+    }
+  });
+
+export const rehearsalSemanticEvaluationSchema = z
+  .object({
+    state: z.enum(["succeeded", "partial", "unavailable"]),
+    measurementMode: semanticMeasurementModeSchema,
+    reasons: z.array(semanticFallbackReasonSchema).max(20),
+    retryable: z.boolean()
+  })
+  .strict();
+
 export const rehearsalReportSchema = z
   .object({
     reportId: z.string().min(1),
@@ -133,6 +488,17 @@ export const rehearsalReportSchema = z
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
+    utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
+      .default([]),
+    semanticEvaluation: rehearsalSemanticEvaluationSchema.default({
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["evaluation_not_run"],
+      retryable: false
+    }),
+    semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
     slideInsights: z.array(rehearsalReportSlideInsightSchema).default([]),
     qnaSummary: rehearsalReportQnaSummarySchema.default({
@@ -155,9 +521,34 @@ export const rehearsalReportSchema = z
     }
   });
 
-export const createRehearsalRunRequestSchema = z.object({
-  deckId: z.string().min(1)
-});
+export const createRehearsalRunRequestSchema = z
+  .object({
+    deckId: z.string().min(1),
+    expectedDeckVersion: z.number().int().positive().optional(),
+    briefRef: briefRefSchema.optional(),
+    evaluatorLensRef: evaluatorLensRefSchema.optional(),
+    sourceGoalSetId: z.string().trim().min(1).max(128).nullable().optional(),
+    semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
+  })
+  .strict()
+  .superRefine((request, context) => {
+    const adaptiveFields = [
+      request.briefRef,
+      request.evaluatorLensRef,
+      request.sourceGoalSetId
+    ];
+    const suppliedCount = adaptiveFields.filter((value) => value !== undefined).length;
+    if (
+      suppliedCount > 0 &&
+      (suppliedCount < adaptiveFields.length || request.expectedDeckVersion === undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "adaptive rehearsal evaluation context must be supplied as a complete set.",
+        path: ["briefRef"]
+      });
+    }
+  });
 
 export const createRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
@@ -246,9 +637,20 @@ export const rehearsalRunMetaSchema = z
           })
           .strict()
       )
+      .default([]),
+    utteranceOutcomes: z
+      .array(rehearsalUtteranceOutcomeSchema)
+      .default([]),
+    semanticCueDecisions: z
+      .array(rehearsalSemanticCueDecisionSchema)
+      .default([]),
+    semanticCapabilityEvents: z
+      .array(semanticCapabilityEventSchema)
+      .max(100)
       .default([])
   })
-  // run 메타는 리포트 집계를 위한 사건 정보만 받고 전사/대본/원본 오디오는 받지 않는다.
+  // Run meta stores bounded report facts only. It may include approved ad-lib
+  // snippets, but must not accept full transcript, speaker notes, or raw audio.
   .strict();
 
 export const updateRehearsalRunMetaRequestSchema = rehearsalRunMetaSchema;
@@ -261,12 +663,378 @@ export const getRehearsalRunResponseSchema = z.object({
   run: rehearsalRunSchema
 });
 
+export const cancelRehearsalRunResponseSchema = z.object({
+  run: rehearsalRunSchema
+});
+
+export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
+  job: jobSchema
+});
+
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable()
 });
 
+export const rehearsalComparisonIssueSchema = z
+  .object({
+    category: z.enum(["semantic-cue", "timing", "delivery"]),
+    slideId: deckSlideIdSchema,
+    cueId: deckSemanticCueIdSchema.optional(),
+    cueRevision: z.number().int().positive().optional(),
+    label: z.string().trim().min(1).max(120),
+    severity: z.enum(["high", "medium", "low"]),
+    reason: z.string().trim().min(1).max(300)
+  })
+  .strict();
+
+export const rehearsalRunComparisonSchema = z
+  .object({
+    currentRunId: z.string().min(1),
+    previousRunId: z.string().min(1).nullable(),
+    improved: z.array(rehearsalComparisonIssueSchema).max(500),
+    repeated: z.array(rehearsalComparisonIssueSchema).max(500),
+    newIssues: z.array(rehearsalComparisonIssueSchema).max(500),
+    incomparable: z.array(rehearsalComparisonIssueSchema).max(500),
+    briefing: z.array(rehearsalComparisonIssueSchema).max(3)
+  })
+  .strict();
+
+export const getRehearsalRunComparisonResponseSchema =
+  rehearsalRunComparisonSchema;
+
+export const trendMetricSchema = z.enum([
+  "filler-word-count",
+  "duration-seconds",
+  "words-per-minute",
+  "timing-balance",
+  "semantic-coverage",
+  "volume-consistency",
+  "pronunciation-confidence"
+]);
+
+export const trendSeriesPointSchema = z
+  .object({
+    runId: coachingIdSchema,
+    createdAt: isoDateTimeSchema,
+    measurementState: measurementStateSchema,
+    comparability: z.enum(["comparable", "incomparable"]),
+    value: z.number().finite().nonnegative().nullable(),
+    reasonCode: z
+      .enum([
+        "NO_MEASUREMENT",
+        "DECK_CHANGED",
+        "BRIEF_CHANGED",
+        "CRITERION_CHANGED",
+        "SCOPE_CHANGED",
+        "METRIC_DEFINITION_CHANGED",
+        "LENS_CHANGED",
+        "TARGET_CHANGED"
+      ])
+      .nullable()
+  })
+  .strict()
+  .superRefine((point, context) => {
+    const isMeasured = point.measurementState === "measured";
+    if (isMeasured !== (point.value !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "measured trend points require a value and unmeasured points must omit it.",
+        path: ["value"]
+      });
+    }
+
+    const requiresReason =
+      point.measurementState === "unmeasured" || point.comparability === "incomparable";
+    if (requiresReason !== (point.reasonCode !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unmeasured or incomparable trend points require a reason code.",
+        path: ["reasonCode"]
+      });
+    }
+  });
+
+export const trendTargetRangeSchema = z
+  .object({
+    minimum: z.number().finite().nonnegative(),
+    maximum: z.number().finite().nonnegative()
+  })
+  .strict()
+  .refine((range) => range.maximum >= range.minimum, {
+    message: "trend target range maximum must not be less than its minimum.",
+    path: ["maximum"]
+  });
+
+export const trendSeriesSchema = z
+  .object({
+    seriesId: coachingIdSchema,
+    projectId: coachingIdSchema,
+    metric: trendMetricSchema,
+    metricDefinitionVersion: z.number().int().positive(),
+    unit: z.enum(["count", "seconds", "words-per-minute", "ratio"]),
+    direction: z.enum(["lower-is-better", "higher-is-better", "target-range"]),
+    targetRange: trendTargetRangeSchema.nullable(),
+    points: z.array(trendSeriesPointSchema).max(5),
+    calculatedAt: isoDateTimeSchema
+  })
+  .strict()
+  .superRefine((series, context) => {
+    const runIds = series.points.map((point) => point.runId);
+    if (new Set(runIds).size !== runIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "trend series run IDs must be unique.",
+        path: ["points"]
+      });
+    }
+
+    const expectedPresentation = {
+      "filler-word-count": { unit: "count", direction: "lower-is-better", hasRange: false },
+      "duration-seconds": { unit: "seconds", direction: "target-range", hasRange: true },
+      "words-per-minute": { unit: "words-per-minute", direction: "target-range", hasRange: true },
+      "timing-balance": { unit: "ratio", direction: "higher-is-better", hasRange: false },
+      "semantic-coverage": { unit: "ratio", direction: "higher-is-better", hasRange: false },
+      "volume-consistency": { unit: "ratio", direction: "higher-is-better", hasRange: false },
+      "pronunciation-confidence": { unit: "ratio", direction: "higher-is-better", hasRange: false }
+    } as const;
+    const expected = expectedPresentation[series.metric];
+    if (series.unit !== expected.unit || series.direction !== expected.direction) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "trend metric must use its canonical unit and direction.",
+        path: ["metric"]
+      });
+    }
+    if ((series.targetRange !== null) !== expected.hasRange) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "target-range metrics require a target range and other metrics must omit it.",
+        path: ["targetRange"]
+      });
+    }
+  });
+
+export const coachingReadinessSchema = z.enum([
+  "ready",
+  "needs-practice",
+  "unmeasured"
+]);
+
+export const reportTimelineEventSchema = z
+  .object({
+    eventId: coachingIdSchema,
+    observationId: coachingIdSchema,
+    category: z.enum(["structure", "semantic", "timing", "delivery"]),
+    slideId: coachingIdSchema.nullable(),
+    startMs: z.number().int().nonnegative(),
+    endMs: z.number().int().nonnegative(),
+    severity: z.enum(["high", "medium", "low"])
+  })
+  .strict()
+  .refine((event) => event.endMs >= event.startMs, {
+    message: "timeline event must not end before it starts.",
+    path: ["endMs"]
+  });
+
+export const qnaAssessmentSchema = z
+  .object({
+    qnaSessionId: coachingIdSchema,
+    projectId: coachingIdSchema,
+    sourceFullRunId: coachingIdSchema,
+    criterionResults: z.array(criterionResultSchema).max(24),
+    assessedAt: isoDateTimeSchema
+  })
+  .strict();
+
+export const nextPracticePlanSchema = z
+  .object({
+    steps: z
+      .array(
+        z
+          .object({
+            order: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+            action: coachingActionSchema
+          })
+          .strict()
+      )
+      .max(4)
+  })
+  .strict()
+  .superRefine((plan, context) => {
+    plan.steps.forEach((step, index) => {
+      if (step.order !== index + 1) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "next-practice plan steps must be ordered contiguously from one.",
+          path: ["steps", index, "order"]
+        });
+      }
+    });
+  });
+
+export const coachingReportViewSchema = z
+  .object({
+    reportId: coachingIdSchema,
+    runId: coachingIdSchema,
+    projectId: coachingIdSchema,
+    viewState: z.enum(["ready", "partial"]),
+    readiness: coachingReadinessSchema,
+    criterionResults: z.array(criterionResultSchema).max(100),
+    observations: z.array(reportObservationSchema).max(500),
+    topActions: z.array(coachingActionSchema).max(3),
+    practiceVerification: practiceVerificationSummarySchema.nullable(),
+    trendSeries: z.array(trendSeriesSchema).max(7),
+    timelineEvents: z.array(reportTimelineEventSchema).max(500),
+    qnaAssessment: qnaAssessmentSchema.nullable(),
+    nextPracticePlan: nextPracticePlanSchema,
+    generatedAt: isoDateTimeSchema
+  })
+  .strict()
+  .superRefine((view, context) => {
+    const observationIds = view.observations.map((item) => item.observationId);
+    const observationIdSet = new Set(observationIds);
+    if (observationIdSet.size !== observationIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "coaching report observation IDs must be unique.",
+        path: ["observations"]
+      });
+    }
+
+    const validateResultObservation = (
+      result: z.infer<typeof criterionResultSchema>,
+      path: Array<string | number>
+    ) => {
+      if (!result.observationId) return;
+      const observation = view.observations.find(
+        (item) => item.observationId === result.observationId
+      );
+      if (!observation) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "criterion result observation must exist in the report view.",
+          path: [...path, "observationId"]
+        });
+        return;
+      }
+      const sameCriterion =
+        observation.criterionRef.criterionId === result.criterionRef.criterionId &&
+        observation.criterionRef.revision === result.criterionRef.revision;
+      const sameScope = JSON.stringify(observation.scope) === JSON.stringify(result.scope);
+      if (!sameCriterion || !sameScope) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "criterion result observation must use the same criterion and scope.",
+          path: [...path, "observationId"]
+        });
+      }
+    };
+
+    view.criterionResults.forEach((result, index) => {
+      validateResultObservation(result, ["criterionResults", index]);
+    });
+
+    const validateAction = (
+      action: z.infer<typeof coachingActionSchema>,
+      path: Array<string | number>,
+      requireEvidence: boolean
+    ) => {
+      if (action.target.projectId !== view.projectId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "coaching action must belong to the report project.",
+          path: [...path, "target", "projectId"]
+        });
+      }
+      if (requireEvidence && action.observationIds.length === 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Top coaching actions require at least one observation.",
+          path: [...path, "observationIds"]
+        });
+      }
+      action.observationIds.forEach((observationId, observationIndex) => {
+        const observation = view.observations.find(
+          (item) => item.observationId === observationId
+        );
+        const matchesCriterion =
+          observation?.criterionRef.criterionId === action.criterionRef.criterionId &&
+          observation?.criterionRef.revision === action.criterionRef.revision;
+        if (!observation || !matchesCriterion) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "coaching action observations must exist and use the action criterion.",
+            path: [...path, "observationIds", observationIndex]
+          });
+        }
+      });
+    };
+
+    view.topActions.forEach((action, index) => {
+      validateAction(action, ["topActions", index], true);
+    });
+
+    view.trendSeries.forEach((series, index) => {
+      if (series.projectId !== view.projectId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "trend series must belong to the report project.",
+          path: ["trendSeries", index, "projectId"]
+        });
+      }
+    });
+
+    view.timelineEvents.forEach((event, index) => {
+      if (!observationIdSet.has(event.observationId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "timeline events must reference an observation in the report view.",
+          path: ["timelineEvents", index, "observationId"]
+        });
+      }
+    });
+
+    view.nextPracticePlan.steps.forEach((step, index) => {
+      validateAction(step.action, ["nextPracticePlan", "steps", index, "action"], false);
+    });
+
+    if (view.qnaAssessment) {
+      if (
+        view.qnaAssessment.projectId !== view.projectId ||
+        view.qnaAssessment.sourceFullRunId !== view.runId
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Q&A assessment must belong to the report project and source run.",
+          path: ["qnaAssessment"]
+        });
+      }
+      view.qnaAssessment.criterionResults.forEach((result, index) => {
+        validateResultObservation(result, ["qnaAssessment", "criterionResults", index]);
+      });
+    }
+
+    if (
+      view.practiceVerification &&
+      (view.practiceVerification.projectId !== view.projectId ||
+        view.practiceVerification.evaluatedFullRunId !== view.runId)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "practice verification must belong to the report project and run.",
+        path: ["practiceVerification"]
+      });
+    }
+  });
+
 export type RehearsalRunStatus = z.infer<typeof rehearsalRunStatusSchema>;
+export type RehearsalSemanticEvaluationMode = z.infer<
+  typeof rehearsalSemanticEvaluationModeSchema
+>;
+export type RehearsalEvaluationSnapshot = z.infer<
+  typeof rehearsalEvaluationSnapshotSchema
+>;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
 export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
@@ -277,6 +1045,28 @@ export type RehearsalReportSlideTiming = z.infer<
 >;
 export type RehearsalReportQnaSummary = z.infer<typeof rehearsalReportQnaSummarySchema>;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
+export type RehearsalSemanticCueDecision = z.infer<
+  typeof rehearsalSemanticCueDecisionSchema
+>;
+export type SemanticCapability = z.infer<typeof semanticCapabilitySchema>;
+export type SemanticCapabilityState = z.infer<
+  typeof semanticCapabilityStateSchema
+>;
+export type SemanticMeasurementMode = z.infer<
+  typeof semanticMeasurementModeSchema
+>;
+export type SemanticFallbackReason = z.infer<
+  typeof semanticFallbackReasonSchema
+>;
+export type SemanticCapabilityEvent = z.infer<
+  typeof semanticCapabilityEventSchema
+>;
+export type RehearsalSemanticCueOutcome = z.infer<
+  typeof rehearsalSemanticCueOutcomeSchema
+>;
+export type RehearsalSemanticEvaluation = z.infer<
+  typeof rehearsalSemanticEvaluationSchema
+>;
 export type CreateRehearsalRunRequest = z.infer<typeof createRehearsalRunRequestSchema>;
 export type CreateRehearsalRunResponse = z.infer<typeof createRehearsalRunResponseSchema>;
 export type CreateRehearsalAudioUploadUrlRequest = z.infer<
@@ -304,6 +1094,12 @@ export type UploadRehearsalAudioChunkParams = z.infer<
   typeof uploadRehearsalAudioChunkParamsSchema
 >;
 export type RehearsalRunMeta = z.infer<typeof rehearsalRunMetaSchema>;
+export type RehearsalUtteranceOutcome = z.infer<
+  typeof rehearsalUtteranceOutcomeSchema
+>;
+export type RehearsalUtteranceOutcomeKind = z.infer<
+  typeof rehearsalUtteranceOutcomeKindSchema
+>;
 export type UpdateRehearsalRunMetaRequest = z.infer<
   typeof updateRehearsalRunMetaRequestSchema
 >;
@@ -311,6 +1107,24 @@ export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
 export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type RetryRehearsalSemanticEvaluationResponse = z.infer<
+  typeof retryRehearsalSemanticEvaluationResponseSchema
+>;
+export type RehearsalComparisonIssue = z.infer<
+  typeof rehearsalComparisonIssueSchema
+>;
+export type RehearsalRunComparison = z.infer<
+  typeof rehearsalRunComparisonSchema
+>;
+export type GetRehearsalRunComparisonResponse = z.infer<
+  typeof getRehearsalRunComparisonResponseSchema
+>;
+export type CoachingReadiness = z.infer<typeof coachingReadinessSchema>;
+export type ReportTimelineEvent = z.infer<typeof reportTimelineEventSchema>;
+export type QnaAssessment = z.infer<typeof qnaAssessmentSchema>;
+export type NextPracticePlan = z.infer<typeof nextPracticePlanSchema>;
+export type TrendSeries = z.infer<typeof trendSeriesSchema>;
+export type CoachingReportView = z.infer<typeof coachingReportViewSchema>;
 
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),

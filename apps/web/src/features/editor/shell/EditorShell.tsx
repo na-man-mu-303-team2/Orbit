@@ -91,6 +91,7 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
+import { AiChatPanel } from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -122,7 +123,7 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
-  ApplyAiSuggestionResponse,
+  ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
@@ -135,6 +136,7 @@ import type {
   DeckPatch,
   GroupElementProps,
   ImageElementProps,
+  SemanticCue,
   ShapeElementProps,
   Slide,
   DeckApiErrorCode
@@ -166,12 +168,19 @@ import {
   Upload,
   Wand2,
   Home,
+  History,
 } from "lucide-react";
-import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
+import orbitLogo from "../../../assets/orbit-logo.png";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
 import {
   ValidationPanel,
@@ -180,7 +189,11 @@ import {
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
-import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
+import {
+  SemanticCueReviewPanel,
+  type SemanticCueExtractionUiState
+} from "../semantic-cues/SemanticCueReviewPanel";
+import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -750,6 +763,11 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToPresentation(projectId: string) {
+  window.history.pushState({}, "", `/presentation/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToHome() {
   window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -957,7 +975,7 @@ async function appendProjectDeckPatchAck(
   patch: DeckPatch
 ): Promise<Deck> {
   const request = appendDeckPatchRequestSchema.parse({ patch, responseMode: "ack" });
-  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
+  const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/deck/patches`, {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -969,9 +987,37 @@ async function appendProjectDeckPatchAck(
     throw await readResponseError(response, "Deck save failed");
   }
 
-  const acknowledgement = appendDeckPatchAckResponseSchema.parse(await response.json());
-  emitOoxmlSyncJob(acknowledgement.ooxmlSyncJob);
-  return applyDeckPatchAcknowledgement(baseDeck, request.patch, acknowledgement);
+  const result = parseDeckPatchPersistenceResponse(
+    baseDeck,
+    request.patch,
+    await response.json()
+  );
+  emitOoxmlSyncJob(result.ooxmlSyncJob);
+  return result.deck;
+}
+
+export function parseDeckPatchPersistenceResponse(
+  baseDeck: Deck,
+  patch: DeckPatch,
+  payload: unknown
+): { deck: Deck; ooxmlSyncJob?: Job } {
+  const acknowledgement = appendDeckPatchAckResponseSchema.safeParse(payload);
+  if (acknowledgement.success) {
+    return {
+      deck: applyDeckPatchAcknowledgement(baseDeck, patch, acknowledgement.data),
+      ooxmlSyncJob: acknowledgement.data.ooxmlSyncJob
+    };
+  }
+
+  const legacyResponse = appendDeckPatchResponseSchema.safeParse(payload);
+  if (legacyResponse.success) {
+    return {
+      deck: legacyResponse.data.deck,
+      ooxmlSyncJob: legacyResponse.data.ooxmlSyncJob
+    };
+  }
+
+  throw acknowledgement.error;
 }
 
 function emitOoxmlSyncJob(job: Job | undefined) {
@@ -1012,6 +1058,58 @@ export async function createPptxImportJob(
 
   const payload = (await response.json()) as { job?: unknown };
   return jobSchema.parse(payload.job);
+}
+
+export async function createSemanticCueExtractionJob(
+  projectId: string,
+  force: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/semantic-cues`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readPlainError(response, "Semantic Cue extraction job creation failed")
+    );
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForSemanticCueExtractionJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(
+        await readPlainError(response, "Semantic Cue extraction job fetch failed")
+      );
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Semantic Cue extraction job timed out.");
+    }
+    await delay(pollIntervalMs);
+  }
 }
 
 export async function waitForPptxImportJob(
@@ -1184,6 +1282,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const [rightPanelView, setRightPanelView] = useState<
+    "ai-chat" | "ai-tools" | "semantic-cues"
+  >("ai-chat");
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1294,7 +1395,11 @@ export function EditorShell(props: { projectId?: string }) {
     qualityReport: null,
     message: ""
   });
-  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
+  const [semanticCueExtractionState, setSemanticCueExtractionState] =
+    useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [activePresentationAction, setActivePresentationAction] = useState<
+    "presentation" | "rehearsal" | null
+  >(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -1323,6 +1428,8 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
+    setRightPanelView("ai-chat");
+    setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -1515,11 +1622,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartRehearsal =
+  const canStartPresentation =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
     !isDeckError &&
-    !isRehearsalPreparing;
+    !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -1911,9 +2018,9 @@ export function EditorShell(props: { projectId?: string }) {
           return;
         }
 
-        setLastPatchLabel(`썸네일 갱신 실패 · ${toEditorErrorMessage(error)}`);
-        setSaveState("error");
-        setSaveError("manual-render-failed", toEditorErrorMessage(error));
+        setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · ${toEditorErrorMessage(error)}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
       }
     })();
 
@@ -1930,7 +2037,9 @@ export function EditorShell(props: { projectId?: string }) {
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
 
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
+  function handleDesignAgentProposalApplied(
+    response: ApplyDesignAgentProposalResponse
+  ) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
@@ -1940,9 +2049,7 @@ export function EditorShell(props: { projectId?: string }) {
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
+    setLastPatchLabel(`AI design · v${response.deck.version}`);
     setSaveState("auto-saved");
     setSaveError(null, null);
   }
@@ -2063,27 +2170,31 @@ export function EditorShell(props: { projectId?: string }) {
 
       setLastSavedAt(new Date().toISOString());
 
+      let renderResult: Awaited<ReturnType<typeof syncSlideRenderAssets>>;
       try {
-        const renderResult = await syncSlideRenderAssets(
-          activeProjectId,
-          persistedDeck
+        renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+      } catch {
+        setLastPatchLabel(
+          `수동 저장 완료 · 썸네일 갱신 대기 · v${persistedDeck.version}`
         );
+        setSaveState("manual-saved");
+        setSaveError(null, null);
+        return true;
+      }
 
-        if (
-          !shouldApplyManualSaveResult({
-            snapshotDeck: persistedDeck,
-            currentDeck: workingDeckRef.current
-          })
-        ) {
-          setLastPatchLabel("수동 저장 · 편집 변경 감지");
-          setSaveState("auto-pending");
-          return false;
-        }
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        setLastPatchLabel("수동 저장 · 편집 변경 감지");
+        setSaveState("auto-pending");
+        return false;
+      }
 
-        const thumbnailPatch = buildSlideThumbnailPatch(
-          persistedDeck,
-          renderResult.deck
-        );
+      try {
+        const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
         const finalDeck = thumbnailPatch
           ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
           : persistedDeck;
@@ -2112,11 +2223,13 @@ export function EditorShell(props: { projectId?: string }) {
         setSaveState("manual-saved");
         setSaveError(null, null);
         return true;
-      } catch (renderError) {
-        setLastPatchLabel(`수동 저장 · 렌더 실패 · v${persistedDeck.version}`);
-        setSaveState("error");
-        setSaveError("manual-render-failed", toEditorErrorMessage(renderError));
-        return false;
+      } catch {
+        setLastPatchLabel(
+          `수동 저장 완료 · 썸네일 갱신 대기 · v${persistedDeck.version}`
+        );
+        setSaveState("manual-saved");
+        setSaveError(null, null);
+        return true;
       }
     } catch (error) {
       setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
@@ -2164,16 +2277,23 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleStartRehearsal() {
+  async function handleStartPresentationAction(
+    destination: "presentation" | "rehearsal"
+  ) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveError(
+        "rehearsal-blocked",
+        destination === "presentation"
+          ? "발표 자료를 불러온 뒤 발표를 시작할 수 있습니다."
+          : "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다."
+      );
       return;
     }
 
-    if (isRehearsalPreparing) {
+    if (activePresentationAction) {
       return;
     }
 
@@ -2187,7 +2307,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setIsRehearsalPreparing(true);
+    setActivePresentationAction(destination);
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -2212,38 +2332,73 @@ export function EditorShell(props: { projectId?: string }) {
         throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
       }
 
-      const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
-      setLastSavedAt(new Date().toISOString());
-
-      if (
-        !shouldApplyManualSaveResult({
-          snapshotDeck: persistedDeck,
-          currentDeck: workingDeckRef.current
-        })
-      ) {
-        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+      let finalDeck = persistedDeck;
+      let thumbnailRefreshDeferred = false;
+      let renderResult: Awaited<ReturnType<typeof syncSlideRenderAssets>> | null = null;
+      try {
+        renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
+        setLastSavedAt(new Date().toISOString());
+      } catch {
+        thumbnailRefreshDeferred = true;
       }
 
-      const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
-      const finalDeck = thumbnailPatch
-        ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
-        : persistedDeck;
+      if (renderResult) {
+        if (
+          !shouldApplyManualSaveResult({
+            snapshotDeck: persistedDeck,
+            currentDeck: workingDeckRef.current
+          })
+        ) {
+          throw new Error(
+            destination === "presentation"
+              ? "발표 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+              : "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+          );
+        }
+
+        const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
+        if (thumbnailPatch) {
+          try {
+            finalDeck = await appendProjectDeckPatch(activeProjectId, thumbnailPatch);
+          } catch {
+            thumbnailRefreshDeferred = true;
+          }
+        }
+      }
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
-      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setLastPatchLabel(
+        `${
+          destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
+        }${thumbnailRefreshDeferred ? " · 썸네일 갱신 대기" : ""} · v${finalDeck.version}`
+      );
       setSaveState("manual-saved");
       setSaveError(null, null);
-      navigateToRehearsal(activeProjectId);
+      if (destination === "presentation") {
+        navigateToPresentation(activeProjectId);
+      } else {
+        navigateToRehearsal(activeProjectId);
+      }
     } catch (error) {
       const message = toEditorErrorMessage(error);
 
-      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setLastPatchLabel(
+        `${destination === "presentation" ? "발표 준비 실패" : "리허설 준비 실패"} · ${message}`
+      );
       setSaveState("error");
       setSaveError("rehearsal-save-failed", message);
     } finally {
-      setIsRehearsalPreparing(false);
+      setActivePresentationAction(null);
     }
+  }
+
+  async function handleStartPresentation() {
+    await handleStartPresentationAction("presentation");
+  }
+
+  async function handleStartRehearsal() {
+    await handleStartPresentationAction("rehearsal");
   }
 
   async function flushPendingSavesBeforeManualAction() {
@@ -2319,7 +2474,7 @@ export function EditorShell(props: { projectId?: string }) {
         persistedDeck,
         buildResult.patch
       );
-      let thumbnailRefreshFailed = false;
+      let thumbnailRefreshDeferred = false;
 
       if (
         thumbnailSlideIds.length > 0 &&
@@ -2353,10 +2508,8 @@ export function EditorShell(props: { projectId?: string }) {
             );
           }
         } catch (thumbnailError) {
-          thumbnailRefreshFailed = true;
-          setLastPatchLabel(`썸네일 저장 실패 · ${toEditorErrorMessage(thumbnailError)}`);
-          setSaveState("error");
-          setSaveError("manual-render-failed", toEditorErrorMessage(thumbnailError));
+          thumbnailRefreshDeferred = true;
+          setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · ${toEditorErrorMessage(thumbnailError)}`);
         }
       }
 
@@ -2374,9 +2527,10 @@ export function EditorShell(props: { projectId?: string }) {
         })
       ) {
         applyAckedPersistedDeck(finalPersistedDeck);
-        if (!thumbnailRefreshFailed) {
-          setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
-          setSaveError(null, null);
+        setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
+        setSaveError(null, null);
+        if (thumbnailRefreshDeferred) {
+          setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · v${finalPersistedDeck.version}`);
         }
       }
     } catch (error) {
@@ -2507,7 +2661,9 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (!result.ok) {
       setLastPatchLabel(`실패 · ${result.error.code}`);
-      return;
+      setSaveState("error");
+      setSaveError("auto-save-failed", "편집 내용을 적용하지 못했습니다. 다시 시도해 주세요.");
+      return false;
     }
 
     applyOptimisticWorkingDeck(result.deck);
@@ -2524,7 +2680,7 @@ export function EditorShell(props: { projectId?: string }) {
     );
 
     if (!deckQuery.data?.projectId) {
-      return;
+      return true;
     }
 
     queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
@@ -2554,6 +2710,99 @@ export function EditorShell(props: { projectId?: string }) {
           setSaveState("auto-pending");
         }
       });
+    return true;
+  }
+
+  function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
+    if (!currentSlide) {
+      return;
+    }
+    const slideId = currentSlide.slideId;
+    commitPatch((currentDeck) =>
+      createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
+    );
+  }
+
+  async function handleSemanticCueExtraction(force: boolean) {
+    if (semanticCueExtractionState.status === "running") {
+      return;
+    }
+
+    setSemanticCueExtractionState({
+      status: "running",
+      message: "슬라이드와 발표 대본의 의미를 분석하는 중입니다."
+    });
+
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current
+      });
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const queuedJob = await createSemanticCueExtractionJob(
+        activeProjectId,
+        force
+      );
+      const completedJob = await waitForSemanticCueExtractionJob(queuedJob.jobId);
+      if (completedJob.status === "failed") {
+        throw new Error(
+          completedJob.error?.message ?? "Semantic Cue extraction failed."
+        );
+      }
+
+      const selectedSlideId = currentSlide?.slideId;
+      const refetchResult = await deckQuery.refetch();
+      const extractedDeck = refetchResult.data;
+      if (extractedDeck) {
+        queryClient.setQueryData(["deck", projectId], extractedDeck);
+        markHydratedPersistedDeck(extractedDeck, setDeck);
+        const nextSlideIndex = selectedSlideId
+          ? extractedDeck.slides.findIndex(
+              (slide) => slide.slideId === selectedSlideId
+            )
+          : -1;
+        if (nextSlideIndex >= 0) {
+          setCurrentSlideIndex(nextSlideIndex);
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+        setLastPatchLabel(`발표 메시지 AI 분석 · v${extractedDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      }
+
+      setSemanticCueExtractionState({
+        status: "succeeded",
+        message: "AI 분석이 완료되었습니다. 제안된 메시지를 검토해 주세요."
+      });
+    } catch (error) {
+      setSemanticCueExtractionState({
+        status: "error",
+        message: toEditorErrorMessage(error)
+      });
+    }
+  }
+
+  function handleRightPanelTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const views = ["ai-chat", "ai-tools", "semantic-cues"] as const;
+    const currentIndex = views.indexOf(rightPanelView);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextView = views[(currentIndex + direction + views.length) % views.length];
+    setRightPanelView(nextView);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`editor-${nextView === "semantic-cues" ? "semantic-cue" : nextView}-tab`)
+        ?.focus();
+    });
   }
 
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
@@ -3626,26 +3875,29 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    const slideId = createSlideId(deck);
-    const nextOrder = deck.slides.length + 1;
+    let nextSlideIndex = workingDeckRef.current.slides.length;
     resetSpeakerNotesEditState("");
-    commitPatch((currentDeck) =>
-      createAddSlidePatch(currentDeck, {
+    const committed = commitPatch((currentDeck) => {
+      const slideId = createSlideId(currentDeck);
+      const nextOrder = currentDeck.slides.length + 1;
+      nextSlideIndex = currentDeck.slides.length;
+      return createAddSlidePatch(currentDeck, {
         slideId,
-        order: currentDeck.slides.length + 1,
+        order: nextOrder,
         title: `Slide ${nextOrder}`,
         thumbnailUrl: "",
         style: {
           layout: "title-content",
-          backgroundColor: deck.theme.backgroundColor,
-          textColor: deck.theme.textColor,
-          accentColor: deck.theme.accentColor
+          backgroundColor: currentDeck.theme.backgroundColor,
+          textColor: currentDeck.theme.textColor,
+          accentColor: currentDeck.theme.accentColor
         },
         speakerNotes: "",
         keywords: [],
+        semanticCues: [],
         elements: [
           {
-            elementId: createElementId(deck),
+            elementId: createElementId(currentDeck),
             type: "text",
             role: "title",
             x: 120,
@@ -3671,9 +3923,10 @@ export function EditorShell(props: { projectId?: string }) {
         ],
         animations: [],
         actions: []
-      })
-    );
-    setCurrentSlideIndex(deck.slides.length);
+      });
+    });
+    if (!committed) return;
+    setCurrentSlideIndex(nextSlideIndex);
     setSelectedElementIds([]);
   }
 
@@ -4579,9 +4832,22 @@ export function EditorShell(props: { projectId?: string }) {
         <header className="app-topbar" ref={topbarRef}>
         <div className="topbar-left">
           <div className="menu-stack">
+            <div className="editor-document-title">
+              <button
+                aria-label="ORBIT 홈으로 이동"
+                onClick={handleExitToHome}
+                type="button"
+              >
+                <img alt="ORBIT" src={orbitLogo} />
+              </button>
+              <span>
+                <strong>{deck.title}</strong>
+                <small>{saveStatusLabel}</small>
+              </span>
+            </div>
             <div className="menu-row">
               <button
-                aria-label="홈으로 이동"
+                aria-label="ORBIT 홈으로 이동"
                 className="top-icon-button"
                 title="홈으로 이동"
                 type="button"
@@ -4765,10 +5031,6 @@ export function EditorShell(props: { projectId?: string }) {
           </div>
         </div>
 
-        <div className="topbar-center">
-          <span className="deck-title">{deck.title}</span>
-        </div>
-
         <div className="top-actions">
           {projectPresenceUsers.length > 0 ? (
             <button
@@ -4810,14 +5072,31 @@ export function EditorShell(props: { projectId?: string }) {
               {ooxmlSyncStatus.label}
             </span>
           ) : null}
+          <button
+            className="editor-context-top-button"
+            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
+            type="button"
+          >
+            <FileText size={15} />
+            브리프
+          </button>
+          <button
+            className="editor-context-top-button"
+            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }}
+            type="button"
+          >
+            <History size={15} />
+            버전
+          </button>
           <PresentationMenu
-            canStartRehearsal={canStartRehearsal}
+            activeStartAction={activePresentationAction}
+            canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
-            isRehearsalPreparing={isRehearsalPreparing}
             onOpenAudienceLink={() => {
               setIsAudienceLinkModalOpen(true);
               setActiveTopMenu(null);
             }}
+            onStartPresentation={() => void handleStartPresentation()}
             onStartRehearsal={() => void handleStartRehearsal()}
             onToggle={() =>
               setActiveTopMenu((current) =>
@@ -5508,7 +5787,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>AI</h2>
+                <h2>도구</h2>
                 <div>
                   <button
                     className="collapse-right-pane-button"
@@ -5520,21 +5799,100 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 </div>
               </div>
+              <div
+                aria-label="오른쪽 패널 보기"
+                className="right-panel-tabs"
+                role="tablist"
+              >
+                <button
+                  aria-controls="editor-ai-chat-panel"
+                  aria-selected={rightPanelView === "ai-chat"}
+                  className={rightPanelView === "ai-chat" ? "active" : ""}
+                  id="editor-ai-chat-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-chat" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-chat")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 채팅
+                </button>
+                <button
+                  aria-controls="editor-ai-tools-panel"
+                  aria-selected={rightPanelView === "ai-tools"}
+                  className={rightPanelView === "ai-tools" ? "active" : ""}
+                  id="editor-ai-tools-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-tools" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-tools")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 도구
+                </button>
+                <button
+                  aria-controls="editor-semantic-cue-panel"
+                  aria-selected={rightPanelView === "semantic-cues"}
+                  className={rightPanelView === "semantic-cues" ? "active" : ""}
+                  id="editor-semantic-cue-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("semantic-cues")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  발표 메시지
+                  {currentSlide?.semanticCues.length
+                    ? ` ${currentSlide.semanticCues.length}`
+                    : ""}
+                </button>
+              </div>
               <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel
-                  items={editorValidationItems}
-                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                  onHighlightElementIds={setValidationHighlightElementIds}
-                  onTextOverflowAction={handleValidationTextOverflowAction}
-                />
-                <SourceLedgerPanel slide={currentSlide ?? null} />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+                <div
+                  aria-labelledby="editor-ai-chat-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-chat"}
+                  id="editor-ai-chat-panel"
+                  role="tabpanel"
+                >
+                  <AiChatPanel
+                    projectId={projectId}
+                    deck={deck}
+                    currentSlide={currentSlide}
+                    selectedElementIds={selectedElementIds}
+                    onProposalApplied={handleDesignAgentProposalApplied}
+                  />
+                </div>
+                <div
+                  aria-labelledby="editor-ai-tools-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-tools"}
+                  id="editor-ai-tools-panel"
+                  role="tabpanel"
+                >
+                  <PptxImportQualityPanel state={pptxImportState} />
+                  <ValidationPanel
+                    items={editorValidationItems}
+                    onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                    onHighlightElementIds={setValidationHighlightElementIds}
+                    onTextOverflowAction={handleValidationTextOverflowAction}
+                  />
+                  <SourceLedgerPanel slide={currentSlide ?? null} />
+                </div>
+                <div
+                  aria-labelledby="editor-semantic-cue-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "semantic-cues"}
+                  id="editor-semantic-cue-panel"
+                  role="tabpanel"
+                >
+                  <SemanticCueReviewPanel
+                    extractionState={semanticCueExtractionState}
+                    slide={currentSlide}
+                    onChange={handleSemanticCueReviewChange}
+                    onExtract={(force) => void handleSemanticCueExtraction(force)}
+                  />
+                </div>
               </div>
             </>
           ) : (
@@ -5547,7 +5905,7 @@ export function EditorShell(props: { projectId?: string }) {
               >
                 <PanelRightOpen size={16} />
               </button>
-              <span>AI</span>
+              <span>도구</span>
             </div>
           )}
         </aside>

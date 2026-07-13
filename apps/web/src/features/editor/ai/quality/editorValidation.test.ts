@@ -159,6 +159,7 @@ const designPackDeck: Deck = {
         }
       ],
       keywords: [],
+      semanticCues: [],
       animations: [],
       actions: [],
       aiNotes: {

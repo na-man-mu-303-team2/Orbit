@@ -1,7 +1,17 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
+import type {
+  RehearsalEvaluationSnapshot,
+  RehearsalSemanticEvaluationMode
+} from "@orbit/shared";
 import { ProjectEntity } from "../projects/project.entity";
 
-export type RehearsalRunStatus = "created" | "uploading" | "processing" | "succeeded" | "failed";
+export type RehearsalRunStatus =
+  | "created"
+  | "uploading"
+  | "processing"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 @Entity({ name: "rehearsal_runs" })
 export class RehearsalRunEntity {
@@ -19,6 +29,21 @@ export class RehearsalRunEntity {
 
   @Column({ name: "job_id", nullable: true, type: "text" })
   jobId!: string | null;
+
+  @Column({ name: "deck_version", nullable: true, type: "integer" })
+  deckVersion!: number | null;
+
+  @Column({ name: "evaluation_snapshot_json", nullable: true, type: "jsonb" })
+  evaluationSnapshot!: RehearsalEvaluationSnapshot | null;
+
+  @Column({ name: "semantic_evaluation_mode", default: "full", type: "text" })
+  semanticEvaluationMode!: RehearsalSemanticEvaluationMode;
+
+  @Column({ name: "analysis_revision", default: 0, type: "integer" })
+  analysisRevision!: number;
+
+  @Column({ name: "analysis_finalized_at", nullable: true, type: "timestamptz" })
+  analysisFinalizedAt!: Date | null;
 
   @Column({ type: "text" })
   status!: RehearsalRunStatus;

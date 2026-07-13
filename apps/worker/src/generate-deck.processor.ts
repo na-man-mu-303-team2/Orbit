@@ -694,7 +694,8 @@ export async function processGenerateDeckJob(
       warnings: [...workerPayload.warnings, ...imageWarnings],
       validation,
       diagnostics,
-      deck
+      deck,
+      coachingProvenance: payload.request.coachingContext
     });
 
     return updateJob(dataSource, payload.jobId, {

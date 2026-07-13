@@ -233,8 +233,8 @@ describe("AI PPT wizard payload", () => {
         referencePolicy: "references-first"
       },
       slideCountRange: {
-        min: 6,
-        max: 10
+        min: 8,
+        max: 8
       },
       design: {
         stylePackId: "brandlogy-modern",
@@ -425,12 +425,12 @@ describe("AI PPT wizard payload", () => {
       palette
     );
 
-    expect(payload.slideCountRange).toEqual({ min: 1, max: 3 });
+    expect(payload.slideCountRange).toEqual({ min: 1, max: 1 });
   });
 
   it.each([
-    ["19", { min: 17, max: 20 }],
-    ["20", { min: 18, max: 20 }]
+    ["19", { min: 19, max: 19 }],
+    ["20", { min: 20, max: 20 }]
   ])("keeps a %s-slide request within the valid upper bound", (slides, expected) => {
     const payload = buildAiPptGenerateDeckPayload(
       {
@@ -638,6 +638,26 @@ describe("AI PPT wizard payload", () => {
     });
 
     expect(message).toBe("참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.");
+  });
+
+  it("blocks references-first generation before creating a project when no file is attached", () => {
+    const message = getAiPptWizardValidationMessage({
+      topic: "AI PPT",
+      purpose: "planning",
+      context: "review",
+      audience: "team",
+      presentationType: "proposal",
+      successCriteria: "alignment",
+      duration: "10",
+      slides: "6",
+      tone: "professional",
+      colorMood: "blue",
+      fontMood: "professional Korean sans",
+      mediaPolicy: "minimal",
+      referencePolicy: "references-first"
+    });
+
+    expect(message).toBe("참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.");
   });
 
   it("builds side advisor suggestions without mutating the form", () => {

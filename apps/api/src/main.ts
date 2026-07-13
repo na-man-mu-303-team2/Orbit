@@ -1,5 +1,6 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -12,10 +13,18 @@ import { writeBootstrapError } from "./logging";
 async function bootstrap() {
   const config = loadOrbitConfig(process.env, { service: "api" });
   const allowedWebOrigins = resolveAllowedWebOrigins(config.WEB_ORIGIN);
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    bodyParser: false
+  });
   const logger = app.get(Logger);
   app.useLogger(logger);
 
+  app.useBodyParser("json", { limit: config.API_JSON_BODY_LIMIT_BYTES });
+  app.useBodyParser("urlencoded", {
+    extended: true,
+    limit: config.API_JSON_BODY_LIMIT_BYTES
+  });
   app.use(helmet());
   app.use(cookieParser(config.COOKIE_SECRET));
 

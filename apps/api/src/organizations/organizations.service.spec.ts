@@ -145,7 +145,8 @@ function baseRequest(): GenerateDeckRequest {
     references: [],
     designReferences: [],
     referenceKeywords: [],
-    referenceContext: []
+    referenceContext: [],
+    coachingContext: null
   };
 }
 

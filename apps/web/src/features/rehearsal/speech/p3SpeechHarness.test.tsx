@@ -134,6 +134,7 @@ describe("P3 speech fixture harness", () => {
         snapshot={{
           slideId: "slide_p3_intro",
           coveredSentenceIds: [],
+          coveredSentenceMatchKinds: {},
           matchableSentenceCount: 0,
           sentenceCoverage: 0,
           wordCoverage: 0,

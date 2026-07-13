@@ -18,6 +18,7 @@
   type RehearsalRun
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconFileText } from "@tabler/icons-react";
 import {
   ArrowRight,
   ChevronDown,
@@ -28,10 +29,8 @@ import {
   ListChecks,
   Paperclip,
   Plus,
-  Search,
   Sparkles,
-  UploadCloud,
-  Trash2
+  UploadCloud
 } from "lucide-react";
 import type {
   CSSProperties,
@@ -43,22 +42,42 @@ import type {
 } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
-import orbitLogo from "./assets/orbit-logo.png";
-import { AppSidebar } from "./components/AppSidebar";
-import { AiPptMockupPage } from "./features/ai-ppt/AiPptMockupPage";
+import {
+  OrbitAppHeader,
+  type OrbitAppNavigationItem
+} from "./components/OrbitAppHeader";
+import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
+import { OrbitButton, OrbitEmptyState } from "./design-system";
+import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
+import {
+  authMeQueryKey,
+  fetchCurrentUser,
+  markAuthLoggedOut,
+  type AuthUser
+} from "./features/auth/auth-session";
+import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
+import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
+import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
+import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
+import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
+import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
+import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
   createProject,
-  deleteProject,
   fetchProjects,
   resolveAssetMimeType,
   uploadProjectAsset
 } from "./features/projects/ProjectAssetWorkspace";
+import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
+import "./features/projects/orbit-create-deck.css";
+import "./features/projects/orbit-project-access.css";
 import {
   RehearsalReportPage,
   RehearsalWorkspace
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -194,14 +213,19 @@ type RejectedFile = {
 };
 
 export type Route =
+  | { name: "design-system" }
+  | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
+  | { name: "signup" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
-  | { name: "ai-ppt" }
   | { name: "create-deck" }
-  | { name: "project-list" }
+  | { name: "project-list"; intent?: "rehearsal" }
   | { name: "project-editor"; projectId: string }
+  | { name: "project-brief"; projectId: string }
+  | { name: "project-history"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "presentation"; projectId: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -209,21 +233,21 @@ export type Route =
       presenterInitialStepIndex?: number;
       presenterSessionId?: string;
       presenterWindow?: boolean;
+      sourceFullRunId?: string;
+      sourceGoalSetId?: string;
       projectId: string;
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
+  | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
+  | { name: "focused-practice"; projectId: string; goalId: string; sourceFullRunId: string }
+  | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
   | { name: "report-project-overview"; projectId: string }
+  | { name: "not-found" }
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
-
-type AuthUser = {
-  userId: string;
-  email?: string;
-  displayName?: string;
-};
 
 type ProjectAccessResponse = {
   project: Project;
@@ -297,6 +321,11 @@ const reportMockupRun: RehearsalRun = {
   deckId: demoIds.deckId,
   audioFileId: "file_report_mockup_audio",
   jobId: "job_report_mockup_stt",
+  deckVersion: null,
+  evaluationSnapshot: null,
+  semanticEvaluationMode: "full",
+  analysisRevision: 1,
+  analysisFinalizedAt: reportMockupGeneratedAt,
   status: "succeeded",
   error: null,
   rawAudioDeletedAt: null,
@@ -315,7 +344,8 @@ const reportMockupReport: RehearsalReport = {
     wordsPerMinute: 128,
     fillerWordCount: 3,
     pauseCount: 2,
-    keywordCoverage: 0.86
+    keywordCoverage: 0.86,
+    keywordCoverageMeasurement: { state: "measured" }
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
@@ -325,6 +355,15 @@ const reportMockupReport: RehearsalReport = {
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  utteranceOutcomes: [],
+  semanticCueDecisions: [],
+  semanticEvaluation: {
+    state: "unavailable",
+    measurementMode: "none",
+    reasons: ["evaluation_not_run"],
+    retryable: false
+  },
+  semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
   qnaSummary: {
@@ -369,17 +408,6 @@ const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const simpleBasicStylePackId = defaultHomeTemplateStyleId;
 const referenceContextMaxChars = 12_000;
-
-async function fetchCurrentUser(): Promise<AuthUser> {
-  const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
-  });
-  if (!response.ok) {
-    throw new Error("Unauthenticated");
-  }
-  const payload = (await response.json()) as AuthUser | { user: AuthUser };
-  return "user" in payload ? payload.user : payload;
-}
 
 async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
   const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
@@ -433,10 +461,41 @@ export function getRoute(
     search ?? (typeof window === "undefined" ? "" : window.location.search);
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
+  try {
+
   if (normalized === "/login") return { name: "login" };
-  if (normalized === "/ai-ppt") return { name: "ai-ppt" };
+  if (normalized === "/signup") return { name: "signup" };
+  if (normalized === "/design-system") return { name: "design-system" };
+  if (normalized === "/mockup") return { name: "mockup", screen: "public" };
+  if (normalized === "/mockup/home") return { name: "mockup", screen: "home" };
+  if (normalized === "/mockup/create") return { name: "mockup", screen: "create" };
+  if (normalized === "/mockup/editor") return { name: "mockup", screen: "editor" };
+  if (normalized === "/mockup/microphone-check") return { name: "mockup", screen: "microphone-check" };
+  if (normalized === "/mockup/project-request") return { name: "mockup", screen: "project-request" };
+  if (normalized === "/mockup/rehearsal") return { name: "mockup", screen: "rehearsal" };
+  if (normalized === "/mockup/presenter") return { name: "mockup", screen: "presenter" };
+  if (normalized === "/mockup/rehearsal-complete") return { name: "mockup", screen: "rehearsal-complete" };
+  if (normalized === "/mockup/reports") return { name: "mockup", screen: "reports" };
+  if (normalized === "/mockup/report") return { name: "mockup", screen: "report" };
+  if (normalized === "/mockup/report-project") return { name: "mockup", screen: "report-project" };
+  if (normalized === "/mockup/live") return { name: "mockup", screen: "live" };
+  if (normalized === "/mockup/live-presenter") return { name: "mockup", screen: "live-presenter" };
+  if (normalized === "/mockup/login") return { name: "mockup", screen: "login" };
+  if (normalized === "/mockup/signup") return { name: "mockup", screen: "signup" };
+  if (normalized === "/mockup/catalog") return { name: "mockup", screen: "catalog" };
+  if (normalized === "/mockup/brief") return { name: "mockup", screen: "brief" };
+  if (normalized === "/mockup/practice-plan") return { name: "mockup", screen: "practice-plan" };
+  if (normalized === "/mockup/focused-practice") return { name: "mockup", screen: "focused-practice" };
+  if (normalized === "/mockup/challenge-qna") return { name: "mockup", screen: "challenge-qna" };
+  if (normalized === "/mockup/audience") return { name: "mockup", screen: "audience" };
+  if (normalized === "/mockup/version-history") return { name: "mockup", screen: "version-history" };
+  if (normalized === "/mockup/ai-ppt") return { name: "mockup", screen: "ai-ppt" };
   if (normalized === "/createdeck") return { name: "create-deck" };
-  if (normalized === "/project") return { name: "project-list" };
+  if (normalized === "/project") {
+    return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
+      ? { name: "project-list", intent: "rehearsal" }
+      : { name: "project-list" };
+  }
   if (normalized === "/reports") return { name: "report-list" };
   const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
   if (reportProjectMatch) {
@@ -455,9 +514,27 @@ export function getRoute(
     };
   }
 
+  const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
+  if (presentationMatch) {
+    return {
+      name: "presentation",
+      projectId: decodeURIComponent(presentationMatch[1])
+    };
+  }
+
   const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
   if (projectRequestMatch) {
     return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
+  }
+
+  const projectBriefMatch = normalized.match(/^\/project\/([^/]+)\/brief$/);
+  if (projectBriefMatch) {
+    return { name: "project-brief", projectId: decodeURIComponent(projectBriefMatch[1]) };
+  }
+
+  const projectHistoryMatch = normalized.match(/^\/project\/([^/]+)\/history$/);
+  if (projectHistoryMatch) {
+    return { name: "project-history", projectId: decodeURIComponent(projectHistoryMatch[1]) };
   }
 
   const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
@@ -474,6 +551,35 @@ export function getRoute(
     };
   }
 
+  const practicePlanMatch = normalized.match(/^\/rehearsal\/([^/]+)\/plan\/([^/]+)$/);
+  if (practicePlanMatch) {
+    return {
+      name: "practice-plan",
+      projectId: decodeURIComponent(practicePlanMatch[1]),
+      sourceFullRunId: decodeURIComponent(practicePlanMatch[2])
+    };
+  }
+
+  const focusedPracticeMatch = normalized.match(/^\/rehearsal\/([^/]+)\/focus\/([^/]+)$/);
+  if (focusedPracticeMatch) {
+    const searchParams = new URLSearchParams(currentSearch);
+    return {
+      name: "focused-practice",
+      projectId: decodeURIComponent(focusedPracticeMatch[1]),
+      goalId: decodeURIComponent(focusedPracticeMatch[2]),
+      sourceFullRunId: searchParams.get("sourceFullRunId") ?? ""
+    };
+  }
+
+  const challengeQnaMatch = normalized.match(/^\/rehearsal\/([^/]+)\/challenge\/([^/]+)$/);
+  if (challengeQnaMatch) {
+    return {
+      name: "challenge-qna",
+      projectId: decodeURIComponent(challengeQnaMatch[1]),
+      sourceFullRunId: decodeURIComponent(challengeQnaMatch[2])
+    };
+  }
+
   const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
   if (rehearsalMatch) {
     const searchParams = new URLSearchParams(currentSearch);
@@ -483,6 +589,8 @@ export function getRoute(
       presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
+      sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
+      sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
       projectId: decodeURIComponent(rehearsalMatch[1])
     };
   }
@@ -498,9 +606,15 @@ export function getRoute(
     };
   }
 
-  const searchParams = new URLSearchParams(currentSearch);
-  const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
-  return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
+  if (normalized === "/") {
+    const searchParams = new URLSearchParams(currentSearch);
+    const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
+    return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
+  }
+  return { name: "not-found" };
+  } catch {
+    return { name: "not-found" };
+  }
 }
 
 function navigateTo(path: string) {
@@ -518,41 +632,58 @@ export function App() {
   }, []);
 
   const auth = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: fetchCurrentUser,
+    queryKey: authMeQueryKey,
+    queryFn: () => fetchCurrentUser(),
     retry: false
   });
 
-  useEffect(() => {
-    if (route.name === "home" && auth.isError) {
-      window.history.replaceState({}, "", "/login");
-      setRoute({ name: "login" });
-    }
-  }, [auth.isError, route.name]);
+  if (auth.isPending && shouldWaitForAuthResolution(route)) {
+    return <AuthLoadingFallback />;
+  }
+
+  if (route.name === "home" && !auth.data) {
+    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+  }
 
   if (!shouldRenderAppFrame(route)) {
-    return renderRoute(route, auth.data);
+    return renderRoute(route, auth.data ?? undefined);
   }
 
   return (
     <AppFrame
-      isAuthenticated={auth.isSuccess}
+      isAuthenticated={Boolean(auth.data)}
       route={route}
-      user={auth.data}
+      user={auth.data ?? undefined}
     >
-      {renderRoute(route, auth.data)}
+      {renderRoute(route, auth.data ?? undefined)}
     </AppFrame>
   );
+}
+
+export function shouldWaitForAuthResolution(route: Route) {
+  return ![
+    "login",
+    "signup",
+    "design-system",
+    "mockup",
+    "report-mockup",
+    "audience-session",
+    "present",
+    "deck-render",
+    "not-found"
+  ].includes(route.name);
 }
 
 export function shouldRenderAppFrame(route: Route) {
   return (
     route.name !== "login" &&
+    route.name !== "signup" &&
+    route.name !== "design-system" &&
+    route.name !== "mockup" &&
     route.name !== "project-editor" &&
+    route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
-    route.name !== "rehearsal-report" &&
-    route.name !== "report-project-overview" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
     route.name !== "deck-render"
@@ -560,10 +691,20 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "login") return <LoginPage isAuthenticated={Boolean(user)} />;
-  if (route.name === "ai-ppt") return <AiPptMockupPage />;
-  if (route.name === "create-deck") return <GenerateDeckView />;
-  if (route.name === "project-list") return <ProjectListPage />;
+  if (route.name === "design-system") return <OrbitDesignSystemPage />;
+  if (route.name === "mockup") {
+    return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
+  }
+  if (route.name === "login") {
+    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="login" onNavigate={navigateTo} />;
+  }
+  if (route.name === "signup") {
+    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
+  }
+  if (route.name === "create-deck") return <AiPptWizardPage />;
+  if (route.name === "project-list") {
+    return <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />;
+  }
   if (route.name === "project-editor") {
     return (
       <ProjectAccessGate projectId={route.projectId}>
@@ -573,9 +714,31 @@ function renderRoute(route: Route, user?: AuthUser) {
       </ProjectAccessGate>
     );
   }
+  if (route.name === "project-brief") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationBriefPage projectId={route.projectId} />
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "project-history") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <DeckVersionHistoryPage projectId={route.projectId} />
+      </ProjectAccessGate>
+    );
+  }
   if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "presentation") {
+    return (
+      <PresentationWorkspace
+        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        projectId={route.projectId}
+      />
+    );
   }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
@@ -588,6 +751,8 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
+        sourceFullRunId={route.sourceFullRunId}
+        sourceGoalSetId={route.sourceGoalSetId}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
       />
     );
@@ -600,6 +765,21 @@ function renderRoute(route: Route, user?: AuthUser) {
         runId={route.runId}
       />
     );
+  }
+  if (route.name === "practice-plan") {
+    return <PracticePlanPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
+  }
+  if (route.name === "focused-practice") {
+    return (
+      <FocusedPracticePage
+        projectId={route.projectId}
+        goalId={route.goalId}
+        sourceFullRunId={route.sourceFullRunId}
+      />
+    );
+  }
+  if (route.name === "challenge-qna") {
+    return <ChallengeQnaPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
   }
   if (route.name === "report-project-overview") {
     return (
@@ -627,7 +807,33 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "deck-render") {
     return <DeckRenderPage />;
   }
-  return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+  if (route.name === "not-found") {
+    return (
+      <OrbitEmptyState
+        action={<><OrbitButton onClick={() => navigateTo("/")}>홈으로</OrbitButton><OrbitButton onClick={() => navigateTo("/project")} variant="secondary">프로젝트 보기</OrbitButton></>}
+        description="주소가 바뀌었거나 존재하지 않는 페이지입니다."
+        title="페이지를 찾을 수 없습니다."
+      />
+    );
+  }
+  if (route.name === "home") {
+    if (route.templateStyleId) {
+      return <HomePage user={user} templateStyleId={route.templateStyleId} />;
+    }
+    return <OrbitWorkspaceHome onNavigate={navigateTo} userName={user?.displayName} />;
+  }
+  return null;
+}
+
+function AuthLoadingFallback() {
+  return (
+    <main className="orbit-page">
+      <OrbitEmptyState
+        description="로그인 상태와 작업 공간을 확인하고 있습니다."
+        title="ORBIT를 준비하고 있어요."
+      />
+    </main>
+  );
 }
 
 function parseRouteNonNegativeInteger(value: string | null) {
@@ -699,7 +905,6 @@ function AppFrame(props: {
 }) {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isHomeDashboard = route.name === "home";
   const userLabel = user ? getUserLabel(user) : "로그인";
@@ -710,52 +915,57 @@ function AppFrame(props: {
 
     setIsLoggingOut(true);
     try {
-      await fetch("/api/v1/auth/logout", {
+      const response = await fetch("/api/v1/auth/logout", {
         credentials: "include",
         method: "POST"
       });
-      queryClient.setQueryData(["auth", "me"], undefined);
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      if (!response.ok) {
+        throw new Error("로그아웃하지 못했습니다.");
+      }
+      await queryClient.cancelQueries({ queryKey: authMeQueryKey });
+      markAuthLoggedOut(queryClient);
       navigateTo("/login");
     } finally {
       setIsLoggingOut(false);
     }
   }
   return (
-    <main
+    <div
       className={`orbit-layout orbit-product-shell orbit-headerless-shell${
         isHomeDashboard ? " orbit-home-shell" : ""
       }`}
     >
-      <div
-        className={`orbit-product-body${
-          isSidebarCollapsed ? " orbit-product-body-collapsed" : ""
-        }`}
-      >
-        <AppSidebar
-          isAuthenticated={isAuthenticated}
-          isCollapsed={isSidebarCollapsed}
-          isHomeActive={route.name === "home"}
-          isLoggingOut={isLoggingOut}
-          isProjectActive={
-            route.name === "project-list" ||
-            route.name === "project-editor" ||
-            route.name === "project-request"
-          }
-          isReportActive={route.name === "report-list" || route.name === "report-project-overview"}
-          onHomeClick={() => navigateTo("/")}
-          onLoginClick={() => navigateTo("/login")}
-          onLogoutClick={() => void handleLogout()}
-          onProjectListClick={() => navigateTo("/project")}
-          onReportClick={() => navigateTo("/reports")}
-          onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
-          userInitial={userInitial}
-          userLabel={userLabel}
-        />
-        <section className="orbit-page">{children}</section>
-      </div>
-    </main>
+      <OrbitAppHeader
+        activeItem={getAppNavigationItem(route)}
+        isAuthenticated={isAuthenticated}
+        isLoggingOut={isLoggingOut}
+        onLogout={() => void handleLogout()}
+        onNavigate={navigateTo}
+        userInitial={userInitial}
+        userLabel={userLabel}
+      />
+      <main className="orbit-page">{children}</main>
+    </div>
   );
+}
+
+export function getAppNavigationItem(
+  route: Route,
+  currentSearch = typeof window === "undefined" ? "" : window.location.search
+): OrbitAppNavigationItem {
+  if (route.name === "home") return "home";
+  if (route.name === "report-list" || route.name === "report-project-overview") {
+    return "reports";
+  }
+  if (
+    route.name === "rehearsal" ||
+    (route.name === "project-list" &&
+      (route.intent === "rehearsal" ||
+        new URLSearchParams(currentSearch).get("intent") === "rehearsal"))
+  ) {
+    return "rehearsal";
+  }
+  return "project";
 }
 
 function getUserInitial(user: AuthUser) {
@@ -765,146 +975,6 @@ function getUserInitial(user: AuthUser) {
 
 function getUserLabel(user: AuthUser) {
   return user.email?.trim() || user.userId;
-}
-
-function LoginPage(props: { isAuthenticated: boolean }) {
-  const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSubmitting) return;
-
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(`/api/v1/auth/${mode}`, {
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        method: "POST"
-      });
-
-      if (!response.ok) {
-        throw new Error(await readAuthError(response));
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      navigateTo("/");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : mode === "register"
-            ? "회원가입에 실패했습니다."
-            : "로그인에 실패했습니다."
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  return (
-    <section className="login-page">
-      <form className="login-card" onSubmit={handleLogin}>
-        <img alt="Orbit" src={orbitLogo} />
-        <h1>{mode === "register" ? "회원가입" : "로그인"}</h1>
-        <p>
-          {mode === "register"
-            ? "처음 사용하는 환경이라면 계정을 먼저 생성하세요."
-            : "계정으로 로그인하면 Orbit 작업 공간으로 이동합니다."}
-        </p>
-        <div className="login-mode-switch" role="tablist" aria-label="인증 방식">
-          <button
-            type="button"
-            className={mode === "login" ? "active" : ""}
-            onClick={() => {
-              setMode("login");
-              setError(null);
-            }}
-          >
-            로그인
-          </button>
-          <button
-            type="button"
-            className={mode === "register" ? "active" : ""}
-            onClick={() => {
-              setMode("register");
-              setError(null);
-            }}
-          >
-            회원가입
-          </button>
-        </div>
-        <label>
-          <span>이메일</span>
-          <input
-            autoComplete="email"
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@orbit.dev"
-            required
-            type="email"
-            value={email}
-          />
-        </label>
-        <label>
-          <span>비밀번호</span>
-          <input
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
-            minLength={8}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="비밀번호"
-            required
-            type="password"
-            value={password}
-          />
-        </label>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting
-            ? mode === "register"
-              ? "가입 중..."
-              : "로그인 중..."
-            : mode === "register"
-              ? "계정 만들기"
-              : "로그인"}
-        </button>
-      </form>
-      {props.isAuthenticated ? (
-        <button
-          className="login-next-button"
-          type="button"
-          onClick={() => navigateTo("/")}
-          aria-label="다음 화면으로 이동"
-          title="다음 화면으로 이동"
-        >
-          <ArrowRight size={34} strokeWidth={2.4} />
-        </button>
-      ) : null}
-    </section>
-  );
-}
-
-async function readAuthError(response: Response) {
-  const fallback = "로그인에 실패했습니다.";
-  const text = await response.text();
-  if (!text) return fallback;
-
-  try {
-    const body = JSON.parse(text) as { message?: unknown };
-    if (typeof body.message === "string") return body.message;
-    if (Array.isArray(body.message)) return body.message.join(", ");
-  } catch {
-    return text;
-  }
-
-  return fallback;
 }
 
 async function readApiError(response: Response, fallback: string) {
@@ -938,24 +1008,30 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) return <ProjectAccessError onRetry={() => void access.refetch()} />;
+  if (access.isError) {
+    return (
+      <ProjectAccessError
+        onRetry={() => void access.refetch()}
+        projectId={props.projectId}
+      />
+    );
+  }
   if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
 
   return <>{props.children}</>;
 }
 
-function ProjectAccessError(props: { onRetry: () => void }) {
+function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
-    <section className="project-request-page">
-      <article className="project-request-card">
-        <span className="eyebrow">Project access</span>
+    <ProjectAccessLayout projectId={props.projectId}>
+      <article className="orbit-access-message">
+        <span className="orbit-ds-eyebrow">PROJECT ACCESS</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
         <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
-        <button type="button" onClick={props.onRetry}>
-          다시 확인
-        </button>
+        <OrbitButton type="button" onClick={props.onRetry}>다시 확인</OrbitButton>
+        <a href="/project">프로젝트 목록으로</a>
       </article>
-    </section>
+    </ProjectAccessLayout>
   );
 }
 
@@ -998,12 +1074,20 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
 
   if (access.isLoading) return <EditorLoadingFallback />;
 
+  if (access.isError) {
+    return (
+      <ProjectAccessLayout projectId={props.projectId}>
+        <div className="orbit-access-message"><p className="orbit-ds-eyebrow">ACCESS CHECK</p><h1>권한 상태를 확인하지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해 주세요.</p><OrbitButton onClick={() => void access.refetch()}>다시 확인</OrbitButton><a href="/project">프로젝트 목록으로</a></div>
+      </ProjectAccessLayout>
+    );
+  }
+
   if (membership?.status === "pending") {
     return (
-      <section className="project-request-page">
-        <article className="project-request-card">
-          <span className="eyebrow">Project access</span>
-          <h1>권한 요청을 보냈습니다.</h1>
+      <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+        <article className="orbit-access-message">
+          <span className="orbit-ds-eyebrow">APPROVAL PENDING</span>
+          <h1>승인을 기다리고 있어요.</h1>
           <p>
             프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
             접근할 수 있습니다.
@@ -1011,23 +1095,25 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
           <dl className="project-request-meta">
             <div>
               <dt>요청 권한</dt>
-              <dd>{membership.role}</dd>
+              <dd>{getProjectAccessRoleLabel(membership.role)}</dd>
             </div>
             <div>
               <dt>상태</dt>
               <dd>대기 중</dd>
             </div>
           </dl>
+          <OrbitButton onClick={() => void access.refetch()} variant="secondary">승인 상태 다시 확인</OrbitButton>
+          <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
         </article>
-      </section>
+      </ProjectAccessLayout>
     );
   }
 
   return (
-    <section className="project-request-page">
-      <form className="project-request-card" onSubmit={handleSubmit}>
-        <span className="eyebrow">Project access</span>
-        <h1>프로젝트 접근 권한이 필요합니다.</h1>
+    <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+      <form className="orbit-access-message" onSubmit={handleSubmit}>
+        <span className="orbit-ds-eyebrow">ACCESS REQUIRED</span>
+        <h1>이 프로젝트에 참여하려면<br />승인이 필요해요.</h1>
         <p>
           이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
           프로젝트 소유자에게 요청하세요.
@@ -1041,7 +1127,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
               type="radio"
               value="editor"
             />
-            <strong>editor</strong>
+            <strong>편집 가능</strong>
             <span>프로젝트를 열고 슬라이드를 수정할 수 있습니다.</span>
           </label>
           <label className={role === "viewer" ? "active" : ""}>
@@ -1052,17 +1138,42 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
               type="radio"
               value="viewer"
             />
-            <strong>viewer</strong>
+            <strong>보기 전용</strong>
             <span>프로젝트 내용을 읽고 확인할 수 있습니다.</span>
           </label>
         </div>
-        {error ? <p className="auth-error">{error}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
+        {error ? <p className="orbit-access-error" role="alert">{error}</p> : null}
+        <OrbitButton disabled={isSubmitting} type="submit">
           {isSubmitting ? "요청 중..." : "권한 요청하기"}
-        </button>
+        </OrbitButton>
+        <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
       </form>
+    </ProjectAccessLayout>
+  );
+}
+
+function ProjectAccessLayout(props: {
+  children: ReactNode;
+  project?: Project;
+  projectId: string;
+}) {
+  return (
+    <section className="orbit-project-access">
+      <aside className="orbit-access-context">
+        <div className="orbit-access-icon"><IconFileText aria-hidden="true" size={26} /></div>
+        <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+        <h2>{props.project?.title ?? "비공개 프로젝트"}</h2>
+        <p>승인된 구성원만 발표자료를 열고 함께 작업할 수 있습니다.</p>
+        <dl><div><dt>프로젝트 ID</dt><dd>{props.project?.projectId ?? props.projectId}</dd></div><div><dt>생성일</dt><dd>{props.project ? new Date(props.project.createdAt).toLocaleDateString("ko-KR") : "확인 중"}</dd></div></dl>
+      </aside>
+      <div className="orbit-access-card">{props.children}</div>
     </section>
   );
+}
+
+export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
+  if (role === "owner") return "소유자";
+  return role === "editor" ? "편집 가능" : "보기 전용";
 }
 
 function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
@@ -1709,90 +1820,6 @@ function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleI
   );
 }
 
-function ProjectListPage() {
-  const [isCreating, setIsCreating] = useState(false);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState("");
-  const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => fetchProjects(),
-    retry: false
-  });
-
-  async function handleCreateProject() {
-    if (isCreating) return;
-    setIsCreating(true);
-    try {
-      const project = await createProject("새 프레젠테이션");
-      await projects.refetch();
-      navigateTo(`/project/${project.projectId}`);
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
-  async function handleDeleteProject(project: Project) {
-    if (deletingProjectId) return;
-    const shouldDelete = window.confirm(
-      `"${project.title}" 프레젠테이션을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`
-    );
-    if (!shouldDelete) return;
-
-    setDeleteError("");
-    setDeletingProjectId(project.projectId);
-    try {
-      await deleteProject(project.projectId);
-      await projects.refetch();
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "프로젝트를 삭제하지 못했습니다.");
-    } finally {
-      setDeletingProjectId(null);
-    }
-  }
-
-  return (
-    <section className="project-page">
-      <header className="page-heading row">
-        <div>
-          <span>프로젝트</span>
-          <h1>프로젝트 불러오기</h1>
-        </div>
-        <button type="button" className="ghost-button" onClick={() => void projects.refetch()}>
-          <Search size={16} />
-          새로고침
-        </button>
-      </header>
-
-      <TemplateRail
-        title="템플릿"
-        onCreateProject={handleCreateProject}
-        onSelectStyle={(styleId) => navigateTo(getHomeTemplateStylePath(styleId))}
-        isCreating={isCreating}
-      />
-
-      <section className="project-history">
-        <div className="section-heading">
-          <h2>최근 에디팅한 프로젝트</h2>
-          <span>{projects.data?.length ?? 0}개</span>
-        </div>
-        {projects.isLoading ? <p className="empty-state">프로젝트를 불러오는 중입니다.</p> : null}
-        {projects.isError ? <p className="empty-state">프로젝트 목록을 불러오지 못했습니다.</p> : null}
-        {deleteError ? <p className="empty-state project-delete-error">{deleteError}</p> : null}
-        <div className="project-grid">
-          {(projects.data ?? []).map((project) => (
-            <ProjectCard
-              key={project.projectId}
-              project={project}
-              isDeleting={deletingProjectId === project.projectId}
-              onDelete={() => void handleDeleteProject(project)}
-            />
-          ))}
-        </div>
-      </section>
-    </section>
-  );
-}
-
 export function TemplateRail(props: {
   title: string;
   isCreating?: boolean;
@@ -2229,42 +2256,7 @@ function HomeUploadList(props: {
   );
 }
 
-function ProjectCard(props: { project: Project; isDeleting: boolean; onDelete: () => void }) {
-  const createdAt = new Date(props.project.createdAt);
-  return (
-    <article className="project-card">
-      <button
-        aria-label={`${props.project.title} 열기`}
-        className="project-card-open"
-        type="button"
-        onClick={() => navigateTo(`/project/${props.project.projectId}`)}
-      >
-        <div className="project-thumb">
-          <span />
-        </div>
-        <strong>{props.project.title}</strong>
-        <span>
-          {Number.isNaN(createdAt.getTime())
-            ? props.project.projectId
-            : createdAt.toLocaleDateString("ko-KR")}
-        </span>
-      </button>
-      <button
-        aria-label={`${props.project.title} 삭제`}
-        className="project-card-delete"
-        disabled={props.isDeleting}
-        title="프레젠테이션 삭제"
-        type="button"
-        onClick={props.onDelete}
-      >
-        <Trash2 size={15} />
-        <span>{props.isDeleting ? "삭제 중" : "삭제"}</span>
-      </button>
-    </article>
-  );
-}
-
-function GenerateDeckView() {
+export function GenerateDeckView() {
   const queryClient = useQueryClient();
   const [topic, setTopic] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -2279,6 +2271,7 @@ function GenerateDeckView() {
   const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectError, setProjectError] = useState("");
+  const [phase, setPhase] = useState<"input" | "review">("input");
   const projectsQuery = useQuery({
     queryKey: ["projects", "generate-deck"],
     queryFn: () => fetchProjects(),
@@ -2342,6 +2335,7 @@ function GenerateDeckView() {
     setGenerateError("");
     setGenerateJob(null);
     setResult(null);
+    setPhase("input");
   };
 
   const generateDeck = async () => {
@@ -2419,36 +2413,45 @@ function GenerateDeckView() {
   };
 
   return (
-    <main className="app-shell generate-app-shell">
+    <main className="orbit-create-deck">
+      <div className="orbit-create-breadcrumb"><button onClick={() => navigateTo("/")} type="button">홈</button><span>/</span><strong>AI 발표자료 만들기</strong></div>
+      <header className="orbit-create-heading">
+        <div><p className="orbit-ds-eyebrow">AI PRESENTATION</p><h1>{phase === "review" ? "이 구성으로 만들까요?" : "어떤 발표를 만들까요?"}</h1><p>{phase === "review" ? "입력한 프로젝트와 자료를 확인한 뒤 생성을 시작하세요." : "PPTX 자료와 핵심 지시사항을 바탕으로 편집 가능한 발표자료를 만듭니다."}</p></div>
+        <ol className="orbit-create-steps" aria-label="발표자료 생성 단계"><li className={phase === "input" ? "active" : "complete"}><span>1</span>입력</li><li className={phase === "review" ? "active" : ""}><span>2</span>구성 확인</li><li><span>3</span>생성</li></ol>
+      </header>
       <section className="generate-layout" aria-labelledby="generate-title">
         <form
           className="generate-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void generateDeck();
+            if (phase === "input") {
+              setPhase("review");
+            } else {
+              void generateDeck();
+            }
           }}
         >
           <div className="panel-copy">
-            <span className="eyebrow">PPTX OOXML</span>
-            <h1 id="generate-title">PPTX로 덱 생성</h1>
+            <span className="eyebrow">PPTX SOURCE</span>
+            <h2 id="generate-title">원본 자료와 발표 맥락</h2>
           </div>
 
           <section className="generate-reference-panel" aria-labelledby="generate-project-title">
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-project-title">
-                Target project
+                저장할 프로젝트
               </span>
-              <p>생성된 덱을 저장하고 바로 에디터에서 열 프로젝트</p>
+              <p>생성된 발표자료를 저장하고 에디터에서 이어서 편집합니다.</p>
             </div>
 
             <label>
-              <span>Project</span>
+              <span>기존 프로젝트 선택</span>
               <select
                 value={selectedProjectId}
                 onChange={(event) => setSelectedProjectId(event.target.value)}
                 disabled={isGenerating || projectsQuery.isLoading}
               >
-                <option value="">프로젝트 선택</option>
+                  <option value="">새 프로젝트로 만들기</option>
                 {(projectsQuery.data ?? []).map((project) => (
                   <option key={project.projectId} value={project.projectId}>
                     {project.title}
@@ -2459,7 +2462,7 @@ function GenerateDeckView() {
 
             <div className="form-grid">
               <label>
-                <span>New project</span>
+                  <span>새 프로젝트 이름</span>
                 <input
                   value={newProjectTitle}
                   onChange={(event) => setNewProjectTitle(event.target.value)}
@@ -2475,7 +2478,7 @@ function GenerateDeckView() {
               onClick={() => void handleCreateProject()}
               disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
             >
-              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트 만들고 선택"}
+              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트를 먼저 만들기"}
             </button>
 
             {projectsQuery.isError ? (
@@ -2492,12 +2495,12 @@ function GenerateDeckView() {
           </section>
 
           <label>
-            <span>Topic</span>
+            <span>발표 주제</span>
             <input value={topic} onChange={(event) => setTopic(event.target.value)} />
           </label>
 
           <label>
-            <span>Prompt</span>
+            <span>핵심 메시지와 지시사항</span>
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
@@ -2511,9 +2514,9 @@ function GenerateDeckView() {
           >
             <div className="reference-panel-heading">
               <span className="eyebrow" id="generate-reference-title">
-                PPTX source
+                참고자료
               </span>
-              <p>원본 OOXML package를 보존할 PPTX 파일</p>
+              <p>원본 레이아웃과 편집 구조를 보존할 PPTX 파일 1개</p>
             </div>
 
             <label
@@ -2572,13 +2575,9 @@ function GenerateDeckView() {
             )}
           </section>
 
-          <button
-            className="extract-button"
-            type="submit"
-            disabled={isGenerating || !selectedPptx}
-          >
-            {isGenerating ? "덱 생성 중..." : "덱 생성"}
-          </button>
+          {phase === "review" ? <section className="orbit-create-review" aria-live="polite"><strong>구성 확인</strong><dl><div><dt>프로젝트</dt><dd>{selectedProjectId || newProjectTitle}</dd></div><div><dt>주제</dt><dd>{topic || "PPTX 파일명 기준"}</dd></div><div><dt>자료</dt><dd>{selectedPptx?.name}</dd></div></dl><button onClick={() => setPhase("input")} type="button">입력 수정</button></section> : null}
+
+          <button className="extract-button" type="submit" disabled={isGenerating || !selectedPptx}>{getCreateDeckPhaseActionLabel(phase, isGenerating)}</button>
 
           {generateJob && (
             <div className="job-status" aria-live="polite">
@@ -2603,6 +2602,14 @@ function GenerateDeckView() {
       </section>
     </main>
   );
+}
+
+export function getCreateDeckPhaseActionLabel(
+  phase: "input" | "review",
+  isGenerating: boolean
+) {
+  if (isGenerating) return "발표자료 생성 중...";
+  return phase === "input" ? "구성 확인" : "발표자료 생성 시작";
 }
 
 
@@ -2926,7 +2933,7 @@ export async function pollExtractJob(
   const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
 
   for (;;) {
-    const response = await fetcher(`/api/jobs/${jobId}`);
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (!response.ok) {
       throw new Error((await response.text()) || "Job status lookup failed.");
     }

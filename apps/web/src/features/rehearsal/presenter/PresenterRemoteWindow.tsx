@@ -1,5 +1,6 @@
 import type { Deck } from "@orbit/shared";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -8,19 +9,23 @@ import {
   ListChecks,
   Maximize2,
   Monitor,
+  PauseCircle,
   PlayCircle,
   Power,
   RotateCcw,
-  Square,
   Timer,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  SemanticSpeechDebugPanel,
+  shouldShowSemanticSpeechDebugPanel,
+} from "../panel/SemanticSpeechDebugPanel";
 import { splitSpeakerNotesIntoSentences } from "../speech/phraseExtractor";
 import {
   createPresenterCommandMessage,
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
-  getPresentationChannelName,
+  getPresenterRemoteChannelName,
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
   type PresentationChannelIdentity,
@@ -28,8 +33,10 @@ import {
   type PresenterRemoteCommand,
 } from "./presentationChannel";
 import type { PresenterSlideshowState } from "./presenterStateStore";
+import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScriptList";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
+import { getPresenterAidPolicy } from "./presenterAidPolicy";
 
 type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
@@ -60,7 +67,7 @@ export function PresenterRemoteWindow(props: {
   useEffect(() => {
     let channel: ChannelLike;
     try {
-      channel = channelFactory(getPresentationChannelName(identity));
+      channel = channelFactory(getPresenterRemoteChannelName(identity));
     } catch {
       setChannelError("발표자 제어 채널을 열 수 없습니다.");
       return;
@@ -132,10 +139,15 @@ export function PresenterRemoteWindow(props: {
     () => splitPresenterRemoteNotes(notes),
     [notes],
   );
-  const currentSentenceIndex =
-    noteSentences.length > 0
-      ? Math.min(Math.max(state.stepIndex, 0), noteSentences.length - 1)
-      : -1;
+  const currentSentenceIndex = getPresenterRemoteCurrentSentenceIndex(
+    noteSentences,
+    state,
+  );
+  const nextSentenceIndex = getPresenterRemoteNextSentenceIndex(
+    noteSentences,
+    state,
+    currentSentenceIndex,
+  );
   const currentCueText =
     currentSentenceIndex >= 0
       ? noteSentences[currentSentenceIndex]
@@ -148,6 +160,13 @@ export function PresenterRemoteWindow(props: {
     getEstimatedRemainingSeconds(slide, noteSentences.length, state.stepIndex),
   );
   const timing = getPresenterRemoteTimingState(deck, slide, state);
+  const isTimerActive = timing.isRunning || timing.isLiveSttActive;
+  const timerPrimaryAction = isTimerActive ? "timer-pause" : "timer-start";
+  const timerPrimaryLabel = timing.isPaused
+    ? "다시 시작"
+    : isTimerActive
+      ? "일시정지"
+      : "시작";
   const timerProgressPercent = getPresenterRemoteTimerProgressPercent(timing);
   const previewScale = getPresenterRemotePreviewScale(deck);
   const visibleSlides = getPresenterRemoteVisibleSlides(deck, state.slideIndex);
@@ -156,6 +175,23 @@ export function PresenterRemoteWindow(props: {
       ? Math.min(currentSentenceIndex + 1, noteSentences.length)
       : 0;
   const cueProgressTotal = Math.max(noteSentences.length, 1);
+  const shouldShowSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
+    isDevelopment: import.meta.env.DEV,
+    storage: typeof window === "undefined" ? null : window.localStorage,
+  });
+  const capabilityItems = state.speech?.semanticCapabilityItems ?? [];
+  const liveAidPolicy = getPresenterAidPolicy("live");
+  const visibleCapabilityItems = [...capabilityItems]
+    .sort(
+      (left, right) =>
+        getCapabilitySeverityRank(right.severity) -
+        getCapabilitySeverityRank(left.severity),
+    )
+    .slice(0, liveAidPolicy.maxCapabilityItems);
+  const hiddenCapabilityCount = Math.max(
+    capabilityItems.length - visibleCapabilityItems.length,
+    0,
+  );
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
@@ -169,6 +205,19 @@ export function PresenterRemoteWindow(props: {
           {channelError ? "채널 오류" : "팝업 연결됨"}
         </span>
       </header>
+      {visibleCapabilityItems.map((item) => (
+        <section
+          aria-label="발표자 시스템 상태"
+          className={`presenter-semantic-status presenter-semantic-status--${item.severity}`}
+          key={item.key}
+          tabIndex={0}
+        >
+          <AlertCircle aria-hidden="true" size={15} />
+          <strong>{item.shortLabel}</strong>
+          {hiddenCapabilityCount > 0 ? <span>+{hiddenCapabilityCount}</span> : null}
+          <p>{item.detail}</p>
+        </section>
+      ))}
       {channelError ? (
         <section className="presenter-remote-status" role="status">
           {channelError}
@@ -226,24 +275,37 @@ export function PresenterRemoteWindow(props: {
               현재 문장 {cueProgressCurrent} / {cueProgressTotal}
             </strong>
           </div>
-          <ol className="presenter-remote-script-list">
-            {noteSentences.map((sentence, index) => (
-              <li
-                aria-current={
-                  index === currentSentenceIndex ? "true" : undefined
-                }
-                className={
+          <PresenterScriptList
+            emptyLabel="대본 없음"
+            rows={noteSentences.map((sentence, index): PresenterScriptListRow => {
+              const sentenceId = getPresenterRemoteSentenceId(index);
+              const covered = Boolean(
+                state.speech?.coveredSentenceIds.includes(sentenceId),
+              );
+              const matchKind =
+                state.speech?.coveredSentenceMatchKinds[sentenceId];
+              return {
+                content: sentence,
+                id: sentenceId,
+                label:
+                  matchKind === "paraphrased"
+                    ? "의미 전달"
+                    : covered
+                      ? "체크됨"
+                      : undefined,
+                status:
                   index === currentSentenceIndex
-                    ? "presenter-remote-script-row presenter-remote-script-row--current"
-                    : "presenter-remote-script-row"
-                }
-                key={`${sentence}-${index}`}
-              >
-                <span>{index + 1}</span>
-                <p>{sentence}</p>
-              </li>
-            ))}
-          </ol>
+                    ? "current"
+                    : covered
+                      ? matchKind === "paraphrased"
+                        ? "paraphrased"
+                        : "covered"
+                      : index === nextSentenceIndex
+                        ? "next"
+                        : "pending",
+              };
+            })}
+          />
         </section>
 
         <aside
@@ -257,7 +319,11 @@ export function PresenterRemoteWindow(props: {
             <div className="presenter-remote-section-heading">
               <span>타이머</span>
               <strong>
-                {timing.isLiveSttActive ? "음성인식 중" : "음성인식 대기"}
+                {timing.isPaused
+                  ? "일시정지됨"
+                  : timing.isLiveSttActive
+                    ? "음성인식 중"
+                    : "음성인식 대기"}
               </strong>
             </div>
             <strong
@@ -290,21 +356,15 @@ export function PresenterRemoteWindow(props: {
             <div className="presenter-remote-timer-actions">
               <button
                 type="button"
-                onClick={() =>
-                  sendCommand({
-                    action:
-                      timing.isRunning || timing.isLiveSttActive
-                        ? "timer-pause"
-                        : "timer-start",
-                  })
-                }
+                aria-label={`리허설 ${timerPrimaryLabel}`}
+                onClick={() => sendCommand({ action: timerPrimaryAction })}
               >
-                {timing.isRunning || timing.isLiveSttActive ? (
-                  <Square size={16} />
+                {isTimerActive ? (
+                  <PauseCircle size={16} />
                 ) : (
                   <PlayCircle size={16} />
                 )}
-                {timing.isRunning || timing.isLiveSttActive ? "멈춤" : "시작"}
+                {timerPrimaryLabel}
               </button>
               <button
                 type="button"
@@ -430,8 +490,25 @@ export function PresenterRemoteWindow(props: {
           발표 종료
         </button>
       </div>
+      {state.speech && shouldShowSemanticDebugPanel ? (
+        <SemanticSpeechDebugPanel
+          semanticMatchingEnabled={state.speech.semanticMatchingEnabled}
+          state={state.speech.semanticDebug}
+        />
+      ) : null}
     </main>
   );
+}
+
+function getCapabilitySeverityRank(severity: "info" | "warning" | "error") {
+  switch (severity) {
+    case "error":
+      return 2;
+    case "warning":
+      return 1;
+    case "info":
+      return 0;
+  }
 }
 
 export function applyPresenterRemoteMessage(
@@ -439,6 +516,8 @@ export function applyPresenterRemoteMessage(
   message: PresentationChannelMessage,
 ): PresenterSlideshowState {
   if (
+    message.type === "presenter-remote-snapshot" ||
+    message.type === "presenter-remote-state" ||
     message.type === "presenter-snapshot" ||
     message.type === "presenter-state"
   ) {
@@ -549,6 +628,51 @@ export function splitPresenterRemoteNotes(notes: string) {
   return sentences.length > 0 ? sentences : [notes.trim()].filter(Boolean);
 }
 
+export function getPresenterRemoteCurrentSentenceIndex(
+  sentences: readonly string[],
+  state: PresenterSlideshowState,
+) {
+  if (sentences.length === 0) {
+    return -1;
+  }
+
+  const coveredSentenceIds = state.speech?.coveredSentenceIds;
+  if (!coveredSentenceIds) {
+    return Math.min(Math.max(state.stepIndex, 0), sentences.length - 1);
+  }
+
+  const coveredSet = new Set(coveredSentenceIds);
+  const nextUncoveredIndex = sentences.findIndex(
+    (_sentence, index) => !coveredSet.has(getPresenterRemoteSentenceId(index)),
+  );
+  if (nextUncoveredIndex >= 0) {
+    return nextUncoveredIndex;
+  }
+
+  return sentences.length - 1;
+}
+
+export function getPresenterRemoteNextSentenceIndex(
+  sentences: readonly string[],
+  state: PresenterSlideshowState,
+  currentSentenceIndex: number,
+) {
+  if (currentSentenceIndex < 0) {
+    return -1;
+  }
+
+  const coveredSet = new Set(state.speech?.coveredSentenceIds ?? []);
+  return sentences.findIndex(
+    (_sentence, index) =>
+      index > currentSentenceIndex &&
+      !coveredSet.has(getPresenterRemoteSentenceId(index)),
+  );
+}
+
+function getPresenterRemoteSentenceId(index: number) {
+  return `sentence_${index + 1}`;
+}
+
 export function getPresenterRemoteKeywordRows(
   slide: PresenterRemoteSlide | undefined,
   stepIndex: number,
@@ -605,6 +729,7 @@ export function getPresenterRemoteTimingState(
     displayedSeconds: currentSlideTargetSeconds,
     elapsedSeconds: 0,
     isLiveSttActive: false,
+    isPaused: false,
     isRunning: false,
     liveStatus: "idle",
     mode: "timer",

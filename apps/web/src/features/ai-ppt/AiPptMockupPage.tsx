@@ -15,6 +15,7 @@ import type {
   ReferenceExtractionResult,
   SavedDesignPack
 } from "@orbit/shared";
+import type { EvaluatorLensRef, FrozenBriefRef } from "@orbit/shared";
 import {
   generateDeckValidationSchema,
   pptAdvisorResponseSchema,
@@ -23,30 +24,36 @@ import {
   referenceExtractionStartResponseSchema
 } from "@orbit/shared";
 import {
-  ArrowDownToLine,
-  Check,
-  ChevronLeft,
-  ChevronRight,
   Copy,
-  FileText,
   Image as ImageIcon,
   Layers3,
-  Palette,
-  Paperclip,
   Pencil,
   Play,
   Plus,
   Save,
-  Sparkles,
   Star,
   Trash2
 } from "lucide-react";
+import {
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconDownload,
+  IconFileText,
+  IconPalette,
+  IconPaperclip,
+  IconPlayerPlay,
+  IconSparkles,
+  IconStack3
+} from "@tabler/icons-react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createProject,
   uploadProjectAsset
 } from "../projects/ProjectAssetWorkspace";
+import { putPresentationBrief } from "../coaching/presentationBriefApi";
+import "./ai-ppt-mockup.css";
 
 type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
@@ -108,23 +115,23 @@ const steps: Array<{ id: StepId; label: string }> = [
 const fallbackPaletteOptions: PaletteOption[] = [
   {
     optionId: "brandlogy-blue",
-    name: "Brandlogy Blue",
-    rationale: "Clean default palette for a modern Korean product deck.",
+    name: "ORBIT Lilac",
+    rationale: "ORBIT의 Lilac과 Ink 대비를 사용하는 선명한 기본 팔레트입니다.",
     palette: {
-      primary: "#2563EB",
-      secondary: "#0F766E",
-      background: "#F8FAFC",
+      primary: "#6846D8",
+      secondary: "#1F1D3D",
+      background: "#F7F7F5",
       surface: "#FFFFFF",
-      muted: "#E0F2FE",
-      border: "#BAE6FD",
-      text: "#0F172A",
-      accentColor: "#F472B6"
+      muted: "#F1ECFF",
+      border: "#E6E6E6",
+      text: "#090909",
+      accentColor: "#C5B0F4"
     }
   },
   {
     optionId: "executive-slate",
-    name: "Executive Slate",
-    rationale: "Restrained contrast for internal decision meetings.",
+    name: "이그제큐티브 슬레이트",
+    rationale: "내부 의사결정 회의에 어울리는 절제된 대비의 팔레트입니다.",
     palette: {
       primary: "#334155",
       secondary: "#64748B",
@@ -138,8 +145,8 @@ const fallbackPaletteOptions: PaletteOption[] = [
   },
   {
     optionId: "modern-violet",
-    name: "Modern Violet",
-    rationale: "Expressive palette for AI, product, and creative narratives.",
+    name: "모던 바이올렛",
+    rationale: "AI, 제품, 창의적인 이야기를 또렷하게 전달하는 팔레트입니다.",
     palette: {
       primary: "#7C3AED",
       secondary: "#4F46E5",
@@ -174,10 +181,10 @@ export const initialAiPptWizardState: AiPptWizardState = {
   duration: "",
   slides: "",
   tone: "professional",
-  colorMood: "전문가스럽고 차분한 파란색, Brandlogy다운 포인트 컬러",
+  colorMood: "ORBIT Lilac 포인트와 Ink 대비, 차분하고 명확한 색감",
   fontMood: "professional trustworthy Korean sans font",
   mediaPolicy: "minimal",
-  referencePolicy: "references-first"
+  referencePolicy: "user-input-only"
 };
 
 const generationStages = [
@@ -201,7 +208,8 @@ export function buildAiPptGenerateDeckPayload(
   },
   savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
   brandKit?: Pick<BrandKit, "id" | "version">,
-  officialAssetFileIds: string[] = []
+  officialAssetFileIds: string[] = [],
+  coachingContext?: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef }
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 0);
   const slideCountRange = resolveSlideCountRange(state);
@@ -282,7 +290,8 @@ export function buildAiPptGenerateDeckPayload(
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
-    referenceContext: referenceGrounding.referenceContext
+    referenceContext: referenceGrounding.referenceContext,
+    coachingContext: coachingContext ?? null
   };
 }
 
@@ -302,8 +311,13 @@ export function getAiPptWizardValidationMessage(
   if (state.slides.trim() && parsePositiveInteger(state.slides, 0) < 1) {
     return "슬라이드 수는 1장 이상이어야 합니다.";
   }
-  if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
-    return "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.";
+  if (
+    ["references-first", "references-only"].includes(state.referencePolicy) &&
+    referenceFiles.length === 0
+  ) {
+    return state.referencePolicy === "references-only"
+      ? "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요."
+      : "참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.";
   }
   return "";
 }
@@ -348,6 +362,7 @@ export function buildAiPptAdvisorSuggestions(
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
   const [form, setForm] = useState(initialAiPptWizardState);
+  const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
@@ -378,6 +393,8 @@ export function AiPptMockupPage() {
     form.colorMood
   ].join("|");
   const loadedColorRequestKey = useRef("");
+  const panelRef = useRef<HTMLElement>(null);
+  const previousStepRef = useRef<StepId>(currentStep);
   const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
   const selectedPalette =
     paletteOptions.find((palette) => palette.optionId === selectedPaletteId) ??
@@ -425,6 +442,12 @@ export function AiPptMockupPage() {
     if (loadedColorRequestKey.current === colorRequestKey) return;
     void loadColorOptions();
   }, [colorRequestKey, currentStep]);
+
+  useEffect(() => {
+    if (previousStepRef.current === currentStep) return;
+    previousStepRef.current = currentStep;
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [currentStep]);
 
   function updateForm<K extends keyof AiPptWizardState>(
     key: K,
@@ -635,19 +658,19 @@ export function AiPptMockupPage() {
   }
 
   function goNext() {
-    if (currentStep === "brief") {
-      const validationMessage = getAiPptWizardValidationMessage(form);
+    if (currentStep === "review") {
+      void submitGeneration();
+      return;
+    }
+    if (currentStep === "brief" || currentStep === "references") {
+      const validationMessage = getAiPptWizardValidationMessage(form, referenceFiles);
       if (validationMessage) {
         setError(validationMessage);
         return;
       }
     }
-    if (currentStep === "review") {
-      void submitGeneration();
-      return;
-    }
     const nextStep = steps[Math.min(currentStepIndex + 1, steps.length - 1)];
-    setCurrentStep(nextStep.id);
+    goToStep(nextStep.id);
   }
 
   async function loadColorOptions() {
@@ -750,6 +773,38 @@ export function AiPptMockupPage() {
         }
       }
 
+      let coachingContext: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef };
+      if (briefMode === "custom") {
+        setStatus("맞춤 Brief 저장 중...");
+        const presentationBrief = await putPresentationBrief(project.projectId, {
+          expectedRevision: 0,
+          audience: "decision-maker",
+          purpose: "persuade",
+          evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+          targetDurationMinutes: parsePositiveInteger(form.duration, 10),
+          desiredOutcome: form.successCriteria.trim() || form.purpose.trim(),
+          requirements: form.successCriteria.trim()
+            ? [{ kind: "must-cover", text: form.successCriteria.trim(), reviewStatus: "approved" }]
+            : [],
+          terminology: [],
+          challengeTopics: [],
+          approvedReferenceFileIds: referenceFileIds
+        });
+        coachingContext = {
+          briefRef: {
+            mode: "briefed",
+            briefId: presentationBrief.briefId,
+            revision: presentationBrief.revision
+          },
+          evaluatorLensRef: presentationBrief.evaluatorLensRef
+        };
+      } else {
+        coachingContext = {
+          briefRef: { mode: "generic" },
+          evaluatorLensRef: { lensId: "general-novice", revision: 1 }
+        };
+      }
+
       setStatus(`1/${generationStages.length} ${generationStages[0]}`);
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
@@ -766,7 +821,8 @@ export function AiPptMockupPage() {
               referenceGrounding,
               designPacks.find((pack) => pack.id === selectedDesignPackId),
               brandKits.find((kit) => kit.id === selectedBrandKitId),
-              officialAssetFileIds
+              officialAssetFileIds,
+              coachingContext
             )
           )
         }
@@ -816,11 +872,11 @@ export function AiPptMockupPage() {
           <h1>Design Pack으로 시작하는 새 발표 생성</h1>
           <p>
             템플릿 파일을 덮어쓰지 않고 brief, 색상 선택, 참고자료 정책을 모아
-            Brandlogy Design Pack 기반 Deck JSON을 생성합니다.
+            ORBIT Design Pack 기반 Deck JSON을 생성합니다.
           </p>
         </div>
         <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
-          <Sparkles size={17} />
+          <IconSparkles size={17} />
           처음부터 입력
         </button>
       </header>
@@ -838,16 +894,21 @@ export function AiPptMockupPage() {
               type="button"
               onClick={() => goToStep(step.id)}
             >
-              <span>{index < currentStepIndex ? <Check size={14} /> : index + 1}</span>
+              <span>{index < currentStepIndex ? <IconCheck size={14} /> : index + 1}</span>
               <strong>{step.label}</strong>
             </button>
           ))}
         </aside>
 
         <main className="ai-ppt-workspace">
-          <section className="ai-ppt-panel">
+          <section className="ai-ppt-panel" ref={panelRef}>
             {currentStep === "brief" ? (
-              <BriefStep form={form} onChange={updateForm} />
+              <BriefStep
+                briefMode={briefMode}
+                form={form}
+                onBriefModeChange={setBriefMode}
+                onChange={updateForm}
+              />
             ) : null}
             {currentStep === "style" ? (
               <StyleStep
@@ -940,7 +1001,7 @@ export function AiPptMockupPage() {
           type="button"
           onClick={() => goToStep(steps[Math.max(currentStepIndex - 1, 0)].id)}
         >
-          <ChevronLeft size={17} />
+          <IconChevronLeft size={17} />
           이전
         </button>
         <button
@@ -955,18 +1016,18 @@ export function AiPptMockupPage() {
         >
           {isGenerating ? (
             <>
-              <Play size={17} />
+              <IconPlayerPlay size={17} />
               생성 중
             </>
           ) : currentStep === "review" ? (
             <>
-              <Play size={17} />
-              PPT 생성
+              <IconPlayerPlay size={17} />
+              Deck JSON 생성
             </>
           ) : (
             <>
               다음
-              <ChevronRight size={17} />
+              <IconChevronRight size={17} />
             </>
           )}
         </button>
@@ -1008,7 +1069,9 @@ function QualityFailurePanel(props: {
 }
 
 function BriefStep(props: {
+  briefMode: "custom" | "generic";
   form: AiPptWizardState;
+  onBriefModeChange: (value: "custom" | "generic") => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
@@ -1020,6 +1083,11 @@ function BriefStep(props: {
         kicker="1. Brief"
         title="발표 상황과 청중을 먼저 고정"
       />
+      <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
+        <button className={props.briefMode === "custom" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("custom")}>맞춤 Brief</button>
+        <button className={props.briefMode === "generic" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("generic")}>일반 모드</button>
+      </div>
+      {props.briefMode === "generic" ? <p className="ai-ppt-status">일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.</p> : null}
       <div className="ai-ppt-field-grid">
         <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
         <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
@@ -1079,7 +1147,7 @@ function StyleStep(props: {
     <>
       <PanelHeading
         kicker="2. Style"
-        title="Brandlogy Design Pack에 얹을 톤 선택"
+        title="ORBIT Design Pack에 얹을 톤 선택"
       />
       <div className="ai-ppt-pack-manager">
         <label>
@@ -1215,7 +1283,7 @@ function StyleStep(props: {
               {font.name}
             </strong>
             <span style={{ fontFamily: font.bodyFontFamily }}>
-              Brandlogy 발표 자료
+              ORBIT 발표 자료
             </span>
             <small>{font.rationale}</small>
             <em>{font.license}</em>
@@ -1243,7 +1311,7 @@ function ColorStep(props: {
       <div className="ai-ppt-result-toolbar">
         <span>{props.options.length} palettes ready</span>
         <button disabled={props.isLoading} type="button" onClick={props.onRefresh}>
-          <Palette size={16} />
+          <IconPalette size={16} />
           {props.isLoading ? "생성 중" : "색상 후보 다시 생성"}
         </button>
       </div>
@@ -1284,7 +1352,7 @@ function ReferencesStep(props: {
         title="참고자료 사용 정책 선택"
       />
       <label className="ai-ppt-reference-drop">
-        <Paperclip size={28} />
+        <IconPaperclip size={28} />
         <strong>
           {props.files.length
             ? `${props.files.length}개 파일 선택됨`
@@ -1379,16 +1447,16 @@ function ReviewStep(props: {
         title="설문 결과가 생성 payload로 컴파일된 모습"
       />
       <div className="ai-ppt-review-grid">
-        <SummaryCard icon={<FileText size={18} />} title="Brief">
+        <SummaryCard icon={<IconFileText size={18} />} title="Brief">
           <p>{props.payload.topic}</p>
           <span>{props.payload.brief?.audienceText}</span>
         </SummaryCard>
-        <SummaryCard icon={<Palette size={18} />} title="Session Design Pack">
-          <p>{stylePackId} + {props.selectedPalette.name}</p>
+        <SummaryCard icon={<IconPalette size={18} />} title="Session Design Pack">
+          <p>ORBIT Design Pack · {props.selectedPalette.name}</p>
           <span>{props.selectedFont.name}</span>
           <span>{props.payload.designPrompt}</span>
         </SummaryCard>
-        <SummaryCard icon={<Layers3 size={18} />} title="References">
+        <SummaryCard icon={<IconStack3 size={18} />} title="References">
           <p>{props.payload.brief?.referencePolicy}</p>
           <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
@@ -1401,7 +1469,10 @@ function ReviewStep(props: {
           </span>
         </SummaryCard>
       </div>
-      <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
+      <details>
+        <summary>고급 설정 JSON 보기</summary>
+        <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
+      </details>
     </>
   );
 }
@@ -1422,7 +1493,7 @@ function PreviewStep(props: {
         <span>{props.job?.status ?? "ready"}</span>
         <span>{props.payload.slideCountRange.min} slides</span>
         <button type="button">
-          <ArrowDownToLine size={16} />
+          <IconDownload size={16} />
           PPTX export
         </button>
       </div>
@@ -1566,7 +1637,7 @@ function AdvisorPanel(props: {
           type="submit"
           disabled={!question.trim() || isAsking}
         >
-          <Sparkles size={16} />
+          <IconSparkles size={16} />
           {isAsking ? "확인 중" : "질문"}
         </button>
       </form>
@@ -2169,7 +2240,7 @@ function parsePositiveInteger(value: string, fallback: number) {
 function resolveSlideCountRange(state: AiPptWizardState) {
   const requested = parsePositiveInteger(state.slides, 0);
   if (requested > 0) {
-    return { min: Math.max(1, requested - 2), max: Math.min(20, requested + 2) };
+    return { min: requested, max: requested };
   }
   const derived = deriveSlideCountFromState(state);
   return { min: derived, max: derived };

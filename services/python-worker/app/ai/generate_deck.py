@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import OrderedDict
+from collections.abc import Sequence
 import colorsys
 import hashlib
 import json
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal, Sequence, cast
+from typing import Any, Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -8137,21 +8138,7 @@ def design_pack_chrome_elements(
     theme: dict[str, Any],
 ) -> list[dict[str, Any]]:
     colors = design_pack_colors(raw_input, theme)
-    background = shape_element(
-        slide_plan.order,
-        "design_pack_background",
-        "background",
-        0,
-        0,
-        CANVAS.width,
-        CANVAS.height,
-        0,
-        colors["background"],
-        "transparent",
-    )
-    background["locked"] = True
     return [
-        background,
         shape_element(
             slide_plan.order,
             "design_pack_top_rule",

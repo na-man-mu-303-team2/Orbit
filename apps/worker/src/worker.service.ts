@@ -7,8 +7,13 @@ import {
   pptxOoxmlSyncQueueName,
   redisConnectionOptions,
   referenceExtractQueueName,
+  rehearsalSemanticEvaluationQueueName,
   rehearsalSttQueueName,
+  semanticCueExtractionQueueName,
   workerHealthCheckQueueName,
+  focusedPracticeAnalysisQueueName,
+  challengeQnaGenerationQueueName,
+  challengeQnaAnswerAnalysisQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -27,9 +32,16 @@ import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
 import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-evaluation.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
+import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
+import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
+import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
+import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
+import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -37,16 +49,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly queueNames = [
     referenceExtractQueueName,
     rehearsalSttQueueName,
+    rehearsalSemanticEvaluationQueueName,
     generateDeckQueueName,
     deckExportQueueName,
     aiTemplateDeckGenerationQueueName,
+    semanticCueExtractionQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     pptxImportQueueName,
     workerHealthCheckQueueName,
+    focusedPracticeAnalysisQueueName,
+    challengeQnaGenerationQueueName,
+    challengeQnaAnswerAnalysisQueueName,
   ];
   private workers: BullMqWorker[] = [];
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
+  private challengeQnaEvidenceCache: ChallengeQnaEvidenceCache | null = null;
+  private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -68,7 +87,22 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const storage = workerStorage();
-    this.transcriptCache = new RedisRehearsalTranscriptCache(this.config.REDIS_URL);
+    const reconcileDeletions = () => {
+      void reconcileStorageDeletionOutbox(this.dataSource, storage).catch((error) => {
+        this.logger.error(
+          { event: "storage_deletion.reconcile_failed", error: serializeLogError(error) },
+          "Storage deletion reconciliation failed."
+        );
+      });
+    };
+    reconcileDeletions();
+    this.storageDeletionTimer = setInterval(reconcileDeletions, 30_000);
+    this.transcriptCache = new RedisRehearsalTranscriptCache(
+      this.config.PRIVATE_EVIDENCE_REDIS_URL
+    );
+    this.challengeQnaEvidenceCache = new ChallengeQnaEvidenceCache(
+      this.config.PRIVATE_EVIDENCE_REDIS_URL
+    );
     this.workers = [
       this.createWorker(referenceExtractQueueName, (job) =>
         processReferenceExtractJob(
@@ -84,7 +118,28 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           this.config.PYTHON_WORKER_URL,
           job.data,
           this.transcriptCache ?? undefined,
+          (event) => {
+            const level = event.event.endsWith(".partial") ? "warn" : "info";
+            this.logger[level](event, "Rehearsal semantic evaluation updated.");
+          },
         ),
+      ),
+      this.createWorker(rehearsalSemanticEvaluationQueueName, (job) =>
+        processRehearsalSemanticEvaluationJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+          this.transcriptCache!,
+          (event) => {
+            const level = event.event.endsWith(".retry_failed")
+              ? "error"
+              : "info";
+            this.logger[level](
+              event,
+              "Rehearsal semantic evaluation retry updated."
+            );
+          }
+        )
       ),
       this.createWorker(generateDeckQueueName, (job) =>
         processGenerateDeckJob(
@@ -112,6 +167,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         processAiTemplateDeckGenerationJob(
           this.dataSource,
           storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(semanticCueExtractionQueueName, (job) =>
+        processSemanticCueExtractionJob(
+          this.dataSource,
           this.config.PYTHON_WORKER_URL,
           job.data,
         ),
@@ -147,12 +209,38 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           job.data,
         ),
       ),
+      this.createWorker(focusedPracticeAnalysisQueueName, (job) =>
+        processFocusedPracticeAnalysisJob(
+          this.dataSource,
+          storage,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(challengeQnaGenerationQueueName, (job) =>
+        processChallengeQnaGenerationJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(challengeQnaAnswerAnalysisQueueName, (job) =>
+        processChallengeQnaAnswerJob(
+          this.dataSource,
+          storage,
+          this.challengeQnaEvidenceCache!,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
     ];
   }
 
   async onModuleDestroy() {
+    if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.transcriptCache?.close();
+    await this.challengeQnaEvidenceCache?.close();
     this.logger.info(
       {
         event: "worker.stopped",
@@ -232,6 +320,31 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
         "Job finished.",
       );
+      if (queueName === semanticCueExtractionQueueName) {
+        const versionConflict =
+          result.error?.code === "SEMANTIC_CUE_DECK_VERSION_CONFLICT";
+        const semanticEvent =
+          result.status === "succeeded"
+            ? "semantic_cue.extraction.succeeded"
+            : versionConflict
+              ? "semantic_cue.extraction.version_conflict"
+              : "semantic_cue.extraction.failed";
+        const semanticLevel =
+          result.status === "succeeded" ? "info" : versionConflict ? "warn" : "error";
+        this.logger[semanticLevel](
+          {
+            event: semanticEvent,
+            ...baseFields,
+            jobId: result.jobId,
+            jobType: result.type,
+            projectId: result.projectId,
+            status: result.status,
+            durationMs,
+            reason: result.error?.code,
+          },
+          "Semantic cue extraction finished.",
+        );
+      }
       return result;
     } catch (error) {
       this.logger.error(
@@ -250,12 +363,15 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
 function jobPayloadFields(data: unknown) {
   const payload = isRecord(data) ? data : {};
+  const request = isRecord(payload.request) ? payload.request : {};
   return {
     jobId: readString(payload, "jobId"),
     jobType: readString(payload, "type"),
     projectId: readString(payload, "projectId"),
     runId: readString(payload, "runId"),
-    deckId: readString(payload, "deckId"),
+    deckId: readString(payload, "deckId") ?? readString(request, "deckId"),
+    deckVersion: readNumber(request, "baseVersion"),
+    force: readBoolean(request, "force"),
     audioFileId: readString(payload, "audioFileId"),
     fileId: readString(payload, "fileId"),
     fileCount: Array.isArray(payload.files) ? payload.files.length : undefined,
@@ -309,6 +425,16 @@ function readStringArray(value: Record<string, unknown>, key: string) {
     return undefined;
   }
   return raw;
+}
+
+function readNumber(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function readBoolean(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  return typeof raw === "boolean" ? raw : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

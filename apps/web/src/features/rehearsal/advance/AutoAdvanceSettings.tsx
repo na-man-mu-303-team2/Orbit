@@ -43,6 +43,16 @@ export function AutoAdvanceSettings(props: {
         />
         <span>실전 자동 전환</span>
       </label>
+      <label className="auto-advance-toggle">
+        <input
+          checked={props.policy.semanticMatching}
+          type="checkbox"
+          onChange={(event) =>
+            updatePolicy({ semanticMatching: event.target.checked })
+          }
+        />
+        <span>E5 대본 따라가기</span>
+      </label>
       <div className="auto-advance-threshold-stepper">
         <span>전환 기준</span>
         <button

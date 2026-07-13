@@ -22,6 +22,7 @@ playwright-report/
 *.tsbuildinfo
 
 .venv/
+services/python-worker/pkcs11.txt
 __pycache__/
 .pytest_cache/
 .pytest-tmp/
@@ -39,3 +40,5 @@ redis-data/
 __MACOSX/
 sherpa-onnx-streaming-zipformer-korean-*/
 docker-compose.override.yml
+artifacts/
+.codex/

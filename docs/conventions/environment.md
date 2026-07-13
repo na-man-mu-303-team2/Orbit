@@ -17,6 +17,8 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 필수 값이 없거나 빈 문자열이면 startup이 실패해야 하며 오류 메시지에는 누락된 env key가 포함되어야 한다.
 `APP_ENV=staging` 또는 `APP_ENV=production`에서는 localhost, 로컬 DB/Redis, 로컬 secret placeholder를 그대로 사용하지 않는다.
 
+`API_JSON_BODY_LIMIT_BYTES`는 API의 JSON request body 최대 크기다. 기본값은 `5000000`이며, full deck 저장(`PUT /api/v1/projects/:projectId/deck`)처럼 checkpoint용 Deck JSON을 보내는 경로가 Express 기본값 100KB에 걸리지 않도록 명시한다.
+
 ## driver 값
 
 ```txt
@@ -92,6 +94,24 @@ STT/AI provider는 목적별로 분리한다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
 Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 단일 파일 전사 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값이 `25000000`이다. `REPORT_STT_PROVIDER=whisperx`를 사용하려면 `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`를 설정한다.
+
+## Adaptive Rehearsal Coach
+
+```txt
+ADAPTIVE_REHEARSAL_COACH_ENABLED=false
+FOCUSED_PRACTICE_ENABLED=false
+CHALLENGE_QNA_ENABLED=false
+DEMO_COACHING_FIXTURE_ENABLED=false
+DEMO_FIXTURE_ENV_ALLOWLIST=local,test
+ADAPTIVE_COACHING_PROJECT_ALLOWLIST=project_demo_1
+PRIVATE_EVIDENCE_REDIS_URL=redis://localhost:6380
+COACHING_IDEMPOTENCY_HMAC_SECRET=
+COACHING_IDEMPOTENCY_HMAC_KEY_VERSION=1
+COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET=
+COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION=
+```
+
+Focused Practice나 Challenge Q&A를 켜려면 Adaptive core도 켜야 한다. project allowlist가 비어 있으면 모든 project를 거부하고 `*`는 전체 project를 허용한다. demo fixture는 environment allowlist와 demo marker가 함께 일치해야 하며 production에서는 활성화할 수 없다. private evidence Redis와 HMAC secret은 browser runtime config에 노출하지 않는다. production HMAC secret은 32자 이상이어야 하고, 이전 secret과 key version은 rotation 기간에만 함께 설정한다.
 
 ## Demo ID
 

@@ -84,6 +84,8 @@ describe("PresentWindow", () => {
     );
 
     expect(html).toContain("발표자 화면에서 슬라이드 창을 열어주세요");
+    expect(html).toContain('alt="ORBIT"');
+    expect(html).toContain("SLIDE DISPLAY");
     expect(html).not.toContain("첫 문장입니다");
     expect(html).not.toContain("Partial transcript");
     expectNoAutoAdvancePresenterStatus(html);
@@ -123,6 +125,35 @@ describe("PresentWindow", () => {
     expect(html).not.toContain("두 번째 슬라이드입니다");
     expect(html).not.toContain("Partial transcript");
     expectNoAutoAdvancePresenterStatus(html);
+  });
+
+  it("does not render presenter speech state in the slide display window", () => {
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 10,
+      state: {
+        ...createPresenterSlideshowState(p0AnimationDeck),
+        speech: createPresenterSpeechState(),
+      },
+      triggerAnimationIds: [],
+    });
+    const html = renderToStaticMarkup(
+      <PresentWindowContent
+        identity={identity}
+        snapshot={{
+          deck: snapshotMessage.deck,
+          state: snapshotMessage.state,
+          triggerAnimationIds: snapshotMessage.triggerAnimationIds,
+        }}
+      />,
+    );
+
+    expect(html).not.toContain("비공개 final transcript");
+    expect(html).not.toContain("비공개 speaker note sentence");
+    expect(html).not.toContain("Semantic STT");
+    expect(html).not.toContain("topMatches");
+    expect(html).not.toContain("semanticDebug");
   });
 
   it("renders a slide receiver from an initial snapshot without presenter-only content", () => {
@@ -500,6 +531,49 @@ function expectNoAutoAdvancePresenterStatus(html: string) {
   expect(html).not.toContain("발표 종료 준비됨");
   expect(html).not.toContain("수동으로 넘겨주세요");
   expect(html).not.toContain("auto-advance-status");
+}
+
+function createPresenterSpeechState() {
+  return {
+    coveredSentenceIds: ["sentence_1"],
+    coveredSentenceMatchKinds: {
+      sentence_1: "covered" as const,
+    },
+    matchableSentenceCount: 2,
+    semanticDebug: {
+      status: "ready" as const,
+      slideId: "slide_p0_1",
+      transcript: "비공개 final transcript",
+      isFinal: true,
+      topMatches: [
+        {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "비공개 speaker note sentence",
+          similarity: 0.91,
+          covered: true,
+        },
+      ],
+      decision: null,
+      error: null,
+    },
+    semanticMatchingEnabled: true,
+    snapshot: {
+      slideId: "slide_p0_1",
+      coveredSentenceIds: ["sentence_1"],
+      coveredSentenceMatchKinds: {
+        sentence_1: "covered" as const,
+      },
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0.5,
+      wordCoverage: 0.1,
+      effectiveCoverage: 0.5,
+      finalSentenceSpoken: false,
+      hitKeywordIds: [],
+      provisionalMissingKeywordIds: [],
+    },
+  };
 }
 
 function createDeckWithPrivateOccurrence(): Deck {

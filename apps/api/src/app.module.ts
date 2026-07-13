@@ -2,9 +2,9 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { LoggerModule } from "nestjs-pino";
 import { AuthModule } from "./auth/auth.module";
-import { AiSuggestionsModule } from "./ai-suggestions/ai-suggestions.module";
 import { AiTemplateDeckGenerationModule } from "./ai-template-deck-generation/ai-template-deck-generation.module";
 import { DecksModule } from "./decks/decks.module";
+import { DesignAgentModule } from "./design-agent/design-agent.module";
 import { FilesModule } from "./files/files.module";
 import { HealthModule } from "./health/health.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -24,17 +24,22 @@ import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-t
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
 import { SavedDesignPacksModule } from "./saved-design-packs/saved-design-packs.module";
+import { EvaluatorLensesModule } from "./evaluator-lenses/evaluator-lenses.module";
+import { PresentationBriefsModule } from "./presentation-briefs/presentation-briefs.module";
+import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
+import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
+import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
 
 @Module({
   imports: [
     LoggerModule.forRoot(createApiLoggerParams()),
     TypeOrmModule.forRoot(databaseOptions),
-    AiSuggestionsModule,
     AiTemplateDeckGenerationModule,
     AuthModule,
     HealthModule,
     ProjectsModule,
     DecksModule,
+    DesignAgentModule,
     FilesModule,
     ExtractModule,
     GenerateDeckModule,
@@ -48,7 +53,12 @@ import { SavedDesignPacksModule } from "./saved-design-packs/saved-design-packs.
     RuntimeConfigModule,
     SavedDesignPacksModule,
     RealtimeTranscriptionModule,
-    RehearsalsModule
+    RehearsalsModule,
+    EvaluatorLensesModule,
+    PresentationBriefsModule,
+    PracticeGoalsModule,
+    FocusedPracticeModule,
+    ChallengeQnaModule
   ],
   providers: [RealtimeGateway]
 })
