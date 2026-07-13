@@ -374,3 +374,15 @@
 - Rationale: 값과 측정 상태를 함께 전달하면 `0`을 측정 실패로 오해하지 않고, 양쪽 runtime이 동일한 nested strict 계약을 독립적으로 구현할 수 있다. version literal과 명시적 compatibility schema는 부분 배포 중 신규 write와 legacy read 경계를 드러낸다.
 - Affected files: `packages/shared/src/coaching/rehearsal-analyze.schema.ts`, `packages/shared/src/coaching/p0-core-contract.fixtures.json`, `packages/shared/src/coaching/p0-core-contract.schema.test.ts`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: Python은 canonical v2 fixture를 읽는 strict Pydantic v2 request/response와 안전한 HTTP 422 body를 구현한다. TypeScript worker는 그 다음 v2만 새로 쓰고 response를 shared schema로 parse한다. 두 runtime 배포와 retry Job drain을 확인한 뒤 v1 schema와 fixture를 별도 cleanup PR에서 제거한다.
+
+## ORBIT rehearsal recording duration transport contract
+
+- Context: v2 분석 DTO는 실제 녹음 전체 시간과 Provider duration을 분리하지만, 기존 Run meta와 audio-complete 요청에는 Web recorder가 측정한 실제 경과시간을 전달하는 공통 필드가 없다. 기존 worker는 Provider duration이 없으면 `0` sentinel을 만들어 실제 0과 근거 없음을 구분하지 못한다.
+- Options considered:
+  - Provider duration을 실제 녹음 시간으로 계속 사용한다.
+  - legacy upload와 chunk upload가 서로 다른 duration 필드를 사용한다.
+  - `recordingDurationSeconds` nullable 양수 계약을 audio-complete와 Run meta가 함께 사용하고 기존 payload는 `null`로 읽는다.
+- Final decision: `recordingDurationSeconds`는 생략 또는 `null`, 값이 있으면 양수 finite number만 허용한다. legacy upload complete, chunk upload complete, Run meta가 같은 shared schema를 사용하며 `0`, 음수, `NaN`, `Infinity`를 거부한다. Web/API producer는 분석 enqueue 전에 값을 Run meta에 저장하고, worker는 후속 P1에서 같은 값을 v2 분석 요청에 전달하되 Provider duration으로 덮어쓰지 않는다.
+- Rationale: 실제 전체 녹음 시간을 별도 canonical transport로 보존하면 duration resolver와 마지막 slide timing이 같은 근거를 사용하고, 배포 전 저장된 Run meta와 기존 complete 요청은 `null` default로 계속 읽을 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.test.ts`, `apps/web/src/features/rehearsal/speech/p3RehearsalSession.test.ts`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: Web/API producer는 legacy와 chunk upload 모두 실제 recorder 경과시간을 보내고 Run meta 저장 성공 뒤에만 분석 Job을 enqueue한다. P1 worker sender는 Run meta 값을 `recordingDurationSeconds`로 전달하고 STT Provider 값은 `providerDurationSeconds`에만 둔다.

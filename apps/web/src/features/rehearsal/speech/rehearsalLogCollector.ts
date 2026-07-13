@@ -198,6 +198,7 @@ export function createRehearsalLogCollector(
     }
 
     return {
+      recordingDurationSeconds: null,
       slideTimeline: [...slideTimeline],
       missedKeywords,
       adviceEvents: [...adviceEvents],
