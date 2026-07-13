@@ -88,6 +88,10 @@ import {
 } from "./rehearsalErrorHandling";
 import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import {
+  clearPreparedRehearsalSlideSnapshots,
+  readPreparedRehearsalSlideSnapshots,
+} from "./rehearsalSlideSnapshots";
+import {
   LiveSttAdapterError,
   type LiveSttAdapter,
   type LiveSttAudioLevelEvent,
@@ -475,6 +479,7 @@ export async function createRehearsalRun(
       evaluatorLensRef: EvaluatorLensRef;
       sourceGoalSetId: string | null;
     };
+    slideSnapshots?: Array<{ fileId: string; slideId: string }>;
   } = {},
 ) {
   const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals`, {
@@ -488,6 +493,9 @@ export async function createRehearsalRun(
       ...(options.semanticEvaluationMode === undefined
         ? {}
         : { semanticEvaluationMode: options.semanticEvaluationMode }),
+      ...(options.slideSnapshots === undefined
+        ? {}
+        : { slideSnapshots: options.slideSnapshots }),
       ...(options.coachingContext ?? {}),
     }),
   });
@@ -532,12 +540,14 @@ export async function createRehearsalRunForUpload(
     evaluatorLensRef: EvaluatorLensRef;
     sourceGoalSetId: string | null;
   },
+  slideSnapshots?: Array<{ fileId: string; slideId: string }>,
 ) {
   try {
     const created = await createRehearsalRun(projectId, deckId, fetcher, {
       expectedDeckVersion,
       semanticEvaluationMode: "full",
       coachingContext,
+      slideSnapshots,
     });
     return { run: created.run, evaluationSnapshotMismatch: false };
   } catch (cause) {
@@ -548,6 +558,7 @@ export async function createRehearsalRunForUpload(
     const deliveryOnly = await createRehearsalRun(projectId, deckId, fetcher, {
       expectedDeckVersion,
       semanticEvaluationMode: "delivery-only",
+      slideSnapshots,
     });
     return { run: deliveryOnly.run, evaluationSnapshotMismatch: true };
   }
@@ -561,6 +572,7 @@ export async function prepareRehearsalEvaluationRun(
     evaluatorLensRef: EvaluatorLensRef;
     sourceGoalSetId: string | null;
   },
+  slideSnapshots?: Array<{ fileId: string; slideId: string }>,
 ): Promise<{
   run: RehearsalRun | null;
   evaluationSnapshot: RehearsalEvaluationSnapshot;
@@ -578,6 +590,7 @@ export async function prepareRehearsalEvaluationRun(
         expectedDeckVersion: deck.version,
         semanticEvaluationMode: "full",
         coachingContext,
+        slideSnapshots,
       },
     );
     return {
@@ -1785,6 +1798,7 @@ export function RehearsalWorkspace(props: {
   presenterInitialStepIndex?: number;
   presenterSessionId?: string;
   presenterWindow?: boolean;
+  snapshotPreparationId?: string;
   projectId?: string;
   sourceFullRunId?: string;
   sourceGoalSetId?: string;
@@ -1882,6 +1896,9 @@ export function RehearsalWorkspace(props: {
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const activeRunRef = useRef<RehearsalRun | null>(null);
+  const preparedSlideSnapshotsRef = useRef<
+    Array<{ fileId: string; slideId: string }> | undefined
+  >(undefined);
   const streamRef = useRef<MediaStream | null>(null);
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
@@ -3593,6 +3610,7 @@ export function RehearsalWorkspace(props: {
           activeDeck.version,
           fetch,
           await resolveRehearsalCoachingContext(activeDeck.projectId, props.sourceGoalSetId),
+          preparedSlideSnapshotsRef.current,
         );
         uploadRun = recovered.run;
         if (recovered.evaluationSnapshotMismatch) {
@@ -3602,6 +3620,7 @@ export function RehearsalWorkspace(props: {
         }
         activeRunRef.current = uploadRun;
         setRun(uploadRun);
+        clearPreparedRehearsalSlideSnapshots(props.snapshotPreparationId);
       }
 
       const runMeta = pendingP3RunMetaRef.current
@@ -3649,9 +3668,24 @@ export function RehearsalWorkspace(props: {
       activeDeck.projectId,
       props.sourceGoalSetId,
     );
-    const prepared = await prepareRehearsalEvaluationRun(activeDeck, fetch, coachingContext);
+    const slideSnapshots = readPreparedRehearsalSlideSnapshots({
+      deckId: activeDeck.deckId,
+      deckVersion: activeDeck.version,
+      preparationId: props.snapshotPreparationId,
+      projectId: activeDeck.projectId,
+    });
+    preparedSlideSnapshotsRef.current = slideSnapshots;
+    const prepared = await prepareRehearsalEvaluationRun(
+      activeDeck,
+      fetch,
+      coachingContext,
+      slideSnapshots,
+    );
     activeRunRef.current = prepared.run;
     setRun(prepared.run);
+    if (prepared.run) {
+      clearPreparedRehearsalSlideSnapshots(props.snapshotPreparationId);
+    }
     if (prepared.serverEvaluation.state === "unavailable") {
       setLiveError(
         "서버 의미 평가에 연결할 수 없습니다. 로컬 리허설은 계속되며 서버 리포트는 저장 전 다시 확인합니다.",

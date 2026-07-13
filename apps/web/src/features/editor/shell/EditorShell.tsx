@@ -111,12 +111,14 @@ import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
+import { storePreparedRehearsalSlideSnapshots } from "../../rehearsal/rehearsalSlideSnapshots";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
 export {
   mergeDeckIntoQueryCache,
   buildSlideThumbnailPatch,
+  getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   shouldRefreshImportedSlideThumbnails,
@@ -198,12 +200,9 @@ import {
 } from "../semantic-cues/SemanticCueReviewPanel";
 import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
-  buildSlideThumbnailPatch,
-  getImportedSlideThumbnailRefreshSlideIds,
-  getPatchThumbnailRefreshSlideIds,
+  getDeckThumbnailRefreshSlideIds,
   mergeDeckIntoQueryCache,
   shouldApplyManualSaveResult,
-  shouldRefreshImportedSlideThumbnails,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
 import "../editor-shell.css";
@@ -561,8 +560,21 @@ async function createSlideRenderFile(args: {
 
   context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
   context.fillRect(0, 0, canvas.width, canvas.height);
-  await drawSlideRenderBackgroundImage(context, args.slide, canvas);
-  context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
+  if (
+    args.slide.thumbnailUrl &&
+    getRenderableSlideElements(args.slide, args.deck.canvas).length === 0 &&
+    (args.deck.metadata.sourceType === "import" ||
+      args.deck.metadata.thumbnailSource === "import-render")
+  ) {
+    await drawSlideRenderFallbackImage(
+      context,
+      args.slide.thumbnailUrl,
+      canvas,
+    );
+  } else {
+    await drawSlideRenderBackgroundImage(context, args.slide, canvas);
+    context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
+  }
 
   const blob = await canvasToBlob(canvas);
 
@@ -573,6 +585,24 @@ async function createSlideRenderFile(args: {
       type: "image/png"
     },
   );
+}
+
+async function drawSlideRenderFallbackImage(
+  context: CanvasRenderingContext2D,
+  imageUrl: string,
+  canvas: HTMLCanvasElement,
+) {
+  const image = await loadCanvasImage(imageUrl);
+  if (!image) return;
+
+  const frame = getBackgroundImageDrawFrame({
+    canvasHeight: canvas.height,
+    canvasWidth: canvas.width,
+    fit: "contain",
+    imageHeight: image.naturalHeight || image.height,
+    imageWidth: image.naturalWidth || image.width,
+  });
+  context.drawImage(image, frame.x, frame.y, frame.width, frame.height);
 }
 
 async function drawSlideRenderBackgroundImage(
@@ -772,8 +802,15 @@ async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
   return payload.deck;
 }
 
-function navigateToRehearsal(projectId: string) {
-  window.history.pushState({}, "", `/rehearsal/${encodeURIComponent(projectId)}`);
+function navigateToRehearsal(projectId: string, snapshotPreparationId?: string) {
+  const search = snapshotPreparationId
+    ? `?snapshotPreparationId=${encodeURIComponent(snapshotPreparationId)}`
+    : "";
+  window.history.pushState(
+    {},
+    "",
+    `/rehearsal/${encodeURIComponent(projectId)}${search}`,
+  );
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -926,32 +963,6 @@ async function putProjectDeck(
   }
 
   const payload = putDeckResponseSchema.parse(await response.json());
-  return payload.deck;
-}
-
-async function appendProjectDeckPatch(
-  projectId: string,
-  patch: DeckPatch
-): Promise<Deck> {
-  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      patch
-    })
-  });
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Deck save failed");
-  }
-
-  const payload = appendDeckPatchResponseSchema.parse(await response.json()) as {
-    deck: Deck;
-    ooxmlSyncJob?: Job;
-  };
-  emitOoxmlSyncJob(payload.ooxmlSyncJob);
   return payload.deck;
 }
 
@@ -1426,9 +1437,13 @@ export function EditorShell(props: { projectId?: string }) {
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
+  const slideRenderQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastThumbnailDeckRef = useRef<Deck | null>(null);
+  const slideThumbnailObjectUrlsRef = useRef(new Map<string, string>());
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoRedoPersistLabelRef = useRef<string | null>(null);
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
+  const [slideThumbnailUrls, setSlideThumbnailUrls] = useState<Record<string, string>>({});
   const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
 
   const health = useQuery({
@@ -1636,7 +1651,6 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
-  const importedThumbnailRefreshKeyRef = useRef<string | null>(null);
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
@@ -1934,118 +1948,20 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     const persistedDeck = deckQuery.data;
+    if (!persistedDeck) return;
 
-    if (
-      !persistedDeck ||
-      !shouldRefreshImportedSlideThumbnails(persistedDeck) ||
-      hasUnackedLocalChangesRef.current ||
-      pendingPatchInputsRef.current.length > 0 ||
-      isSaveFlushInFlightRef.current
-    ) {
-      return;
-    }
+    refreshChangedSlideThumbnails(persistedDeck);
+  }, [deckQuery.data]);
 
-    const refreshKey = `${persistedDeck.deckId}:${persistedDeck.version}`;
-    if (importedThumbnailRefreshKeyRef.current === refreshKey) {
-      return;
-    }
-
-    const slideIds = getImportedSlideThumbnailRefreshSlideIds(persistedDeck);
-
-    if (slideIds.length === 0) {
-      return;
-    }
-
-    importedThumbnailRefreshKeyRef.current = refreshKey;
-    let isCancelled = false;
-
-    setSaveState("auto-saving");
-    setSaveError(null, null);
-
-    void (async () => {
-      try {
-        await saveQueueRef.current.catch(() => undefined);
-
-        if (
-          isCancelled ||
-          hasUnackedLocalChangesRef.current ||
-          pendingPatchInputsRef.current.length > 0
-        ) {
-          setSaveState("auto-pending");
-          return;
-        }
-
-        const renderResult = await syncSlideRenderAssets(
-          persistedDeck.projectId,
-          persistedDeck,
-          slideIds
-        );
-        const thumbnailPatch = buildSlideThumbnailPatch(
-          persistedDeck,
-          renderResult.deck
-        );
-
-        if (!thumbnailPatch || isCancelled) {
-          setSaveState("auto-saved");
-          return;
-        }
-
-        if (
-          !shouldApplyManualSaveResult({
-            snapshotDeck: persistedDeck,
-            currentDeck: workingDeckRef.current
-          })
-        ) {
-          setSaveState("auto-pending");
-          return;
-        }
-
-        const finalDeck = await appendProjectDeckPatch(
-          persistedDeck.projectId,
-          thumbnailPatch
-        );
-
-        if (isCancelled) {
-          return;
-        }
-
-        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-          mergeDeckIntoQueryCache(current, finalDeck)
-        );
-
-        if (
-          shouldApplyManualSaveResult({
-            snapshotDeck: persistedDeck,
-            currentDeck: workingDeckRef.current
-          })
-        ) {
-          applyPersistedDeck(finalDeck);
-          setLastSavedAt(new Date().toISOString());
-          setLastPatchLabel(`썸네일 갱신 · v${finalDeck.version}`);
-          setSaveState("auto-saved");
-          setSaveError(null, null);
-          return;
-        }
-
-        persistedBaseDeckRef.current = finalDeck;
-        lastAckedDeckRef.current = finalDeck;
-        hasHydratedPersistedBaseRef.current = true;
-        setSaveState("auto-pending");
-      } catch (error) {
-        if (isCancelled) {
-          return;
-        }
-
-        setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · ${toEditorErrorMessage(error)}`);
-        setSaveState("auto-saved");
-        setSaveError(null, null);
-      }
-    })();
-
+  useEffect(() => {
     return () => {
-      isCancelled = true;
+      for (const url of slideThumbnailObjectUrlsRef.current.values()) {
+        URL.revokeObjectURL(url);
+      }
+      slideThumbnailObjectUrlsRef.current.clear();
+      lastThumbnailDeckRef.current = null;
     };
-  }, [deckQuery.data, projectId, queryClient]);
+  }, [projectId]);
 
   useEffect(() => {
     if (!deckQuery.data?.projectId) {
@@ -2088,14 +2004,13 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  async function syncSlideRenderAssets(
-    activeProjectId: string,
+  async function renderSlideFiles(
     sourceDeck: Deck,
     slideIds?: readonly string[]
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
-        deck: sourceDeck,
+        files: new Map<string, File>(),
         missingAssetCount: 0,
       };
     }
@@ -2104,11 +2019,12 @@ export function EditorShell(props: { projectId?: string }) {
     const targetSlideIds = slideIds ? new Set(slideIds) : null;
     if (targetSlideIds?.size === 0) {
       return {
-        deck: nextDeck,
+        files: new Map<string, File>(),
         missingAssetCount: 0,
       };
     }
 
+    const files = new Map<string, File>();
     let missingAssetCount = 0;
     slideRenderStageRefs.current.clear();
     flushSync(() => {
@@ -2141,17 +2057,7 @@ export function EditorShell(props: { projectId?: string }) {
           stageScale: 1,
           slideNumber: slide.order || index + 1,
         });
-        const uploaded = await uploadProjectAsset(
-          activeProjectId,
-          createSlideScopedUploadFile(
-            renderFile,
-            slide.order || index + 1,
-            "thumbnail",
-          ),
-          "thumbnail"
-        );
-
-        slide.thumbnailUrl = normalizeEditorAssetUrl(uploaded.url);
+        files.set(slide.slideId, renderFile);
       }
     } finally {
       flushSync(() => {
@@ -2161,9 +2067,101 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     return {
-      deck: nextDeck,
+      files,
       missingAssetCount,
     };
+  }
+
+  function enqueueSlideRender<T>(render: () => Promise<T>) {
+    const result = slideRenderQueueRef.current.then(render, render);
+    slideRenderQueueRef.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  async function syncSlideThumbnailCache(
+    sourceDeck: Deck,
+    slideIds?: readonly string[],
+  ) {
+    return enqueueSlideRender(async () => {
+      const renderResult = await renderSlideFiles(sourceDeck, slideIds);
+      const nextUrls = new Map(slideThumbnailObjectUrlsRef.current);
+      const retiredUrls: string[] = [];
+      const latestDeck = lastThumbnailDeckRef.current ?? sourceDeck;
+      const staleSlideIds = new Set(
+        getDeckThumbnailRefreshSlideIds(sourceDeck, latestDeck),
+      );
+
+      for (const [slideId, file] of renderResult.files) {
+        if (
+          staleSlideIds.has(slideId) ||
+          !latestDeck.slides.some((slide) => slide.slideId === slideId)
+        ) {
+          continue;
+        }
+        const previousUrl = nextUrls.get(slideId);
+        if (previousUrl) retiredUrls.push(previousUrl);
+        nextUrls.set(slideId, URL.createObjectURL(file));
+      }
+
+      const currentSlideIds = new Set(latestDeck.slides.map((slide) => slide.slideId));
+      for (const [slideId, url] of nextUrls) {
+        if (!currentSlideIds.has(slideId)) {
+          retiredUrls.push(url);
+          nextUrls.delete(slideId);
+        }
+      }
+
+      slideThumbnailObjectUrlsRef.current = nextUrls;
+      flushSync(() => {
+        setSlideThumbnailUrls(Object.fromEntries(nextUrls));
+      });
+      for (const url of retiredUrls) {
+        URL.revokeObjectURL(url);
+      }
+      return renderResult;
+    });
+  }
+
+  function refreshChangedSlideThumbnails(nextDeck: Deck) {
+    const previousDeck = lastThumbnailDeckRef.current;
+    const slideIds = getDeckThumbnailRefreshSlideIds(previousDeck, nextDeck);
+    const hasRemovedSlides = Boolean(
+      previousDeck?.slides.some(
+        (slide) =>
+          !nextDeck.slides.some(
+            (candidate) => candidate.slideId === slide.slideId,
+          ),
+      ),
+    );
+    lastThumbnailDeckRef.current = nextDeck;
+
+    if (slideIds.length > 0 || hasRemovedSlides) {
+      void syncSlideThumbnailCache(nextDeck, slideIds).catch(() => undefined);
+    }
+  }
+
+  async function uploadRehearsalSlideSnapshots(activeProjectId: string, sourceDeck: Deck) {
+    return enqueueSlideRender(async () => {
+      const renderResult = await renderSlideFiles(sourceDeck);
+      const snapshots: Array<{ fileId: string; slideId: string }> = [];
+
+      for (const slide of sourceDeck.slides) {
+        const file = renderResult.files.get(slide.slideId);
+        if (!file) continue;
+
+        const uploaded = await uploadProjectAsset(
+          activeProjectId,
+          createSlideScopedUploadFile(file, slide.order, "thumbnail"),
+          "rehearsal-slide-snapshot",
+        );
+        snapshots.push({ fileId: uploaded.fileId, slideId: slide.slideId });
+      }
+
+      return snapshots;
+    });
   }
 
   async function handleSaveDeck() {
@@ -2196,18 +2194,6 @@ export function EditorShell(props: { projectId?: string }) {
 
       setLastSavedAt(new Date().toISOString());
 
-      let renderResult: Awaited<ReturnType<typeof syncSlideRenderAssets>>;
-      try {
-        renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
-      } catch {
-        setLastPatchLabel(
-          `수동 저장 완료 · 썸네일 갱신 대기 · v${persistedDeck.version}`
-        );
-        setSaveState("manual-saved");
-        setSaveError(null, null);
-        return true;
-      }
-
       if (
         !shouldApplyManualSaveResult({
           snapshotDeck: persistedDeck,
@@ -2219,44 +2205,10 @@ export function EditorShell(props: { projectId?: string }) {
         return false;
       }
 
-      try {
-        const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
-        const finalDeck = thumbnailPatch
-          ? await appendProjectDeckPatch(activeProjectId, thumbnailPatch)
-          : persistedDeck;
-        setLastSavedAt(new Date().toISOString());
-
-        queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-          mergeDeckIntoQueryCache(current, finalDeck)
-        );
-
-        if (
-          shouldApplyManualSaveResult({
-            snapshotDeck: persistedDeck,
-            currentDeck: workingDeckRef.current
-          })
-        ) {
-          applyPersistedDeck(finalDeck);
-        } else {
-          persistedBaseDeckRef.current = finalDeck;
-          lastAckedDeckRef.current = finalDeck;
-          hasHydratedPersistedBaseRef.current = true;
-          setSaveState("auto-pending");
-          return false;
-        }
-
-        setLastPatchLabel(`수동 저장 · v${finalDeck.version}`);
-        setSaveState("manual-saved");
-        setSaveError(null, null);
-        return true;
-      } catch {
-        setLastPatchLabel(
-          `수동 저장 완료 · 썸네일 갱신 대기 · v${persistedDeck.version}`
-        );
-        setSaveState("manual-saved");
-        setSaveError(null, null);
-        return true;
-      }
+      setLastPatchLabel(`수동 저장 · v${persistedDeck.version}`);
+      setSaveState("manual-saved");
+      setSaveError(null, null);
+      return true;
     } catch (error) {
       setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
       setSaveState("error");
@@ -2358,53 +2310,33 @@ export function EditorShell(props: { projectId?: string }) {
         throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
       }
 
-      let finalDeck = persistedDeck;
-      let thumbnailRefreshDeferred = false;
-      let renderResult: Awaited<ReturnType<typeof syncSlideRenderAssets>> | null = null;
-      try {
-        renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
-        setLastSavedAt(new Date().toISOString());
-      } catch {
-        thumbnailRefreshDeferred = true;
+      let snapshotPreparationId: string | undefined;
+      if (destination === "rehearsal") {
+        const snapshots = await uploadRehearsalSlideSnapshots(
+          activeProjectId,
+          persistedDeck,
+        );
+        snapshotPreparationId = storePreparedRehearsalSlideSnapshots({
+          deckId: persistedDeck.deckId,
+          deckVersion: persistedDeck.version,
+          projectId: activeProjectId,
+          snapshots,
+        });
       }
 
-      if (renderResult) {
-        if (
-          !shouldApplyManualSaveResult({
-            snapshotDeck: persistedDeck,
-            currentDeck: workingDeckRef.current
-          })
-        ) {
-          throw new Error(
-            destination === "presentation"
-              ? "발표 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
-              : "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
-          );
-        }
-
-        const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
-        if (thumbnailPatch) {
-          try {
-            finalDeck = await appendProjectDeckPatch(activeProjectId, thumbnailPatch);
-          } catch {
-            thumbnailRefreshDeferred = true;
-          }
-        }
-      }
-
-      applyPersistedDeck(finalDeck);
+      applyPersistedDeck(persistedDeck);
       setLastSavedAt(new Date().toISOString());
       setLastPatchLabel(
         `${
           destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
-        }${thumbnailRefreshDeferred ? " · 썸네일 갱신 대기" : ""} · v${finalDeck.version}`
+        } · v${persistedDeck.version}`
       );
       setSaveState("manual-saved");
       setSaveError(null, null);
       if (destination === "presentation") {
         navigateToPresentation(activeProjectId);
       } else {
-        navigateToRehearsal(activeProjectId);
+        navigateToRehearsal(activeProjectId, snapshotPreparationId);
       }
     } catch (error) {
       const message = toEditorErrorMessage(error);
@@ -2495,55 +2427,11 @@ export function EditorShell(props: { projectId?: string }) {
         );
       }
 
-      let finalPersistedDeck = persistedDeck;
-      const thumbnailSlideIds = getPatchThumbnailRefreshSlideIds(
-        persistedDeck,
-        buildResult.patch
-      );
-      let thumbnailRefreshDeferred = false;
-
-      if (
-        thumbnailSlideIds.length > 0 &&
-        shouldApplyManualSaveResult({
-          snapshotDeck: persistedDeck,
-          currentDeck: workingDeckRef.current
-        })
-      ) {
-        try {
-          const renderResult = await syncSlideRenderAssets(
-            activeProjectId,
-            persistedDeck,
-            thumbnailSlideIds
-          );
-          const thumbnailPatch = buildSlideThumbnailPatch(
-            persistedDeck,
-            renderResult.deck
-          );
-
-          if (
-            thumbnailPatch &&
-            shouldApplyManualSaveResult({
-              snapshotDeck: persistedDeck,
-              currentDeck: workingDeckRef.current
-            })
-          ) {
-            finalPersistedDeck = await appendProjectDeckPatchAck(
-              activeProjectId,
-              persistedDeck,
-              thumbnailPatch
-            );
-          }
-        } catch (thumbnailError) {
-          thumbnailRefreshDeferred = true;
-          setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · ${toEditorErrorMessage(thumbnailError)}`);
-        }
-      }
-
-      persistedBaseDeckRef.current = finalPersistedDeck;
+      persistedBaseDeckRef.current = persistedDeck;
       setLastSavedAt(new Date().toISOString());
 
       queryClient.setQueryData(["deck", projectId], (current?: Deck) =>
-        mergeDeckIntoQueryCache(current, finalPersistedDeck)
+        mergeDeckIntoQueryCache(current, persistedDeck)
       );
 
       if (
@@ -2552,12 +2440,9 @@ export function EditorShell(props: { projectId?: string }) {
           currentDeck: workingDeckRef.current
         })
       ) {
-        applyAckedPersistedDeck(finalPersistedDeck);
+        applyAckedPersistedDeck(persistedDeck);
         setSaveState(recoveredConflict ? "conflict-recovered" : "auto-saved");
         setSaveError(null, null);
-        if (thumbnailRefreshDeferred) {
-          setLastPatchLabel(`저장됨 · 썸네일 갱신 대기 · v${finalPersistedDeck.version}`);
-        }
       }
     } catch (error) {
       if (recoveredConflict && error instanceof Error) {
@@ -2873,6 +2758,7 @@ export function EditorShell(props: { projectId?: string }) {
     setUndoStack(transition.nextStack);
     setRedoStack((redoCurrent) => [...redoCurrent, transition.currentEntry]);
     setDeck(previous.deck);
+    refreshChangedSlideThumbnails(previous.deck);
     setCurrentSlideIndex(transition.targetSlideIndex);
     setSelectedElementIds([]);
     clearSelectedKeyword();
@@ -2912,6 +2798,7 @@ export function EditorShell(props: { projectId?: string }) {
     ]);
     replaceWorkingDeck(next.deck);
     setDeck(next.deck);
+    refreshChangedSlideThumbnails(next.deck);
     setCurrentSlideIndex(transition.targetSlideIndex);
     setSelectedElementIds([]);
     clearSelectedKeyword();
@@ -5345,7 +5232,12 @@ export function EditorShell(props: { projectId?: string }) {
                     <span
                       className="slide-thumb orbit-thumb"
                       style={{
-                        background: buildSlideThumbBackground(slide, deck)
+                        aspectRatio: `${deck.canvas.width} / ${deck.canvas.height}`,
+                        background: buildSlideThumbBackground(
+                          slide,
+                          deck,
+                          slideThumbnailUrls[slide.slideId],
+                        )
                       }}
                     />
                   </button>
@@ -6105,8 +5997,12 @@ export function EditorShell(props: { projectId?: string }) {
   );
 }
 
-function buildSlideThumbBackground(slide: Slide, deck: Deck) {
+function buildSlideThumbBackground(slide: Slide, deck: Deck, cachedUrl?: string) {
   const background = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+
+  if (cachedUrl) {
+    return `url("${cachedUrl}") center / contain no-repeat, ${background}`;
+  }
 
   if (slide.thumbnailUrl) {
     return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / contain no-repeat, ${background}`;

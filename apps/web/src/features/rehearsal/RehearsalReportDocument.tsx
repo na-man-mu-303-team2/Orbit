@@ -7,7 +7,7 @@ import {
   Mic,
   Target,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
@@ -66,6 +66,25 @@ export function RehearsalReportDocument({
   const coaching = report.coaching;
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
+  const reportDeck = useMemo(() => {
+    if (!deck || !run?.evaluationSnapshot) return deck;
+
+    const snapshots = new Map(
+      run.evaluationSnapshot.slides.map((slide) => [slide.slideId, slide]),
+    );
+    return {
+      ...deck,
+      slides: deck.slides.map((slide) => ({
+        ...slide,
+        estimatedSeconds:
+          snapshots.get(slide.slideId)?.estimatedSeconds ?? slide.estimatedSeconds,
+        order: snapshots.get(slide.slideId)?.order ?? slide.order,
+        title: snapshots.get(slide.slideId)?.title ?? slide.title,
+        thumbnailUrl:
+          snapshots.get(slide.slideId)?.thumbnailUrl || slide.thumbnailUrl,
+      })),
+    };
+  }, [deck, run?.evaluationSnapshot]);
 
   const runDate = run?.createdAt ? formatDate(run.createdAt) : "";
   const title =
@@ -145,7 +164,7 @@ export function RehearsalReportDocument({
 
         <div className="rrd-overview-columns">
           <RehearsalSlideTimingOverview
-            deck={deck}
+            deck={reportDeck}
             formatDuration={fmt}
             slideTimings={slideTimings}
           />
@@ -154,7 +173,7 @@ export function RehearsalReportDocument({
       </section>
 
       <RehearsalSlideAnalysisOverview
-        deck={deck}
+        deck={reportDeck}
         formatDelta={fmtDelta}
         formatDuration={fmt}
         prevReports={prevReports}

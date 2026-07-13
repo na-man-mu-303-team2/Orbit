@@ -2395,6 +2395,26 @@ describe("rehearsal evaluation run lifecycle", () => {
     );
   });
 
+  it("passes prepared slide snapshot file IDs to run creation", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ run: runFixture("created") }),
+    );
+
+    await createRehearsalRun("project-a", "deck-a", fetcher, {
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }],
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-a/rehearsals",
+      expect.objectContaining({
+        body: JSON.stringify({
+          deckId: "deck-a",
+          slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }],
+        }),
+      }),
+    );
+  });
+
   it("cancels a run that exits before upload processing", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ run: runFixture("cancelled") }),

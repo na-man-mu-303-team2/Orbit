@@ -205,7 +205,7 @@ API:
 - AI 생성 deck은 `metadata.sourceType = "ai"`, `metadata.generatedBy = "ai"`, `metadata.audience`, `metadata.purpose`, `metadata.tone`, `metadata.presentationProfile`, `metadata.createdFrom`을 선택적으로 포함할 수 있다.
 - `/ai-ppt`의 design-pack deck은 `metadata.presentationProfile`에 `proposal`, `executive-report`, `product-launch`, `education`, `technical`, `research`, `general-inform` 중 하나를 저장한다. 기존 legacy/import deck은 이 필드를 생략할 수 있다.
 - `program-v2` deck은 `metadata.designProgramSnapshot`에 visual concept, palette role, typography, background sequence, image/surface style과 사용한 composition ID를 기록한다. 기존 Deck은 이 필드를 생략할 수 있다.
-- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"` until the editor captures canvas thumbnails, then update it to `"canvas"`.
+- Imported PPTX OOXML decks may set `metadata.thumbnailSource = "import-render"`. The editor keeps current-slide thumbnails in browser memory and does not update Deck versions only to refresh thumbnails.
 - `metadata.createdFrom.references`는 생성에 사용한 참고자료의 `{ fileId }[]`만 저장한다. URL ingestion과 원문 저장은 이번 계약에 포함하지 않는다.
 - `theme`는 생략 시 기본 theme token 값으로 채운다.
 - `theme`는 deck 전체의 기본 디자인 토큰이다.
@@ -225,7 +225,7 @@ API:
 - PPTX import와 기존 Deck 호환을 위해 이미 존재하는 full-canvas `background` element는 보존할 수 있으며, 이 경우 배경 변경 동작은 `slide.style.backgroundColor`와 element fill을 함께 동기화한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에만 사용하고, 일반 편집 썸네일 캐시는 Deck에 저장하지 않는다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - design-pack slide의 `aiNotes.timingPlan`은 선택적으로 `speakingTimeRatio`와 `targetSpokenSeconds`를 포함할 수 있다. `targetSeconds`는 전환을 포함한 장표 점유 시간이고 `targetSpokenSeconds`는 해당 장표의 발화 목표 시간이다. 기존 Deck은 두 필드를 생략할 수 있다.
@@ -1071,6 +1071,7 @@ Implementation locations:
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `rehearsal-slide-snapshot`
 - `design-asset`
 
 결정 사항:
@@ -1179,9 +1180,10 @@ Run 응답 구조:
 API:
 
 - `POST /api/v1/projects/:projectId/rehearsals`
-  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full" }`
+  - request: `{ "deckId": "deck_demo_1", "expectedDeckVersion": 7, "semanticEvaluationMode": "full", "slideSnapshots": [{ "slideId": "slide_1", "fileId": "file_1" }] }`
   - `expectedDeckVersion`은 optional이며 `full` run에서 현재 서버 deck version과 다르면 `REHEARSAL_DECK_VERSION_MISMATCH` 충돌로 거부한다.
   - `semanticEvaluationMode`는 `full | delivery-only`이고 기본값은 `full`이다.
+  - `slideSnapshots`는 optional이며 `rehearsal-slide-snapshot` purpose로 업로드 완료된 현재 Deck 이미지의 `slideId/fileId` 매핑만 허용한다. API는 이 매핑을 run의 immutable `evaluationSnapshot.slides[].thumbnailUrl`로 고정한다.
   - response: `{ "run": RehearsalRun }`
 - `POST /api/v1/rehearsals/:runId/cancel`
   - audio processing 시작 전 `created/uploading` run만 `cancelled`로 바꾼다.
@@ -1321,7 +1323,8 @@ Report 응답 구조:
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
-- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, run-scoped `thumbnailUrl`, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- 에디터 썸네일은 현재 Deck JSON을 렌더링한 browser-memory Blob URL이며 Deck patch/version 또는 `project_assets`를 생성하지 않는다. 영속 이미지는 리허설 시작 준비 시에만 `rehearsal-slide-snapshot`으로 업로드하고 리포트는 현재 Deck의 `thumbnailUrl`보다 run snapshot URL을 우선한다.
 - `freshness=stale`인 reviewed cue도 snapshot에 유지해 최종 결과를 `unmeasured(stale_cue)`로 설명할 수 있게 한다.
 - snapshot은 생성 후 수정하지 않는다. `deckVersion`과 cue `revision`은 해당 run의 immutable 평가 기준이다.
 - `delivery-only`와 legacy run은 `deckVersion=null`, `evaluationSnapshot=null`이며 Semantic Cue 최종 평가는 각각 `evaluation_snapshot_mismatch`, `evaluation_not_run`으로 구분한다.

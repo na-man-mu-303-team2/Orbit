@@ -1601,8 +1601,11 @@
 }
 
 .slide-thumb {
+  aspect-ratio: 16 / 9;
+  display: block;
   grid-column: 1 / -1;
-  height: 64px;
+  height: auto;
+  width: 100%;
   border-radius: 5px;
   border: 1px solid #dbe4f0;
   background-color: #f8fafc;

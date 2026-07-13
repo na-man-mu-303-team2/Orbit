@@ -31,6 +31,7 @@ import {
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
+  getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
@@ -734,6 +735,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("http://assets.example.test/slide_1.png");
+    expect(html).toContain("aspect-ratio:1920 / 1080");
     expect(html).not.toContain("미리보기 준비됨");
   });
 
@@ -847,6 +849,27 @@ describe("editor shell", () => {
         source: "user"
       })
     ).toEqual([firstSlide.slideId, secondSlide.slideId]);
+  });
+
+  it("rerenders only slides whose visual state changed", () => {
+    const previousDeck = createDemoDeck();
+    const nextDeck = structuredClone(previousDeck);
+    nextDeck.version += 1;
+    nextDeck.slides[0]!.elements[0]!.x += 12;
+
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, nextDeck)).toEqual([
+      nextDeck.slides[0]!.slideId,
+    ]);
+
+    const versionOnlyDeck = structuredClone(previousDeck);
+    versionOnlyDeck.version += 1;
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, versionOnlyDeck)).toEqual([]);
+
+    const themeDeck = structuredClone(previousDeck);
+    themeDeck.theme.backgroundColor = "#111827";
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, themeDeck)).toEqual(
+      themeDeck.slides.map((slide) => slide.slideId),
+    );
   });
 
   it("keeps table quickbar edits in editable table props", () => {

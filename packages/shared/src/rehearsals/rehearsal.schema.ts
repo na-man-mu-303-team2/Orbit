@@ -65,6 +65,7 @@ export const rehearsalEvaluationSnapshotSlideSchema = z
     order: z.number().int().positive(),
     title: z.string().trim().min(1).max(240),
     estimatedSeconds: z.number().int().positive(),
+    thumbnailUrl: z.string().default(""),
     keywords: z.array(rehearsalEvaluationSnapshotKeywordSchema),
     semanticCues: z.array(semanticCueSchema)
   })
@@ -536,10 +537,33 @@ export const createRehearsalRunRequestSchema = z
     briefRef: briefRefSchema.optional(),
     evaluatorLensRef: evaluatorLensRefSchema.optional(),
     sourceGoalSetId: z.string().trim().min(1).max(128).nullable().optional(),
+    slideSnapshots: z
+      .array(
+        z
+          .object({
+            slideId: deckSlideIdSchema,
+            fileId: z.string().trim().min(1)
+          })
+          .strict()
+      )
+      .max(200)
+      .optional(),
     semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
   })
   .strict()
   .superRefine((request, context) => {
+    const seenSlideIds = new Set<string>();
+    request.slideSnapshots?.forEach((snapshot, index) => {
+      if (seenSlideIds.has(snapshot.slideId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "slideSnapshots must contain at most one asset per slide.",
+          path: ["slideSnapshots", index, "slideId"]
+        });
+      }
+      seenSlideIds.add(snapshot.slideId);
+    });
+
     const adaptiveFields = [
       request.briefRef,
       request.evaluatorLensRef,

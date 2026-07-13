@@ -1,4 +1,9 @@
-import { deckSchema, type Deck, type RehearsalReport } from "@orbit/shared";
+import {
+  createRehearsalEvaluationSnapshot,
+  deckSchema,
+  type Deck,
+  type RehearsalReport,
+} from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -211,6 +216,54 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("서버 재평가를 완료하지 못했습니다.");
     expect(html).not.toContain('role="alert"');
     expect(html).not.toContain("server_evaluation_failed");
+  });
+
+  it("uses the run snapshot thumbnail instead of the current Deck thumbnail", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/current-deck-thumbnail.png";
+    const evaluationSnapshot = createRehearsalEvaluationSnapshot(
+      currentDeck,
+      "2026-07-03T00:00:00.000Z",
+      {
+        slideThumbnailUrls: new Map([
+          ["slide_1", "/api/v1/projects/project_a/assets/file_run_slide/content"],
+        ]),
+      },
+    );
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: 1,
+          evaluationSnapshot,
+          semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).toContain("file_run_slide/content");
+    expect(html).not.toContain("current-deck-thumbnail");
   });
 });
 
