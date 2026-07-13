@@ -91,7 +91,7 @@ describe("processRehearsalSttJob", () => {
     vi.unstubAllGlobals();
   });
 
-  it("transcribes, analyzes, deletes raw audio, and stores results", async () => {
+  it("transcribes, analyzes, stores results, and then schedules raw audio cleanup", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -101,8 +101,8 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
@@ -115,11 +115,12 @@ describe("processRehearsalSttJob", () => {
               transcriptRetained: false,
               transcript: null
             },
-            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z"
+            rawAudioDeletedAt: null
           },
           null
         )
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -183,11 +184,7 @@ describe("processRehearsalSttJob", () => {
       "http://localhost:8000/rehearsal/analyze",
       expect.objectContaining({ method: "POST" })
     );
-    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE project_assets"),
-      expect.arrayContaining(["file-audio", "project-a"])
-    );
+    expect(storage.removeObject).not.toHaveBeenCalled();
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
       expect.arrayContaining([
@@ -210,7 +207,8 @@ describe("processRehearsalSttJob", () => {
         expect.objectContaining({
           transcriptRetained: false,
           segmentCount: 1,
-            report: expect.objectContaining({
+          rawAudioDeletedAt: null,
+          report: expect.objectContaining({
               reportId: "report_run-a",
               transcriptRetained: false,
               transcript: null,
@@ -235,9 +233,20 @@ describe("processRehearsalSttJob", () => {
         null
       ])
     );
+    const succeededJobCallIndex = query.mock.calls.findIndex(
+      ([sql, params]) =>
+        String(sql).includes("UPDATE jobs") &&
+        Array.isArray(params) &&
+        params[1] === "succeeded"
+    );
+    const cleanupCallIndex = query.mock.calls.findIndex(([sql]) =>
+      String(sql).includes("INSERT INTO storage_deletion_outbox")
+    );
+    expect(succeededJobCallIndex).toBeGreaterThanOrEqual(0);
+    expect(cleanupCallIndex).toBeGreaterThan(succeededJobCallIndex);
   });
 
-  it("replays patch-only deck updates before rehearsal analysis", async () => {
+  it("replays patch-only deck updates and normalizes analyze keyword DTOs", async () => {
     const updatedKeywordPatchOperations = [
       {
         type: "replace_keywords",
@@ -247,7 +256,8 @@ describe("processRehearsalSttJob", () => {
             keywordId: "kw_1",
             text: "LATEST",
             synonyms: ["최신"],
-            abbreviations: []
+            abbreviations: [],
+            requiredOccurrenceIds: []
           }
         ]
       }
@@ -270,8 +280,8 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
@@ -284,11 +294,12 @@ describe("processRehearsalSttJob", () => {
               transcriptRetained: false,
               transcript: null
             },
-            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z"
+            rawAudioDeletedAt: null
           },
           null
         )
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     const fetchMock = vi
       .fn()
@@ -350,9 +361,10 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
-      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     const events = vi.fn();
     const transcriptCache = {
@@ -504,9 +516,10 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
-      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     const events = vi.fn();
     vi.stubGlobal(
@@ -695,8 +708,8 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
@@ -709,11 +722,12 @@ describe("processRehearsalSttJob", () => {
               transcriptRetained: false,
               transcript: null
             },
-            rawAudioDeletedAt: "2026-06-27T00:00:02.000Z"
+            rawAudioDeletedAt: null
           },
           null
         )
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -780,9 +794,10 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
-      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -830,7 +845,7 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
-  it("deletes raw audio and marks the job failed when STT fails", async () => {
+  it("marks the job failed before scheduling raw audio cleanup when STT fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -838,14 +853,14 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([deckRow])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 10, null, {
           code: "PYTHON_WORKER_STT_FAILED",
           message: "bad audio"
         })
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -861,10 +876,14 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PYTHON_WORKER_STT_FAILED");
-    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+    expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
+      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    );
   });
 
-  it("deletes raw audio and marks the job failed when analysis fails", async () => {
+  it("marks the job failed before scheduling raw audio cleanup when analysis fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -873,14 +892,14 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 60, null, {
           code: "PYTHON_WORKER_ANALYZE_FAILED",
           message: "analysis unavailable"
         })
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -913,10 +932,14 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PYTHON_WORKER_ANALYZE_FAILED");
-    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+    expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
+      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    );
   });
 
-  it("preserves a successful analysis and schedules cleanup when raw audio deletion fails", async () => {
+  it("preserves a successful analysis and schedules cleanup after success", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -926,12 +949,11 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+      .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
-    vi.mocked(storage.removeObject).mockRejectedValueOnce(new Error("delete denied"));
     vi.stubGlobal(
       "fetch",
       vi
@@ -978,7 +1000,7 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
-  it("marks the job failed when report validation fails after deleting raw audio", async () => {
+  it("marks the job failed before scheduling cleanup when report validation fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -988,14 +1010,14 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 30, null, null)])
       .mockResolvedValueOnce([jobRow("running", 65, null, null)])
       .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([
         jobRow("failed", 85, null, {
           code: "REHEARSAL_REPORT_INVALID",
           message: "Invalid report"
         })
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
     const storage = createStorage();
     vi.stubGlobal(
       "fetch",
@@ -1039,7 +1061,11 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("REHEARSAL_REPORT_INVALID");
-    expect(storage.removeObject).toHaveBeenCalledWith(assetRow.storage_key);
+    expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
+      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE rehearsal_runs"),
       expect.arrayContaining([
@@ -1047,7 +1073,7 @@ describe("processRehearsalSttJob", () => {
         "failed",
         null,
         expect.objectContaining({ code: "REHEARSAL_REPORT_INVALID" }),
-        expect.any(String)
+        null
       ])
     );
   });
@@ -1254,9 +1280,10 @@ async function runSnapshotJobWithSemanticResponse(
     .mockResolvedValueOnce([jobRow("running", 30, null, null)])
     .mockResolvedValueOnce([jobRow("running", 65, null, null)])
     .mockResolvedValueOnce([jobRow("running", 85, null, null)])
-    .mockResolvedValueOnce([])
     .mockResolvedValueOnce([runRow()])
-    .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)]);
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([jobRow("succeeded", 100, {}, null)])
+    .mockResolvedValueOnce([]);
   vi.stubGlobal(
     "fetch",
     vi

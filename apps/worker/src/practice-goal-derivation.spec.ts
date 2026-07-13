@@ -87,6 +87,11 @@ describe("practice goal derivation", () => {
 
     expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO practice_goal_sets");
+    for (const [index, goal] of set.goals.entries()) {
+      const evidenceRefsParameter = query.mock.calls[index + 1]?.[1]?.[10];
+      expect(typeof evidenceRefsParameter).toBe("string");
+      expect(JSON.parse(String(evidenceRefsParameter))).toEqual(goal.evidenceRefs);
+    }
     expect(query.mock.calls.at(-1)?.[0]).toContain(
       "practice_goal_heads.current_analysis_revision < EXCLUDED.current_analysis_revision"
     );

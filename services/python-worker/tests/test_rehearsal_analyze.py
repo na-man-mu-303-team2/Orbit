@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -14,6 +15,16 @@ from app.rehearsal import (
     generate_rehearsal_coaching,
 )
 from tests.test_config import VALID_ENV
+
+
+P0_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "packages"
+    / "shared"
+    / "src"
+    / "coaching"
+    / "p0-core-contract.fixtures.json"
+)
 
 
 class FakeResponses:
@@ -39,6 +50,16 @@ class FakeResponses:
                 )
             },
         )()
+
+
+def test_rehearsal_analyze_request_uses_the_shared_cross_language_fixture() -> None:
+    fixtures = json.loads(P0_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    request = api_module.RehearsalAnalyzeRequest.model_validate(
+        fixtures["rehearsalAnalyzeRequest"]
+    )
+
+    assert request.deck_keywords[0].required is True
 
 
 class FakeClient:
@@ -298,3 +319,51 @@ def test_rehearsal_analyze_endpoint_fails_when_coaching_is_unavailable() -> None
 
     assert response.status_code == 503
     assert response.json()["detail"] == "OPENAI_API_KEY is not configured."
+
+
+def test_rehearsal_analyze_endpoint_rejects_unknown_top_level_fields() -> None:
+    api_module.app.state.config = load_config(VALID_ENV)
+    client = TestClient(api_module.app)
+
+    response = client.post(
+        "/rehearsal/analyze",
+        json={
+            "runId": "run-1",
+            "projectId": "project-a",
+            "deckId": "deck-a",
+            "transcript": "ORBIT 발표입니다",
+            "durationSeconds": 30,
+            "segments": [],
+            "deckKeywords": [],
+            "unexpectedField": "must-be-rejected",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_rehearsal_analyze_endpoint_rejects_unknown_nested_fields() -> None:
+    api_module.app.state.config = load_config(VALID_ENV)
+    client = TestClient(api_module.app)
+
+    response = client.post(
+        "/rehearsal/analyze",
+        json={
+            "runId": "run-1",
+            "projectId": "project-a",
+            "deckId": "deck-a",
+            "transcript": "ORBIT 발표입니다",
+            "durationSeconds": 30,
+            "segments": [
+                {
+                    "text": "ORBIT 발표입니다",
+                    "startSeconds": 0,
+                    "endSeconds": 3,
+                    "providerPayload": "must-be-rejected",
+                }
+            ],
+            "deckKeywords": [],
+        },
+    )
+
+    assert response.status_code == 422

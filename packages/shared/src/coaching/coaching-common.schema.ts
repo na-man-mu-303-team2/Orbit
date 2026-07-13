@@ -49,6 +49,15 @@ export const focusedPracticeTargetScopeSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      type: z.literal("sentence"),
+      scopeId: coachingIdSchema,
+      slideId: coachingIdSchema,
+      sentenceIndex: z.number().int().nonnegative(),
+      textSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("slide-range"),
       scopeId: coachingIdSchema,
       startSlideId: coachingIdSchema,

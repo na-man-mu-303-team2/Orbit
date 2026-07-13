@@ -2,6 +2,8 @@
 
 이 문서는 기능 범위와 자동/수동 검증을 연결한다. PR에서는 이 표의 "검증 앵커"와 실제 테스트 결과를 함께 확인한다.
 
+이 문서의 `ORBIT-*` 값은 기존 기능과 테스트를 찾기 위한 레거시 식별자다. 현재 프로젝트는 Jira를 사용하지 않으며, 새 브랜치·커밋·PR·테스트에 Jira 이슈 키를 요구하지 않는다.
+
 ## Verification Policy
 
 | 시점 | 실행 항목 | 목적 |
@@ -24,7 +26,7 @@
 
 ## Milestone Matrix
 
-| 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
+| 레거시 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
 | --- | --- | --- | --- |
 | ORBIT-1 | 시작 준비 epic | 로컬 서비스, migration, 온디바이스 STT 기준 준비 | `pnpm build`, `pnpm lint`, Python pytest, Compose, STT 문서 review |
 | ORBIT-2 | 프로젝트 scaffold | workspace build/test, Compose 서비스 시작 | 수동 `pnpm build`, `pnpm test`, Python pytest, Compose 검증 |

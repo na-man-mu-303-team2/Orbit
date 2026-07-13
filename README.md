@@ -133,6 +133,7 @@ corepack pnpm --filter api migration:generate -- src/database/migrations/NextMig
 
 - `main`에 직접 커밋하지 않습니다.
 - 모든 작업은 목적을 알아볼 수 있는 이름의 브랜치에서 진행합니다.
+- Jira는 사용하지 않으며 브랜치명, 커밋 메시지, PR 제목에 Jira 이슈 키를 요구하지 않습니다.
 - PR은 기본적으로 `develop`을 대상으로 만들고, 필요한 경우 `develop` 변경사항을 `main`으로 동기화합니다.
 - 이미 원격에 push된 공유 브랜치에는 rebase 또는 force push를 하지 않습니다.
 

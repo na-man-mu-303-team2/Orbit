@@ -350,3 +350,15 @@
 - Rationale: staging에서도 local과 같은 report STT 시간 지표를 재현할 수 있고, Doppler/staging secret에 이전 모델 값이 남아 있어도 개인 서버 staging report STT 실행 경로가 흔들리지 않는다. 표준 OpenAI API key는 계속 서버 환경에만 두며 브라우저에 노출하지 않는다.
 - Affected files: `.env.staging.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/decision-log.md`.
 - Follow-up review notes: production의 report STT 모델은 전사 정확도, 비용, 시간 기반 지표 요구를 따로 검토한 뒤 확정한다. staging 배포 뒤 실제 리허설 녹음에서 `durationSeconds`, `speedSamples`, `pauseDetails`가 채워지는지 확인한다.
+
+## ORBIT P0 parallel coaching contract boundary
+
+- Context: 네 담당자가 평가기, 음성 측정, 집중 연습, report 통합을 병렬 구현하려면 기존 C0 read contract만으로는 사용자 focus revision, 한국어 CPM, STT confidence 부재, pause v2, 문장 target, 짧은 음성 근거의 보존·권한 경계가 고정되지 않는다. 현재 raw audio는 분석 뒤 삭제되고, 30~60초 모범 발화 audio는 Later 후보이므로 P0 Evidence Clip과도 구분해야 한다.
+- Options considered:
+  - 각 담당 브랜치가 필요한 enum, DTO, fixture, 저장 구조를 자체 정의한다.
+  - 문서에 shape만 적고 schema와 migration은 담당 구현 PR에서 나중에 합친다.
+  - shared schema, 공통 fixture, strict Python 요청 경계, focus/clip migration을 선행 PR로 고정하고 담당 구현은 이를 import한다.
+- Final decision: `RehearsalFocusProfile`은 Brief와 분리된 project-level CAS aggregate로 두고 run snapshot에 revision과 item 값을 동결한다. 한국어 속도는 공백 제외 CPM v1을 canonical로, WPM을 호환값으로 둔다. STT confidence는 provider가 준 경우만 사용하고, pause v2 분류 근거가 없으면 `unknown`을 강제한다. sentence target은 text snapshot hash를 가진다. 문제 근거용 Evidence Clip은 raw audio와 별개인 최대 12초 파생물로 기본 7일 보관하고 Owner만 재생한다. report에는 clip ID만 포함하고 URL·storage key·audio file ID를 넣지 않는다. Presenter Aid는 전체 script를 숨기고 남은 시간·keyword 최대 3개·미해결 문제 최대 1개만 허용한다.
+- Rationale: 계약과 fixture를 먼저 고정하면 네 구현 스트림이 같은 상태·단위·보안 경계를 사용하고, confidence·timestamp·audio가 없을 때 값을 추측하지 않는다. 12초 사용자 근거와 30~60초 모범 audio를 분리해 기존 raw audio 삭제 정책과 Later 범위를 보존한다.
+- Affected files: `packages/shared/src/coaching/*`, `packages/shared/src/rehearsals/*`, `packages/shared/src/index.ts`, `packages/shared/src/README.md`, `apps/api/src/database/migrations/2026071301000-CreateP0CoachingContracts.ts`, `apps/api/src/database/data-source.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `services/python-worker/app/main.py`, `services/python-worker/app/audio/transcribe.py`, `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/product/adaptive-rehearsal-coach-direction.md`, `docs/decision-log.md`.
+- Follow-up review notes: API 구현은 focus PUT에서 CAS conflict를 HTTP 409로 매핑하고 Evidence playback마다 project Owner를 재검사한다. clip storage key는 DB 내부와 StoragePort에만 두고 로그에 남기지 않는다. 만료·조기 삭제·project 삭제는 기존 deletion outbox를 재사용한다. Editor 접근 확대, 30일 연장, 30~60초 모범 audio는 별도 제품·개인정보·권한 결정 전에는 구현하지 않는다.
