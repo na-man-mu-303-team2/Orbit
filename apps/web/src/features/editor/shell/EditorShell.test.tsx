@@ -476,7 +476,7 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 도구");
-    expect(html).toContain("발표 메시지");
+    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -520,7 +520,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('id="editor-semantic-cue-tab"');
+    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
     expect(html).toContain('id="editor-semantic-cue-panel"');
     expect(html).toContain("발표 메시지");
     expect(html).toContain("AI로 전체 덱 다시 분석");

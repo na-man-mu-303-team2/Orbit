@@ -2704,15 +2704,13 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
     event.preventDefault();
-    const views = ["ai-chat", "ai-tools", "semantic-cues"] as const;
-    const currentIndex = views.indexOf(rightPanelView);
+    const views = ["ai-chat", "ai-tools"] as const;
+    const currentIndex = rightPanelView === "ai-tools" ? 1 : 0;
     const direction = event.key === "ArrowRight" ? 1 : -1;
     const nextView = views[(currentIndex + direction + views.length) % views.length];
     setRightPanelView(nextView);
     requestAnimationFrame(() => {
-      document
-        .getElementById(`editor-${nextView === "semantic-cues" ? "semantic-cue" : nextView}-tab`)
-        ?.focus();
+      document.getElementById(`editor-${nextView}-tab`)?.focus();
     });
   }
 
@@ -5365,14 +5363,20 @@ export function EditorShell(props: { projectId?: string }) {
                   <MousePointer2 size={14} />
                 </button>
                 <div className="toolbar-divider" />
-                <button className="tool-button" type="button" onClick={handleAddTextElement}>
+                <button
+                  aria-label="텍스트"
+                  className="tool-button"
+                  type="button"
+                  onClick={handleAddTextElement}
+                >
                   <Type size={14} />
-                  텍스트
+                  <span className="tool-button-label">텍스트</span>
                 </button>
                 <div className="shape-menu-anchor">
                   <button
                     aria-expanded={isShapeMenuOpen}
                     aria-haspopup="menu"
+                    aria-label="도형"
                     className={`tool-button ${
                       isShapeMenuOpen || insertTool === "customShape" ? "active" : ""
                     }`}
@@ -5381,15 +5385,21 @@ export function EditorShell(props: { projectId?: string }) {
                     onClick={() => setIsShapeMenuOpen((current) => !current)}
                   >
                     <Shapes size={14} />
-                    도형
+                    <span className="tool-button-label">도형</span>
                     <ChevronDown size={14} />
                   </button>
                 </div>
-                <button className="tool-button" type="button" onClick={handleAddChartElement}>
+                <button
+                  aria-label="차트"
+                  className="tool-button"
+                  type="button"
+                  onClick={handleAddChartElement}
+                >
                   <BarChart3 size={14} />
-                  차트
+                  <span className="tool-button-label">차트</span>
                 </button>
                 <button
+                  aria-label="이미지"
                   className="tool-button"
                   disabled={!currentSlide || isImageUploadPending}
                   type="button"
@@ -5403,9 +5413,10 @@ export function EditorShell(props: { projectId?: string }) {
                   }
                 >
                   <ImagePlus size={14} />
-                  이미지
+                  <span className="tool-button-label">이미지</span>
                 </button>
                 <button
+                  aria-label="애니메이션"
                   className={`tool-button ${
                     isAnimationPanelOpen || selectedElementAnimations.length > 0
                       ? "active"
@@ -5421,16 +5432,17 @@ export function EditorShell(props: { projectId?: string }) {
                   }}
                 >
                   <Sparkles size={14} />
-                  애니메이션
+                  <span className="tool-button-label">애니메이션</span>
                 </button>
               </div>
 
               <div className="tool-group">
-                <button className="tool-button" type="button">
+                <button aria-label="템플릿" className="tool-button" type="button">
                   <LayoutTemplate size={14} />
-                  템플릿
+                  <span className="tool-button-label">템플릿</span>
                 </button>
                 <button
+                  aria-label="ID 표시"
                   aria-pressed={showIds}
                   className={`toolbar-toggle ${showIds ? "active" : ""}`}
                   type="button"
@@ -5752,6 +5764,7 @@ export function EditorShell(props: { projectId?: string }) {
                   aria-controls="editor-semantic-cue-panel"
                   aria-selected={rightPanelView === "semantic-cues"}
                   className={rightPanelView === "semantic-cues" ? "active" : ""}
+                  hidden
                   id="editor-semantic-cue-tab"
                   role="tab"
                   tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}

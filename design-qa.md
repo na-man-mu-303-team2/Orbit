@@ -148,3 +148,36 @@ final result: passed
 - No actionable P0/P1/P2 issue remains.
 
 final result: passed
+
+---
+
+## Editor Toolbar Annotations (2026-07-14)
+
+- Source: `/tmp/orbit-editor-toolbar-before.png`
+- Implementation: `/tmp/orbit-editor-toolbar-after-default-final.png`
+- Full comparison: `/tmp/orbit-editor-full-comparison.png`
+- Focused comparison: `/tmp/orbit-editor-toolbar-tabs-comparison.png`
+- Responsive evidence: `/tmp/orbit-editor-toolbar-after-720.png`
+- Viewport/state: `2163x1324`, project editor, slide 1, AI chat panel
+- Responsive viewport/state: `720x900`, same project and slide
+
+### Full-view and focused comparison
+
+The existing editor hierarchy, canvas placement, toolbar heights, typography, colors, and active-tab treatment remain unchanged at the source viewport. The right panel now exposes only `AI 채팅` and `AI 도구`; the semantic cue panel contract remains available without showing the annotated `발표 메시지 3` tab.
+
+At `720px`, tool labels collapse to accessible icon controls and the slide properties use a bounded responsive grid. The page, toolbar, and quickbar each reported matching `clientWidth` and `scrollWidth` at both tested widths.
+
+### Findings and verification
+
+- P0: none
+- P1: none
+- P2: none
+- P3: none
+- Accessibility: responsive icon-only tools retain Korean `aria-label` values.
+- Browser console: no errors.
+- Web suite: 133 files, 919 tests passed.
+- Web lint: passed.
+- `git diff --check`: passed.
+
+final result: passed
+
