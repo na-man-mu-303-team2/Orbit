@@ -1615,3 +1615,53 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - Migration B `CreateFocusedPractice`는 single-scope session/attempt와 non-terminal partial unique를 추가한다.
 - Migration C `CreateChallengeQna`는 session/question revision/progress/answer attempt와 tenant-safe composite FK를 추가한다.
 - 세 migration은 각각 `down()`을 제공하고 A/B/C up → C/B/A down → A/B/C up으로 검증한다.
+
+### P0 병렬 구현 선행 계약
+
+P0 담당자는 아래 계약과 `p0-core-contract.fixtures.json`을 단일 원본으로 사용한다.
+앱별 enum, DTO, fixture를 별도로 만들기 전에 shared schema를 import한다.
+
+#### RehearsalFocusProfile과 snapshot
+
+- `RehearsalFocusProfile`은 `PresentationBrief`와 분리된 project-level aggregate다.
+- `PUT /api/v1/projects/:projectId/rehearsal-focus-profile` 요청은 `expectedRevision`을 사용한다. 최초 생성은 `0`, 이후 수정은 현재 양의 revision을 보낸다.
+- CAS 충돌 응답은 `REHEARSAL_FOCUS_PROFILE_REVISION_CONFLICT`, 요청 revision, 현재 revision, 현재 profile을 반환한다. 앱별 임의 충돌 payload를 만들지 않는다.
+- focus item은 최대 3개이며 priority는 1부터 연속돼야 한다. `targetScope=null`은 전체 run 목표다.
+- run 시작 시 `profileId`, revision, focus item 값을 `evaluationSnapshot.focusProfileSnapshot`에 함께 동결한다. mutable profile을 나중에 다시 읽어 과거 run을 재평가하지 않는다.
+- `rehearsal_focus_profiles`는 프로젝트 삭제 시 cascade 삭제한다.
+
+#### 문장 Target
+
+- Focused Practice target은 기존 `slide`, `slide-range`, `opening`, `closing`에 additive `sentence`를 허용한다.
+- sentence target은 `scopeId`, `slideId`, 0부터 시작하는 `sentenceIndex`, SHA-256 `textSnapshotHash`를 가진다.
+- 현재 문장 hash가 snapshot과 다르면 stale이며 자동 실행하거나 과거 결과와 비교하지 않는다.
+- 30~60초는 권장 연습 길이이고 기존 Focused Practice 5분은 hard maximum이다.
+
+#### CPM, STT Quality Gate, pause v2
+
+- 한국어 말하기 속도의 canonical 지표는 `characters-per-minute` v1이다. 공백을 제외한 글자 수를 실제 전체 녹음 시간으로 나누고, 전체 시간이 없을 때만 유효 segment 시작~종료 범위를 사용한다.
+- `wordsPerMinute`는 기존 report 호환값이며 CPM과 서로 환산하지 않는다. `speechRate`가 없는 과거 report는 legacy CPM 미측정으로 취급하고, 새 분석에서 근거가 없을 때는 bounded reason code를 사용한다.
+- STT provider가 confidence를 제공할 때만 confidence와 threshold를 저장한다. 제공하지 않으면 둘 다 `null`이고, 승인된 provider/language policy는 `CONFIDENCE_NOT_PROVIDED`로 통과할 수 있다.
+- pause v2는 v1을 교체하지 않는다. `metricDefinitionVersion=2`로 위치와 분류 capability를 기록하며 provider 근거가 없으면 classification은 반드시 `unknown`이다.
+- CPM·WPM·pause v1·pause v2는 metric definition version이 다르면 같은 trend로 비교하지 않는다.
+
+#### Evidence Clip과 Presenter Aid
+
+- Evidence Clip은 raw audio 원본이 아니라 분석 완료 직전에 파생한 문제 구간 최대 12초 음성이다. raw audio는 기존 정책대로 terminal path에서 즉시 삭제한다.
+- clip은 `retentionPolicyVersion=1`, `retentionDays=7`을 저장하고 생성 후 정확히 7일에 만료한다. P0에서는 연장하지 않는다. project Owner만 매 요청 권한 재검사 후 짧게 만료되는 signed URL을 받을 수 있다.
+- report와 observation에는 `clipId`, `observationId`만 넣는다. signed URL, storage key, `audioFileId`, transcript는 report, Job result, 로그에 넣지 않는다.
+- clip 실패·만료·삭제는 report 실패가 아니다. 텍스트·수치·time range evidence는 계속 표시한다.
+- `rehearsal_evidence_clips`는 project/run tenant FK와 expiry index를 사용하고 project 삭제 시 cascade 삭제한다. object 삭제는 기존 `storage_deletion_outbox` 처리 경계를 재사용한다.
+- P0 Presenter Aid는 `scriptVisible=false`, 남은 시간, 현재 slide keyword 최대 3개, 미해결 문제 최대 1개만 허용한다.
+- 12초 Evidence Clip은 사용자 자신의 문제 근거다. 제품 Later 후보인 30~60초 모범 발화 audio와 목적·보존 정책이 다르며 서로 재사용하지 않는다.
+
+#### Python 요청 경계
+
+- `/rehearsal/analyze`의 top-level, segment, keyword, slide timeline Pydantic model은 `extra="forbid"`를 사용한다.
+- TypeScript DTO에 없는 필드는 HTTP 422로 거부한다. provider raw payload를 통과시키지 않는다.
+- 언어 중립 공통 fixture 원본은 `packages/shared/src/coaching/p0-core-contract.fixtures.json`이다. TypeScript는 같은 경로의 wrapper를 import하고 Python test는 JSON을 직접 읽는다. Worker는 `rehearsalAnalyzeRequestSchema`를 통과한 payload만 Python으로 전송한다.
+
+#### Migration D
+
+- `CreateP0CoachingContracts`는 `rehearsal_focus_profiles`, `rehearsal_evidence_clips`, expiry/observation index를 추가한다.
+- migration은 `down()`에서 clip index/table을 먼저 제거한 뒤 focus profile table을 제거한다.

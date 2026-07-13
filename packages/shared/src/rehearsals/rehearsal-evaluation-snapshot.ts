@@ -4,6 +4,7 @@ import {
   type RehearsalEvaluationSnapshot
 } from "./rehearsal.schema";
 import type { RehearsalEvaluationPlan } from "../coaching/evaluator-lens.schema";
+import type { RehearsalFocusProfileSnapshot } from "../coaching/rehearsal-focus-profile.schema";
 
 export function createRehearsalEvaluationSnapshot(
   deck: Deck,
@@ -11,6 +12,7 @@ export function createRehearsalEvaluationSnapshot(
   options: {
     deckContentHash?: string | null;
     evaluationPlan?: RehearsalEvaluationPlan | null;
+    focusProfileSnapshot?: RehearsalFocusProfileSnapshot | null;
   } = {}
 ): RehearsalEvaluationSnapshot {
   const fallbackEstimatedSeconds = Math.max(
@@ -23,6 +25,7 @@ export function createRehearsalEvaluationSnapshot(
     deckVersion: deck.version,
     deckContentHash: options.deckContentHash ?? null,
     evaluationPlan: options.evaluationPlan ?? null,
+    focusProfileSnapshot: options.focusProfileSnapshot ?? null,
     capturedAt,
     slides: deck.slides.map((slide) => ({
       slideId: slide.slideId,

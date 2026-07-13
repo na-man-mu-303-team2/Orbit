@@ -246,7 +246,7 @@ describe("processRehearsalSttJob", () => {
     expect(cleanupCallIndex).toBeGreaterThan(succeededJobCallIndex);
   });
 
-  it("replays patch-only deck updates before rehearsal analysis", async () => {
+  it("replays patch-only deck updates and normalizes analyze keyword DTOs", async () => {
     const updatedKeywordPatchOperations = [
       {
         type: "replace_keywords",
@@ -256,7 +256,8 @@ describe("processRehearsalSttJob", () => {
             keywordId: "kw_1",
             text: "LATEST",
             synonyms: ["최신"],
-            abbreviations: []
+            abbreviations: [],
+            requiredOccurrenceIds: []
           }
         ]
       }

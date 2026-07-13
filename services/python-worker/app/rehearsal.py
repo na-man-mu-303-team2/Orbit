@@ -115,6 +115,7 @@ class DeckKeyword:
     slide_id: str = ""
     synonyms: list[str] = field(default_factory=list)
     abbreviations: list[str] = field(default_factory=list)
+    required: bool = False
 
 
 @dataclass(frozen=True)
