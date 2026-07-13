@@ -162,19 +162,26 @@ class ReferenceSearchResponse(BaseModel):
 
 
 class DeckKeywordRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     keyword_id: str = Field(default="", alias="keywordId")
     slide_id: str = Field(default="", alias="slideId")
     text: str
     synonyms: list[str] = Field(default_factory=list)
     abbreviations: list[str] = Field(default_factory=list)
+    required: bool = False
 
 
 class RehearsalSlideTimelineEntryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     slide_id: str = Field(alias="slideId")
     entered_second: float = Field(alias="enteredSecond", ge=0)
 
 
 class RehearsalAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
@@ -859,6 +866,7 @@ def analyze_rehearsal(
             text=keyword.text,
             synonyms=keyword.synonyms,
             abbreviations=keyword.abbreviations,
+            required=keyword.required,
         )
         for keyword in payload.deck_keywords
     ]

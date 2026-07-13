@@ -5,6 +5,7 @@ import {
   coachingIdSchema,
   criterionRefSchema,
 } from "./coaching-common.schema";
+import { evidenceClipRefSchema } from "./speech-evidence.schema";
 
 export const criterionScopeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run") }).strict(),
@@ -91,6 +92,13 @@ export const reportObservationValueSchema = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
+      kind: z.literal("characters-per-minute"),
+      metricDefinitionVersion: z.literal(1),
+      value: z.number().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal("rate"),
       metric: z.enum([
         "keyword-coverage",
@@ -141,6 +149,7 @@ export const reportObservationEvidenceRefSchema = z.union([
       slideId: coachingIdSchema.optional(),
     })
     .strict(),
+  evidenceClipRefSchema.extend({ kind: z.literal("evidence-clip") }).strict(),
 ]);
 
 export const reportObservationSchema = z
@@ -163,6 +172,18 @@ export const reportObservationSchema = z
         path: ["value"],
       });
     }
+    observation.evidenceRefs.forEach((evidenceRef, index) => {
+      if (
+        evidenceRef.kind === "evidence-clip" &&
+        evidenceRef.observationId !== observation.observationId
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "evidence clip must reference its containing observation.",
+          path: ["evidenceRefs", index, "observationId"],
+        });
+      }
+    });
   });
 
 export const criterionResultReasonCodeSchema = z.enum([

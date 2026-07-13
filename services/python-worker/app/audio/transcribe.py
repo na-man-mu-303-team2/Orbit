@@ -70,7 +70,7 @@ class AudioTranscribeRequest(BaseModel):
 
 
 class TranscriptSegment(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     text: str
     start_seconds: float | None = Field(default=None, alias="startSeconds", ge=0)

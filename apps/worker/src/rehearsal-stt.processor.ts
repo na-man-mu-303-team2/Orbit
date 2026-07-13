@@ -4,6 +4,7 @@ import {
   deckPatchSchema,
   deckSchema,
   rehearsalEvaluationSnapshotSchema,
+  rehearsalAnalyzeRequestSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
@@ -495,19 +496,20 @@ async function analyzeTranscript(
   transcription: z.infer<typeof transcribeResponseSchema>,
   runMeta: RehearsalRunMeta
 ) {
+  const request = rehearsalAnalyzeRequestSchema.parse({
+    runId: payload.runId,
+    projectId: payload.projectId,
+    deckId: payload.deckId,
+    transcript: transcription.transcript,
+    durationSeconds: transcription.durationSeconds ?? 0,
+    segments: transcription.segments,
+    deckKeywords: deckContext.deckKeywords,
+    slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
+  });
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      runId: payload.runId,
-      projectId: payload.projectId,
-      deckId: payload.deckId,
-      transcript: transcription.transcript,
-      durationSeconds: transcription.durationSeconds ?? 0,
-      segments: transcription.segments,
-      deckKeywords: deckContext.deckKeywords,
-      slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
-    }),
+    body: JSON.stringify(request),
     signal: AbortSignal.timeout(120_000)
   });
 
