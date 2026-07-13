@@ -1524,6 +1524,43 @@ def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
+def test_sequence_allows_unavoidable_repeated_silhouette_for_valid_slides() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        slide_payload("problem", 1),
+        slide_payload("problem", 1),
+        slide_payload("solution", 2),
+        slide_payload("data", 2),
+        slide_payload("summary", 1),
+    ]
+    candidate = program(
+        [
+            {
+                "order": index,
+                "compositionId": (
+                    "minimal-cover"
+                    if index == 1
+                    else "cta-closing"
+                    if index == len(slides)
+                    else "statement-poster"
+                ),
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "statement",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+            for index in range(1, len(slides) + 1)
+        ]
+    )
+
+    normalized = normalize_design_program(candidate, slides, media_policy="minimal")
+
+    assert len(normalized.slides) == len(slides)
+    assert normalized.slides[1].composition_id == "statement-poster"
+    assert normalized.slides[2].composition_id == "statement-poster"
+
+
 def test_body_hero_split_without_media_uses_native_content_composition() -> None:
     slides = [
         slide_payload("cover", 1),

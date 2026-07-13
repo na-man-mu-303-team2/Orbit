@@ -2093,6 +2093,7 @@ def _select_composition_sequence(
         *,
         usage_limit: int,
         unique_target: int,
+        allow_repeated_silhouette: bool = False,
     ) -> bool:
         if index == len(candidates_by_slide):
             return len(set(selected[1:-1])) >= unique_target
@@ -2111,7 +2112,10 @@ def _select_composition_sequence(
             next_required_assets = required_assets + (spec.media_requirement == "required")
             if (
                 usage[candidate] >= usage_limit
-                or spec.silhouette == previous_silhouette
+                or (
+                    not allow_repeated_silhouette
+                    and spec.silhouette == previous_silhouette
+                )
                 or next_required_assets > media_budget
             ):
                 continue
@@ -2123,6 +2127,7 @@ def _select_composition_sequence(
                 next_required_assets,
                 usage_limit=usage_limit,
                 unique_target=unique_target,
+                allow_repeated_silhouette=allow_repeated_silhouette,
             ):
                 return True
             selected.pop()
@@ -2153,6 +2158,16 @@ def _select_composition_sequence(
         0,
         usage_limit=3,
         unique_target=max(0, required_unique_body - 1),
+    ):
+        selected.clear()
+        usage.clear()
+    if not selected and not choose(
+        0,
+        "",
+        0,
+        usage_limit=len(slides),
+        unique_target=0,
+        allow_repeated_silhouette=True,
     ):
         raise CompositionCompileError("No composition sequence satisfies the deck constraints")
     return selected
