@@ -3656,7 +3656,7 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     assert deck["theme"]["backgroundColor"] == "#FFFFFF"
     assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
     assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
-    assert element_by_role(deck["slides"][0], "background")["props"]["fill"] == "#FFFFFF"
+    assert not has_element(deck["slides"][0], "el_1_design_pack_background")
     assert has_element(deck["slides"][0], "el_1_cover_summary_card_1_text")
     assert not has_element(deck["slides"][0], "el_1_body")
 
@@ -3768,10 +3768,7 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     assert element_by_id(overview, "el_2_overview_card_1")["props"]["stroke"] == "#D1D5DB"
     for slide in response.deck["slides"]:
         assert slide["style"]["backgroundColor"] == "#FFFFFF"
-        assert element_by_id(
-            slide,
-            f"el_{slide['order']}_design_pack_background",
-        )["props"]["fill"] == "#FFFFFF"
+        assert not has_element(slide, f"el_{slide['order']}_design_pack_background")
         overflowing = [
             element["elementId"]
             for element in slide["elements"]
