@@ -23,6 +23,7 @@ import {
   IconChevronRight,
   IconDownload,
   IconFileText,
+  IconInfoCircle,
   IconPalette,
   IconPaperclip,
   IconPlayerPlay,
@@ -77,6 +78,65 @@ type ReferenceGrounding = Pick<
   GenerateDeckRequest,
   "referenceContext" | "referenceKeywords"
 >;
+
+type PolicyChoiceOption<T extends string> = {
+  description: string;
+  label: string;
+  value: T;
+};
+
+export const referencePolicyOptions = [
+  {
+    value: "user-input-only",
+    label: "사용자 입력만",
+    description:
+      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다."
+  },
+  {
+    value: "references-first",
+    label: "참고자료 우선",
+    description:
+      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다."
+  },
+  {
+    value: "references-only",
+    label: "참고자료만 사용",
+    description:
+      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다."
+  },
+  {
+    value: "research-first",
+    label: "웹 리서치 구조",
+    description:
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 서로 다른 관련 출처 2개 이상을 확보하지 못하면 생성이 중단됩니다."
+  }
+] satisfies readonly PolicyChoiceOption<ReferencePolicy>[];
+
+export const mediaPolicyOptions = [
+  {
+    value: "minimal",
+    label: "이미지 최소화",
+    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다."
+  },
+  {
+    value: "provided-only",
+    label: "첨부 이미지만",
+    description:
+      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다."
+  },
+  {
+    value: "public-assets",
+    label: "공개 이미지 구조",
+    description:
+      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다."
+  },
+  {
+    value: "ai-generated",
+    label: "AI 이미지 구조",
+    description:
+      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다."
+  }
+] satisfies readonly PolicyChoiceOption<MediaPolicy>[];
 
 const stylePackId = "brandlogy-modern";
 
@@ -1017,21 +1077,14 @@ function ReferencesStep(props: {
           <legend>참고자료 활용 기준</legend>
           <p>발표 내용에서 참고자료가 차지할 우선순위를 선택합니다.</p>
           <div className="ai-ppt-choice-list">
-            {[
-              ["user-input-only", "사용자 입력만"],
-              ["references-first", "참고자료 우선"],
-              ["references-only", "참고자료만 사용"],
-              ["research-first", "웹 리서치 구조"]
-            ].map(([value, label]) => (
-              <button
-                aria-pressed={props.form.referencePolicy === value}
-                key={value}
-                className={props.form.referencePolicy === value ? "selected" : ""}
-                type="button"
-                onClick={() => props.onChange("referencePolicy", value as ReferencePolicy)}
-              >
-                {label}
-              </button>
+            {referencePolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.referencePolicy === option.value}
+                tooltipId={`reference-policy-${option.value}`}
+                onSelect={(value) => props.onChange("referencePolicy", value)}
+              />
             ))}
           </div>
         </fieldset>
@@ -1039,26 +1092,44 @@ function ReferencesStep(props: {
           <legend>이미지 구성</legend>
           <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
           <div className="ai-ppt-choice-list">
-            {[
-              ["minimal", "이미지 최소화"],
-              ["provided-only", "첨부 이미지만"],
-              ["public-assets", "공개 이미지 구조"],
-              ["ai-generated", "AI 이미지 구조"]
-            ].map(([value, label]) => (
-              <button
-                aria-pressed={props.form.mediaPolicy === value}
-                key={value}
-                className={props.form.mediaPolicy === value ? "selected" : ""}
-                type="button"
-                onClick={() => props.onChange("mediaPolicy", value as MediaPolicy)}
-              >
-                {label}
-              </button>
+            {mediaPolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.mediaPolicy === option.value}
+                tooltipId={`media-policy-${option.value}`}
+                onSelect={(value) => props.onChange("mediaPolicy", value)}
+              />
             ))}
           </div>
         </fieldset>
       </div>
     </>
+  );
+}
+
+function PolicyChoiceButton<T extends string>(props: {
+  onSelect: (value: T) => void;
+  option: PolicyChoiceOption<T>;
+  selected: boolean;
+  tooltipId: string;
+}) {
+  return (
+    <span className="ai-ppt-policy-option">
+      <button
+        aria-describedby={props.tooltipId}
+        aria-pressed={props.selected}
+        className={props.selected ? "selected" : ""}
+        onClick={() => props.onSelect(props.option.value)}
+        type="button"
+      >
+        {props.option.label}
+        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
+      </button>
+      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
+        {props.option.description}
+      </span>
+    </span>
   );
 }
 

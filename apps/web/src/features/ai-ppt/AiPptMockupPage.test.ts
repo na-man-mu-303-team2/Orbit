@@ -6,12 +6,14 @@ import {
   filesFromFileList,
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
+  mediaPolicyOptions,
   miniSlideFontStyles,
   mergeReferenceFiles,
   pollJob,
   removeReferenceFileAt,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
+  referencePolicyOptions,
   startReferenceExtraction,
   toAiPptUserErrorMessage,
   type PaletteOption
@@ -69,6 +71,26 @@ describe("AI PPT wizard payload", () => {
 
     expect(mergeReferenceFiles([first], [duplicate, second])).toEqual([duplicate, second]);
     expect(removeReferenceFileAt([first, second], 0)).toEqual([second]);
+  });
+
+  it("documents every reference and media policy exposed by the wizard", () => {
+    expect(referencePolicyOptions.map((option) => option.value)).toEqual([
+      "user-input-only",
+      "references-first",
+      "references-only",
+      "research-first"
+    ]);
+    expect(mediaPolicyOptions.map((option) => option.value)).toEqual([
+      "minimal",
+      "provided-only",
+      "public-assets",
+      "ai-generated"
+    ]);
+    expect(
+      [...referencePolicyOptions, ...mediaPolicyOptions].every(
+        (option) => option.description.trim().length > 0
+      )
+    ).toBe(true);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {

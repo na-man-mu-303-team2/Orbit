@@ -89,6 +89,7 @@
 - Regression verification: Web suite — 123 files, 852 tests passed; `git diff --check` passed.
 
 final result: passed
+
 ---
 
 ## Reference Upload Annotations (2026-07-13)
@@ -131,5 +132,19 @@ The focused implementation capture was compared with the selected References pan
 ## Follow-up polish
 
 - P3: validate very long filenames and a larger file set with real user documents during manual QA.
+
+final result: passed
+
+---
+
+## Policy Tooltip Annotations (2026-07-13)
+
+- Source: current task Browser Comments 1-2 at `/createdeck`, viewport 2192 x 1164.
+- Implementation evidence: `/private/tmp/orbit-policy-tooltip-media.png`.
+- Each reference and media policy now has an info icon and a hover/focus tooltip connected with `aria-describedby` and `role="tooltip"`.
+- Tooltip copy reflects the current shared schema, contracts, and Python worker behavior, including the placeholder-only limits for public and AI images and the blocking source requirement for web research.
+- Browser verification covered the focused `research-first` and `ai-generated` states; no console errors or warnings were reported.
+- Focused tests: 18 passed. Web typecheck and `git diff --check` passed.
+- No actionable P0/P1/P2 issue remains.
 
 final result: passed

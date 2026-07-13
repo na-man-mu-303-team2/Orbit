@@ -669,6 +669,47 @@
   margin-bottom: 0;
 }
 
+.ai-ppt-policy-option {
+  display: inline-flex;
+  position: relative;
+}
+
+.ai-ppt-policy-option > button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.ai-ppt-policy-tooltip {
+  background: var(--orbit-ds-navy);
+  border-radius: var(--orbit-ds-radius-control);
+  bottom: calc(100% + 8px);
+  color: var(--orbit-ds-canvas);
+  font-size: var(--orbit-ds-type-ui-small);
+  font-weight: 500;
+  left: 50%;
+  line-height: 1.55;
+  max-width: min(260px, calc(100vw - 32px));
+  opacity: 0;
+  padding: 10px 12px;
+  pointer-events: none;
+  position: absolute;
+  text-align: left;
+  transform: translate(-50%, 4px);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 140ms ease;
+  visibility: hidden;
+  width: max-content;
+  z-index: 5;
+}
+
+.ai-ppt-policy-option:hover .ai-ppt-policy-tooltip,
+.ai-ppt-policy-option:focus-within .ai-ppt-policy-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
 .ai-ppt-summary-card {
   display: grid;
   gap: 8px;
