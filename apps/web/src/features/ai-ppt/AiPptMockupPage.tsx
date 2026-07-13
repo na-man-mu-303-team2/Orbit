@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Copy,
   FileText,
+  Image as ImageIcon,
   Layers3,
   Palette,
   Paperclip,
@@ -199,7 +200,8 @@ export function buildAiPptGenerateDeckPayload(
     referenceKeywords: []
   },
   savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
-  brandKit?: Pick<BrandKit, "id" | "version">
+  brandKit?: Pick<BrandKit, "id" | "version">,
+  officialAssetFileIds: string[] = []
 ): GenerateDeckRequest {
   const durationMinutes = parsePositiveInteger(state.duration, 0);
   const slideCountRange = resolveSlideCountRange(state);
@@ -276,6 +278,7 @@ export function buildAiPptGenerateDeckPayload(
     },
     referencePolicy: state.referencePolicy,
     referenceFileIds,
+    officialAssetFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
@@ -353,6 +356,7 @@ export function AiPptMockupPage() {
     recommendGenerateDeckFonts(initialAiPptWizardState.fontMood)[0].fontId
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [officialAssetFiles, setOfficialAssetFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
@@ -696,19 +700,30 @@ export function AiPptMockupPage() {
         );
         referenceFileIds.push(uploaded.fileId);
       }
+      const officialAssetFileIds: string[] = [];
+      for (const file of officialAssetFiles) {
+        setStatus(`${file.name} 공식 이미지 업로드 중...`);
+        const uploaded = await uploadProjectAsset(
+          project.projectId,
+          file,
+          "reference-material"
+        );
+        officialAssetFileIds.push(uploaded.fileId);
+      }
+      const groundingFileIds = [...referenceFileIds, ...officialAssetFileIds];
 
       let referenceGrounding: ReferenceGrounding = {
         referenceContext: [],
         referenceKeywords: []
       };
       if (
-        referenceFileIds.length > 0 &&
+        groundingFileIds.length > 0 &&
         !["topic-only", "user-input-only"].includes(form.referencePolicy)
       ) {
         setStatus("참고자료 추출 job 시작 중...");
         const extractionJob = await startReferenceExtraction(
           project.projectId,
-          referenceFileIds
+          groundingFileIds
         );
         setJob(extractionJob);
         setStatus("참고자료 분석 중...");
@@ -727,7 +742,7 @@ export function AiPptMockupPage() {
           );
           const referenceError = getReferenceExtractionValidationMessage(
             form.referencePolicy,
-            referenceFileIds,
+            groundingFileIds,
             extractionResult
           );
           if (referenceError) throw new Error(referenceError);
@@ -750,7 +765,8 @@ export function AiPptMockupPage() {
               selectedFont,
               referenceGrounding,
               designPacks.find((pack) => pack.id === selectedDesignPackId),
-              brandKits.find((kit) => kit.id === selectedBrandKitId)
+              brandKits.find((kit) => kit.id === selectedBrandKitId),
+              officialAssetFileIds
             )
           )
         }
@@ -871,15 +887,18 @@ export function AiPptMockupPage() {
             {currentStep === "references" ? (
               <ReferencesStep
                 files={referenceFiles}
+                officialAssetFiles={officialAssetFiles}
                 form={form}
                 onChange={updateForm}
                 onFilesChange={setReferenceFiles}
+                onOfficialAssetFilesChange={setOfficialAssetFiles}
               />
             ) : null}
             {currentStep === "review" ? (
               <ReviewStep
                 payload={payloadPreview}
                 referenceFiles={referenceFiles}
+                officialAssetFiles={officialAssetFiles}
                 selectedFont={selectedFont}
                 selectedPalette={selectedPalette}
               />
@@ -1249,12 +1268,14 @@ function ColorStep(props: {
 
 function ReferencesStep(props: {
   files: File[];
+  officialAssetFiles: File[];
   form: AiPptWizardState;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
   onFilesChange: (files: File[]) => void;
+  onOfficialAssetFilesChange: (files: File[]) => void;
 }) {
   return (
     <>
@@ -1294,6 +1315,33 @@ function ReferencesStep(props: {
           </button>
         ))}
       </div>
+      {props.form.mediaPolicy === "hybrid" ? (
+        <label className="ai-ppt-reference-drop ai-ppt-official-asset-drop">
+          <ImageIcon size={28} />
+          <strong>
+            {props.officialAssetFiles.length
+              ? `공식 이미지 ${props.officialAssetFiles.length}개 선택됨`
+              : "공식 이미지 업로드 (권장)"}
+          </strong>
+          <span>
+            제품 화면, 공식 발표 그래프, 보도용 이미지를 올리세요. 로고는 Brand Kit 등록을 권장합니다.
+          </span>
+          <input
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            type="file"
+            onChange={(event) =>
+              props.onOfficialAssetFilesChange(filesFromEvent(event))
+            }
+          />
+        </label>
+      ) : null}
+      <div className="ai-ppt-media-policy-help">
+        <strong>공식 이미지</strong>
+        <span>회사·기관이 직접 제공한 제품 화면, 공식 그래프, 보도용 이미지</span>
+        <strong>공개 이미지</strong>
+        <span>Openverse 등에서 검색한 제3자 라이선스 이미지</span>
+      </div>
       <div className="ai-ppt-choice-list">
         {[
           ["user-input-only", "사용자 입력만"],
@@ -1320,6 +1368,7 @@ function ReferencesStep(props: {
 function ReviewStep(props: {
   payload: GenerateDeckRequest;
   referenceFiles: File[];
+  officialAssetFiles: File[];
   selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
@@ -1343,6 +1392,7 @@ function ReviewStep(props: {
           <p>{props.payload.brief?.referencePolicy}</p>
           <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
+          <span>{props.officialAssetFiles.length} official images selected</span>
         </SummaryCard>
         <SummaryCard icon={<Layers3 size={18} />} title="Style priority">
           <p>Base → Saved → Session → Brand Kit lock → Hard Rules</p>

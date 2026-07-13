@@ -426,7 +426,9 @@ export async function processGenerateDeckJob(
           storage,
           deck,
           imageRuntime,
-          payload.imageAssetScope
+          payload.imageAssetScope,
+          undefined,
+          payload.request.officialAssetFileIds ?? []
         );
         deck = resolvedImages.deck;
         imageWarnings.push(...resolvedImages.warnings);
@@ -599,6 +601,7 @@ export async function processGenerateDeckJob(
           validation,
           imageRuntime,
           imageAssetScope: payload.imageAssetScope,
+          officialAssetFileIds: payload.request.officialAssetFileIds ?? [],
           enforcesHybridMediaBudget,
           eventLogger,
           jobId: payload.jobId,
@@ -943,6 +946,7 @@ async function runProgramV2VisualQa(input: {
   validation: GenerateDeckValidation;
   imageRuntime?: ImageAssetRuntime;
   imageAssetScope?: { userId: string; organizationId?: string };
+  officialAssetFileIds: readonly string[];
   enforcesHybridMediaBudget: boolean;
   eventLogger?: GenerateDeckEventLogger;
   jobId: string;
@@ -1030,7 +1034,8 @@ async function runProgramV2VisualQa(input: {
             deck,
             input.imageRuntime,
             input.imageAssetScope,
-            new Set(repaired.assetSlideIds)
+            new Set(repaired.assetSlideIds),
+            input.officialAssetFileIds
           );
           deck = resolved.deck;
           warnings.push(...resolved.warnings);

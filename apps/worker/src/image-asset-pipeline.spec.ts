@@ -418,6 +418,61 @@ describe("image asset pipeline", () => {
     });
   });
 
+  it("uses a separately uploaded official image before official web search", async () => {
+    const officialFetch = vi.fn<OfficialImageProvider["fetch"]>();
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([
+        {
+          file_id: "file_official_1",
+          project_id: "project_1",
+          storage_key: "projects/project_1/assets/official.png",
+          original_name: "official.png",
+          mime_type: "image/png",
+          size: 24
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    const getSignedReadUrl = vi.fn(async () => "http://storage.local/official.png");
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(pngHeader(1280, 720), { status: 200 }))
+    );
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { getSignedReadUrl, putObject },
+      imageDeck("official-assets"),
+      {
+        official: { fetch: officialFetch },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" },
+      undefined,
+      ["file_official_1"]
+    );
+
+    expect(officialFetch).not.toHaveBeenCalled();
+    expect(getSignedReadUrl).toHaveBeenCalledWith(
+      "projects/project_1/assets/official.png"
+    );
+    expect(result.deck.slides[0].aiNotes?.visualPlan?.asset).toMatchObject({
+      provider: "user-upload",
+      sourceAuthority: "official",
+      usageBasis: "user-provided"
+    });
+  });
+
   it("preserves a complete official logo instead of cover-cropping it", async () => {
     const fetch = vi.fn<OfficialImageProvider["fetch"]>(async () => ({
       body: pngHeader(1280, 720),

@@ -280,7 +280,7 @@ describe("GenerateDeckService", () => {
     );
   });
 
-  it("rejects non-PPTX design references", async () => {
+  it("rejects invalid design references and official assets", async () => {
     const jobsService = {
       create: vi.fn(),
       update: vi.fn()
@@ -302,17 +302,24 @@ describe("GenerateDeckService", () => {
       }))
     } as unknown as FilesService;
 
+    const service = new GenerateDeckService(
+      jobsService,
+      projectsService,
+      vi.fn(async () => undefined),
+      filesService
+    );
     await expect(
-      new GenerateDeckService(
-        jobsService,
-        projectsService,
-        vi.fn(async () => undefined),
-        filesService
-      ).createJob("project_generated_1", {
+      service.createJob("project_generated_1", {
         topic: "AI deck",
         designReferences: [{ fileId: "file_pdf" }]
       })
     ).rejects.toThrow("Design references must be uploaded PPTX files.");
+    await expect(
+      service.createJob("project_generated_1", {
+        topic: "AI deck",
+        officialAssetFileIds: ["file_pdf"]
+      })
+    ).rejects.toThrow("Official assets must be uploaded image files.");
     expect(jobsService.create).not.toHaveBeenCalled();
   });
 

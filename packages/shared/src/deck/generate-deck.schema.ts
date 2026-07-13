@@ -224,6 +224,7 @@ export const generateDeckRequestSchema = z.object({
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
   referenceFileIds: z.array(z.string().min(1)).default([]),
+  officialAssetFileIds: z.array(z.string().min(1)).optional(),
   references: z.array(generateDeckReferenceSchema).default([]),
   designReferences: z.array(generateDeckReferenceSchema).default([]),
   templateBlueprintId: templateBlueprintIdSchema.optional(),

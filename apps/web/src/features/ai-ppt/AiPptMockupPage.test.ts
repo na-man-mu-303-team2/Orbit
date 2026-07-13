@@ -288,7 +288,13 @@ describe("AI PPT wizard payload", () => {
         mediaPolicy: "hybrid",
         referencePolicy: "research-first"
       },
-      palette
+      palette,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["file_official_1"]
     );
 
     expect(payload.design).toMatchObject({
@@ -297,6 +303,7 @@ describe("AI PPT wizard payload", () => {
     });
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "hybrid" });
     expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
+    expect(payload.officialAssetFileIds).toEqual(["file_official_1"]);
   });
 
   it("pins the selected Saved Design Pack version in the generation request", () => {

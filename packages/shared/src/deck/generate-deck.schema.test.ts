@@ -221,12 +221,14 @@ describe("generateDeckRequestSchema", () => {
         engineVersion: "program-v2",
         mediaPolicy: "hybrid"
       },
-      visualPlanPolicy: { mediaPolicy: "hybrid" }
+      visualPlanPolicy: { mediaPolicy: "hybrid" },
+      officialAssetFileIds: ["file_official_1"]
     });
 
     expect(request.design.engineVersion).toBe("program-v2");
     expect(request.design.mediaPolicy).toBe("hybrid");
     expect(request.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
+    expect(request.officialAssetFileIds).toEqual(["file_official_1"]);
   });
 
   it("accepts an optional design prompt", () => {

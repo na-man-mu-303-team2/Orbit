@@ -76,6 +76,7 @@ export class GenerateDeckService {
         : { request: resolved.request };
     const request = brandResolved.request;
     await this.assertDesignReferences(projectId, request.designReferences);
+    await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
@@ -191,6 +192,23 @@ export class GenerateDeckService {
 
       if (asset.mimeType !== pptxMimeType) {
         throw new BadRequestException("Design references must be uploaded PPTX files.");
+      }
+    }
+  }
+
+  private async assertOfficialAssets(
+    projectId: string,
+    officialAssetFileIds: string[]
+  ): Promise<void> {
+    if (officialAssetFileIds.length === 0) return;
+    if (!this.filesService) {
+      throw new BadRequestException("Official asset validation is unavailable.");
+    }
+
+    for (const fileId of officialAssetFileIds) {
+      const asset = await this.filesService.getUploadedAsset(projectId, fileId);
+      if (!asset.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Official assets must be uploaded image files.");
       }
     }
   }

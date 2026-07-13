@@ -102,11 +102,13 @@ export async function applyBrandKitLogoAsset(
 
 export async function resolveDeckImageAssets(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "putObject">,
+  storage: Pick<StoragePort, "putObject"> &
+    Partial<Pick<StoragePort, "getSignedReadUrl">>,
   deck: Deck,
   runtime: ImageAssetRuntime,
   scope: ImageAssetScope,
-  onlySlideIds?: ReadonlySet<string>
+  onlySlideIds?: ReadonlySet<string>,
+  officialAssetFileIds: readonly string[] = []
 ): Promise<{ deck: Deck; warnings: string[] }> {
   const warnings: string[] = [];
   const candidates = deck.slides.filter(
@@ -129,6 +131,12 @@ export async function resolveDeckImageAssets(
   }
 
   let resolvedDeck = deck;
+  const uploadedOfficialAssets = await loadUploadedOfficialAssets(
+    dataSource,
+    deck.projectId,
+    officialAssetFileIds
+  );
+  let uploadedOfficialAssetIndex = 0;
   const usedPublicAssetUrls = new Set(
     deck.slides.flatMap((slide) => {
       const sourceAssetUrl = slide.aiNotes?.visualPlan?.asset?.sourceAssetUrl;
@@ -150,7 +158,12 @@ export async function resolveDeckImageAssets(
         : policy === "official-assets"
           ? runtime.official
           : runtime.publicSearch;
-    if (!provider) {
+    const uploadedOfficialAsset =
+      policy === "official-assets"
+        ? uploadedOfficialAssets[uploadedOfficialAssetIndex]
+        : undefined;
+    if (uploadedOfficialAsset) uploadedOfficialAssetIndex += 1;
+    if (!provider && !uploadedOfficialAsset) {
       warnings.push(`Image provider is disabled for ${policy}.`);
       continue;
     }
@@ -160,7 +173,9 @@ export async function resolveDeckImageAssets(
       const asset = await retryImageRequest(
         async () => {
           const candidate =
-            policy === "ai-generated"
+            uploadedOfficialAsset
+              ? await readUploadedOfficialAsset(storage, uploadedOfficialAsset)
+              : policy === "ai-generated"
               ? await (provider as GeneratedImageProvider).generate({
                   prompt,
                   abortSignal: AbortSignal.timeout(60_000)
@@ -362,10 +377,11 @@ function assertCandidate(asset: ImageAssetCandidate, policy: string) {
   }
   if (
     policy === "official-assets" &&
-    (!asset.sourceUrl ||
-      !asset.sourceAssetUrl ||
-      asset.sourceAuthority !== "official" ||
-      asset.usageBasis !== "official-reference")
+    (asset.sourceAuthority !== "official" ||
+      (asset.usageBasis !== "user-provided" &&
+        (!asset.sourceUrl ||
+          !asset.sourceAssetUrl ||
+          asset.usageBasis !== "official-reference")))
   ) {
     throw new Error("Official image source provenance is required");
   }
@@ -373,6 +389,52 @@ function assertCandidate(asset: ImageAssetCandidate, policy: string) {
   if (!dimensions || dimensions.width < 640 || dimensions.height < 360) {
     throw new Error("Image resolution must be at least 640x360");
   }
+}
+
+async function loadUploadedOfficialAssets(
+  dataSource: DataSource,
+  projectId: string,
+  fileIds: readonly string[]
+) {
+  if (fileIds.length === 0) return [];
+  const rows = (await dataSource.query(
+    `
+      SELECT file_id, project_id, storage_key, original_name, mime_type, size
+      FROM project_assets
+      WHERE project_id = $1
+        AND file_id = ANY($2::text[])
+        AND status = 'uploaded'
+        AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+    `,
+    [projectId, [...fileIds]]
+  )) as StoredAssetRow[];
+  const byId = new Map(rows.map((row) => [row.file_id, row]));
+  return fileIds.flatMap((fileId) => {
+    const row = byId.get(fileId);
+    return row ? [row] : [];
+  });
+}
+
+async function readUploadedOfficialAsset(
+  storage: Partial<Pick<StoragePort, "getSignedReadUrl">>,
+  asset: StoredAssetRow
+): Promise<ImageAssetCandidate> {
+  if (!storage.getSignedReadUrl) {
+    throw new Error("Official upload storage reader is unavailable");
+  }
+  const response = await fetch(await storage.getSignedReadUrl(asset.storage_key), {
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!response.ok) throw new Error("Uploaded official image is unavailable");
+  return {
+    body: new Uint8Array(await response.arrayBuffer()),
+    mimeType: asset.mime_type as ImageAssetCandidate["mimeType"],
+    fileName: asset.original_name,
+    provider: "user-upload",
+    sourceAuthority: "official",
+    usageBasis: "user-provided",
+    checkedAt: new Date().toISOString()
+  };
 }
 
 function imageDimensions(
