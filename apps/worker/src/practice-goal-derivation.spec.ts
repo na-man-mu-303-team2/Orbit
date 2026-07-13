@@ -172,10 +172,16 @@ describe("practice goal derivation", () => {
 
     expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO practice_goal_sets");
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "ON CONFLICT (source_full_run_id, revision) DO NOTHING"
+    );
     for (const [index, goal] of set.goals.entries()) {
       const evidenceRefsParameter = query.mock.calls[index + 1]?.[1]?.[10];
       expect(typeof evidenceRefsParameter).toBe("string");
       expect(JSON.parse(String(evidenceRefsParameter))).toEqual(goal.evidenceRefs);
+      expect(query.mock.calls[index + 1]?.[0]).toContain(
+        "ON CONFLICT (goal_id) DO NOTHING"
+      );
     }
     expect(query.mock.calls.at(-1)?.[0]).toContain(
       "practice_goal_heads.current_analysis_revision < EXCLUDED.current_analysis_revision"
@@ -223,6 +229,70 @@ describe("practice goal derivation", () => {
     expect(query.mock.calls[1]?.[0]).toContain(
       "ON CONFLICT (goal_id, evaluated_full_run_id) DO NOTHING"
     );
+  });
+
+  it("keeps a partial semantic result repeated instead of resolving the source goal", async () => {
+    const sourceSnapshot = snapshot("goalset_source");
+    let queryCount = 0;
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> =>
+        queryCount++ === 0
+          ? [
+              {
+                goal_id: "goal_semantic_source",
+                origin_full_run_id: "run-source",
+                criterion_ref_json: {
+                  criterionId: "criterion_cue_scue_1_r1",
+                  revision: 1
+                },
+                target_scope_json: {
+                  type: "slide",
+                  scopeId: "scope_slide_1",
+                  slideId: "slide_1"
+                },
+                category: "semantic"
+              }
+            ]
+          : []
+    );
+    const partialReport = rehearsalReportSchema.parse({
+      ...passingReport(),
+      semanticCueOutcomes: [
+        {
+          slideId: "slide_1",
+          cueId: "scue_1",
+          cueRevision: 1,
+          cueMeaningSnapshot: "핵심 가치",
+          reportLabelSnapshot: "핵심 가치",
+          importance: "core",
+          status: "partial",
+          measurementMode: "full",
+          fallbackUsed: false,
+          coveredConcepts: ["가치"],
+          missingConcepts: ["근거"]
+        }
+      ]
+    });
+
+    const resolutions = await persistSourceGoalResolutions(
+      { query } as never,
+      {
+        projectId: "project-a",
+        evaluatedFullRunId: "run-a",
+        snapshot: sourceSnapshot,
+        report: partialReport
+      }
+    );
+
+    expect(resolutions).toMatchObject([
+      {
+        goalId: "goal_semantic_source",
+        status: "repeated",
+        measurementState: "measured",
+        observation: { kind: "semantic", value: "partial" },
+        reasonCode: "FAILED"
+      }
+    ]);
   });
 });
 

@@ -243,10 +243,15 @@ export async function persistSourceGoalResolutions(
     [input.projectId, sourceRef.goalSetId],
   );
   const goals = Array.isArray(rows) ? rows : [];
+  const evaluation = evaluateFullRunCriteria({
+    sourceFullRunId: input.evaluatedFullRunId,
+    snapshot: input.snapshot,
+    report: input.report,
+  });
   const resolutions = goals.flatMap((raw) => {
     const row = resolutionSourceRow(raw);
     if (!row) return [];
-    return [deriveResolution(row, input)];
+    return [deriveResolution(row, input, evaluation)];
   });
   for (const resolution of resolutions) {
     await executor.query(
@@ -871,6 +876,7 @@ function deriveResolution(
     snapshot: RehearsalEvaluationSnapshot;
     report: RehearsalReport;
   },
+  evaluation: FullRunCriterionEvaluation,
 ): PracticeGoalResolution {
   const criterion = input.snapshot.evaluationPlan?.criteria.find(
     (item) =>
@@ -894,54 +900,75 @@ function deriveResolution(
       reasonCode: "CRITERION_CHANGED",
     };
   }
-  if (criterion.measurement.type === "semantic-coverage") {
-    const outcome = input.report.semanticCueOutcomes.find((item) =>
-      criterion.criterionId.includes(item.cueId),
+  if (!targetScopeMatchesCriterion(source.targetScope, criterion)) {
+    return {
+      ...base,
+      status: "incomparable",
+      measurementState: "unmeasured",
+      observation: { kind: "none" },
+      reasonCode: "SCOPE_CHANGED",
+    };
+  }
+  const result = evaluation.results.find(
+    (candidate) =>
+      candidate.criterionRef.criterionId === source.criterionRef.criterionId &&
+      candidate.criterionRef.revision === source.criterionRef.revision &&
+      sameJson(candidate.scope, criterion.scope),
+  );
+  if (!result || result.measurementState === "unmeasured" || !result.observationId) {
+    return unmeasuredResolution(base);
+  }
+  const observation = evaluation.observations.find(
+    (candidate) => candidate.observationId === result.observationId,
+  );
+  if (!observation) return unmeasuredResolution(base);
+  const resolved = result.evaluationStatus === "passed";
+  return {
+    ...base,
+    status: resolved ? "resolved" : "repeated",
+    measurementState: "measured",
+    observation: boundedObservation(observation),
+    reasonCode: resolved ? "PASSED" : "FAILED",
+  };
+}
+
+function boundedObservation(
+  observation: ReportObservation,
+): PracticeGoalResolution["observation"] {
+  if (observation.value.kind === "duration-seconds") {
+    return observation.value;
+  }
+  if (observation.value.kind === "count") {
+    return observation.value;
+  }
+  if (observation.value.kind === "semantic") {
+    return observation.value;
+  }
+  return { kind: "none" };
+}
+
+function targetScopeMatchesCriterion(
+  targetScope: PracticeGoal["targetScope"],
+  criterion: EvaluationCriterion,
+) {
+  if (!targetScope) return criterion.scope.type === "run";
+  if (targetScope.type === "opening" || targetScope.type === "closing") {
+    return (
+      criterion.scope.type === "time-window" &&
+      criterion.scope.window === targetScope.type
     );
-    if (!outcome || outcome.status === "unmeasured" || outcome.status === "excluded") {
-      return {
-        ...base,
-        status: "unmeasured",
-        measurementState: "unmeasured",
-        observation: { kind: "none" },
-        reasonCode: "NO_MEASUREMENT",
-      };
-    }
-    return {
-      ...base,
-      status: outcome.status === "missed" ? "repeated" : "resolved",
-      measurementState: "measured",
-      observation: { kind: "semantic", value: outcome.status },
-      reasonCode: outcome.status === "missed" ? "FAILED" : "PASSED",
-    };
   }
-  if (criterion.measurement.type === "max-duration-seconds") {
-    const slideId = criterion.scope.type === "slide" ? criterion.scope.slideId : null;
-    const timing = input.report.slideTimings.find((item) => item.slideId === slideId);
-    if (!timing) return unmeasuredResolution(base);
-    const passed = timing.actualSeconds <= criterion.measurement.maximum;
-    return {
-      ...base,
-      status: passed ? "resolved" : "repeated",
-      measurementState: "measured",
-      observation: { kind: "duration-seconds", value: timing.actualSeconds },
-      reasonCode: passed ? "PASSED" : "FAILED",
-    };
+  if (targetScope.type === "slide" || targetScope.type === "sentence") {
+    return (
+      criterion.scope.type === "slide" &&
+      criterion.scope.slideId === targetScope.slideId
+    );
   }
-  if (criterion.measurement.type === "max-count") {
-    const value = criterion.measurement.metric === "filler-word-count"
-      ? input.report.metrics.fillerWordCount
-      : input.report.metrics.pauseCount;
-    const passed = value <= criterion.measurement.maximum;
-    return {
-      ...base,
-      status: passed ? "resolved" : "repeated",
-      measurementState: "measured",
-      observation: { kind: "count", metric: criterion.measurement.metric, value },
-      reasonCode: passed ? "PASSED" : "FAILED",
-    };
-  }
-  return unmeasuredResolution(base);
+  return (
+    criterion.scope.type === "slide-range" &&
+    criterion.scope.startSlideId === targetScope.startSlideId &&
+    criterion.scope.endSlideId === targetScope.endSlideId
+  );
 }
 
 function unmeasuredResolution(base: {
