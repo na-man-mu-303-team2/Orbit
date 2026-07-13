@@ -815,6 +815,64 @@ describe("processGenerateDeckJob", () => {
     });
   });
 
+  it("rejects repeated visual assets in a public-assets deck", async () => {
+    const deck = programV2DeckWithResolvedMediaCount(2);
+    const repeatedAssetUrl =
+      deck.slides[0].aiNotes?.visualPlan?.asset?.sourceAssetUrl;
+    if (!repeatedAssetUrl) throw new Error("Public asset fixture is incomplete");
+    for (const [index, slide] of deck.slides.entries()) {
+      if (!slide.aiNotes?.visualPlan) {
+        throw new Error("Public asset fixture is missing a visual plan");
+      }
+      slide.aiNotes.visualPlan.imageSourcePolicy = "public-assets";
+      slide.aiNotes.visualPlan.asset = {
+        ...slide.aiNotes.visualPlan.asset,
+        fileId: `file_public_${index + 1}`,
+        provider: "openverse",
+        sourceUrl: "https://example.com/library",
+        sourceAssetUrl: repeatedAssetUrl,
+        sourceAuthority: "independent",
+        usageBasis: "licensed"
+      };
+    }
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) return generateDeckResponse(deck);
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+    const programPayload = programV2Payload();
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...programPayload,
+        request: {
+          ...programPayload.request,
+          design: {
+            ...programPayload.request.design,
+            mediaPolicy: "public-assets"
+          },
+          visualPlanPolicy: { mediaPolicy: "public-assets" }
+        }
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.result).toMatchObject({
+      validation: {
+        designIssues: [
+          expect.objectContaining({ code: "MEDIA_ASSET_DUPLICATED" })
+        ]
+      }
+    });
+  });
+
   it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();

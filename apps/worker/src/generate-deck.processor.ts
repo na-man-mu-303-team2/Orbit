@@ -479,6 +479,27 @@ export async function processGenerateDeckJob(
         unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
         unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
       });
+      deterministicValidation = withDuplicateMediaAssetIssue(
+        deterministicValidation,
+        deck
+      );
+      if (hasQualityGateIssues(deterministicValidation)) {
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          issueCount: allValidationIssues(deterministicValidation).length,
+          stage: "asset-identity"
+        });
+        return failQualityGate(
+          dataSource,
+          payload.jobId,
+          workerPayload,
+          deck,
+          deterministicValidation,
+          [...workerPayload.warnings, ...imageWarnings]
+        );
+      }
       if (enforcesHybridMediaBudget) {
         deterministicValidation = withHybridMediaBudgetIssue(
           deterministicValidation,
@@ -781,14 +802,6 @@ function withHybridMediaBudgetIssue(
         slide.aiNotes?.compositionPlan?.assetRole === "atmosphere" &&
         slide.aiNotes?.visualPlan?.imageSourcePolicy === "ai-generated"
     );
-    const assetIdentities = resolvedSlides
-      .map((slide) => {
-        const asset = slide.aiNotes?.visualPlan?.asset;
-        return asset?.sourceAssetUrl ?? asset?.fileId ?? "";
-      })
-      .filter(Boolean);
-    const hasDuplicateAssets =
-      new Set(assetIdentities).size !== assetIdentities.length;
     const contractIssues: GenerateDeckValidation["designIssues"] = [];
     if (!hasOfficialEvidence || !hasGeneratedAtmosphere) {
       contractIssues.push({
@@ -799,17 +812,6 @@ function withHybridMediaBudgetIssue(
         path: "slides",
         message:
           "Hybrid media requires at least one official evidence asset and one AI-generated atmosphere asset."
-      });
-    }
-    if (hasDuplicateAssets) {
-      contractIssues.push({
-        code: "MEDIA_ASSET_DUPLICATED",
-        scope: "deck",
-        severity: "warning",
-        blocking: false,
-        path: "slides",
-        message:
-          "Hybrid media contains a repeated visual asset; each media slide requires a distinct asset."
       });
     }
     if (contractIssues.length === 0) return validation;
@@ -838,6 +840,44 @@ function withHybridMediaBudgetIssue(
         blocking: false,
         path: "slides",
         message: `Hybrid media requires ${hybridMediaBudget.min}-${hybridMediaBudget.max} resolved visual assets; received ${resolvedCount}.`
+      }
+    ]
+  };
+}
+
+function withDuplicateMediaAssetIssue(
+  validation: GenerateDeckValidation,
+  deck: Deck
+): GenerateDeckValidation {
+  const assetIdentities = resolvedVisualAssetSlides(deck)
+    .map((slide) => {
+      const asset = slide.aiNotes?.visualPlan?.asset;
+      return asset?.sourceAssetUrl ?? asset?.fileId ?? "";
+    })
+    .filter(Boolean);
+  const hasDuplicateAssets =
+    new Set(assetIdentities).size !== assetIdentities.length;
+  if (!hasDuplicateAssets) return validation;
+  if (
+    validation.designIssues.some(
+      (issue) => issue.code === "MEDIA_ASSET_DUPLICATED"
+    )
+  ) {
+    return { ...validation, passed: false };
+  }
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [
+      ...validation.designIssues,
+      {
+        code: "MEDIA_ASSET_DUPLICATED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "Media contains a repeated visual asset; each media slide requires a distinct asset."
       }
     ]
   };
@@ -1045,6 +1085,7 @@ async function runProgramV2VisualQa(input: {
     if (hasMediaPlaceholder(deck)) {
       validation = withUnresolvedMediaIssue(validation);
     }
+    validation = withDuplicateMediaAssetIssue(validation, deck);
     if (input.enforcesHybridMediaBudget) {
       validation = withHybridMediaBudgetIssue(validation, deck);
     }

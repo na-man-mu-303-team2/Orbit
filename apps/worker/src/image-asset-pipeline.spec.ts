@@ -257,6 +257,84 @@ describe("image asset pipeline", () => {
     );
   });
 
+  it("excludes public assets already resolved for another slide", async () => {
+    const firstUrl = "https://images.example.com/library-workshop.jpg";
+    const secondUrl = "https://images.example.com/library-classroom.jpg";
+    const search = vi.fn<PublicImageSearchProvider["search"]>(async (input) => {
+      const sourceAssetUrl = input.excludeSourceAssetUrls?.includes(firstUrl)
+        ? secondUrl
+        : firstUrl;
+      return {
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: sourceAssetUrl.endsWith("classroom.jpg")
+          ? "classroom.png"
+          : "workshop.png",
+        provider: "openverse",
+        sourceUrl: sourceAssetUrl.replace("images.", "source."),
+        sourceAssetUrl,
+        author: "Creator",
+        license: "cc-by"
+      };
+    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValue([]);
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const first = imageDeck("public-assets");
+    const second = {
+      ...first.slides[0],
+      slideId: "slide_2",
+      order: 2,
+      title: "Library classroom",
+      elements: first.slides[0].elements.map((element) => ({
+        ...element,
+        elementId: element.elementId.replace("el_", "el_2_")
+      })),
+      aiNotes: {
+        ...first.slides[0].aiNotes,
+        compositionPlan: first.slides[0].aiNotes?.compositionPlan
+          ? {
+              ...first.slides[0].aiNotes.compositionPlan,
+              primaryFocalElementId: "el_2_media_placeholder"
+            }
+          : undefined
+      }
+    };
+    const candidate = deckSchema.parse({
+      ...first,
+      slides: [first.slides[0], second]
+    });
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      candidate,
+      {
+        publicSearch: { search },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30,
+        maxPerOrganizationPerDay: 100
+      },
+      { userId: "user_1" }
+    );
+
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1]?.[0].excludeSourceAssetUrls).toContain(firstUrl);
+    expect(
+      result.deck.slides.map(
+        (slide) => slide.aiNotes?.visualPlan?.asset?.sourceAssetUrl
+      )
+    ).toEqual([firstUrl, secondUrl]);
+  });
+
   it("resolves evidence images only from official source ledger URLs", async () => {
     const fetch = vi.fn<OfficialImageProvider["fetch"]>(async () => ({
       body: pngHeader(1280, 720),

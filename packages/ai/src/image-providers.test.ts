@@ -172,6 +172,53 @@ describe("image providers", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("skips an Openverse asset already used in the same deck", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/used.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/used",
+                title: "Library education workshop"
+              },
+              {
+                url: "https://images.example.com/fresh.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/fresh",
+                title: "Library education classroom"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenversePublicImageSearchProvider().search({
+      query: "library education",
+      excludeSourceAssetUrls: ["https://images.example.com/used.jpg"]
+    });
+
+    expect(result.sourceAssetUrl).toBe("https://images.example.com/fresh.jpg");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://images.example.com/fresh.jpg"
+    );
+  });
+
   it("skips an unrelated laptop and selects a Git branching candidate", async () => {
     const fetchMock = vi
       .fn()

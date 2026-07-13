@@ -80,8 +80,10 @@ export class OpenversePublicImageSearchProvider
 {
   async search(input: {
     query: string;
+    excludeSourceAssetUrls?: readonly string[];
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate> {
+    const excludedUrls = new Set(input.excludeSourceAssetUrls ?? []);
     let candidates: OpenverseImage[] = [];
     for (const query of openverseSearchQueries(input.query)) {
       const searchUrl = new URL("https://api.openverse.org/v1/images/");
@@ -99,6 +101,9 @@ export class OpenversePublicImageSearchProvider
           (item.url || item.thumbnail) &&
           item.license &&
           item.foreign_landing_url &&
+          ![item.url, item.thumbnail].some(
+            (url) => url && excludedUrls.has(url)
+          ) &&
           (!item.width || !item.height ||
             (item.width >= 640 && item.height >= 360)) &&
           isRelevantOpenverseCandidate(input.query, item)

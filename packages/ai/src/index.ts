@@ -59,6 +59,7 @@ export interface GeneratedImageProvider {
 export interface PublicImageSearchProvider {
   search(input: {
     query: string;
+    excludeSourceAssetUrls?: readonly string[];
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate>;
 }

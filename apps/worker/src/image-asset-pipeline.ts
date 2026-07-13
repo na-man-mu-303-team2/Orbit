@@ -129,6 +129,12 @@ export async function resolveDeckImageAssets(
   }
 
   let resolvedDeck = deck;
+  const usedPublicAssetUrls = new Set(
+    deck.slides.flatMap((slide) => {
+      const sourceAssetUrl = slide.aiNotes?.visualPlan?.asset?.sourceAssetUrl;
+      return sourceAssetUrl ? [sourceAssetUrl] : [];
+    })
+  );
   for (const slide of budgeted) {
     const policy = slide.aiNotes?.visualPlan?.imageSourcePolicy;
     if (
@@ -167,7 +173,8 @@ export async function resolveDeckImageAssets(
                   })
                 : await searchPublicImage(
                     provider as PublicImageSearchProvider,
-                    publicImageQueries(deck, slide)
+                    publicImageQueries(deck, slide),
+                    usedPublicAssetUrls
                   );
           assertCandidate(candidate, policy);
           return candidate;
@@ -188,6 +195,9 @@ export async function resolveDeckImageAssets(
         stored.fileId,
         asset
       );
+      if (asset.sourceAssetUrl) {
+        usedPublicAssetUrls.add(asset.sourceAssetUrl);
+      }
     } catch (error) {
       warnings.push(
         `Image asset fallback retained for slide ${slide.order}: ${safeErrorMessage(error)}`
@@ -564,16 +574,24 @@ function imageFit(asset: ImageAssetCandidate): "contain" | "cover" {
 
 async function searchPublicImage(
   provider: PublicImageSearchProvider,
-  queries: string[]
+  queries: string[],
+  excludedSourceAssetUrls: ReadonlySet<string>
 ) {
   let lastError: unknown;
   for (const query of queries) {
     try {
       const candidate = await provider.search({
         query,
+        excludeSourceAssetUrls: [...excludedSourceAssetUrls],
         abortSignal: AbortSignal.timeout(30_000)
       });
       assertCandidate(candidate, "public-assets");
+      if (
+        candidate.sourceAssetUrl &&
+        excludedSourceAssetUrls.has(candidate.sourceAssetUrl)
+      ) {
+        throw new Error("Public image search returned an already used asset");
+      }
       return candidate;
     } catch (error) {
       lastError = error;
