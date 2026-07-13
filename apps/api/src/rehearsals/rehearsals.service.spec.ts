@@ -411,6 +411,7 @@ describe("RehearsalsService", () => {
     expect(result.run.runId).toBe(run.runId);
     expect((await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson)
       .toEqual({
+        recordingDurationSeconds: null,
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
         adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
@@ -418,6 +419,20 @@ describe("RehearsalsService", () => {
         semanticCueDecisions: [],
         semanticCapabilityEvents: []
       });
+  });
+
+  it("preserves measured recording duration in rehearsal run meta", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    await service.updateRunMeta(run.runId, {
+      recordingDurationSeconds: 90.25
+    });
+
+    expect(
+      (await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson
+        ?.recordingDurationSeconds
+    ).toBe(90.25);
   });
 
   it("cancels an unprocessed run and excludes it from default run lists", async () => {
