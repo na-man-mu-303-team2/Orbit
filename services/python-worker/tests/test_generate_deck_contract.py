@@ -1746,7 +1746,7 @@ def test_content_plan_repair_marks_structural_duplication() -> None:
     assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
 
 
-def test_content_plan_repair_rejects_numbers_missing_from_selected_sources() -> None:
+def test_content_plan_repair_rejects_numbers_missing_from_allowed_sources() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1800,6 +1800,45 @@ def test_content_plan_repair_accepts_grounded_and_structural_numbers() -> None:
             GeneratedContentItem(contentItemId=f"item-{index}", text=text)
             for index, text in enumerate(["진단", "실행", "검증"], start=1)
         ],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons)
+
+
+def test_content_plan_repair_accepts_numbers_from_another_allowed_source() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="PIVO 출시",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="topic",
+            sourceId="topic:brief",
+            content="PIVO 제품 출시 발표",
+        ),
+        SourceRecord(
+            sourceType="uploaded",
+            sourceId="uploaded:launch-brief",
+            fileId="file_launch_brief",
+            content="사전 신청은 2026년 8월에 시작하고 정식 출시는 9월 15일입니다.",
+        ),
+    ]
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="2026년 출시 일정",
+        message="8월 사전 신청 후 9월 15일 정식 출시합니다.",
+        speaker_notes="공식 출시 일정을 안내합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[],
         sourceRefs=["topic:brief"],
     )
 

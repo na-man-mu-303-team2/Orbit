@@ -4210,6 +4210,9 @@ def unsupported_numeric_claim_reasons(
         record.source_id: record
         for record in (raw_input.source_records or initial_source_records(raw_input))
     }
+    globally_supported_values = {
+        value for record in records.values() for value in numeric_values(record.content)
+    }
     reasons: list[str] = []
     for slide in slide_plans:
         source_ids = slide.source_refs or default_source_refs(raw_input, slide.order)
@@ -4232,7 +4235,10 @@ def unsupported_numeric_claim_reasons(
             slide.order,
         )
         unsupported = sorted(
-            numeric_values(claim_text) - supported_values - structural_values,
+            numeric_values(claim_text)
+            - supported_values
+            - globally_supported_values
+            - structural_values,
             key=lambda value: (len(value), value),
         )
         if unsupported:
