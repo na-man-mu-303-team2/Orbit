@@ -24,6 +24,7 @@ import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import {
   derivePracticeGoalSet,
+  loadRepeatedPatternKeys,
   publishPracticeGoalSet
 } from "./practice-goal-derivation";
 
@@ -383,12 +384,19 @@ export async function processRehearsalSttJob(
   });
 
   if (completedRun.evaluation_snapshot_json) {
+    const repeatedPatternKeys = await loadRepeatedPatternKeys({
+      executor: dataSource,
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      snapshot: completedRun.evaluation_snapshot_json
+    });
     const goalSet = derivePracticeGoalSet({
       projectId: payload.projectId,
       sourceFullRunId: payload.runId,
       sourceAnalysisRevision: completedRun.analysis_revision,
       snapshot: completedRun.evaluation_snapshot_json,
-      report
+      report,
+      repeatedPatternKeys
     });
     if (goalSet) {
       await publishPracticeGoalSet(dataSource, goalSet, {

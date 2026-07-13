@@ -1,5 +1,7 @@
 import {
   practiceGoalSetSchema,
+  rehearsalEvaluationSnapshotSchema,
+  rehearsalReportSchema,
   reportObservationSchema,
   type CriterionResult,
   type EvaluationCriterion,
@@ -19,6 +21,7 @@ import {
   evaluateCriterion,
   type CriterionUnavailableReason,
 } from "./coaching/criterion-evaluator";
+import { compareCriterionSources } from "./coaching/criterion-comparability";
 
 type QueryExecutor = Pick<DataSource, "query">;
 
@@ -127,6 +130,99 @@ export async function persistPracticeGoalSet(
   set: PracticeGoalSet,
 ) {
   await dataSource.transaction((manager) => persistPracticeGoalSetWithExecutor(manager, set));
+}
+
+export async function loadRepeatedPatternKeys(input: {
+  executor: QueryExecutor;
+  projectId: string;
+  sourceFullRunId: string;
+  snapshot: RehearsalEvaluationSnapshot;
+}): Promise<Set<string>> {
+  const rows = await input.executor.query(
+    `WITH current_run AS (
+       SELECT created_at, run_id
+       FROM rehearsal_runs
+       WHERE project_id = $1 AND run_id = $2
+     ), recent_full_runs AS (
+       SELECT runs.run_id, runs.created_at, runs.evaluation_snapshot_json,
+              runs.report_json
+       FROM rehearsal_runs runs
+       CROSS JOIN current_run current
+       WHERE runs.project_id = $1
+         AND runs.status = 'succeeded'
+         AND runs.semantic_evaluation_mode = 'full'
+         AND runs.evaluation_snapshot_json IS NOT NULL
+         AND runs.report_json IS NOT NULL
+         AND (runs.created_at, runs.run_id) < (current.created_at, current.run_id)
+       ORDER BY runs.created_at DESC, runs.run_id DESC
+       LIMIT 5
+     )
+     SELECT runs.run_id, runs.evaluation_snapshot_json, runs.report_json,
+            goals.pattern_key, goals.criterion_ref_json
+     FROM recent_full_runs runs
+     JOIN practice_goal_heads heads
+       ON heads.project_id = $1
+      AND heads.source_full_run_id = runs.run_id
+     JOIN practice_goal_sets sets
+       ON sets.project_id = heads.project_id
+      AND sets.goal_set_id = heads.current_goal_set_id
+      AND sets.analysis_state = 'final'
+     JOIN practice_goals goals
+       ON goals.project_id = sets.project_id
+      AND goals.goal_set_id = sets.goal_set_id
+     ORDER BY runs.created_at DESC, runs.run_id DESC, goals.priority ASC`,
+    [input.projectId, input.sourceFullRunId],
+  );
+  if (!Array.isArray(rows)) return new Set<string>();
+
+  const repeated = new Set<string>();
+  const evaluationByRun = new Map<string, FullRunCriterionEvaluation>();
+  for (const item of rows) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    if (typeof row.run_id !== "string" || typeof row.pattern_key !== "string") {
+      continue;
+    }
+    const previousSnapshot = rehearsalEvaluationSnapshotSchema.safeParse(
+      row.evaluation_snapshot_json,
+    );
+    const previousReport = rehearsalReportSchema.safeParse(row.report_json);
+    const criterionRef = criterionRefFromRow(row.criterion_ref_json);
+    if (!previousSnapshot.success || !previousReport.success || !criterionRef) {
+      continue;
+    }
+    const currentCriterion = criterionByRef(input.snapshot, criterionRef);
+    const previousCriterion = criterionByRef(previousSnapshot.data, criterionRef);
+    if (!currentCriterion || !previousCriterion) continue;
+    if (
+      !compareCriterionSources({
+        currentSnapshot: input.snapshot,
+        currentCriterion,
+        previousSnapshot: previousSnapshot.data,
+        previousCriterion,
+      }).comparable
+    ) {
+      continue;
+    }
+
+    const previousEvaluation = evaluationByRun.get(row.run_id) ??
+      evaluateFullRunCriteria({
+        sourceFullRunId: row.run_id,
+        snapshot: previousSnapshot.data,
+        report: previousReport.data,
+      });
+    evaluationByRun.set(row.run_id, previousEvaluation);
+    const previousResult = previousEvaluation.results.find(
+      (result) =>
+        result.criterionRef.criterionId === criterionRef.criterionId &&
+        result.criterionRef.revision === criterionRef.revision &&
+        sameJson(result.scope, previousCriterion.scope),
+    );
+    if (previousResult && isProblemResult(previousResult)) {
+      repeated.add(row.pattern_key);
+    }
+  }
+  return repeated;
 }
 
 export async function publishPracticeGoalSet(
@@ -539,6 +635,31 @@ function isProblemResult(
     (result.evaluationStatus === "partial" || result.evaluationStatus === "failed") &&
     result.observationId !== null
   );
+}
+
+function criterionRefFromRow(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const ref = value as Record<string, unknown>;
+  if (
+    typeof ref.criterionId !== "string" ||
+    typeof ref.revision !== "number" ||
+    !Number.isInteger(ref.revision) ||
+    ref.revision < 1
+  ) {
+    return null;
+  }
+  return { criterionId: ref.criterionId, revision: ref.revision };
+}
+
+function criterionByRef(
+  snapshot: RehearsalEvaluationSnapshot,
+  ref: { criterionId: string; revision: number },
+) {
+  return snapshot.evaluationPlan?.criteria.find(
+    (criterion) =>
+      criterion.criterionId === ref.criterionId &&
+      criterion.revision === ref.revision,
+  ) ?? null;
 }
 
 function candidateFromEvaluation(input: {

@@ -17,6 +17,7 @@ import {
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import {
   derivePracticeGoalSet,
+  loadRepeatedPatternKeys,
   publishPracticeGoalSet
 } from "./practice-goal-derivation";
 
@@ -221,12 +222,19 @@ export async function processRehearsalSemanticEvaluationJob(
     });
     const update = await replaceSemanticReportFields(dataSource, payload, nextReport);
     if (update.didUpdate) {
+      const repeatedPatternKeys = await loadRepeatedPatternKeys({
+        executor: dataSource,
+        projectId: payload.projectId,
+        sourceFullRunId: payload.runId,
+        snapshot
+      });
       const goalSet = derivePracticeGoalSet({
         projectId: payload.projectId,
         sourceFullRunId: payload.runId,
         sourceAnalysisRevision: update.analysisRevision,
         snapshot,
-        report: nextReport
+        report: nextReport,
+        repeatedPatternKeys
       });
       if (goalSet) {
         await publishPracticeGoalSet(dataSource, goalSet, {

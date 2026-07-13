@@ -8,6 +8,7 @@ import {
   derivePracticeGoalSet,
   deriveProblemCandidates,
   evaluateFullRunCriteria,
+  loadRepeatedPatternKeys,
   persistPracticeGoalSet,
   persistSourceGoalResolutions
 } from "./practice-goal-derivation";
@@ -293,6 +294,62 @@ describe("practice goal derivation", () => {
         reasonCode: "FAILED"
       }
     ]);
+  });
+
+  it("loads repeated patterns only from comparable measured full runs", async () => {
+    const previousSnapshot = snapshot();
+    const previousReport = report(false);
+    const previousSet = derivePracticeGoalSet({
+      projectId: "project-a",
+      sourceFullRunId: "run-previous",
+      sourceAnalysisRevision: 1,
+      snapshot: previousSnapshot,
+      report: rehearsalReportSchema.parse({
+        ...previousReport,
+        reportId: "report_run-previous",
+        runId: "run-previous"
+      })
+    });
+    const fillerGoal = previousSet?.goals.find(
+      (goal) => goal.criterionRef.criterionId === "criterion_system_filler_v1"
+    );
+    if (!fillerGoal) throw new Error("Expected a previous filler goal.");
+    const rows = [{
+      run_id: "run-previous",
+      evaluation_snapshot_json: previousSnapshot,
+      report_json: {
+        ...previousReport,
+        reportId: "report_run-previous",
+        runId: "run-previous"
+      },
+      pattern_key: fillerGoal.patternKey,
+      criterion_ref_json: fillerGoal.criterionRef
+    }];
+    const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => rows);
+    const executor = { query };
+
+    const repeated = await loadRepeatedPatternKeys({
+      executor: executor as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: snapshot()
+    });
+    const incompatible = await loadRepeatedPatternKeys({
+      executor: executor as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: rehearsalEvaluationSnapshotSchema.parse({
+        ...snapshot(),
+        deckContentHash: "b".repeat(64)
+      })
+    });
+
+    expect(repeated).toEqual(new Set([fillerGoal.patternKey]));
+    expect(incompatible).toEqual(new Set());
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "runs.semantic_evaluation_mode = 'full'"
+    );
+    expect(query.mock.calls[0]?.[0]).toContain("LIMIT 5");
   });
 });
 
