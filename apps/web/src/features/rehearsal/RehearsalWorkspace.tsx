@@ -81,6 +81,11 @@ import {
   getRehearsalRunNumber,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
+import {
+  logRehearsalValidationFailure,
+  readRehearsalErrorMessage as readErrorMessage,
+  rehearsalDeckInvalidMessage,
+} from "./rehearsalErrorHandling";
 import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import {
   LiveSttAdapterError,
@@ -2582,7 +2587,15 @@ export function RehearsalWorkspace(props: {
       }
       sessionRef.current = null;
       cancelPendingEvaluationRun();
-      setError(toMicrophoneErrorMessage(cause));
+      const hasValidationError = logRehearsalValidationFailure(cause, {
+        projectId: activeDeck.projectId,
+        deckId: activeDeck.deckId,
+      });
+      setError(
+        hasValidationError
+          ? rehearsalDeckInvalidMessage
+          : toMicrophoneErrorMessage(cause),
+      );
       setPhase("failed");
     }
   }
@@ -6601,11 +6614,6 @@ function stopMediaStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
-async function readErrorMessage(response: Response, fallback: string) {
-  const message = await response.text();
-  return message || fallback;
-}
-
 async function readSemanticRetryError(response: Response) {
   const raw = await response.text();
   let code = "";
@@ -6634,7 +6642,7 @@ function toMicrophoneErrorMessage(cause: unknown) {
     return "사용 가능한 마이크를 찾지 못했습니다.";
   }
 
-  return toErrorMessage(cause) || "마이크를 시작하지 못했습니다.";
+  return "마이크를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
 function toRehearsalFlowMessage(cause: unknown) {

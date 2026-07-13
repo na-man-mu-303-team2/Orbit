@@ -21,6 +21,7 @@ import {
   retryRehearsalSemanticEvaluationResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
+  type RehearsalEvaluationSnapshot,
   type RehearsalRun
 } from "@orbit/shared";
 import {
@@ -28,12 +29,14 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  UnprocessableEntityException
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { LessThan, Not, Repository } from "typeorm";
+import { ZodError } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -120,13 +123,40 @@ export class RehearsalsService {
           sourceGoalSetRef
         })
       : null;
-    const evaluationSnapshot =
-      request.semanticEvaluationMode === "full"
-        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString(), {
+    let evaluationSnapshot: RehearsalEvaluationSnapshot | null = null;
+    if (request.semanticEvaluationMode === "full") {
+      try {
+        evaluationSnapshot = createRehearsalEvaluationSnapshot(
+          deckResponse.deck,
+          now.toISOString(),
+          {
             deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
             evaluationPlan
-          })
-        : null;
+          }
+        );
+      } catch (error) {
+        if (!(error instanceof ZodError)) {
+          throw error;
+        }
+
+        this.logger.error(
+          {
+            event: "rehearsal.evaluation_snapshot.validation_failed",
+            projectId,
+            deckId: request.deckId,
+            issues: error.issues.map((issue) => ({
+              code: issue.code,
+              path: issue.path
+            }))
+          },
+          "Rehearsal evaluation snapshot validation failed."
+        );
+        throw new UnprocessableEntityException({
+          code: "REHEARSAL_DECK_INVALID",
+          message: "The presentation could not be prepared for rehearsal."
+        });
+      }
+    }
     const run = await this.rehearsalRuns.save(
       this.rehearsalRuns.create({
         runId: `run_${randomUUID()}`,
