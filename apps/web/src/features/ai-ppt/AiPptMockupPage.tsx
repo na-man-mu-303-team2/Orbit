@@ -52,7 +52,7 @@ import {
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { OrbitIconButton } from "../../design-system";
-import { createProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
+import { createProject, deleteProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
 import "./ai-ppt-mockup.css";
 
@@ -777,8 +777,11 @@ export function AiPptMockupPage() {
     setStatus("프로젝트 생성 중...");
     setJob(null);
 
+    let createdProjectId: string | null = null;
+    let generationStarted = false;
     try {
       const project = await createProject(getProjectTitle(form.topic));
+      createdProjectId = project.projectId;
       const referenceFileIds: string[] = [];
       for (const file of referenceFiles) {
         setStatus(`${file.name} 업로드 중...`);
@@ -857,7 +860,10 @@ export function AiPptMockupPage() {
             : [],
           terminology: [],
           challengeTopics: [],
-          approvedReferenceFileIds: referenceFileIds
+          approvedReferenceFileIds: getApprovedBriefReferenceFileIds(
+            form.referencePolicy,
+            referenceFileIds
+          )
         });
         coachingContext = {
           briefRef: {
@@ -901,6 +907,7 @@ export function AiPptMockupPage() {
       }
 
       const data = (await response.json()) as { job: Job };
+      generationStarted = true;
       setJob(data.job);
       setStatus(getAiPptGenerationStatus(data.job));
       const completed = await pollJob(data.job.jobId, (current) => {
@@ -921,6 +928,9 @@ export function AiPptMockupPage() {
       setStatus("에디터로 이동 중...");
       navigateToProject(project.projectId);
     } catch (submitError) {
+      if (createdProjectId && !generationStarted) {
+        await deleteProject(createdProjectId).catch(() => undefined);
+      }
       setError(
         toAiPptUserErrorMessage(
           submitError instanceof Error ? submitError.message : "",
@@ -1103,6 +1113,13 @@ export function AiPptMockupPage() {
       </footer>
     </section>
   );
+}
+
+export function getApprovedBriefReferenceFileIds(
+  referencePolicy: ReferencePolicy,
+  referenceFileIds: string[]
+) {
+  return ["topic-only", "user-input-only"].includes(referencePolicy) ? [] : referenceFileIds;
 }
 
 function QualityFailurePanel(props: {

@@ -8,6 +8,7 @@ import {
   briefFieldPlaceholders,
   getAiPptGenerationStatus,
   filesFromFileList,
+  getApprovedBriefReferenceFileIds,
   getAiPptWizardValidationMessage,
   getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
@@ -244,6 +245,14 @@ describe("AI PPT wizard payload", () => {
         (option) => option.description.trim().length > 0
       )
     ).toBe(true);
+  });
+
+  it("only approves references for policies that extract selected files", () => {
+    const fileIds = ["file-reference-1"];
+
+    expect(getApprovedBriefReferenceFileIds("user-input-only", fileIds)).toEqual([]);
+    expect(getApprovedBriefReferenceFileIds("topic-only", fileIds)).toEqual([]);
+    expect(getApprovedBriefReferenceFileIds("references-first", fileIds)).toEqual(fileIds);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {

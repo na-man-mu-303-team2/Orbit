@@ -45,9 +45,12 @@ export async function putPresentationBrief(
     },
   );
   if (!response.ok) {
-    const error = await response.json().catch(() => null) as { code?: string } | null;
-    if (response.status === 409 || error?.code === "REVISION_CONFLICT") {
+    const error = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+    if (error?.code === "REVISION_CONFLICT") {
       throw new PresentationBriefConflictError();
+    }
+    if (error?.code === "SOURCE_NOT_READY") {
+      throw new Error(error.message ?? "참고자료 추출이 아직 완료되지 않았습니다.");
     }
     throw new Error("Brief를 저장하지 못했습니다.");
   }
