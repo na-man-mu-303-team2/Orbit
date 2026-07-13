@@ -503,7 +503,16 @@ async function analyzeTranscript(
     transcript: transcription.transcript,
     durationSeconds: transcription.durationSeconds ?? 0,
     segments: transcription.segments,
-    deckKeywords: deckContext.deckKeywords,
+    deckKeywords: deckContext.deckKeywords.map(
+      ({ keywordId, slideId, text, synonyms, abbreviations, required }) => ({
+        keywordId,
+        slideId,
+        text,
+        synonyms,
+        abbreviations,
+        required
+      })
+    ),
     slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
   });
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
