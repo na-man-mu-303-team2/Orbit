@@ -27,6 +27,7 @@ import { PresentationBriefsModule } from "./presentation-briefs/presentation-bri
 import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
 import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
 import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
+import { RehearsalFocusProfilesModule } from "./rehearsal-focus-profiles/rehearsal-focus-profiles.module";
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
     EvaluatorLensesModule,
     PresentationBriefsModule,
     PracticeGoalsModule,
+    RehearsalFocusProfilesModule,
     FocusedPracticeModule,
     ChallengeQnaModule
   ],
