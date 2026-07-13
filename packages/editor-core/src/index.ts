@@ -36,6 +36,9 @@ export type {
   LegacyKeywordTriggerRepairConfidence,
   LegacyKeywordTriggerRepairSuggestion
 } from "./patches/legacyKeywordTriggerRepair";
+export {
+  removeLegacyAiGeneratedTitleAnimations
+} from "./patches/legacyAiGeneratedAnimationRepair";
 export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
 export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
 export {

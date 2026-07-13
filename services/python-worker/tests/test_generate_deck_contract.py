@@ -250,6 +250,23 @@ def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() ->
     assert "presentationProfile" not in legacy.deck["metadata"]
 
 
+def test_ai_generated_slides_do_not_add_implicit_title_animations() -> None:
+    decks = [
+        generate_deck(GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT")),
+        generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="ORBIT",
+                generationMode="design-pack",
+            )
+        ),
+    ]
+
+    for response in decks:
+        assert response.deck["slides"]
+        assert all(slide["animations"] == [] for slide in response.deck["slides"])
+
+
 def test_presentation_validation_detects_action_title_and_dense_body() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
