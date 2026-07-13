@@ -90,6 +90,9 @@ an image issue code for a solid color field, native shape, chart, or decoration.
 An official evidence logo with mediaFit=contain is an intentional evidence mark;
 do not flag IMAGE_CROP_WEAK when the complete logo is visible. Use
 IMAGE_CONTENT_MISMATCH instead when a logo is not meaningful evidence for the claim.
+Never use IMAGE_CONTENT_MISMATCH for palette or color harmony. A palette difference is
+not an issue unless it creates a concrete visible clash, unreadable contrast, or style
+break; report that concrete defect as COLOR_HARMONY_WEAK.
 COLOR_HARMONY_WEAK requires a visible off-palette clash, unreadable contrast, or an
 image that visibly conflicts with adjacent palette fields; a preference for more
 vibrancy, playfulness, or decoration is not a defect. IMAGE_CROP_WEAK requires a cut
@@ -370,6 +373,11 @@ def enforce_visual_review_contract(
     review: VisualQaReview,
     deck: dict[str, Any],
 ) -> VisualQaReview:
+    review = review.model_copy(
+        update={
+            "issues": [_normalize_visual_issue_code(issue) for issue in review.issues],
+        }
+    )
     invalid_codes: set[VisualIssueCode] = set()
     composition_ids = [
         str(slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", ""))
@@ -414,6 +422,10 @@ def enforce_visual_review_contract(
         or (
             issue.code == "IMAGE_CROP_WEAK"
             and not _describes_concrete_crop_defect(issue.message)
+        )
+        or (
+            issue.code == "COLOR_HARMONY_WEAK"
+            and not _describes_concrete_color_harmony_defect(issue.message)
         )
         or _visual_issue_is_deterministically_disproved(issue, deck)
     ]
@@ -485,8 +497,35 @@ def _visual_issue_is_deterministically_disproved(
     if issue.code == "FOCAL_POINT_WEAK":
         return _has_strong_declared_focal(slide)
     if issue.code == "BALANCE_WEAK":
-        return _has_balanced_media_split(slide)
+        return _has_balanced_media_split(slide) or _has_intentional_text_focal_balance(
+            slide
+        )
     return False
+
+
+def _normalize_visual_issue_code(issue: VisualQaIssue) -> VisualQaIssue:
+    if issue.code != "IMAGE_CONTENT_MISMATCH":
+        return issue
+    normalized = " ".join(issue.message.casefold().split())
+    color_markers = ("palette", "color", "colour", "hue", "색상", "팔레트")
+    relevance_markers = (
+        "unrelated",
+        "irrelevant",
+        "subject",
+        "claim",
+        "message",
+        "evidence",
+        "content",
+        "주제",
+        "주장",
+        "근거",
+        "내용",
+    )
+    if any(marker in normalized for marker in color_markers) and not any(
+        marker in normalized for marker in relevance_markers
+    ):
+        return issue.model_copy(update={"code": "COLOR_HARMONY_WEAK"})
+    return issue
 
 
 def _card_like_field_count(slide: dict[str, Any]) -> int:
@@ -586,6 +625,20 @@ def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
     )
 
 
+def _has_intentional_text_focal_balance(slide: dict[str, Any]) -> bool:
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    if composition_id not in {"hero-split", "minimal-cover", "statement-poster"}:
+        return False
+    if any(
+        element.get("type") == "image" and element.get("role") == "media"
+        for element in slide.get("elements", [])
+    ):
+        return False
+    return _has_strong_declared_focal(slide)
+
+
 def _maximum_consecutive_values(values: list[str]) -> int:
     maximum = 0
     current = 0
@@ -613,6 +666,27 @@ def _describes_concrete_crop_defect(message: str) -> bool:
             "잘리",
             "가려",
             "과도한 여백",
+        )
+    )
+
+
+def _describes_concrete_color_harmony_defect(message: str) -> bool:
+    normalized = " ".join(message.casefold().split())
+    return any(
+        marker in normalized
+        for marker in (
+            "visible clash",
+            "visibly clash",
+            "color clash",
+            "colour clash",
+            "unreadable",
+            "illegible",
+            "low contrast",
+            "style break",
+            "색상 충돌",
+            "읽기 어렵",
+            "판독",
+            "대비 부족",
         )
     )
 

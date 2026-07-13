@@ -571,6 +571,106 @@ def test_visual_review_contract_retains_small_focal_and_media_split() -> None:
     assert len(normalized.repair_actions) == 2
 
 
+def test_visual_review_contract_accepts_strong_text_focal_no_media_cover() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["aiNotes"]["compositionPlan"].update(
+        {
+            "compositionId": "hero-split",
+            "primaryFocalElementId": slide["elements"][1]["elementId"],
+        }
+    )
+    title = slide["elements"][1]
+    title.update({"width": 970, "height": 328})
+    title["props"]["fontSize"] = 72
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 1,
+                    "message": "The no-media cover has too much unused canvas.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "moveSupportingContent",
+                    "slideId": "slide_1",
+                    "reason": "Rebalance the cover.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
+def test_visual_review_contract_discards_vague_palette_mismatch() -> None:
+    candidate = deck()
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "IMAGE_CONTENT_MISMATCH",
+                    "slideOrder": 1,
+                    "message": (
+                        "The illustration uses orange and teal colors but differs from the "
+                        "declared teal and amber palette roles."
+                    ),
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "replaceImage",
+                    "slideId": "slide_1",
+                    "reason": "Match the palette more strictly.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
+def test_visual_review_contract_reclassifies_concrete_color_clash() -> None:
+    candidate = deck()
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "IMAGE_CONTENT_MISMATCH",
+                    "slideOrder": 1,
+                    "message": "The image colors visibly clash and create unreadable contrast.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "replaceImage",
+                    "slideId": "slide_1",
+                    "reason": "Replace the clashing image.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is False
+    assert [issue.code for issue in normalized.issues] == ["COLOR_HARMONY_WEAK"]
+    assert [action.action for action in normalized.repair_actions] == ["replaceImage"]
+
+
 def test_visual_review_prompt_prefers_live_background_sequence() -> None:
     candidate = deck()
     candidate["metadata"]["designProgramSnapshot"]["backgroundSequence"] = ["light"]
