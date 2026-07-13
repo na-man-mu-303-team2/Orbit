@@ -1808,6 +1808,38 @@ def test_content_plan_repair_accepts_grounded_and_structural_numbers() -> None:
     assert not any("unsupported numeric claim" in reason for reason in reasons)
 
 
+def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="정성 비교 연구",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+
+    def reasons_for(message: str) -> list[str]:
+        slide = SlidePlan(
+            order=1,
+            slide_type="comparison",
+            title="기회와 위험을 비교합니다",
+            message=message,
+            speaker_notes="두 관점을 비교합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="item-1", text="기회"),
+                GeneratedContentItem(contentItemId="item-2", text="위험"),
+            ],
+            sourceRefs=["topic:brief"],
+        )
+        return content_plan_repair_reasons([slide], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons_for("관점 2개를 비교합니다"))
+    assert "slide 1: unsupported numeric claim values 2" in reasons_for("효과가 2% 증가합니다")
+
+
 def test_content_prompt_separates_operational_and_grounded_numbers() -> None:
     without_numbers = analyze_input(
         GenerateDeckRequest(

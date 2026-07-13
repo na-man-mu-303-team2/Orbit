@@ -4266,10 +4266,19 @@ def structural_numeric_values(
                 context,
             )
         )
+        suffix = text[match.end() : match.end() + 16]
+        has_factual_unit = bool(
+            re.match(
+                r"\s*(?:%|퍼센트|배|원|달러|usd|krw|명|건|년|월|일|분|초|시간|ms|fps|gb|mb|tb|점|위|회)",
+                suffix,
+                flags=re.IGNORECASE,
+            )
+        )
         remainder = text[match.end() :]
         is_trailing_slide_order = number == slide_order and not remainder.split("\n", 1)[0].strip()
         if is_trailing_slide_order or (
-            number <= max(1, item_count) and has_structural_label
+            number <= max(1, item_count)
+            and (has_structural_label or not has_factual_unit)
         ):
             values.add(value)
     return values
