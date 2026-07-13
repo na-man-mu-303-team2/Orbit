@@ -45,8 +45,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: pnpm test:coaching:python
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      PLAYWRIGHT_USE_SYSTEM_CHROME: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,5 +58,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cp .env.example .env.local
       - run: docker compose up -d --build
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: google-chrome --version
       - run: pnpm test:coaching:e2e
