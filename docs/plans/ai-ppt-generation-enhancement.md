@@ -720,7 +720,7 @@ border:
 - 슬라이드별 최소 element density 충족
 - title/body/caption 위계 유지
 - 금지 스타일 gradient/pastel 위반 없음
-- 흰 배경 요청 시 full canvas background와 slide.style background 모두 white
+- 흰 배경 요청 시 신규 AI 생성 결과의 slide.style.backgroundColor가 white이며 full canvas background element는 없음
 - design-pack 결과가 legacy preset signature만으로 끝나지 않음
 ```
 

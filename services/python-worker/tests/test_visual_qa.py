@@ -1009,6 +1009,10 @@ def test_change_composition_preserves_resolved_media_focal_id() -> None:
 
     assert plan["primaryFocalElementId"].endswith("_media_asset")
     assert plan["primaryFocalElementId"] in element_ids
+    assert not any(
+        element.get("role") == "background"
+        for element in candidate["slides"][0]["elements"]
+    )
 
 
 def test_increase_text_focal_scale_preserves_grid_frame() -> None:
@@ -1171,6 +1175,10 @@ def test_optional_media_failure_recompiles_to_no_media_composition() -> None:
     assert repaired["aiNotes"]["compositionPlan"]["assetRole"] == "none"
     assert repaired["aiNotes"]["visualPlan"]["imageNeeded"] is False
     assert not any(element.get("role") == "media" for element in repaired["elements"])
+    assert not any(
+        element.get("role") == "background"
+        for element in repaired["elements"]
+    )
     assert result.asset_slide_ids == []
 
 

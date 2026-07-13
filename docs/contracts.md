@@ -221,6 +221,8 @@ API:
 - `slide.style.backgroundImage`는 `src`, `alt`, `fit`, `opacity`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
 - `slide.style`이 생략되면 schema parse 후 `{}`로 정규화하고, renderer/export/AI normalize 단계에서 필요한 값은 `deck.theme`에서 해석한다.
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
+- 신규 AI 생성 slide의 단색 canvas 배경 원본은 `slide.style.backgroundColor`다. 같은 색을 full-canvas `background` element로 중복 생성하지 않는다.
+- PPTX import와 기존 Deck 호환을 위해 이미 존재하는 full-canvas `background` element는 보존할 수 있으며, 이 경우 배경 변경 동작은 `slide.style.backgroundColor`와 element fill을 함께 동기화한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
 - SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에 사용할 수 있다.
@@ -238,7 +240,7 @@ API:
 - 좌표 단위는 `px` 기준으로 한다.
 - 지원하는 객체 타입은 `text`, `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`, `image`, `group`, `customShape`, `chart`, `table`이다.
 - 기존 임시 타입인 `shape`, `video`는 1차 스프린트 deck schema에서 허용하지 않는다.
-- AI가 생성한 배경, 장식, 강조 박스, 라인, 아이콘도 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다.
+- AI가 생성한 배경 이미지나 시각 요소, 장식, 강조 박스, 라인, 아이콘은 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다. 단색 canvas 배경은 `slide.style.backgroundColor`를 사용한다.
 - 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `table`, `highlight`, `footer`만 허용한다.
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
 - `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.

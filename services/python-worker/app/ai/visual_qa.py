@@ -26,6 +26,7 @@ from app.ai.generate_deck import (
     validate_design,
     validate_layout,
     validate_presentation,
+    without_canvas_background_elements,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.ai.pptx_ooxml_generation import CanvasSpec, render_pptx_to_png_assets
@@ -982,10 +983,16 @@ def recompile_slide(
         ),
         None,
     )
-    elements = [
-        {key: value for key, value in element.items() if key != "_contentItemIds"}
-        for element in compiled.elements
-    ]
+    elements = without_canvas_background_elements(
+        [
+            {
+                key: value
+                for key, value in element.items()
+                if key != "_contentItemIds"
+            }
+            for element in compiled.elements
+        ]
+    )
     placeholder = next(
         (
             element
@@ -1071,10 +1078,16 @@ def drop_optional_media(deck: dict[str, Any], slide: dict[str, Any]) -> None:
         direction.background_mode = selected_spec.variants[0]
     direction.variant = direction.background_mode
     compiled = compile_composition(direction, summary, program)
-    slide["elements"] = [
-        {key: value for key, value in element.items() if key != "_contentItemIds"}
-        for element in compiled.elements
-    ]
+    slide["elements"] = without_canvas_background_elements(
+        [
+            {
+                key: value
+                for key, value in element.items()
+                if key != "_contentItemIds"
+            }
+            for element in compiled.elements
+        ]
+    )
     slide.setdefault("style", {}).update(
         {
             "layout": compiled.layout,
