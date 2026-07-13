@@ -24,6 +24,12 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `common/demo-ids.ts` | 1차 스프린트 데모용 고정 사용자, 워크스페이스, 프로젝트, 덱, 세션 ID. |
 | `common/time.schema.ts` | ISO datetime schema와 현재 시각 생성 유틸리티. |
 | `coaching/*.schema.ts` | Adaptive Coaching aggregate, bounded result, private evidence 경계 계약. |
+| `coaching/rehearsal-focus-profile.schema.ts` | 사용자 연습 목표 최대 3개, CAS revision, 실행 시점 frozen snapshot 계약. |
+| `coaching/speech-evidence.schema.ts` | CPM v1, WPM 호환값, STT Quality Gate, pause v2, Owner-only 12초 Evidence Clip 계약. |
+| `coaching/presenter-aid.schema.ts` | 전체 script 없이 남은 시간, keyword 최대 3개, 미해결 문제 최대 1개만 전달하는 P0 presenter aid 계약. |
+| `coaching/rehearsal-analyze.schema.ts` | Worker에서 Python `/rehearsal/analyze`로 보내는 strict request DTO 계약. |
+| `coaching/p0-core-contract.fixtures.json` | TypeScript와 Python 담당자가 함께 읽는 비민감·언어 중립 P0 경계 fixture 원본. |
+| `coaching/p0-core-contract.fixtures.ts` | JSON fixture를 `@orbit/shared`에서 export하는 TypeScript wrapper. |
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/generate-deck.schema.ts` | AI 덱 생성 request, response, validation issue, job result 계약. API, worker, web이 같은 generate-deck payload를 검증할 때 사용한다. |
 | `deck/deck-export.schema.ts` | Deck JSON을 PPTX로 export하는 request와 job result 계약. API, worker, web이 같은 export 결과 payload를 검증할 때 사용한다. |

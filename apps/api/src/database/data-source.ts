@@ -38,6 +38,7 @@ import { CreateAdaptiveCoachingCore2026071103000 } from "./migrations/2026071103
 import { CreateFocusedPractice2026071104000 } from "./migrations/2026071104000-CreateFocusedPractice";
 import { CreateChallengeQna2026071105000 } from "./migrations/2026071105000-CreateChallengeQna";
 import { BackfillFallbackPracticeGoals2026071201000 } from "./migrations/2026071201000-BackfillFallbackPracticeGoals";
+import { CreateP0CoachingContracts2026071301000 } from "./migrations/2026071301000-CreateP0CoachingContracts";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -87,7 +88,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateFocusedPractice2026071104000,
     CreateChallengeQna2026071105000,
     AddOfficialImageAssetProvenance2026071201000,
-    BackfillFallbackPracticeGoals2026071201000
+    BackfillFallbackPracticeGoals2026071201000,
+    CreateP0CoachingContracts2026071301000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

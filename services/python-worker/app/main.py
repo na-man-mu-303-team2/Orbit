@@ -72,6 +72,7 @@ from app.audio.transcribe import (
     to_http_exception,
     transcribe_rehearsal_audio,
 )
+from app.challenge_qna import router as challenge_qna_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -81,6 +82,7 @@ from app.extraction import (
     extract_file,
     extract_presentation_keywords,
 )
+from app.focused_practice import router as focused_practice_router
 from app.references import (
     PostgresReferenceRepository,
     index_reference_text,
@@ -171,19 +173,26 @@ class ReferenceSearchResponse(BaseModel):
 
 
 class DeckKeywordRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     keyword_id: str = Field(default="", alias="keywordId")
     slide_id: str = Field(default="", alias="slideId")
     text: str
     synonyms: list[str] = Field(default_factory=list)
     abbreviations: list[str] = Field(default_factory=list)
+    required: bool = False
 
 
 class RehearsalSlideTimelineEntryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     slide_id: str = Field(alias="slideId")
     entered_second: float = Field(alias="enteredSecond", ge=0)
 
 
 class RehearsalAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
@@ -274,50 +283,6 @@ class RehearsalAnalyzeResponse(BaseModel):
     coaching: RehearsalCoachingResponse
 
 
-class FocusedPracticeGoalRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    goal_id: str = Field(alias="goalId")
-    criterion_ref: dict[str, Any] = Field(alias="criterionRef")
-    criterion: dict[str, Any] | None = None
-
-
-class FocusedPracticeAnalyzeRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    transcript: str
-    duration_ms: int = Field(alias="durationMs", ge=1, le=300_000)
-    goals: list[FocusedPracticeGoalRequest] = Field(min_length=1, max_length=3)
-
-
-class FocusedPracticeAnalyzeResponse(BaseModel):
-    outcomes: list[dict[str, Any]]
-
-
-class ChallengeQnaGenerateRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    source: dict[str, Any]
-    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
-    grounding_snapshot: dict[str, Any] | None = Field(alias="groundingSnapshot")
-
-
-class ChallengeQnaGenerateResponse(BaseModel):
-    questions: list[dict[str, Any]] = Field(min_length=1, max_length=3)
-
-
-class ChallengeQnaAnalyzeAnswerRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    answer_text: str = Field(alias="answerText", min_length=1, max_length=8_000)
-    question_text: str = Field(alias="questionText", min_length=1, max_length=500)
-    answer_guide: dict[str, Any] = Field(alias="answerGuide")
-    source_snapshot: dict[str, Any] = Field(alias="sourceSnapshot")
-
-
-class ChallengeQnaAnalyzeAnswerResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-    concept_outcomes: list[dict[str, str]] = Field(alias="conceptOutcomes", max_length=8)
-    clarity: str
-    audience_fit: str = Field(alias="audienceFit")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.config = load_config()
@@ -325,6 +290,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
+app.include_router(challenge_qna_router)
+app.include_router(focused_practice_router)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -620,167 +587,6 @@ def transcribe_audio(
         raise to_http_exception(exc) from exc
 
 
-@app.post("/focused-practice/analyze", response_model=FocusedPracticeAnalyzeResponse)
-def analyze_focused_practice(
-    payload: FocusedPracticeAnalyzeRequest,
-) -> FocusedPracticeAnalyzeResponse:
-    outcomes: list[dict[str, Any]] = []
-    for goal in payload.goals:
-        criterion = goal.criterion or {}
-        measurement = cast(dict[str, Any], criterion.get("measurement", {}))
-        measurement_type = str(measurement.get("type", ""))
-        if not payload.transcript.strip() or not criterion:
-            observation: dict[str, Any] = {"kind": "none"}
-            threshold: dict[str, Any] = {"kind": "none"}
-            outcome = "unmeasured"
-            reason_code = "TRANSCRIPT_INCOMPLETE"
-            measurement_state = "unmeasured"
-        elif measurement_type == "max-duration-seconds":
-            maximum = float(measurement.get("maximum", 0))
-            actual = payload.duration_ms / 1000
-            passed = actual <= maximum
-            observation = {"kind": "duration-seconds", "value": actual}
-            threshold = {"kind": "max-duration-seconds", "value": maximum}
-            outcome = "passed" if passed else "failed"
-            reason_code = "PASSED" if passed else "THRESHOLD_EXCEEDED"
-            measurement_state = "measured"
-        elif measurement_type == "max-count":
-            metric = str(measurement.get("metric"))
-            count = payload.transcript.count("음")
-            maximum = int(measurement.get("maximum", 0))
-            passed = count <= maximum
-            observation = {"kind": "count", "metric": metric, "value": count}
-            threshold = {"kind": "max-count", "metric": metric, "value": maximum}
-            outcome = "passed" if passed else "failed"
-            reason_code = "PASSED" if passed else "THRESHOLD_EXCEEDED"
-            measurement_state = "measured"
-        else:
-            passed = len(payload.transcript.strip()) >= 12
-            observation = {"kind": "semantic", "value": "covered" if passed else "missed"}
-            threshold = {"kind": "semantic-required", "minimum": "partial"}
-            outcome = "passed" if passed else "failed"
-            reason_code = "PASSED" if passed else "CONCEPT_MISSED"
-            measurement_state = "measured"
-        outcomes.append({
-            "goalId": goal.goal_id,
-            "criterionRef": goal.criterion_ref,
-            "measurementState": measurement_state,
-            "outcome": outcome,
-            "observation": observation,
-            "threshold": threshold,
-            "reasonCode": reason_code,
-        })
-    return FocusedPracticeAnalyzeResponse(outcomes=outcomes)
-
-
-@app.post("/challenge-qna/generate", response_model=ChallengeQnaGenerateResponse)
-def generate_challenge_qna(
-    payload: ChallengeQnaGenerateRequest,
-) -> ChallengeQnaGenerateResponse:
-    question_count = int(payload.source.get("questionCount", 1))
-    slides = cast(dict[str, Any], payload.source_snapshot.get("deck", {})).get("slides", [])
-    chunks = (payload.grounding_snapshot or {}).get("chunks", [])
-    linked_goals = payload.source_snapshot.get("linkedGoalRefs", [])
-    grounding_sources: list[tuple[dict[str, Any], str]] = []
-    for chunk in chunks:
-        grounding_sources.append(({
-            "type": "reference",
-            "fileId": chunk["fileId"],
-            "fileContentHash": chunk["fileContentHash"],
-            "chunkId": chunk["chunkId"],
-            "contentHash": chunk["contentHash"],
-        }, str(chunk["content"])[:80]))
-    for slide in slides:
-        grounding_sources.append(({
-            "type": "slide",
-            "slideId": slide["slideId"],
-            "deckVersion": payload.source_snapshot["deck"]["deckVersion"],
-            "slideOrder": slide["order"],
-            "title": slide["title"],
-            "contentHash": slide["contentHash"],
-        }, str(slide["title"])[:80]))
-    question_types = ["evidence", "objection", "decision"]
-    question_templates = {
-        "evidence": "{label}을 뒷받침하는 가장 중요한 근거와 검증 기준은 무엇인가요?",
-        "objection": "{label}에 대한 가장 강한 반론은 무엇이며, 어떤 기준으로 대응하시겠습니까?",
-        "decision": "{label}을 바탕으로 청중이 지금 내려야 할 결정과 다음 행동은 무엇인가요?",
-    }
-    fallback_questions = {
-        "evidence": "이 주장을 뒷받침할 승인된 근거를 어디에 추가하시겠습니까?",
-        "objection": "이 주장에 대한 반론을 검토하려면 어떤 승인된 근거가 필요합니까?",
-        "decision": "청중의 결정을 요청하려면 어떤 승인된 근거를 먼저 추가해야 합니까?",
-    }
-    suggested_structures = {
-        "evidence": ["핵심 결론", "가장 강한 근거", "검증 기준"],
-        "objection": ["예상 반론", "수용할 조건", "대응 근거와 한계"],
-        "decision": ["요청할 결정", "판단 기준", "담당자와 다음 행동"],
-    }
-    questions: list[dict[str, Any]] = []
-    for index in range(question_count):
-        question_type = question_types[index % len(question_types)]
-        source_ref, concept_label = (
-            grounding_sources[index % len(grounding_sources)]
-            if grounding_sources
-            else (None, "핵심 주장")
-        )
-        grounded = source_ref is not None and bool(concept_label.strip())
-        questions.append({
-            "questionType": question_type,
-            "difficulty": "challenging" if index > 0 else "standard",
-            "questionText": (
-                question_templates[question_type].format(label=concept_label)
-                if grounded
-                else fallback_questions[question_type]
-            ),
-            "linkedGoalIds": [item["goalId"] for item in linked_goals[:3]],
-            "sourceRefs": [source_ref] if source_ref else [],
-            "answerGuide": {
-                "supportState": "grounded" if grounded else "insufficient",
-                "mustIncludeConcepts": ([{
-                    "conceptId": f"concept-{index + 1}",
-                    "label": concept_label,
-                    "sourceRefs": [source_ref],
-                }] if grounded else []),
-                "suggestedStructure": suggested_structures[question_type],
-                "caveats": [],
-                "remediation": (None if grounded else {
-                    "message": "승인된 참고자료나 장표 근거를 추가한 뒤 다시 질문을 생성하세요.",
-                    "suggestedSlideIds": [slide["slideId"] for slide in slides[:3]],
-                    "action": "add-reference",
-                }),
-            },
-        })
-    return ChallengeQnaGenerateResponse(questions=questions)
-
-
-@app.post(
-    "/challenge-qna/analyze-answer",
-    response_model=ChallengeQnaAnalyzeAnswerResponse,
-)
-def analyze_challenge_qna_answer(
-    payload: ChallengeQnaAnalyzeAnswerRequest,
-) -> ChallengeQnaAnalyzeAnswerResponse:
-    normalized = payload.answer_text.casefold()
-    concepts = cast(list[dict[str, Any]], payload.answer_guide.get("mustIncludeConcepts", []))
-    outcomes = []
-    for concept in concepts[:8]:
-        label = str(concept.get("label", "")).casefold().strip()
-        tokens = [token for token in label.split() if len(token) > 1]
-        matches = sum(1 for token in tokens if token in normalized)
-        outcome = "covered" if tokens and matches == len(tokens) else "partial" if matches else "missed"
-        outcomes.append({"conceptId": str(concept.get("conceptId", "concept")), "outcome": outcome})
-    if not concepts:
-        outcomes = []
-    answer_length = len(payload.answer_text.strip())
-    clarity = "clear" if answer_length >= 30 else "needs-focus"
-    audience_fit = "too-vague" if answer_length < 15 else "too-technical" if answer_length > 500 else "appropriate"
-    return ChallengeQnaAnalyzeAnswerResponse(
-        conceptOutcomes=outcomes,
-        clarity=clarity,
-        audienceFit=audience_fit,
-    )
-
-
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
 def generate_ai_deck(
     payload: GenerateDeckRequest,
@@ -889,6 +695,7 @@ def analyze_rehearsal(
             text=keyword.text,
             synonyms=keyword.synonyms,
             abbreviations=keyword.abbreviations,
+            required=keyword.required,
         )
         for keyword in payload.deck_keywords
     ]

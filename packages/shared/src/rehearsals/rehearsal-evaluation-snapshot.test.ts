@@ -68,6 +68,32 @@ describe("createRehearsalEvaluationSnapshot", () => {
 
     expect(snapshot.slides[0]?.title).toBe("슬라이드 1");
   });
+
+  it("freezes the focus profile revision and items at run creation", () => {
+    const snapshot = createRehearsalEvaluationSnapshot(
+      deckSchema.parse(deckFixture()),
+      "2026-07-10T08:00:00.000Z",
+      {
+        focusProfileSnapshot: {
+          profileRef: { profileId: "focus-profile-1", revision: 2 },
+          items: [
+            {
+              focusItemId: "focus-item-1",
+              priority: 1,
+              kind: "opening",
+              label: "도입부에서 발표 목적 먼저 말하기",
+              targetScope: { type: "opening", scopeId: "scope-opening" },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(snapshot.focusProfileSnapshot?.profileRef.revision).toBe(2);
+    expect(snapshot.focusProfileSnapshot?.items[0]?.label).toBe(
+      "도입부에서 발표 목적 먼저 말하기",
+    );
+  });
 });
 
 function deckFixture() {

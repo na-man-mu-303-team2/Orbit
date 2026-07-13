@@ -481,6 +481,7 @@ apps/api/src/files/project-asset.entity.ts
 
 ## 관련 문서
 
+- [P0 리허설 코칭 공통 계약 가이드](./p0-core-contract-guide.md) — 공통 fixture와 P0 계약의 의미, 보안 경계, 구현 범위를 쉽게 설명한다.
 - `docs/rehearsal/backend.md` — API, Worker, Python Worker 책임 상세
 - `docs/rehearsal/frontend.md` — 화면, 라우트, 녹음/업로드/리포트 조회 흐름
 - `docs/rehearsal/database.md` — 테이블, 컬럼, 상태 전이, 저장 규칙

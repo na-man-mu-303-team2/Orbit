@@ -29,6 +29,11 @@ import {
 import { rehearsalEvaluationPlanSchema } from "../coaching/evaluator-lens.schema";
 import { practiceVerificationSummarySchema } from "../coaching/focused-practice.schema";
 import { coachingActionSchema } from "../coaching/practice-goal.schema";
+import { rehearsalFocusProfileSnapshotSchema } from "../coaching/rehearsal-focus-profile.schema";
+import {
+  pauseV2DetailSchema,
+  speechRateMeasurementSchema,
+} from "../coaching/speech-evidence.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -90,6 +95,7 @@ export const rehearsalEvaluationSnapshotSchema = z
     deckVersion: z.number().int().positive(),
     deckContentHash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().default(null),
     evaluationPlan: rehearsalEvaluationPlanSchema.nullable().default(null),
+    focusProfileSnapshot: rehearsalFocusProfileSnapshotSchema.nullable().default(null),
     capturedAt: isoDateTimeSchema,
     slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
   })
@@ -121,6 +127,7 @@ export const rehearsalRunSchema = z.object({
 export const rehearsalReportMetricsSchema = z.object({
   durationSeconds: z.number().nonnegative(),
   wordsPerMinute: z.number().nonnegative(),
+  speechRate: speechRateMeasurementSchema.optional(),
   fillerWordCount: z.number().int().nonnegative(),
   pauseCount: z.number().int().nonnegative(),
   keywordCoverage: z.number().min(0).max(1),
@@ -487,6 +494,7 @@ export const rehearsalReportSchema = z
     speedSamples: z.array(rehearsalReportSpeedSampleSchema).default([]),
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
     pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
+    pauseV2Details: z.array(pauseV2DetailSchema).optional(),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
@@ -706,6 +714,7 @@ export const getRehearsalRunComparisonResponseSchema =
 export const trendMetricSchema = z.enum([
   "filler-word-count",
   "duration-seconds",
+  "characters-per-minute",
   "words-per-minute",
   "timing-balance",
   "semantic-coverage",
@@ -772,7 +781,13 @@ export const trendSeriesSchema = z
     projectId: coachingIdSchema,
     metric: trendMetricSchema,
     metricDefinitionVersion: z.number().int().positive(),
-    unit: z.enum(["count", "seconds", "words-per-minute", "ratio"]),
+    unit: z.enum([
+      "count",
+      "seconds",
+      "characters-per-minute",
+      "words-per-minute",
+      "ratio"
+    ]),
     direction: z.enum(["lower-is-better", "higher-is-better", "target-range"]),
     targetRange: trendTargetRangeSchema.nullable(),
     points: z.array(trendSeriesPointSchema).max(5),
@@ -792,6 +807,7 @@ export const trendSeriesSchema = z
     const expectedPresentation = {
       "filler-word-count": { unit: "count", direction: "lower-is-better", hasRange: false },
       "duration-seconds": { unit: "seconds", direction: "target-range", hasRange: true },
+      "characters-per-minute": { unit: "characters-per-minute", direction: "target-range", hasRange: true },
       "words-per-minute": { unit: "words-per-minute", direction: "target-range", hasRange: true },
       "timing-balance": { unit: "ratio", direction: "higher-is-better", hasRange: false },
       "semantic-coverage": { unit: "ratio", direction: "higher-is-better", hasRange: false },
@@ -884,7 +900,7 @@ export const coachingReportViewSchema = z
     observations: z.array(reportObservationSchema).max(500),
     topActions: z.array(coachingActionSchema).max(3),
     practiceVerification: practiceVerificationSummarySchema.nullable(),
-    trendSeries: z.array(trendSeriesSchema).max(7),
+    trendSeries: z.array(trendSeriesSchema).max(8),
     timelineEvents: z.array(reportTimelineEventSchema).max(500),
     qnaAssessment: qnaAssessmentSchema.nullable(),
     nextPracticePlan: nextPracticePlanSchema,

@@ -1,0 +1,224 @@
+{
+  "focusProfile": {
+    "profileId": "focus-profile-1",
+    "projectId": "project-1",
+    "revision": 2,
+    "items": [
+      {
+        "focusItemId": "focus-item-1",
+        "priority": 1,
+        "kind": "opening",
+        "label": "도입부에서 발표 목적을 먼저 전달하기",
+        "targetScope": {
+          "type": "sentence",
+          "scopeId": "scope-opening-sentence",
+          "slideId": "slide-1",
+          "sentenceIndex": 0,
+          "textSnapshotHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    ],
+    "createdBy": "user-owner",
+    "updatedBy": "user-owner",
+    "createdAt": "2026-07-13T00:00:00.000Z",
+    "updatedAt": "2026-07-13T00:10:00.000Z"
+  },
+  "focusProfileSnapshot": {
+    "profileRef": { "profileId": "focus-profile-1", "revision": 2 },
+    "items": [
+      {
+        "focusItemId": "focus-item-1",
+        "priority": 1,
+        "kind": "opening",
+        "label": "도입부에서 발표 목적을 먼저 전달하기",
+        "targetScope": {
+          "type": "sentence",
+          "scopeId": "scope-opening-sentence",
+          "slideId": "slide-1",
+          "sentenceIndex": 0,
+          "textSnapshotHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    ]
+  },
+  "focusProfileRevisionConflict": {
+    "code": "REHEARSAL_FOCUS_PROFILE_REVISION_CONFLICT",
+    "expectedRevision": 1,
+    "actualRevision": 2,
+    "currentProfile": {
+      "profileId": "focus-profile-1",
+      "projectId": "project-1",
+      "revision": 2,
+      "items": [
+        {
+          "focusItemId": "focus-item-1",
+          "priority": 1,
+          "kind": "opening",
+          "label": "도입부에서 발표 목적을 먼저 전달하기",
+          "targetScope": {
+            "type": "sentence",
+            "scopeId": "scope-opening-sentence",
+            "slideId": "slide-1",
+            "sentenceIndex": 0,
+            "textSnapshotHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ],
+      "createdBy": "user-owner",
+      "updatedBy": "user-owner",
+      "createdAt": "2026-07-13T00:00:00.000Z",
+      "updatedAt": "2026-07-13T00:10:00.000Z"
+    }
+  },
+  "speechRate": {
+    "metricDefinitionVersion": 1,
+    "measurementState": "measured",
+    "charactersPerMinute": 318,
+    "wordsPerMinute": 112,
+    "durationSeconds": 60,
+    "durationSource": "full-recording",
+    "reasonCode": null
+  },
+  "speechRateUnmeasured": {
+    "metricDefinitionVersion": 1,
+    "measurementState": "unmeasured",
+    "charactersPerMinute": null,
+    "wordsPerMinute": null,
+    "durationSeconds": null,
+    "durationSource": "unavailable",
+    "reasonCode": "NO_DURATION_EVIDENCE"
+  },
+  "sttQualityGateWithoutConfidence": {
+    "provider": "whisper-1",
+    "language": "ko-KR",
+    "policyVersion": 1,
+    "state": "accepted",
+    "confidenceCapability": "not-provided",
+    "confidence": null,
+    "threshold": null,
+    "reasonCode": "CONFIDENCE_NOT_PROVIDED"
+  },
+  "sttQualityGateAccepted": {
+    "provider": "provider-with-confidence",
+    "language": "ko-KR",
+    "policyVersion": 1,
+    "state": "accepted",
+    "confidenceCapability": "provided",
+    "confidence": 0.91,
+    "threshold": 0.7,
+    "reasonCode": "PASSED"
+  },
+  "sttQualityGateRejected": {
+    "provider": "provider-with-confidence",
+    "language": "ko-KR",
+    "policyVersion": 1,
+    "state": "rejected",
+    "confidenceCapability": "provided",
+    "confidence": 0.54,
+    "threshold": 0.7,
+    "reasonCode": "LOW_TRANSCRIPTION_CONFIDENCE"
+  },
+  "sttQualityGateUnavailable": {
+    "provider": "provider-with-confidence",
+    "language": "ko-KR",
+    "policyVersion": 1,
+    "state": "unavailable",
+    "confidenceCapability": "provided",
+    "confidence": null,
+    "threshold": null,
+    "reasonCode": "TRANSCRIPTION_UNAVAILABLE"
+  },
+  "pauseV2Unknown": {
+    "pauseId": "pause-1",
+    "metricDefinitionVersion": 2,
+    "startMs": 3000,
+    "endMs": 4200,
+    "durationMs": 1200,
+    "position": "between-sentences",
+    "classification": "unknown",
+    "classificationCapability": "not-available",
+    "slideId": "slide-1"
+  },
+  "pauseV2Intentional": {
+    "pauseId": "pause-2",
+    "metricDefinitionVersion": 2,
+    "startMs": 7000,
+    "endMs": 8200,
+    "durationMs": 1200,
+    "position": "slide-transition",
+    "classification": "intentional",
+    "classificationCapability": "provider-evidence",
+    "slideId": "slide-2"
+  },
+  "evidenceClip": {
+    "clipId": "clip-1",
+    "projectId": "project-1",
+    "runId": "run-1",
+    "observationId": "observation-1",
+    "startMs": 3000,
+    "endMs": 15000,
+    "durationMs": 12000,
+    "accessPolicy": "owner-only",
+    "retentionPolicyVersion": 1,
+    "retentionDays": 7,
+    "state": "available",
+    "expiresAt": "2026-07-20T00:00:00.000Z",
+    "deletedAt": null,
+    "createdAt": "2026-07-13T00:00:00.000Z",
+    "updatedAt": "2026-07-13T00:00:01.000Z"
+  },
+  "evidenceClipPlaybackAvailable": {
+    "state": "available",
+    "clipId": "clip-1",
+    "signedUrl": "https://evidence.example.test/clip-1?signature=redacted",
+    "expiresAt": "2026-07-13T00:05:00.000Z"
+  },
+  "evidenceClipPlaybackExpired": {
+    "state": "expired",
+    "clipId": "clip-1"
+  },
+  "rehearsalAnalyzeRequest": {
+    "runId": "run-1",
+    "projectId": "project-1",
+    "deckId": "deck-1",
+    "transcript": "ORBIT의 핵심 문제와 해결 방법을 설명합니다.",
+    "durationSeconds": 30,
+    "segments": [
+      {
+        "text": "ORBIT의 핵심 문제와 해결 방법을 설명합니다.",
+        "startSeconds": 0,
+        "endSeconds": 3
+      }
+    ],
+    "deckKeywords": [
+      {
+        "keywordId": "keyword-1",
+        "slideId": "slide-1",
+        "text": "해결 방법",
+        "synonyms": ["솔루션"],
+        "abbreviations": [],
+        "required": true
+      }
+    ],
+    "slideTimeline": [
+      {
+        "slideId": "slide-1",
+        "enteredSecond": 0
+      }
+    ]
+  },
+  "presenterAid": {
+    "runId": "run-1",
+    "slideId": "slide-1",
+    "remainingSeconds": 240,
+    "keywords": ["고객 문제", "해결 방법", "다음 행동"],
+    "unresolvedIssue": {
+      "criterionRef": {
+        "criterionId": "criterion-opening",
+        "revision": 1
+      },
+      "label": "도입부에서 발표 목적을 먼저 말하기"
+    },
+    "scriptVisible": false
+  }
+}

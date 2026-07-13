@@ -1,0 +1,296 @@
+import { describe, expect, it } from "vitest";
+
+import { focusedPracticeTargetScopeSchema } from "./coaching-common.schema";
+import { reportObservationSchema } from "./evaluation-criterion.schema";
+import { p0CoreContractFixtures } from "./p0-core-contract.fixtures";
+import { presenterAidSchema } from "./presenter-aid.schema";
+import { rehearsalAnalyzeRequestSchema } from "./rehearsal-analyze.schema";
+import {
+  putRehearsalFocusProfileRequestSchema,
+  rehearsalFocusProfileSchema,
+  rehearsalFocusProfileRevisionConflictSchema,
+  rehearsalFocusProfileSnapshotSchema,
+} from "./rehearsal-focus-profile.schema";
+import {
+  evidenceClipPlaybackResponseSchema,
+  evidenceClipSchema,
+  pauseV2DetailSchema,
+  speechRateMeasurementSchema,
+  sttQualityGateSchema,
+} from "./speech-evidence.schema";
+import {
+  rehearsalReportMetricsSchema,
+  trendSeriesSchema,
+} from "../rehearsals/rehearsal.schema";
+
+const fixtures = p0CoreContractFixtures;
+
+describe("P0 rehearsal focus contracts", () => {
+  it("parses a CAS profile and freezes its revision with inline items", () => {
+    expect(
+      rehearsalFocusProfileSchema.parse(fixtures.focusProfile).revision,
+    ).toBe(2);
+    expect(
+      rehearsalFocusProfileSnapshotSchema.parse(fixtures.focusProfileSnapshot)
+        .profileRef.revision,
+    ).toBe(2);
+    expect(
+      putRehearsalFocusProfileRequestSchema.safeParse({
+        expectedRevision: 2,
+        items: fixtures.focusProfile.items,
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalFocusProfileRevisionConflictSchema.parse(
+        fixtures.focusProfileRevisionConflict,
+      ).actualRevision,
+    ).toBe(2);
+  });
+
+  it("accepts sentence targets only with a frozen text hash", () => {
+    const sentenceTarget = fixtures.focusProfile.items[0].targetScope;
+    expect(focusedPracticeTargetScopeSchema.parse(sentenceTarget).type).toBe(
+      "sentence",
+    );
+    expect(
+      focusedPracticeTargetScopeSchema.safeParse({
+        ...sentenceTarget,
+        textSnapshotHash: "not-a-hash",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("limits focus items to three contiguous priorities", () => {
+    expect(
+      rehearsalFocusProfileSchema.safeParse({
+        ...fixtures.focusProfile,
+        items: [
+          fixtures.focusProfile.items[0],
+          {
+            ...fixtures.focusProfile.items[0],
+            focusItemId: "focus-2",
+            priority: 3,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("P0 speech evidence contracts", () => {
+  it("shares the exact strict TypeScript-to-Python analyze DTO", () => {
+    const parsed = rehearsalAnalyzeRequestSchema.parse(
+      fixtures.rehearsalAnalyzeRequest,
+    );
+    expect(parsed.deckKeywords[0]?.required).toBe(true);
+    expect(
+      rehearsalAnalyzeRequestSchema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        providerPayload: "must-be-rejected",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("uses CPM v1 as canonical and keeps WPM as a compatibility value", () => {
+    const parsed = speechRateMeasurementSchema.parse(fixtures.speechRate);
+    expect(parsed.charactersPerMinute).toBe(318);
+    expect(parsed.wordsPerMinute).toBe(112);
+    expect(
+      speechRateMeasurementSchema.safeParse({
+        ...fixtures.speechRate,
+        durationSeconds: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      speechRateMeasurementSchema.parse(fixtures.speechRateUnmeasured)
+        .charactersPerMinute,
+    ).toBeNull();
+  });
+
+  it("adds CPM to new reports and trends without breaking legacy metrics", () => {
+    const baseMetrics = {
+      durationSeconds: 60,
+      wordsPerMinute: 112,
+      fillerWordCount: 1,
+      pauseCount: 1,
+      keywordCoverage: 0.9,
+    };
+    expect(rehearsalReportMetricsSchema.safeParse(baseMetrics).success).toBe(
+      true,
+    );
+    expect(
+      rehearsalReportMetricsSchema.parse({
+        ...baseMetrics,
+        speechRate: fixtures.speechRate,
+      }).speechRate?.charactersPerMinute,
+    ).toBe(318);
+    expect(
+      trendSeriesSchema.safeParse({
+        seriesId: "trend-cpm-1",
+        projectId: "project-1",
+        metric: "characters-per-minute",
+        metricDefinitionVersion: 1,
+        unit: "characters-per-minute",
+        direction: "target-range",
+        targetRange: { minimum: 250, maximum: 350 },
+        points: [
+          {
+            runId: "run-1",
+            createdAt: "2026-07-13T00:00:00.000Z",
+            measurementState: "measured",
+            comparability: "comparable",
+            value: 318,
+            reasonCode: null,
+          },
+        ],
+        calculatedAt: "2026-07-13T00:10:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("does not invent confidence for providers that do not supply it", () => {
+    expect(
+      sttQualityGateSchema.parse(fixtures.sttQualityGateWithoutConfidence)
+        .confidence,
+    ).toBeNull();
+    expect(
+      sttQualityGateSchema.parse(fixtures.sttQualityGateRejected).state,
+    ).toBe("rejected");
+    expect(
+      sttQualityGateSchema.parse(fixtures.sttQualityGateAccepted).state,
+    ).toBe("accepted");
+    expect(
+      sttQualityGateSchema.parse(fixtures.sttQualityGateUnavailable).state,
+    ).toBe("unavailable");
+    expect(
+      sttQualityGateSchema.safeParse({
+        ...fixtures.sttQualityGateWithoutConfidence,
+        confidence: 0.8,
+      }).success,
+    ).toBe(false);
+    expect(
+      sttQualityGateSchema.safeParse({
+        ...fixtures.sttQualityGateAccepted,
+        confidence: 0.2,
+      }).success,
+    ).toBe(false);
+    expect(
+      sttQualityGateSchema.safeParse({
+        ...fixtures.sttQualityGateRejected,
+        confidence: 0.9,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps pause v2 classification unknown without provider evidence", () => {
+    expect(
+      pauseV2DetailSchema.parse(fixtures.pauseV2Unknown).classification,
+    ).toBe("unknown");
+    expect(
+      pauseV2DetailSchema.safeParse({
+        ...fixtures.pauseV2Unknown,
+        classification: "hesitation",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("P0 bounded evidence and presenter contracts", () => {
+  it("limits derived clips to twelve seconds and owner-only access", () => {
+    expect(evidenceClipSchema.parse(fixtures.evidenceClip).durationMs).toBe(
+      12_000,
+    );
+    expect(
+      evidenceClipSchema.safeParse({
+        ...fixtures.evidenceClip,
+        endMs: 15_001,
+        durationMs: 12_001,
+      }).success,
+    ).toBe(false);
+    expect(
+      evidenceClipSchema.safeParse({
+        ...fixtures.evidenceClip,
+        accessPolicy: "project-member",
+      }).success,
+    ).toBe(false);
+    expect(
+      evidenceClipSchema.safeParse({
+        ...fixtures.evidenceClip,
+        expiresAt: "2026-07-21T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps signed URLs only in short-lived playback responses", () => {
+    expect(
+      evidenceClipPlaybackResponseSchema.parse(
+        fixtures.evidenceClipPlaybackAvailable,
+      ).state,
+    ).toBe("available");
+    expect(
+      evidenceClipPlaybackResponseSchema.parse(
+        fixtures.evidenceClipPlaybackExpired,
+      ).state,
+    ).toBe("expired");
+    expect(
+      evidenceClipPlaybackResponseSchema.safeParse({
+        ...fixtures.evidenceClipPlaybackExpired,
+        signedUrl: "https://evidence.example.test/stale",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("links clip IDs to observations without exposing URLs or file IDs", () => {
+    const observation = {
+      observationId: "observation-1",
+      criterionRef: { criterionId: "criterion-1", revision: 1 },
+      scope: { type: "slide" as const, slideId: "slide-1" },
+      measurementState: "measured" as const,
+      value: {
+        kind: "characters-per-minute" as const,
+        metricDefinitionVersion: 1 as const,
+        value: 318,
+      },
+      evidenceRefs: [
+        {
+          kind: "evidence-clip" as const,
+          clipId: "clip-1",
+          observationId: "observation-1",
+        },
+      ],
+      observedAt: "2026-07-13T00:00:00.000Z",
+    };
+    expect(
+      reportObservationSchema.parse(observation).evidenceRefs[0],
+    ).not.toHaveProperty("signedUrl");
+    expect(
+      reportObservationSchema.safeParse({
+        ...observation,
+        evidenceRefs: [
+          {
+            ...observation.evidenceRefs[0],
+            observationId: "observation-other",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds the presenter aid and never includes the full script", () => {
+    expect(presenterAidSchema.parse(fixtures.presenterAid).scriptVisible).toBe(
+      false,
+    );
+    expect(
+      presenterAidSchema.safeParse({
+        ...fixtures.presenterAid,
+        keywords: ["a", "b", "c", "d"],
+      }).success,
+    ).toBe(false);
+    expect(
+      presenterAidSchema.safeParse({
+        ...fixtures.presenterAid,
+        script: "민감한 발표자 원문",
+      }).success,
+    ).toBe(false);
+  });
+});
