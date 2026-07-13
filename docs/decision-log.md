@@ -363,6 +363,18 @@
 - Affected files: `packages/shared/src/coaching/*`, `packages/shared/src/rehearsals/*`, `packages/shared/src/index.ts`, `packages/shared/src/README.md`, `apps/api/src/database/migrations/2026071301000-CreateP0CoachingContracts.ts`, `apps/api/src/database/data-source.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `services/python-worker/app/main.py`, `services/python-worker/app/audio/transcribe.py`, `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/product/adaptive-rehearsal-coach-direction.md`, `docs/decision-log.md`.
 - Follow-up review notes: API 구현은 focus PUT에서 CAS conflict를 HTTP 409로 매핑하고 Evidence playback마다 project Owner를 재검사한다. clip storage key는 DB 내부와 StoragePort에만 두고 로그에 남기지 않는다. 만료·조기 삭제·project 삭제는 기존 deletion outbox를 재사용한다. Editor 접근 확대, 30일 연장, 30~60초 모범 audio는 별도 제품·개인정보·권한 결정 전에는 구현하지 않는다.
 
+## ORBIT rehearsal focus profile phase 2 integration
+
+- Context: P0 계약은 `RehearsalFocusProfile`을 project-level CAS aggregate로 두고 full rehearsal 시작 시 revision과 item을 snapshot에 고정하도록 정했다. 2단계 구현에서는 아직 profile row가 없는 첫 저장의 동시 요청, 브라우저의 stale revision, 목표 조회 실패가 기존 리허설 시작 경로에 미치는 영향을 구체화해야 했다.
+- Options considered:
+  - Web이 목표 상태와 snapshot을 소유하고 run 생성 요청에 목표를 함께 보낸다. (서버 저장 상태와 실행 근거가 달라질 수 있다.)
+  - 단순 upsert로 마지막 쓰기를 허용하고 충돌은 UI에서만 추정한다. (첫 저장과 동시 수정에서 revision 정합성을 보장하지 못한다.)
+  - API가 권한 확인과 CAS를 소유하고 project row lock으로 첫 저장도 직렬화하며, full run 생성 시 서버가 현재 profile을 snapshot으로 복사한다.
+- Final decision: `GET/PUT /api/v1/projects/:projectId/rehearsal-focus-profile`은 `ProjectsService`의 read/write 권한 경계를 재사용한다. PUT은 project row와 현재 profile을 transaction에서 잠그고 `expectedRevision` 불일치를 HTTP 409와 최신 profile로 반환하며, `items_json`은 명시적 JSONB로 저장한다. Web은 충돌 시 사용자 draft를 유지한 채 서버 최신 profile을 별도로 보여 주고 사용자가 최신 revision을 확인하기 전에는 저장을 재개하지 않는다. full rehearsal run은 서버 저장 profile의 ref와 item 값을 생성 시점 snapshot에 복사하고, profile이 없거나 delivery-only run이면 `null`을 유지한다. Web의 profile GET이 실패해도 기존 리허설은 막지 않으며, 이 경우에도 서버 run 생성 경로가 저장된 profile을 직접 조회해 snapshot을 고정한다.
+- Rationale: 상태 변경과 immutable 실행 근거를 서버에 두면 브라우저 캐시나 stale draft가 과거 run을 바꾸지 않는다. project row lock은 아직 aggregate row가 없는 최초 저장까지 직렬화하고, 409에서 draft와 최신 값을 함께 보여 주면 사용자 입력을 조용히 덮어쓰지 않는다. 조회 장애를 non-blocking으로 두어 선택 기능의 장애가 기존 리허설을 중단하지 않으면서도 서버 snapshot 정합성을 유지한다.
+- Affected files: `apps/api/src/rehearsal-focus-profiles/*`, `apps/api/src/rehearsals/rehearsals.module.ts`, `apps/api/src/rehearsals/rehearsals.service.ts`, `apps/web/src/features/coaching/RehearsalFocusProfilePanel.tsx`, `apps/web/src/features/coaching/rehearsalFocusProfileApi.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, 관련 테스트, `docs/decision-log.md`.
+- Follow-up review notes: 실제 PostgreSQL을 사용하는 동시 PUT 통합 테스트와 두 브라우저 세션의 409 reconciliation E2E를 후속 검증으로 추가한다. 이번 단계는 기존 P0 access-control·보관·로그 정책을 확대하지 않는다.
+
 ## ORBIT rehearsal analysis DTO v2 contract
 
 - Context: 기존 `/rehearsal/analyze` DTO는 `durationSeconds=0`으로 근거 없음과 실제 값을 구분하지 못하고, language/provider/model, normalized confidence, response measurement state가 없다. TypeScript sender와 Python boundary를 순차 배포하려면 양쪽이 구현할 strict v2 shape와 짧은 v1 호환 표면을 먼저 고정해야 한다.
