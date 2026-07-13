@@ -3,6 +3,7 @@ import {
   buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
   buildReferenceGrounding,
+  filesFromFileList,
   getAiPptWizardValidationMessage,
   getReferenceExtractionValidationMessage,
   miniSlideFontStyles,
@@ -33,6 +34,21 @@ const palette: PaletteOption = {
 describe("AI PPT wizard payload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("normalizes selected reference files from a file list", () => {
+    const files = [
+      new File(["brief"], "brief.pdf", { type: "application/pdf" }),
+      new File(["deck"], "deck.pptx", {
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      })
+    ];
+    const fileList = Object.assign([...files], {
+      item: (index: number) => files[index] ?? null
+    }) as unknown as FileList;
+
+    expect(filesFromFileList(fileList)).toEqual(files);
+    expect(filesFromFileList(null)).toEqual([]);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {

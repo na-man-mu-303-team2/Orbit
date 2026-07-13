@@ -26,10 +26,11 @@ import {
   IconPalette,
   IconPaperclip,
   IconPlayerPlay,
+  IconUpload,
   IconSparkles,
   IconStack3
 } from "@tabler/icons-react";
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createProject,
@@ -843,21 +844,78 @@ function ReferencesStep(props: {
   ) => void;
   onFilesChange: (files: File[]) => void;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const fileNames = props.files.map((file) => file.name).join(", ");
+
+  function handleDragEnter(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+    if (
+      event.currentTarget.contains(event.relatedTarget as Node | null)
+    ) {
+      return;
+    }
+    setIsDragging(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = filesFromDataTransfer(event.dataTransfer);
+    if (droppedFiles.length > 0) {
+      props.onFilesChange(droppedFiles);
+    }
+  }
+
   return (
     <>
       <PanelHeading
         kicker="4. References"
         title="참고자료 사용 정책 선택"
       />
-      <label className="ai-ppt-reference-drop">
-        <IconPaperclip size={28} />
+      <label
+        className={[
+          "ai-ppt-reference-drop",
+          isDragging ? "is-dragging" : "",
+          props.files.length > 0 ? "has-files" : ""
+        ].join(" ")}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        <span className="ai-ppt-reference-icon" aria-hidden="true">
+          {props.files.length ? <IconCheck size={22} /> : <IconUpload size={23} />}
+        </span>
         <strong>
           {props.files.length
-            ? `${props.files.length}개 파일 선택됨`
-            : "PDF, PPTX, DOCX, 이미지 파일 첨부"}
+            ? `${props.files.length}개 파일이 연결되었습니다`
+            : "파일을 이 영역에 드롭하세요"}
         </strong>
-        <span>1차에서는 참고자료 파일 ID를 생성 요청에 연결합니다.</span>
+        <span>
+          PDF, PPTX, DOCX, 이미지 파일을 첨부하면 생성 요청에 참고자료 fileId를 연결합니다.
+        </span>
+        {props.files.length ? (
+          <small title={fileNames}>{fileNames}</small>
+        ) : (
+          <small>클릭해서 파일 선택 · 여러 파일 선택 가능</small>
+        )}
+        <span className="ai-ppt-reference-action">
+          <IconPaperclip size={16} />
+          파일 선택
+        </span>
         <input
+          accept=".pdf,.ppt,.pptx,.doc,.docx,image/*,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="ai-ppt-reference-input"
           multiple
           type="file"
           onChange={(event) => props.onFilesChange(filesFromEvent(event))}
@@ -1351,7 +1409,15 @@ export async function pollJob(jobId: string): Promise<Job> {
 }
 
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
-  return Array.from(event.target.files ?? []);
+  return filesFromFileList(event.target.files);
+}
+
+export function filesFromDataTransfer(dataTransfer: DataTransfer) {
+  return filesFromFileList(dataTransfer.files);
+}
+
+export function filesFromFileList(fileList: FileList | null) {
+  return Array.from(fileList ?? []);
 }
 
 function parsePositiveInteger(value: string, fallback: number) {
