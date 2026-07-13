@@ -2,7 +2,7 @@ import { createDemoDeck } from "@orbit/editor-core";
 import type { DeckElement } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
-import { isCanvasBackgroundElement } from "./useCanvasBackgroundPointerCapture";
+import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteractionUtils";
 
 type RectElement = Extract<DeckElement, { type: "rect" }>;
 
@@ -32,34 +32,18 @@ function createBackgroundElement(
   };
 }
 
-describe("isCanvasBackgroundElement", () => {
-  it("treats a full-canvas background as canvas background hit", () => {
+describe("canvas background selection", () => {
+  it("treats a full-canvas background as an ordinary selection hit", () => {
     const deck = createDemoDeck();
-
-    expect(isCanvasBackgroundElement(deck, createBackgroundElement())).toBe(
-      true
-    );
-  });
-
-  it("does not treat a partial background shape as canvas background hit", () => {
-    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
 
     expect(
-      isCanvasBackgroundElement(
+      isCanvasPointInsideElementSelectionArea({
         deck,
-        createBackgroundElement({ width: 960 })
-      )
-    ).toBe(false);
-  });
-
-  it("does not treat a non-background element as canvas background hit", () => {
-    const deck = createDemoDeck();
-
-    expect(
-      isCanvasBackgroundElement(
-        deck,
-        createBackgroundElement({ role: "decoration" })
-      )
-    ).toBe(false);
+        element: createBackgroundElement(),
+        point: { x: 10, y: 10 },
+        slide
+      })
+    ).toBe(true);
   });
 });

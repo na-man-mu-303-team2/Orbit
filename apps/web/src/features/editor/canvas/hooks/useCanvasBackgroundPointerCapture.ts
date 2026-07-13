@@ -5,18 +5,6 @@ import { useEffect } from "react";
 import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteractionUtils";
 import type { CustomShapeEditDraft } from "./types";
 
-const canvasBackgroundTolerance = 4;
-
-export function isCanvasBackgroundElement(deck: Deck, element: DeckElement) {
-  return (
-    element.role === "background" &&
-    element.x <= canvasBackgroundTolerance &&
-    element.y <= canvasBackgroundTolerance &&
-    element.width >= deck.canvas.width - canvasBackgroundTolerance &&
-    element.height >= deck.canvas.height - canvasBackgroundTolerance
-  );
-}
-
 export function useCanvasBackgroundPointerCapture(args: {
   deck: Deck;
   editingElementId: string | null;
@@ -109,15 +97,13 @@ export function useCanvasBackgroundPointerCapture(args: {
       }
 
       const point = getCanvasPointFromClientPosition(event.clientX, event.clientY);
-      const isElementHit = visibleElements.some(
-        (element) =>
-          !isCanvasBackgroundElement(deck, element) &&
-          isCanvasPointInsideElementSelectionArea({
-            deck,
-            element,
-            point,
-            slide
-          })
+      const isElementHit = visibleElements.some((element) =>
+        isCanvasPointInsideElementSelectionArea({
+          deck,
+          element,
+          point,
+          slide
+        })
       );
 
       if (!isElementHit) {

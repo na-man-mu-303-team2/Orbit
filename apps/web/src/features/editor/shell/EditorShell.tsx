@@ -415,7 +415,6 @@ type ElementFrameChange = {
   rotation?: number;
   opacity?: number;
   zIndex?: number;
-  locked?: boolean;
   visible?: boolean;
 };
 type PptxImportState =

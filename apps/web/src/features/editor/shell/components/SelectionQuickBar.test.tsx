@@ -51,6 +51,7 @@ describe("SelectionQuickBar", () => {
     expect(html).not.toContain("선택 키워드: ORBIT");
     expect(html).not.toContain("재생");
     expect(html).not.toContain("지연");
+    expect(html).not.toContain("잠금");
   });
 
   it("renders add button label when no animation exists", () => {

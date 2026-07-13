@@ -243,7 +243,7 @@ API:
 - AI가 생성한 배경 이미지나 시각 요소, 장식, 강조 박스, 라인, 아이콘은 별도 `designElements` 배열을 만들지 않고 `slide.elements`에 넣는다. 단색 canvas 배경은 `slide.style.backgroundColor`를 사용한다.
 - 객체 역할은 공통 `role` 필드로 표현하고, `background`, `decoration`, `title`, `subtitle`, `body`, `caption`, `media`, `chart`, `table`, `highlight`, `footer`만 허용한다.
 - `role`은 렌더링 필수값이 아니라 AI 생성, 편집 UI, export, 접근성 보조를 위한 의미 정보다.
-- `background`, `decoration` 역할의 element는 사용자가 기본 편집 중 실수로 움직이지 않도록 `locked: true`와 낮은 `zIndex`를 권장한다. schema에서는 강제하지 않는다.
+- `background`, `decoration` 역할의 element는 `role`과 낮은 `zIndex`로 의미를 표현한다. 기존 Deck 호환을 위해 `locked` 필드는 유지하지만 현재 에디터와 AI는 해당 값으로 편집을 차단하지 않는다.
 - 객체 `props`는 object type별 schema로 검증한다. 전체 객체에 대해 `z.record(z.unknown())`를 열어두지 않는다.
 - `text.props`는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `color`, `align`, `verticalAlign`, `lineHeight`, `bullet`을 사용한다. `runs`는 기존 단일 paragraph 호환 field이고, `paragraphs`는 PPTX OOXML import에서 paragraph별 run/font/color/spacing/indent/bullet을 보존하기 위한 optional field다. `bodyInset`은 PPT text box 내부 여백을 px 단위로 보존한다.
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
@@ -260,7 +260,7 @@ API:
 - 1차 스프린트 MVP에서는 객체 기준점이 음수 좌표가 되는 것까지만 금지한다.
 - `x + width > canvas.width`, `y + height > canvas.height`처럼 객체가 오른쪽/아래쪽으로 캔버스 밖에 일부 노출되는 경우는 현재 schema에서 막지 않는다.
 - 캔버스 밖 일부 노출을 완전히 금지할지는 PPTX import/export 구현 중 실제 잘림, 누락, 위치 보정 필요성을 확인한 뒤 다시 결정한다.
-- 객체 공통 상태 필드는 `rotation`, `opacity`, `zIndex`, `locked`, `visible`을 사용한다.
+- 객체 공통 상태 필드는 `rotation`, `opacity`, `zIndex`, `locked`(하위 호환용), `visible`을 사용한다.
 - `opacity`는 `0`부터 `1`까지만 허용하고, `zIndex`는 `0` 이상의 정수만 허용한다.
 - `chart` 객체의 `props`는 `chart.schema.ts`로 검증하며, 지원하지 않는 chart type은 거부한다.
 - 지원하는 chart type은 `bar`, `line`, `pie`, `doughnut`, `scatter`이다.

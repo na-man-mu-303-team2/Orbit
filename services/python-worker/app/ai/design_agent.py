@@ -397,7 +397,8 @@ def design_agent_system_prompt(
         "Reply in the same language as the user's latest question. "
         "When elements are selected, treat them as the primary target unless the request "
         "clearly asks to redesign the whole slide. Preserve slideId and elementId. "
-        "Never modify or delete locked or hidden elements. "
+        "Treat locked as a legacy compatibility field; it does not restrict editing. "
+        "Never modify or delete hidden elements. "
         "Use only operations and addable element types listed in capabilities. "
         "New elementId values must start with el_ and be unique on the slide. "
         "A visual card requires a rect element and a separate text element above it. "
@@ -457,8 +458,8 @@ def validate_design_proposal(
         target_element = elements.get(operation.element_id)
         if target_element is None:
             raise DesignAgentGenerationError("Operation elementId does not exist.")
-        if target_element.get("locked") is True or target_element.get("visible") is False:
-            raise DesignAgentGenerationError("Operation targets a locked or hidden element.")
+        if target_element.get("visible") is False:
+            raise DesignAgentGenerationError("Operation targets a hidden element.")
 
         if isinstance(operation, DeleteElementOperation):
             del elements[operation.element_id]
