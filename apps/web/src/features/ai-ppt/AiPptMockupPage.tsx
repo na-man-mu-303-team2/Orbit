@@ -1,22 +1,39 @@
 import type {
+  BrandKit,
+  BrandKitValues,
   DeckColorOptionsResponse,
   GenerateDeckFontOption,
   GenerateDeckMediaPolicy,
   GenerateDeckRequest,
   GenerateDeckReferencePolicy,
   Job,
+  Organization,
+  OrganizationRole,
   PptAdvisorHistoryItem,
   PptAdvisorResponse,
   PptAdvisorSuggestion,
-  ReferenceExtractionResult
+  ReferenceExtractionResult,
+  SavedDesignPack
 } from "@orbit/shared";
 import type { EvaluatorLensRef, FrozenBriefRef } from "@orbit/shared";
 import {
+  generateDeckValidationSchema,
   pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
   referenceExtractionResultSchema,
   referenceExtractionStartResponseSchema
 } from "@orbit/shared";
+import {
+  Copy,
+  Image as ImageIcon,
+  Layers3,
+  Pencil,
+  Play,
+  Plus,
+  Save,
+  Star,
+  Trash2
+} from "lucide-react";
 import {
   IconCheck,
   IconChevronLeft,
@@ -43,6 +60,7 @@ type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
 type MediaPolicy = GenerateDeckMediaPolicy;
 type Tone = "professional" | "friendly" | "confident" | "concise";
+type AvailableOrganization = Organization & { role: OrganizationRole };
 
 type PaletteOverride = NonNullable<GenerateDeckRequest["design"]["paletteOverride"]>;
 type ColorIntent = NonNullable<GenerateDeckRequest["design"]["colorIntent"]>;
@@ -78,6 +96,11 @@ type ReferenceGrounding = Pick<
   GenerateDeckRequest,
   "referenceContext" | "referenceKeywords"
 >;
+
+type AiPptQualityFailure = {
+  issues: Array<{ code: string; message: string; slide?: number }>;
+  remainingCount: number;
+};
 
 type PolicyChoiceOption<T extends string> = {
   description: string;
@@ -135,6 +158,12 @@ export const mediaPolicyOptions = [
     label: "AI 이미지 구조",
     description:
       "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다."
+  },
+  {
+    value: "hybrid",
+    label: "공식 + AI 이미지",
+    description:
+      "공식 이미지를 근거 자료로 우선 사용하고, 분위기 연출이 필요한 장면만 AI 이미지 구조로 보완합니다."
   }
 ] satisfies readonly PolicyChoiceOption<MediaPolicy>[];
 
@@ -197,7 +226,7 @@ const fallbackPaletteOptions: PaletteOption[] = [
   }
 ];
 
-const initialState: AiPptWizardState = {
+export const briefFieldPlaceholders = {
   topic: "Design Pack 기반 AI PPT 생성 구조 제안",
   purpose: "템플릿 덮어쓰기에서 벗어나 Deck JSON 기반 생성 MVP를 설명",
   context: "제품/개발 리드 대상 15분 의사결정 회의",
@@ -205,6 +234,17 @@ const initialState: AiPptWizardState = {
   presentationType: "기획 발표",
   successCriteria: "1차 구현 범위와 다음 스프린트 우선순위 합의",
   duration: "15",
+  slides: "15"
+} as const;
+
+export const initialAiPptWizardState: AiPptWizardState = {
+  topic: "",
+  purpose: "",
+  context: "",
+  audience: "",
+  presentationType: "",
+  successCriteria: "",
+  duration: "",
   slides: "",
   tone: "professional",
   colorMood: "ORBIT Lilac 포인트와 Ink 대비, 차분하고 명확한 색감",
@@ -214,12 +254,13 @@ const initialState: AiPptWizardState = {
 };
 
 const generationStages = [
-  "Brief 설문 정리",
-  "색상 후보 3개 선택",
-  "Session Design Pack 구성",
-  "Deck JSON 생성",
-  "에디터 렌더링",
-  "PPTX export 준비"
+  "내용 구성",
+  "디자인 방향 설정",
+  "슬라이드 구성",
+  "이미지 준비",
+  "시각 품질 검토",
+  "시각 품질 보정",
+  "최종 발행"
 ];
 
 export function buildAiPptGenerateDeckPayload(
@@ -231,12 +272,12 @@ export function buildAiPptGenerateDeckPayload(
     referenceContext: [],
     referenceKeywords: []
   },
-  coachingContext?: {
-    briefRef: FrozenBriefRef;
-    evaluatorLensRef: EvaluatorLensRef;
-  }
+  savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
+  brandKit?: Pick<BrandKit, "id" | "version">,
+  officialAssetFileIds: string[] = [],
+  coachingContext?: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef }
 ): GenerateDeckRequest {
-  const durationMinutes = parsePositiveInteger(state.duration, 10);
+  const durationMinutes = parsePositiveInteger(state.duration, 0);
   const slideCountRange = resolveSlideCountRange(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
@@ -279,6 +320,7 @@ export function buildAiPptGenerateDeckPayload(
     },
     design: {
       stylePackId,
+      engineVersion: "program-v2",
       visualRhythm: "clean",
       densityTarget: "medium",
       mediaPolicy: state.mediaPolicy,
@@ -289,11 +331,28 @@ export function buildAiPptGenerateDeckPayload(
       fontOverride,
       referencePolicy: state.referencePolicy
     },
+    ...(savedDesignPack
+      ? {
+          savedDesignPack: {
+            id: savedDesignPack.id,
+            version: savedDesignPack.version
+          }
+        }
+      : {}),
+    ...(brandKit
+      ? {
+          brandKit: {
+            id: brandKit.id,
+            version: brandKit.version
+          }
+        }
+      : {}),
     visualPlanPolicy: {
       mediaPolicy: state.mediaPolicy
     },
     referencePolicy: state.referencePolicy,
     referenceFileIds,
+    officialAssetFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
@@ -307,6 +366,11 @@ export function getAiPptWizardValidationMessage(
   referenceFiles: File[] = []
 ) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
+  if (!state.purpose.trim()) return "발표 목적을 입력하세요.";
+  if (!state.context.trim()) return "발표 맥락을 입력하세요.";
+  if (!state.audience.trim()) return "청중을 입력하세요.";
+  if (!state.presentationType.trim()) return "발표 유형을 입력하세요.";
+  if (!state.successCriteria.trim()) return "성공 기준을 입력하세요.";
   if (parsePositiveInteger(state.duration, 0) < 1) {
     return "발표 시간은 1분 이상이어야 합니다.";
   }
@@ -363,21 +427,30 @@ export function buildAiPptAdvisorSuggestions(
 
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
-  const [form, setForm] = useState(initialState);
+  const [form, setForm] = useState(initialAiPptWizardState);
   const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
   );
   const [selectedFontId, setSelectedFontId] = useState(
-    recommendGenerateDeckFonts(initialState.fontMood)[0].fontId
+    recommendGenerateDeckFonts(initialAiPptWizardState.fontMood)[0].fontId
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [officialAssetFiles, setOfficialAssetFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [designPacks, setDesignPacks] = useState<SavedDesignPack[]>([]);
+  const [selectedDesignPackId, setSelectedDesignPackId] = useState("");
+  const [isSavingDesignPack, setIsSavingDesignPack] = useState(false);
+  const [brandKits, setBrandKits] = useState<BrandKit[]>([]);
+  const [organizations, setOrganizations] = useState<AvailableOrganization[]>([]);
+  const [selectedBrandKitId, setSelectedBrandKitId] = useState("");
+  const [isSavingBrandKit, setIsSavingBrandKit] = useState(false);
   const colorRequestKey = [
     form.topic,
     form.purpose,
@@ -399,9 +472,31 @@ export function AiPptMockupPage() {
   const selectedFont =
     fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
   const payloadPreview = useMemo(
-    () => buildAiPptGenerateDeckPayload(form, selectedPalette, [], selectedFont),
-    [form, selectedPalette, selectedFont]
+    () =>
+      buildAiPptGenerateDeckPayload(
+        form,
+        selectedPalette,
+        [],
+        selectedFont,
+        undefined,
+        designPacks.find((pack) => pack.id === selectedDesignPackId),
+        brandKits.find((kit) => kit.id === selectedBrandKitId)
+      ),
+    [
+      brandKits,
+      designPacks,
+      form,
+      selectedBrandKitId,
+      selectedDesignPackId,
+      selectedFont,
+      selectedPalette
+    ]
   );
+
+  useEffect(() => {
+    void loadDesignPacks();
+    void loadBrandKits();
+  }, []);
 
   useEffect(() => {
     if (fontOptions.some((font) => font.fontId === selectedFontId)) return;
@@ -425,6 +520,202 @@ export function AiPptMockupPage() {
     value: AiPptWizardState[K]
   ) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function loadDesignPacks(preferredId?: string) {
+    try {
+      const packs = await fetchSavedDesignPacks();
+      setDesignPacks(packs);
+      const nextId =
+        preferredId ||
+        (packs.some((pack) => pack.id === selectedDesignPackId)
+          ? selectedDesignPackId
+          : packs.find((pack) => pack.isDefault)?.id) ||
+        "";
+      setSelectedDesignPackId(nextId);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Saved Design Pack 목록을 불러오지 못했습니다."
+      );
+    }
+  }
+
+  async function loadBrandKits() {
+    try {
+      const catalog = await fetchAvailableBrandKitCatalog();
+      setOrganizations(catalog.organizations);
+      setBrandKits(catalog.brandKits);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Brand Kit 목록을 불러오지 못했습니다."
+      );
+    }
+  }
+
+  async function createBrandKitOrganization() {
+    const name = window.prompt("새 조직 이름", "My Organization");
+    if (!name?.trim()) return;
+    try {
+      await createOrganization(name);
+      await loadBrandKits();
+      setStatus("Brand Kit 조직이 생성되었습니다.");
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "조직을 생성하지 못했습니다."
+      );
+    }
+  }
+
+  async function saveCurrentBrandKit() {
+    const selected = brandKits.find((kit) => kit.id === selectedBrandKitId);
+    const organization = organizations.find(
+      (candidate) =>
+        candidate.role === "admin" &&
+        (!selected || candidate.id === selected.organizationId)
+    );
+    if (!organization) {
+      setError("Brand Kit을 관리할 수 있는 조직 관리자 권한이 필요합니다.");
+      return;
+    }
+    const name = window.prompt(
+      selected ? "Brand Kit 이름" : "새 Brand Kit 이름",
+      selected?.name ?? `${organization.name} Brand Kit`
+    );
+    if (!name?.trim()) return;
+
+    setIsSavingBrandKit(true);
+    setError("");
+    try {
+      const values = buildBrandKitValues(
+        form,
+        selectedPalette,
+        selectedFont,
+        selected?.values
+      );
+      const saved = selected
+        ? await updateBrandKit(organization.id, selected.id, { name, values })
+        : await createBrandKit(organization.id, { name, values });
+      await loadBrandKits();
+      setSelectedBrandKitId(saved.id);
+      setStatus("Organization Brand Kit이 저장되었습니다.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Brand Kit을 저장하지 못했습니다."
+      );
+    } finally {
+      setIsSavingBrandKit(false);
+    }
+  }
+
+  async function deleteCurrentBrandKit() {
+    const selected = brandKits.find((kit) => kit.id === selectedBrandKitId);
+    const organization = organizations.find(
+      (candidate) =>
+        candidate.id === selected?.organizationId && candidate.role === "admin"
+    );
+    if (!selected || !organization) return;
+    if (!window.confirm(`'${selected.name}' Brand Kit을 삭제할까요?`)) return;
+    await deleteBrandKit(organization.id, selected.id);
+    setSelectedBrandKitId("");
+    await loadBrandKits();
+  }
+
+  function applyDesignPack(packId: string) {
+    setSelectedDesignPackId(packId);
+    const pack = designPacks.find((candidate) => candidate.id === packId);
+    if (!pack) return;
+
+    setForm((current) => ({
+      ...current,
+      tone: pack.preferences.tone,
+      mediaPolicy: pack.preferences.mediaPolicy,
+      referencePolicy: pack.preferences.referencePolicy
+    }));
+    const palette = completeSavedPalette(pack, selectedPalette.palette);
+    const optionId = `saved-${pack.id}`;
+    setPaletteOptions((current) => [
+      {
+        optionId,
+        name: pack.name,
+        rationale: "Saved Design Pack palette",
+        palette
+      },
+      ...current.filter((option) => option.optionId !== optionId)
+    ]);
+    setSelectedPaletteId(optionId);
+    const savedFont = fontOptions.find(
+      (font) =>
+        font.headingFontFamily === pack.preferences.typography.headingFontFamily
+    );
+    if (savedFont) setSelectedFontId(savedFont.fontId);
+  }
+
+  async function saveCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    const canUpdate = selected?.ownerType === "user";
+    const requestedName = window.prompt(
+      canUpdate ? "Design Pack 이름" : "새 Design Pack 이름",
+      canUpdate ? selected.name : `${form.topic.trim() || "My"} Design Pack`
+    );
+    if (!requestedName?.trim()) return;
+
+    setIsSavingDesignPack(true);
+    setError("");
+    try {
+      const body = buildSavedDesignPackInput(
+        requestedName,
+        form,
+        selectedPalette,
+        selectedFont,
+        selected?.isDefault ?? false
+      );
+      const saved = canUpdate
+        ? await updateSavedDesignPack(selected.id, body)
+        : await createSavedDesignPack(body);
+      await loadDesignPacks(saved.id);
+      setStatus("Saved Design Pack이 저장되었습니다.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Saved Design Pack을 저장하지 못했습니다."
+      );
+    } finally {
+      setIsSavingDesignPack(false);
+    }
+  }
+
+  async function duplicateCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected) return;
+    const name = window.prompt("복제할 Design Pack 이름", `${selected.name} Copy`);
+    if (!name?.trim()) return;
+    const duplicated = await duplicateSavedDesignPack(selected.id, name);
+    await loadDesignPacks(duplicated.id);
+  }
+
+  async function deleteCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    if (!window.confirm(`'${selected.name}' Design Pack을 삭제할까요?`)) return;
+    await deleteSavedDesignPack(selected.id);
+    setSelectedDesignPackId("");
+    await loadDesignPacks();
+  }
+
+  async function setCurrentDesignPackDefault() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    const saved = await setDefaultSavedDesignPack(selected.id);
+    await loadDesignPacks(saved.id);
   }
 
   function goToStep(step: StepId) {
@@ -482,6 +773,7 @@ export function AiPptMockupPage() {
 
     setIsGenerating(true);
     setError("");
+    setQualityFailure(null);
     setStatus("프로젝트 생성 중...");
     setJob(null);
 
@@ -497,19 +789,30 @@ export function AiPptMockupPage() {
         );
         referenceFileIds.push(uploaded.fileId);
       }
+      const officialAssetFileIds: string[] = [];
+      for (const file of officialAssetFiles) {
+        setStatus(`${file.name} 공식 이미지 업로드 중...`);
+        const uploaded = await uploadProjectAsset(
+          project.projectId,
+          file,
+          "reference-material"
+        );
+        officialAssetFileIds.push(uploaded.fileId);
+      }
+      const groundingFileIds = [...referenceFileIds, ...officialAssetFileIds];
 
       let referenceGrounding: ReferenceGrounding = {
         referenceContext: [],
         referenceKeywords: []
       };
       if (
-        referenceFileIds.length > 0 &&
+        groundingFileIds.length > 0 &&
         !["topic-only", "user-input-only"].includes(form.referencePolicy)
       ) {
         setStatus("참고자료 추출 job 시작 중...");
         const extractionJob = await startReferenceExtraction(
           project.projectId,
-          referenceFileIds
+          groundingFileIds
         );
         setJob(extractionJob);
         setStatus("참고자료 분석 중...");
@@ -528,7 +831,7 @@ export function AiPptMockupPage() {
           );
           const referenceError = getReferenceExtractionValidationMessage(
             form.referencePolicy,
-            referenceFileIds,
+            groundingFileIds,
             extractionResult
           );
           if (referenceError) throw new Error(referenceError);
@@ -571,7 +874,7 @@ export function AiPptMockupPage() {
         };
       }
 
-      setStatus("Deck JSON 생성 job 시작 중...");
+      setStatus(`1/${generationStages.length} ${generationStages[0]}`);
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
         {
@@ -585,6 +888,9 @@ export function AiPptMockupPage() {
               referenceFileIds,
               selectedFont,
               referenceGrounding,
+              designPacks.find((pack) => pack.id === selectedDesignPackId),
+              brandKits.find((kit) => kit.id === selectedBrandKitId),
+              officialAssetFileIds,
               coachingContext
             )
           )
@@ -596,10 +902,19 @@ export function AiPptMockupPage() {
 
       const data = (await response.json()) as { job: Job };
       setJob(data.job);
-      setStatus("Deck JSON 생성 중...");
-      const completed = await pollJob(data.job.jobId);
+      setStatus(getAiPptGenerationStatus(data.job));
+      const completed = await pollJob(data.job.jobId, (current) => {
+        setJob(current);
+        setStatus(getAiPptGenerationStatus(current));
+      });
       setJob(completed);
       if (completed.status === "failed") {
+        const qualityGateFailure = getAiPptQualityFailure(completed);
+        if (qualityGateFailure) {
+          setQualityFailure(qualityGateFailure);
+          setStatus("");
+          return;
+        }
         throw new Error(completed.error?.message || completed.message);
       }
 
@@ -666,10 +981,26 @@ export function AiPptMockupPage() {
             ) : null}
             {currentStep === "style" ? (
               <StyleStep
+                designPacks={designPacks}
+                brandKits={brandKits}
                 fontOptions={fontOptions}
                 form={form}
+                isSavingBrandKit={isSavingBrandKit}
+                isSavingDesignPack={isSavingDesignPack}
+                organizations={organizations}
+                onApplyDesignPack={applyDesignPack}
+                onApplyBrandKit={setSelectedBrandKitId}
                 onChange={updateForm}
+                onCreateOrganization={() => void createBrandKitOrganization()}
+                onDeleteBrandKit={() => void deleteCurrentBrandKit()}
+                onDeleteDesignPack={() => void deleteCurrentDesignPack()}
+                onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
                 onFontSelect={setSelectedFontId}
+                onSaveDesignPack={() => void saveCurrentDesignPack()}
+                onSaveBrandKit={() => void saveCurrentBrandKit()}
+                onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
+                selectedDesignPackId={selectedDesignPackId}
+                selectedBrandKitId={selectedBrandKitId}
                 selectedFontId={selectedFont.fontId}
               />
             ) : null}
@@ -686,15 +1017,18 @@ export function AiPptMockupPage() {
             {currentStep === "references" ? (
               <ReferencesStep
                 files={referenceFiles}
+                officialAssetFiles={officialAssetFiles}
                 form={form}
                 onChange={updateForm}
                 onFilesChange={setReferenceFiles}
+                onOfficialAssetFilesChange={setOfficialAssetFiles}
               />
             ) : null}
             {currentStep === "review" ? (
               <ReviewStep
                 payload={payloadPreview}
                 referenceFiles={referenceFiles}
+                officialAssetFiles={officialAssetFiles}
                 selectedFont={selectedFont}
                 selectedPalette={selectedPalette}
               />
@@ -708,6 +1042,13 @@ export function AiPptMockupPage() {
               />
             ) : null}
             {error ? <p className="ai-ppt-error">{error}</p> : null}
+            {qualityFailure ? (
+              <QualityFailurePanel
+                failure={qualityFailure}
+                isGenerating={isGenerating}
+                onRetry={() => void submitGeneration()}
+              />
+            ) : null}
             {status ? <p className="ai-ppt-status">{status}</p> : null}
           </section>
 
@@ -734,7 +1075,11 @@ export function AiPptMockupPage() {
         </button>
         <button
           className="ai-ppt-primary"
-          disabled={currentStep === "preview" || isGenerating}
+          disabled={
+            currentStep === "preview" ||
+            isGenerating ||
+            (currentStep === "brief" && Boolean(getAiPptWizardValidationMessage(form)))
+          }
           type="button"
           onClick={goNext}
         >
@@ -756,6 +1101,38 @@ export function AiPptMockupPage() {
           )}
         </button>
       </footer>
+    </section>
+  );
+}
+
+function QualityFailurePanel(props: {
+  failure: AiPptQualityFailure;
+  isGenerating: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="ai-ppt-quality-failure" role="alert">
+      <strong>품질 검증 결과가 발행 조건을 충족하지 못했습니다.</strong>
+      <ul>
+        {props.failure.issues.map((issue, index) => (
+          <li key={`${issue.code}-${issue.slide ?? 0}-${index}`}>
+            <b>{issue.code}</b>
+            {issue.slide ? ` · ${issue.slide}번 슬라이드` : ""}: {issue.message}
+          </li>
+        ))}
+      </ul>
+      {props.failure.remainingCount > 0 ? (
+        <p>그 외 {props.failure.remainingCount}개 이슈가 있습니다.</p>
+      ) : null}
+      <button
+        className="ai-ppt-secondary"
+        disabled={props.isGenerating}
+        type="button"
+        onClick={props.onRetry}
+      >
+        <Play size={16} />
+        동일 조건으로 다시 생성
+      </button>
     </section>
   );
 }
@@ -791,70 +1168,162 @@ function BriefStep(props: {
         </p>
       ) : null}
       <div className="ai-ppt-field-grid">
-        <TextField
-          label="발표 주제"
-          value={props.form.topic}
-          onChange={(value) => props.onChange("topic", value)}
-        />
-        <TextField
-          label="발표 목적"
-          value={props.form.purpose}
-          onChange={(value) => props.onChange("purpose", value)}
-        />
-        <TextField
-          label="발표 맥락"
-          value={props.form.context}
-          onChange={(value) => props.onChange("context", value)}
-        />
-        <TextField
-          label="청중"
-          value={props.form.audience}
-          onChange={(value) => props.onChange("audience", value)}
-        />
-        <TextField
-          label="발표 유형"
-          value={props.form.presentationType}
-          onChange={(value) => props.onChange("presentationType", value)}
-        />
-        <TextField
-          label="성공 기준"
-          value={props.form.successCriteria}
-          onChange={(value) => props.onChange("successCriteria", value)}
-        />
-        <TextField
-          label="발표 시간"
-          value={props.form.duration}
-          suffix="분"
-          onChange={(value) => props.onChange("duration", value)}
-        />
-        <TextField
-          label="슬라이드 수"
-          value={props.form.slides}
-          suffix="장"
-          onChange={(value) => props.onChange("slides", value)}
-        />
+        <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+        <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
+        <TextField label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
+        <TextField label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
+        <TextField label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
+        <TextField label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
+        <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+        <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
       </div>
     </>
   );
 }
 
 function StyleStep(props: {
+  brandKits: BrandKit[];
+  designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
+  isSavingBrandKit: boolean;
+  isSavingDesignPack: boolean;
+  organizations: AvailableOrganization[];
+  onApplyBrandKit: (brandKitId: string) => void;
+  onApplyDesignPack: (packId: string) => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
+  onCreateOrganization: () => void;
+  onDeleteBrandKit: () => void;
+  onDeleteDesignPack: () => void;
+  onDuplicateDesignPack: () => void;
   onFontSelect: (fontId: string) => void;
+  onSaveDesignPack: () => void;
+  onSaveBrandKit: () => void;
+  onSetDefaultDesignPack: () => void;
+  selectedBrandKitId: string;
+  selectedDesignPackId: string;
   selectedFontId: string;
 }) {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
+  const selectedPack = props.designPacks.find(
+    (pack) => pack.id === props.selectedDesignPackId
+  );
+  const selectedBrandKit = props.brandKits.find(
+    (kit) => kit.id === props.selectedBrandKitId
+  );
+  const canManageSelectedBrandKit = props.organizations.some(
+    (organization) =>
+      organization.id === selectedBrandKit?.organizationId &&
+      organization.role === "admin"
+  );
+  const hasAdminOrganization = props.organizations.some(
+    (organization) => organization.role === "admin"
+  );
   return (
     <>
       <PanelHeading
         kicker="2. Style"
         title="ORBIT Design Pack에 얹을 톤 선택"
       />
+      <div className="ai-ppt-pack-manager">
+        <label>
+          <span>Saved Design Pack</span>
+          <select
+            value={props.selectedDesignPackId}
+            onChange={(event) => props.onApplyDesignPack(event.target.value)}
+          >
+            <option value="">현재 세션 설정</option>
+            {props.designPacks.map((pack) => (
+              <option key={pack.id} value={pack.id}>
+                {pack.isDefault ? "★ " : ""}{pack.name}
+                {pack.ownerType === "system" ? " (Preset)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <button
+            type="button"
+            title={selectedPack?.ownerType === "user" ? "Design Pack 수정 저장" : "새 Design Pack 저장"}
+            disabled={props.isSavingDesignPack}
+            onClick={props.onSaveDesignPack}
+          >
+            {selectedPack?.ownerType === "user" ? <Pencil size={16} /> : <Save size={16} />}
+          </button>
+          <button
+            type="button"
+            title="Design Pack 복제"
+            disabled={!selectedPack}
+            onClick={props.onDuplicateDesignPack}
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            type="button"
+            title="기본 Design Pack 지정"
+            disabled={selectedPack?.ownerType !== "user" || selectedPack.isDefault}
+            onClick={props.onSetDefaultDesignPack}
+          >
+            <Star size={16} />
+          </button>
+          <button
+            type="button"
+            title="Design Pack 삭제"
+            disabled={selectedPack?.ownerType !== "user"}
+            onClick={props.onDeleteDesignPack}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+      <div className="ai-ppt-pack-manager">
+        <label>
+          <span>Organization Brand Kit</span>
+          <select
+            value={props.selectedBrandKitId}
+            onChange={(event) => props.onApplyBrandKit(event.target.value)}
+          >
+            <option value="">Brand Kit 사용 안 함</option>
+            {props.brandKits.map((kit) => (
+              <option key={kit.id} value={kit.id}>
+                {kit.name} · v{kit.version}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <button
+            type="button"
+            title="새 조직 생성"
+            onClick={props.onCreateOrganization}
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            type="button"
+            title={selectedBrandKit ? "Brand Kit 수정 저장" : "새 Brand Kit 저장"}
+            disabled={
+              props.isSavingBrandKit ||
+              (!selectedBrandKit && !hasAdminOrganization) ||
+              Boolean(selectedBrandKit && !canManageSelectedBrandKit)
+            }
+            onClick={props.onSaveBrandKit}
+          >
+            {selectedBrandKit ? <Pencil size={16} /> : <Save size={16} />}
+          </button>
+          <button
+            type="button"
+            title="Brand Kit 삭제"
+            disabled={!selectedBrandKit || !canManageSelectedBrandKit}
+            onClick={props.onDeleteBrandKit}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
           <button
@@ -946,9 +1415,11 @@ function ColorStep(props: {
 
 function ReferencesStep(props: {
   files: File[];
+  officialAssetFiles: File[];
   form: AiPptWizardState;
   onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
   onFilesChange: (files: File[]) => void;
+  onOfficialAssetFilesChange: (files: File[]) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -1104,6 +1575,33 @@ function ReferencesStep(props: {
           </div>
         </fieldset>
       </div>
+      {props.form.mediaPolicy === "hybrid" ? (
+        <label className="ai-ppt-reference-drop ai-ppt-official-asset-drop">
+          <ImageIcon size={28} />
+          <strong>
+            {props.officialAssetFiles.length
+              ? `공식 이미지 ${props.officialAssetFiles.length}개 선택됨`
+              : "공식 이미지 업로드 (권장)"}
+          </strong>
+          <span>
+            제품 화면, 공식 발표 그래프, 보도용 이미지를 올리세요. 로고는 Brand Kit 등록을 권장합니다.
+          </span>
+          <input
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            type="file"
+            onChange={(event) =>
+              props.onOfficialAssetFilesChange(filesFromEvent(event))
+            }
+          />
+        </label>
+      ) : null}
+      <div className="ai-ppt-media-policy-help">
+        <strong>공식 이미지</strong>
+        <span>회사·기관이 직접 제공한 제품 화면, 공식 그래프, 보도용 이미지</span>
+        <strong>공개 이미지</strong>
+        <span>Openverse 등에서 검색한 제3자 라이선스 이미지</span>
+      </div>
     </>
   );
 }
@@ -1136,6 +1634,7 @@ function PolicyChoiceButton<T extends string>(props: {
 function ReviewStep(props: {
   payload: GenerateDeckRequest;
   referenceFiles: File[];
+  officialAssetFiles: File[];
   selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
@@ -1159,6 +1658,13 @@ function ReviewStep(props: {
           <p>{props.payload.brief?.referencePolicy}</p>
           <span>{props.payload.design.mediaPolicy}</span>
           <span>{props.referenceFiles.length} files selected</span>
+          <span>{props.officialAssetFiles.length} official images selected</span>
+        </SummaryCard>
+        <SummaryCard icon={<Layers3 size={18} />} title="Style priority">
+          <p>Base → Saved → Session → Brand Kit lock → Hard Rules</p>
+          <span>
+            Saved: {props.payload.savedDesignPack?.id ?? "none"} · Brand: {props.payload.brandKit?.id ?? "none"}
+          </span>
         </SummaryCard>
       </div>
       <details>
@@ -1453,6 +1959,7 @@ function SummaryCard(props: { children: ReactNode; icon: ReactNode; title: strin
 function TextField(props: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   suffix?: string;
   value: string;
 }) {
@@ -1460,11 +1967,270 @@ function TextField(props: {
     <label className="ai-ppt-field">
       <span>{props.label}</span>
       <div>
-        <input value={props.value} onChange={(event) => props.onChange(event.target.value)} />
+        <input
+          placeholder={props.placeholder}
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
         {props.suffix ? <em>{props.suffix}</em> : null}
       </div>
     </label>
   );
+}
+
+type SavedDesignPackInput = {
+  name: string;
+  description: string;
+  baseStylePackId: string;
+  preferences: SavedDesignPack["preferences"];
+  isDefault: boolean;
+};
+
+export function buildSavedDesignPackInput(
+  name: string,
+  form: AiPptWizardState,
+  palette: PaletteOption,
+  font: GenerateDeckFontOption,
+  isDefault = false
+): SavedDesignPackInput {
+  return {
+    name: name.trim(),
+    description: `${form.presentationType.trim()} / ${form.audience.trim()}`,
+    baseStylePackId: stylePackId,
+    preferences: {
+      palette: palette.palette,
+      typography: {
+        headingFontFamily: font.headingFontFamily,
+        bodyFontFamily: font.bodyFontFamily,
+        fallbackFamily: font.fallbackFamily,
+        titleSizeScale: font.recommendedTitleSize / 48,
+        bodySizeScale: font.recommendedBodySize / 22,
+        lineHeight: Math.max(1.2, font.lineHeight)
+      },
+      tone: form.tone,
+      density: "medium",
+      titleStyle: "action",
+      layoutPreference: "varied",
+      imageDensity:
+        form.mediaPolicy === "minimal"
+          ? "none"
+          : ["ai-generated", "public-assets", "hybrid"].includes(
+                form.mediaPolicy
+              )
+            ? "medium"
+            : "low",
+      mediaPolicy: form.mediaPolicy,
+      referencePolicy: form.referencePolicy,
+      qaStrictness: "standard"
+    },
+    isDefault
+  };
+}
+
+export function buildBrandKitValues(
+  form: AiPptWizardState,
+  palette: PaletteOption,
+  font: GenerateDeckFontOption,
+  existing?: BrandKitValues
+): BrandKitValues {
+  return {
+    ...(existing?.logoAssetId ? { logoAssetId: existing.logoAssetId } : {}),
+    palette: palette.palette,
+    forbiddenColors: existing?.forbiddenColors ?? [],
+    typography: {
+      headingFontFamily: font.headingFontFamily,
+      bodyFontFamily: font.bodyFontFamily,
+      fallbackFamily: font.fallbackFamily
+    },
+    tone: form.tone,
+    mediaPolicy: form.mediaPolicy,
+    writingStyle: existing?.writingStyle ?? "",
+    coverRules: existing?.coverRules ?? "",
+    footerRules: existing?.footerRules ?? "",
+    approvedAssetIds: existing?.approvedAssetIds ?? [],
+    lockedFields: existing?.lockedFields ?? [
+      "palette",
+      "typography",
+      "tone",
+      "mediaPolicy"
+    ]
+  };
+}
+
+function completeSavedPalette(
+  pack: SavedDesignPack,
+  fallback: Required<PaletteOverride>
+): Required<PaletteOverride> {
+  return { ...fallback, ...pack.preferences.palette };
+}
+
+export async function fetchSavedDesignPacks(): Promise<SavedDesignPack[]> {
+  const response = await fetch("/api/v1/design-packs", {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 목록을 불러오지 못했습니다."));
+  }
+  const payload = (await response.json()) as { packs: SavedDesignPack[] };
+  return payload.packs;
+}
+
+export async function fetchAvailableBrandKits(): Promise<BrandKit[]> {
+  return (await fetchAvailableBrandKitCatalog()).brandKits;
+}
+
+export async function fetchAvailableBrandKitCatalog(): Promise<{
+  organizations: AvailableOrganization[];
+  brandKits: BrandKit[];
+}> {
+  const organizationResponse = await fetch("/api/v1/organizations", {
+    credentials: "include"
+  });
+  if (!organizationResponse.ok) {
+    throw new Error(await readResponseText(organizationResponse, "조직 목록을 불러오지 못했습니다."));
+  }
+  const organizationPayload = (await organizationResponse.json()) as {
+    organizations: AvailableOrganization[];
+  };
+  const responses = await Promise.all(
+    organizationPayload.organizations.map(async (organization) => {
+      const response = await fetch(
+        `/api/v1/organizations/${encodeURIComponent(organization.id)}/brand-kits`,
+        { credentials: "include" }
+      );
+      if (!response.ok) {
+        throw new Error(await readResponseText(response, "Brand Kit 목록을 불러오지 못했습니다."));
+      }
+      return ((await response.json()) as { brandKits: BrandKit[] }).brandKits;
+    })
+  );
+  return {
+    organizations: organizationPayload.organizations,
+    brandKits: responses.flat()
+  };
+}
+
+async function createOrganization(name: string): Promise<AvailableOrganization> {
+  const response = await fetch("/api/v1/organizations", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ name })
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "조직을 생성하지 못했습니다."));
+  }
+  return { ...((await response.json()) as Organization), role: "admin" };
+}
+
+async function createBrandKit(
+  organizationId: string,
+  body: { name: string; values: BrandKitValues }
+): Promise<BrandKit> {
+  return writeBrandKit(organizationId, "", "POST", body);
+}
+
+async function updateBrandKit(
+  organizationId: string,
+  brandKitId: string,
+  body: { name: string; values: BrandKitValues }
+): Promise<BrandKit> {
+  return writeBrandKit(organizationId, brandKitId, "PATCH", body);
+}
+
+async function deleteBrandKit(organizationId: string, brandKitId: string) {
+  const response = await fetch(
+    `/api/v1/organizations/${encodeURIComponent(organizationId)}/brand-kits/${encodeURIComponent(brandKitId)}`,
+    { method: "DELETE", credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Brand Kit을 삭제하지 못했습니다."));
+  }
+}
+
+async function writeBrandKit(
+  organizationId: string,
+  brandKitId: string,
+  method: "POST" | "PATCH",
+  body: unknown
+): Promise<BrandKit> {
+  const suffix = brandKitId ? `/${encodeURIComponent(brandKitId)}` : "";
+  const response = await fetch(
+    `/api/v1/organizations/${encodeURIComponent(organizationId)}/brand-kits${suffix}`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body)
+    }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Brand Kit 작업을 완료하지 못했습니다."));
+  }
+  return (await response.json()) as BrandKit;
+}
+
+async function createSavedDesignPack(
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack("/api/v1/design-packs", "POST", input);
+}
+
+async function updateSavedDesignPack(
+  packId: string,
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    "PATCH",
+    input
+  );
+}
+
+async function duplicateSavedDesignPack(
+  packId: string,
+  name: string
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/duplicate`,
+    "POST",
+    { name }
+  );
+}
+
+async function setDefaultSavedDesignPack(packId: string): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/default`,
+    "POST",
+    {}
+  );
+}
+
+async function deleteSavedDesignPack(packId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    { method: "DELETE", credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack을 삭제하지 못했습니다."));
+  }
+}
+
+async function writeSavedDesignPack(
+  url: string,
+  method: "POST" | "PATCH",
+  body: unknown
+): Promise<SavedDesignPack> {
+  const response = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 작업을 완료하지 못했습니다."));
+  }
+  return (await response.json()) as SavedDesignPack;
 }
 
 async function fetchDeckColorOptions(input: {
@@ -1557,9 +2323,12 @@ export function getReferenceExtractionValidationMessage(
   return "";
 }
 
-export async function pollJob(jobId: string): Promise<Job> {
+export async function pollJob(
+  jobId: string,
+  onUpdate?: (job: Job) => void
+): Promise<Job> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 300_000) {
+  while (Date.now() - startedAt < 900_000) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include"
     });
@@ -1568,12 +2337,89 @@ export async function pollJob(jobId: string): Promise<Job> {
     }
     const payload = (await response.json()) as { job: Job } | Job;
     const job = "job" in payload ? payload.job : payload;
+    onUpdate?.(job);
     if (job.status === "succeeded" || job.status === "failed") {
       return job;
     }
     await delay(1200);
   }
   throw new Error("AI PPT 생성 시간이 초과되었습니다.");
+}
+
+export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
+  const qualityFailureCodes = new Set([
+    "GENERATE_DECK_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+  ]);
+  if (
+    job.status !== "failed" ||
+    !job.error?.code ||
+    !qualityFailureCodes.has(job.error.code)
+  ) {
+    return null;
+  }
+  const validation = generateDeckValidationSchema.safeParse(
+    job.result && typeof job.result === "object" && "validation" in job.result
+      ? job.result.validation
+      : null
+  );
+  if (!validation.success) {
+    return {
+      issues: [
+        {
+          code: job.error.code,
+          message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+        }
+      ],
+      remainingCount: 0
+    };
+  }
+  const issues = [
+    ...validation.data.layoutIssues,
+    ...validation.data.contentIssues,
+    ...validation.data.designIssues,
+    ...validation.data.presentationIssues
+  ].map((issue) => {
+    const match = issue.path.match(/^slides\.(\d+)/);
+    return {
+      code: issue.code,
+      message: issue.message,
+      ...(match ? { slide: Number(match[1]) + 1 } : {})
+    };
+  });
+  const visibleIssues =
+    issues.length > 0
+      ? issues
+      : [
+          {
+            code: job.error.code,
+            message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+          }
+        ];
+  return {
+    issues: visibleIssues.slice(0, 5),
+    remainingCount: Math.max(0, visibleIssues.length - 5)
+  };
+}
+
+export function getAiPptGenerationStatus(job: Job) {
+  const progress = Math.max(0, Math.min(100, job.progress));
+  const stageIndex =
+    progress >= 95
+      ? 6
+      : progress >= 80
+        ? 5
+        : progress >= 70
+          ? 4
+          : progress >= 60
+            ? 3
+            : progress >= 40
+              ? 2
+              : progress >= 25
+                ? 1
+                : 0;
+  return `${stageIndex + 1}/${generationStages.length} ${generationStages[stageIndex]}`;
 }
 
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
@@ -1679,7 +2525,15 @@ function presentationSlideRatioFor(state: AiPptWizardState) {
 function resolveDesignConstraints(state: AiPptWizardState): DesignConstraints {
   const source = colorSource(state);
   return {
-    canvasBackground: hasAny(source, ["white", "흰", "화이트", "백색"])
+    canvasBackground: hasAny(source, [
+      "white background",
+      "background white",
+      "흰색 배경",
+      "흰 색 배경",
+      "흰 배경",
+      "화이트 배경",
+      "백색 배경"
+    ])
       ? "white"
       : "auto",
     forbiddenStyles: resolveForbiddenStyles(source)
@@ -1706,9 +2560,20 @@ function resolveColorIntent(state: AiPptWizardState): ColorIntent {
         ? "casual"
         : "professional",
     preferredHue: resolvePreferredHue(source),
-    backgroundPreference: constraints.canvasBackground === "white" ? "white" : "auto",
+    backgroundPreference: resolveBackgroundPreference(source, constraints),
     forbiddenStyles: constraints.forbiddenStyles
   };
+}
+
+function resolveBackgroundPreference(
+  source: string,
+  constraints: DesignConstraints
+): ColorIntent["backgroundPreference"] {
+  if (constraints.canvasBackground === "white") return "white";
+  if (hasAny(source, ["black", "dark", "검은", "검정", "블랙", "어두운", "다크"])) {
+    return "dark";
+  }
+  return "auto";
 }
 
 function resolveMood(source: string): ColorIntent["mood"] {
@@ -1746,7 +2611,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "no gradient",
       "without gradient",
       "그라데이션 금지",
-      "그라데이션 제외"
+      "그라데이션 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("gradient");
@@ -1757,7 +2624,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "without pastel",
       "파스텔 금지",
       "파스텔톤 금지",
-      "파스텔 제외"
+      "파스텔 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("pastel");
@@ -1857,7 +2726,7 @@ function advisorResponse(question: string, state: AiPptWizardState) {
     return `${state.fontMood || "전문적인 한글 고딕"} 기준으로 후보 3개를 다시 추천합니다. 마음에 드는 카드를 선택하면 payload에 반영됩니다.`;
   }
   if (hasAny(question.toLocaleLowerCase("ko-KR"), ["image", "이미지", "사진"])) {
-    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. ai-generated를 선택하면 2차에서는 실제 이미지 파일을 만들지 않고 Deck JSON에 이미지 계획, placeholder, 교체 근거를 남깁니다.`;
+    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. hybrid는 공식 근거 이미지를 우선 사용하고 분위기 연출이 필요한 장면만 AI 이미지로 생성합니다.`;
   }
   return "발표 시간, 청중, 참고자료 정책을 기준으로 적용 가능한 제안을 아래에 표시했습니다.";
 }

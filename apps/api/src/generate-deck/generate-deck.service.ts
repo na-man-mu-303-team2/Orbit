@@ -21,6 +21,8 @@ import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import { OrganizationsService } from "../organizations/organizations.service";
+import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
 const generateDeckJobResponseSchema = z.object({
@@ -45,22 +47,58 @@ export class GenerateDeckService {
     @Optional()
     private readonly filesService?: FilesService,
     @Optional()
+    private readonly savedDesignPacksService?: SavedDesignPacksService,
+    @Optional()
+    private readonly organizationsService?: OrganizationsService,
+    @Optional()
     private readonly presentationBriefs?: PresentationBriefsService
   ) {}
 
   async createJob(
     projectId: string,
-    body: unknown
+    body: unknown,
+    userId?: string
   ): Promise<GenerateDeckJobResponse> {
     await this.projectsService.getAccessibleProject(projectId);
 
-    const request = generateDeckRequestSchema.parse(body);
+    const parsedRequest = generateDeckRequestSchema.parse(body);
+    const resolved =
+      this.savedDesignPacksService && userId
+        ? await this.savedDesignPacksService.resolveGenerationRequest(
+            parsedRequest,
+            body,
+            userId
+          )
+        : { request: parsedRequest };
+    const brandResolved =
+      this.organizationsService && userId
+        ? await this.organizationsService.resolveGenerationRequest(
+            resolved.request,
+            userId
+          )
+        : { request: resolved.request };
+    const request = brandResolved.request;
     await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertDesignReferences(projectId, request.designReferences);
+    await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
-      payload: { request }
+      payload: {
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId,
+                ...(brandResolved.snapshot
+                  ? { organizationId: brandResolved.snapshot.organizationId }
+                  : {})
+              }
+            }
+          : {})
+      }
     });
 
     try {
@@ -69,7 +107,19 @@ export class GenerateDeckService {
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(brandResolved.snapshot ? { brandKitSnapshot: brandResolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId,
+                ...(brandResolved.snapshot
+                  ? { organizationId: brandResolved.snapshot.organizationId }
+                  : {})
+              }
+            }
+          : {})
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
@@ -146,6 +196,23 @@ export class GenerateDeckService {
 
       if (asset.mimeType !== pptxMimeType) {
         throw new BadRequestException("Design references must be uploaded PPTX files.");
+      }
+    }
+  }
+
+  private async assertOfficialAssets(
+    projectId: string,
+    officialAssetFileIds: string[]
+  ): Promise<void> {
+    if (officialAssetFileIds.length === 0) return;
+    if (!this.filesService) {
+      throw new BadRequestException("Official asset validation is unavailable.");
+    }
+
+    for (const fileId of officialAssetFileIds) {
+      const asset = await this.filesService.getUploadedAsset(projectId, fileId);
+      if (!asset.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Official assets must be uploaded image files.");
       }
     }
   }

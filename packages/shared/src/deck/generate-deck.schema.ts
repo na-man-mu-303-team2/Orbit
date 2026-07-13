@@ -7,7 +7,13 @@ import {
   aiDeckToneSchema,
   deckSchema
 } from "./deck.schema";
-import { deckIdSchema } from "./id.schema";
+import {
+  deckCompositionBackgroundModeSchema,
+  deckCompositionIdSchema
+} from "./composition.schema";
+import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
+import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
+import { brandKitSelectionSchema } from "./brand-kit.schema";
 import { templateBlueprintIdSchema } from "./template-blueprint.schema";
 import { themeColorSchema } from "./theme.schema";
 
@@ -57,8 +63,13 @@ export const generateDeckMediaPolicySchema = z.enum([
   "provided-only",
   "public-assets",
   "ai-generated",
+  "hybrid",
   "minimal"
 ]);
+
+export const generateDeckEngineVersionSchema = z
+  .enum(["recipe-v1", "program-v2"])
+  .default("recipe-v1");
 
 export const generateDeckGenerationModeSchema = z
   .enum(["legacy", "design-pack"])
@@ -156,6 +167,7 @@ export const generateDeckVisualPlanPolicySchema = z
 
 export const generateDeckDesignSchema = z
   .object({
+    engineVersion: generateDeckEngineVersionSchema,
     profile: z
       .enum([
         "executive-report",
@@ -208,9 +220,12 @@ export const generateDeckRequestSchema = z.object({
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
+  savedDesignPack: savedDesignPackSelectionSchema.optional(),
+  brandKit: brandKitSelectionSchema.optional(),
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
   referenceFileIds: z.array(z.string().min(1)).default([]),
+  officialAssetFileIds: z.array(z.string().min(1)).optional(),
   references: z.array(generateDeckReferenceSchema).default([]),
   designReferences: z.array(generateDeckReferenceSchema).default([]),
   templateBlueprintId: templateBlueprintIdSchema.optional(),
@@ -287,10 +302,44 @@ export const generateDeckRepairReasonSchema = z.enum([
   "SLIDE_COUNT_SHORT",
   "CONTENT_DUPLICATED",
   "CONTENT_CAPACITY",
+  "UNSUPPORTED_NUMERIC_CLAIM",
   "SPEAKER_NOTES_SHORT",
   "SPEAKER_NOTES_LONG",
   "SPEAKER_NOTES_REPEATED"
 ]);
+
+export const generateDeckVisualIssueCodeSchema = z.enum([
+  "FOCAL_POINT_WEAK",
+  "BALANCE_WEAK",
+  "IMAGE_CONTENT_MISMATCH",
+  "IMAGE_CROP_WEAK",
+  "LAYOUT_REPETITIVE",
+  "BACKGROUND_RHYTHM_FLAT",
+  "CARD_OVERUSED",
+  "COLOR_HARMONY_WEAK",
+  "VISUAL_STYLE_INCONSISTENT"
+]);
+
+export const generateDeckVisualRepairActionTypeSchema = z.enum([
+  "changeComposition",
+  "increaseFocalScale",
+  "replaceImage",
+  "changeCrop",
+  "switchBackgroundMode",
+  "reduceCards",
+  "promoteMetric",
+  "shortenCopy",
+  "moveSupportingContent"
+]);
+
+export const generateDeckVisualRepairActionSchema = z.object({
+  action: generateDeckVisualRepairActionTypeSchema,
+  slideId: deckSlideIdSchema,
+  targetElementId: deckElementIdSchema.optional(),
+  compositionId: deckCompositionIdSchema.optional(),
+  backgroundMode: deckCompositionBackgroundModeSchema.optional(),
+  reason: z.string().trim().min(1)
+});
 
 export const generateDeckDiagnosticsSchema = z
   .object({
@@ -303,7 +352,11 @@ export const generateDeckDiagnosticsSchema = z
     repairAttempted: z.boolean().default(false),
     repairReasons: z.array(generateDeckRepairReasonSchema).default([]),
     uniqueCoreLayoutCount: z.number().int().nonnegative().default(0),
-    validationIssueCount: z.number().int().nonnegative().default(0)
+    validationIssueCount: z.number().int().nonnegative().default(0),
+    visualQaStatus: z.enum(["not-run", "passed", "failed"]).optional(),
+    visualReviewAttempts: z.number().int().nonnegative().optional(),
+    visualRepairAttempts: z.number().int().nonnegative().optional(),
+    visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional()
   })
   .default({});
 
@@ -352,6 +405,9 @@ export type GenerateDeckReferencePolicy = z.infer<
 export type GenerateDeckMediaPolicy = z.infer<
   typeof generateDeckMediaPolicySchema
 >;
+export type GenerateDeckEngineVersion = z.infer<
+  typeof generateDeckEngineVersionSchema
+>;
 export type GenerateDeckGenerationMode = z.infer<
   typeof generateDeckGenerationModeSchema
 >;
@@ -392,5 +448,11 @@ export type TemplateSelectionItem = z.infer<typeof templateSelectionItemSchema>;
 export type GenerateDeckResponse = z.infer<typeof generateDeckResponseSchema>;
 export type GenerateDeckDiagnostics = z.infer<
   typeof generateDeckDiagnosticsSchema
+>;
+export type GenerateDeckVisualIssueCode = z.infer<
+  typeof generateDeckVisualIssueCodeSchema
+>;
+export type GenerateDeckVisualRepairAction = z.infer<
+  typeof generateDeckVisualRepairActionSchema
 >;
 export type GenerateDeckJobResult = z.infer<typeof generateDeckJobResultSchema>;

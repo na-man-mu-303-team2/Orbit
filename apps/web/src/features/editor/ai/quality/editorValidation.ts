@@ -1,4 +1,5 @@
 import type { Deck, DeckElement, Slide, TextElementProps } from "@orbit/shared";
+import { getSemanticQaIssues } from "@orbit/shared";
 import {
   getKonvaFontStyle,
   getPrimaryTextRun,
@@ -39,8 +40,16 @@ export type EditorValidationItem = {
     | "GRID_ALIGNMENT_INCONSISTENT"
     | "CONTENT_DUPLICATED"
     | "SPEAKER_NOTES_SHORT"
-    | "SPEAKER_NOTES_DENSE";
+    | "SPEAKER_NOTES_DENSE"
+    | "SLIDE_MESSAGE_MULTIPLE"
+    | "NARRATIVE_FLOW_WEAK"
+    | "EVIDENCE_MISMATCH"
+    | "IMAGE_RELEVANCE_WEAK"
+    | "BRAND_KIT_VIOLATION"
+    | "IMAGE_LICENSE_MISSING"
+    | "SPEAKER_NOTES_REPEATED";
   level?: "warning";
+  canonicalIssue?: "TEXT_OVERFLOW";
   message: string;
   slideId?: string;
   severity: "warning" | "risk";
@@ -51,10 +60,15 @@ export function getEditorValidationItems(
   slide?: Slide
 ): EditorValidationItem[] {
   const slides = slide ? [slide] : deck.slides;
+  const deckItems = getEditorDeckValidationItems(deck);
   const slideItems = slides.flatMap((targetSlide) =>
     getEditorSlideValidationItems(deck, targetSlide)
   );
-  return slide ? slideItems : [...getEditorDeckValidationItems(deck), ...slideItems];
+  if (!slide) return [...deckItems, ...slideItems];
+  return [
+    ...deckItems.filter((item) => !item.slideId || item.slideId === slide.slideId),
+    ...slideItems
+  ];
 }
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
@@ -140,8 +154,21 @@ function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
   }
 
   items.push(...getEditorPresentationDeckValidationItems(deck));
+  items.push(
+    ...getSemanticQaIssues(deck).map((issue) => ({
+      issue: issue.code as EditorValidationItem["issue"],
+      message: issue.message,
+      severity: "warning" as const,
+      slideId: slideIdFromIssuePath(deck, issue.path)
+    }))
+  );
 
   return items;
+}
+
+function slideIdFromIssuePath(deck: Deck, path: string) {
+  const match = path.match(/^slides\.(\d+)/);
+  return match ? deck.slides[Number(match[1])]?.slideId : undefined;
 }
 
 function getEditorSlideValidationItems(
@@ -157,22 +184,22 @@ function getEditorSlideValidationItems(
   if (
     presentationRules &&
     targetSpeakerNotesChars > 0 &&
-    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.7)
+    actualSpeakerNotesChars < Math.round(targetSpeakerNotesChars * 0.9)
   ) {
     items.push({
       issue: "SPEAKER_NOTES_SHORT",
-      message: `발표자 메모가 장표별 발화 목표의 70%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      message: `발표자 메모가 장표별 발화 목표의 90%보다 짧습니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
       slideId: slide.slideId,
       severity: "warning"
     });
   } else if (
     presentationRules &&
     targetSpeakerNotesChars > 0 &&
-    actualSpeakerNotesChars > Math.round(targetSpeakerNotesChars * 1.15)
+    actualSpeakerNotesChars > Math.round(targetSpeakerNotesChars * 1.1)
   ) {
     items.push({
       issue: "SPEAKER_NOTES_DENSE",
-      message: `발표자 메모가 장표별 발화 목표의 115%를 초과합니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
+      message: `발표자 메모가 장표별 발화 목표의 110%를 초과합니다. 목표 ${targetSpeakerNotesChars}자, 현재 ${actualSpeakerNotesChars}자입니다.`,
       slideId: slide.slideId,
       severity: "warning"
     });
@@ -227,6 +254,7 @@ function getEditorSlideValidationItems(
         items.push({
           elementId: element.elementId,
           issue: "textOverflow",
+          canonicalIssue: "TEXT_OVERFLOW",
           message: "텍스트가 상자 높이를 넘을 수 있습니다.",
           severity: "warning"
         });
@@ -236,7 +264,9 @@ function getEditorSlideValidationItems(
         items.push({
           elementId: element.elementId,
           issue: "titleWrap",
-          message: "제목이 여러 줄로 줄바꿈되었습니다.",
+          message: deck.metadata.presentationProfile
+            ? "제목이 세 줄 이상으로 줄바꿈되었습니다."
+            : "제목이 여러 줄로 줄바꿈되었습니다.",
           severity: "warning"
         });
       }
@@ -450,7 +480,11 @@ function getEditorPresentationSlideValidationItems(
   }
 
   items.push(...getEditorTypographyValidationItems(slide, slideIndex));
-  items.push(...getEditorVisualHierarchyValidationItems(slide, visualType));
+  const hierarchyItems = getEditorVisualHierarchyValidationItems(slide, visualType);
+  items.push(...hierarchyItems);
+  if (hierarchyItems.length === 0) {
+    items.push(...getEditorVisualOccupancyValidationItems(slide, visualType));
+  }
   items.push(...getEditorGridValidationItems(slide));
   return items;
 }
@@ -540,6 +574,141 @@ function getEditorVisualHierarchyValidationItems(
   ];
 }
 
+function getEditorVisualOccupancyValidationItems(
+  slide: Slide,
+  visualType: string
+): EditorValidationItem[] {
+  const visible = slide.elements.filter((element) => element.visible);
+  const media = visible.filter(
+    (element) =>
+      element.role === "media" || element.type === "image" || element.type === "chart"
+  );
+  const hasPlannedMedia = Boolean(slide.aiNotes?.visualPlan?.imageNeeded);
+  const core = visible.filter(isVisualQualityCoreElement);
+  const reasons: string[] = [];
+
+  if (
+    hasPlannedMedia &&
+    (media.length === 0 || media.some((element) => element.width < 686 || element.height < 420))
+  ) {
+    reasons.push("이미지 영역은 최소 5열 너비와 420px 높이가 필요합니다.");
+  }
+  if (core.length > 0 && (hasPlannedMedia || !["cover", "quote"].includes(visualType))) {
+    const left = Math.min(...core.map((element) => element.x));
+    const top = Math.min(...core.map((element) => element.y));
+    const right = Math.max(...core.map((element) => element.x + element.width));
+    const bottom = Math.max(...core.map((element) => element.y + element.height));
+    const minimumWidthRatio = hasPlannedMedia ? 0.85 : 0.7;
+    const minimumHeightRatio = hasPlannedMedia ? 0.55 : 0.4;
+    if (
+      right - left < 1680 * minimumWidthRatio - 4 ||
+      bottom - top < 904 * minimumHeightRatio - 4
+    ) {
+      reasons.push("핵심 콘텐츠가 안전 영역을 충분히 점유하지 않습니다.");
+    }
+  }
+  reasons.push(...getRecipeGeometryQualityReasons(visible, visualType));
+  if (visible.some((element) => isMeaninglessLargeDecoration(element, visible))) {
+    reasons.push("의미 없는 대형 장식 요소가 콘텐츠보다 큰 비중을 차지합니다.");
+  }
+  return reasons.length === 0
+    ? []
+    : [
+        {
+          issue: "VISUAL_HIERARCHY_WEAK",
+          message: reasons.join(" "),
+          severity: "warning",
+          slideId: slide.slideId
+        }
+      ];
+}
+
+function isVisualQualityCoreElement(element: DeckElement) {
+  if (isDesignPackChrome(element)) return false;
+  return (
+    ["body", "highlight", "media"].includes(element.role ?? "") ||
+    element.type === "image" ||
+    element.type === "chart"
+  );
+}
+
+function getRecipeGeometryQualityReasons(
+  elements: DeckElement[],
+  visualType: string
+) {
+  const reasons: string[] = [];
+  if (visualType === "process") {
+    const cards = elements.filter((element) =>
+      /_process_(?:step|two_row|vertical)_card_\d+$/.test(element.elementId)
+    );
+    if (cards.length > 0) {
+      const top = Math.min(...cards.map((element) => element.y));
+      const bottom = Math.max(
+        ...cards.map((element) => element.y + element.height)
+      );
+      if (bottom - top < 360) {
+        reasons.push("process 카드 영역은 최소 360px 높이가 필요합니다.");
+      }
+    }
+  }
+
+  if (visualType === "comparison") {
+    const cells = elements.filter((element) =>
+      /_comparison_matrix_cell_\d+$/.test(element.elementId)
+    );
+    if (cells.length === 3) {
+      const rows = new Set(cells.map((element) => Math.round(element.y)));
+      const right = Math.max(...cells.map((element) => element.x + element.width));
+      if (rows.size !== 1 || right < 1796) {
+        reasons.push("comparison 3개 항목은 빈 셀 없이 3열을 사용해야 합니다.");
+      }
+    }
+  }
+
+  if (visualType === "decision") {
+    const focusPanel = elements.find((element) =>
+      element.elementId.endsWith("_decision_actions_focus_panel")
+    );
+    const focusText = elements.find(
+      (element) =>
+        element.type === "text" &&
+        element.elementId.endsWith("_decision_actions_focus_text")
+    );
+    const actionRows = elements.filter((element) =>
+      /_decision_actions_row_\d+$/.test(element.elementId)
+    );
+    if (focusPanel && focusText?.type === "text" && actionRows.length > 0) {
+      const text = getTextElementText(focusText.props as TextElementProps).replace(
+        /[^\p{L}\p{N}]+/gu,
+        ""
+      );
+      const top = Math.min(...actionRows.map((element) => element.y));
+      const bottom = Math.max(
+        ...actionRows.map((element) => element.y + element.height)
+      );
+      if (text.length <= 24 && focusPanel.height > Math.max(240, bottom - top + 8)) {
+        reasons.push("짧은 focus 문구에 비해 강조 패널이 지나치게 큽니다.");
+      }
+    }
+  }
+  return reasons;
+}
+
+function isMeaninglessLargeDecoration(
+  element: DeckElement,
+  elements: DeckElement[]
+) {
+  if (element.role !== "decoration" || isFullBleedElement(element)) return false;
+  if (element.width * element.height <= 1680 * 904 * 0.12) return false;
+  return !elements.some(
+    (candidate) =>
+      candidate.elementId !== element.elementId &&
+      candidate.visible &&
+      candidate.type === "text" &&
+      getTextBackgroundCoverage(candidate, element) >= 0.75
+  );
+}
+
 function getEditorGridValidationItems(slide: Slide): EditorValidationItem[] {
   const element = slide.elements.find(
     (candidate) =>
@@ -610,8 +779,11 @@ function isContainedByGridPanel(element: DeckElement, elements: DeckElement[]) {
     (candidate) =>
       candidate.elementId !== element.elementId &&
       candidate.visible &&
-      candidate.role === "highlight" &&
       candidate.type !== "text" &&
+      (candidate.role === "highlight" ||
+        (candidate.role === "decoration" &&
+          candidate.elementId.includes("_program_v2_") &&
+          candidate.elementId.endsWith("_field"))) &&
       getTextBackgroundCoverage(element, candidate) >= 0.9
   );
 }
@@ -681,7 +853,7 @@ function isExpectedEditorMediaPlaceholder(slide: Slide) {
   const visualPlan = slide.aiNotes?.visualPlan;
   return Boolean(
     visualPlan?.imageNeeded &&
-      ["ai-generated", "public-assets", "placeholder-ok"].includes(
+      ["ai-generated", "public-assets", "official-assets", "placeholder-ok"].includes(
         visualPlan.imageSourcePolicy
       )
   );
@@ -708,7 +880,8 @@ function isEditorTitleTextWrapped(
   const text = getTextElementText(element.props as TextElementProps);
   if (!text || !isTitleLikeTextElement(deck, slide, element)) return false;
 
-  return getEditorTextContentMetrics(deck, slide, element, text).lineCount > 1;
+  const maximumLines = deck.metadata.presentationProfile ? 2 : 1;
+  return getEditorTextContentMetrics(deck, slide, element, text).lineCount > maximumLines;
 }
 
 function isTitleLikeTextElement(
@@ -750,8 +923,15 @@ function isEditorLabelTextWrapped(
   }
 
   const metrics = getEditorTextContentMetrics(deck, slide, element, text);
+  const explicitLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-  return metrics.lineCount > 1 || isShortLabelTextBoxTooNarrow(deck, slide, element, text);
+  return (
+    metrics.lineCount > Math.max(1, explicitLines.length) ||
+    isShortLabelTextBoxTooNarrow(deck, slide, element, explicitLines)
+  );
 }
 
 function isShortLabelText(text: string) {
@@ -762,14 +942,14 @@ function isShortLabelTextBoxTooNarrow(
   deck: Deck,
   slide: Slide,
   element: Extract<DeckElement, { type: "text" }>,
-  text: string
+  lines: string[]
 ) {
-  const singleLineText = text.replace(/\s+/g, " ").trim();
-  const metrics = getEditorTextContentMetrics(deck, slide, element, singleLineText, {
-    width: 10000
+  return lines.some((line) => {
+    const metrics = getEditorTextContentMetrics(deck, slide, element, line, {
+      width: 10000
+    });
+    return metrics.width + 8 > element.width;
   });
-
-  return metrics.width + 8 > element.width;
 }
 
 function isHexColor(value: string) {

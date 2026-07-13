@@ -51,6 +51,16 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
     assert config.openai_embedding_model == "text-embedding-3-large"
 
 
+def test_visual_qa_model_falls_back_when_not_configured() -> None:
+    config = load_config(VALID_ENV)
+
+    assert config.ai_ppt_visual_qa_model is None
+    configured = load_config(
+        {**VALID_ENV, "AI_PPT_VISUAL_QA_MODEL": "gpt-4.1-vision"}
+    )
+    assert configured.ai_ppt_visual_qa_model == "gpt-4.1-vision"
+
+
 def test_ai_slide_image_review_mode_defaults_to_auto() -> None:
     config = load_config(VALID_ENV)
 

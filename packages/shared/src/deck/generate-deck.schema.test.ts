@@ -27,6 +27,7 @@ describe("generateDeckRequestSchema", () => {
       referencePolicy: "topic-only"
     });
     expect(request.design).toEqual({
+      engineVersion: "recipe-v1",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
@@ -58,6 +59,22 @@ describe("generateDeckRequestSchema", () => {
       successCriteria: "align on MVP scope",
       durationMinutes: 12,
       referencePolicy: "references-first"
+    });
+  });
+
+  it("accepts an optional saved design pack selection", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Reusable report",
+      generationMode: "design-pack",
+      savedDesignPack: {
+        id: "design_pack_user_1",
+        version: 3
+      }
+    });
+
+    expect(request.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 3
     });
   });
 
@@ -129,6 +146,7 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.design).toEqual({
+      engineVersion: "recipe-v1",
       visualRhythm: "technical",
       densityTarget: "medium",
       mediaPolicy: "placeholder-ok",
@@ -193,6 +211,24 @@ describe("generateDeckRequestSchema", () => {
 
     expect(request.design.stylePackId).toBe("teal-professional-process");
     expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
+  });
+
+  it("accepts the program-v2 engine with hybrid media", () => {
+    const request = generateDeckRequestSchema.parse({
+      generationMode: "design-pack",
+      topic: "Splatoon Raiders launch",
+      design: {
+        engineVersion: "program-v2",
+        mediaPolicy: "hybrid"
+      },
+      visualPlanPolicy: { mediaPolicy: "hybrid" },
+      officialAssetFileIds: ["file_official_1"]
+    });
+
+    expect(request.design.engineVersion).toBe("program-v2");
+    expect(request.design.mediaPolicy).toBe("hybrid");
+    expect(request.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
+    expect(request.officialAssetFileIds).toEqual(["file_official_1"]);
   });
 
   it("accepts an optional design prompt", () => {
@@ -602,10 +638,15 @@ describe("generateDeckResponseSchema", () => {
         repairReasons: [
           "SLIDE_COUNT_SHORT",
           "CONTENT_DUPLICATED",
+          "UNSUPPORTED_NUMERIC_CLAIM",
           "SPEAKER_NOTES_SHORT"
         ],
         uniqueCoreLayoutCount: 5,
-        validationIssueCount: 0
+        validationIssueCount: 0,
+        visualQaStatus: "passed",
+        visualReviewAttempts: 2,
+        visualRepairAttempts: 1,
+        visualIssueCodes: []
       }
     });
 
@@ -615,7 +656,10 @@ describe("generateDeckResponseSchema", () => {
       researchAttempts: 2,
       relevantWebSourceCount: 2,
       officialWebSourceCount: 1,
-      uniqueCoreLayoutCount: 5
+      uniqueCoreLayoutCount: 5,
+      visualQaStatus: "passed",
+      visualReviewAttempts: 2,
+      visualRepairAttempts: 1
     });
   });
 });

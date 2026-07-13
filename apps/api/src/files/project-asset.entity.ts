@@ -2,6 +2,12 @@ import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
 
 export type ProjectAssetStatus = "pending" | "uploaded" | "deleted";
+export type ProjectAssetSourceAuthority = "official" | "independent" | "unknown";
+export type ProjectAssetUsageBasis =
+  | "user-provided"
+  | "licensed"
+  | "official-reference"
+  | "generated";
 
 @Entity({ name: "project_assets" })
 export class ProjectAssetEntity {
@@ -43,6 +49,39 @@ export class ProjectAssetEntity {
 
   @Column({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deletedAt!: Date | null;
+
+  @Column({ name: "source_url", nullable: true, type: "text" })
+  sourceUrl!: string | null;
+
+  @Column({ name: "source_asset_url", nullable: true, type: "text" })
+  sourceAssetUrl!: string | null;
+
+  @Column({ name: "source_authority", nullable: true, type: "text" })
+  sourceAuthority!: ProjectAssetSourceAuthority | null;
+
+  @Column({ name: "usage_basis", nullable: true, type: "text" })
+  usageBasis!: ProjectAssetUsageBasis | null;
+
+  @Column({ nullable: true, type: "text" })
+  author!: string | null;
+
+  @Column({ nullable: true, type: "text" })
+  license!: string | null;
+
+  @Column({ name: "license_checked_at", nullable: true, type: "timestamptz" })
+  licenseCheckedAt!: Date | null;
+
+  @Column({ name: "asset_provider", nullable: true, type: "text" })
+  assetProvider!: string | null;
+
+  @Column({ name: "generation_prompt", nullable: true, type: "text" })
+  generationPrompt!: string | null;
+
+  @Column({ name: "generated_for_user_id", nullable: true, type: "text" })
+  generatedForUserId!: string | null;
+
+  @Column({ name: "generated_for_organization_id", nullable: true, type: "text" })
+  generatedForOrganizationId!: string | null;
 
   @ManyToOne(() => ProjectEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "project_id", referencedColumnName: "projectId" })

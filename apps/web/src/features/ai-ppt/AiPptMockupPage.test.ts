@@ -1,13 +1,19 @@
+import type { Job } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
+  buildBrandKitValues,
   buildReferenceGrounding,
+  briefFieldPlaceholders,
+  getAiPptGenerationStatus,
   filesFromFileList,
   getAiPptWizardValidationMessage,
+  getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
   mediaPolicyOptions,
   miniSlideFontStyles,
+  initialAiPptWizardState,
   mergeReferenceFiles,
   pollJob,
   removeReferenceFileAt,
@@ -38,6 +44,152 @@ const palette: PaletteOption = {
 describe("AI PPT wizard payload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps Brief examples as placeholders instead of submitted state", () => {
+    expect(initialAiPptWizardState).toMatchObject({
+      topic: "",
+      purpose: "",
+      context: "",
+      audience: "",
+      presentationType: "",
+      successCriteria: "",
+      duration: "",
+      slides: ""
+    });
+    expect(Object.values(briefFieldPlaceholders).every(Boolean)).toBe(true);
+    expect(JSON.stringify(initialAiPptWizardState)).not.toContain(
+      briefFieldPlaceholders.successCriteria
+    );
+  });
+
+  it("parses quality-gate issues without treating them as a network error", () => {
+    const issues = Array.from({ length: 6 }, (_, index) => ({
+      code: `QUALITY_${index + 1}`,
+      scope: "slide" as const,
+      severity: "warning" as const,
+      blocking: false,
+      path: `slides.${index}.elements`,
+      message: `quality issue ${index + 1}`
+    }));
+    const job: Job = {
+      jobId: "job-quality",
+      projectId: "project-quality",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: false,
+          layoutIssues: issues,
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_QUALITY_GATE_FAILED",
+        message: "quality gate failed"
+      },
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: issues.slice(0, 5).map((issue, index) => ({
+        code: issue.code,
+        message: issue.message,
+        slide: index + 1
+      })),
+      remainingCount: 1
+    });
+    expect(
+      getAiPptQualityFailure({
+        ...job,
+        error: { code: "NETWORK_ERROR", message: "network" }
+      })
+    ).toBeNull();
+  });
+
+  it("shows visual QA unavailability as a retryable quality failure", () => {
+    const job: Job = {
+      jobId: "job-visual",
+      projectId: "project-visual",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: true,
+          layoutIssues: [],
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+        message: "Vision QA provider unavailable."
+      },
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: [
+        {
+          code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+          message: "Vision QA provider unavailable."
+        }
+      ],
+      remainingCount: 0
+    });
+  });
+
+  it("maps worker progress to the seven visual generation stages", () => {
+    const job = {
+      jobId: "job-progress",
+      projectId: "project-progress",
+      type: "ai-deck-generation" as const,
+      status: "running" as const,
+      progress: 85,
+      message: "repair",
+      result: null,
+      error: null,
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptGenerationStatus(job)).toBe("6/7 시각 품질 보정");
+  });
+
+  it.each([
+    ["purpose", "발표 목적을 입력하세요."],
+    ["context", "발표 맥락을 입력하세요."],
+    ["audience", "청중을 입력하세요."],
+    ["presentationType", "발표 유형을 입력하세요."],
+    ["successCriteria", "성공 기준을 입력하세요."]
+  ] as const)("requires the %s Brief field", (field, expected) => {
+    expect(
+      getAiPptWizardValidationMessage({
+        topic: "AI PPT",
+        purpose: "목적",
+        context: "맥락",
+        audience: "청중",
+        presentationType: "제안",
+        successCriteria: "합의",
+        duration: "10",
+        slides: "",
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only",
+        [field]: ""
+      })
+    ).toBe(expected);
   });
 
   it("normalizes selected reference files from a file list", () => {
@@ -84,7 +236,8 @@ describe("AI PPT wizard payload", () => {
       "minimal",
       "provided-only",
       "public-assets",
-      "ai-generated"
+      "ai-generated",
+      "hybrid"
     ]);
     expect(
       [...referencePolicyOptions, ...mediaPolicyOptions].every(
@@ -144,6 +297,7 @@ describe("AI PPT wizard payload", () => {
       },
       design: {
         stylePackId: "brandlogy-modern",
+        engineVersion: "program-v2",
         colorIntent: {
           mood: "calm",
           energyLevel: "low",
@@ -176,6 +330,140 @@ describe("AI PPT wizard payload", () => {
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
   });
 
+  it("keeps hybrid official and AI image policy in the program-v2 request", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "제품 공개",
+        purpose: "신제품 특징 소개",
+        context: "공개 발표",
+        audience: "예비 사용자",
+        presentationType: "product launch",
+        successCriteria: "출시 기대 형성",
+        duration: "10",
+        slides: "10",
+        tone: "confident",
+        colorMood: "energetic",
+        fontMood: "bold Korean sans",
+        mediaPolicy: "hybrid",
+        referencePolicy: "research-first"
+      },
+      palette,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["file_official_1"]
+    );
+
+    expect(payload.design).toMatchObject({
+      engineVersion: "program-v2",
+      mediaPolicy: "hybrid"
+    });
+    expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "hybrid" });
+    expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
+    expect(payload.officialAssetFileIds).toEqual(["file_official_1"]);
+  });
+
+  it("pins the selected Saved Design Pack version in the generation request", () => {
+    const savedSelection = {
+      id: "design_pack_user_1",
+      version: 4,
+      name: "Must not leak"
+    };
+    const brandSelection = {
+      id: "brand_kit_org_1",
+      version: 2,
+      values: { mustNotLeak: true }
+    };
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Reusable report",
+        purpose: "Monthly review",
+        context: "leadership meeting",
+        audience: "executives",
+        presentationType: "report",
+        successCriteria: "approve next actions",
+        duration: "10",
+        slides: "8",
+        tone: "professional",
+        colorMood: "trusted blue",
+        fontMood: "professional Korean sans",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette,
+      [],
+      undefined,
+      undefined,
+      savedSelection,
+      brandSelection
+    );
+
+    expect(payload.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 4
+    });
+    expect(payload.brandKit).toEqual({
+      id: "brand_kit_org_1",
+      version: 2
+    });
+    expect(Object.keys(payload.savedDesignPack ?? {})).toEqual(["id", "version"]);
+    expect(Object.keys(payload.brandKit ?? {})).toEqual(["id", "version"]);
+  });
+
+  it("builds a locked Brand Kit from the current session style", () => {
+    const values = buildBrandKitValues(
+      {
+        topic: "Brand",
+        purpose: "Launch",
+        context: "All hands",
+        audience: "team",
+        presentationType: "launch",
+        successCriteria: "understand",
+        duration: "10",
+        slides: "8",
+        tone: "confident",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "public-assets",
+        referencePolicy: "research-first"
+      },
+      palette,
+      {
+        fontId: "brand-font",
+        name: "Brand Font",
+        headingFontFamily: "Brand Sans",
+        bodyFontFamily: "Brand Sans",
+        fallbackFamily: "Arial",
+        weights: [400, 700],
+        supportsKorean: true,
+        pptxEmbeddable: false,
+        moodTags: [],
+        license: "",
+        sourceUrl: "",
+        recommendedTitleSize: 48,
+        recommendedBodySize: 22,
+        lineHeight: 1.24,
+        widthFactor: 1,
+        overflowRisk: "medium",
+        rationale: "brand",
+        score: 100
+      }
+    );
+
+    expect(values).toMatchObject({
+      palette: palette.palette,
+      typography: {
+        headingFontFamily: "Brand Sans",
+        fallbackFamily: "Arial"
+      },
+      tone: "confident",
+      mediaPolicy: "public-assets",
+      lockedFields: ["palette", "typography", "tone", "mediaPolicy"]
+    });
+  });
+
   it("keeps a one-slide request within the valid lower bound", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {
@@ -199,6 +487,32 @@ describe("AI PPT wizard payload", () => {
     expect(payload.slideCountRange).toEqual({ min: 1, max: 1 });
   });
 
+  it.each([
+    ["19", { min: 19, max: 19 }],
+    ["20", { min: 20, max: 20 }]
+  ])("keeps a %s-slide request within the valid upper bound", (slides, expected) => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Large deck",
+        purpose: "Detailed review",
+        context: "workshop",
+        audience: "team",
+        presentationType: "training",
+        successCriteria: "shared understanding",
+        duration: "20",
+        slides,
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual(expected);
+  });
+
   it("derives design-pack constraints and slide count from natural language intent", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {
@@ -211,7 +525,7 @@ describe("AI PPT wizard payload", () => {
         duration: "3",
         slides: "",
         tone: "professional",
-        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션과 파스텔톤은 사용하지 않기",
         fontMood: "formal trustworthy Korean sans",
         mediaPolicy: "minimal",
         referencePolicy: "topic-only"
@@ -246,7 +560,7 @@ describe("AI PPT wizard payload", () => {
         duration: "7",
         slides: "",
         tone: "friendly",
-        colorMood: "black background with readable accents",
+        colorMood: "black background with white text and readable accents",
         fontMood: "funny easy read Korean sans font",
         mediaPolicy: "ai-generated",
         referencePolicy: "references-first"
@@ -258,6 +572,8 @@ describe("AI PPT wizard payload", () => {
     expect(payload.design.mediaPolicy).toBe("ai-generated");
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "ai-generated" });
     expect(payload.designPrompt).toContain("mediaPolicy=ai-generated");
+    expect(payload.design.colorIntent).toMatchObject({ backgroundPreference: "dark" });
+    expect(payload.design.constraints).toMatchObject({ canvasBackground: "auto" });
   });
 
   it("includes only usable extraction context and de-duplicated keywords", () => {
@@ -557,11 +873,15 @@ describe("AI PPT wizard payload", () => {
       )
     );
     vi.stubGlobal("fetch", fetcher);
+    const onUpdate = vi.fn();
 
-    await expect(pollJob("job_1")).resolves.toMatchObject({
+    await expect(pollJob("job_1", onUpdate)).resolves.toMatchObject({
       jobId: "job_1",
       status: "succeeded"
     });
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "job_1", progress: 100 })
+    );
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
   });
 });

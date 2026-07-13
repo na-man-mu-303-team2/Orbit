@@ -18,6 +18,8 @@ import {
   type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
+  type SavedDesignPackSnapshot,
+  type BrandKitSnapshot,
   type SemanticCueExtractionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
@@ -134,6 +136,12 @@ export interface GenerateDeckBullMqPayload {
   jobId: string;
   projectId: string;
   request: GenerateDeckRequest;
+  designPackSnapshot?: SavedDesignPackSnapshot;
+  brandKitSnapshot?: BrandKitSnapshot;
+  imageAssetScope?: {
+    userId: string;
+    organizationId?: string;
+  };
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
@@ -306,6 +314,11 @@ export async function enqueueGenerateDeckJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: generateDeckRequestSchema.parse(input.request),
+      ...(input.designPackSnapshot
+        ? { designPackSnapshot: input.designPackSnapshot }
+        : {}),
+      ...(input.brandKitSnapshot ? { brandKitSnapshot: input.brandKitSnapshot } : {}),
+      ...(input.imageAssetScope ? { imageAssetScope: input.imageAssetScope } : {}),
     } satisfies GenerateDeckBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();

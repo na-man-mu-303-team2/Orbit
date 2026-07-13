@@ -966,6 +966,80 @@
   color: var(--orbit-ds-info);
 }
 
+.ai-ppt-pack-manager {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ai-ppt-pack-manager label,
+.ai-ppt-brand-kit-select {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-ppt-pack-manager label span,
+.ai-ppt-brand-kit-select span {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+  font-weight: 800;
+}
+
+.ai-ppt-pack-manager select,
+.ai-ppt-brand-kit-select select {
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-ink);
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.ai-ppt-pack-manager > div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, 38px);
+}
+
+.ai-ppt-pack-manager button {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-ink);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.ai-ppt-official-asset-drop { margin-top: 14px; min-height: 150px; }
+
+.ai-ppt-media-policy-help {
+  display: grid;
+  gap: 6px 12px;
+  grid-template-columns: max-content 1fr;
+  margin-top: 14px;
+}
+
+.ai-ppt-media-policy-help span { color: var(--orbit-ds-text-muted); }
+
+.ai-ppt-quality-failure {
+  background: var(--orbit-ds-danger-soft);
+  border-left: 4px solid var(--orbit-ds-danger);
+  color: var(--orbit-ds-danger);
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 16px;
+}
+
+.ai-ppt-quality-failure ul { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+.ai-ppt-quality-failure li,
+.ai-ppt-quality-failure p { font-size: var(--orbit-ds-type-ui-small); line-height: 1.45; margin: 0; }
+.ai-ppt-quality-failure button { justify-self: start; }
+
 .ai-ppt-footer {
   align-items: center;
   display: flex;
@@ -1026,6 +1100,11 @@
   .ai-ppt-panel {
     min-height: 0;
     padding: 22px 18px;
+  }
+
+  .ai-ppt-pack-manager {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   .ai-ppt-field-grid,
