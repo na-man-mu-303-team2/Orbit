@@ -444,6 +444,8 @@ GET /api/v1/projects/:projectId/rehearsals/:runId/coaching-report
 
 `GET`은 서버에 저장된 정보를 읽어 달라고 요청하는 방식이다.
 
+현재 C0 계약은 이 신규 Route를 아직 허용하지 않는다. 따라서 Phase 0의 선행 계약 PR에서 `docs/contracts.md`, `packages/shared`, API request/response Schema, 필요한 Migration과 Route를 함께 승인·병합하기 전에는 앱 구현 브랜치가 이 Route를 추가하면 안 된다. 선행 계약이 반려되면 기존 Report Route와 승인된 read model을 재사용한다.
+
 신규 API는 평가 결과, 집중 연습, 질문·답변, 추세를 한곳에 모은 코칭 결과를 제공한다.
 
 ### 화면 선택 규칙
