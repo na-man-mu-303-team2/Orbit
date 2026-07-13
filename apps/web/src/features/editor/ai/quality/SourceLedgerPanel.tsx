@@ -106,7 +106,6 @@ function visualAssetProviderLabel(provider: VisualAsset["provider"]) {
   if (provider === "official-web") return "공식 이미지";
   if (provider === "openverse") return "공개 이미지";
   if (provider === "openai") return "AI 생성";
-  if (provider === "brand-kit") return "Brand Kit";
   return provider;
 }
 

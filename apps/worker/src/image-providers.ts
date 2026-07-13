@@ -22,6 +22,5 @@ export function createImageAssetRuntime(config: OrbitConfig): ImageAssetRuntime 
         : undefined,
     maxPerDeck: config.IMAGE_MAX_PER_DECK,
     maxPerUserPerDay: config.IMAGE_MAX_PER_USER_PER_DAY,
-    maxPerOrganizationPerDay: config.IMAGE_MAX_PER_ORGANIZATION_PER_DAY
   };
 }

@@ -80,9 +80,6 @@ export class ProjectAssetEntity {
   @Column({ name: "generated_for_user_id", nullable: true, type: "text" })
   generatedForUserId!: string | null;
 
-  @Column({ name: "generated_for_organization_id", nullable: true, type: "text" })
-  generatedForOrganizationId!: string | null;
-
   @ManyToOne(() => ProjectEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "project_id", referencedColumnName: "projectId" })
   project!: ProjectEntity;

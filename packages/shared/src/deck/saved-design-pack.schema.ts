@@ -7,8 +7,7 @@ import { themeColorSchema } from "./theme.schema";
 export const savedDesignPackIdSchema = z.string().trim().min(1);
 export const savedDesignPackOwnerTypeSchema = z.enum([
   "system",
-  "user",
-  "organization"
+  "user"
 ]);
 
 export const savedDesignPackPaletteSchema = z

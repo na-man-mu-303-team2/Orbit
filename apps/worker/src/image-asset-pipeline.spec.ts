@@ -7,97 +7,12 @@ import { deckSchema } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  applyBrandKitLogoAsset,
-  resolveDeckImageAssets
-} from "./image-asset-pipeline";
+import { resolveDeckImageAssets } from "./image-asset-pipeline";
 
 describe("image asset pipeline", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
-  });
-
-  it("copies a Brand Kit logo into the generated project and locks its elements", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([
-        {
-          file_id: "file_logo",
-          project_id: "project_brand",
-          storage_key: "projects/project_brand/assets/logo.png",
-          original_name: "logo.png",
-          mime_type: "image/png",
-          size: 24
-        }
-      ])
-      .mockResolvedValueOnce([]);
-    const getSignedReadUrl = vi.fn(async () => "http://storage.local/logo.png");
-    const putObject = vi.fn(async () => ({
-      key: "key",
-      url: "url",
-      contentType: "image/png",
-      purpose: "design-asset" as const,
-      size: 24
-    }));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(pngHeader(1280, 720), { status: 200 }))
-    );
-
-    const result = await applyBrandKitLogoAsset(
-      { query } as unknown as DataSource,
-      { getSignedReadUrl, putObject } as Pick<
-        StoragePort,
-        "getSignedReadUrl" | "putObject"
-      >,
-      imageDeck("ai-generated"),
-      {
-        id: "brand_kit_1",
-        organizationId: "organization_1",
-        name: "ORBIT",
-        version: 1,
-        values: {
-          logoAssetId: "file_logo",
-          palette: {
-            primary: "#2563EB",
-            secondary: "#0F766E",
-            background: "#FFFFFF",
-            surface: "#FFFFFF",
-            muted: "#E0F2FE",
-            border: "#BAE6FD",
-            text: "#0F172A",
-            accentColor: "#F472B6"
-          },
-          forbiddenColors: [],
-          typography: {
-            headingFontFamily: "Pretendard",
-            bodyFontFamily: "Pretendard",
-            fallbackFamily: "Arial"
-          },
-          tone: "professional",
-          mediaPolicy: "balanced",
-          writingStyle: "",
-          coverRules: "",
-          footerRules: "",
-          approvedAssetIds: [],
-          lockedFields: ["logo"]
-        }
-      }
-    );
-
-    expect(getSignedReadUrl).toHaveBeenCalledWith(
-      "projects/project_brand/assets/logo.png"
-    );
-    expect(putObject).toHaveBeenCalledOnce();
-    expect(query.mock.calls[1]?.[0]).toContain("'brand-kit'");
-    const logo = result.deck.slides[0].elements.find((element) =>
-      element.elementId.endsWith("_brand_kit_logo")
-    );
-    expect(logo).toMatchObject({ type: "image", role: "footer", locked: true });
-    expect(logo?.type === "image" ? logo.props.src : "").toMatch(
-      /^\/api\/v1\/projects\/project_1\/assets\/file_.*\/content$/
-    );
   });
 
   it("retries AI generation once, stores provenance, and replaces the placeholder", async () => {
@@ -114,7 +29,7 @@ describe("image asset pipeline", () => {
       });
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -149,7 +64,6 @@ describe("image asset pipeline", () => {
         generated: { generate },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -200,7 +114,7 @@ describe("image asset pipeline", () => {
       sourceUrl: "https://example.com/image"
     }));
     const query = vi.fn(async () => [
-      { user_count: "0", organization_count: "0" }
+      { user_count: "0" }
     ]);
 
     const result = await resolveDeckImageAssets(
@@ -211,7 +125,6 @@ describe("image asset pipeline", () => {
         publicSearch: { search },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -243,7 +156,7 @@ describe("image asset pipeline", () => {
       });
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -261,7 +174,6 @@ describe("image asset pipeline", () => {
         publicSearch: { search },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -295,7 +207,7 @@ describe("image asset pipeline", () => {
     });
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValue([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -337,7 +249,6 @@ describe("image asset pipeline", () => {
         publicSearch: { search },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -365,7 +276,7 @@ describe("image asset pipeline", () => {
     }));
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -401,7 +312,6 @@ describe("image asset pipeline", () => {
         official: { fetch },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -422,7 +332,7 @@ describe("image asset pipeline", () => {
     const officialFetch = vi.fn<OfficialImageProvider["fetch"]>();
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([
         {
           file_id: "file_official_1",
@@ -455,7 +365,6 @@ describe("image asset pipeline", () => {
         official: { fetch: officialFetch },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" },
       undefined,
@@ -486,7 +395,7 @@ describe("image asset pipeline", () => {
     }));
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const deck = imageDeck("official-assets");
     deck.slides[0].aiNotes = {
@@ -515,7 +424,6 @@ describe("image asset pipeline", () => {
         official: { fetch },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -534,7 +442,7 @@ describe("image asset pipeline", () => {
       .mockRejectedValue(new Error("no result"));
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -552,7 +460,6 @@ describe("image asset pipeline", () => {
         publicSearch: { search },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" }
     );
@@ -579,7 +486,7 @@ describe("image asset pipeline", () => {
     }));
     const query = vi
       .fn()
-      .mockResolvedValueOnce([{ user_count: "0", organization_count: "0" }])
+      .mockResolvedValueOnce([{ user_count: "0" }])
       .mockResolvedValueOnce([]);
     const putObject = vi.fn(async () => ({
       key: "key",
@@ -620,7 +527,6 @@ describe("image asset pipeline", () => {
         generated: { generate },
         maxPerDeck: 4,
         maxPerUserPerDay: 30,
-        maxPerOrganizationPerDay: 100
       },
       { userId: "user_1" },
       new Set(["slide_2"])

@@ -295,10 +295,6 @@ class InternalDesignProgramContext(BaseModel):
         default_factory=dict,
         alias="savedDesignPreferences",
     )
-    brand_kit_locked_values: dict[str, Any] = Field(
-        default_factory=dict,
-        alias="brandKitLockedValues",
-    )
 
 
 class ColorIntent(BaseModel):
@@ -2690,9 +2686,6 @@ def art_director_context(
         typography=dict(theme.get("typography", {})),
         savedDesignPreferences=(
             raw_input.design_program_context.saved_design_preferences
-        ),
-        brandKitLockedValues=(
-            raw_input.design_program_context.brand_kit_locked_values
         ),
         forbiddenStyles=sorted(design_pack_forbidden_styles(raw_input)),
         mediaPolicy=raw_input.design.media_policy,
@@ -6816,17 +6809,7 @@ def assemble_program_v2_slide(
             }
             for index, keyword in enumerate(slide_plan.keywords, start=1)
         ],
-        "animations": [
-            {
-                "animationId": f"anim_{slide_plan.order}_1",
-                "elementId": compiled.primary_focal_element_id,
-                "type": "fade-in",
-                "order": 1,
-                "durationMs": 400,
-                "delayMs": 0,
-                "easing": "ease-out",
-            }
-        ],
+        "animations": [],
         "aiNotes": program_v2_ai_notes(
             raw_input,
             slide_plan,

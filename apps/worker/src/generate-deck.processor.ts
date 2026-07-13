@@ -17,8 +17,6 @@ import {
   type QualityReport,
   savedDesignPackSnapshotSchema,
   type SavedDesignPackSnapshot,
-  brandKitSnapshotSchema,
-  type BrandKitSnapshot,
   getSemanticQaIssues,
   repairSemanticQaOnce,
   type TemplateBlueprint
@@ -27,11 +25,7 @@ import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
-import {
-  applyBrandKitLogoAsset,
-  resolveDeckImageAssets,
-  type ImageAssetRuntime
-} from "./image-asset-pipeline";
+import { resolveDeckImageAssets, type ImageAssetRuntime } from "./image-asset-pipeline";
 import { embedDeckImageAssets } from "./deck-export.processor";
 
 const generateDeckPayloadSchema = z.object({
@@ -39,11 +33,9 @@ const generateDeckPayloadSchema = z.object({
   projectId: z.string().min(1),
   request: generateDeckRequestSchema,
   designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  brandKitSnapshot: brandKitSnapshotSchema.optional(),
   imageAssetScope: z
     .object({
-      userId: z.string().min(1),
-      organizationId: z.string().min(1).optional()
+      userId: z.string().min(1)
     })
     .optional()
 });
@@ -286,8 +278,7 @@ export async function processGenerateDeckJob(
           ? {
               designProgramContext: {
                 savedDesignPreferences:
-                  payload.designPackSnapshot?.preferences ?? {},
-                brandKitLockedValues: payload.brandKitSnapshot?.values ?? {}
+                  payload.designPackSnapshot?.preferences ?? {}
               }
             }
           : {})
@@ -340,8 +331,7 @@ export async function processGenerateDeckJob(
     }
     let deck = markDeckForInitialThumbnailRefresh(
       workerPayload.deck,
-      payload.designPackSnapshot,
-      payload.brandKitSnapshot
+      payload.designPackSnapshot
     );
     if (usesProgramV2) {
       emitGenerateDeckEvent(eventLogger, "ai-ppt.design-program.created", {
@@ -394,27 +384,6 @@ export async function processGenerateDeckJob(
     }
     let imageWarnings: string[] = [];
     let deterministicValidation = workerPayload.validation;
-    if (
-      payload.brandKitSnapshot &&
-      payload.request.generationMode === "design-pack"
-    ) {
-      const brandAssets = await applyBrandKitLogoAsset(
-        dataSource,
-        storage,
-        deck,
-        payload.brandKitSnapshot
-      );
-      deck = brandAssets.deck;
-      imageWarnings.push(...brandAssets.warnings);
-      if (
-        payload.brandKitSnapshot.values.lockedFields.includes("typography") &&
-        payload.request.design.fontOverride?.pptxEmbeddable === false
-      ) {
-        imageWarnings.push(
-          `Brand Kit font is not embeddable; PPTX fallback ${payload.brandKitSnapshot.values.typography.fallbackFamily} will be used when unavailable.`
-        );
-      }
-    }
     if (
       imageRuntime &&
       payload.imageAssetScope &&
@@ -946,7 +915,7 @@ async function runProgramV2VisualQa(input: {
   deck: Deck;
   validation: GenerateDeckValidation;
   imageRuntime?: ImageAssetRuntime;
-  imageAssetScope?: { userId: string; organizationId?: string };
+  imageAssetScope?: { userId: string };
   officialAssetFileIds: readonly string[];
   enforcesHybridMediaBudget: boolean;
   eventLogger?: GenerateDeckEventLogger;
@@ -1369,8 +1338,7 @@ async function failVisualQaUnavailable(
 
 function markDeckForInitialThumbnailRefresh(
   deck: Deck,
-  designPackSnapshot?: SavedDesignPackSnapshot,
-  brandKitSnapshot?: BrandKitSnapshot
+  designPackSnapshot?: SavedDesignPackSnapshot
 ): Deck {
   return {
     ...deck,
@@ -1379,9 +1347,6 @@ function markDeckForInitialThumbnailRefresh(
       thumbnailSource: "import-render",
       ...(designPackSnapshot && deck.metadata.sourceType === "ai"
         ? { designPackSnapshot }
-        : {}),
-      ...(brandKitSnapshot && deck.metadata.sourceType === "ai"
-        ? { brandKitSnapshot }
         : {})
     },
     slides: deck.slides.map((slide, index) => ({

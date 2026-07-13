@@ -6,7 +6,6 @@ export const semanticQaIssueCodes = [
   "NARRATIVE_FLOW_WEAK",
   "EVIDENCE_MISMATCH",
   "IMAGE_RELEVANCE_WEAK",
-  "BRAND_KIT_VIOLATION",
   "IMAGE_LICENSE_MISSING",
   "SPEAKER_NOTES_REPEATED"
 ] as const;
@@ -20,7 +19,6 @@ export function getSemanticQaIssues(deck: Deck): GenerateDeckValidationIssue[] {
     ...narrativeIssues(deck),
     ...evidenceIssues(deck),
     ...imageIssues(deck),
-    ...brandKitIssues(deck),
     ...speakerNotesIssues(deck)
   ];
 }
@@ -138,70 +136,6 @@ function imageIssues(deck: Deck) {
     }
     return issues;
   });
-}
-
-function brandKitIssues(deck: Deck) {
-  const snapshot = deck.metadata.brandKitSnapshot;
-  if (!snapshot) return [];
-  const locked = new Set(snapshot.values.lockedFields);
-  const violations: string[] = [];
-  if (locked.has("palette")) {
-    const expected = snapshot.values.palette;
-    const themePalette = deck.theme.palette;
-    if (
-      deck.theme.backgroundColor !== expected.background ||
-      deck.theme.textColor !== expected.text ||
-      deck.theme.accentColor !== expected.accentColor ||
-      themePalette.primary !== expected.primary ||
-      themePalette.secondary !== expected.secondary
-    ) {
-      violations.push("palette");
-    }
-  }
-  if (locked.has("tone") && deck.metadata.tone !== snapshot.values.tone) {
-    violations.push("tone");
-  }
-  if (locked.has("typography")) {
-    const allowed = new Set([
-      snapshot.values.typography.headingFontFamily.toLocaleLowerCase(),
-      snapshot.values.typography.bodyFontFamily.toLocaleLowerCase()
-    ]);
-    const invalid = deck.slides.some((slide) =>
-      slide.elements.some(
-        (element) =>
-          element.visible &&
-          element.type === "text" &&
-          Boolean(element.props.fontFamily) &&
-          !allowed.has(element.props.fontFamily!.toLocaleLowerCase())
-      )
-    );
-    if (invalid) violations.push("typography");
-  }
-  if (
-    locked.has("logo") &&
-    snapshot.values.logoAssetId &&
-    deck.slides.some(
-      (slide) =>
-        !slide.elements.some(
-          (element) =>
-            element.visible &&
-            element.type === "image" &&
-            element.elementId.endsWith("_brand_kit_logo")
-        )
-    )
-  ) {
-    violations.push("logo");
-  }
-  return violations.length > 0
-    ? [
-        issue(
-          "BRAND_KIT_VIOLATION",
-          "deck",
-          "metadata.brandKitSnapshot",
-          `잠긴 Brand Kit 필드가 결과물에 유지되지 않았습니다: ${violations.join(", ")}`
-        )
-      ]
-    : [];
 }
 
 function speakerNotesIssues(deck: Deck) {

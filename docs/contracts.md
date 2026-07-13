@@ -673,14 +673,14 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 ### Saved Design Pack 계약
 
-Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
+Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는 사용자 단위로 재사용하기 위한 Preference Rule 저장 계약이다.
 
 - 저장 필드: `palette`, `typography`, `tone`, `density`, `titleStyle`, `layoutPreference`, `imageDensity`, `mediaPolicy`, `referencePolicy`, `qaStrictness`와 optional `preferredCompositionIds`, `avoidedCompositionIds`, `backgroundRhythm`, `imageTreatment`
-- 소유권: `ownerType`은 `system`, `user`, `organization` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
+- 소유권: `ownerType`은 `system`, `user` 중 하나이며 `ownerId`와 함께 접근 범위를 결정한다.
 - 버전: 수정할 때마다 `version`을 증가시키며 생성 요청은 `savedDesignPack: { id, version }`으로 선택 버전을 고정한다.
 - 재현성: `design-pack` 생성 결과의 `metadata.designPackSnapshot`에는 최종 적용된 pack 이름, version, base style pack과 preferences를 기록한다.
 - Hard Rule 보호: contrast, overflow, safe area, 최소 본문 크기, visible font family 최대 개수는 Saved Design Pack에 저장하지 않으며 platform validator가 항상 적용한다.
-- 적용 우선순위: `schema fallback < base Design Pack < Saved Design Pack < Session override < Brand Kit locked fields < platform Hard Rules`
+- 적용 우선순위: `schema fallback < base Design Pack < Saved Design Pack < Session override < platform Hard Rules`
 - legacy/import Deck은 `savedDesignPack`과 `metadata.designPackSnapshot` 없이 기존 계약으로 정상 parse된다.
 
 구현 위치:
@@ -688,27 +688,6 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 사용자 또는 조직
 - `packages/shared/src/deck/saved-design-pack.schema.ts`
 - `packages/shared/src/deck/generate-deck.schema.ts`
 - `packages/shared/src/deck/deck.schema.ts`
-
-### Organization Brand Kit 계약
-
-Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저장하며 일반 조직 멤버는 조회·적용만 가능하다.
-
-- 조직 역할: `admin`, `member`
-- Brand Kit 값: `logoAssetId`, palette, forbidden colors, 공식 font와 fallback, tone, writing style, cover/footer 규칙, 승인 asset ID, `lockedFields`. `mediaPolicy`는 `hybrid`를 포함한 생성 요청 정책을 그대로 저장할 수 있다.
-- 잠금 가능 필드: `palette`, `typography`, `tone`, `mediaPolicy`, `logo`, `cover`, `footer`
-- 생성 요청은 `brandKit: { id, version }`으로 선택 버전을 고정한다.
-- 생성 결과는 `metadata.brandKitSnapshot`에 최종 적용 Brand Kit을 기록한다.
-- Brand Kit 잠금 필드는 Saved Design Pack과 Session override보다 우선한다.
-- platform Hard Rule은 Brand Kit에서도 해제할 수 없다.
-- 관리 API는 `GET/POST /api/v1/organizations/:organizationId/brand-kits`, `PATCH/DELETE /api/v1/organizations/:organizationId/brand-kits/:brandKitId`를 사용한다. 생성·수정·삭제는 조직 `admin`만 가능하다.
-- `logoAssetId`와 `approvedAssetIds`는 관리자가 accepted member인 프로젝트의 uploaded asset만 참조할 수 있다.
-- 생성 시 `logoAssetId`가 다른 프로젝트에 있으면 기존 `StoragePort`와 `project_assets`를 사용해 대상 프로젝트로 복제하고, 각 슬라이드에는 내부 content URL을 사용하는 `footer` image element를 기록한다. `lockedFields`에 `logo`가 있으면 해당 element도 잠근다.
-- Brand Kit 공식 font가 현재 font catalog에서 embeddable로 확인되지 않으면 fallback font를 유지하고 생성 warning을 남긴다.
-
-구현 위치:
-
-- `packages/shared/src/projects/organization.schema.ts`
-- `packages/shared/src/deck/brand-kit.schema.ts`
 
 ### AI PPT 이미지 asset 계약
 
@@ -724,8 +703,8 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 - Deck의 placeholder는 내부 `/api/v1/projects/:projectId/assets/:fileId/content` URL을 쓰는 editable image element로 교체한다.
 - `aiNotes.visualPlan.asset`에는 file ID와 공개 가능한 provenance를 기록한다.
 - Editor의 현재 슬라이드 출처 패널은 image asset의 provider, usage basis, author, license, 원문 페이지와 실제 asset URL을 구분해 표시한다.
-- provider timeout, 제한된 재시도 실패, deck·user·organization 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
-- 기본 한도는 deck 4개, user 일 30개, organization 일 100개이며 환경변수로 조정한다.
+- provider timeout, 제한된 재시도 실패, deck·user 비용 한도 초과 시 job을 실패시키지 않고 기존 placeholder를 유지한다.
+- 기본 한도는 deck 4개, user 일 30개이며 환경변수로 조정한다.
 - PPTX export worker는 저장된 내부 image asset을 일시적인 data URL로 hydrate해 Python exporter에 전달한다. 원본 Deck JSON의 내부 URL은 변경하지 않는다.
 - Side AI는 구조화 capability 상태를 받아 실제 provider가 사용 가능한 경우에만 실제 이미지 삽입을 안내한다.
 
@@ -754,11 +733,10 @@ Brand Kit은 조직 관리자가 정한 브랜드 자산과 잠금 정책을 저
 
 `metadata.presentationProfile`이 있는 `design-pack` Deck은 Worker 저장 전과 Editor AI 검증에서 같은 shared semantic QA를 사용한다. legacy/import Deck에는 적용하지 않는다.
 
-- issue code: `SLIDE_MESSAGE_MULTIPLE`, `NARRATIVE_FLOW_WEAK`, `EVIDENCE_MISMATCH`, `IMAGE_RELEVANCE_WEAK`, `BRAND_KIT_VIOLATION`, `IMAGE_LICENSE_MISSING`
+- issue code: `SLIDE_MESSAGE_MULTIPLE`, `NARRATIVE_FLOW_WEAK`, `EVIDENCE_MISMATCH`, `IMAGE_RELEVANCE_WEAK`, `IMAGE_LICENSE_MISSING`
 - Worker는 다중 핵심 메시지와 이미지 대체 텍스트 관련 항목만 결정론적으로 최대 1회 보정한 뒤 전체 issue를 다시 계산한다.
-- 이미지 관련성은 `role=media`인 실제 본문 이미지에만 적용하며 Brand Kit logo와 footer image는 제외한다.
+- 이미지 관련성은 `role=media`인 실제 본문 이미지에만 적용한다.
 - 공개 이미지는 `aiNotes.visualPlan.asset`의 원본 URL과 license가 없으면 `IMAGE_LICENSE_MISSING`을 남긴다.
-- Brand Kit locked palette, typography, tone, logo가 최종 Deck에 유지되지 않으면 `BRAND_KIT_VIOLATION`을 남긴다.
 - semantic issue는 모두 `severity=warning`, `blocking=false`다. Deck 저장은 허용하지만 하나라도 남으면 `validation.passed=false`이며 Worker와 Editor가 같은 code를 표시한다.
 
 구현 위치:
