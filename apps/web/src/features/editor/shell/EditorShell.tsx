@@ -91,7 +91,10 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
-import { AiChatPanel } from "./components/AiChatPanel";
+import {
+  AiChatPanel,
+  createInitialAiChatState
+} from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -1296,6 +1299,9 @@ export function EditorShell(props: { projectId?: string }) {
   const [rightPanelView, setRightPanelView] = useState<
     "ai-chat" | "ai-tools" | "semantic-cues"
   >("ai-chat");
+  const [aiChatState, setAiChatState] = useState(() =>
+    createInitialAiChatState(projectId)
+  );
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1440,6 +1446,7 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     resetProjectUiState();
     setRightPanelView("ai-chat");
+    setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
@@ -5879,6 +5886,8 @@ export function EditorShell(props: { projectId?: string }) {
                     deck={deck}
                     currentSlide={currentSlide}
                     selectedElementIds={selectedElementIds}
+                    chatState={aiChatState}
+                    onChatStateChange={setAiChatState}
                     onProposalApplied={handleDesignAgentProposalApplied}
                   />
                 </div>
