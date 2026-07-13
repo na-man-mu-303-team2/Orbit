@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  getFocusProfileHydrationAction,
   moveFocusItem,
   RehearsalFocusProfileEditor,
+  shouldAutoRefetchFocusProfile,
 } from "./RehearsalFocusProfilePanel";
 
 const draftItems: RehearsalFocusItem[] = [
@@ -73,5 +75,48 @@ describe("RehearsalFocusProfileEditor", () => {
       ["focus_item_latest", 1],
       ["focus_item_draft", 2],
     ]);
+  });
+});
+
+describe("rehearsal focus profile synchronization", () => {
+  it("allows automatic refresh only while the local draft is clean", () => {
+    expect(shouldAutoRefetchFocusProfile(false)).toBe(true);
+    expect(shouldAutoRefetchFocusProfile(true)).toBe(false);
+  });
+
+  it("keeps a dirty draft when a newer profile arrives for the same project", () => {
+    expect(
+      getFocusProfileHydrationAction({
+        dirty: true,
+        hydratedProfileKey: "project_1:2",
+        hydratedProjectId: "project_1",
+        incomingProfile: latestProfile,
+        projectId: "project_1",
+      }),
+    ).toEqual({ action: "conflict", profileKey: "project_1:3" });
+  });
+
+  it("hydrates a newer profile automatically while the local draft is clean", () => {
+    expect(
+      getFocusProfileHydrationAction({
+        dirty: false,
+        hydratedProfileKey: "project_1:2",
+        hydratedProjectId: "project_1",
+        incomingProfile: latestProfile,
+        projectId: "project_1",
+      }),
+    ).toEqual({ action: "hydrate", profileKey: "project_1:3" });
+  });
+
+  it("hydrates normally when the project changes even if the previous draft was dirty", () => {
+    expect(
+      getFocusProfileHydrationAction({
+        dirty: true,
+        hydratedProfileKey: "project_1:2",
+        hydratedProjectId: "project_1",
+        incomingProfile: { ...latestProfile, projectId: "project_2" },
+        projectId: "project_2",
+      }),
+    ).toEqual({ action: "hydrate", profileKey: "project_2:3" });
   });
 });

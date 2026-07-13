@@ -49,12 +49,8 @@ export function RehearsalFocusProfilePanel(props: {
     () => ["rehearsal-focus-profile", props.projectId] as const,
     [props.projectId],
   );
-  const profileQuery = useQuery({
-    queryKey,
-    queryFn: () => fetchRehearsalFocusProfile(props.projectId),
-    retry: false,
-  });
   const hydratedProfileKey = useRef<string | null>(null);
+  const hydratedProjectId = useRef<string | null>(null);
   const [currentProfile, setCurrentProfile] =
     useState<RehearsalFocusProfile | null>(null);
   const [draftItems, setDraftItems] = useState<RehearsalFocusItem[]>([]);
@@ -63,19 +59,40 @@ export function RehearsalFocusProfilePanel(props: {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const dirty = !sameItems(draftItems, currentProfile?.items ?? []);
+  const autoRefetch = shouldAutoRefetchFocusProfile(dirty);
+  const profileQuery = useQuery({
+    queryKey,
+    queryFn: () => fetchRehearsalFocusProfile(props.projectId),
+    retry: false,
+    refetchOnWindowFocus: autoRefetch,
+    refetchOnReconnect: autoRefetch,
+  });
 
   useEffect(() => {
     if (profileQuery.data === undefined) return;
-    const revision = profileQuery.data?.revision ?? 0;
-    const profileKey = `${props.projectId}:${revision}`;
-    if (hydratedProfileKey.current === profileKey) return;
-    hydratedProfileKey.current = profileKey;
+    const hydration = getFocusProfileHydrationAction({
+      dirty,
+      hydratedProfileKey: hydratedProfileKey.current,
+      hydratedProjectId: hydratedProjectId.current,
+      incomingProfile: profileQuery.data,
+      projectId: props.projectId,
+    });
+    if (hydration.action === "ignore") return;
+    if (hydration.action === "conflict") {
+      setConflictProfile(profileQuery.data);
+      setError(
+        "서버에 더 최신 목표가 있습니다. 입력 내용과 비교해 다시 확인해 주세요.",
+      );
+      return;
+    }
+    hydratedProfileKey.current = hydration.profileKey;
+    hydratedProjectId.current = props.projectId;
     setCurrentProfile(profileQuery.data);
     setDraftItems(cloneItems(profileQuery.data?.items ?? []));
     setConflictProfile(null);
-  }, [profileQuery.data, props.projectId]);
+  }, [dirty, profileQuery.data, props.projectId]);
 
-  const dirty = !sameItems(draftItems, currentProfile?.items ?? []);
   const ready =
     profileQuery.isError ||
     (!profileQuery.isLoading && !saving && !dirty && !conflictProfile);
@@ -376,6 +393,30 @@ export function RehearsalFocusProfileEditor(props: {
       </footer>
     </section>
   );
+}
+
+export function shouldAutoRefetchFocusProfile(dirty: boolean) {
+  return !dirty;
+}
+
+export function getFocusProfileHydrationAction(input: {
+  dirty: boolean;
+  hydratedProfileKey: string | null;
+  hydratedProjectId: string | null;
+  incomingProfile: RehearsalFocusProfile | null;
+  projectId: string;
+}): {
+  action: "conflict" | "hydrate" | "ignore";
+  profileKey: string;
+} {
+  const profileKey = `${input.projectId}:${input.incomingProfile?.revision ?? 0}`;
+  if (input.hydratedProfileKey === profileKey) {
+    return { action: "ignore", profileKey };
+  }
+  if (input.hydratedProjectId === input.projectId && input.dirty) {
+    return { action: "conflict", profileKey };
+  }
+  return { action: "hydrate", profileKey };
 }
 
 export function renumberFocusItems(items: RehearsalFocusItem[]) {
