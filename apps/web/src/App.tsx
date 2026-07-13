@@ -49,6 +49,12 @@ import {
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { OrbitButton, OrbitEmptyState } from "./design-system";
 import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
+import {
+  authMeQueryKey,
+  fetchCurrentUser,
+  markAuthLoggedOut,
+  type AuthUser
+} from "./features/auth/auth-session";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
@@ -243,12 +249,6 @@ export type Route =
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 
-type AuthUser = {
-  userId: string;
-  email?: string;
-  displayName?: string;
-};
-
 type ProjectAccessResponse = {
   project: Project;
   membership: {
@@ -408,17 +408,6 @@ const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const simpleBasicStylePackId = defaultHomeTemplateStyleId;
 const referenceContextMaxChars = 12_000;
-
-async function fetchCurrentUser(): Promise<AuthUser> {
-  const response = await fetch("/api/v1/auth/me", {
-    credentials: "include"
-  });
-  if (!response.ok) {
-    throw new Error("Unauthenticated");
-  }
-  const payload = (await response.json()) as AuthUser | { user: AuthUser };
-  return "user" in payload ? payload.user : payload;
-}
 
 async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
   const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
@@ -643,8 +632,8 @@ export function App() {
   }, []);
 
   const auth = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: fetchCurrentUser,
+    queryKey: authMeQueryKey,
+    queryFn: () => fetchCurrentUser(),
     retry: false
   });
 
@@ -652,21 +641,21 @@ export function App() {
     return <AuthLoadingFallback />;
   }
 
-  if (route.name === "home" && !auth.isSuccess) {
+  if (route.name === "home" && !auth.data) {
     return <OrbitPublicLandingPage onNavigate={navigateTo} />;
   }
 
   if (!shouldRenderAppFrame(route)) {
-    return renderRoute(route, auth.data);
+    return renderRoute(route, auth.data ?? undefined);
   }
 
   return (
     <AppFrame
-      isAuthenticated={auth.isSuccess}
+      isAuthenticated={Boolean(auth.data)}
       route={route}
-      user={auth.data}
+      user={auth.data ?? undefined}
     >
-      {renderRoute(route, auth.data)}
+      {renderRoute(route, auth.data ?? undefined)}
     </AppFrame>
   );
 }
@@ -926,12 +915,15 @@ function AppFrame(props: {
 
     setIsLoggingOut(true);
     try {
-      await fetch("/api/v1/auth/logout", {
+      const response = await fetch("/api/v1/auth/logout", {
         credentials: "include",
         method: "POST"
       });
-      queryClient.setQueryData(["auth", "me"], undefined);
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      if (!response.ok) {
+        throw new Error("로그아웃하지 못했습니다.");
+      }
+      await queryClient.cancelQueries({ queryKey: authMeQueryKey });
+      markAuthLoggedOut(queryClient);
       navigateTo("/login");
     } finally {
       setIsLoggingOut(false);
