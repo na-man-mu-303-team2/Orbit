@@ -7,14 +7,19 @@ import {
   buildReferenceGrounding,
   briefFieldPlaceholders,
   getAiPptGenerationStatus,
+  filesFromFileList,
   getAiPptWizardValidationMessage,
   getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
+  mediaPolicyOptions,
   miniSlideFontStyles,
   initialAiPptWizardState,
+  mergeReferenceFiles,
   pollJob,
+  removeReferenceFileAt,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
+  referencePolicyOptions,
   startReferenceExtraction,
   toAiPptUserErrorMessage,
   type PaletteOption
@@ -185,6 +190,60 @@ describe("AI PPT wizard payload", () => {
         [field]: ""
       })
     ).toBe(expected);
+  });
+
+  it("normalizes selected reference files from a file list", () => {
+    const files = [
+      new File(["brief"], "brief.pdf", { type: "application/pdf" }),
+      new File(["deck"], "deck.pptx", {
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      })
+    ];
+    const fileList = Object.assign([...files], {
+      item: (index: number) => files[index] ?? null
+    }) as unknown as FileList;
+
+    expect(filesFromFileList(fileList)).toEqual(files);
+    expect(filesFromFileList(null)).toEqual([]);
+  });
+
+  it("appends newly selected reference files without duplicating the same file", () => {
+    const first = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const duplicate = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const second = new File(["deck"], "deck.pptx", {
+      lastModified: 2,
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+
+    expect(mergeReferenceFiles([first], [duplicate, second])).toEqual([duplicate, second]);
+    expect(removeReferenceFileAt([first, second], 0)).toEqual([second]);
+  });
+
+  it("documents every reference and media policy exposed by the wizard", () => {
+    expect(referencePolicyOptions.map((option) => option.value)).toEqual([
+      "user-input-only",
+      "references-first",
+      "references-only",
+      "research-first"
+    ]);
+    expect(mediaPolicyOptions.map((option) => option.value)).toEqual([
+      "minimal",
+      "provided-only",
+      "public-assets",
+      "ai-generated",
+      "hybrid"
+    ]);
+    expect(
+      [...referencePolicyOptions, ...mediaPolicyOptions].every(
+        (option) => option.description.trim().length > 0
+      )
+    ).toBe(true);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {

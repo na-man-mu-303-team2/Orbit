@@ -52,11 +52,11 @@ class FakeResponses:
         )()
 
 
-def test_rehearsal_analyze_request_uses_the_shared_cross_language_fixture() -> None:
+def test_rehearsal_analyze_v1_request_uses_the_compatibility_fixture() -> None:
     fixtures = json.loads(P0_FIXTURE_PATH.read_text(encoding="utf-8"))
 
     request = api_module.RehearsalAnalyzeRequest.model_validate(
-        fixtures["rehearsalAnalyzeRequest"]
+        fixtures["rehearsalAnalyzeRequestV1"]
     )
 
     assert request.deck_keywords[0].required is True
