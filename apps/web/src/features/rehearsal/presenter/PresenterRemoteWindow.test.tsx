@@ -265,6 +265,106 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("presenter-script-row--current");
   });
 
+  it("keeps remote current and next cues on committed prompter progress", () => {
+    const speech = createPresenterSpeechState();
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...speech,
+        coveredSentenceIds: ["sentence_1"],
+        snapshot: {
+          ...speech.snapshot,
+          prompterProgress: {
+            slideId: "slide_p0_1",
+            revision: 1,
+            phase: "tracking" as const,
+            currentSentenceId: "sentence_1",
+            candidateSentenceId: null,
+            candidateSinceMs: null,
+            hasCurrentLexicalEvidence: true,
+            committedSentenceIds: [],
+            lastCommittedSentenceId: null,
+            lastCommitSource: null,
+            finalSentenceCommitted: false,
+          },
+        },
+      },
+    };
+    const sentences = ["첫 문장입니다", "마지막 문장입니다"];
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(0);
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 0)).toBe(1);
+    expect(html).not.toContain("presenter-script-row--covered");
+  });
+
+  it("shows a leading display-only cue until lexical evidence reaches tracking", () => {
+    const speech = createPresenterSpeechState();
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...speech,
+        snapshot: {
+          ...speech.snapshot,
+          prompterProgress: {
+            slideId: "slide_p0_1",
+            revision: 0,
+            phase: "tracking" as const,
+            currentSentenceId: "sentence_2",
+            candidateSentenceId: null,
+            candidateSinceMs: null,
+            hasCurrentLexicalEvidence: false,
+            committedSentenceIds: [],
+            lastCommittedSentenceId: null,
+            lastCommitSource: null,
+            finalSentenceCommitted: false,
+          },
+        },
+      },
+    };
+    const sentences = ["안녕하세요", "발표를 시작하겠습니다"];
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(0);
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 0)).toBe(1);
+  });
+
+  it("keeps the final committed cue current without a next cue", () => {
+    const speech = createPresenterSpeechState();
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...speech,
+        coveredSentenceIds: ["sentence_1", "sentence_2"],
+        snapshot: {
+          ...speech.snapshot,
+          prompterProgress: {
+            slideId: "slide_p0_1",
+            revision: 2,
+            phase: "tracking" as const,
+            currentSentenceId: null,
+            candidateSentenceId: null,
+            candidateSinceMs: null,
+            hasCurrentLexicalEvidence: false,
+            committedSentenceIds: ["sentence_1", "sentence_2"],
+            lastCommittedSentenceId: "sentence_2",
+            lastCommitSource: "lexical" as const,
+            finalSentenceCommitted: true,
+          },
+        },
+      },
+    };
+    const sentences = ["첫 문장입니다", "마지막 문장입니다"];
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(1);
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 1)).toBe(-1);
+  });
+
   it("marks the next remote script sentence after current", () => {
     const state = createPresenterSlideshowState(p0AnimationDeck);
     const sentences = ["첫 문장입니다", "둘째 문장입니다", "마지막 문장입니다"];
@@ -292,7 +392,7 @@ describe("PresenterRemoteWindow", () => {
     );
 
     expect(html).toContain("presenter-script-row--paraphrased");
-    expect(html).toContain("의미 전달");
+    expect(html).toContain("체크됨");
   });
 
   it("retries idempotent remote timer pause commands across transient channel races", () => {

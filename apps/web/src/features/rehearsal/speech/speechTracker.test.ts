@@ -3,6 +3,41 @@ import { describe, expect, it } from "vitest";
 import { createSpeechTracker } from "./speechTracker";
 
 describe("SpeechTracker", () => {
+  it("인사말은 진행률 분모에서 제외하고 다음 문장의 lexical evidence를 즉시 표시한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "안녕하세요. 이번 발표에서는 ORBIT 출시 목표를 공유하겠습니다. 마지막으로 실행 계획을 정리하겠습니다.",
+      keywords: []
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0,
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        hasCurrentLexicalEvidence: false,
+        committedSentenceIds: []
+      }
+    });
+
+    tracker.acceptResult({
+      text: "이번 발표에서는 ORBIT 출시 목표",
+      isFinal: false,
+      timestampMs: [0, 500]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      matchableSentenceCount: 2,
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_2",
+        hasCurrentLexicalEvidence: true,
+        committedSentenceIds: []
+      }
+    });
+  });
+
   it("partial 전사에서도 키워드를 즉시 체크하고 final 문장 진행과 함께 유지한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
@@ -40,7 +75,13 @@ describe("SpeechTracker", () => {
     });
     expect(tracker.snapshot()).toMatchObject({
       effectiveCoverage: 0.5,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      },
+      finalSentenceCommitted: false
     });
 
     const events = tracker.acceptResult({
@@ -53,7 +94,11 @@ describe("SpeechTracker", () => {
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 0.5,
       finalSentenceSpoken: false,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"]
+      }
     });
   });
 
@@ -82,6 +127,14 @@ describe("SpeechTracker", () => {
     expect(coverage?.type === "coverage-updated" ? coverage.wordCoverage : 0).toBeGreaterThan(
       0.6
     );
+    expect(tracker.snapshot()).toMatchObject({
+      finalSentenceSpoken: true,
+      finalSentenceCommitted: false,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
   });
 
   it("threshold 근처에서만 어절 보조 신호를 +/-10%p로 반영한다", () => {
@@ -147,7 +200,12 @@ describe("SpeechTracker", () => {
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 0,
       effectiveCoverage: 0,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      finalSentenceCommitted: false,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
     });
   });
 
@@ -275,7 +333,283 @@ describe("SpeechTracker", () => {
     ]);
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 1,
-      finalSentenceSpoken: true
+      finalSentenceSpoken: true,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      },
+      finalSentenceCommitted: false
+    });
+  });
+
+  it("partial lexical evidence는 final boundary 전까지 프롬프터를 넘기지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락과 사용자 문제를 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      isFinal: false,
+      timestampMs: [0, 900]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
+
+    tracker.acceptResult({
+      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      isFinal: true,
+      timestampMs: [900, 1200]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      prompterProgress: {
+        phase: "tracking",
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"],
+        lastCommittedSentenceId: "sentence_1"
+      }
+    });
+  });
+
+  it("timestamp만 달라진 동일 final을 재수신해도 다음 문장을 commit하지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
+      keywords: []
+    });
+    const finalResult = {
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(finalResult);
+    const firstSnapshot = tracker.snapshot().prompterProgress;
+    tracker.acceptResult({
+      ...finalResult,
+      timestampMs: [1_000, 1_200]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toEqual(firstSnapshot);
+    expect(firstSnapshot).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+  });
+
+  it("commit된 utterance의 후속 revision은 막고 새 utterance는 허용한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000],
+      utteranceId: "utterance_1",
+      resultRevision: 1
+    });
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [1_000, 1_200],
+      utteranceId: "utterance_1",
+      resultRevision: 2
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [1_200, 2_000],
+      utteranceId: "utterance_2",
+      resultRevision: 1
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"]
+    });
+  });
+
+  it("identity가 없는 동일 final은 dedupe window 이후 새 발화로 허용한다", () => {
+    let nowMs = 0;
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
+      keywords: [],
+      now: () => nowMs
+    });
+    const result = {
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(result);
+    nowMs = 2_001;
+    tracker.acceptResult({ ...result, timestampMs: [2_000, 3_000] });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"]
+    });
+  });
+
+  it("manual API는 coverage를 변경하지 않고 프롬프터 위치만 이동한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락을 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    expect(tracker.manualNextPrompter(1_000)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"]
+      }
+    });
+
+    expect(tracker.manualPreviousPrompter(1_100)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
+  });
+
+  it("pause boundary는 충분한 lexical candidate가 있을 때만 현재 문장을 commit한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: "오르빗 리허설 화면은 발표 흐름을 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설 화면은 발표 흐름을 점검합니다",
+      isFinal: false,
+      timestampMs: [0, 800]
+    });
+
+    expect(
+      tracker.acceptPrompterBoundary({ type: "pause-started", atMs: 900 })
+    ).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      finalSentenceCommitted: true,
+      prompterProgress: {
+        currentSentenceId: null,
+        committedSentenceIds: ["sentence_1"]
+      }
+    });
+  });
+
+  it("다음 문장을 바로 읽으면 현재 문장을 체크하지 않고 한 문장 앞으로 복구한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 전략과 고객 문제를 구체적으로 설명합니다. 둘째 결론은 실행 일정과 협업 방향을 명확하게 정리합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "둘째 결론은 실행 일정과 협업 방향을 명확하게 정리합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_2"],
+      skippedSentenceIds: ["sentence_1"],
+      lastCommitSource: "lexical"
+    });
+  });
+
+  it("E5 match는 lexical token이 있을 때만 현재 문장 commit을 보조한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "오르빗 리허설은 발표자의 실제 전달 흐름과 핵심 메시지를 안정적으로 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+    expect(tracker.snapshot().prompterProgress?.finalSentenceCommitted).toBe(
+      false
+    );
+
+    tracker.acceptSemanticSentenceMatch({
+      sentenceId: "sentence_1",
+      transcript: "오르빗 리허설을 통해 핵심 전달을 점검했습니다",
+      similarity: 0.94,
+      lexicalOverlap: 0.25,
+      matchKind: "paraphrased",
+      atMs: 500
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1"],
+      lastCommitSource: "semantic-assisted",
+      finalSentenceCommitted: true
+    });
+  });
+
+  it("이전 prompter revision의 E5 결과는 현재 문장을 commit하지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "오르빗 리허설은 발표자의 실제 전달 흐름과 핵심 메시지를 안정적으로 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설",
+      isFinal: false,
+      timestampMs: [0, 500]
+    });
+    tracker.acceptSemanticSentenceMatch({
+      sentenceId: "sentence_1",
+      transcript: "오르빗 리허설을 통해 핵심 전달을 점검했습니다",
+      similarity: 0.94,
+      lexicalOverlap: 0.25,
+      matchKind: "paraphrased",
+      expectedPrompterRevision: 1,
+      atMs: 500
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      committedSentenceIds: [],
+      finalSentenceCommitted: false
     });
   });
 

@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
-import { deriveStabilization, FocusedPracticeService } from "./focused-practice.service";
+import {
+  deriveStabilization,
+  focusedPracticeAudioFileName,
+  FocusedPracticeService,
+} from "./focused-practice.service";
 import { focusedPracticeSentenceSnapshotHash } from "./focused-practice-target";
 
 vi.mock("@orbit/config", () => ({
@@ -124,6 +128,14 @@ describe("FocusedPracticeService", () => {
     expect(deriveStabilization([attempt(1, "passed"), failed, attempt(3, "passed")])).toEqual([
       { goalId: "goal-a", stabilized: false },
     ]);
+  });
+
+  it.each([
+    ["audio/webm", "focused-practice-audio.webm"],
+    ["audio/mpeg", "focused-practice-audio.mp3"],
+    ["audio/x-m4a", "focused-practice-audio.m4a"],
+  ])("adds the matching extension to %s uploads", (mimeType, expected) => {
+    expect(focusedPracticeAudioFileName(mimeType)).toBe(expected);
   });
 });
 

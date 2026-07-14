@@ -24,6 +24,7 @@ import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import {
   derivePracticeGoalSet,
+  loadPracticeGoalRankingContext,
   publishPracticeGoalSet
 } from "./practice-goal-derivation";
 
@@ -383,12 +384,19 @@ export async function processRehearsalSttJob(
   });
 
   if (completedRun.evaluation_snapshot_json) {
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: dataSource,
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      snapshot: completedRun.evaluation_snapshot_json
+    });
     const goalSet = derivePracticeGoalSet({
       projectId: payload.projectId,
       sourceFullRunId: payload.runId,
       sourceAnalysisRevision: completedRun.analysis_revision,
       snapshot: completedRun.evaluation_snapshot_json,
-      report
+      report,
+      rankingContext
     });
     if (goalSet) {
       await publishPracticeGoalSet(dataSource, goalSet, {
@@ -1126,18 +1134,27 @@ function buildSlideTimings(
   const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
+  const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
+  const recordingDurationSeconds = runMeta.recordingDurationSeconds;
+  const recordingEndedAt =
+    !Number.isNaN(firstEnteredAt) && recordingDurationSeconds !== null
+      ? firstEnteredAt + recordingDurationSeconds * 1000
+      : null;
 
   for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry || !nextEntry) {
+    if (!entry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = Date.parse(nextEntry.enteredAt);
+    const exitedAt = nextEntry
+      ? Date.parse(nextEntry.enteredAt)
+      : recordingEndedAt;
     if (
       Number.isNaN(enteredAt) ||
+      exitedAt === null ||
       Number.isNaN(exitedAt) ||
       exitedAt <= enteredAt
     ) {

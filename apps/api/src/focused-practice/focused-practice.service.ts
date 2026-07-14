@@ -166,7 +166,7 @@ export class FocusedPracticeService {
     ));
     if (existing) return { attempt: toAttempt(existing), upload: null };
     const upload = await this.files.createUploadUrl(projectId, {
-      originalName: "focused-practice-audio",
+      originalName: focusedPracticeAudioFileName(request.mimeType),
       mimeType: request.mimeType,
       size: request.size,
       purpose: "focused-practice-audio",
@@ -371,6 +371,24 @@ export function deriveStabilization(attempts: FocusedPracticeAttempt[]) {
       previous?.goalOutcomes.find((item) => item.goalId === goalId)?.outcome === "passed"
     ),
   }));
+}
+
+export function focusedPracticeAudioFileName(mimeType: string) {
+  const extension = {
+    "audio/mp3": "mp3",
+    "audio/mpeg": "mp3",
+    "audio/mpga": "mp3",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mp4": "mp4",
+    "video/mp4": "mp4",
+    "audio/flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+  }[mimeType] ?? "webm";
+
+  return `focused-practice-audio.${extension}`;
 }
 
 function validateTimeline(timeline: Array<{ enteredAtMs: number; exitedAtMs: number | null }>, durationMs: number) {

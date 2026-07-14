@@ -17,11 +17,13 @@ import {
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  rehearsalFocusProfileSchema,
   rehearsalReportSchema,
   retryRehearsalSemanticEvaluationResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
   type RehearsalEvaluationSnapshot,
+  type RehearsalFocusProfile,
   type RehearsalRun
 } from "@orbit/shared";
 import {
@@ -46,7 +48,9 @@ import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 import {
+  assertFrozenRehearsalEvaluationSources,
   buildRehearsalEvaluationPlan,
+  createRehearsalFocusProfileSnapshot,
   deckContentHash,
 } from "../practice-goals/evaluation-plan";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
@@ -113,6 +117,9 @@ export class RehearsalsService {
     const adaptiveBrief = request.briefRef
       ? await this.resolveAdaptiveBrief(projectId, request.briefRef, request.evaluatorLensRef)
       : undefined;
+    const focusProfile = request.briefRef
+      ? await this.resolveFocusProfile(projectId)
+      : null;
     const sourceGoalSetRef = request.briefRef
       ? await this.resolveSourceGoalSetRef(projectId, request.sourceGoalSetId ?? null)
       : null;
@@ -137,9 +144,17 @@ export class RehearsalsService {
           {
             deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
             evaluationPlan,
+            focusProfileSnapshot: createRehearsalFocusProfileSnapshot(focusProfile),
             slideThumbnailUrls
           }
         );
+        if (evaluationPlan) {
+          assertFrozenRehearsalEvaluationSources({
+            snapshot: evaluationSnapshot,
+            brief: adaptiveBrief ?? null,
+            focusProfile
+          });
+        }
       } catch (error) {
         if (!(error instanceof ZodError)) {
           throw error;
@@ -205,6 +220,32 @@ export class RehearsalsService {
     }
 
     return createRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
+  }
+
+  private async resolveFocusProfile(
+    projectId: string
+  ): Promise<RehearsalFocusProfile | null> {
+    const rows = await this.rehearsalRuns.query(
+      `SELECT profile_id, project_id, revision, items_json,
+              created_by, updated_by, created_at, updated_at
+       FROM rehearsal_focus_profiles
+       WHERE project_id = $1
+       LIMIT 1`,
+      [projectId]
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || typeof row !== "object") return null;
+    const value = row as Record<string, unknown>;
+    return rehearsalFocusProfileSchema.parse({
+      profileId: value.profile_id,
+      projectId: value.project_id,
+      revision: value.revision,
+      items: value.items_json,
+      createdBy: value.created_by,
+      updatedBy: value.updated_by,
+      createdAt: databaseDateToIso(value.created_at),
+      updatedAt: databaseDateToIso(value.updated_at)
+    });
   }
 
   private async resolveSlideSnapshotUrls(
@@ -800,6 +841,12 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString()
   };
+}
+
+function databaseDateToIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return new Date(value).toISOString();
+  throw new Error("Rehearsal focus profile date is invalid.");
 }
 
 type ReportJsonShape = {
