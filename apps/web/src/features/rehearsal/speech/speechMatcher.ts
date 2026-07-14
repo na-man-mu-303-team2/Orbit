@@ -93,12 +93,14 @@ export function calculateWordMultisetRecall(options: {
   scriptText: string;
   transcriptText: string;
 }) {
-  const scriptWords = tokenizeRecallWords(options.scriptText);
+  const scriptWords = tokenizeSpeechRecallWords(options.scriptText);
   if (scriptWords.length === 0) {
     return 0;
   }
 
-  const transcriptCounts = countWords(tokenizeRecallWords(options.transcriptText));
+  const transcriptCounts = countWords(
+    tokenizeSpeechRecallWords(options.transcriptText)
+  );
   let matched = 0;
 
   for (const [word, scriptCount] of countWords(scriptWords).entries()) {
@@ -180,7 +182,7 @@ function hasEnglishWordBoundaryMatch(transcript: string, alias: string) {
   );
 }
 
-function tokenizeRecallWords(value: string) {
+export function tokenizeSpeechRecallWords(value: string) {
   return value
     .normalize("NFC")
     .replace(/[^\p{L}\p{N}+#.-]+/gu, " ")
