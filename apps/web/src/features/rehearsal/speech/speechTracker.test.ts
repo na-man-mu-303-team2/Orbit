@@ -344,6 +344,30 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("동일한 final 결과를 중복 수신해도 다음 문장을 추가 commit하지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락과 사용자 문제를 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+    const finalResult = {
+      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(finalResult);
+    const firstSnapshot = tracker.snapshot().prompterProgress;
+    tracker.acceptResult(finalResult);
+
+    expect(tracker.snapshot().prompterProgress).toEqual(firstSnapshot);
+    expect(firstSnapshot).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+  });
+
   it("manual API는 coverage를 변경하지 않고 프롬프터 위치만 이동한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

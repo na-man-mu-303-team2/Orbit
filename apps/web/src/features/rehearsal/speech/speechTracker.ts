@@ -1,5 +1,8 @@
 import type { LiveSttResult } from "../stt/liveSttPort";
-import { createDefaultPhraseExtractor } from "./phraseExtractor";
+import {
+  createDefaultPhraseExtractor,
+  normalizeSpeechText
+} from "./phraseExtractor";
 import {
   createPrompterLexicalEvidenceAccumulator,
   type PrompterLexicalEvidenceAccumulator,
@@ -85,37 +88,51 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     sentences
   });
   let prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+  let lastPrompterFinalFingerprint: string | null = null;
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
     const scriptProgress = scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
-    const prompterProgress = prompterProgressTracker.snapshot();
-    const currentSentence = sentences.find(
-      (sentence) => sentence.sentenceId === prompterProgress.currentSentenceId
-    );
-    if (currentSentence && prompterLexicalEvidence) {
-      const lexicalEvidence = prompterLexicalEvidence.acceptResult({
-        sentenceId: currentSentence.sentenceId,
-        transcriptText: result.text,
-        sentenceProgressRatio:
-          scriptProgress.sentenceId === currentSentence.sentenceId
-            ? scriptProgress.sentenceRatio
-            : 0,
-        atMs
-      });
-      prompterProgressTracker.acceptEvidence({
-        sentenceId: currentSentence.sentenceId,
-        revision: prompterProgress.revision,
-        candidate: lexicalEvidence.matchedMeaningfulTokenCount > 0,
-        commitEligible: isPrompterLexicalCommitEligible(lexicalEvidence),
-        source: "lexical",
-        atMs
-      });
+    const finalFingerprint = result.isFinal
+      ? createPrompterFinalFingerprint(result)
+      : null;
+    const isDuplicatePrompterFinal =
+      finalFingerprint !== null &&
+      finalFingerprint === lastPrompterFinalFingerprint;
+
+    if (!isDuplicatePrompterFinal) {
+      const prompterProgress = prompterProgressTracker.snapshot();
+      const currentSentence = sentences.find(
+        (sentence) => sentence.sentenceId === prompterProgress.currentSentenceId
+      );
+      if (currentSentence && prompterLexicalEvidence) {
+        const lexicalEvidence = prompterLexicalEvidence.acceptResult({
+          sentenceId: currentSentence.sentenceId,
+          transcriptText: result.text,
+          sentenceProgressRatio:
+            scriptProgress.sentenceId === currentSentence.sentenceId
+              ? scriptProgress.sentenceRatio
+              : 0,
+          atMs
+        });
+        prompterProgressTracker.acceptEvidence({
+          sentenceId: currentSentence.sentenceId,
+          revision: prompterProgress.revision,
+          candidate: lexicalEvidence.matchedMeaningfulTokenCount > 0,
+          commitEligible: isPrompterLexicalCommitEligible(lexicalEvidence),
+          source: "lexical",
+          atMs
+        });
+      }
+
+      if (result.isFinal) {
+        acceptPrompterBoundary({ type: "stt-final", atMs });
+      }
     }
 
-    if (result.isFinal) {
-      acceptPrompterBoundary({ type: "stt-final", atMs });
+    if (finalFingerprint !== null) {
+      lastPrompterFinalFingerprint = finalFingerprint;
     }
 
     const finalWindow = createFinalSegmentWindow({
@@ -254,6 +271,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     scriptProgressTracker.reset();
     prompterProgressTracker.reset();
     prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    lastPrompterFinalFingerprint = null;
   }
 
   function snapshot(): SpeechTrackerSnapshot {
@@ -360,6 +378,14 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       atMs
     };
   }
+}
+
+function createPrompterFinalFingerprint(result: LiveSttResult) {
+  return [
+    result.timestampMs[0],
+    result.timestampMs[1],
+    normalizeSpeechText(result.text)
+  ].join(":");
 }
 
 function isPrompterLexicalCommitEligible(
