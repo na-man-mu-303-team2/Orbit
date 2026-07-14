@@ -461,6 +461,28 @@ describe("p3RehearsalSession", () => {
     });
   });
 
+  it("무음 경계를 STT 상대 시간으로 변환해 프롬프터를 commit한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "생성형 AI 초안을 안정적으로 추적합니다",
+      isFinal: false,
+      timestampMs: [0, 800]
+    });
+
+    expect(session.acceptPrompterPauseBoundary(700)).toBe(true);
+    expect(session.getState().snapshot?.prompterProgress).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+  });
+
   it("finalizes active advice state into local run meta", async () => {
     const port = createMockLiveSttPort();
     const session = createP3RehearsalSession({

@@ -3271,7 +3271,17 @@ export function RehearsalWorkspace(props: {
         ? event.atMs
         : Date.now();
     const detector = ensurePauseDetector();
-    detector.accept(event);
+    const outputs = detector.accept(event);
+    for (const output of outputs) {
+      if (output.type !== "pause-started") {
+        continue;
+      }
+      const p3Session = p3SessionRef.current;
+      if (p3Session?.acceptPrompterPauseBoundary(output.silenceDurationMs)) {
+        setP3SessionState(p3Session.getState());
+        setScriptAutoFollowKey((current) => current + 1);
+      }
+    }
     setPauseDetectorSnapshot(detector.snapshot(atMs));
     setAutoAdvanceNowMs(atMs);
   }

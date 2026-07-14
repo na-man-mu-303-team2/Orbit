@@ -30,6 +30,7 @@ export type PrompterProgressSnapshot = {
   candidateSinceMs: number | null;
   hasCurrentLexicalEvidence?: boolean;
   committedSentenceIds: string[];
+  skippedSentenceIds?: string[];
   lastCommittedSentenceId: string | null;
   lastCommitSource: "lexical" | "semantic-assisted" | "manual" | null;
   finalSentenceCommitted: boolean;
@@ -37,6 +38,7 @@ export type PrompterProgressSnapshot = {
 
 export type PrompterProgressTracker = {
   acceptEvidence: (evidence: PrompterProgressEvidence) => boolean;
+  resyncNext: (evidence: PrompterProgressEvidence) => boolean;
   acceptBoundary: (boundary: PrompterBoundary) => boolean;
   manualNext: (atMs: number) => boolean;
   manualPrevious: (atMs: number) => boolean;
@@ -60,6 +62,7 @@ export function createPrompterProgressTracker(options: {
   let candidateSinceMs: number | null = null;
   let hasCurrentLexicalEvidence = false;
   let committedSentenceIds: string[] = [];
+  let skippedSentenceIds: string[] = [];
   let lastCommittedSentenceId: string | null = null;
   let lastCommitSource: PrompterProgressSnapshot["lastCommitSource"] = null;
 
@@ -98,6 +101,31 @@ export function createPrompterProgressTracker(options: {
     return commitCurrent(latestEvidence?.source ?? "lexical");
   }
 
+  function resyncNext(evidence: PrompterProgressEvidence) {
+    const currentSentence = sentences[currentIndex];
+    const nextSentence = sentences[currentIndex + 1];
+    if (
+      !currentSentence ||
+      !nextSentence ||
+      evidence.sentenceId !== nextSentence.sentenceId ||
+      !evidence.candidate ||
+      !evidence.commitEligible
+    ) {
+      return false;
+    }
+
+    if (!skippedSentenceIds.includes(currentSentence.sentenceId)) {
+      skippedSentenceIds = [...skippedSentenceIds, currentSentence.sentenceId];
+    }
+    currentIndex += 1;
+    revision += 1;
+    latestEvidence = { ...evidence, revision };
+    phase = "candidate";
+    candidateSinceMs = evidence.atMs;
+    hasCurrentLexicalEvidence = evidence.source === "lexical";
+    return true;
+  }
+
   function manualNext(_atMs: number) {
     return commitCurrent("manual");
   }
@@ -121,6 +149,10 @@ export function createPrompterProgressTracker(options: {
       const sentence = sentences.find((candidate) => candidate.sentenceId === sentenceId);
       return sentence ? sentence.index < targetSentence.index : false;
     });
+    skippedSentenceIds = skippedSentenceIds.filter((sentenceId) => {
+      const sentence = sentences.find((candidate) => candidate.sentenceId === sentenceId);
+      return sentence ? sentence.index < targetSentence.index : false;
+    });
     lastCommittedSentenceId = committedSentenceIds.at(-1) ?? null;
     lastCommitSource = null;
     revision += 1;
@@ -132,6 +164,7 @@ export function createPrompterProgressTracker(options: {
   function reset() {
     currentIndex = 0;
     committedSentenceIds = [];
+    skippedSentenceIds = [];
     lastCommittedSentenceId = null;
     lastCommitSource = null;
     revision += 1;
@@ -151,6 +184,9 @@ export function createPrompterProgressTracker(options: {
       candidateSinceMs,
       hasCurrentLexicalEvidence,
       committedSentenceIds: [...committedSentenceIds],
+      ...(skippedSentenceIds.length > 0
+        ? { skippedSentenceIds: [...skippedSentenceIds] }
+        : {}),
       lastCommittedSentenceId,
       lastCommitSource,
       finalSentenceCommitted:
@@ -193,6 +229,7 @@ export function createPrompterProgressTracker(options: {
 
   return {
     acceptEvidence,
+    resyncNext,
     acceptBoundary,
     manualNext,
     manualPrevious,

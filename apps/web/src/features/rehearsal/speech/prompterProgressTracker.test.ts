@@ -88,6 +88,32 @@ describe("createPrompterProgressTracker", () => {
     );
   });
 
+  it("다음 문장의 강한 evidence로 현재 위치를 한 문장만 복구한다", () => {
+    const tracker = createTracker();
+
+    expect(
+      tracker.resyncNext(
+        evidence({ sentenceId: "sentence_2", source: "semantic-assisted" })
+      )
+    ).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: [],
+      skippedSentenceIds: ["sentence_1"],
+      lastCommitSource: null
+    });
+
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(
+      true
+    );
+    expect(tracker.snapshot()).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_2"],
+      skippedSentenceIds: ["sentence_1"],
+      lastCommitSource: "semantic-assisted"
+    });
+  });
+
   it("오래된 evidence와 boundary보다 나중인 evidence는 commit하지 않는다", () => {
     const tracker = createTracker();
     tracker.acceptEvidence(evidence());

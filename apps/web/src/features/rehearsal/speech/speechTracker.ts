@@ -87,6 +87,8 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     sentences
   });
   let prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+  let prompterLookaheadLexicalEvidence =
+    createLexicalEvidenceForNextSentence();
   const prompterFinalDeduplicator = createPrompterFinalDeduplicator({
     now: input.now ?? (() => Date.now())
   });
@@ -103,6 +105,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       const currentSentence = sentences.find(
         (sentence) => sentence.sentenceId === prompterProgress.currentSentenceId
       );
+      let currentCommitEligible = false;
       if (currentSentence && prompterLexicalEvidence) {
         const lexicalEvidence = prompterLexicalEvidence.acceptResult({
           sentenceId: currentSentence.sentenceId,
@@ -113,14 +116,47 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
               : 0,
           atMs
         });
+        currentCommitEligible = isPrompterLexicalCommitEligible(lexicalEvidence);
         prompterProgressTracker.acceptEvidence({
           sentenceId: currentSentence.sentenceId,
           revision: prompterProgress.revision,
           candidate: lexicalEvidence.matchedMeaningfulTokenCount > 0,
-          commitEligible: isPrompterLexicalCommitEligible(lexicalEvidence),
+          commitEligible: currentCommitEligible,
           source: "lexical",
           atMs
         });
+      }
+
+      const nextSentence = findNextPrompterSentence(currentSentence?.sentenceId);
+      if (nextSentence && prompterLookaheadLexicalEvidence) {
+        const lookaheadEvidence = prompterLookaheadLexicalEvidence.acceptResult({
+          sentenceId: nextSentence.sentenceId,
+          transcriptText: result.text,
+          sentenceProgressRatio:
+            scriptProgress.sentenceId === nextSentence.sentenceId
+              ? scriptProgress.sentenceRatio
+              : 0,
+          atMs
+        });
+        const lookaheadCommitEligible =
+          isPrompterLexicalCommitEligible(lookaheadEvidence);
+        if (
+          !currentCommitEligible &&
+          lookaheadCommitEligible &&
+          (result.isFinal || lookaheadEvidence.stableResultCount >= 2)
+        ) {
+          const resynced = prompterProgressTracker.resyncNext({
+            sentenceId: nextSentence.sentenceId,
+            revision: prompterProgress.revision,
+            candidate: true,
+            commitEligible: true,
+            source: "lexical",
+            atMs
+          });
+          if (resynced) {
+            refreshPrompterLexicalEvidence();
+          }
+        }
       }
 
       if (result.isFinal) {
@@ -209,7 +245,12 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       (candidate) =>
         candidate.sentenceId === options.sentenceId && candidate.matchable
     );
-    if (!sentence || visit.coveredSentenceIds.has(sentence.sentenceId)) {
+    if (!sentence) {
+      return [];
+    }
+
+    acceptSemanticPrompterAssistance(sentence.sentenceId, options.atMs);
+    if (visit.coveredSentenceIds.has(sentence.sentenceId)) {
       return [];
     }
 
@@ -240,7 +281,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   function acceptPrompterBoundary(boundary: PrompterBoundary) {
     const committed = prompterProgressTracker.acceptBoundary(boundary);
     if (committed) {
-      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+      refreshPrompterLexicalEvidence();
     }
     return committed;
   }
@@ -248,7 +289,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   function manualNextPrompter(atMs: number) {
     const committed = prompterProgressTracker.manualNext(atMs);
     if (committed) {
-      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+      refreshPrompterLexicalEvidence();
     }
     return committed;
   }
@@ -256,7 +297,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   function manualPreviousPrompter(atMs: number) {
     const moved = prompterProgressTracker.manualPrevious(atMs);
     if (moved) {
-      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+      refreshPrompterLexicalEvidence();
     }
     return moved;
   }
@@ -266,7 +307,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     Object.assign(visit, nextVisit);
     scriptProgressTracker.reset();
     prompterProgressTracker.reset();
-    prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    refreshPrompterLexicalEvidence();
     prompterFinalDeduplicator.reset();
   }
 
@@ -313,6 +354,72 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     return currentSentence
       ? createPrompterLexicalEvidenceAccumulator(currentSentence)
       : null;
+  }
+
+  function createLexicalEvidenceForNextSentence():
+    | PrompterLexicalEvidenceAccumulator
+    | null {
+    const currentSentenceId =
+      prompterProgressTracker.snapshot().currentSentenceId;
+    const nextSentence = findNextPrompterSentence(currentSentenceId);
+    return nextSentence
+      ? createPrompterLexicalEvidenceAccumulator(nextSentence)
+      : null;
+  }
+
+  function findNextPrompterSentence(currentSentenceId?: string | null) {
+    if (!currentSentenceId) {
+      return null;
+    }
+    const matchableSentences = sentences.filter((sentence) => sentence.matchable);
+    const currentIndex = matchableSentences.findIndex(
+      (sentence) => sentence.sentenceId === currentSentenceId
+    );
+    return currentIndex >= 0 ? (matchableSentences[currentIndex + 1] ?? null) : null;
+  }
+
+  function refreshPrompterLexicalEvidence() {
+    prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    prompterLookaheadLexicalEvidence = createLexicalEvidenceForNextSentence();
+  }
+
+  function acceptSemanticPrompterAssistance(sentenceId: string, atMs: number) {
+    const progress = prompterProgressTracker.snapshot();
+    const currentEvidence = prompterLexicalEvidence?.snapshot();
+    if (
+      progress.currentSentenceId === sentenceId &&
+      currentEvidence &&
+      currentEvidence.matchedMeaningfulTokenCount >= 2
+    ) {
+      prompterProgressTracker.acceptEvidence({
+        sentenceId,
+        revision: progress.revision,
+        candidate: true,
+        commitEligible: true,
+        source: "semantic-assisted",
+        atMs
+      });
+      acceptPrompterBoundary({ type: "stt-final", atMs });
+      return;
+    }
+
+    const nextSentence = findNextPrompterSentence(progress.currentSentenceId);
+    const lookaheadEvidence = prompterLookaheadLexicalEvidence?.snapshot();
+    if (
+      nextSentence?.sentenceId === sentenceId &&
+      lookaheadEvidence &&
+      lookaheadEvidence.matchedMeaningfulTokenCount >= 2 &&
+      prompterProgressTracker.resyncNext({
+        sentenceId,
+        revision: progress.revision,
+        candidate: true,
+        commitEligible: true,
+        source: "semantic-assisted",
+        atMs
+      })
+    ) {
+      acceptPrompterBoundary({ type: "stt-final", atMs });
+    }
   }
 
   function coverSentence(

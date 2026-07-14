@@ -106,6 +106,7 @@ export type P3RehearsalSession = {
   resume: (options: { audioSource: MediaStream }) => Promise<P3RehearsalSessionState>;
   enterSlide: (slideIndex: number) => SpeechTrackingEvent[];
   acceptResult: (result: LiveSttResult) => SpeechTrackingEvent[];
+  acceptPrompterPauseBoundary: (silenceDurationMs: number) => boolean;
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
   stop: () => Promise<RehearsalRunMeta>;
   getState: () => P3RehearsalSessionState;
@@ -369,6 +370,20 @@ export function createP3RehearsalSession(
     }
     emitSnapshot();
     return events;
+  }
+
+  function acceptPrompterPauseBoundary(silenceDurationMs: number) {
+    if (status !== "running" || !currentTracker) {
+      return false;
+    }
+    const committed = currentTracker.acceptPrompterBoundary({
+      type: "pause-started",
+      atMs: lastAcceptedResultEndMs + Math.max(silenceDurationMs, 0)
+    });
+    if (committed) {
+      emitSnapshot();
+    }
+    return committed;
   }
 
   function setAdviceState(type: AdviceEventType, active: boolean) {
@@ -761,8 +776,8 @@ export function createP3RehearsalSession(
       applyEventsToLog(events, collector);
       if (events.length > 0) {
         input.onEvents?.(events);
-        emitSnapshot();
       }
+      emitSnapshot();
     } catch (error) {
       if (isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
         emitSemanticDebugState({
@@ -918,6 +933,7 @@ export function createP3RehearsalSession(
     resume,
     enterSlide,
     acceptResult,
+    acceptPrompterPauseBoundary,
     setAdviceState,
     stop,
     getState

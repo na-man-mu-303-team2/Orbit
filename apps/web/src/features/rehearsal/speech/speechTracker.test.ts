@@ -526,6 +526,62 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("다음 문장을 바로 읽으면 현재 문장을 체크하지 않고 한 문장 앞으로 복구한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 전략과 고객 문제를 구체적으로 설명합니다. 둘째 결론은 실행 일정과 협업 방향을 명확하게 정리합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "둘째 결론은 실행 일정과 협업 방향을 명확하게 정리합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_2"],
+      skippedSentenceIds: ["sentence_1"],
+      lastCommitSource: "lexical"
+    });
+  });
+
+  it("E5 match는 lexical token이 있을 때만 현재 문장 commit을 보조한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "오르빗 리허설은 발표자의 실제 전달 흐름과 핵심 메시지를 안정적으로 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설",
+      isFinal: true,
+      timestampMs: [0, 500]
+    });
+    expect(tracker.snapshot().prompterProgress?.finalSentenceCommitted).toBe(
+      false
+    );
+
+    tracker.acceptSemanticSentenceMatch({
+      sentenceId: "sentence_1",
+      transcript: "오르빗 리허설을 통해 핵심 전달을 점검했습니다",
+      similarity: 0.94,
+      lexicalOverlap: 0.25,
+      matchKind: "paraphrased",
+      atMs: 500
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1"],
+      lastCommitSource: "semantic-assisted",
+      finalSentenceCommitted: true
+    });
+  });
+
   it("semantic coverage event는 transcript, speakerNotes, similarity 원문을 노출하지 않는다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
