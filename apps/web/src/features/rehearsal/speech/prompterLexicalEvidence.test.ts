@@ -75,6 +75,29 @@ describe("createPrompterLexicalEvidenceAccumulator", () => {
     });
   });
 
+  it("이미 반영된 token만 반복되면 evidence 시각을 갱신하지 않는다", () => {
+    const evidence = createAccumulator();
+    evidence.acceptResult({
+      sentenceId: "sentence_1",
+      transcriptText: "오르빗 리허설 화면은 발표 흐름과 함께 점검합니다",
+      sentenceProgressRatio: 1,
+      atMs: 1_000
+    });
+
+    const repeated = evidence.acceptResult({
+      sentenceId: "sentence_1",
+      transcriptText: "오르빗",
+      sentenceProgressRatio: 0,
+      atMs: 3_000
+    });
+
+    expect(repeated).toMatchObject({
+      lexicalRecall: 1,
+      stableResultCount: 2,
+      updatedAtMs: 1_000
+    });
+  });
+
   it("마지막 2~3개 meaningful token을 terminal anchor로 사용한다", () => {
     const evidence = createAccumulator();
 

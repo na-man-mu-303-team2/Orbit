@@ -53,6 +53,7 @@ export function createPrompterLexicalEvidenceAccumulator(
 
     const resultCounts = countWords(tokenizeSpeechRecallWords(result.transcriptText));
     let hasRelevantResultToken = false;
+    let evidenceIncreased = false;
     for (const [word, count] of resultCounts.entries()) {
       const maximumUsefulCount = scriptWordCounts.get(word) ?? 0;
       if (maximumUsefulCount === 0) {
@@ -60,10 +61,15 @@ export function createPrompterLexicalEvidenceAccumulator(
       }
 
       hasRelevantResultToken = true;
-      observedWordCounts.set(
-        word,
-        Math.min(maximumUsefulCount, Math.max(observedWordCounts.get(word) ?? 0, count))
+      const previousObservedCount = observedWordCounts.get(word) ?? 0;
+      const nextObservedCount = Math.min(
+        maximumUsefulCount,
+        Math.max(previousObservedCount, count)
       );
+      if (nextObservedCount > previousObservedCount) {
+        evidenceIncreased = true;
+      }
+      observedWordCounts.set(word, nextObservedCount);
     }
 
     const nextSentenceProgressRatio = Math.max(
@@ -72,7 +78,7 @@ export function createPrompterLexicalEvidenceAccumulator(
     );
     const progressAdvanced = nextSentenceProgressRatio > sentenceProgressRatio;
     sentenceProgressRatio = nextSentenceProgressRatio;
-    if (hasRelevantResultToken || progressAdvanced) {
+    if (evidenceIncreased || progressAdvanced) {
       updatedAtMs = result.atMs;
     }
 

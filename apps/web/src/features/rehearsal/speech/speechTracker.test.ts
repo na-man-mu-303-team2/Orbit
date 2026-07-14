@@ -529,12 +529,12 @@ describe("SpeechTracker", () => {
     });
   });
 
-  it("승계 evidence가 stale해진 뒤 unrelated final이 와도 commit하지 않는다", () => {
+  it("승계 evidence가 stale해진 뒤 이미 반영된 token이 와도 commit하지 않는다", () => {
     const tracker = createMultiSentenceTracker();
     tracker.acceptResult(combinedFinalResult());
 
     tracker.acceptResult({
-      text: "확인했습니다",
+      text: "두 번째",
       isFinal: true,
       timestampMs: [2_501, 2_800],
       utteranceId: "utterance_2",
