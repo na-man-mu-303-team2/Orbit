@@ -36,6 +36,7 @@ import {
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   getResponsiveEditorStageScale,
+  importPptxIntoEditor,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
@@ -44,8 +45,7 @@ import {
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
   shouldPromptSpeakerNotesOverwrite,
-  shouldHydrateDeckFromQuery,
-  uploadAndImportPptxTemplate
+  shouldHydrateDeckFromQuery
 } from "./EditorShell";
 import {
   createExpandTextWidthToFitFrame,
@@ -583,12 +583,15 @@ describe("editor shell", () => {
     );
   });
 
-  it("uploads a PPTX file, creates an OOXML generation job, and polls until completion", async () => {
+  it("runs the editor PPTX import through OOXML generation and matching Deck hydration", async () => {
     const file = new File(["pptx"], "template.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
     const phases: string[] = [];
     const requestedUrls: string[] = [];
+    const importedDeck = createDemoDeck();
+    importedDeck.deckId = "deck_ooxml_file_template";
+    const refetchDeck = vi.fn(async () => importedDeck);
     let jobPollCount = 0;
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -673,19 +676,24 @@ describe("editor shell", () => {
     });
 
     await expect(
-      uploadAndImportPptxTemplate("project-a", file, {
+      importPptxIntoEditor("project-a", file, {
         fetcher,
         onPhase: (phase) => phases.push(phase),
-        pollIntervalMs: 0
+        pollIntervalMs: 0,
+        refetchDeck
       })
     ).resolves.toMatchObject({
-      deckId: "deck_ooxml_file_template",
-      templateId: "template_file_template",
-      sourceFileId: "file_template",
-      currentPackageFileId: "file_current_package"
+      importResult: {
+        deckId: "deck_ooxml_file_template",
+        templateId: "template_file_template",
+        sourceFileId: "file_template",
+        currentPackageFileId: "file_current_package"
+      },
+      importedDeck: { deckId: "deck_ooxml_file_template" }
     });
     expect(phases).toEqual(["uploading", "importing"]);
     expect(jobPollCount).toBe(2);
+    expect(refetchDeck).toHaveBeenCalledOnce();
     expect(requestedUrls.some((url) => url.endsWith("/pptx-imports"))).toBe(false);
   });
 

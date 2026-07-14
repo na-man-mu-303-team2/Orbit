@@ -1299,6 +1299,29 @@ export function requireMatchingPptxImportedDeck(
   return importedDeck;
 }
 
+export async function importPptxIntoEditor(
+  projectId: string,
+  file: File,
+  options: {
+    fetcher?: typeof fetch;
+    onPhase?: (phase: "uploading" | "importing") => void;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+    refetchDeck: () => Promise<Deck | undefined>;
+  }
+): Promise<{
+  importResult: PptxOoxmlGenerationJobResult;
+  importedDeck: Deck;
+}> {
+  const importResult = await uploadAndImportPptxTemplate(projectId, file, options);
+  const importedDeck = requireMatchingPptxImportedDeck(
+    importResult,
+    await options.refetchDeck()
+  );
+
+  return { importResult, importedDeck };
+}
+
 async function readPlainError(response: Response, fallbackMessage: string) {
   const text = await response.text();
   return text || fallbackMessage;
@@ -3601,19 +3624,20 @@ export function EditorShell(props: { projectId?: string }) {
       const activeProjectId = await resolveUploadProject(
         workingDeckRef.current.projectId || projectId
       );
-      const importResult = await uploadAndImportPptxTemplate(activeProjectId, file, {
-        onPhase: (phase) =>
-          setPptxImportState({
-            status: phase,
-            warnings: [],
-            qualityReport: null,
-            message: phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중..."
-          })
-      });
-      const refetchResult = await deckQuery.refetch();
-      const importedDeck = requireMatchingPptxImportedDeck(
-        importResult,
-        refetchResult.data
+      const { importResult, importedDeck } = await importPptxIntoEditor(
+        activeProjectId,
+        file,
+        {
+          onPhase: (phase) =>
+            setPptxImportState({
+              status: phase,
+              warnings: [],
+              qualityReport: null,
+              message:
+                phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중..."
+            }),
+          refetchDeck: async () => (await deckQuery.refetch()).data
+        }
       );
 
       queryClient.setQueryData(["deck", projectId], importedDeck);
