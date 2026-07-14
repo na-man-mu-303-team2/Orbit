@@ -1,7 +1,7 @@
 .pptx-import-page { background: var(--orbit-ds-surface); min-height: calc(100vh - 76px); }
 .pptx-import-hero { background: var(--orbit-ds-cream); min-height: 300px; padding: 24px clamp(24px, 5vw, 76px) 44px; }
 .pptx-import-hero > div, .pptx-import-back, .pptx-import-workspace { margin-inline: auto; max-width: 1320px; }
-.pptx-import-back { align-items: center; background: transparent; border: 0; display: flex; font-size: 13px; font-weight: 700; gap: 4px; padding: 0; }
+.pptx-import-back { align-items: center; background: transparent; border: 0; display: flex; font-size: 13px; font-weight: 700; gap: 4px; padding: 0; width: 100%; }
 .pptx-import-hero > div { margin-top: 36px; position: relative; }
 .pptx-import-hero-icon { align-items: center; background: white; border-radius: 14px; display: flex; height: 52px; justify-content: center; position: absolute; right: 0; top: 0; width: 52px; }
 .pptx-import-hero p { font-size: 13px; font-weight: 800; letter-spacing: .04em; margin: 0 0 10px; text-transform: uppercase; }

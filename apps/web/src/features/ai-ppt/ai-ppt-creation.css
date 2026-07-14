@@ -379,6 +379,149 @@
   color: var(--orbit-ds-canvas);
 }
 
+.ai-ppt-brief-fields {
+  display: grid;
+  gap: 18px;
+}
+
+.ai-ppt-brief-fields > .ai-ppt-textarea {
+  margin-top: 0;
+}
+
+.ai-ppt-brief-choice-row {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1.1fr 1.1fr .8fr;
+}
+
+.ai-ppt-brief-choice-row.two-column {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ai-ppt-brief-choice {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.ai-ppt-brief-choice legend {
+  font-size: var(--orbit-ds-type-ui-small);
+  font-weight: 750;
+  margin-bottom: 8px;
+}
+
+.ai-ppt-brief-choice > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-ppt-brief-choice button {
+  align-items: center;
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border-strong);
+  border-radius: var(--orbit-ds-radius-pill);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.ai-ppt-brief-choice button[aria-pressed="true"] {
+  background: var(--orbit-ds-ink);
+  border-color: var(--orbit-ds-ink);
+  color: white;
+}
+
+.ai-ppt-brief-summary {
+  align-content: start;
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-panel);
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  padding: 20px;
+}
+
+.ai-ppt-brief-summary dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.ai-ppt-brief-summary dl > div {
+  align-items: center;
+  border-bottom: 1px solid var(--orbit-ds-border);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 10px;
+}
+
+.ai-ppt-brief-summary dt,
+.ai-ppt-brief-summary section > span {
+  color: var(--orbit-ds-text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ai-ppt-brief-summary dd {
+  font-size: 13px;
+  font-weight: 750;
+  margin: 0;
+}
+
+.ai-ppt-brief-summary section {
+  display: grid;
+  gap: 7px;
+}
+
+.ai-ppt-brief-summary section > strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.ai-ppt-brief-impact {
+  align-items: flex-start;
+  background: var(--orbit-ds-cream);
+  border-radius: 12px;
+  display: flex;
+  gap: 9px;
+  padding: 14px;
+}
+
+.ai-ppt-brief-impact svg {
+  flex: 0 0 auto;
+}
+
+.ai-ppt-brief-impact span {
+  display: grid;
+  font-size: 11px;
+  gap: 3px;
+  line-height: 1.45;
+}
+
+.ai-ppt-brief-impact strong {
+  font-size: 12px;
+}
+
+.ai-ppt-brief-summary > .ai-ppt-primary {
+  width: 100%;
+}
+
+.ai-ppt-brief-mode-status {
+  color: var(--orbit-ds-text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.ai-ppt-footer.brief-step {
+  display: none;
+}
+
 .ai-ppt-font-grid,
 .ai-ppt-palette-grid,
 .ai-ppt-slide-grid {
@@ -1087,6 +1230,8 @@
   }
 
   .ai-ppt-field-grid,
+  .ai-ppt-brief-choice-row,
+  .ai-ppt-brief-choice-row.two-column,
   .ai-ppt-font-grid,
   .ai-ppt-palette-grid,
   .ai-ppt-slide-grid,

@@ -81,6 +81,26 @@ type AiPptWizardState = {
   referencePolicy: ReferencePolicy;
 };
 
+type AiPresentationBriefForm = {
+  audience: "novice" | "practitioner" | "decision-maker";
+  purpose: "inform" | "persuade" | "teach" | "report";
+  lensId: EvaluatorLensRef["lensId"];
+  desiredOutcome: string;
+  mustCover: string;
+  opening: string;
+  closing: string;
+};
+
+const initialPresentationBriefForm: AiPresentationBriefForm = {
+  audience: "decision-maker",
+  purpose: "persuade",
+  lensId: "decision-maker",
+  desiredOutcome: "",
+  mustCover: "",
+  opening: "",
+  closing: ""
+};
+
 export type AiPptAdvisorSuggestion = PptAdvisorSuggestion;
 
 type ReferenceGrounding = Pick<
@@ -408,7 +428,17 @@ export function buildAiPptAdvisorSuggestions(
 
 export function AiPptCreationPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
-  const [form, setForm] = useState(initialAiPptWizardState);
+  const [form, setForm] = useState({
+    ...initialAiPptWizardState,
+    audience: "의사결정자",
+    context: "AI 발표자료 생성",
+    duration: "15",
+    presentationType: "설득",
+    slides: "15"
+  });
+  const [presentationBriefForm, setPresentationBriefForm] = useState(
+    initialPresentationBriefForm
+  );
   const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
@@ -610,6 +640,39 @@ export function AiPptCreationPage() {
     setError("");
   }
 
+  function changeBriefMode(value: "custom" | "generic") {
+    setBriefMode(value);
+    if (value === "generic") {
+      setForm((current) => ({
+        ...current,
+        audience: "처음 듣는 청중",
+        context: current.context || "AI 발표자료 생성",
+        duration: current.duration || "10",
+        presentationType: "설명",
+        purpose: "핵심 내용을 이해하기 쉽게 전달",
+        successCriteria: `${current.topic.trim() || "발표"}의 핵심 내용을 이해한다.`,
+        slides: current.slides || "10"
+      }));
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      audience: {
+        novice: "처음 듣는 청중",
+        practitioner: "실무자",
+        "decision-maker": "의사결정자"
+      }[presentationBriefForm.audience],
+      presentationType: {
+        inform: "설명",
+        persuade: "설득",
+        teach: "교육",
+        report: "보고"
+      }[presentationBriefForm.purpose],
+      purpose: presentationBriefForm.mustCover,
+      successCriteria: presentationBriefForm.desiredOutcome
+    }));
+  }
+
   function goNext() {
     if (currentStep === "references") {
       void submitGeneration();
@@ -734,18 +797,30 @@ export function AiPptCreationPage() {
       const presentationBrief = await putPresentationBrief(project.projectId, {
         expectedRevision: 0,
         origin: "ai-generation",
-        audience: isGenericBrief ? "novice" : "decision-maker",
-        purpose: isGenericBrief ? "inform" : "persuade",
+        audience: isGenericBrief ? "novice" : presentationBriefForm.audience,
+        purpose: isGenericBrief ? "inform" : presentationBriefForm.purpose,
         evaluatorLensRef: isGenericBrief
           ? { lensId: "general-novice", revision: 1 }
-          : { lensId: "decision-maker", revision: 1 },
+          : { lensId: presentationBriefForm.lensId, revision: 1 },
         targetDurationMinutes: parsePositiveInteger(form.duration, 10),
         desiredOutcome: isGenericBrief
           ? `${form.topic.trim()}의 핵심 내용을 이해한다.`
-          : form.successCriteria.trim() || form.purpose.trim(),
-        requirements: !isGenericBrief && form.successCriteria.trim()
-          ? [{ kind: "must-cover", text: form.successCriteria.trim(), reviewStatus: "approved" }]
-          : [],
+          : presentationBriefForm.desiredOutcome.trim(),
+        requirements: isGenericBrief
+          ? []
+          : [
+              ...splitBriefLines(presentationBriefForm.mustCover, 3).map((text) => ({
+                kind: "must-cover" as const,
+                text,
+                reviewStatus: "approved" as const
+              })),
+              ...(presentationBriefForm.opening.trim()
+                ? [{ kind: "opening" as const, text: presentationBriefForm.opening.trim(), reviewStatus: "approved" as const }]
+                : []),
+              ...(presentationBriefForm.closing.trim()
+                ? [{ kind: "closing" as const, text: presentationBriefForm.closing.trim(), reviewStatus: "approved" as const }]
+                : [])
+            ],
         terminology: [],
         challengeTopics: [],
         approvedReferenceFileIds: getApprovedBriefReferenceFileIds(
@@ -870,9 +945,11 @@ export function AiPptCreationPage() {
           <section className="ai-ppt-panel" ref={panelRef}>
             {currentStep === "brief" ? (
               <BriefStep
+                brief={presentationBriefForm}
                 briefMode={briefMode}
                 form={form}
-                onBriefModeChange={setBriefMode}
+                onBriefChange={setPresentationBriefForm}
+                onBriefModeChange={changeBriefMode}
                 onChange={updateForm}
               />
             ) : null}
@@ -932,18 +1009,28 @@ export function AiPptCreationPage() {
             {status ? <p className="ai-ppt-status">{status}</p> : null}
           </section>
 
-          <aside className="ai-ppt-live-preview">
-            <LivePreview
-              payload={payloadPreview}
-              selectedFont={selectedFont}
-              selectedPalette={selectedPalette}
+          {currentStep === "brief" ? (
+            <BriefLiveSummary
+              brief={presentationBriefForm}
+              briefMode={briefMode}
+              canContinue={!getAiPptWizardValidationMessage(form)}
+              duration={form.duration}
+              onContinue={goNext}
             />
-            <AdvisorPanel form={form} onApply={updateForm} />
-          </aside>
+          ) : (
+            <aside className="ai-ppt-live-preview">
+              <LivePreview
+                payload={payloadPreview}
+                selectedFont={selectedFont}
+                selectedPalette={selectedPalette}
+              />
+              <AdvisorPanel form={form} onApply={updateForm} />
+            </aside>
+          )}
         </main>
       </div>
 
-      <footer className="ai-ppt-footer">
+      <footer className={`ai-ppt-footer ${currentStep === "brief" ? "brief-step" : ""}`}>
         <button
           className="ai-ppt-secondary"
           disabled={currentStepIndex === 0 || isGenerating}
@@ -1025,14 +1112,33 @@ function QualityFailurePanel(props: {
 }
 
 function BriefStep(props: {
+  brief: AiPresentationBriefForm;
   briefMode: "custom" | "generic";
   form: AiPptWizardState;
+  onBriefChange: (brief: AiPresentationBriefForm) => void;
   onBriefModeChange: (value: "custom" | "generic") => void;
   onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
 }) {
+  const audienceOptions = [
+    { id: "novice" as const, label: "처음 듣는 청중" },
+    { id: "practitioner" as const, label: "실무자" },
+    { id: "decision-maker" as const, label: "의사결정자" }
+  ];
+  const purposeOptions = [
+    { id: "inform" as const, label: "설명" },
+    { id: "persuade" as const, label: "설득" },
+    { id: "teach" as const, label: "교육" },
+    { id: "report" as const, label: "보고" }
+  ];
+  const lensOptions: Array<{ id: AiPresentationBriefForm["lensId"]; label: string }> = [
+    { id: "general-novice", label: "처음 듣는 청중" },
+    { id: "decision-maker", label: "의사결정자" },
+    { id: "strict-reviewer", label: "엄격한 검토자" }
+  ];
+
   return (
     <>
-      <PanelHeading kicker="1. Brief" title="발표 상황과 청중을 먼저 고정" />
+      <PanelHeading kicker="1. Presentation Brief" title="발표 방향을 먼저 맞춰볼게요." />
       <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
         <button
           className={props.briefMode === "custom" ? "selected" : ""}
@@ -1050,21 +1156,94 @@ function BriefStep(props: {
         </button>
       </div>
       {props.briefMode === "generic" ? (
-        <p className="ai-ppt-status">
-          일반 초보자 관점의 기본 Brief를 저장합니다. 에디터에서 언제든 확인하고 수정할 수 있어요.
-        </p>
-      ) : null}
-      <div className="ai-ppt-field-grid">
-        <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
-        <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
-        <TextField label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
-        <TextField label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
-        <TextField label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
-        <TextField label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
-        <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-        <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
-      </div>
+        <div className="ai-ppt-generic-brief">
+          <p className="ai-ppt-status">일반 초보자 관점의 기본 Brief를 저장합니다. 에디터에서 언제든 확인하고 수정할 수 있어요.</p>
+          <div className="ai-ppt-field-grid">
+            <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+            <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+            <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+          </div>
+        </div>
+      ) : (
+        <div className="ai-ppt-brief-fields">
+          <TextField label="발표 주제" placeholder="2026년 하반기 마케팅 전략" value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+          <div className="ai-ppt-brief-choice-row">
+            <BriefChoice label="청중" options={audienceOptions} selected={props.brief.audience} onChange={(audience) => {
+              props.onBriefChange({ ...props.brief, audience });
+              props.onChange("audience", audienceOptions.find((item) => item.id === audience)?.label ?? audience);
+            }} />
+            <BriefChoice label="발표 목적" options={purposeOptions} selected={props.brief.purpose} onChange={(purpose) => {
+              props.onBriefChange({ ...props.brief, purpose });
+              props.onChange("presentationType", purposeOptions.find((item) => item.id === purpose)?.label ?? purpose);
+            }} />
+            <TextField label="목표 시간" placeholder="15" value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+          </div>
+          <TextField label="발표 후 원하는 결과" placeholder="하반기 핵심 캠페인에 대한 우선순위 합의" value={props.brief.desiredOutcome} onChange={(value) => {
+            props.onBriefChange({ ...props.brief, desiredOutcome: value });
+            props.onChange("successCriteria", value);
+          }} />
+          <TextAreaField label="반드시 전달할 내용" placeholder="시장 진입 전략과 실행 우선순위를 한 줄에 하나씩 입력" value={props.brief.mustCover} onChange={(value) => {
+            props.onBriefChange({ ...props.brief, mustCover: value });
+            props.onChange("purpose", value);
+          }} />
+          <div className="ai-ppt-brief-choice-row two-column">
+            <TextField label="오프닝 조건" placeholder="최근 산업기 성장과 하반기 시장 환경 요약" value={props.brief.opening} onChange={(value) => props.onBriefChange({ ...props.brief, opening: value })} />
+            <TextField label="클로징 조건" placeholder="예산 승인 요청 및 다음 단계 안내" value={props.brief.closing} onChange={(value) => props.onBriefChange({ ...props.brief, closing: value })} />
+          </div>
+          <BriefChoice label="AI가 먼저 볼 평가 관점" options={lensOptions} selected={props.brief.lensId} onChange={(lensId) => props.onBriefChange({ ...props.brief, lensId })} />
+        </div>
+      )}
     </>
+  );
+}
+
+function BriefChoice<T extends string>(props: {
+  label: string;
+  onChange: (value: T) => void;
+  options: ReadonlyArray<{ id: T; label: string }>;
+  selected: T;
+}) {
+  return (
+    <fieldset className="ai-ppt-brief-choice">
+      <legend>{props.label}</legend>
+      <div>
+        {props.options.map((option) => (
+          <button aria-pressed={props.selected === option.id} key={option.id} onClick={() => props.onChange(option.id)} type="button">
+            {props.selected === option.id ? <IconCheck size={13} /> : null}
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function BriefLiveSummary(props: {
+  brief: AiPresentationBriefForm;
+  briefMode: "custom" | "generic";
+  canContinue: boolean;
+  duration: string;
+  onContinue: () => void;
+}) {
+  const audience = props.briefMode === "generic"
+    ? "처음 듣는 청중"
+    : { novice: "처음 듣는 청중", practitioner: "실무자", "decision-maker": "의사결정자" }[props.brief.audience];
+  const purpose = props.briefMode === "generic"
+    ? "설명"
+    : { inform: "설명", persuade: "설득", teach: "교육", report: "보고" }[props.brief.purpose];
+  return (
+    <aside className="ai-ppt-brief-summary">
+      <div className="ai-ppt-preview-top"><span>Live Summary</span><strong>입력한 발표 기준</strong></div>
+      <dl>
+        <div><dt>청중</dt><dd>{audience}</dd></div>
+        <div><dt>발표 목적</dt><dd>{purpose}</dd></div>
+        <div><dt>목표 시간</dt><dd>{props.duration || "15"}분</dd></div>
+      </dl>
+      <section><span>원하는 결과</span><strong>{props.brief.desiredOutcome || "발표 후 원하는 결과를 입력해 주세요."}</strong></section>
+      <div className="ai-ppt-brief-impact"><IconSparkles size={18} /><span><strong>이 기준을 계속 이어가요.</strong>AI 구성과 이후 리허설 평가가 같은 Brief를 사용합니다.</span></div>
+      <button className="ai-ppt-primary" disabled={!props.canContinue} type="button" onClick={props.onContinue}>브리프 저장하고 디자인 선택</button>
+      <span className="ai-ppt-brief-mode-status">{props.briefMode === "generic" ? "일반 기준으로 시작 중" : "맞춤 Brief 적용 중"}</span>
+    </aside>
   );
 }
 
@@ -1745,6 +1924,29 @@ function TextField(props: {
       </div>
     </label>
   );
+}
+
+function TextAreaField(props: {
+  label: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  value: string;
+}) {
+  return (
+    <label className="ai-ppt-textarea">
+      <span>{props.label}</span>
+      <textarea
+        placeholder={props.placeholder}
+        rows={4}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function splitBriefLines(value: string, max: number) {
+  return value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, max);
 }
 
 type SavedDesignPackInput = {
