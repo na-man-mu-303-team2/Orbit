@@ -21,7 +21,8 @@ import {
   calculateWordMultisetRecall,
   createFinalSegmentWindow,
   matchKeywordAliases,
-  matchPhraseCandidate
+  matchPhraseCandidate,
+  tokenizeSpeechRecallWords
 } from "./speechMatcher";
 import { createScriptProgressTracker } from "./scriptProgressTracker";
 
@@ -155,22 +156,35 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
           atMs
         });
         const lookaheadCommitEligible = isPrompterLexicalCommitEligible(lookaheadEvidence);
-        if (
-          result.isFinal &&
-          currentSentence &&
-          currentCommitEligible &&
-          lookaheadCommitEligible &&
-          hasSufficientMeaningfulLexicalEvidence(lookaheadEvidence)
-        ) {
-          lookaheadCarry = {
-            slideId: prompterProgress.slideId,
-            ownerRevision: prompterProgress.revision,
-            ownerCurrentSentenceId: currentSentence.sentenceId,
+        if (result.isFinal && currentSentence && currentCommitEligible) {
+          const residualTranscript = removeCurrentSentenceEvidence({
+            transcriptText: result.text,
+            currentSentenceText: currentSentence.text
+          });
+          const carryAccumulator = createPrompterLexicalEvidenceAccumulator(nextSentence);
+          const carryEvidence = carryAccumulator.acceptResult({
             sentenceId: nextSentence.sentenceId,
-            accumulator: prompterLookaheadLexicalEvidence,
-            evidence: lookaheadEvidence,
+            transcriptText: residualTranscript,
+            sentenceProgressRatio:
+              scriptProgress.sentenceId === nextSentence.sentenceId
+                ? scriptProgress.sentenceRatio
+                : 0,
             atMs
-          };
+          });
+          if (
+            isPrompterLexicalCommitEligible(carryEvidence) &&
+            hasSufficientMeaningfulLexicalEvidence(carryEvidence)
+          ) {
+            lookaheadCarry = {
+              slideId: prompterProgress.slideId,
+              ownerRevision: prompterProgress.revision,
+              ownerCurrentSentenceId: currentSentence.sentenceId,
+              sentenceId: nextSentence.sentenceId,
+              accumulator: carryAccumulator,
+              evidence: carryEvidence,
+              atMs
+            };
+          }
         }
         if (
           !currentCommitEligible &&
@@ -585,6 +599,31 @@ function hasSufficientMeaningfulLexicalEvidence(evidence: PrompterLexicalEvidenc
   return (
     minimumMatchedTokenCount > 0 && evidence.matchedMeaningfulTokenCount >= minimumMatchedTokenCount
   );
+}
+
+function removeCurrentSentenceEvidence(options: {
+  transcriptText: string;
+  currentSentenceText: string;
+}) {
+  const currentSentenceTokenCounts = countSpeechTokens(options.currentSentenceText);
+  return tokenizeSpeechRecallWords(options.transcriptText)
+    .filter((token) => {
+      const remainingCount = currentSentenceTokenCounts.get(token) ?? 0;
+      if (remainingCount === 0) {
+        return true;
+      }
+      currentSentenceTokenCounts.set(token, remainingCount - 1);
+      return false;
+    })
+    .join(" ");
+}
+
+function countSpeechTokens(text: string) {
+  const counts = new Map<string, number>();
+  for (const token of tokenizeSpeechRecallWords(text)) {
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function createVisitState() {

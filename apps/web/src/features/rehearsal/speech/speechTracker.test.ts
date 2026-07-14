@@ -399,6 +399,38 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("겹치는 현재 문장만 말한 final은 다음 문장 candidate로 승계하지 않는다", () => {
+    const tracker = createOverlappingSentenceTracker();
+
+    tracker.acceptResult(overlappingCurrentFinalResult());
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      phase: "tracking",
+      currentSentenceId: "sentence_2",
+      candidateSentenceId: null,
+      committedSentenceIds: ["sentence_1"]
+    });
+    expect(tracker.acceptPrompterBoundary({ type: "pause-started", atMs: 1_600 })).toBe(false);
+  });
+
+  it("겹치는 두 문장을 모두 말한 final은 다음 문장 evidence를 승계한다", () => {
+    const tracker = createOverlappingSentenceTracker();
+
+    tracker.acceptResult(
+      overlappingCurrentFinalResult(
+        `${OVERLAPPING_FIRST_SENTENCE} ${OVERLAPPING_SECOND_SENTENCE}`
+      )
+    );
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      phase: "candidate",
+      currentSentenceId: "sentence_2",
+      candidateSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+    expect(tracker.acceptPrompterBoundary({ type: "pause-started", atMs: 1_600 })).toBe(true);
+  });
+
   it("다문장 final은 첫 문장만 commit하고 다음 문장을 새 revision candidate로 승계한다", () => {
     const tracker = createMultiSentenceTracker();
 
@@ -810,6 +842,26 @@ describe("SpeechTracker", () => {
 const FIRST_PROMPTER_SENTENCE = "첫 번째 문장은 제품 전략과 고객 문제를 명확하게 설명합니다";
 const SECOND_PROMPTER_SENTENCE = "두 번째 문장은 실행 일정과 협업 방향을 구체적으로 정리합니다";
 const THIRD_PROMPTER_SENTENCE = "세 번째 문장은 다음 단계와 책임 범위를 마지막으로 안내합니다";
+const OVERLAPPING_FIRST_SENTENCE = "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다";
+const OVERLAPPING_SECOND_SENTENCE = "둘째 발표는 동일한 핵심 내용을 자세히 설명합니다";
+
+function createOverlappingSentenceTracker() {
+  return createSpeechTracker({
+    slideId: "slide_1",
+    speakerNotes: `${OVERLAPPING_FIRST_SENTENCE}. ${OVERLAPPING_SECOND_SENTENCE}.`,
+    keywords: []
+  });
+}
+
+function overlappingCurrentFinalResult(text = OVERLAPPING_FIRST_SENTENCE) {
+  return {
+    text,
+    isFinal: true,
+    timestampMs: [0, 1_000] as [number, number],
+    utteranceId: "utterance_1",
+    resultRevision: 1
+  };
+}
 
 function createMultiSentenceTracker(thirdSentence?: string) {
   return createSpeechTracker({
