@@ -2,7 +2,12 @@ import {
   practiceGoalSchema,
   practiceGoalSetSchema,
   practicePlanResponseSchema,
+  rehearsalEvaluationSnapshotSchema,
+  rehearsalReportSchema,
+  type EvaluationCriterion,
   type PracticeGoal,
+  type RehearsalEvaluationSnapshot,
+  type RehearsalReport,
 } from "@orbit/shared";
 import { Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
@@ -70,12 +75,34 @@ export class PracticeGoalsService {
     }
 
     const historyRows = await this.dataSource.query(
-      `SELECT pattern_key, created_at FROM practice_goals
-       WHERE project_id = $1 AND pattern_key = ANY($2::text[])
-       ORDER BY created_at DESC`,
-      [projectId, goals.map((goal) => goal.patternKey)],
+      `WITH current_run AS (
+         SELECT created_at, run_id
+         FROM rehearsal_runs
+         WHERE project_id = $1 AND run_id = $2
+       ), recent_full_runs AS (
+         SELECT runs.run_id, runs.created_at, runs.evaluation_snapshot_json,
+                runs.report_json AS rehearsal_report_json
+         FROM rehearsal_runs runs
+         CROSS JOIN current_run current
+         WHERE runs.project_id = $1
+           AND runs.status = 'succeeded'
+           AND runs.semantic_evaluation_mode = 'full'
+           AND runs.evaluation_snapshot_json IS NOT NULL
+           AND runs.report_json IS NOT NULL
+           AND (runs.created_at, runs.run_id) <= (current.created_at, current.run_id)
+         ORDER BY runs.created_at DESC, runs.run_id DESC
+         LIMIT 5
+       )
+       SELECT runs.run_id, runs.created_at AS run_created_at,
+              runs.evaluation_snapshot_json, runs.rehearsal_report_json
+       FROM recent_full_runs runs
+       ORDER BY runs.created_at DESC, runs.run_id DESC`,
+      [projectId, sourceFullRunId],
     );
-    const history = historyByPattern(Array.isArray(historyRows) ? historyRows : []);
+    const history = historyByComparableRuns(
+      goals,
+      Array.isArray(historyRows) ? historyRows : [],
+    );
     return practicePlanResponseSchema.parse({
       status: "ready",
       sourceFullRunId,
@@ -123,21 +150,229 @@ function toGoal(row: Record<string, unknown>): PracticeGoal {
   });
 }
 
-function historyByPattern(rows: unknown[]) {
-  const values = new Map<string, string[]>();
+function historyByComparableRuns(goals: PracticeGoal[], rows: unknown[]) {
+  const runs = groupHistoryRuns(rows);
+  const histories = goals.map((goal) => {
+    const currentRun = runs.find((run) => run.runId === goal.originFullRunId);
+    const currentCriterion = currentRun
+      ? criterionForGoal(currentRun.snapshot, goal)
+      : null;
+    if (!currentRun || !currentCriterion) {
+      return [goal.patternKey, defaultHistory(goal)] as const;
+    }
+
+    const comparableRuns = runs.flatMap((run) => {
+      const criterion = criterionForGoal(run.snapshot, goal);
+      if (
+        criterion === null ||
+        !comparableCriterionSources(
+          currentRun.snapshot,
+          currentCriterion,
+          run.snapshot,
+          criterion,
+        )
+      ) {
+        return [];
+      }
+      const state = criterionProblemState(run.report, criterion);
+      return state === "unmeasured" ? [] : [{ ...run, state }];
+    });
+    const currentState = comparableRuns.find(
+      (run) => run.runId === goal.originFullRunId,
+    )?.state;
+    if (currentState !== "problem") {
+      return [goal.patternKey, defaultHistory(goal)] as const;
+    }
+
+    const occurrenceCount = comparableRuns.filter(
+      (run) => run.state === "problem",
+    ).length;
+    const previousComparableRuns = comparableRuns.filter(
+      (run) => run.runId !== goal.originFullRunId,
+    );
+    const previousRun = previousComparableRuns[0];
+    const isRecentTwice = previousRun?.state === "problem";
+    const hasPreviousOccurrence = previousComparableRuns.some(
+      (run) => run.state === "problem",
+    );
+    const label = comparableRuns.length >= 3 && hasPreviousOccurrence
+      ? "persistent"
+      : isRecentTwice
+        ? "recent-twice"
+        : "current";
+
+    return [goal.patternKey, {
+      label,
+      occurrenceCount,
+      comparableRunCount: previousComparableRuns.length,
+      lastSeenAt: goal.createdAt,
+    }] as const;
+  });
+  return new Map(histories);
+}
+
+type ComparableRun = {
+  runId: string;
+  createdAt: string;
+  snapshot: RehearsalEvaluationSnapshot;
+  report: RehearsalReport;
+};
+
+function groupHistoryRuns(rows: unknown[]): ComparableRun[] {
+  const grouped = new Map<string, ComparableRun>();
   for (const item of rows) {
+    if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    if (typeof row.pattern_key !== "string") continue;
-    const dates = values.get(row.pattern_key) ?? [];
-    dates.push(toIso(row.created_at));
-    values.set(row.pattern_key, dates.slice(0, 5));
+    if (typeof row.run_id !== "string") continue;
+    const snapshot = rehearsalEvaluationSnapshotSchema.safeParse(
+      row.evaluation_snapshot_json,
+    );
+    const report = rehearsalReportSchema.safeParse(row.rehearsal_report_json);
+    if (!snapshot.success || !report.success) continue;
+    const current = grouped.get(row.run_id) ?? {
+      runId: row.run_id,
+      createdAt: toIso(row.run_created_at),
+      snapshot: snapshot.data,
+      report: report.data,
+    };
+    grouped.set(row.run_id, current);
   }
-  return new Map([...values].map(([key, dates]) => [key, {
-    label: dates.length >= 3 ? "persistent" as const : dates.length === 2 ? "recent-twice" as const : "current" as const,
-    occurrenceCount: dates.length,
-    comparableRunCount: Math.max(0, dates.length - 1),
-    lastSeenAt: dates[0],
-  }]));
+  return [...grouped.values()]
+    .sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) ||
+      right.runId.localeCompare(left.runId),
+    )
+    .slice(0, 5);
+}
+
+function criterionForGoal(
+  snapshot: RehearsalEvaluationSnapshot,
+  goal: PracticeGoal,
+) {
+  return snapshot.evaluationPlan?.criteria.find(
+    (criterion) =>
+      criterion.criterionId === goal.criterionRef.criterionId &&
+      criterion.revision === goal.criterionRef.revision,
+  ) ?? null;
+}
+
+function comparableCriterionSources(
+  currentSnapshot: RehearsalEvaluationSnapshot,
+  currentCriterion: EvaluationCriterion,
+  previousSnapshot: RehearsalEvaluationSnapshot,
+  previousCriterion: EvaluationCriterion,
+) {
+  const currentPlan = currentSnapshot.evaluationPlan;
+  const previousPlan = previousSnapshot.evaluationPlan;
+  if (!currentPlan || !previousPlan) return false;
+  if (!currentSnapshot.deckContentHash || !previousSnapshot.deckContentHash) {
+    return false;
+  }
+  return (
+    currentSnapshot.deckContentHash === previousSnapshot.deckContentHash &&
+    sameJson(currentPlan.briefRef, previousPlan.briefRef) &&
+    sameJson(currentPlan.evaluatorLensRef, previousPlan.evaluatorLensRef) &&
+    currentCriterion.criterionId === previousCriterion.criterionId &&
+    currentCriterion.revision === previousCriterion.revision &&
+    sameJson(currentCriterion.scope, previousCriterion.scope) &&
+    metricDefinitionVersion(currentSnapshot, currentCriterion) ===
+      metricDefinitionVersion(previousSnapshot, previousCriterion)
+  );
+}
+
+function metricDefinitionVersion(
+  snapshot: RehearsalEvaluationSnapshot,
+  criterion: EvaluationCriterion,
+) {
+  const versions = snapshot.evaluationPlan?.metricDefinitionVersions;
+  if (!versions) return null;
+  if (criterion.measurement.type === "semantic-coverage") return versions.semantic;
+  if (criterion.measurement.type === "max-duration-seconds") return versions.timing;
+  return criterion.measurement.metric === "filler-word-count"
+    ? versions.filler
+    : versions.pause;
+}
+
+type CriterionProblemState = "problem" | "passed" | "unmeasured";
+
+function criterionProblemState(
+  report: RehearsalReport,
+  criterion: EvaluationCriterion,
+): CriterionProblemState {
+  if (criterion.measurement.type === "semantic-coverage") {
+    const outcome = report.semanticCueOutcomes.find(
+      (outcome) =>
+        criterion.source === "deck-cue" &&
+        criterion.scope.type === "slide" &&
+        criterion.scope.slideId === outcome.slideId &&
+        criterion.criterionId ===
+          `criterion_cue_${outcome.cueId}_r${outcome.cueRevision}`.slice(0, 128),
+    );
+    if (!outcome || outcome.status === "unmeasured" || outcome.status === "excluded") {
+      return "unmeasured";
+    }
+    const contradicted = report.semanticCueDecisions.some(
+      (decision) =>
+        decision.slideId === outcome.slideId &&
+        decision.cueId === outcome.cueId &&
+        decision.label === "contradicted",
+    );
+    return contradicted || outcome.status !== "covered" ? "problem" : "passed";
+  }
+  if (criterion.measurement.type === "max-duration-seconds") {
+    if (criterion.scope.type !== "slide") return "unmeasured";
+    const slideId = criterion.scope.slideId;
+    const timing = report.slideTimings.find((item) => item.slideId === slideId);
+    if (!timing) return "unmeasured";
+    return timing.actualSeconds > criterion.measurement.maximum
+      ? "problem"
+      : "passed";
+  }
+  const value = countMeasurementValue(
+    report,
+    criterion.scope,
+    criterion.measurement,
+  );
+  if (value === null) return "unmeasured";
+  return value > criterion.measurement.maximum ? "problem" : "passed";
+}
+
+function countMeasurementValue(
+  report: RehearsalReport,
+  scope: EvaluationCriterion["scope"],
+  measurement: Extract<
+    EvaluationCriterion["measurement"],
+    { type: "max-count" }
+  >,
+) {
+  const metric = measurement.metric;
+  if (scope.type === "run") {
+    return metric === "filler-word-count"
+      ? report.metrics.fillerWordCount
+      : report.metrics.pauseCount;
+  }
+  if (scope.type !== "slide") return null;
+  const slideId = scope.slideId;
+  const insight = report.slideInsights.find(
+    (item) => item.slideId === slideId,
+  );
+  if (!insight) return null;
+  return metric === "filler-word-count"
+    ? insight.fillerWordCount
+    : insight.pauseCount;
+}
+
+function defaultHistory(goal: PracticeGoal) {
+  return {
+    label: "current" as const,
+    occurrenceCount: 1,
+    comparableRunCount: 0,
+    lastSeenAt: goal.createdAt,
+  };
+}
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function firstRow(rows: unknown): Record<string, unknown> | undefined {

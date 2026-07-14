@@ -3,8 +3,14 @@ import type {
   EvaluationCriterion,
   PresentationBrief,
   RehearsalEvaluationPlan,
+  RehearsalEvaluationSnapshot,
+  RehearsalFocusProfile,
+  RehearsalFocusProfileSnapshot,
 } from "@orbit/shared";
-import { rehearsalEvaluationPlanSchema } from "@orbit/shared";
+import {
+  rehearsalEvaluationPlanSchema,
+  rehearsalFocusProfileSnapshotSchema,
+} from "@orbit/shared";
 import { createHash } from "node:crypto";
 
 export function canonicalJson(value: unknown): string {
@@ -55,6 +61,62 @@ export function buildRehearsalEvaluationPlan(input: {
     approvedReferences: input.brief?.approvedReferences ?? [],
     practiceGoalSetRef: input.sourceGoalSetRef,
   });
+}
+
+export function createRehearsalFocusProfileSnapshot(
+  profile: RehearsalFocusProfile | null,
+): RehearsalFocusProfileSnapshot | null {
+  if (!profile) return null;
+
+  return rehearsalFocusProfileSnapshotSchema.parse({
+    profileRef: {
+      profileId: profile.profileId,
+      revision: profile.revision,
+    },
+    items: profile.items,
+  });
+}
+
+export function assertFrozenRehearsalEvaluationSources(input: {
+  snapshot: RehearsalEvaluationSnapshot;
+  brief: PresentationBrief | null;
+  focusProfile: RehearsalFocusProfile | null;
+}): void {
+  const plan = input.snapshot.evaluationPlan;
+  if (!plan) {
+    throw new Error("Rehearsal evaluation plan is missing from the snapshot.");
+  }
+
+  const expectedBriefRef = input.brief
+    ? {
+        mode: "briefed" as const,
+        briefId: input.brief.briefId,
+        revision: input.brief.revision,
+      }
+    : { mode: "generic" as const };
+  const expectedLensRef = input.brief?.evaluatorLensRef ?? {
+    lensId: "general-novice" as const,
+    revision: 1 as const,
+  };
+  const expectedBriefCriteria = briefCriteria(input.brief);
+  const actualBriefCriteria = plan.criteria.filter(
+    (criterion) => criterion.source === "brief",
+  );
+  const expectedProfileSnapshot = createRehearsalFocusProfileSnapshot(
+    input.focusProfile,
+  );
+
+  if (
+    canonicalJson(plan.briefRef) !== canonicalJson(expectedBriefRef) ||
+    canonicalJson(plan.evaluatorLensRef) !== canonicalJson(expectedLensRef) ||
+    canonicalJson(plan.approvedReferences) !==
+      canonicalJson(input.brief?.approvedReferences ?? []) ||
+    canonicalJson(actualBriefCriteria) !== canonicalJson(expectedBriefCriteria) ||
+    canonicalJson(input.snapshot.focusProfileSnapshot) !==
+      canonicalJson(expectedProfileSnapshot)
+  ) {
+    throw new Error("Rehearsal evaluation sources do not match the frozen snapshot.");
+  }
 }
 
 function briefCriteria(brief: PresentationBrief | null): EvaluationCriterion[] {
