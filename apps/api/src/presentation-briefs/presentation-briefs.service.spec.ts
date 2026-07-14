@@ -7,6 +7,7 @@ import { PresentationBriefsService } from "./presentation-briefs.service";
 
 const baseRequest = {
   expectedRevision: 0,
+  origin: "ai-generation" as const,
   audience: "decision-maker" as const,
   purpose: "persuade" as const,
   evaluatorLensRef: { lensId: "decision-maker" as const, revision: 1 as const },
@@ -32,6 +33,7 @@ describe("PresentationBriefsService", () => {
     const retried = await fixture.service.put("project_1", "editor_1", baseRequest);
 
     expect(created.brief.revision).toBe(1);
+    expect(created.brief.origin).toBe("ai-generation");
     expect(created.brief.requirements[0]?.revision).toBe(1);
     expect(read.brief?.briefId).toBe(created.brief.briefId);
     expect(retried.brief).toEqual(created.brief);
@@ -56,6 +58,20 @@ describe("PresentationBriefsService", () => {
       }),
     ).rejects.toMatchObject({ response: { code: "REVISION_CONFLICT", currentRevision: 1 } });
     expect(fixture.state.row?.content_json.desiredOutcome).toBe("예산 승인을 얻는다.");
+  });
+
+  it("keeps the creation origin immutable", async () => {
+    const fixture = createFixture();
+    const created = await fixture.service.put("project_1", "editor_1", baseRequest);
+
+    await expect(
+      fixture.service.put("project_1", "editor_1", {
+        ...baseRequest,
+        expectedRevision: created.brief.revision,
+        origin: "manual",
+      }),
+    ).rejects.toThrow("Brief origin cannot be changed.");
+    expect(fixture.state.row?.content_json.origin).toBe("ai-generation");
   });
 });
 
@@ -107,4 +123,3 @@ function createFixture() {
   );
   return { service, state, projects };
 }
-

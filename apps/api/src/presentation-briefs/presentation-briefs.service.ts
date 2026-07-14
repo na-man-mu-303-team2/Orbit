@@ -7,7 +7,12 @@ import {
   type BriefRequirement,
   type PutPresentationBriefRequest,
 } from "@orbit/shared";
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { createHash, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
@@ -53,6 +58,9 @@ export class PresentationBriefsService {
 
     const brief = await this.dataSource.transaction(async (manager) => {
       const current = await this.readCurrent(manager, projectId, true);
+      if (current && request.origin && request.origin !== current.origin) {
+        throw new BadRequestException("Brief origin cannot be changed.");
+      }
       const approvedReferences = await this.resolveReferences(
         manager,
         projectId,
@@ -89,6 +97,7 @@ export class PresentationBriefsService {
         audience: request.audience,
         purpose: request.purpose,
         evaluatorLensRef: request.evaluatorLensRef,
+        origin: current?.origin ?? request.origin ?? "manual",
         targetDurationMinutes: request.targetDurationMinutes,
         desiredOutcome: request.desiredOutcome,
         requirements,
@@ -265,6 +274,7 @@ export class PresentationBriefsService {
       audience: current.audience,
       purpose: current.purpose,
       evaluatorLensRef: current.evaluatorLensRef,
+      origin: current.origin,
       targetDurationMinutes: current.targetDurationMinutes,
       desiredOutcome: current.desiredOutcome,
       requirements: current.requirements.map(({ kind, text, reviewStatus }) => ({ kind, text, reviewStatus })),
@@ -275,6 +285,7 @@ export class PresentationBriefsService {
       audience: request.audience,
       purpose: request.purpose,
       evaluatorLensRef: request.evaluatorLensRef,
+      origin: request.origin ?? current.origin,
       targetDurationMinutes: request.targetDurationMinutes,
       desiredOutcome: request.desiredOutcome,
       requirements: request.requirements.map(({ kind, text, reviewStatus }) => ({ kind, text, reviewStatus })),

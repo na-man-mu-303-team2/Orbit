@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { presentationBriefDraftSchema } from "../coaching/presentation-brief.schema";
 import { deckElementIdSchema, deckIdSchema } from "./id.schema";
 
 export const templateBlueprintIdSchema = z
@@ -160,7 +161,16 @@ export const pptxImportJobResultSchema = z.object({
   templateId: templateBlueprintIdSchema,
   qualityReport: qualityReportSchema,
   warnings: z.array(z.string()).default([]),
-});
+  briefDraft: presentationBriefDraftSchema.nullable().default(null),
+  briefExtraction: z
+    .object({
+      status: z.enum(["ai", "fallback"]),
+      warnings: z.array(z.string()).default([]),
+    })
+    .strict()
+    .nullable()
+    .default(null),
+}).strict();
 
 export type TemplateBlueprintId = z.infer<typeof templateBlueprintIdSchema>;
 export type TemplateSlotUsage = z.infer<typeof templateSlotUsageSchema>;

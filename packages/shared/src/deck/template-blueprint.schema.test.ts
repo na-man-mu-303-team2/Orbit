@@ -161,6 +161,31 @@ describe("pptxImportJobResultSchema", () => {
     });
 
     expect(result.qualityReport.compositeScore).toBe(84);
+    expect(result.briefDraft).toBeNull();
+    expect(result.briefExtraction).toBeNull();
+  });
+
+  it("validates a generated Brief draft without server identity", () => {
+    const result = pptxImportJobResultSchema.parse({
+      deckId: "deck_imported_1",
+      templateId: "template_file_1",
+      qualityReport,
+      warnings: [],
+      briefDraft: {
+        audience: "decision-maker",
+        purpose: "report",
+        evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+        targetDurationMinutes: 12,
+        desiredOutcome: "신규 투자 우선순위를 승인한다.",
+        requirements: [],
+        terminology: [],
+        challengeTopics: [],
+      },
+      briefExtraction: { status: "ai", warnings: [] },
+    });
+
+    expect(result.briefDraft?.purpose).toBe("report");
+    expect(result.briefExtraction?.status).toBe("ai");
   });
 });
 

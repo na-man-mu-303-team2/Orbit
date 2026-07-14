@@ -16,6 +16,12 @@ export const briefRequirementReviewStatusSchema = z.enum([
   "excluded",
 ]);
 
+export const presentationBriefOriginSchema = z.enum([
+  "ai-generation",
+  "pptx-import",
+  "manual",
+]);
+
 export const briefRequirementSchema = z
   .object({
     requirementId: coachingIdSchema,
@@ -44,6 +50,14 @@ export const briefRequirementInputSchema = z
       });
     }
   });
+
+export const briefRequirementDraftSchema = z
+  .object({
+    kind: briefRequirementKindSchema,
+    text: z.string().trim().min(1).max(240),
+    reviewStatus: briefRequirementReviewStatusSchema,
+  })
+  .strict();
 
 export const approvedReferenceSnapshotRefSchema = z
   .object({
@@ -76,6 +90,7 @@ export const presentationBriefSchema = z
     ...presentationBriefContentShape,
     briefId: coachingIdSchema,
     projectId: coachingIdSchema,
+    origin: presentationBriefOriginSchema.default("manual"),
     revision: z.number().int().positive(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -86,6 +101,7 @@ export const presentationBriefSchema = z
 export const putPresentationBriefRequestSchema = z
   .object({
     expectedRevision: z.number().int().nonnegative(),
+    origin: presentationBriefOriginSchema.optional(),
     audience: z.enum(["novice", "practitioner", "decision-maker"]),
     purpose: z.enum(["inform", "persuade", "teach", "report"]),
     evaluatorLensRef: evaluatorLensRefSchema,
@@ -103,6 +119,22 @@ export const putPresentationBriefRequestSchema = z
       context,
       "approvedReferenceFileIds",
     );
+  });
+
+export const presentationBriefDraftSchema = z
+  .object({
+    audience: z.enum(["novice", "practitioner", "decision-maker"]),
+    purpose: z.enum(["inform", "persuade", "teach", "report"]),
+    evaluatorLensRef: evaluatorLensRefSchema,
+    targetDurationMinutes: z.number().int().min(1).max(120),
+    desiredOutcome: z.string().trim().min(1).max(240),
+    requirements: z.array(briefRequirementDraftSchema).max(5),
+    terminology: z.array(terminologyEntrySchema).max(10),
+    challengeTopics: z.array(z.string().trim().min(1).max(120)).max(3),
+  })
+  .strict()
+  .superRefine((brief, context) => {
+    validateBriefCollections(brief, context);
   });
 
 export const getPresentationBriefResponseSchema = z
@@ -154,6 +186,8 @@ function validateBriefCollections(
 }
 
 export type PresentationBrief = z.infer<typeof presentationBriefSchema>;
+export type PresentationBriefOrigin = z.infer<typeof presentationBriefOriginSchema>;
+export type PresentationBriefDraft = z.infer<typeof presentationBriefDraftSchema>;
 export type PutPresentationBriefRequest = z.infer<
   typeof putPresentationBriefRequestSchema
 >;

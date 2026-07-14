@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   briefRequirementInputSchema,
+  presentationBriefDraftSchema,
   presentationBriefSchema,
   putPresentationBriefRequestSchema,
 } from "./presentation-brief.schema";
@@ -32,7 +33,23 @@ describe("presentationBriefSchema", () => {
     });
 
     expect(result.revision).toBe(1);
+    expect(result.origin).toBe("manual");
     expect(JSON.stringify(result)).not.toContain("cleanedText");
+  });
+
+  it("validates an identity-free draft extracted from an imported deck", () => {
+    const result = presentationBriefDraftSchema.parse({
+      ...content,
+      requirements: [
+        {
+          kind: "must-cover",
+          text: "핵심 수치를 설명한다.",
+          reviewStatus: "approved",
+        },
+      ],
+    });
+
+    expect(result.requirements[0]?.text).toBe("핵심 수치를 설명한다.");
   });
 
   it("rejects duplicate references and unknown raw content", () => {
@@ -57,4 +74,3 @@ describe("presentationBriefSchema", () => {
     ).toBe(false);
   });
 });
-
