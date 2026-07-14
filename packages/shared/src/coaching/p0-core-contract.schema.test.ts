@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { focusedPracticeTargetScopeSchema } from "./coaching-common.schema";
-import { reportObservationSchema } from "./evaluation-criterion.schema";
+import {
+  criterionResultSchema,
+  evaluationCriterionSchema,
+  reportObservationSchema,
+} from "./evaluation-criterion.schema";
 import { p0CoreContractFixtures } from "./p0-core-contract.fixtures";
 import { presenterAidSchema } from "./presenter-aid.schema";
+import {
+  coachingActionSchema,
+  practiceGoalSchema,
+} from "./practice-goal.schema";
 import { rehearsalAnalyzeRequestSchema } from "./rehearsal-analyze.schema";
 import {
   putRehearsalFocusProfileRequestSchema,
@@ -74,6 +82,58 @@ describe("P0 rehearsal focus contracts", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("P0 Practice Goal Target handoff fixtures", () => {
+  it("keeps Criterion, Observation, Goal, and Action identities aligned", () => {
+    const cases = fixtures.practiceGoalTargetHandoff.cases;
+    expect(cases.map((fixture) => fixture.name)).toEqual([
+      "sentence",
+      "slide",
+      "slide-range",
+      "opening",
+      "closing",
+      "full-run-only",
+    ]);
+
+    for (const fixture of cases) {
+      const criterion = evaluationCriterionSchema.parse(fixture.criterion);
+      const observation = reportObservationSchema.parse(fixture.observation);
+      const result = criterionResultSchema.parse(fixture.criterionResult);
+      const goal = practiceGoalSchema.parse(fixture.practiceGoal);
+      const action = coachingActionSchema.parse(fixture.coachingAction);
+
+      expect(result.category).toBe(criterion.category);
+      expect(goal.category).toBe(criterion.category);
+      expect(observation.criterionRef).toEqual(goal.criterionRef);
+      expect(result.criterionRef).toEqual(goal.criterionRef);
+      expect(action.criterionRef).toEqual(goal.criterionRef);
+      expect(action.observationIds).toContain(observation.observationId);
+      expect(action.instruction).toBe(goal.nextAction);
+      expect(action.successCondition).toBe(goal.successCondition);
+
+      if (goal.targetScope) {
+        expect(action.target).toEqual({
+          type: "focused-practice",
+          projectId: goal.projectId,
+          goalId: goal.goalId,
+          sourceFullRunId: goal.originFullRunId,
+        });
+      } else {
+        expect(goal.recommendedPracticeMode).toBe("full-run-only");
+        expect(action.target.type).toBe("full-rehearsal");
+      }
+    }
+  });
+
+  it("represents no problem candidates as empty topActions", () => {
+    expect(
+      coachingActionSchema
+        .array()
+        .max(3)
+        .parse(fixtures.practiceGoalTargetHandoff.emptyTopActions),
+    ).toEqual([]);
   });
 });
 

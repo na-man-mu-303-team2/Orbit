@@ -207,6 +207,501 @@
       }
     ]
   },
+  "practiceGoalTargetHandoff": {
+    "cases": [
+      {
+        "name": "sentence",
+        "criterion": {
+          "criterionId": "criterion-sentence",
+          "revision": 1,
+          "category": "semantic",
+          "source": "brief",
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "label": "핵심 수치",
+          "measurement": {
+            "type": "semantic-coverage",
+            "expectedConceptIds": ["concept-sentence"]
+          }
+        },
+        "observation": {
+          "observationId": "observation-sentence",
+          "criterionRef": {
+            "criterionId": "criterion-sentence",
+            "revision": 1
+          },
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "measurementState": "measured",
+          "value": { "kind": "semantic", "value": "partial" },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": {
+            "criterionId": "criterion-sentence",
+            "revision": 1
+          },
+          "category": "semantic",
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "measurementState": "measured",
+          "evaluationStatus": "partial",
+          "observationId": "observation-sentence",
+          "reasonCode": "PARTIAL",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-sentence",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "category": "semantic",
+          "criterionRef": {
+            "criterionId": "criterion-sentence",
+            "revision": 1
+          },
+          "targetScope": {
+            "type": "sentence",
+            "scopeId": "scope-sentence",
+            "slideId": "slide-1",
+            "sentenceIndex": 0,
+            "textSnapshotHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "recommendedPracticeMode": "focused",
+          "evidenceRefs": [],
+          "problemLabel": "핵심 수치가 부분적으로만 전달됐습니다.",
+          "nextAction": "핵심 수치를 한 문장으로 다시 말하세요.",
+          "successCondition": "핵심 수치의 필수 내용을 모두 전달합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-sentence",
+          "priority": 1,
+          "criterionRef": {
+            "criterionId": "criterion-sentence",
+            "revision": 1
+          },
+          "observationIds": ["observation-sentence"],
+          "label": "핵심 수치를 다시 전달하세요.",
+          "detail": "핵심 수치가 부분적으로만 전달됐습니다.",
+          "audienceImpact": "청중이 핵심 판단 근거를 이해하기 어렵습니다.",
+          "instruction": "핵심 수치를 한 문장으로 다시 말하세요.",
+          "successCondition": "핵심 수치의 필수 내용을 모두 전달합니다.",
+          "target": {
+            "type": "focused-practice",
+            "projectId": "project-1",
+            "goalId": "goal-sentence",
+            "sourceFullRunId": "run-1"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      },
+      {
+        "name": "slide",
+        "criterion": {
+          "criterionId": "criterion-slide",
+          "revision": 1,
+          "category": "timing",
+          "source": "system",
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "label": "첫 장 목표 시간",
+          "measurement": { "type": "max-duration-seconds", "maximum": 53 }
+        },
+        "observation": {
+          "observationId": "observation-slide",
+          "criterionRef": { "criterionId": "criterion-slide", "revision": 1 },
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "measurementState": "measured",
+          "value": { "kind": "duration-seconds", "value": 61 },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": { "criterionId": "criterion-slide", "revision": 1 },
+          "category": "timing",
+          "scope": { "type": "slide", "slideId": "slide-1" },
+          "measurementState": "measured",
+          "evaluationStatus": "failed",
+          "observationId": "observation-slide",
+          "reasonCode": "THRESHOLD_EXCEEDED",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-slide",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "category": "timing",
+          "criterionRef": { "criterionId": "criterion-slide", "revision": 1 },
+          "targetScope": {
+            "type": "slide",
+            "scopeId": "scope-slide",
+            "slideId": "slide-1"
+          },
+          "recommendedPracticeMode": "focused",
+          "evidenceRefs": [],
+          "problemLabel": "첫 장 목표 시간을 초과했습니다.",
+          "nextAction": "핵심 문장만 남기고 짧게 말하세요.",
+          "successCondition": "53초 이내로 핵심 내용을 전달합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-slide",
+          "priority": 1,
+          "criterionRef": { "criterionId": "criterion-slide", "revision": 1 },
+          "observationIds": ["observation-slide"],
+          "label": "첫 장 발표 시간을 줄이세요.",
+          "detail": "목표 53초보다 8초 길게 발표했습니다.",
+          "audienceImpact": "청중이 중요한 내용에 집중할 시간이 부족해집니다.",
+          "instruction": "핵심 문장만 남기고 짧게 말하세요.",
+          "successCondition": "53초 이내로 핵심 내용을 전달합니다.",
+          "target": {
+            "type": "focused-practice",
+            "projectId": "project-1",
+            "goalId": "goal-slide",
+            "sourceFullRunId": "run-1"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      },
+      {
+        "name": "slide-range",
+        "criterion": {
+          "criterionId": "criterion-slide-range",
+          "revision": 1,
+          "category": "semantic",
+          "source": "brief",
+          "scope": {
+            "type": "slide-range",
+            "startSlideId": "slide-1",
+            "endSlideId": "slide-3"
+          },
+          "label": "문제와 해결 흐름",
+          "measurement": {
+            "type": "semantic-coverage",
+            "expectedConceptIds": ["concept-range"]
+          }
+        },
+        "observation": {
+          "observationId": "observation-slide-range",
+          "criterionRef": {
+            "criterionId": "criterion-slide-range",
+            "revision": 1
+          },
+          "scope": {
+            "type": "slide-range",
+            "startSlideId": "slide-1",
+            "endSlideId": "slide-3"
+          },
+          "measurementState": "measured",
+          "value": { "kind": "semantic", "value": "missed" },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": {
+            "criterionId": "criterion-slide-range",
+            "revision": 1
+          },
+          "category": "semantic",
+          "scope": {
+            "type": "slide-range",
+            "startSlideId": "slide-1",
+            "endSlideId": "slide-3"
+          },
+          "measurementState": "measured",
+          "evaluationStatus": "failed",
+          "observationId": "observation-slide-range",
+          "reasonCode": "CONCEPT_MISSED",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-slide-range",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "category": "semantic",
+          "criterionRef": {
+            "criterionId": "criterion-slide-range",
+            "revision": 1
+          },
+          "targetScope": {
+            "type": "slide-range",
+            "scopeId": "scope-slide-range",
+            "startSlideId": "slide-1",
+            "endSlideId": "slide-3"
+          },
+          "recommendedPracticeMode": "focused",
+          "evidenceRefs": [],
+          "problemLabel": "문제와 해결 흐름이 전달되지 않았습니다.",
+          "nextAction": "문제에서 해결책으로 이어지는 흐름을 다시 설명하세요.",
+          "successCondition": "문제와 해결 흐름의 필수 내용을 모두 전달합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-slide-range",
+          "priority": 1,
+          "criterionRef": {
+            "criterionId": "criterion-slide-range",
+            "revision": 1
+          },
+          "observationIds": ["observation-slide-range"],
+          "label": "문제와 해결 흐름을 다시 설명하세요.",
+          "detail": "연속된 세 장에서 필수 흐름이 전달되지 않았습니다.",
+          "audienceImpact": "청중이 문제와 해결책의 연결을 이해하기 어렵습니다.",
+          "instruction": "문제에서 해결책으로 이어지는 흐름을 다시 설명하세요.",
+          "successCondition": "문제와 해결 흐름의 필수 내용을 모두 전달합니다.",
+          "target": {
+            "type": "focused-practice",
+            "projectId": "project-1",
+            "goalId": "goal-slide-range",
+            "sourceFullRunId": "run-1"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      },
+      {
+        "name": "opening",
+        "criterion": {
+          "criterionId": "criterion-opening",
+          "revision": 1,
+          "category": "structure",
+          "source": "brief",
+          "scope": { "type": "time-window", "window": "opening" },
+          "label": "발표 목적",
+          "measurement": {
+            "type": "semantic-coverage",
+            "expectedConceptIds": ["concept-opening"]
+          }
+        },
+        "observation": {
+          "observationId": "observation-opening",
+          "criterionRef": { "criterionId": "criterion-opening", "revision": 1 },
+          "scope": { "type": "time-window", "window": "opening" },
+          "measurementState": "measured",
+          "value": { "kind": "semantic", "value": "partial" },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": { "criterionId": "criterion-opening", "revision": 1 },
+          "category": "structure",
+          "scope": { "type": "time-window", "window": "opening" },
+          "measurementState": "measured",
+          "evaluationStatus": "partial",
+          "observationId": "observation-opening",
+          "reasonCode": "PARTIAL",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-opening",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "category": "structure",
+          "criterionRef": { "criterionId": "criterion-opening", "revision": 1 },
+          "targetScope": { "type": "opening", "scopeId": "scope-opening" },
+          "recommendedPracticeMode": "focused",
+          "evidenceRefs": [],
+          "problemLabel": "발표 목적이 부분적으로만 전달됐습니다.",
+          "nextAction": "도입부에서 발표 목적을 먼저 말하세요.",
+          "successCondition": "도입부에서 발표 목적을 명확히 전달합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-opening",
+          "priority": 1,
+          "criterionRef": { "criterionId": "criterion-opening", "revision": 1 },
+          "observationIds": ["observation-opening"],
+          "label": "도입부에서 발표 목적을 먼저 말하세요.",
+          "detail": "발표 목적이 부분적으로만 전달됐습니다.",
+          "audienceImpact": "청중이 발표를 들어야 하는 이유를 이해하기 어렵습니다.",
+          "instruction": "도입부에서 발표 목적을 먼저 말하세요.",
+          "successCondition": "도입부에서 발표 목적을 명확히 전달합니다.",
+          "target": {
+            "type": "focused-practice",
+            "projectId": "project-1",
+            "goalId": "goal-opening",
+            "sourceFullRunId": "run-1"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      },
+      {
+        "name": "closing",
+        "criterion": {
+          "criterionId": "criterion-closing",
+          "revision": 1,
+          "category": "structure",
+          "source": "brief",
+          "scope": { "type": "time-window", "window": "closing" },
+          "label": "다음 행동",
+          "measurement": {
+            "type": "semantic-coverage",
+            "expectedConceptIds": ["concept-closing"]
+          }
+        },
+        "observation": {
+          "observationId": "observation-closing",
+          "criterionRef": { "criterionId": "criterion-closing", "revision": 1 },
+          "scope": { "type": "time-window", "window": "closing" },
+          "measurementState": "measured",
+          "value": { "kind": "semantic", "value": "missed" },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": { "criterionId": "criterion-closing", "revision": 1 },
+          "category": "structure",
+          "scope": { "type": "time-window", "window": "closing" },
+          "measurementState": "measured",
+          "evaluationStatus": "failed",
+          "observationId": "observation-closing",
+          "reasonCode": "CONCEPT_MISSED",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-closing",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "category": "structure",
+          "criterionRef": { "criterionId": "criterion-closing", "revision": 1 },
+          "targetScope": { "type": "closing", "scopeId": "scope-closing" },
+          "recommendedPracticeMode": "focused",
+          "evidenceRefs": [],
+          "problemLabel": "다음 행동이 전달되지 않았습니다.",
+          "nextAction": "마무리에서 다음 행동을 분명히 요청하세요.",
+          "successCondition": "마무리에서 다음 행동을 명확히 전달합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-closing",
+          "priority": 1,
+          "criterionRef": { "criterionId": "criterion-closing", "revision": 1 },
+          "observationIds": ["observation-closing"],
+          "label": "마무리에서 다음 행동을 요청하세요.",
+          "detail": "발표를 마칠 때 다음 행동이 전달되지 않았습니다.",
+          "audienceImpact": "청중이 발표 후 무엇을 해야 하는지 알기 어렵습니다.",
+          "instruction": "마무리에서 다음 행동을 분명히 요청하세요.",
+          "successCondition": "마무리에서 다음 행동을 명확히 전달합니다.",
+          "target": {
+            "type": "focused-practice",
+            "projectId": "project-1",
+            "goalId": "goal-closing",
+            "sourceFullRunId": "run-1"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      },
+      {
+        "name": "full-run-only",
+        "criterion": {
+          "criterionId": "criterion-full-run",
+          "revision": 1,
+          "category": "delivery",
+          "source": "system",
+          "scope": { "type": "run" },
+          "label": "반복 말버릇",
+          "measurement": {
+            "type": "max-count",
+            "metric": "filler-word-count",
+            "maximum": 1
+          }
+        },
+        "observation": {
+          "observationId": "observation-full-run",
+          "criterionRef": {
+            "criterionId": "criterion-full-run",
+            "revision": 1
+          },
+          "scope": { "type": "run" },
+          "measurementState": "measured",
+          "value": {
+            "kind": "count",
+            "metric": "filler-word-count",
+            "value": 3
+          },
+          "evidenceRefs": [],
+          "observedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "criterionResult": {
+          "criterionRef": {
+            "criterionId": "criterion-full-run",
+            "revision": 1
+          },
+          "category": "delivery",
+          "scope": { "type": "run" },
+          "measurementState": "measured",
+          "evaluationStatus": "failed",
+          "observationId": "observation-full-run",
+          "reasonCode": "THRESHOLD_EXCEEDED",
+          "evaluatedAt": "2026-07-14T00:00:00.000Z"
+        },
+        "practiceGoal": {
+          "goalId": "goal-full-run",
+          "goalSetId": "goalset-target-handoff",
+          "projectId": "project-1",
+          "originFullRunId": "run-1",
+          "priority": 1,
+          "patternKey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "category": "delivery",
+          "criterionRef": {
+            "criterionId": "criterion-full-run",
+            "revision": 1
+          },
+          "targetScope": null,
+          "recommendedPracticeMode": "full-run-only",
+          "evidenceRefs": [],
+          "problemLabel": "반복 말버릇 3회가 감지됐습니다.",
+          "nextAction": "전체 발표에서 불필요한 추임새를 빼세요.",
+          "successCondition": "반복 말버릇을 1회 이하로 유지합니다.",
+          "measurementState": "measured",
+          "createdAt": "2026-07-14T00:00:00.000Z"
+        },
+        "coachingAction": {
+          "actionId": "action-full-run",
+          "priority": 1,
+          "criterionRef": {
+            "criterionId": "criterion-full-run",
+            "revision": 1
+          },
+          "observationIds": ["observation-full-run"],
+          "label": "전체 발표에서 반복 말버릇을 줄이세요.",
+          "detail": "전체 발표에서 반복 말버릇이 3회 감지됐습니다.",
+          "audienceImpact": "반복 말버릇이 메시지의 명확성을 낮출 수 있습니다.",
+          "instruction": "전체 발표에서 불필요한 추임새를 빼세요.",
+          "successCondition": "반복 말버릇을 1회 이하로 유지합니다.",
+          "target": {
+            "type": "full-rehearsal",
+            "projectId": "project-1",
+            "sourceGoalSetId": "goalset-target-handoff"
+          },
+          "availability": "available",
+          "unavailableReason": null
+        }
+      }
+    ],
+    "emptyTopActions": []
+  },
   "presenterAid": {
     "runId": "run-1",
     "slideId": "slide-1",

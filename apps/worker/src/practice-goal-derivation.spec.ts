@@ -1,6 +1,10 @@
 import {
+  criterionResultSchema,
+  evaluationCriterionSchema,
+  rehearsalFocusProfileSnapshotSchema,
   rehearsalEvaluationSnapshotSchema,
   rehearsalReportSchema,
+  reportObservationSchema,
   type EvaluationCriterion,
   type RehearsalEvaluationSnapshot,
   type RehearsalReport
@@ -170,6 +174,198 @@ describe("practice goal derivation", () => {
         (goal) => goal.criterionRef.criterionId === "criterion_system_pause_v1"
       )
     ).toBe(false);
+  });
+
+  it("creates deterministic run-bound scope IDs and preserves a frozen sentence target", () => {
+    const criterion = {
+      criterionId: "criterion_semantic_slide_1",
+      revision: 1,
+      category: "semantic",
+      source: "brief",
+      scope: { type: "slide", slideId: "slide_1" },
+      label: "핵심 수치",
+      measurement: {
+        type: "semantic-coverage",
+        expectedConceptIds: ["concept_1"]
+      }
+    };
+    const first = syntheticCandidate({
+      sourceFullRunId: "run-a",
+      criterion,
+      value: { kind: "semantic", value: "missed" }
+    });
+    const repeated = syntheticCandidate({
+      sourceFullRunId: "run-a",
+      criterion,
+      value: { kind: "semantic", value: "missed" }
+    });
+    const anotherRun = syntheticCandidate({
+      sourceFullRunId: "run-b",
+      criterion,
+      value: { kind: "semantic", value: "missed" }
+    });
+    const anotherTarget = syntheticCandidate({
+      sourceFullRunId: "run-a",
+      criterion: {
+        ...criterion,
+        scope: { type: "slide", slideId: "slide_2" }
+      },
+      value: { kind: "semantic", value: "missed" },
+      slideOrder: [["slide_1", 1], ["slide_2", 2]]
+    });
+    const frozenSentenceTarget = {
+      type: "sentence",
+      scopeId: "scope_frozen_sentence",
+      slideId: "slide_1",
+      sentenceIndex: 0,
+      textSnapshotHash: "a".repeat(64)
+    } as const;
+    const focused = syntheticCandidate({
+      sourceFullRunId: "run-a",
+      criterion,
+      value: { kind: "semantic", value: "missed" },
+      focusTarget: frozenSentenceTarget
+    });
+
+    expect(first.targetScope?.scopeId).toBe(repeated.targetScope?.scopeId);
+    expect(first.targetScope?.scopeId).not.toBe(anotherRun.targetScope?.scopeId);
+    expect(first.targetScope?.scopeId).not.toBe(anotherTarget.targetScope?.scopeId);
+    expect(focused.targetScope).toEqual(frozenSentenceTarget);
+  });
+
+  it.each([
+    {
+      name: "semantic",
+      criterion: {
+        criterionId: "criterion_semantic",
+        revision: 1,
+        category: "semantic",
+        source: "brief",
+        scope: { type: "slide", slideId: "slide_1" },
+        label: "핵심 수치",
+        measurement: {
+          type: "semantic-coverage",
+          expectedConceptIds: ["concept_1"]
+        }
+      },
+      value: { kind: "semantic", value: "missed" },
+      expected: "핵심 수치의 필수 내용을 모두 전달합니다."
+    },
+    {
+      name: "filler",
+      criterion: {
+        criterionId: "criterion_filler",
+        revision: 1,
+        category: "delivery",
+        source: "system",
+        scope: { type: "run" },
+        label: "반복 말버릇",
+        measurement: {
+          type: "max-count",
+          metric: "filler-word-count",
+          maximum: 1
+        }
+      },
+      value: { kind: "count", metric: "filler-word-count", value: 2 },
+      expected: "반복 말버릇을 1회 이하로 유지합니다."
+    },
+    {
+      name: "pause",
+      criterion: {
+        criterionId: "criterion_pause",
+        revision: 1,
+        category: "delivery",
+        source: "system",
+        scope: { type: "run" },
+        label: "긴 멈춤",
+        measurement: {
+          type: "max-count",
+          metric: "pause-count",
+          maximum: 0
+        }
+      },
+      value: { kind: "count", metric: "pause-count", value: 1 },
+      expected: "긴 멈춤을 0회 이하로 유지합니다."
+    },
+    {
+      name: "opening",
+      criterion: {
+        criterionId: "criterion_opening",
+        revision: 1,
+        category: "structure",
+        source: "brief",
+        scope: { type: "time-window", window: "opening" },
+        label: "발표 목적",
+        measurement: {
+          type: "semantic-coverage",
+          expectedConceptIds: ["concept_opening"]
+        }
+      },
+      value: { kind: "semantic", value: "partial" },
+      expected: "도입부에서 발표 목적을 명확히 전달합니다."
+    },
+    {
+      name: "closing",
+      criterion: {
+        criterionId: "criterion_closing",
+        revision: 1,
+        category: "structure",
+        source: "brief",
+        scope: { type: "time-window", window: "closing" },
+        label: "다음 행동",
+        measurement: {
+          type: "semantic-coverage",
+          expectedConceptIds: ["concept_closing"]
+        }
+      },
+      value: { kind: "semantic", value: "missed" },
+      expected: "마무리에서 다음 행동을 명확히 전달합니다."
+    }
+  ])("uses the contract success condition for $name", ({ criterion, value, expected }) => {
+    expect(syntheticCandidate({ criterion, value }).successCondition).toBe(expected);
+  });
+
+  it("keeps invalid slide ranges as full-run-only problems", () => {
+    const criterion = {
+      criterionId: "criterion_range",
+      revision: 1,
+      category: "semantic",
+      source: "brief",
+      scope: {
+        type: "slide-range",
+        startSlideId: "slide_1",
+        endSlideId: "slide_3"
+      },
+      label: "문제와 해결 흐름",
+      measurement: {
+        type: "semantic-coverage",
+        expectedConceptIds: ["concept_range"]
+      }
+    };
+    const value = { kind: "semantic", value: "missed" };
+    const valid = syntheticCandidate({
+      criterion,
+      value,
+      slideOrder: [["slide_1", 1], ["slide_2", 2], ["slide_3", 3]]
+    });
+    const reversed = syntheticCandidate({
+      criterion,
+      value,
+      slideOrder: [["slide_1", 3], ["slide_2", 2], ["slide_3", 1]]
+    });
+    const missing = syntheticCandidate({
+      criterion,
+      value,
+      slideOrder: [["slide_1", 1], ["slide_2", 2]]
+    });
+
+    expect(valid.targetScope).toMatchObject({
+      type: "slide-range",
+      startSlideId: "slide_1",
+      endSlideId: "slide_3"
+    });
+    expect(reversed.targetScope).toBeNull();
+    expect(missing.targetScope).toBeNull();
   });
 
   it("orders rerun issues by repeated core, new core, repeated timing, then repeated delivery", async () => {
@@ -374,6 +570,7 @@ describe("practice goal derivation", () => {
       observationId: duplicateObservation.observationId
     };
     const sharedInput = {
+      sourceFullRunId: "run-a",
       criteria: sourceSnapshot.evaluationPlan?.criteria ?? [],
       focusProfileSnapshot: null,
       evaluatorLensId: "decision-maker" as const,
@@ -628,6 +825,75 @@ describe("practice goal derivation", () => {
   });
 });
 
+function syntheticCandidate(input: {
+  sourceFullRunId?: string;
+  criterion: unknown;
+  value: unknown;
+  slideOrder?: Array<[string, number]>;
+  focusTarget?: unknown;
+}) {
+  const criterion = evaluationCriterionSchema.parse(input.criterion);
+  const observation = reportObservationSchema.parse({
+    observationId: `observation_${criterion.criterionId}`,
+    criterionRef: {
+      criterionId: criterion.criterionId,
+      revision: criterion.revision
+    },
+    scope: criterion.scope,
+    measurementState: "measured",
+    value: input.value,
+    evidenceRefs: [],
+    observedAt: "2026-07-14T00:00:00.000Z"
+  });
+  const isPartial =
+    observation.value.kind === "semantic" &&
+    observation.value.value === "partial";
+  const result = criterionResultSchema.parse({
+    criterionRef: observation.criterionRef,
+    category: criterion.category,
+    scope: criterion.scope,
+    measurementState: "measured",
+    evaluationStatus: isPartial ? "partial" : "failed",
+    observationId: observation.observationId,
+    reasonCode: isPartial
+      ? "PARTIAL"
+      : observation.value.kind === "semantic"
+        ? "CONCEPT_MISSED"
+        : "THRESHOLD_EXCEEDED",
+    evaluatedAt: observation.observedAt
+  });
+  const focusProfileSnapshot = input.focusTarget
+    ? rehearsalFocusProfileSnapshotSchema.parse({
+        profileRef: { profileId: "profile_1", revision: 1 },
+        items: [
+          {
+            focusItemId: "focus_1",
+            priority: 1,
+            kind: criterion.measurement.type === "semantic-coverage"
+              ? "semantic-coverage"
+              : "custom",
+            label: "고정 Target",
+            targetScope: input.focusTarget
+          }
+        ]
+      })
+    : null;
+  const candidates = deriveProblemCandidates({
+    sourceFullRunId: input.sourceFullRunId ?? "run-a",
+    criteria: [criterion],
+    results: [result],
+    observations: [observation],
+    focusProfileSnapshot,
+    evaluatorLensId: "general-novice",
+    slideOrder: new Map(input.slideOrder ?? [["slide_1", 1]]),
+    coreSemanticCriterionKeys: new Set(),
+    rankingContext: { mode: "baseline", patternHistory: new Map() }
+  });
+  const candidate = candidates[0];
+  if (!candidate) throw new Error("Expected a synthetic problem candidate.");
+  return candidate;
+}
+
 function candidatesFor(
   sourceFullRunId: string,
   sourceSnapshot: RehearsalEvaluationSnapshot,
@@ -640,6 +906,7 @@ function candidatesFor(
     report: sourceReport
   });
   return deriveProblemCandidates({
+    sourceFullRunId,
     criteria: sourceSnapshot.evaluationPlan?.criteria ?? [],
     results: evaluation.results,
     observations: evaluation.observations,

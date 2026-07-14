@@ -87,6 +87,7 @@ export function derivePracticeGoalSet(input: {
     report: input.report,
   });
   const candidates = deriveProblemCandidates({
+    sourceFullRunId: input.sourceFullRunId,
     criteria: plan.criteria,
     results: evaluation.results,
     observations: evaluation.observations,
@@ -427,6 +428,7 @@ export function evaluateFullRunCriteria(input: {
 }
 
 export function deriveProblemCandidates(input: {
+  sourceFullRunId: string;
   criteria: EvaluationCriterion[];
   results: CriterionResult[];
   observations: ReportObservation[];
@@ -460,12 +462,13 @@ export function deriveProblemCandidates(input: {
       input.focusProfileSnapshot?.items ?? [],
     );
     const candidate = candidateFromEvaluation({
+      sourceFullRunId: input.sourceFullRunId,
       criterion,
       result,
       observation,
       focusItem,
       lensPriority: lensPriority.get(criterion.category) ?? 99,
-      slideOrder: slideOrderForCriterion(criterion, input.slideOrder),
+      slideOrder: input.slideOrder,
       rankKind: candidateRankKind(criterion, input.coreSemanticCriterionKeys),
     });
     candidate.repeated = isRepeatedIssue(
@@ -675,21 +678,25 @@ function criterionByRef(
 }
 
 function candidateFromEvaluation(input: {
+  sourceFullRunId: string;
   criterion: EvaluationCriterion;
   result: CriterionResult & { evaluationStatus: "partial" | "failed" };
   observation: ReportObservation;
   focusItem: RehearsalFocusItem | null;
   lensPriority: number;
-  slideOrder: number;
+  slideOrder: ReadonlyMap<string, number>;
   rankKind: CandidateRankKind;
 }): Candidate {
-  const targetScope = input.focusItem?.targetScope ?? targetScopeForCriterion(input.criterion);
+  const focusedTarget = input.focusItem?.targetScope;
+  const targetScope = focusedTarget && targetScopeIsUsable(focusedTarget, input.slideOrder)
+    ? focusedTarget
+    : targetScopeForCriterion(input.sourceFullRunId, input.criterion, input.slideOrder);
   return {
     category: input.criterion.category,
     criterion: input.criterion,
     evaluationStatus: input.result.evaluationStatus,
     severity: normalizedSeverity(input.criterion, input.result, input.observation),
-    slideOrder: input.slideOrder,
+    slideOrder: slideOrderForCriterion(input.criterion, input.slideOrder),
     targetScope,
     evidenceRefs: practiceEvidence(input.criterion, input.observation),
     observationIds: [input.observation.observationId],
@@ -832,33 +839,65 @@ function targetMatchesCriterion(
 }
 
 function targetScopeForCriterion(
+  sourceFullRunId: string,
   criterion: EvaluationCriterion,
+  slideOrder: ReadonlyMap<string, number>,
 ): PracticeGoal["targetScope"] {
-  const scopeId = `scope_${hash([
-    criterion.criterionId,
-    criterion.revision,
-    criterion.scope,
-  ]).slice(0, 24)}`;
+  const criterionRef = {
+    criterionId: criterion.criterionId,
+    revision: criterion.revision,
+  };
   if (criterion.scope.type === "slide") {
-    return { type: "slide", scopeId, slideId: criterion.scope.slideId };
+    const target = { type: "slide" as const, slideId: criterion.scope.slideId };
+    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
   }
   if (criterion.scope.type === "slide-range") {
-    return {
+    const target = {
       type: "slide-range",
-      scopeId,
       startSlideId: criterion.scope.startSlideId,
       endSlideId: criterion.scope.endSlideId,
-    };
+    } as const;
+    if (!slideRangeIsUsable(target.startSlideId, target.endSlideId, slideOrder)) {
+      return null;
+    }
+    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
   }
   if (criterion.scope.type === "time-window") {
-    return { type: criterion.scope.window, scopeId };
+    const target = { type: criterion.scope.window };
+    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
   }
   return null;
 }
 
+function targetScopeId(
+  sourceFullRunId: string,
+  criterionRef: { criterionId: string; revision: number },
+  target: Record<string, unknown>,
+) {
+  return `scope_${hash({ sourceFullRunId, criterionRef, target }).slice(0, 24)}`;
+}
+
+function targetScopeIsUsable(
+  target: NonNullable<PracticeGoal["targetScope"]>,
+  slideOrder: ReadonlyMap<string, number>,
+) {
+  if (target.type !== "slide-range") return true;
+  return slideRangeIsUsable(target.startSlideId, target.endSlideId, slideOrder);
+}
+
+function slideRangeIsUsable(
+  startSlideId: string,
+  endSlideId: string,
+  slideOrder: ReadonlyMap<string, number>,
+) {
+  const startOrder = slideOrder.get(startSlideId);
+  const endOrder = slideOrder.get(endSlideId);
+  return startOrder !== undefined && endOrder !== undefined && startOrder < endOrder;
+}
+
 function slideOrderForCriterion(
   criterion: EvaluationCriterion,
-  slideOrder: Map<string, number>,
+  slideOrder: ReadonlyMap<string, number>,
 ) {
   if (criterion.scope.type === "slide") return slideOrder.get(criterion.scope.slideId) ?? 999;
   if (criterion.scope.type === "slide-range") return slideOrder.get(criterion.scope.startSlideId) ?? 999;
@@ -975,12 +1014,22 @@ function nextAction(criterion: EvaluationCriterion) {
 
 function successCondition(criterion: EvaluationCriterion) {
   if (criterion.measurement.type === "semantic-coverage") {
-    return "핵심 개념을 빠짐없이 전달합니다.";
+    if (
+      criterion.category === "structure" &&
+      criterion.scope.type === "time-window"
+    ) {
+      return criterion.scope.window === "opening"
+        ? `도입부에서 ${criterion.label}을 명확히 전달합니다.`
+        : `마무리에서 ${criterion.label}을 명확히 전달합니다.`;
+    }
+    return `${criterion.label}의 필수 내용을 모두 전달합니다.`;
   }
   if (criterion.measurement.type === "max-duration-seconds") {
     return `${criterion.measurement.maximum}초 이내로 핵심 내용을 전달합니다.`;
   }
-  return `${criterion.measurement.maximum}회 이하로 줄입니다.`;
+  return criterion.measurement.metric === "filler-word-count"
+    ? `반복 말버릇을 ${criterion.measurement.maximum}회 이하로 유지합니다.`
+    : `긴 멈춤을 ${criterion.measurement.maximum}회 이하로 유지합니다.`;
 }
 
 function coreSemanticCriterionKeys(snapshot: RehearsalEvaluationSnapshot) {
