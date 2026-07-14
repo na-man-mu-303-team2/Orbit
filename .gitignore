@@ -42,3 +42,4 @@ sherpa-onnx-streaming-zipformer-korean-*/
 docker-compose.override.yml
 artifacts/
 .codex/
+.ua/
