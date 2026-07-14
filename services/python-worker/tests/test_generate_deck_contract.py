@@ -25,6 +25,8 @@ from app.ai.generate_deck import (
     GeneratedContentItem,
     MediaIntent,
     ReferenceContext,
+    SpeakerNoteQualityProblem,
+    SpeakerNoteUnit,
     SlidePlan,
     SlideCountRange,
     SourceRecord,
@@ -35,10 +37,10 @@ from app.ai.generate_deck import (
     analyze_input,
     apply_design_options,
     apply_timing_to_slide_plans,
+    assemble_speaker_notes_quality_first,
     chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
-    compact_dense_speaker_notes,
     compact_program_v2_content_items,
     deduplicate_speaker_notes_across_slides,
     build_design_pack_content_manifest,
@@ -58,6 +60,8 @@ from app.ai.generate_deck import (
     design_pack_recipe_variant_for,
     design_pack_source_ledgers,
     detect_text_overlap_candidates,
+    enforce_speaker_note_constraints,
+    finalize_speaker_notes,
     generate_content_plan_with_llm,
     generate_deck,
     ensure_profile_closing_action,
@@ -82,7 +86,7 @@ from app.ai.generate_deck import (
     repair_program_v2_text_element,
     repair_content_plan_with_llm,
     repair_reason_codes,
-    repair_short_speaker_notes_with_llm,
+    repair_speaker_note_units_with_llm,
     slide_plans_from_generated_content,
     speaker_notes_maximum_chars,
     speaker_notes_minimum_chars,
@@ -750,6 +754,16 @@ def test_timing_validation_uses_design_pack_short_and_dense_codes() -> None:
         issue.code for issue in validate_content(deck)
     }
 
+    for slide in deck["slides"]:
+        target = slide["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
+        slide["speakerNotes"] = "가" * round(target * 1.6)
+    deck_dense_issue = next(
+        issue
+        for issue in validate_content(deck)
+        if issue.scope == "deck" and issue.code == "SPEAKER_NOTES_DENSE"
+    )
+    assert deck_dense_issue.blocking is True
+
 
 def test_timing_validation_detects_repeated_speaker_note_sentences() -> None:
     deck = generate_deck(
@@ -1182,49 +1196,190 @@ def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
     )
 
 
-def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
+def test_speaker_notes_assembly_keeps_required_units_before_optional_units() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Quality first notes",
+            generationMode="design-pack",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.timing_plan.target_total_chars = 180
     slide = SlidePlan(
-        order=2,
-        slide_type="data",
-        title="Dense notes",
-        message="Evidence supports the decision.",
-        speaker_notes=" ".join(
-            f"Distinct evidence sentence {index} supports the decision."
-            for index in range(1, 9)
-        ),
+        order=1,
+        slide_type="summary",
+        title="Decision",
+        message="Choose the next action.",
+        speaker_notes="",
         keywords=[],
         evidence=[],
-        target_speaker_notes_chars=170,
+        target_speaker_notes_chars=180,
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="example",
+                required=False,
+                text="A concrete example clarifies the decision.",
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text="The evidence supports one clear decision.",
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="action",
+                required=True,
+                text="Choose the next verified action now.",
+                sourceRefs=[],
+            ),
+        ],
     )
-    original_chars = len("".join(slide.speaker_notes.split()))
 
-    compact_dense_speaker_notes(slide)
+    assembled = assemble_speaker_notes_quality_first(raw_input, [slide])[0]
 
-    compacted_chars = len("".join(slide.speaker_notes.split()))
-    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
-    assert compacted_chars < original_chars
-    assert slide.speaker_notes.count("Distinct evidence sentence") == 4
+    assert [unit.role for unit in assembled.speaker_note_units[:2]] == [
+        "core",
+        "action",
+    ]
+    assert assembled.speaker_notes.startswith(
+        "The evidence supports one clear decision. Choose the next verified action now."
+    )
 
 
-def test_dense_single_sentence_speaker_notes_are_trimmed_to_upper_bound() -> None:
+def test_speaker_notes_assembly_drops_optional_unit_outside_budget() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Bounded optional notes",
+            generationMode="design-pack",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.timing_plan.target_total_chars = 70
+    required_text = "A complete required conclusion remains intact."
+    optional_text = "This optional explanation is useful but does not fit the budget."
     slide = SlidePlan(
-        order=2,
-        slide_type="data",
-        title="Dense single sentence",
-        message="Evidence supports the decision.",
-        speaker_notes=" ".join(f"evidence-{index}" for index in range(40)),
+        order=1,
+        slide_type="summary",
+        title="Conclusion",
+        message="Keep the conclusion.",
+        speaker_notes="",
         keywords=[],
         evidence=[],
-        target_speaker_notes_chars=170,
+        target_speaker_notes_chars=70,
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text=required_text,
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="action",
+                required=True,
+                text="Act on the verified conclusion.",
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="detail",
+                required=False,
+                text=optional_text,
+                sourceRefs=[],
+            ),
+        ],
     )
 
-    compact_dense_speaker_notes(slide)
+    assembled = assemble_speaker_notes_quality_first(raw_input, [slide])[0]
 
-    compacted_chars = len("".join(slide.speaker_notes.split()))
-    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
+    assert required_text in assembled.speaker_notes
+    assert optional_text not in assembled.speaker_notes
+    assert "..." not in assembled.speaker_notes
+    assert "…" not in assembled.speaker_notes
 
 
-def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
+def test_final_deck_speaker_notes_preserve_complete_long_sentence() -> None:
+    long_sentence = (
+        "This deliberately long but complete sentence preserves every required fact "
+        "even when the advisory character budget is much smaller than the script."
+    )
+    timing_plan = {
+        "targetSpeakerNotesChars": 30,
+        "actualSpeakerNotesChars": 0,
+    }
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="Complete conclusion",
+        message="Preserve complete sentences.",
+        speaker_notes=f"{long_sentence} Take the verified next action.",
+        keywords=[],
+        evidence=[],
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text=long_sentence,
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="action",
+                required=True,
+                text="Take the verified next action.",
+                sourceRefs=[],
+            ),
+        ],
+    )
+    deck = {
+        "slides": [
+            {
+                "order": 1,
+                "speakerNotes": "stale value",
+                "aiNotes": {"timingPlan": timing_plan},
+            }
+        ]
+    }
+
+    enforced = enforce_speaker_note_constraints(deck, [slide_plan])
+
+    assert enforced["slides"][0]["speakerNotes"] == slide_plan.speaker_notes
+    assert "..." not in slide_plan.speaker_notes
+    assert "…" not in slide_plan.speaker_notes
+    assert timing_plan["actualSpeakerNotesChars"] == len(
+        "".join(slide_plan.speaker_notes.split())
+    )
+
+
+def test_final_deck_speaker_notes_reject_ellipsis() -> None:
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="Invalid conclusion",
+        message="Reject ellipsis.",
+        speaker_notes="The sentence is cut…",
+        keywords=[],
+        evidence=[],
+    )
+
+    with pytest.raises(DeckContentGenerationError, match="SPEAKER_NOTES_QUALITY"):
+        enforce_speaker_note_constraints(
+            {
+                "slides": [
+                    {
+                        "order": 1,
+                        "speakerNotes": "",
+                        "aiNotes": {"timingPlan": {}},
+                    }
+                ]
+            },
+            [slide_plan],
+        )
+
+
+def test_design_pack_finalization_keeps_notes_and_adds_profile_action() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1254,8 +1409,7 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
 
     apply_design_options(raw_input, [slide])
 
-    actual_chars = len("".join(slide.speaker_notes.split()))
-    assert round(70 * 0.9) <= actual_chars <= round(70 * 1.1)
+    assert slide.speaker_notes.endswith("후속 과제를 정리합니다.")
     assert any("승인" in item.text for item in slide.content_items)
 
 
@@ -3094,7 +3248,7 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
     assert second.slides[0].title == "Original title"
 
 
-def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
+def test_content_plan_repair_prompt_treats_note_target_as_advisory() -> None:
     payload = {
         "title": "Repair plan",
         "slides": [
@@ -3141,8 +3295,10 @@ def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
     assert repaired is not None
     prompt = str(fake_client.requests[0]["input"])
     assert '"currentNonWhitespaceChars": 4' in prompt
-    assert '"minimumNonWhitespaceChars": 288' in prompt
-    assert '"maximumNonWhitespaceChars": 352' in prompt
+    assert '"targetSpeakerNotesChars": 320' in prompt
+    assert "Advisory per-slide targets" in prompt
+    assert "minimumNonWhitespaceChars" not in prompt
+    assert "maximumNonWhitespaceChars" not in prompt
 
 
 def test_research_first_content_plan_requires_verified_source_grounding() -> None:
@@ -3194,42 +3350,35 @@ def test_research_first_content_plan_requires_verified_source_grounding() -> Non
     assert "url=https://example.com/official-release" in prompt
 
 
-def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
-    short_plan = {
-        "title": "Focused repair",
-        "slides": [
-            slide_payload(
-                "Verified point",
-                "A concise verified point.",
-                "Short note.",
-                slide_type="cover",
-                slot_preset="title_center",
-                content_items=["Official evidence supports the concise point."],
-            )
+def test_design_pack_accepts_complete_short_speaker_notes_without_filler() -> None:
+    payload = slide_payload(
+        "Verified point",
+        "A concise verified point.",
+        "",
+        slide_type="cover",
+        slot_preset="title_center",
+        content_items=[
+            "Official evidence supports the concise point.",
+            "The verified point defines the decision boundary.",
         ],
-    }
-    repaired_notes = " ".join(
-        [
-            "검증된 근거가 핵심 사실을 뒷받침합니다.",
-            "첫 번째 자료에서 확인된 맥락을 설명합니다.",
-            "두 번째 근거는 결론의 의미를 구체화합니다.",
-            "마지막으로 청중이 기억할 판단 기준을 정리합니다.",
-            "이 기준을 다음 행동과 자연스럽게 연결합니다.",
-            "공식 자료의 범위를 벗어난 추정은 포함하지 않습니다.",
-            "각 근거가 결론에 미치는 영향을 차례로 구분합니다.",
-            "발표를 마치며 확인할 후속 과제를 분명히 제시합니다.",
-        ]
     )
+    payload.pop("speakerNotes")
+    payload["speakerNoteUnits"] = [
+        {
+            "role": "core",
+            "required": True,
+            "text": "검증된 핵심 사실을 먼저 확인합니다.",
+            "sourceRefs": [],
+        },
+        {
+            "role": "interpretation",
+            "required": True,
+            "text": "이 사실은 다음 판단의 기준이 됩니다.",
+            "sourceRefs": [],
+        },
+    ]
     fake_client = FakeOpenAIClient(
-        [
-            short_plan,
-            short_plan,
-            {
-                "slides": [
-                    {"order": 1, "speakerNotes": repaired_notes},
-                ]
-            },
-        ]
+        {"title": "Focused repair", "slides": [payload]}
     )
 
     response = generate_deck(
@@ -3244,16 +3393,17 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
         client=fake_client,
     )
 
-    assert len(fake_client.requests) == 3
-    assert "speaker_notes_repair" in str(fake_client.requests[2]["text"])
-    slide = response.deck["slides"][0]
-    timing = slide["aiNotes"]["timingPlan"]
-    assert len(slide["speakerNotes"].replace(" ", "")) >= round(
-        timing["targetSpeakerNotesChars"] * 0.9
+    assert not any(
+        "speaker_notes_repair" in str(request["text"])
+        for request in fake_client.requests
     )
+    assert response.deck["slides"][0]["speakerNotes"] == (
+        "검증된 핵심 사실을 먼저 확인합니다. 이 사실은 다음 판단의 기준이 됩니다."
+    )
+    assert "speakerNoteUnits" not in response.deck["slides"][0]
 
 
-def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -> None:
+def test_speaker_note_quality_repair_uses_one_structured_request() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -3271,10 +3421,7 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
         message=(
             "The verified release date and platform define the announcement."
         ),
-        speaker_notes=(
-            "The current script introduces the verified release date. "
-            "It also identifies the supported platform."
-        ),
+        speaker_notes="The current script is cut…",
         keywords=["release", "platform"],
         evidence=[],
         content_items=[
@@ -3299,26 +3446,53 @@ def test_short_speaker_note_repair_merges_grounded_content_below_model_limit() -
         ],
         target_seconds=60,
         target_speaker_notes_chars=400,
-    )
-    repaired_note = (
-        "The repaired script states the verified date clearly. "
-        "It connects that date to the official platform announcement."
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text="The current script is cut…",
+                sourceRefs=[],
+            )
+        ],
     )
     fake_client = FakeOpenAIClient(
-        {"slides": [{"order": 1, "speakerNotes": repaired_note}]}
+        {
+            "slides": [
+                {
+                    "order": 1,
+                    "speakerNoteUnits": [
+                        {
+                            "role": "core",
+                            "required": True,
+                            "text": "The repaired script states the verified date clearly.",
+                            "sourceRefs": [],
+                        },
+                        {
+                            "role": "interpretation",
+                            "required": True,
+                            "text": "It connects that date to the official platform announcement.",
+                            "sourceRefs": [],
+                        },
+                    ],
+                }
+            ]
+        }
     )
 
-    repaired = repair_short_speaker_notes_with_llm(
+    repaired = finalize_speaker_notes(
         raw_input,
         [slide],
         client=fake_client,
     )[0]
 
     request_payload = json.loads(str(fake_client.requests[0]["input"]))
-    assert request_payload["slides"][0]["minimumNonWhitespaceChars"] == 360
-    assert request_payload["slides"][0]["maximumNonWhitespaceChars"] == 440
-    assert 280 <= len(repaired.speaker_notes.replace(" ", "")) <= 460
-    assert "official source confirms" in repaired.speaker_notes
+    assert len(fake_client.requests) == 1
+    assert request_payload["slides"][0]["requiredRoles"] == [
+        "core",
+        "interpretation",
+    ]
+    assert "..." not in repaired.speaker_notes
+    assert "…" not in repaired.speaker_notes
 
 
 def test_design_pack_normalizes_reused_llm_content_item_ids() -> None:
@@ -3366,7 +3540,7 @@ def test_design_pack_normalizes_reused_llm_content_item_ids() -> None:
     ] == ["content_1_1", "content_2_1"]
 
 
-def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
+def test_speaker_note_repair_preserves_complete_required_units_above_slide_budget() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -3377,12 +3551,16 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
             slideCountRange={"min": 1, "max": 1},
         )
     )
+    long_core = (
+        "This complete required sentence preserves the verified announcement facts "
+        "without cutting any words even when it exceeds the advisory slide budget."
+    )
     slide = SlidePlan(
         order=1,
         slide_type="cover",
         title="Bounded notes",
         message="The verified facts define the announcement.",
-        speaker_notes="Short notes.",
+        speaker_notes=long_core,
         keywords=["verified"],
         evidence=[],
         content_items=[
@@ -3390,26 +3568,49 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
         ],
         target_seconds=60,
         target_speaker_notes_chars=180,
-    )
-    long_repaired_note = " ".join(
-        f"Verified detail {index} explains a distinct supported announcement fact."
-        for index in range(1, 20)
+        source_refs=["topic:bounded-notes"],
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text=long_core,
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="interpretation",
+                required=True,
+                text="The complete fact remains more important than exact timing.",
+                sourceRefs=[],
+            ),
+        ],
     )
     fake_client = FakeOpenAIClient(
-        {"slides": [{"order": 1, "speakerNotes": long_repaired_note}]}
+        {
+            "slides": [
+                {
+                    "order": 1,
+                    "speakerNoteUnits": [
+                        unit.model_dump(by_alias=True)
+                        for unit in slide.speaker_note_units
+                    ],
+                }
+            ]
+        }
     )
 
-    repaired = repair_short_speaker_notes_with_llm(
+    repaired = finalize_speaker_notes(
         raw_input,
         [slide],
         client=fake_client,
     )[0]
 
-    assert 162 <= len(repaired.speaker_notes.replace(" ", "")) <= 198
-    assert "Verified detail 1" in repaired.speaker_notes
+    assert long_core in repaired.speaker_notes
+    assert repaired.speaker_notes.endswith("exact timing.")
+    assert "..." not in repaired.speaker_notes
+    assert "…" not in repaired.speaker_notes
 
 
-def test_short_speaker_note_repair_batches_large_decks() -> None:
+def test_speaker_note_quality_repair_sends_all_affected_slides_once() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -3441,47 +3642,52 @@ def test_short_speaker_note_repair_batches_large_decks() -> None:
         for order in range(1, 5)
     ]
     fake_client = FakeOpenAIClient(
-        [
+        {
+            "slides": [
                 {
-                    "slides": [
+                    "order": slide.order,
+                    "speakerNoteUnits": [
                         {
-                            "order": order,
-                            "speakerNotes": " ".join(
-                                f"Slide {order} detail {index} explains a supported decision point."
-                                for index in range(1, 12)
-                            ),
+                            "role": role,
+                            "required": True,
+                            "text": f"Slide {slide.order} provides a complete {role} sentence.",
+                            "sourceRefs": [],
                         }
-                        for order in range(1, 4)
-                    ]
-                },
-                {
-                    "slides": [
-                        {
-                            "order": 4,
-                            "speakerNotes": " ".join(
-                                f"Slide 4 detail {index} explains a supported decision point."
-                                for index in range(1, 12)
-                            ),
-                        }
-                    ]
-                },
-        ]
+                        for role in (
+                            ("core", "interpretation")
+                            if slide.order == 1
+                            else ("core", "action")
+                            if slide.order == 4
+                            else ("core", "evidence", "interpretation")
+                        )
+                    ],
+                }
+                for slide in slides
+            ]
+        }
     )
+    problems = [
+        SpeakerNoteQualityProblem(
+            slide.order,
+            "SPEAKER_NOTES_REQUIRED_MISSING",
+            "required role is missing",
+        )
+        for slide in slides
+    ]
 
-    repaired = repair_short_speaker_notes_with_llm(
+    repaired = repair_speaker_note_units_with_llm(
         raw_input,
         slides,
+        problems,
         client=fake_client,
     )
 
-    assert len(fake_client.requests) == 2
-    assert all(
-        160 <= len("".join(slide.speaker_notes.split())) <= 250
-        for slide in repaired
-    )
+    assert repaired is True
+    assert len(fake_client.requests) == 1
+    assert all(slide.speaker_note_units for slide in slides)
 
 
-def test_short_speaker_note_repair_retries_remaining_slide_individually() -> None:
+def test_speaker_note_quality_repair_does_not_retry_invalid_result() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -3505,29 +3711,43 @@ def test_short_speaker_note_repair_retries_remaining_slide_individually() -> Non
         ],
         target_seconds=60,
         target_speaker_notes_chars=200,
-    )
-    repaired_note = " ".join(
-        f"Supported detail {index} explains a distinct decision point."
-        for index in range(1, 12)
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text="The initial sentence is cut…",
+                sourceRefs=[],
+            )
+        ],
     )
     fake_client = FakeOpenAIClient(
-        [
-            {"slides": [{"order": 1, "speakerNotes": "Still short."}]},
-            {"slides": [{"order": 1, "speakerNotes": repaired_note}]},
-        ]
+        {
+            "slides": [
+                {
+                    "order": 1,
+                    "speakerNoteUnits": [
+                        {
+                            "role": "core",
+                            "required": True,
+                            "text": "Still incomplete…",
+                            "sourceRefs": [],
+                        }
+                    ],
+                }
+            ]
+        }
     )
 
-    repaired = repair_short_speaker_notes_with_llm(
-        raw_input,
-        [slide],
-        client=fake_client,
-    )[0]
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="SPEAKER_NOTES_QUALITY_FAILED",
+    ):
+        finalize_speaker_notes(raw_input, [slide], client=fake_client)
 
-    assert len(fake_client.requests) == 2
-    assert 140 <= len("".join(repaired.speaker_notes.split())) <= 230
+    assert len(fake_client.requests) == 1
 
 
-def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> None:
+def test_ungrounded_evidence_is_blocking_after_one_repair() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -3544,13 +3764,7 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
             sourceId="web:verified",
             url="https://example.com/verified",
             title="Verified product update",
-            content=(
-                "유럽의 배터리 규정은 소비자가 일반 공구로 배터리를 교체할 수 있게 요구합니다. "
-                "교체형 설계는 제품 수명을 늘리고 전자 폐기물 감소에 기여합니다. "
-                "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다. "
-                "제조사는 부품 접근성과 수리 가능성을 제품 설계 단계에서 함께 고려합니다. "
-                "소비자는 배터리 수명이 끝난 뒤에도 본체를 계속 사용할 수 있습니다."
-            ),
+            content="교체형 설계는 제품 수명과 수리 가능성을 높입니다.",
             authority="independent",
         )
     ]
@@ -3559,7 +3773,7 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
         slide_type="data",
         title="교체형 배터리 모델 출시",
         message="2026년 여름부터 유럽에 교체형 배터리 모델이 출시됩니다.",
-        speaker_notes="2026년 여름 유럽 출시 일정을 소개합니다.",
+        speaker_notes="교체형 설계의 의미를 설명합니다.",
         keywords=["배터리", "유럽"],
         evidence=[],
         content_items=[
@@ -3571,76 +3785,111 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
         source_refs=["web:verified"],
         target_seconds=60,
         target_speaker_notes_chars=224,
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text="교체형 설계는 제품 수명을 늘립니다.",
+                sourceRefs=["web:verified"],
+            ),
+            SpeakerNoteUnit(
+                role="evidence",
+                required=True,
+                text="확인되지 않은 자료가 이 결론을 뒷받침합니다.",
+                sourceRefs=["web:unknown"],
+            ),
+            SpeakerNoteUnit(
+                role="interpretation",
+                required=True,
+                text="따라서 수리 가능성을 함께 살펴야 합니다.",
+                sourceRefs=["web:verified"],
+            ),
+        ],
     )
     fake_client = FakeOpenAIClient(
-        [
-            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
-            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
-        ]
+        {
+            "slides": [
+                {
+                    "order": 1,
+                    "speakerNoteUnits": [
+                        unit.model_dump(by_alias=True)
+                        for unit in slide.speaker_note_units
+                    ],
+                }
+            ]
+        }
     )
 
-    repaired = repair_short_speaker_notes_with_llm(
-        raw_input,
-        [slide],
-        client=fake_client,
-    )[0]
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="SPEAKER_NOTES_UNGROUNDED",
+    ):
+        finalize_speaker_notes(raw_input, [slide], client=fake_client)
 
-    actual_chars = len("".join(repaired.speaker_notes.split()))
-    assert round(224 * 0.9) <= actual_chars <= round(224 * 1.1)
-    assert actual_chars >= round(raw_input.timing_plan.chars_per_minute * 0.75)
-    assert "전자 폐기물" in repaired.speaker_notes
+    assert len(fake_client.requests) == 1
 
 
-def test_short_speaker_note_near_miss_uses_source_title_attribution() -> None:
+def test_deck_over_150_percent_fails_after_one_repair() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
             generationMode="design-pack",
-            topic="예약 안내",
-            prompt="검증된 예약 정보를 설명합니다.",
+            topic="Excessive notes",
+            prompt="Keep the complete conclusion.",
             targetDurationMinutes=1,
             slideCountRange={"min": 1, "max": 1},
         )
     )
-    repeated_fact = "A" * 281
-    raw_input.source_records = [
-        SourceRecord(
-            sourceType="web",
-            sourceId="web:official",
-            url="https://example.com/official",
-            title="Official pre-order announcement",
-            content=repeated_fact,
-            authority="official",
-        )
-    ]
+    raw_input.timing_plan.target_total_chars = 100
+    long_core = f"{'A' * 120}."
+    long_action = f"{'B' * 120}."
     slide = SlidePlan(
         order=1,
         slide_type="summary",
-        title="사전 예약 안내",
-        message=repeated_fact,
-        speaker_notes=repeated_fact,
+        title="Complete conclusion",
+        message="Preserve quality.",
+        speaker_notes=f"{long_core} {long_action}",
         keywords=[],
         evidence=[],
-        content_items=[
-            GeneratedContentItem(contentItemId="item-1", text=repeated_fact)
-        ],
-        source_refs=["web:official"],
+        content_items=[],
         target_seconds=60,
-        target_speaker_notes_chars=322,
+        target_speaker_notes_chars=100,
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text=long_core,
+                sourceRefs=[],
+            ),
+            SpeakerNoteUnit(
+                role="action",
+                required=True,
+                text=long_action,
+                sourceRefs=[],
+            ),
+        ],
     )
     fake_client = FakeOpenAIClient(
-        {"slides": [{"order": 1, "speakerNotes": repeated_fact}]}
+        {
+            "slides": [
+                {
+                    "order": 1,
+                    "speakerNoteUnits": [
+                        unit.model_dump(by_alias=True)
+                        for unit in slide.speaker_note_units
+                    ],
+                }
+            ]
+        }
     )
 
-    repaired = repair_short_speaker_notes_with_llm(
-        raw_input,
-        [slide],
-        client=fake_client,
-    )[0]
-    actual_chars = len("".join(repaired.speaker_notes.split()))
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="SPEAKER_NOTES_EXCESSIVE",
+    ):
+        finalize_speaker_notes(raw_input, [slide], client=fake_client)
 
-    assert round(322 * 0.9) <= actual_chars <= round(322 * 1.1)
-    assert "Official pre-order" in repaired.speaker_notes
+    assert len(fake_client.requests) == 1
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
@@ -3720,7 +3969,7 @@ def test_direct_context_keeps_short_id_when_index_chunks_are_present() -> None:
     ]
 
 
-def test_grounded_repair_notes_merge_distinct_plan_content_to_target() -> None:
+def test_grounded_repair_notes_does_not_fill_to_character_target() -> None:
     original = SlidePlan(
         order=1,
         slide_type="cover",
@@ -3760,9 +4009,8 @@ def test_grounded_repair_notes_merge_distinct_plan_content_to_target() -> None:
 
     merged = merge_grounded_repair_notes([repaired], [original])[0]
 
-    assert 198 <= len(merged.speaker_notes.replace(" ", "")) <= 253
-    assert "한 문장으로 정리하면" not in merged.speaker_notes
-    assert merged.speaker_notes.count("이번 회고의 목적") == 1
+    assert merged.speaker_notes == original.speaker_notes
+    assert len(merged.speaker_notes.replace(" ", "")) < 198
 
 
 def test_generate_deck_accepts_llm_slide_count_above_minimum() -> None:
@@ -3849,9 +4097,16 @@ def test_design_pack_content_response_format_limits_source_refs_to_records() -> 
     slides_schema = deck_content_response_format_for(raw_input)["format"]["schema"][
         "properties"
     ]["slides"]
-    source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
+    slide_properties = slides_schema["items"]["properties"]
+    source_ref_items = slide_properties["sourceRefs"]["items"]
+    unit_source_ref_items = slide_properties["speakerNoteUnits"]["items"][
+        "properties"
+    ]["sourceRefs"]["items"]
 
     assert source_ref_items["enum"] == ["web:independent", "web:official"]
+    assert unit_source_ref_items["enum"] == ["web:independent", "web:official"]
+    assert "speakerNotes" not in slide_properties
+    assert "speakerNoteUnits" in slides_schema["items"]["required"]
 
 
 def test_design_pack_repairs_exact_slide_count_once() -> None:
@@ -5114,15 +5369,18 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert response.diagnostics.uploaded_source_count == 1
     assert response.diagnostics.web_source_count == 0
     assert response.diagnostics.repair_attempted is True
-    assert set(response.diagnostics.repair_reasons) & {
+    assert not set(response.diagnostics.repair_reasons) & {
         "SPEAKER_NOTES_SHORT",
         "SPEAKER_NOTES_LONG",
     }
     assert response.diagnostics.unique_core_layout_count >= 4
-    assert response.diagnostics.validation_issue_count == 0, json.dumps(
-        response.validation.model_dump(by_alias=True),
-        ensure_ascii=False,
-    )
+    timing_issues = [
+        issue
+        for issue in response.validation.content_issues
+        if issue.code in {"SPEAKER_NOTES_SHORT", "SPEAKER_NOTES_DENSE"}
+    ]
+    assert timing_issues
+    assert all(not issue.blocking for issue in timing_issues)
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
     assert timing_plan["charsPerMinute"] == 240
@@ -5134,9 +5392,9 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     ) == 336
     assert all(slide["estimatedSeconds"] >= 15 for slide in slides)
     assert len({slide["estimatedSeconds"] for slide in slides}) > 1
-    assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in slides) >= round(
-        timing_plan["targetTotalChars"] * 0.8
-    )
+    assert all(slide["speakerNotes"].endswith(".") for slide in slides)
+    assert all("..." not in slide["speakerNotes"] for slide in slides)
+    assert all("…" not in slide["speakerNotes"] for slide in slides)
 
     visual_slide_count = 0
     for slide in slides:
@@ -5251,8 +5509,12 @@ def test_generate_deck_design_pack_repairs_seven_minute_gowun_reference_deck() -
     assert response.validation.design_issues == []
     assert not any("Design Pack validation retained" in warning for warning in response.warnings)
     assert deck["theme"]["fontFamily"] == "Gowun Dodum"
-    assert sum(len(slide["speakerNotes"].replace(" ", "")) for slide in deck["slides"]) >= round(
-        deck["slides"][0]["aiNotes"]["timingPlan"]["targetTotalChars"] * 0.8
+    assert all("..." not in slide["speakerNotes"] for slide in deck["slides"])
+    assert all("…" not in slide["speakerNotes"] for slide in deck["slides"])
+    assert all(
+        fragment.endswith((".", "!", "?", "。", "！", "？"))
+        for slide in deck["slides"]
+        for fragment in speaker_note_fragments(slide["speakerNotes"])
     )
     for slide in deck["slides"]:
         assert not any(

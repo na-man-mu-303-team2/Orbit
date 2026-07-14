@@ -68,6 +68,16 @@ ReferencePolicy = Literal[
 SourceType = Literal["topic", "uploaded", "web", "generated", "none"]
 SourceAuthority = Literal["official", "independent", "unknown"]
 GenerationMode = Literal["legacy", "design-pack"]
+SpeakerNoteRole = Literal[
+    "core",
+    "evidence",
+    "interpretation",
+    "action",
+    "example",
+    "caution",
+    "detail",
+    "transition",
+]
 RepairReasonCode = Literal[
     "SLIDE_COUNT_SHORT",
     "CONTENT_DUPLICATED",
@@ -516,12 +526,25 @@ class GeneratedContentItem(BaseModel):
     text: str = Field(min_length=1)
 
 
+class SpeakerNoteUnit(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    role: SpeakerNoteRole
+    required: bool
+    text: str = Field(min_length=1)
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+
+
 class GeneratedSlideContent(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     title: str = Field(min_length=1)
     message: str = Field(min_length=1)
-    speaker_notes: str = Field(alias="speakerNotes", min_length=1)
+    speaker_notes: str = Field(default="", alias="speakerNotes")
+    speaker_note_units: list[SpeakerNoteUnit] = Field(
+        default_factory=list,
+        alias="speakerNoteUnits",
+    )
     keywords: list[str] = Field(default_factory=list)
     slide_type: SlideType | None = Field(default=None, alias="slideType")
     layout_variant: str = Field(default="", alias="layoutVariant")
@@ -550,7 +573,11 @@ class SpeakerNotesRepairItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     order: int = Field(ge=1)
-    speaker_notes: str = Field(alias="speakerNotes", min_length=1)
+    speaker_notes: str = Field(default="", alias="speakerNotes")
+    speaker_note_units: list[SpeakerNoteUnit] = Field(
+        default_factory=list,
+        alias="speakerNoteUnits",
+    )
 
 
 class SpeakerNotesRepairPlan(BaseModel):
@@ -575,6 +602,8 @@ class SlidePlan(BaseModel):
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+    speaker_note_units: list[SpeakerNoteUnit] = Field(default_factory=list)
+    speaker_note_units_structured: bool = False
 
 
 class ElementIntent(BaseModel):
@@ -1053,6 +1082,24 @@ SLIDE_TYPES: tuple[SlideType, ...] = (
     "quote",
     "chart",
     "summary",
+)
+SPEAKER_NOTE_ROLES: tuple[SpeakerNoteRole, ...] = (
+    "core",
+    "evidence",
+    "interpretation",
+    "action",
+    "example",
+    "caution",
+    "detail",
+    "transition",
+)
+SPEAKER_NOTE_OPTIONAL_ROLE_PRIORITY: tuple[SpeakerNoteRole, ...] = (
+    "interpretation",
+    "example",
+    "action",
+    "caution",
+    "detail",
+    "transition",
 )
 SLIDE_TYPE_SEQUENCE: list[SlideType] = [
     "cover",
@@ -1760,12 +1807,16 @@ Rules:
 - For design moods such as 바다, 오션, 모노톤, or 블랙앤화이트, reflect
   them through theme tokens or visualIntent.paletteHint when possible.
 - Write concrete slide titles, body messages, and speaker notes for the actual subject.
-- speakerNotes must be the actual Korean presenter script to read aloud, not a guide
-  about what the presenter should explain.
-- Size speakerNotes for the requested presentation duration. Prefer enough natural
-  Korean script to support the target speaking time rather than a fixed sentence count.
-- Do not write speakerNotes like "이 슬라이드는 ... 설명합니다", "... 팁을 제공합니다",
-  or "... 함께 언급합니다". Say the presentation lines directly.
+- In legacy mode, speakerNotes must be the actual Korean presenter script to read
+  aloud, not a guide about what the presenter should explain.
+- In design-pack mode, return speakerNoteUnits instead of speakerNotes. Put required
+  units before optional units, and make every unit one complete Korean sentence.
+- Never use "..." or "…" in speaker notes. Never cut a sentence to meet a character
+  target. Treat the duration-derived character count as an advisory budget.
+- Build the core message and required evidence, interpretation, or action first.
+  Add examples, cautions, details, and transitions only when they add useful content.
+- Do not write speaker notes like "이 슬라이드는 내용을 설명합니다" or generic
+  filler. Say the presentation lines directly.
 - Choose slideType, layoutVariant, slotPreset, visualIntent, and mediaIntent.
 - For public image search, use a concrete English noun phrase in mediaIntent.prompt.
 - Use mediaIntent.kind=none for diagrams, architecture, processes, comparisons,
@@ -1782,7 +1833,7 @@ Rules:
   "결정 사항, 실행 순서, 후속 검증 기준을 정리합니다" unless the source is actually about that.
 - Do not invent unsupported facts. If excerpts are sparse, stay close to the topic and keywords.
 - For research-first decks, every factual statement in titles, messages, contentItems,
-  and speakerNotes must be directly supported by the supplied verified source records.
+  and speaker notes must be directly supported by supplied verified source records.
 - Preserve exact product names, release dates, platforms, availability, and defining
   features from sources. Never replace a named subject with its broader series or category.
 - Do not describe a fact as unannounced, unknown, or speculative when a supplied source
@@ -1800,14 +1851,10 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Preserve the requested slide count, topic, factual meaning, and source boundaries.
-- Repair only slide content planning fields and speakerNotes.
-- speakerNotes must be natural Korean lines that can be read aloud.
-- Count speakerNotes after removing every whitespace character.
-- For every slide, stay between minimumNonWhitespaceChars and
-  maximumNonWhitespaceChars from the supplied per-slide targets.
-- Expand short notes with distinct, source-grounded explanation, evidence, and
-  transitions. Never use generic or repeated filler to reach the range.
-- A short script is invalid even when the JSON shape is otherwise correct.
+- Repair only slide content planning fields and speakerNoteUnits.
+- Preserve required speaker-note roles and keep every unit as one complete sentence.
+- Character targets are advisory. Never cut a sentence or add filler to reach them.
+- Never output "..." or "…" in a speaker-note unit.
 - Do not add unsupported claims or source references.
 - When a repair reason lists unsupported numeric claim values, rewrite the full claim
   qualitatively and remove every listed value. Never replace it with another number.
@@ -1830,16 +1877,17 @@ Rules:
 """.strip()
 
 SPEAKER_NOTES_REPAIR_INSTRUCTIONS = """
-You repair only the Korean speakerNotes of selected ORBIT slides.
+You repair only the Korean speakerNoteUnits of selected ORBIT slides.
 Return only JSON that matches the requested schema.
 
 Rules:
 - Return exactly one entry for each requested slide order and do not add slide orders.
-- Keep every note between minimumNonWhitespaceChars and maximumNonWhitespaceChars.
-- Write natural Korean presenter lines that can be read aloud.
-- Rewrite currentSpeakerNotes as one coherent replacement note; never append a
-  restatement to the existing note.
-- Introduce the slide once, and express each claim or transition only once.
+- Return all required roles listed for each slide before any optional units.
+- Make every unit exactly one complete Korean presenter sentence.
+- Never output "..." or "…" and never cut a sentence to meet the advisory budget.
+- Rewrite the supplied units as a coherent replacement; do not append restatements.
+- Express each claim or transition only once across the selected slides.
+- Keep evidence sourceRefs non-empty and within the slide's allowedSourceRefs.
 - Use only facts directly supported by the supplied slide content and verified sources.
 - Preserve exact names, dates, platforms, availability, and defining features.
 - Do not add generic filler, repeated sentences, unsupported claims, or instructions to
@@ -1966,6 +2014,30 @@ def design_pack_content_response_format() -> dict[str, Any]:
     slide_schema = response_format["format"]["schema"]["properties"]["slides"][
         "items"
     ]
+    slide_schema["properties"].pop("speakerNotes")
+    slide_schema["required"].remove("speakerNotes")
+    slide_schema["properties"]["speakerNoteUnits"] = {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 8,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "role": {
+                    "type": "string",
+                    "enum": list(SPEAKER_NOTE_ROLES),
+                },
+                "required": {"type": "boolean"},
+                "text": {"type": "string"},
+                "sourceRefs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["role", "required", "text", "sourceRefs"],
+        },
+    }
     slide_schema["properties"]["contentItems"] = {
         "type": "array",
         "minItems": 1,
@@ -1983,7 +2055,9 @@ def design_pack_content_response_format() -> dict[str, Any]:
         "type": "array",
         "items": {"type": "string"},
     }
-    slide_schema["required"].extend(["contentItems", "sourceRefs"])
+    slide_schema["required"].extend(
+        ["speakerNoteUnits", "contentItems", "sourceRefs"]
+    )
     response_format["format"]["name"] = "design_pack_content_plan"
     return response_format
 
@@ -2018,6 +2092,10 @@ def deck_content_response_format_for(
     source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
     if source_ids:
         source_ref_items["enum"] = source_ids
+        unit_source_ref_items = slides_schema["items"]["properties"][
+            "speakerNoteUnits"
+        ]["items"]["properties"]["sourceRefs"]["items"]
+        unit_source_ref_items["enum"] = source_ids
     return response_format
 
 
@@ -2121,9 +2199,35 @@ SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT: dict[str, Any] = {
                         "additionalProperties": False,
                         "properties": {
                             "order": {"type": "integer", "minimum": 1},
-                            "speakerNotes": {"type": "string"},
+                            "speakerNoteUnits": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 8,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "role": {
+                                            "type": "string",
+                                            "enum": list(SPEAKER_NOTE_ROLES),
+                                        },
+                                        "required": {"type": "boolean"},
+                                        "text": {"type": "string"},
+                                        "sourceRefs": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                    },
+                                    "required": [
+                                        "role",
+                                        "required",
+                                        "text",
+                                        "sourceRefs",
+                                    ],
+                                },
+                            },
                         },
-                        "required": ["order", "speakerNotes"],
+                        "required": ["order", "speakerNoteUnits"],
                     },
                 }
             },
@@ -2176,6 +2280,7 @@ class DeckGenerationOrchestrator:
                 deck = repair_program_v2_deck(deck)
             else:
                 deck = repair_design_pack_deck(deck)
+            deck = enforce_speaker_note_constraints(deck, slide_plans)
             deck, validation = validate_and_patch(deck, include_design_in_passed=True)
         warnings = unique_warnings(
             [
@@ -3592,28 +3697,13 @@ def plan_deck_content(
                             "UNSUPPORTED_NUMERIC_CLAIM: "
                             + "; ".join(remaining_numeric_reasons)
                         )
-                    for slide_plan in slide_plans:
-                        slide_plan.speaker_notes = (
-                            remove_redundant_speaker_note_sentences(
-                                slide_plan.speaker_notes
-                            )
-                        )
-                    slide_plans = repair_short_speaker_notes_with_llm(
-                        raw_input,
-                        slide_plans,
-                        client=client,
-                        model=model,
-                        api_key=api_key,
-                    )
-                    deduplicate_speaker_notes_across_slides(slide_plans)
-                    slide_plans = repair_short_speaker_notes_with_llm(
-                        raw_input,
-                        slide_plans,
-                        client=client,
-                        model=model,
-                        api_key=api_key,
-                    )
-                    deduplicate_speaker_notes_across_slides(slide_plans)
+                slide_plans = finalize_speaker_notes(
+                    raw_input,
+                    slide_plans,
+                    client=client,
+                    model=model,
+                    api_key=api_key,
+                )
                 if is_program_v2(raw_input):
                     slide_plans = compact_program_v2_content_items(slide_plans)
                     slide_plans = normalize_program_v2_action_titles(slide_plans)
@@ -3633,6 +3723,13 @@ def plan_deck_content(
     slide_plans = plan_slides(raw_input, outline)
     if raw_input.generation_mode == "design-pack":
         slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
+        slide_plans = finalize_speaker_notes(
+            raw_input,
+            slide_plans,
+            client=client,
+            model=model,
+            api_key=api_key,
+        )
     return outline, slide_plans
 
 
@@ -3760,7 +3857,6 @@ def apply_timing_to_slide_plans(
         slide_plan.target_spoken_seconds = target_spoken_seconds
         slide_plan.target_speaker_notes_chars = target_chars
         slide_plan.speaker_notes = " ".join(slide_plan.speaker_notes.split())
-        compact_dense_speaker_notes(slide_plan)
     if raw_input.generation_mode == "design-pack":
         ensure_research_first_web_source_coverage(raw_input, slide_plans)
     return slide_plans
@@ -3804,72 +3900,22 @@ def merge_grounded_repair_notes(
         if original is not None:
             repaired.visual_intent = original.visual_intent
             repaired.media_intent = original.media_intent
-
-        target = repaired.target_speaker_notes_chars
-        if target <= 0 or count_speaker_note_chars(
-            repaired.speaker_notes
-        ) >= speaker_notes_minimum_chars(target):
-            continue
-        candidates = speaker_note_fragments(repaired.speaker_notes)
-        if original is not None:
-            candidates.extend(speaker_note_fragments(original.speaker_notes))
-        candidates.extend(item.text for item in repaired.content_items)
-        if original is not None:
-            candidates.extend(item.text for item in original.content_items)
-        candidates.append(repaired.message)
-        if original is not None:
-            candidates.append(original.message)
-        candidates.extend(grounded_speaker_note_transitions(repaired))
-        repaired.speaker_notes = fit_grounded_speaker_note_candidates(
-            candidates,
-            minimum_chars=speaker_notes_minimum_chars(target),
-            preferred_max_chars=speaker_notes_maximum_chars(target),
-        )
+            if not repaired.speaker_note_units:
+                repaired.speaker_note_units = [
+                    unit.model_copy(deep=True)
+                    for unit in original.speaker_note_units
+                ]
+                repaired.speaker_notes = original.speaker_notes
     return repaired_slide_plans
 
 
-def grounded_speaker_note_transitions(slide_plan: SlidePlan) -> list[str]:
-    item_texts = unique_non_empty([item.text for item in slide_plan.content_items])
-    if len(item_texts) >= 2:
-        return [
-            f"{slide_plan.title}에서는 {item_texts[0]}와 {item_texts[1]}를 "
-            "차례로 확인하겠습니다."
-        ]
-    terms = unique_non_empty(slide_plan.keywords)
-    if len(terms) >= 2:
-        return [
-            f"{slide_plan.title}에서는 {terms[0]}와 {terms[1]}를 기준으로 "
-            "논의를 이어가겠습니다."
-        ]
-    return []
-
-
-def grounded_source_attribution_candidates(
-    slide_title: str,
-    source_titles: list[str],
-    *,
-    maximum_chars: int,
-) -> list[str]:
-    candidates: list[str] = []
-    for source_title in unique_non_empty(source_titles):
-        for slide_limit, source_limit in ((12, 24), (8, 16), (4, 8), (2, 4)):
-            candidate = (
-                f"{slide_title[:slide_limit]}: "
-                f"{source_title[:source_limit]} 자료 확인."
-            )
-            if count_speaker_note_chars(candidate) <= maximum_chars:
-                candidates.append(candidate)
-                break
-    return candidates
-
-
 def speaker_note_fragments(text: str) -> list[str]:
-    normalized = " ".join(text.split())
+    normalized = re.sub(r"[\t\r\f\v ]+", " ", text).strip()
     if not normalized:
         return []
     return [
-        fragment.strip()
-        for fragment in re.split(r"(?<=[.!?])\s+", normalized)
+        " ".join(fragment.split())
+        for fragment in re.split(r"(?<=[.!?。！？])(?:\s+|$)|\n+", normalized)
         if fragment.strip()
     ]
 
@@ -3964,96 +4010,413 @@ def deduplicate_speaker_notes_across_slides(
 ) -> list[SlidePlan]:
     seen_sentences: set[str] = set()
     for slide in slide_plans:
-        selected: list[str] = []
-        for sentence in speaker_note_fragments(slide.speaker_notes):
-            key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
-            if len(key) >= 20 and key in seen_sentences:
-                continue
-            if selected and speaker_note_token_overlap(selected[-1], sentence) >= 0.8:
-                continue
-            if speaker_note_repeats_prior(sentence, selected):
-                continue
-            selected.append(sentence)
-            if len(key) >= 20:
-                seen_sentences.add(key)
-        slide.speaker_notes = " ".join(selected)
+        slide.speaker_notes = deduplicate_speaker_note_text(
+            slide.speaker_notes,
+            seen_sentences,
+        )
     return slide_plans
 
 
-def fit_grounded_speaker_note_candidates(
-    candidates: list[str],
-    *,
-    minimum_chars: int,
-    preferred_max_chars: int,
+def deduplicate_speaker_note_text(
+    text: str,
+    seen_sentences: set[str],
 ) -> str:
     selected: list[str] = []
-    selected_keys: list[str] = []
-    for candidate in candidates:
-        sentence = speaker_note_sentence(candidate)
+    for sentence in speaker_note_fragments(text):
         key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
-        if not key or any(
-            key == selected_key
-            or (len(key) >= 12 and key in selected_key)
-            or (len(selected_key) >= 12 and selected_key in key)
-            for selected_key in selected_keys
-        ):
+        if len(key) >= 20 and key in seen_sentences:
+            continue
+        if selected and speaker_note_token_overlap(selected[-1], sentence) >= 0.8:
             continue
         if speaker_note_repeats_prior(sentence, selected):
             continue
-        prospective = " ".join([*selected, sentence])
-        if (
-            selected
-            and count_speaker_note_chars(prospective) > preferred_max_chars
-            and count_speaker_note_chars(" ".join(selected)) >= minimum_chars
-        ):
-            break
         selected.append(sentence)
-        selected_keys.append(key)
-        if count_speaker_note_chars(" ".join(selected)) >= minimum_chars:
-            break
+        if len(key) >= 20:
+            seen_sentences.add(key)
     return " ".join(selected)
 
 
-def compact_dense_speaker_notes(slide_plan: SlidePlan) -> None:
-    target = slide_plan.target_speaker_notes_chars
-    actual = count_speaker_note_chars(slide_plan.speaker_notes)
-    minimum_chars = speaker_notes_minimum_chars(target)
-    maximum_chars = speaker_notes_maximum_chars(target)
-    if target <= 0 or actual <= maximum_chars:
-        return
-    compacted = fit_grounded_speaker_note_candidates(
-        speaker_note_fragments(slide_plan.speaker_notes),
-        minimum_chars=minimum_chars,
-        preferred_max_chars=maximum_chars,
-    )
-    compacted_chars = count_speaker_note_chars(compacted)
-    if minimum_chars <= compacted_chars <= maximum_chars and compacted_chars < actual:
-        slide_plan.speaker_notes = compacted
-        return
-    trim_source = compacted if compacted_chars >= minimum_chars else slide_plan.speaker_notes
-    trimmed = trim_speaker_notes_to_chars(
-        trim_source,
-        maximum_chars,
-    )
-    if minimum_chars <= count_speaker_note_chars(trimmed) < actual:
-        slide_plan.speaker_notes = trimmed
+@dataclass(frozen=True)
+class SpeakerNoteQualityProblem:
+    slide_order: int
+    code: str
+    message: str
 
 
-def trim_speaker_notes_to_chars(text: str, maximum_chars: int) -> str:
-    words = text.split()
-    while words and count_speaker_note_chars(" ".join(words)) > maximum_chars:
-        words.pop()
-    trimmed = " ".join(words).rstrip(" ,;:")
-    if trimmed and trimmed[-1] not in ".!?":
-        candidate = f"{trimmed}."
-        if count_speaker_note_chars(candidate) <= maximum_chars:
-            trimmed = candidate
-    return trimmed
+def required_speaker_note_roles(slide_type: SlideType) -> tuple[SpeakerNoteRole, ...]:
+    if slide_type in {"title", "cover"}:
+        return ("core", "interpretation")
+    if slide_type == "summary":
+        return ("core", "action")
+    if slide_type in {"solution", "process"}:
+        return ("core", "evidence", "action")
+    return ("core", "evidence", "interpretation")
+
+
+def normalize_speaker_note_units(
+    raw_input: RawInput,
+    slide_plan: SlidePlan,
+) -> None:
+    if not slide_plan.source_refs:
+        slide_plan.source_refs = default_source_refs(raw_input, slide_plan.order)
+    if not slide_plan.speaker_note_units:
+        slide_plan.speaker_note_units = legacy_speaker_note_units(slide_plan)
+    slide_plan.speaker_note_units = [
+        SpeakerNoteUnit(
+            role=unit.role,
+            required=unit.required,
+            text=" ".join(unit.text.split()),
+            sourceRefs=(
+                unique_non_empty(unit.source_refs)
+                if (
+                    unit.role != "evidence"
+                    or unit.source_refs
+                    or slide_plan.speaker_note_units_structured
+                )
+                else list(slide_plan.source_refs)
+            ),
+        )
+        for unit in slide_plan.speaker_note_units
+        if unit.text.strip()
+    ]
+
+
+def legacy_speaker_note_units(slide_plan: SlidePlan) -> list[SpeakerNoteUnit]:
+    required_roles = required_speaker_note_roles(slide_plan.slide_type)
+    candidates = unique_non_empty(
+        [
+            *speaker_note_fragments(slide_plan.speaker_notes),
+            slide_plan.message,
+            *[item.text for item in slide_plan.content_items],
+        ]
+    )
+    sentences: list[str] = []
+    sentence_keys: set[str] = set()
+    for candidate in candidates:
+        sentence = speaker_note_sentence(candidate)
+        key = normalize_structural_content_text(sentence)
+        if not key or key in sentence_keys:
+            continue
+        sentences.append(sentence)
+        sentence_keys.add(key)
+
+    units: list[SpeakerNoteUnit] = []
+    for role, sentence in zip(required_roles, sentences, strict=False):
+        units.append(
+            SpeakerNoteUnit(
+                role=role,
+                required=True,
+                text=sentence,
+                sourceRefs=slide_plan.source_refs,
+            )
+        )
+    optional_roles: tuple[SpeakerNoteRole, ...] = (
+        "example",
+        "detail",
+        "transition",
+    )
+    for index, sentence in enumerate(sentences[len(required_roles) :]):
+        units.append(
+            SpeakerNoteUnit(
+                role=optional_roles[index % len(optional_roles)],
+                required=False,
+                text=sentence,
+                sourceRefs=slide_plan.source_refs,
+            )
+        )
+    return units
+
+
+def speaker_note_unit_is_complete(unit: SpeakerNoteUnit) -> bool:
+    fragments = speaker_note_fragments(unit.text)
+    return (
+        len(fragments) == 1
+        and fragments[0] == unit.text
+        and unit.text.endswith((".", "!", "?", "。", "！", "？"))
+    )
+
+
+def speaker_note_unit_is_filler(unit: SpeakerNoteUnit) -> bool:
+    normalized = normalize_structural_content_text(unit.text)
+    exact_fillers = {
+        "이부분은매우중요합니다",
+        "다시한번핵심을살펴보겠습니다",
+        "이슬라이드에서는내용을자세히설명하겠습니다",
+        "이내용을꼭기억해주세요",
+    }
+    if normalized in exact_fillers:
+        return True
+    return bool(
+        re.fullmatch(
+            r"이슬라이드에서는.+(?:설명|소개|확인)하겠습니다",
+            normalized,
+        )
+    )
+
+
+def remove_duplicate_optional_speaker_note_units(
+    slide_plans: list[SlidePlan],
+) -> None:
+    seen_sentences: list[str] = []
+    for slide_plan in sorted(slide_plans, key=lambda item: item.order):
+        retained: list[SpeakerNoteUnit] = []
+        for unit in slide_plan.speaker_note_units:
+            if not unit.required and (
+                speaker_note_repeats_prior(unit.text, seen_sentences)
+                or any(
+                    normalize_structural_content_text(unit.text)
+                    == normalize_structural_content_text(prior)
+                    for prior in seen_sentences
+                )
+            ):
+                continue
+            retained.append(unit)
+            seen_sentences.append(unit.text)
+        slide_plan.speaker_note_units = retained
+
+
+def speaker_note_quality_problems(
+    slide_plans: list[SlidePlan],
+    *,
+    include_density: bool,
+) -> list[SpeakerNoteQualityProblem]:
+    problems: list[SpeakerNoteQualityProblem] = []
+    required_seen: list[tuple[str, int]] = []
+    required_total_chars = 0
+    target_total_chars = sum(
+        slide.target_speaker_notes_chars for slide in slide_plans
+    )
+
+    for slide in sorted(slide_plans, key=lambda item: item.order):
+        required_units = [unit for unit in slide.speaker_note_units if unit.required]
+        required_roles = {unit.role for unit in required_units}
+        for role in required_speaker_note_roles(slide.slide_type):
+            if role not in required_roles:
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_REQUIRED_MISSING",
+                        f"required role {role} is missing",
+                    )
+                )
+
+        for unit in slide.speaker_note_units:
+            if "..." in unit.text or "…" in unit.text:
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_ELLIPSIS",
+                        f"{unit.role} contains a forbidden ellipsis",
+                    )
+                )
+            if not speaker_note_unit_is_complete(unit):
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_INCOMPLETE",
+                        f"{unit.role} is not one complete sentence",
+                    )
+                )
+            if speaker_note_unit_is_filler(unit):
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_FILLER",
+                        f"{unit.role} is generic filler",
+                    )
+                )
+            if unit.role == "evidence" and (
+                not unit.source_refs
+                or any(
+                    source_ref not in slide.source_refs
+                    for source_ref in unit.source_refs
+                )
+            ):
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_UNGROUNDED",
+                        "evidence sourceRefs must be non-empty and allowed",
+                    )
+                )
+            if not unit.required or not slide.speaker_note_units_structured:
+                continue
+            key = normalize_structural_content_text(unit.text)
+            duplicate_order = next(
+                (
+                    order
+                    for prior, order in required_seen
+                    if normalize_structural_content_text(prior) == key
+                    or speaker_note_token_overlap(prior, unit.text) >= 0.92
+                    or speaker_note_character_similarity(prior, unit.text) >= 0.92
+                ),
+                None,
+            )
+            if len(key) >= 20 and duplicate_order is not None:
+                problems.append(
+                    SpeakerNoteQualityProblem(
+                        slide.order,
+                        "SPEAKER_NOTES_REPEATED",
+                        f"required sentence repeats slide {duplicate_order}",
+                    )
+                )
+            elif len(key) >= 20:
+                required_seen.append((unit.text, slide.order))
+
+        required_text = " ".join(unit.text for unit in required_units)
+        required_chars = count_speaker_note_chars(required_text)
+        required_total_chars += required_chars
+        if (
+            include_density
+            and slide.target_speaker_notes_chars > 0
+            and required_chars > round(slide.target_speaker_notes_chars * 1.2)
+        ):
+            problems.append(
+                SpeakerNoteQualityProblem(
+                    slide.order,
+                    "SPEAKER_NOTES_LONG",
+                    "required units exceed 120% of the advisory slide budget",
+                )
+            )
+
+    if (
+        target_total_chars > 0
+        and required_total_chars > round(target_total_chars * 1.5)
+    ):
+        problems.append(
+            SpeakerNoteQualityProblem(
+                0,
+                "SPEAKER_NOTES_EXCESSIVE",
+                "required units exceed 150% of the advisory deck budget",
+            )
+        )
+    return problems
+
+
+def assemble_speaker_notes_quality_first(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+) -> list[SlidePlan]:
+    selected_by_order = {
+        slide.order: [
+            unit.model_copy(deep=True)
+            for unit in slide.speaker_note_units
+            if unit.required
+        ]
+        for slide in slide_plans
+    }
+    target_total_chars = raw_input.timing_plan.target_total_chars
+    actual_total_chars = sum(
+        count_speaker_note_chars(
+            " ".join(unit.text for unit in selected_by_order[slide.order])
+        )
+        for slide in slide_plans
+    )
+    role_priority = {
+        role: index
+        for index, role in enumerate(SPEAKER_NOTE_OPTIONAL_ROLE_PRIORITY)
+    }
+    optional_units = [
+        (slide, unit)
+        for slide in slide_plans
+        for unit in slide.speaker_note_units
+        if not unit.required
+    ]
+    optional_units.sort(
+        key=lambda item: (
+            role_priority.get(item[1].role, len(role_priority)),
+            -max(
+                0.0,
+                (
+                    item[0].target_speaker_notes_chars
+                    - count_speaker_note_chars(
+                        " ".join(
+                            unit.text
+                            for unit in selected_by_order[item[0].order]
+                        )
+                    )
+                )
+                / max(1, item[0].target_speaker_notes_chars),
+            ),
+            item[0].order,
+        )
+    )
+
+    for slide, unit in optional_units:
+        unit_chars = count_speaker_note_chars(unit.text)
+        selected = selected_by_order[slide.order]
+        slide_chars = count_speaker_note_chars(
+            " ".join(selected_unit.text for selected_unit in selected)
+        )
+        if target_total_chars > 0 and actual_total_chars + unit_chars > target_total_chars:
+            continue
+        if (
+            slide.target_speaker_notes_chars > 0
+            and slide_chars + unit_chars
+            > round(slide.target_speaker_notes_chars * 1.2)
+        ):
+            continue
+        selected.append(unit.model_copy(deep=True))
+        actual_total_chars += unit_chars
+
+    for slide in slide_plans:
+        slide.speaker_note_units = selected_by_order[slide.order]
+        slide.speaker_notes = " ".join(
+            unit.text for unit in slide.speaker_note_units
+        )
+    return slide_plans
+
+
+def enforce_speaker_note_constraints(
+    deck: dict[str, Any],
+    slide_plans: list[SlidePlan],
+) -> dict[str, Any]:
+    plans_by_order = {slide.order: slide for slide in slide_plans}
+    notes_by_order: list[tuple[int, str]] = []
+    for slide in deck.get("slides", []):
+        order = int(slide.get("order") or 0)
+        slide_plan = plans_by_order.get(order)
+        if slide_plan is None:
+            raise DeckContentGenerationError(
+                f"SPEAKER_NOTES_QUALITY: missing slide plan for order {order}"
+            )
+        speaker_notes = " ".join(slide_plan.speaker_notes.split())
+        fragments = speaker_note_fragments(speaker_notes)
+        if (
+            not speaker_notes
+            or "..." in speaker_notes
+            or "…" in speaker_notes
+            or any(
+                not fragment.endswith((".", "!", "?", "。", "！", "？"))
+                for fragment in fragments
+            )
+        ):
+            raise DeckContentGenerationError(
+                f"SPEAKER_NOTES_QUALITY: slide {order} has an incomplete script"
+            )
+        slide["speakerNotes"] = speaker_notes
+        if slide_plan.speaker_note_units_structured:
+            notes_by_order.append((order, speaker_notes))
+        ai_notes = slide.get("aiNotes")
+        timing_plan = (
+            ai_notes.get("timingPlan") if isinstance(ai_notes, dict) else None
+        )
+        if isinstance(timing_plan, dict):
+            timing_plan["actualSpeakerNotesChars"] = count_speaker_note_chars(
+                speaker_notes
+            )
+
+    repeated_order = repeated_speaker_notes_slide_order(notes_by_order)
+    if repeated_order is not None:
+        raise DeckContentGenerationError(
+            f"SPEAKER_NOTES_REPEATED: slide {repeated_order} repeats prior content"
+        )
+    return deck
 
 
 def speaker_note_sentence(text: str) -> str:
     sentence = " ".join(text.split()).strip()
-    if not sentence or sentence.endswith((".", "!", "?")):
+    if not sentence or sentence.endswith((".", "!", "?", "。", "！", "？")):
         return sentence
     return f"{sentence}."
 
@@ -4176,21 +4539,6 @@ def content_plan_repair_reasons(
             reasons.append(
                 f"slide {slide_plan.order}: message duplicates content items"
             )
-        target = slide_plan.target_speaker_notes_chars
-        actual = count_speaker_note_chars(slide_plan.speaker_notes)
-        if target > 0 and actual < speaker_notes_minimum_chars(target):
-            reasons.append(
-                f"slide {slide_plan.order}: speaker notes {actual} chars below target {target}"
-            )
-        elif target > 0 and actual > speaker_notes_maximum_chars(target):
-            reasons.append(
-                f"slide {slide_plan.order}: speaker notes {actual} chars above target {target}"
-            )
-    repeated_order = repeated_speaker_notes_slide_order(
-        [(slide.order, slide.speaker_notes) for slide in slide_plans]
-    )
-    if repeated_order is not None:
-        reasons.append(f"slide {repeated_order}: speaker notes repeat content")
     if raw_input is not None:
         reasons.extend(unsupported_numeric_claim_reasons(raw_input, slide_plans))
     return reasons
@@ -4462,12 +4810,6 @@ def repair_content_plan_with_llm(
             "currentNonWhitespaceChars": count_speaker_note_chars(
                 slide.speaker_notes
             ),
-            "minimumNonWhitespaceChars": speaker_notes_minimum_chars(
-                slide.target_speaker_notes_chars
-            ),
-            "maximumNonWhitespaceChars": speaker_notes_maximum_chars(
-                slide.target_speaker_notes_chars
-            ),
         }
         for slide in slide_plans
     ]
@@ -4476,10 +4818,10 @@ def repair_content_plan_with_llm(
             deck_content_prompt(raw_input),
             "Repair reasons:",
             *[f"- {reason}" for reason in reasons],
-            f"Per-slide targets: {json.dumps(targets, ensure_ascii=False)}",
+            f"Advisory per-slide targets: {json.dumps(targets, ensure_ascii=False)}",
             (
-                "Every repaired speakerNotes value must satisfy its own "
-                "minimumNonWhitespaceChars and maximumNonWhitespaceChars."
+                "Preserve complete required speaker-note units. Do not cut sentences "
+                "or add filler merely to match a target."
             ),
             "Current content plan:",
             json.dumps(plan.model_dump(by_alias=True), ensure_ascii=False),
@@ -4509,28 +4851,28 @@ def repair_content_plan_with_llm(
     return repaired
 
 
-def repair_short_speaker_notes_with_llm(
+def repair_speaker_note_units_with_llm(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
+    problems: list[SpeakerNoteQualityProblem],
     *,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
-) -> list[SlidePlan]:
-    short_slides = [
-        slide
-        for slide in slide_plans
-        if slide.target_speaker_notes_chars > 0
-        and count_speaker_note_chars(slide.speaker_notes)
-        < speaker_notes_minimum_chars(slide.target_speaker_notes_chars)
+) -> bool:
+    affected_orders = {problem.slide_order for problem in problems if problem.slide_order}
+    if any(problem.slide_order == 0 for problem in problems):
+        affected_orders = {slide.order for slide in slide_plans}
+    affected_slides = [
+        slide for slide in slide_plans if slide.order in affected_orders
     ]
-    if not short_slides:
-        return slide_plans
+    if not affected_slides:
+        return False
 
     api_client: Any = client
     if api_client is None:
         if not api_key:
-            return slide_plans
+            return False
         from openai import OpenAI
 
         api_client = OpenAI(api_key=api_key)
@@ -4539,31 +4881,38 @@ def repair_short_speaker_notes_with_llm(
         source.source_id: source
         for source in (raw_input.source_records or initial_source_records(raw_input))
     }
-
-    def repair_batch(batch: list[SlidePlan]) -> None:
-        requested_orders = {slide.order for slide in batch}
-        slide_payloads: list[dict[str, Any]] = []
-        referenced_source_ids: list[str] = []
-        for slide in batch:
-            source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
-            referenced_source_ids.extend(source_refs)
-            slide_payloads.append(
-                {
-                    "order": slide.order,
-                    "title": slide.title,
-                    "message": slide.message,
-                    "contentItems": [item.text for item in slide.content_items],
-                    "currentSpeakerNotes": slide.speaker_notes,
-                    "sourceRefs": source_refs,
-                    "minimumNonWhitespaceChars": speaker_notes_minimum_chars(
-                        slide.target_speaker_notes_chars
-                    ),
-                    "maximumNonWhitespaceChars": speaker_notes_maximum_chars(
-                        slide.target_speaker_notes_chars
-                    ),
-                }
-            )
-        sources = [
+    referenced_source_ids = unique_non_empty(
+        [
+            source_ref
+            for slide in affected_slides
+            for source_ref in slide.source_refs
+        ]
+    )
+    payload = {
+        "topic": raw_input.topic,
+        "referencePolicy": raw_input.brief.reference_policy,
+        "slides": [
+            {
+                "order": slide.order,
+                "title": slide.title,
+                "message": slide.message,
+                "contentItems": [item.text for item in slide.content_items],
+                "requiredRoles": list(required_speaker_note_roles(slide.slide_type)),
+                "currentSpeakerNoteUnits": [
+                    unit.model_dump(by_alias=True)
+                    for unit in slide.speaker_note_units
+                ],
+                "allowedSourceRefs": slide.source_refs,
+                "targetNonWhitespaceChars": slide.target_speaker_notes_chars,
+                "repairReasons": [
+                    problem.message
+                    for problem in problems
+                    if problem.slide_order in {0, slide.order}
+                ],
+            }
+            for slide in affected_slides
+        ],
+        "verifiedSources": [
             {
                 "sourceId": source.source_id,
                 "sourceType": source.source_type,
@@ -4572,163 +4921,104 @@ def repair_short_speaker_notes_with_llm(
                 "url": source.url,
                 "content": source.content[:1600],
             }
-            for source_id in unique_non_empty(referenced_source_ids)
+            for source_id in referenced_source_ids
             if (source := source_records.get(source_id)) is not None
-        ]
-        try:
-            response = api_client.responses.create(
-                model=model or "gpt-4.1-mini",
-                instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
-                input=json.dumps(
-                    {
-                        "topic": raw_input.topic,
-                        "referencePolicy": raw_input.brief.reference_policy,
-                        "slides": slide_payloads,
-                        "verifiedSources": sources,
-                    },
-                    ensure_ascii=False,
-                ),
-                text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
-            )
-            repaired = SpeakerNotesRepairPlan.model_validate_json(
-                str(getattr(response, "output_text", "")).strip()
-            )
-        except Exception:
-            return
-
-        if {item.order for item in repaired.slides} != requested_orders:
-            return
-        repaired_by_order = {item.order: item for item in repaired.slides}
-        for slide in batch:
-            item = repaired_by_order[slide.order]
-            minimum_chars = speaker_notes_minimum_chars(
-                slide.target_speaker_notes_chars
-            )
-            maximum_chars = speaker_notes_maximum_chars(
-                slide.target_speaker_notes_chars
-            )
-            speaker_notes = remove_redundant_speaker_note_sentences(
-                " ".join(item.speaker_notes.split())
-            )
-            actual_chars = count_speaker_note_chars(speaker_notes)
-            if not minimum_chars <= actual_chars <= maximum_chars:
-                speaker_notes = fit_grounded_speaker_note_candidates(
-                    [
-                        *speaker_note_fragments(speaker_notes),
-                        *[content_item.text for content_item in slide.content_items],
-                        slide.message,
-                        *grounded_speaker_note_transitions(slide),
-                        *speaker_note_fragments(slide.speaker_notes),
-                    ],
-                    minimum_chars=minimum_chars,
-                    preferred_max_chars=maximum_chars,
-                )
-                actual_chars = count_speaker_note_chars(speaker_notes)
-            if not minimum_chars <= actual_chars <= maximum_chars:
-                continue
-            slide.speaker_notes = speaker_notes
-
-    for batch_start in range(0, len(short_slides), 3):
-        repair_batch(short_slides[batch_start : batch_start + 3])
-    for slide in short_slides:
-        if count_speaker_note_chars(
-            slide.speaker_notes
-        ) < speaker_notes_minimum_chars(slide.target_speaker_notes_chars):
-            repair_batch([slide])
-    for slide in short_slides:
-        minimum_chars = speaker_notes_minimum_chars(slide.target_speaker_notes_chars)
-        maximum_chars = speaker_notes_maximum_chars(slide.target_speaker_notes_chars)
-        if count_speaker_note_chars(slide.speaker_notes) >= minimum_chars:
-            continue
-        source_refs = slide.source_refs or default_source_refs(raw_input, slide.order)
-        source_fragments = [
-            fragment
-            for source_id in source_refs
-            if (source := source_records.get(source_id)) is not None
-            for fragment in speaker_note_fragments(source.content)
-        ]
-        if not source_fragments:
-            continue
-        current_chars = count_speaker_note_chars(slide.speaker_notes)
-        source_attributions = grounded_source_attribution_candidates(
-            slide.title,
-            [
-                source.title
-                for source_id in source_refs
-                if (source := source_records.get(source_id)) is not None
-            ],
-            maximum_chars=max(0, maximum_chars - current_chars),
+        ],
+    }
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
+            input=json.dumps(payload, ensure_ascii=False),
+            text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
         )
-        grounded_notes = fit_grounded_speaker_note_candidates(
-            [
-                *speaker_note_fragments(slide.speaker_notes),
-                *source_fragments,
-                *source_attributions,
-                *[content_item.text for content_item in slide.content_items],
-                slide.message,
-                *grounded_speaker_note_transitions(slide),
-            ],
-            minimum_chars=minimum_chars,
-            preferred_max_chars=maximum_chars,
+        repaired = SpeakerNotesRepairPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
         )
-        grounded_chars = count_speaker_note_chars(grounded_notes)
-        if minimum_chars <= grounded_chars <= maximum_chars:
-            slide.speaker_notes = grounded_notes
-    minimum_total_chars = round(
-        raw_input.target_duration_minutes
-        * raw_input.timing_plan.chars_per_minute
-        * 0.75
+    except Exception:
+        return False
+
+    repaired_by_order = {item.order: item for item in repaired.slides}
+    if set(repaired_by_order) != affected_orders or any(
+        not item.speaker_note_units for item in repaired.slides
+    ):
+        return False
+    for slide in affected_slides:
+        slide.speaker_note_units = [
+            unit.model_copy(deep=True)
+            for unit in repaired_by_order[slide.order].speaker_note_units
+        ]
+        slide.speaker_note_units_structured = True
+    return True
+
+
+def finalize_speaker_notes(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> list[SlidePlan]:
+    for slide in slide_plans:
+        normalize_speaker_note_units(raw_input, slide)
+    remove_duplicate_optional_speaker_note_units(slide_plans)
+    problems = speaker_note_quality_problems(
+        slide_plans,
+        include_density=True,
     )
-    actual_total_chars = sum(
-        count_speaker_note_chars(slide.speaker_notes) for slide in slide_plans
-    )
-    if actual_total_chars < minimum_total_chars:
-        for slide in sorted(
-            slide_plans,
-            key=lambda item: (
-                speaker_notes_maximum_chars(item.target_speaker_notes_chars)
-                - count_speaker_note_chars(item.speaker_notes)
-            ),
-            reverse=True,
+    if problems:
+        raw_input.repair_attempted = True
+        if any(problem.code == "SPEAKER_NOTES_REPEATED" for problem in problems):
+            if "SPEAKER_NOTES_REPEATED" not in raw_input.repair_reason_codes:
+                raw_input.repair_reason_codes.append("SPEAKER_NOTES_REPEATED")
+        if any(
+            problem.code in {"SPEAKER_NOTES_LONG", "SPEAKER_NOTES_EXCESSIVE"}
+            for problem in problems
         ):
-            current_chars = count_speaker_note_chars(slide.speaker_notes)
-            maximum_chars = speaker_notes_maximum_chars(
-                slide.target_speaker_notes_chars
-            )
-            if current_chars >= maximum_chars:
-                continue
-            source_refs = slide.source_refs or default_source_refs(
-                raw_input, slide.order
-            )
-            source_fragments = [
-                fragment
-                for source_id in source_refs
-                if (source := source_records.get(source_id)) is not None
-                for fragment in speaker_note_fragments(source.content)
-            ]
-            if not source_fragments:
-                continue
-            required_chars = min(
-                maximum_chars,
-                current_chars + minimum_total_chars - actual_total_chars,
-            )
-            grounded_notes = fit_grounded_speaker_note_candidates(
-                [
-                    *speaker_note_fragments(slide.speaker_notes),
-                    *source_fragments,
-                    *[content_item.text for content_item in slide.content_items],
-                    slide.message,
-                ],
-                minimum_chars=required_chars,
-                preferred_max_chars=maximum_chars,
-            )
-            grounded_chars = count_speaker_note_chars(grounded_notes)
-            if current_chars < grounded_chars <= maximum_chars:
-                slide.speaker_notes = grounded_notes
-                actual_total_chars += grounded_chars - current_chars
-            if actual_total_chars >= minimum_total_chars:
-                break
-    return slide_plans
+            if "SPEAKER_NOTES_LONG" not in raw_input.repair_reason_codes:
+                raw_input.repair_reason_codes.append("SPEAKER_NOTES_LONG")
+        repaired = repair_speaker_note_units_with_llm(
+            raw_input,
+            slide_plans,
+            problems,
+            client=client,
+            model=model,
+            api_key=api_key,
+        )
+        blocking_before_repair = [
+            problem for problem in problems if problem.code != "SPEAKER_NOTES_LONG"
+        ]
+        if not repaired and blocking_before_repair:
+            raise_speaker_note_quality_error(blocking_before_repair)
+        if repaired:
+            for slide in slide_plans:
+                normalize_speaker_note_units(raw_input, slide)
+            remove_duplicate_optional_speaker_note_units(slide_plans)
+
+    remaining_problems = [
+        problem
+        for problem in speaker_note_quality_problems(
+            slide_plans,
+            include_density=False,
+        )
+        if problem.code != "SPEAKER_NOTES_LONG"
+    ]
+    if remaining_problems:
+        raise_speaker_note_quality_error(remaining_problems)
+    return assemble_speaker_notes_quality_first(raw_input, slide_plans)
+
+
+def raise_speaker_note_quality_error(
+    problems: list[SpeakerNoteQualityProblem],
+) -> None:
+    summary = "; ".join(
+        f"slide {problem.slide_order}: {problem.code} ({problem.message})"
+        if problem.slide_order
+        else f"deck: {problem.code} ({problem.message})"
+        for problem in problems[:8]
+    )
+    raise DeckContentGenerationError(f"SPEAKER_NOTES_QUALITY_FAILED: {summary}")
 
 
 def slide_type_for(order: int, total: int) -> SlideType:
@@ -4838,6 +5128,10 @@ def generate_content_plan_with_llm(
                 else DECK_CONTENT_INSTRUCTIONS
                 + "\n- For every design-pack slide, provide contentItems with stable unique IDs "
                 "and sourceRefs containing only IDs listed in Source records."
+                "\n- For title/cover speakerNoteUnits require core and interpretation."
+                "\n- For summary require core and action. For solution/process require core, "
+                "evidence, and action. For other body slides require core, evidence, "
+                "and interpretation. Mark these required=true and put them first."
             ),
             input=prompt,
             text=deck_content_response_format_for(raw_input),
@@ -5125,7 +5419,10 @@ def slide_plans_from_generated_content(
                 slide_type=slide_type,
                 title=normalize_design_pack_slide_title(slide.title, slide_type),
                 message=message,
-                speaker_notes=slide.speaker_notes,
+                speaker_notes=(
+                    slide.speaker_notes
+                    or " ".join(unit.text for unit in slide.speaker_note_units)
+                ),
                 keywords=slide_keywords[:6],
                 evidence=evidence_for(raw_input.references, slide.title),
                 layout_variant=normalize_layout_variant(
@@ -5138,6 +5435,11 @@ def slide_plans_from_generated_content(
                 media_intent=slide.media_intent,
                 content_items=content_items,
                 source_refs=source_refs,
+                speaker_note_units=[
+                    unit.model_copy(deep=True)
+                    for unit in slide.speaker_note_units
+                ],
+                speaker_note_units_structured=bool(slide.speaker_note_units),
             )
         )
 
@@ -5228,8 +5530,6 @@ def apply_design_options(
             raw_input.design.media_policy,
         )
     if raw_input.generation_mode == "design-pack":
-        for slide_plan in slide_plans:
-            compact_dense_speaker_notes(slide_plan)
         ensure_profile_closing_action(raw_input, slide_plans)
         apply_design_pack_media_plan(raw_input, slide_plans)
 
@@ -13153,10 +13453,9 @@ def validate_deck_timing_summary(
     )
     issues: list[ValidationIssue] = []
     if presentation_rules:
-        chars_per_minute = int(timing_plans[0].get("charsPerMinute") or 0)
-        duration_minutes = int(deck.get("targetDurationMinutes") or 0)
-        minimum_total = round(duration_minutes * chars_per_minute * 0.75)
-        maximum_total = round(duration_minutes * chars_per_minute * 0.85)
+        minimum_total = round(target_total * 0.9)
+        maximum_total = round(target_total * 1.1)
+        blocking_total = round(target_total * 1.5)
         if minimum_total > 0 and actual_total < minimum_total:
             issues.append(
                 ValidationIssue(
@@ -13164,8 +13463,21 @@ def validate_deck_timing_summary(
                     scope="deck",
                     path="slides",
                     message=(
-                        "전체 실제 발화 시간이 발표 제한 시간의 75%보다 짧습니다. "
+                        "전체 발표자 메모가 권장 발화 목표의 90%보다 짧습니다. "
                         f"최소 {minimum_total}자 대비 현재 {actual_total}자입니다."
+                    ),
+                )
+            )
+        elif blocking_total > 0 and actual_total > blocking_total:
+            issues.append(
+                ValidationIssue(
+                    code="SPEAKER_NOTES_DENSE",
+                    scope="deck",
+                    blocking=True,
+                    path="slides",
+                    message=(
+                        "전체 발표자 메모가 권장 발화 목표의 150%를 초과했습니다. "
+                        f"상한 {blocking_total}자 대비 현재 {actual_total}자입니다."
                     ),
                 )
             )
@@ -13176,7 +13488,7 @@ def validate_deck_timing_summary(
                     scope="deck",
                     path="slides",
                     message=(
-                        "전체 실제 발화 시간이 발표 제한 시간의 85%를 초과합니다. "
+                        "전체 발표자 메모가 권장 발화 목표의 110%를 초과합니다. "
                         f"최대 {maximum_total}자 대비 현재 {actual_total}자입니다."
                     ),
                 )
