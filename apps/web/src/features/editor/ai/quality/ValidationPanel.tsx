@@ -16,7 +16,7 @@ export function ValidationPanel(props: {
   ) => void;
 }) {
   const canApplyAllTextOverflow = props.items.some(
-    (item) => item.issue === "textOverflow" && item.elementId
+    (item) => isAutoFitTextIssue(item) && item.elementId
   );
 
   return (
@@ -39,7 +39,7 @@ export function ValidationPanel(props: {
               {elementLabelForValidationItem(item) ? (
                 <small>{elementLabelForValidationItem(item)}</small>
               ) : null}
-              {item.issue === "textOverflow" && item.elementId ? (
+              {isAutoFitTextIssue(item) && item.elementId ? (
                 <div className="validation-item-actions">
                   <button
                     className="validation-action-button"
@@ -103,6 +103,14 @@ function elementIdsForValidationItem(item: EditorValidationItem): string[] {
   }
 
   return item.elementId ? [item.elementId] : [];
+}
+
+function isAutoFitTextIssue(item: EditorValidationItem) {
+  return (
+    item.issue === "textOverflow" ||
+    item.issue === "titleWrap" ||
+    item.issue === "labelWrap"
+  );
 }
 
 function elementLabelForValidationItem(item: EditorValidationItem): string {

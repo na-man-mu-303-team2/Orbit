@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
   applyPresenterRemoteMessage,
+  getPresenterRemoteCurrentSentenceIndex,
   getPresenterRemoteCommandDispatchDelays,
   getPresenterRemoteKeywordRows,
+  getPresenterRemoteNextSentenceIndex,
   getPresenterRemoteTimingState,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
@@ -132,10 +134,157 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("0:25");
     expect(html).toContain("1:00");
     expect(html).toContain("음성인식 중");
-    expect(html).toContain("멈춤");
+    expect(html).toContain("일시정지");
   });
 
-  it("retries idempotent remote timer stop commands across transient channel races", () => {
+  it("renders paused remote timer controls as resume", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      timing: {
+        canStartLiveStt: false,
+        currentSlideElapsedSeconds: 25,
+        currentSlideTargetSeconds: 60,
+        displayedSeconds: 275,
+        elapsedSeconds: 25,
+        isLiveSttActive: false,
+        isPaused: true,
+        isRunning: false,
+        liveStatus: "stopped",
+        mode: "timer" as const,
+        timerDurationSeconds: 300,
+      },
+    };
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(html).toContain("일시정지됨");
+    expect(html).toContain("다시 시작");
+  });
+
+  it("renders semantic debug panel from owner presenter speech state", () => {
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={{
+          ...createPresenterSlideshowState(p0AnimationDeck),
+          speech: createPresenterSpeechState(),
+        }}
+      />,
+    );
+
+    expect(html).toContain("Semantic STT");
+    expect(html).toContain("방금 final STT 문장");
+    expect(html).toContain("#1 · 0.910 · 문장 1");
+    expect(html).toContain("적용");
+  });
+
+  it("입력 순서와 무관하게 가장 높은 severity 한 개와 추가 개수만 표시한다", () => {
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={{
+          ...createPresenterSlideshowState(p0AnimationDeck),
+          speech: {
+            ...createPresenterSpeechState(),
+            semanticCapabilityItems: [
+              {
+                key: "semantic_runtime" as const,
+                severity: "warning" as const,
+                shortLabel: "의미 체크 오프라인",
+                detail: "수동 발표는 계속할 수 있습니다.",
+                retryable: true,
+                affectedCount: 2,
+                source: "system-status" as const,
+                actionLabel: "재시도" as const,
+                recovered: false,
+                measurementMode: "none" as const
+              },
+              {
+                key: "nli" as const,
+                severity: "error" as const,
+                shortLabel: "정밀 판정 비활성",
+                detail: "기본 의미 체크로 계속합니다.",
+                retryable: true,
+                affectedCount: 1,
+                source: "system-status" as const,
+                recovered: false,
+                measurementMode: "basic" as const
+              }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain('aria-label="발표자 시스템 상태"');
+    expect(html).toContain("정밀 판정 비활성");
+    expect(html).toContain("+1");
+    expect(html).toContain("기본 의미 체크로 계속합니다.");
+    expect(html).not.toContain("의미 체크 오프라인");
+    expect(html).not.toContain("AI 코칭");
+  });
+
+  it("focuses the next uncovered script sentence from owner speech coverage", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      stepIndex: 0,
+      speech: {
+        ...createPresenterSpeechState(),
+        coveredSentenceIds: ["sentence_1"],
+      },
+    };
+    const sentences = ["첫 문장입니다", "마지막 문장입니다"];
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(1);
+    expect(html).toContain("presenter-script-row--covered");
+    expect(html).toContain("presenter-script-row--current");
+  });
+
+  it("marks the next remote script sentence after current", () => {
+    const state = createPresenterSlideshowState(p0AnimationDeck);
+    const sentences = ["첫 문장입니다", "둘째 문장입니다", "마지막 문장입니다"];
+
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 0)).toBe(1);
+  });
+
+  it("mirrors semantic paraphrase coverage from owner speech state", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...createPresenterSpeechState(),
+        coveredSentenceIds: ["sentence_1"],
+        coveredSentenceMatchKinds: {
+          sentence_1: "paraphrased" as const,
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={state}
+      />,
+    );
+
+    expect(html).toContain("presenter-script-row--paraphrased");
+    expect(html).toContain("의미 전달");
+  });
+
+  it("retries idempotent remote timer pause commands across transient channel races", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-pause" }),
     ).toEqual([0, 150, 500]);
@@ -171,3 +320,61 @@ describe("PresenterRemoteWindow", () => {
     });
   });
 });
+
+function createPresenterSpeechState() {
+  return {
+    coveredSentenceIds: [],
+    coveredSentenceMatchKinds: {},
+    matchableSentenceCount: 2,
+    semanticDebug: {
+      status: "ready" as const,
+      slideId: "slide_p0_1",
+      transcript: "방금 final STT 문장",
+      isFinal: true,
+      topMatches: [
+        {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "첫 문장입니다",
+          similarity: 0.91,
+          covered: false,
+        },
+      ],
+      decision: {
+        accepted: true,
+        acceptedMatch: {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "첫 문장입니다",
+          similarity: 0.91,
+          covered: false,
+        },
+        ambiguousMargin: 0.04,
+        isFinal: true as const,
+        lexicalOverlap: 0.2,
+        outcome: "paraphrased" as const,
+        reason: "accepted-paraphrase" as const,
+        scoreThreshold: 0.89,
+        slideId: "slide_p0_1",
+        topMatches: [],
+        transcript: "방금 final STT 문장",
+      },
+      error: null,
+    },
+    semanticMatchingEnabled: true,
+    snapshot: {
+      slideId: "slide_p0_1",
+      coveredSentenceIds: [],
+      coveredSentenceMatchKinds: {},
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0,
+      wordCoverage: 0,
+      effectiveCoverage: 0,
+      finalSentenceSpoken: false,
+      hitKeywordIds: [],
+      provisionalMissingKeywordIds: [],
+    },
+  };
+}

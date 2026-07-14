@@ -1,5 +1,10 @@
-import { demoIds } from "@orbit/shared";
-import type { Project, RehearsalProjectSummary, RehearsalRun } from "@orbit/shared";
+import { demoIds, rehearsalRunComparisonSchema } from "@orbit/shared";
+import type {
+  Project,
+  RehearsalProjectSummary,
+  RehearsalRun,
+  RehearsalRunComparison,
+} from "@orbit/shared";
 
 type Fetcher = (
   input: RequestInfo | URL,
@@ -42,4 +47,23 @@ export async function fetchProjectRehearsalReportRuns(
   if (!response.ok) return { runs: [], total: 0 };
   const data = (await response.json()) as { runs: RehearsalRun[]; total: number };
   return { runs: data.runs ?? [], total: data.total ?? 0 };
+}
+
+export async function fetchRehearsalRunComparison(
+  projectId: string,
+  runId: string,
+  fetcher: Fetcher = fetch,
+): Promise<RehearsalRunComparison | null> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/rehearsals/${encodeURIComponent(runId)}/comparison`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return null;
+
+  try {
+    const result = rehearsalRunComparisonSchema.safeParse(await response.json());
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
 }

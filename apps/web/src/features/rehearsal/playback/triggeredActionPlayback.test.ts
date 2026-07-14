@@ -59,6 +59,7 @@ function createSlide(): Slide {
         required: false
       }
     ],
+    semanticCues: [],
     elements: [],
     animations: [
       {

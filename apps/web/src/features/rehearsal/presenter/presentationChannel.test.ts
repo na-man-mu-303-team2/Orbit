@@ -6,12 +6,15 @@ import {
   createPresenterHeartbeatMessage,
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
+  createPresenterRemoteSnapshotMessage,
+  createPresenterRemoteStateMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createSlideWindowDeckSnapshot,
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
   getPresentationChannelName,
+  getPresenterRemoteChannelName,
   isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
 } from "./presentationChannel";
@@ -32,6 +35,12 @@ describe("presentationChannel", () => {
         sessionId: "session-presenter-2",
       }),
     ).not.toBe(getPresentationChannelName(identity));
+    expect(getPresenterRemoteChannelName(identity)).toBe(
+      "orbit:presenter-screen:deck_p0_animation:session-presenter-1:owner"
+    );
+    expect(getPresenterRemoteChannelName(identity)).not.toBe(
+      getPresentationChannelName(identity)
+    );
   });
 
   it("keeps only render-required slide data in the slide-window deck snapshot", () => {
@@ -156,6 +165,67 @@ describe("presentationChannel", () => {
     expect(serialized).not.toContain("finish-suggested");
   });
 
+  it("audience message에서 presenter speech 상태를 제거하고 owner channel에만 유지한다", () => {
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: createPresenterSpeechState(),
+    };
+    const snapshotMessage = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 21,
+      state,
+      triggerAnimationIds: [],
+    });
+    const stateMessage = createPresenterStateMessage({
+      identity,
+      sentAt: 22,
+      state,
+      triggerAnimationIds: [],
+    });
+    const remoteSnapshot = createPresenterRemoteSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      sentAt: 23,
+      state,
+      triggerAnimationIds: []
+    });
+    const remoteState = createPresenterRemoteStateMessage({
+      identity,
+      sentAt: 24,
+      state,
+      triggerAnimationIds: []
+    });
+
+    expect(isPresentationChannelMessage(snapshotMessage)).toBe(true);
+    expect(isPresentationChannelMessage(stateMessage)).toBe(true);
+    expect(snapshotMessage.state.speech).toBeUndefined();
+    expect(stateMessage.state.speech).toBeUndefined();
+    expect(remoteSnapshot.state.speech).toMatchObject({
+      coveredSentenceIds: ["sentence_1"],
+      semanticMatchingEnabled: true,
+      semanticDebug: {
+        transcript: "비공개 final transcript",
+        topMatches: [
+          expect.objectContaining({
+            sentenceId: "sentence_1",
+            text: "비공개 speaker note sentence",
+          }),
+        ],
+      },
+    });
+    expect(remoteState.state.speech).toBeDefined();
+    expect(JSON.stringify(snapshotMessage.deck)).not.toContain(
+      "비공개 final transcript",
+    );
+    expect(JSON.stringify(snapshotMessage.deck)).not.toContain(
+      "비공개 speaker note sentence",
+    );
+    const audiencePayload = JSON.stringify([snapshotMessage, stateMessage]);
+    expect(audiencePayload).not.toContain("semanticCapabilityItems");
+    expect(audiencePayload).not.toContain("비공개 final transcript");
+  });
+
   it("validates channel messages and ignores wrong identities", () => {
     const matching = createPresenterStateMessage({
       identity,
@@ -271,3 +341,46 @@ describe("presentationChannel", () => {
     ).toBe(false);
   });
 });
+
+function createPresenterSpeechState() {
+  return {
+    coveredSentenceIds: ["sentence_1"],
+    coveredSentenceMatchKinds: {
+      sentence_1: "covered" as const,
+    },
+    matchableSentenceCount: 2,
+    semanticDebug: {
+      status: "ready" as const,
+      slideId: "slide_p0_1",
+      transcript: "비공개 final transcript",
+      isFinal: true,
+      topMatches: [
+        {
+          rank: 1,
+          sentenceId: "sentence_1",
+          sentenceIndex: 0,
+          text: "비공개 speaker note sentence",
+          similarity: 0.91,
+          covered: true,
+        },
+      ],
+      decision: null,
+      error: null,
+    },
+    semanticMatchingEnabled: true,
+    snapshot: {
+      slideId: "slide_p0_1",
+      coveredSentenceIds: ["sentence_1"],
+      coveredSentenceMatchKinds: {
+        sentence_1: "covered" as const,
+      },
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0.5,
+      wordCoverage: 0.1,
+      effectiveCoverage: 0.5,
+      finalSentenceSpoken: false,
+      hitKeywordIds: [],
+      provisionalMissingKeywordIds: [],
+    },
+  };
+}

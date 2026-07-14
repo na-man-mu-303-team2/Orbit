@@ -51,6 +51,29 @@ describe("PhraseExtractor", () => {
     expect(sentences[2].candidates.length).toBeLessThanOrEqual(3);
   });
 
+  it("명시적인 speaker notes 줄바꿈을 문장부호보다 우선하는 대본 줄로 사용한다", () => {
+    const extractor = createDefaultPhraseExtractor();
+
+    const sentences = extractor.extract(
+      [
+        "첫 줄은 문제와 배경을 설명합니다. 같은 줄의 세부 내용도 유지합니다.",
+        "둘째 줄은 해결 방향을 공유합니다.",
+        "마지막 줄은 다음 행동을 정리합니다."
+      ].join("\n")
+    );
+
+    expect(sentences.map((sentence) => sentence.text)).toEqual([
+      "첫 줄은 문제와 배경을 설명합니다. 같은 줄의 세부 내용도 유지합니다",
+      "둘째 줄은 해결 방향을 공유합니다",
+      "마지막 줄은 다음 행동을 정리합니다"
+    ]);
+    expect(sentences.map((sentence) => sentence.index)).toEqual([0, 1, 2]);
+    expect(sentences[2]).toMatchObject({
+      isFinalTrigger: true,
+      matchable: true
+    });
+  });
+
   it("문장 간 공유 후보는 제거하되 마지막 문장 후보를 보호한다", () => {
     const extractor = createDefaultPhraseExtractor();
 

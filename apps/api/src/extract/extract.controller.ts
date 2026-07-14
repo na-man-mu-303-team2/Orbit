@@ -1,16 +1,23 @@
-import { demoIds } from "@orbit/shared";
 import {
   BadGatewayException,
   BadRequestException,
   Body,
   Controller,
+  HttpException,
   Post,
+  Req,
   UploadedFiles,
   UseInterceptors
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
+import { AuthService } from "../auth/auth.service";
+import {
+  getCurrentUser,
+  type SignedCookieRequest
+} from "../auth/current-user";
 import { parseRequest } from "../common/zod-request";
+import { ProjectsService } from "../projects/projects.service";
 import { ExtractService } from "./extract.service";
 
 interface UploadedExtractFile {
@@ -20,10 +27,10 @@ interface UploadedExtractFile {
 }
 
 const extractRequestSchema: z.ZodType<{
-  projectId?: string;
+  projectId: string;
   fileIds?: string[];
 }, z.ZodTypeDef, unknown> = z.object({
-  projectId: z.string().trim().min(1).optional(),
+  projectId: z.string().trim().min(1),
   fileIds: z
     .preprocess(
       (value) =>
@@ -38,28 +45,31 @@ const extractRequestSchema: z.ZodType<{
 
 @Controller("extract")
 export class ExtractController {
-  constructor(private readonly extractService: ExtractService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly projectsService: ProjectsService,
+    private readonly extractService: ExtractService
+  ) {}
 
   @Post()
   @UseInterceptors(FilesInterceptor("files"))
   async extract(
     @UploadedFiles() files: UploadedExtractFile[] | undefined,
-    @Body() body: unknown
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
   ) {
     if (!files?.length) {
       throw new BadRequestException("At least one file is required.");
     }
 
     const { fileIds, projectId } = parseRequest(extractRequestSchema, body ?? {});
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
 
     try {
-      return await this.extractService.extract(
-        files,
-        projectId ?? demoIds.projectId,
-        fileIds
-      );
+      return await this.extractService.extract(files, projectId, fileIds);
     } catch (error) {
-      if (error instanceof BadGatewayException) {
+      if (error instanceof HttpException) {
         throw error;
       }
       throw new BadGatewayException(

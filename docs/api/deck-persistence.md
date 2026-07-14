@@ -262,6 +262,51 @@ Response 예시:
 }
 ```
 
+`responseMode`을 생략하면 기존처럼 전체 `deck`을 포함한 응답을 반환한다. EditorShell autosave처럼 요청한 patch를 로컬 persisted deck에도 동일하게 적용할 수 있는 경로는 `responseMode: "ack"`를 선택할 수 있다.
+
+Ack request 예시:
+
+```json
+{
+  "patch": {
+    "deckId": "deck_demo_1",
+    "baseVersion": 1,
+    "source": "user",
+    "operations": [
+      {
+        "type": "update_deck",
+        "title": "ORBIT demo updated"
+      }
+    ]
+  },
+  "responseMode": "ack"
+}
+```
+
+Ack response에는 전체 deck JSON을 포함하지 않는다. snapshot을 생성하지 않았거나 OOXML sync job이 없으면 해당 필드는 생략한다.
+
+```json
+{
+  "deckId": "deck_demo_1",
+  "version": 2,
+  "changeRecord": {
+    "changeId": "change_018f3a4b-1111-2222-3333-444455556666",
+    "deckId": "deck_demo_1",
+    "beforeVersion": 1,
+    "afterVersion": 2,
+    "source": "user",
+    "createdAt": "2026-06-27T00:00:00.000Z",
+    "operations": [
+      {
+        "type": "update_deck",
+        "title": "ORBIT demo updated"
+      }
+    ]
+  },
+  "updatedAt": "2026-06-27T00:00:00.000Z"
+}
+```
+
 기본 `snapshotReason`은 `patch-applied`다.
 
 ## Snapshot

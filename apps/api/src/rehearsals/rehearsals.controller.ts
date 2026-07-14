@@ -48,6 +48,26 @@ export class RehearsalsController {
     return this.rehearsalsService.completeAudioUpload(runId, body);
   }
 
+  @Post("api/v1/rehearsals/:runId/cancel")
+  async cancelRun(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanWriteRun(runId, user.userId);
+    return this.rehearsalsService.cancelRun(runId);
+  }
+
+  @Post("api/v1/rehearsals/:runId/semantic-evaluation/retry")
+  async retrySemanticEvaluation(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanWriteRun(runId, user.userId);
+    return this.rehearsalsService.retrySemanticEvaluation(runId);
+  }
+
   @Patch("api/v1/rehearsals/:runId/meta")
   async updateRunMeta(
     @Param("runId") runId: string,
@@ -68,6 +88,17 @@ export class RehearsalsController {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
     return this.rehearsalsService.listRuns(projectId, query);
+  }
+
+  @Get("api/v1/projects/:projectId/rehearsals/:runId/comparison")
+  async getComparison(
+    @Param("projectId") projectId: string,
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.rehearsalsService.getComparison(projectId, runId);
   }
 
   @Get("api/v1/rehearsals/:runId")

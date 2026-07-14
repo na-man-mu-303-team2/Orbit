@@ -2,9 +2,9 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { LoggerModule } from "nestjs-pino";
 import { AuthModule } from "./auth/auth.module";
-import { AiSuggestionsModule } from "./ai-suggestions/ai-suggestions.module";
 import { AiTemplateDeckGenerationModule } from "./ai-template-deck-generation/ai-template-deck-generation.module";
 import { DecksModule } from "./decks/decks.module";
+import { DesignAgentModule } from "./design-agent/design-agent.module";
 import { FilesModule } from "./files/files.module";
 import { HealthModule } from "./health/health.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -16,6 +16,7 @@ import { PptxOoxmlGenerationsModule } from "./pptx-ooxml-generations/pptx-ooxml-
 import { PptxImportsModule } from "./pptx-imports/pptx-imports.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
+import { PptAdvisorModule } from "./ppt-advisor/ppt-advisor.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
@@ -26,12 +27,12 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
   imports: [
     LoggerModule.forRoot(createApiLoggerParams()),
     TypeOrmModule.forRoot(databaseOptions),
-    AiSuggestionsModule,
     AiTemplateDeckGenerationModule,
     AuthModule,
     HealthModule,
     ProjectsModule,
     DecksModule,
+    DesignAgentModule,
     FilesModule,
     ExtractModule,
     GenerateDeckModule,
@@ -39,6 +40,7 @@ import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
     PptxImportsModule,
     JobsModule,
     PresentationSessionsModule,
+    PptAdvisorModule,
     ReferencesModule,
     RuntimeConfigModule,
     RealtimeTranscriptionModule,

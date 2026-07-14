@@ -8,6 +8,7 @@ import {
   deckSlideIdSchema
 } from "./id.schema";
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
+import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
@@ -40,6 +41,16 @@ export const aiDeckToneSchema = z.enum([
   "concise"
 ]);
 
+export const aiDeckPresentationProfileSchema = z.enum([
+  "proposal",
+  "executive-report",
+  "product-launch",
+  "education",
+  "technical",
+  "research",
+  "general-inform"
+]);
+
 export const deckCreatedFromReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
@@ -59,6 +70,7 @@ export const deckMetadataSchema = z.object({
   audience: aiDeckAudienceSchema.optional(),
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
+  presentationProfile: aiDeckPresentationProfileSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
@@ -171,10 +183,47 @@ export const slideSourceEvidenceSchema = z.object({
   confidence: z.number().finite().min(0).max(1).default(0.5)
 });
 
+export const slideVisualPlanSchema = z.object({
+  visualType: z.string().min(1),
+  imageNeeded: z.boolean().default(false),
+  imageSourcePolicy: z.string().min(1).default("minimal"),
+  reason: z.string().min(1)
+});
+
+export const slideSourceLedgerSchema = z.object({
+  claim: z.string().min(1),
+  source: z.string().min(1),
+  sourceType: z.enum(["topic", "uploaded", "web", "generated", "none"]),
+  sourceId: z.string().min(1).optional(),
+  fileId: z.string().min(1).optional(),
+  chunkId: z.string().min(1).optional(),
+  url: z.string().url().optional(),
+  title: z.string().min(1).optional(),
+  authority: z.enum(["official", "independent", "unknown"]).optional(),
+  confidence: z.number().finite().min(0).max(1).default(0.5),
+  usedInSlideId: deckSlideIdSchema
+});
+
+export const slideTimingPlanSchema = z.object({
+  charsPerMinute: z.number().int().positive().optional(),
+  speakingTimeRatio: z.number().finite().min(0).max(1).optional(),
+  targetTotalChars: z.number().int().nonnegative().optional(),
+  targetSlideCount: z.number().int().positive().optional(),
+  targetSecondsPerSlide: z.number().int().positive().optional(),
+  targetSpeakerNotesCharsPerSlide: z.number().int().nonnegative().optional(),
+  targetSeconds: z.number().int().positive(),
+  targetSpokenSeconds: z.number().int().positive().optional(),
+  targetSpeakerNotesChars: z.number().int().nonnegative(),
+  actualSpeakerNotesChars: z.number().int().nonnegative()
+});
+
 export const slideAiNotesSchema = z
   .object({
     emphasisPoints: z.array(z.string().min(1)).default([]),
-    sourceEvidence: z.array(slideSourceEvidenceSchema).default([])
+    sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
+    visualPlan: slideVisualPlanSchema.optional(),
+    sourceLedger: z.array(slideSourceLedgerSchema).optional(),
+    timingPlan: slideTimingPlanSchema.optional()
   })
   .default({});
 
@@ -189,13 +238,16 @@ export const slideSchema = z
     speakerNotes: z.string().default(""),
     elements: z.array(deckElementSchema).default([]),
     keywords: slideKeywordsSchema.default([]),
+    semanticCues: z.array(semanticCueSchema).default([]),
     animations: z.array(animationSchema).default([]),
     actions: z.array(slideActionSchema).default([]),
     aiNotes: slideAiNotesSchema.optional()
   })
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
+    const elementIds = new Set(slide.elements.map((element) => element.elementId));
     const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+    const semanticCueIds = new Set<string>();
     const keywordOccurrences = new Map(
       deriveKeywordOccurrences(slide).map((occurrence) => [
         occurrence.occurrenceId,
@@ -289,6 +341,46 @@ export const slideSchema = z
         });
       }
     });
+
+    slide.semanticCues.forEach((cue, cueIndex) => {
+      if (semanticCueIds.has(cue.cueId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["semanticCues", cueIndex, "cueId"],
+          message: "semantic cue IDs must be unique within the same slide"
+        });
+      } else {
+        semanticCueIds.add(cue.cueId);
+      }
+
+      if (cue.slideId !== slide.slideId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["semanticCues", cueIndex, "slideId"],
+          message: "semantic cue slideId must match the containing slide"
+        });
+      }
+
+      cue.targetElementIds.forEach((elementId, elementIndex) => {
+        if (!elementIds.has(elementId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["semanticCues", cueIndex, "targetElementIds", elementIndex],
+            message: "semantic cue target element must exist in the same slide"
+          });
+        }
+      });
+
+      cue.triggerActionIds.forEach((actionId, actionIndex) => {
+        if (!actionIds.has(actionId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["semanticCues", cueIndex, "triggerActionIds", actionIndex],
+            message: "semantic cue trigger action must exist in the same slide"
+          });
+        }
+      });
+    });
   });
 
 export const deckSchema = z.object({
@@ -320,6 +412,9 @@ export type SlideBackgroundImageFit = z.infer<
   typeof slideBackgroundImageFitSchema
 >;
 export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
+export type SlideVisualPlan = z.infer<typeof slideVisualPlanSchema>;
+export type SlideSourceLedger = z.infer<typeof slideSourceLedgerSchema>;
+export type SlideTimingPlan = z.infer<typeof slideTimingPlanSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;

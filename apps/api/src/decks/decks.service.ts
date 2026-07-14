@@ -3,24 +3,37 @@ import { applyDeckPatch } from "@orbit/editor-core";
 import type { ApplyDeckPatchError } from "@orbit/editor-core";
 import { loadOrbitConfig } from "@orbit/config";
 import {
+  enqueueDeckExportJob,
   enqueuePptxOoxmlSyncJob,
+  enqueueSemanticCueExtractionJob,
+  type EnqueueDeckExportJobInput,
   type EnqueuePptxOoxmlSyncJobInput,
+  type EnqueueSemanticCueExtractionJobInput,
 } from "@orbit/job-queue";
 import {
+  appendDeckPatchAckResponseSchema,
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
+  deckExportRequestSchema,
   deckSchema,
   deckSnapshotIdSchema,
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  jobSchema,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
   restoreDeckSnapshotResponseSchema,
+  createSemanticCueExtractionJobResponseSchema,
+  semanticCueExtractionJobPayloadSchema,
+  semanticCueExtractionRequestSchema,
 } from "@orbit/shared";
 import type {
+  AppendDeckPatchAckRequest,
+  AppendDeckPatchAckResponse,
+  AppendDeckPatchFullRequest,
   AppendDeckPatchRequest,
   AppendDeckPatchResponse,
   Deck,
@@ -35,6 +48,7 @@ import type {
   PutDeckRequest,
   PutDeckResponse,
   RestoreDeckSnapshotResponse,
+  CreateSemanticCueExtractionJobResponse,
 } from "@orbit/shared";
 import {
   HttpException,
@@ -44,9 +58,11 @@ import {
   Optional,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource, EntityManager } from "typeorm";
 import { ZodError } from "zod";
 import { JobsService } from "../jobs/jobs.service";
+import { serializeLogError } from "../logging";
 
 type DeckRow = {
   project_id: string;
@@ -89,12 +105,19 @@ type PptxOoxmlSyncJobInput = {
   targetDeckVersion: number;
 };
 
+type DeckExportEnqueueJob = (input: EnqueueDeckExportJobInput) => Promise<void>;
 type QueryExecutor = DataSource | EntityManager;
 const deckCheckpointPatchInterval = 20;
 export type PptxOoxmlSyncEnqueueJob = (
   input: EnqueuePptxOoxmlSyncJobInput,
 ) => Promise<void>;
 export const PPTX_OOXML_SYNC_ENQUEUE_JOB = "PPTX_OOXML_SYNC_ENQUEUE_JOB";
+export const DECK_EXPORT_ENQUEUE_JOB = "DECK_EXPORT_ENQUEUE_JOB";
+export type SemanticCueExtractionEnqueueJob = (
+  input: EnqueueSemanticCueExtractionJobInput,
+) => Promise<void>;
+export const SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB =
+  "SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB";
 
 @Injectable()
 export class DecksService {
@@ -104,6 +127,16 @@ export class DecksService {
     @Optional()
     @Inject(PPTX_OOXML_SYNC_ENQUEUE_JOB)
     private readonly enqueueSyncJob: PptxOoxmlSyncEnqueueJob = enqueuePptxOoxmlSyncJob,
+    @Optional()
+    @Inject(DECK_EXPORT_ENQUEUE_JOB)
+    private readonly enqueueDeckExport: DeckExportEnqueueJob = enqueueDeckExportJob,
+    @Optional()
+    @Inject(SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB)
+    private readonly enqueueSemanticCueJob: SemanticCueExtractionEnqueueJob =
+      enqueueSemanticCueExtractionJob,
+    @Optional()
+    @InjectPinoLogger(DecksService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -130,6 +163,52 @@ export class DecksService {
       deck: deck.deck,
       updatedAt: deck.updatedAt,
     });
+  }
+
+  async createExportJob(projectId: string, body: unknown) {
+    if (!this.jobsService) {
+      throw new HttpException(
+        "Deck export job service is unavailable",
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const request = deckExportRequestSchema.parse(body ?? {});
+    const { deck } = await this.getDeck(projectId);
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "deck-export",
+      payload: {
+        deckId: deck.deckId,
+        format: request.format,
+      },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueDeckExport({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        deck,
+        format: request.format,
+      });
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Deck export enqueue failed.",
+        error: {
+          code: "DECK_EXPORT_ENQUEUE_FAILED",
+          message:
+            error instanceof Error ? error.message : "Deck export enqueue failed.",
+        },
+      });
+      throw error;
+    }
+
+    return { job: jobSchema.parse(queuedJob) };
   }
 
   async putDeck(projectId: string, body: unknown): Promise<PutDeckResponse> {
@@ -216,8 +295,20 @@ export class DecksService {
 
   async appendPatch(
     projectId: string,
+    body: AppendDeckPatchAckRequest,
+  ): Promise<AppendDeckPatchAckResponse>;
+  async appendPatch(
+    projectId: string,
+    body: AppendDeckPatchFullRequest,
+  ): Promise<AppendDeckPatchResponse>;
+  async appendPatch(
+    projectId: string,
     body: unknown,
-  ): Promise<AppendDeckPatchResponse> {
+  ): Promise<AppendDeckPatchResponse | AppendDeckPatchAckResponse>;
+  async appendPatch(
+    projectId: string,
+    body: unknown,
+  ): Promise<AppendDeckPatchResponse | AppendDeckPatchAckResponse> {
     const request = parseAppendDeckPatchRequest(body);
     let syncInput: PptxOoxmlSyncJobInput | null = null;
 
@@ -300,22 +391,148 @@ export class DecksService {
         };
       }
 
-      return appendDeckPatchResponseSchema.parse({
+      return {
         deck,
         changeRecord: applyResult.changeRecord,
         snapshot,
         updatedAt,
-      });
+      };
     });
 
     const ooxmlSyncJob = syncInput
       ? await this.enqueueOoxmlSync(projectId, syncInput)
       : undefined;
 
-    return appendDeckPatchResponseSchema.parse({
-      ...response,
-      ooxmlSyncJob,
+    if (request.responseMode === "ack") {
+      return appendDeckPatchAckResponseSchema.parse({
+        deckId: response.deck.deckId,
+        version: response.deck.version,
+        changeRecord: response.changeRecord,
+        ...(response.snapshot ? { snapshot: response.snapshot } : {}),
+        ooxmlSyncJob,
+        updatedAt: response.updatedAt,
+      });
+    }
+
+    return appendDeckPatchResponseSchema.parse({ ...response, ooxmlSyncJob });
+  }
+
+  async createSemanticCueExtractionJob(
+    projectId: string,
+    body: unknown,
+  ): Promise<CreateSemanticCueExtractionJobResponse> {
+    const request = semanticCueExtractionRequestSchema.parse(body ?? {});
+
+    if (!this.jobsService) {
+      throwDeckApiException(
+        "DECK_VALIDATION_FAILED",
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "Jobs service is not available",
+      );
+    }
+
+    const preparedRequest = await this.dataSource.transaction(async (manager) => {
+      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+
+      if (!deckRow) {
+        throwDeckApiException(
+          "DECK_NOT_FOUND",
+          HttpStatus.NOT_FOUND,
+          `Deck not found for project: ${projectId}`,
+        );
+      }
+
+      const requestedDeckId = request.deckId ?? deckRow.deck_id;
+      if (requestedDeckId !== deckRow.deck_id) {
+        throwDeckApiException(
+          "DECK_MISMATCH",
+          HttpStatus.BAD_REQUEST,
+          "Requested deckId must match project deck",
+          [
+            `deck.deckId=${deckRow.deck_id}`,
+            `request.deckId=${requestedDeckId}`,
+          ],
+        );
+      }
+
+      const materializedState = await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckRow.deck_id,
+        toIso(deckRow.updated_at),
+        true,
+      );
+      const deck = await this.writeDeckCheckpoint(
+        manager,
+        materializedState.deck,
+        nowIso(),
+      );
+
+      return semanticCueExtractionJobPayloadSchema.shape.request.parse({
+        deckId: deck.deckId,
+        force: request.force,
+        baseVersion: deck.version,
+      });
     });
+
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "semantic-cue-extraction",
+      payload: { request: preparedRequest },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueSemanticCueJob({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        request: preparedRequest,
+      });
+      this.logger?.info(
+        {
+          event: "semantic_cue.extraction.queued",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          deckVersion: preparedRequest.baseVersion,
+          force: preparedRequest.force,
+        },
+        "Semantic cue extraction job enqueued.",
+      );
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Semantic cue extraction enqueue failed.",
+        error: {
+          code: "SEMANTIC_CUE_EXTRACTION_ENQUEUE_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Semantic cue extraction enqueue failed.",
+        },
+      });
+      this.logger?.error(
+        {
+          event: "semantic_cue.extraction.failed",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          deckVersion: preparedRequest.baseVersion,
+          reason: "enqueue_failed",
+          error: serializeLogError(error),
+        },
+        "Semantic cue extraction enqueue failed.",
+      );
+      throw error;
+    }
+
+    return createSemanticCueExtractionJobResponseSchema.parse({ job: queuedJob });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {

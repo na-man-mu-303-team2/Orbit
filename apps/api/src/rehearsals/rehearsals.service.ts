@@ -1,25 +1,39 @@
-import type { EnqueueRehearsalSttJobInput } from "@orbit/job-queue";
+import type {
+  EnqueueRehearsalSemanticEvaluationJobInput,
+  EnqueueRehearsalSttJobInput
+} from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import {
   completeRehearsalAudioUploadRequestSchema,
   completeRehearsalAudioUploadResponseSchema,
+  cancelRehearsalRunResponseSchema,
+  createRehearsalEvaluationSnapshot,
   createAssetUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   createRehearsalAudioUploadUrlResponseSchema,
   createRehearsalRunRequestSchema,
   createRehearsalRunResponseSchema,
+  getRehearsalRunComparisonResponseSchema,
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  rehearsalReportSchema,
+  retryRehearsalSemanticEvaluationResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
   type RehearsalRun
 } from "@orbit/shared";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
-import { Repository } from "typeorm";
+import { LessThan, Not, Repository } from "typeorm";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -29,10 +43,16 @@ import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { buildRehearsalRunComparison } from "./rehearsal-run-comparison";
 
 export type RehearsalSttEnqueueJob = (input: EnqueueRehearsalSttJobInput) => Promise<void>;
+export type RehearsalSemanticEvaluationEnqueueJob = (
+  input: EnqueueRehearsalSemanticEvaluationJobInput
+) => Promise<void>;
 
 export const REHEARSAL_STT_ENQUEUE_JOB = "REHEARSAL_STT_ENQUEUE_JOB";
+export const REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB =
+  "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB";
 
 @Injectable()
 export class RehearsalsService {
@@ -52,6 +72,8 @@ export class RehearsalsService {
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
     private readonly enqueueJob: RehearsalSttEnqueueJob,
+    @Inject(REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB)
+    private readonly enqueueSemanticEvaluationJob: RehearsalSemanticEvaluationEnqueueJob,
     private readonly transcriptCache: RedisRehearsalTranscriptCache,
     @InjectPinoLogger(RehearsalsService.name)
     private readonly logger: PinoLogger
@@ -64,7 +86,24 @@ export class RehearsalsService {
       throw new BadRequestException("deckId does not match the project deck.");
     }
 
+    if (
+      request.semanticEvaluationMode === "full" &&
+      request.expectedDeckVersion !== undefined &&
+      request.expectedDeckVersion !== deckResponse.deck.version
+    ) {
+      throw new ConflictException({
+        code: "REHEARSAL_DECK_VERSION_MISMATCH",
+        message: "The expected deck version does not match the server deck version.",
+        expectedDeckVersion: request.expectedDeckVersion,
+        actualDeckVersion: deckResponse.deck.version
+      });
+    }
+
     const now = new Date();
+    const evaluationSnapshot =
+      request.semanticEvaluationMode === "full"
+        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString())
+        : null;
     const run = await this.rehearsalRuns.save(
       this.rehearsalRuns.create({
         runId: `run_${randomUUID()}`,
@@ -72,6 +111,9 @@ export class RehearsalsService {
         deckId: request.deckId,
         audioFileId: null,
         jobId: null,
+        deckVersion: evaluationSnapshot?.deckVersion ?? null,
+        evaluationSnapshot,
+        semanticEvaluationMode: request.semanticEvaluationMode,
         status: "created",
         error: null,
         rehearsalReport: null,
@@ -82,6 +124,24 @@ export class RehearsalsService {
         updatedAt: now
       })
     );
+
+    if (evaluationSnapshot) {
+      this.logger.info(
+        {
+          event: "rehearsal.evaluation_snapshot.created",
+          projectId,
+          deckId: run.deckId,
+          deckVersion: evaluationSnapshot.deckVersion,
+          runId: run.runId,
+          slideCount: evaluationSnapshot.slides.length,
+          cueCount: evaluationSnapshot.slides.reduce(
+            (count, slide) => count + slide.semanticCues.length,
+            0
+          )
+        },
+        "Rehearsal evaluation snapshot created."
+      );
+    }
 
     return createRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
@@ -226,11 +286,46 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
+  async cancelRun(runId: string) {
+    const run = await this.getRunEntity(runId);
+    if (run.status === "cancelled") {
+      return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
+    }
+
+    if (!["created", "uploading"].includes(run.status) || run.jobId !== null) {
+      throw new BadRequestException(
+        "Rehearsal run cannot be cancelled after audio processing starts."
+      );
+    }
+
+    const result = await this.rehearsalRuns.update(
+      {
+        runId: run.runId,
+        projectId: run.projectId,
+        status: run.status
+      },
+      {
+        status: "cancelled",
+        error: null,
+        updatedAt: new Date()
+      }
+    );
+
+    if (!result.affected) {
+      throw new BadRequestException(
+        "Rehearsal run cannot be cancelled after audio processing starts."
+      );
+    }
+
+    const cancelled = await this.getRunEntity(run.runId);
+    return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(cancelled) });
+  }
+
   async listRuns(projectId: string, query: Record<string, string> = {}) {
     await this.projectsService.getAccessibleProject(projectId);
     const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
     const page = Math.max(Number(query.page) || 1, 1);
-    const where: Record<string, unknown> = { projectId };
+    const where: Record<string, unknown> = { projectId, status: Not("cancelled") };
     if (query.status) {
       where["status"] = query.status;
     }
@@ -269,6 +364,143 @@ export class RehearsalsService {
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
       report: responseReport
+    });
+  }
+
+  async getComparison(projectId: string, runId: string) {
+    await this.projectsService.getAccessibleProject(projectId);
+    const currentRun = await this.rehearsalRuns.findOne({ where: { runId } });
+    if (!currentRun || currentRun.projectId !== projectId) {
+      throw new NotFoundException(`Rehearsal run not found: ${runId}`);
+    }
+    if (currentRun.status !== "succeeded" || currentRun.rehearsalReport === null) {
+      throw new ConflictException({
+        code: "REHEARSAL_COMPARISON_NOT_READY",
+        message: "Rehearsal comparison is available after the report succeeds."
+      });
+    }
+
+    const currentReport = rehearsalReportSchema.safeParse(
+      currentRun.rehearsalReport
+    );
+    if (!currentReport.success) {
+      throw new ConflictException({
+        code: "REHEARSAL_COMPARISON_REPORT_INVALID",
+        message: "The current rehearsal report cannot be compared."
+      });
+    }
+
+    const previousRun = await this.rehearsalRuns.findOne({
+      where: {
+        projectId,
+        status: "succeeded",
+        createdAt: LessThan(currentRun.createdAt)
+      },
+      order: { createdAt: "DESC" }
+    });
+    const previousReport = previousRun?.rehearsalReport
+      ? rehearsalReportSchema.safeParse(previousRun.rehearsalReport)
+      : null;
+    const comparison = buildRehearsalRunComparison({
+      currentReport: currentReport.data,
+      currentRunId: currentRun.runId,
+      previousReport: previousReport?.success ? previousReport.data : null,
+      previousRunId: previousReport?.success ? previousRun?.runId ?? null : null
+    });
+
+    return getRehearsalRunComparisonResponseSchema.parse(comparison);
+  }
+
+  async retrySemanticEvaluation(runId: string) {
+    const run = await this.getRunEntity(runId);
+    if (
+      run.status !== "succeeded" ||
+      run.rehearsalReport === null ||
+      run.semanticEvaluationMode !== "full" ||
+      run.evaluationSnapshot === null
+    ) {
+      throw new ConflictException({
+        code: "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY",
+        message: "Rehearsal semantic evaluation is not ready for retry.",
+        retryable: false
+      });
+    }
+
+    const hasEvidence = await this.transcriptCache.hasSemanticEvidence(run.runId);
+    if (!hasEvidence) {
+      throw new ConflictException({
+        code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+        message: "Rehearsal semantic evidence has expired.",
+        retryable: false
+      });
+    }
+
+    const report = rehearsalReportSchema.safeParse(run.rehearsalReport);
+    if (!report.success || !report.data.semanticEvaluation.retryable) {
+      throw new ConflictException({
+        code: "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY",
+        message: "Rehearsal semantic evaluation is not retryable.",
+        retryable: false
+      });
+    }
+
+    const queuedJob = await this.jobsService.create({
+      projectId: run.projectId,
+      type: "rehearsal-semantic-evaluation",
+      payload: { runId: run.runId }
+    });
+
+    try {
+      await this.enqueueSemanticEvaluationJob({
+        driver: this.config.JOB_QUEUE_DRIVER,
+        redisUrl: this.config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId: run.projectId,
+        runId: run.runId
+      });
+      this.logger.info(
+        {
+          event: "job.enqueued",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId: run.projectId,
+          runId: run.runId,
+          deckId: run.deckId,
+          driver: this.config.JOB_QUEUE_DRIVER
+        },
+        "Rehearsal semantic evaluation retry enqueued."
+      );
+    } catch (error) {
+      const failure = {
+        code: "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Rehearsal semantic evaluation retry enqueue failed."
+      };
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Rehearsal semantic evaluation retry enqueue failed.",
+        error: failure
+      });
+      this.logger.error(
+        {
+          event: "rehearsal.semantic_evaluation.retry_failed",
+          projectId: run.projectId,
+          deckId: run.deckId,
+          deckVersion: run.deckVersion ?? undefined,
+          runId: run.runId,
+          jobId: queuedJob.jobId,
+          reason: failure.code
+        },
+        "Rehearsal semantic evaluation retry enqueue failed."
+      );
+      throw error;
+    }
+
+    return retryRehearsalSemanticEvaluationResponseSchema.parse({
+      job: queuedJob
     });
   }
 
@@ -416,6 +648,9 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     deckId: run.deckId,
     audioFileId: run.audioFileId,
     jobId: run.jobId,
+    deckVersion: run.deckVersion,
+    evaluationSnapshot: run.evaluationSnapshot,
+    semanticEvaluationMode: run.semanticEvaluationMode,
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,
