@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import importlib
 import json
 import math
@@ -222,11 +223,13 @@ def sync_pptx_ooxml(
         slide_width_emu=max(1, int(presentation.slide_width or 1)),
         slide_height_emu=max(1, int(presentation.slide_height or 1)),
     )
-    package_bytes, patch_warnings = apply_patch_operations_to_package(
-        path.read_bytes(),
-        template_blueprint,
-        operations,
-        scale,
+    package_bytes, patch_warnings, updated_element_sources = (
+        apply_patch_operations_to_package(
+            path.read_bytes(),
+            template_blueprint,
+            operations,
+            scale,
+        )
     )
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
@@ -241,10 +244,7 @@ def sync_pptx_ooxml(
 
     return PptxOoxmlSyncResult(
         assets=assets,
-        elementSources=element_sources_for_added_operations(
-            template_blueprint,
-            operations,
-        ),
+        elementSources=updated_element_sources,
         warnings=warnings,
     )
 
@@ -339,11 +339,13 @@ def apply_patch_operations_to_package(
     template_blueprint: dict[str, Any],
     operations: list[dict[str, Any]],
     scale: PackageFrameScale,
-) -> tuple[bytes, list[str]]:
+) -> tuple[bytes, list[str], list[dict[str, Any]]]:
     sources = element_source_map(template_blueprint)
     warnings: list[str] = []
+    updated_sources: dict[tuple[str, str], dict[str, Any]] = {}
 
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
+        source_names = set(source.namelist())
         slide_parts = {
             f"ppt/slides/slide{int_value(slide.get('sourceSlideIndex'), int_value(slide.get('slideIndex'), 1))}.xml"
             for slide in template_blueprint.get("slides", [])
@@ -354,48 +356,81 @@ def apply_patch_operations_to_package(
             for item in sources.values()
             if str(item.get("slidePart", ""))
         )
-        slide_xml_by_part = {
+        package_entries = {
             slide_part: source.read(slide_part)
             for slide_part in slide_parts
-            if slide_part in source.namelist()
+            if slide_part in source_names
         }
+        for slide_part in slide_parts:
+            rels_part = rels_part_for_slide_part(slide_part)
+            if rels_part in source_names:
+                package_entries[rels_part] = source.read(rels_part)
+        if "[Content_Types].xml" in source_names:
+            package_entries["[Content_Types].xml"] = source.read(
+                "[Content_Types].xml"
+            )
+        added_entries: dict[str, bytes] = {}
 
         for operation in operations:
             apply_sync_operation(
                 operation,
                 sources,
-                slide_xml_by_part,
+                package_entries,
+                added_entries,
+                updated_sources,
                 scale,
                 warnings,
             )
 
         changed_entries = {
-            slide_part: slide_xml
-            for slide_part, slide_xml in slide_xml_by_part.items()
-            if slide_xml != source.read(slide_part)
+            part: content
+            for part, content in package_entries.items()
+            if part not in source_names or content != source.read(part)
         }
-        return rewrite_zip(source, changed_entries), warnings
+        if not changed_entries and not added_entries:
+            return package_bytes, warnings, list(updated_sources.values())
+        return (
+            rewrite_zip(source, changed_entries, added_entries),
+            warnings,
+            list(updated_sources.values()),
+        )
 
 
 def apply_sync_operation(
     operation: dict[str, Any],
-    sources: dict[str, dict[str, Any]],
-    slide_xml_by_part: dict[str, bytes],
+    sources: dict[tuple[str, str], dict[str, Any]],
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
+    updated_sources: dict[tuple[str, str], dict[str, Any]],
     scale: PackageFrameScale,
     warnings: list[str],
 ) -> None:
     operation_type = str(operation.get("type", ""))
     element_id = str(operation.get("elementId", ""))
+    operation_slide_part = slide_part_for_operation(operation)
 
     if operation_type == "add_element":
         element = operation.get("element")
         if isinstance(element, dict):
-            add_element_to_slide_xml(
-                operation, element, slide_xml_by_part, scale, warnings
+            added_source = add_element_to_slide_xml(
+                operation,
+                element,
+                package_entries,
+                added_entries,
+                scale,
+                warnings,
             )
+            if added_source is not None:
+                added_key = (
+                    str(added_source["slidePart"]),
+                    str(added_source["elementId"]),
+                )
+                sources[added_key] = added_source
+                updated_sources[added_key] = added_source
         return
 
-    source = sources.get(element_id)
+    source_key = (operation_slide_part, element_id)
+    source = sources.get(source_key)
     if not source:
         warnings.append(f"OOXML source missing for {element_id}.")
         return
@@ -404,7 +439,7 @@ def apply_sync_operation(
         return
 
     slide_part = str(source.get("slidePart", ""))
-    slide_xml = slide_xml_by_part.get(slide_part)
+    slide_xml = package_entries.get(slide_part)
     if slide_xml is None:
         warnings.append(f"OOXML slide part missing for {element_id}.")
         return
@@ -415,26 +450,51 @@ def apply_sync_operation(
         warnings.append(f"OOXML shape missing for {element_id}.")
         return
 
+    shape_changed = False
     if operation_type == "update_element_props":
         props = operation.get("props")
         if isinstance(props, dict):
-            update_shape_props(shape, props, warnings, element_id)
+            shape_changed = update_shape_props(
+                shape,
+                props,
+                source,
+                slide_part,
+                package_entries,
+                added_entries,
+                updated_sources,
+                source_key,
+                warnings,
+                element_id,
+            )
     elif operation_type == "update_element_frame":
         frame = operation.get("frame")
         if isinstance(frame, dict):
-            update_shape_frame(shape, frame, scale)
+            if has_group_shape_ancestor(root, shape):
+                warnings.append(
+                    f"OOXML grouped frame sync skipped for {element_id}."
+                )
+            else:
+                update_shape_frame(shape, frame, scale)
+                shape_changed = True
             if "zIndex" in frame:
                 warnings.append(f"OOXML zIndex sync skipped for {element_id}.")
     elif operation_type == "delete_element":
         if parent is not None:
             parent.remove(shape)
+            shape_changed = True
 
-    slide_xml_by_part[slide_part] = xml_bytes(root)
+    if shape_changed:
+        package_entries[slide_part] = xml_bytes(root)
 
 
-def element_source_map(template_blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def element_source_map(
+    template_blueprint: dict[str, Any],
+) -> dict[tuple[str, str], dict[str, Any]]:
     return {
-        str(source.get("elementId")): source
+        (
+            str(source.get("slidePart", "")),
+            str(source.get("elementId", "")),
+        ): dict(source)
         for slide in template_blueprint.get("slides", [])
         if isinstance(slide, dict)
         for source in slide.get("elementSources", [])
@@ -455,16 +515,170 @@ def find_shape_by_id(
     return None, None
 
 
+def has_group_shape_ancestor(
+    root: ET.Element[Any], shape: ET.Element[Any]
+) -> bool:
+    parents = {child: parent for parent in root.iter() for child in list(parent)}
+    parent = parents.get(shape)
+    while parent is not None:
+        if local_name(parent) == "grpSp":
+            return True
+        parent = parents.get(parent)
+    return False
+
+
 def update_shape_props(
     shape: ET.Element[Any],
     props: dict[str, Any],
+    source: dict[str, Any],
+    slide_part: str,
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
+    updated_sources: dict[tuple[str, str], dict[str, Any]],
+    source_key: tuple[str, str],
     warnings: list[str],
     element_id: str,
-) -> None:
+) -> bool:
     if "text" in props:
         replace_shape_text(shape, str(props.get("text") or ""))
-        return
+        return True
+    if "src" in props:
+        if source.get("fallbackReason"):
+            warnings.append(f"OOXML fallback source preserved for {element_id}.")
+            return False
+        replacement = decode_image_data_url(props.get("src"))
+        if isinstance(replacement, str):
+            warnings.append(f"OOXML image sync skipped for {element_id}: {replacement}.")
+            return False
+        mime_type, image_blob = replacement
+        relationship_id = replace_picture_media_relationship(
+            shape,
+            source,
+            slide_part,
+            mime_type,
+            image_blob,
+            package_entries,
+            added_entries,
+            warnings,
+            element_id,
+        )
+        if relationship_id is None:
+            return False
+        source["relationshipId"] = relationship_id
+        updated_sources[source_key] = dict(source)
+        return True
     warnings.append(f"OOXML prop sync skipped for {element_id}.")
+    return False
+
+
+def decode_image_data_url(value: Any) -> tuple[str, bytes] | str:
+    if not isinstance(value, str):
+        return "invalid data URL"
+    header, separator, payload = value.partition(",")
+    if not separator or not header.lower().startswith("data:"):
+        return "invalid data URL"
+    if not header.lower().endswith(";base64"):
+        return "invalid data URL"
+
+    mime_type = header[5:-7].lower()
+    expected_format = {
+        "image/png": "PNG",
+        "image/jpeg": "JPEG",
+        "image/gif": "GIF",
+        "image/webp": "WEBP",
+    }.get(mime_type)
+    if expected_format is None:
+        return f"unsupported MIME type {mime_type or 'unknown'}"
+
+    try:
+        image_blob = base64.b64decode(payload, validate=True)
+        with Image.open(BytesIO(image_blob)) as image:
+            image.verify()
+            actual_format = str(image.format or "").upper()
+    except (binascii.Error, OSError, SyntaxError, ValueError):
+        return "invalid image data"
+    if actual_format != expected_format:
+        return f"image data does not match {mime_type}"
+    return mime_type, image_blob
+
+
+def replace_picture_media_relationship(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+    slide_part: str,
+    mime_type: str,
+    image_blob: bytes,
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
+    warnings: list[str],
+    element_id: str,
+) -> str | None:
+    if shape.tag != P_PIC:
+        warnings.append(f"OOXML image source is not a picture for {element_id}.")
+        return None
+
+    blip = next(shape.iter(A_BLIP), None)
+    expected_relationship_id = str(source.get("relationshipId", ""))
+    current_relationship_id = (
+        str(blip.get(f"{{{REL_NS}}}embed", "")) if blip is not None else ""
+    )
+    if (
+        blip is None
+        or not expected_relationship_id
+        or current_relationship_id != expected_relationship_id
+    ):
+        warnings.append(f"OOXML image relationship mismatch for {element_id}.")
+        return None
+
+    rels_part = rels_part_for_slide_part(slide_part)
+    rels_xml = package_entries.get(rels_part)
+    content_types_xml = package_entries.get("[Content_Types].xml")
+    if rels_xml is None or not is_image_relationship(
+        rels_xml, expected_relationship_id
+    ):
+        warnings.append(f"OOXML image relationship missing for {element_id}.")
+        return None
+    if content_types_xml is None:
+        warnings.append(f"OOXML content types missing for {element_id}.")
+        return None
+
+    extension = extension_for_mime_type(mime_type)
+    media_token = safe_package_token(
+        f"{Path(slide_part).stem}_{source.get('shapeId', 'image')}"
+    )
+    media_name = f"orbit_sync_{media_token}.{extension}"
+    media_part = f"ppt/media/{media_name}"
+    relationship_id, next_rels_xml = append_image_relationship(
+        rels_xml,
+        f"../media/{media_name}",
+    )
+
+    blip.set(f"{{{REL_NS}}}embed", relationship_id)
+    package_entries[rels_part] = next_rels_xml
+    package_entries["[Content_Types].xml"] = ensure_content_type_default(
+        content_types_xml,
+        extension,
+        mime_type,
+    )
+    added_entries[media_part] = image_blob
+    return relationship_id
+
+
+def is_image_relationship(rels_xml: bytes, relationship_id: str) -> bool:
+    root = ET.fromstring(rels_xml)
+    return any(
+        child.get("Id") == relationship_id
+        and child.get("Type") == IMAGE_REL_TYPE
+        for child in list(root)
+    )
+
+
+def safe_package_token(value: str) -> str:
+    token = "".join(
+        char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+        for char in value
+    )
+    return token or "image"
 
 
 def replace_shape_text(shape: ET.Element[Any], text: str) -> None:
@@ -486,14 +700,12 @@ def update_shape_frame(
     scale: PackageFrameScale,
 ) -> None:
     xfrm = ensure_xfrm(shape)
-    off = first_local_child(xfrm, "off") or ET.SubElement(
-        xfrm,
-        f"{{{DML_NS}}}off",
-    )
-    ext = first_local_child(xfrm, "ext") or ET.SubElement(
-        xfrm,
-        f"{{{DML_NS}}}ext",
-    )
+    off = first_local_child(xfrm, "off")
+    if off is None:
+        off = ET.SubElement(xfrm, f"{{{DML_NS}}}off")
+    ext = first_local_child(xfrm, "ext")
+    if ext is None:
+        ext = ET.SubElement(xfrm, f"{{{DML_NS}}}ext")
     x, y, width, height = frame_to_emu(frame, scale)
     off.set("x", str(x))
     off.set("y", str(y))
@@ -506,18 +718,18 @@ def update_shape_frame(
 def add_element_to_slide_xml(
     operation: dict[str, Any],
     element: dict[str, Any],
-    slide_xml_by_part: dict[str, bytes],
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
     scale: PackageFrameScale,
     warnings: list[str],
-) -> None:
-    slide_index = slide_index_from_id(str(operation.get("slideId", "")))
-    slide_part = f"ppt/slides/slide{slide_index}.xml"
-    slide_xml = slide_xml_by_part.get(slide_part)
+) -> dict[str, Any] | None:
+    slide_part = slide_part_for_operation(operation)
+    slide_xml = package_entries.get(slide_part)
     if slide_xml is None:
         warnings.append(
             f"OOXML slide part missing for added element {element.get('elementId')}."
         )
-        return
+        return None
 
     root = ET.fromstring(slide_xml)
     shape_tree = first_local_descendant(root, "spTree")
@@ -525,46 +737,82 @@ def add_element_to_slide_xml(
         warnings.append(
             f"OOXML shape tree missing for added element {element.get('elementId')}."
         )
-        return
+        return None
 
     next_shape_id = next_c_nv_pr_id(root)
+    element_id = str(element.get("elementId", ""))
     element_type = str(element.get("type", ""))
     if element_type == "text":
-        shape_tree.append(text_shape_element(next_shape_id, element, scale))
+        shape = text_shape_element(next_shape_id, element, scale)
+        source_type = "slide"
+        relationship_id = None
     elif element_type == "rect":
-        shape_tree.append(rect_shape_element(next_shape_id, element, scale))
+        shape = rect_shape_element(next_shape_id, element, scale)
+        source_type = "slide"
+        relationship_id = None
+    elif element_type == "image":
+        replacement = decode_image_data_url(dict_value(element, "props").get("src"))
+        if isinstance(replacement, str):
+            warnings.append(
+                f"OOXML add_element image skipped for {element_id}: {replacement}."
+            )
+            return None
+        content_types_xml = package_entries.get("[Content_Types].xml")
+        if content_types_xml is None:
+            warnings.append(f"OOXML content types missing for {element_id}.")
+            return None
+        mime_type, image_blob = replacement
+        extension = extension_for_mime_type(mime_type)
+        rels_part = rels_part_for_slide_part(slide_part)
+        rels_xml = package_entries.get(rels_part, empty_relationships_xml())
+        media_name = f"orbit_sync_{Path(slide_part).stem}_{next_shape_id}.{extension}"
+        media_part = f"ppt/media/{media_name}"
+        try:
+            relationship_id, next_rels_xml = append_image_relationship(
+                rels_xml,
+                f"../media/{media_name}",
+            )
+            next_content_types_xml = ensure_content_type_default(
+                content_types_xml,
+                extension,
+                mime_type,
+            )
+        except (ET.ParseError, ValueError):
+            warnings.append(f"OOXML image relationship invalid for {element_id}.")
+            return None
+        shape = picture_shape_element(
+            next_shape_id,
+            element,
+            relationship_id,
+            scale,
+        )
+        source_type = "image"
     else:
         warnings.append(f"OOXML add_element skipped for {element_type}.")
-        return
-    slide_xml_by_part[slide_part] = xml_bytes(root)
+        return None
+
+    shape_tree.append(shape)
+    package_entries[slide_part] = xml_bytes(root)
+    if element_type == "image":
+        package_entries[rels_part] = next_rels_xml
+        package_entries["[Content_Types].xml"] = next_content_types_xml
+        added_entries[media_part] = image_blob
+
+    source: dict[str, Any] = {
+        "elementId": element_id,
+        "slidePart": slide_part,
+        "shapeId": str(next_shape_id),
+        "sourceType": source_type,
+        "writable": True,
+    }
+    if relationship_id is not None:
+        source["relationshipId"] = relationship_id
+    return source
 
 
-def element_sources_for_added_operations(
-    template_blueprint: dict[str, Any],
-    operations: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    del template_blueprint
-    sources: list[dict[str, Any]] = []
-    for operation in operations:
-        if operation.get("type") != "add_element" or not isinstance(
-            operation.get("element"), dict
-        ):
-            continue
-        element = cast(dict[str, Any], operation["element"])
-        element_id = str(element.get("elementId", ""))
-        if not element_id:
-            continue
-        sources.append(
-            {
-                "elementId": element_id,
-                "slidePart": f"ppt/slides/slide{slide_index_from_id(str(operation.get('slideId', '')))}.xml",
-                "shapeId": "0",
-                "sourceType": "slide",
-                "writable": False,
-                "fallbackReason": "source map refresh required",
-            }
-        )
-    return sources
+def slide_part_for_operation(operation: dict[str, Any]) -> str:
+    slide_index = slide_index_from_id(str(operation.get("slideId", "")))
+    return f"ppt/slides/slide{slide_index}.xml"
 
 
 def text_shape_element(
@@ -593,7 +841,55 @@ def rect_shape_element(
         ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
         f"{{{DML_NS}}}avLst",
     )
+    fill = dict_value(element, "props").get("fill")
+    if fill == "transparent":
+        ET.SubElement(sp_pr, f"{{{DML_NS}}}noFill")
+    elif isinstance(fill, str) and valid_hex_color(fill):
+        solid_fill = ET.SubElement(sp_pr, f"{{{DML_NS}}}solidFill")
+        ET.SubElement(solid_fill, f"{{{DML_NS}}}srgbClr", {"val": fill[1:]})
     return shape
+
+
+def picture_shape_element(
+    shape_id: int,
+    element: dict[str, Any],
+    relationship_id: str,
+    scale: PackageFrameScale,
+) -> ET.Element[Any]:
+    picture = ET.Element(P_PIC)
+    nv_pic_pr = ET.SubElement(picture, f"{{{PML_NS}}}nvPicPr")
+    ET.SubElement(
+        nv_pic_pr,
+        f"{{{PML_NS}}}cNvPr",
+        {"id": str(shape_id), "name": "Orbit image"},
+    )
+    ET.SubElement(nv_pic_pr, f"{{{PML_NS}}}cNvPicPr")
+    ET.SubElement(nv_pic_pr, f"{{{PML_NS}}}nvPr")
+    blip_fill = ET.SubElement(picture, f"{{{PML_NS}}}blipFill")
+    ET.SubElement(
+        blip_fill,
+        A_BLIP,
+        {f"{{{REL_NS}}}embed": relationship_id},
+    )
+    stretch = ET.SubElement(blip_fill, f"{{{DML_NS}}}stretch")
+    ET.SubElement(stretch, f"{{{DML_NS}}}fillRect")
+    sp_pr = ET.SubElement(picture, f"{{{PML_NS}}}spPr")
+    update_shape_frame(picture, element, scale)
+    ET.SubElement(
+        ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
+        f"{{{DML_NS}}}avLst",
+    )
+    return picture
+
+
+def valid_hex_color(value: str) -> bool:
+    if len(value) != 7 or not value.startswith("#"):
+        return False
+    try:
+        int(value[1:], 16)
+    except ValueError:
+        return False
+    return True
 
 
 def base_shape_element(
