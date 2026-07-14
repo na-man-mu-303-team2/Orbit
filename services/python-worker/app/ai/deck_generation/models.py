@@ -622,6 +622,17 @@ class LayoutCompileResult(BaseModel):
     slides: list[dict[str, Any]]
 
 
+class VisualRequirement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_id: str = Field(alias="slideId")
+    visual_plan: dict[str, Any] = Field(alias="visualPlan")
+
+
+class VisualRequirements(BaseModel):
+    items: list[VisualRequirement]
+
+
 class ValidationIssue(BaseModel):
     code: str = "UNSPECIFIED"
     scope: Literal["deck", "slide", "element"]

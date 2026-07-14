@@ -292,17 +292,21 @@ from app.ai.deck_generation.layout_compiler import (  # noqa: F401
     cap_elements,
     compile_layout,
     core_geometry_fingerprint,
-    descriptive_media_prompt_part,
     design_pack_timing_plan,
     exclude_from_core_geometry,
     is_canvas_background_element,
     is_priority_element,
     is_required_element,
     program_v2_ai_notes,
+    without_canvas_background_elements,
+)
+from app.ai.deck_generation.visual_requirements import (  # noqa: F401
+    apply_visual_requirements,
+    descriptive_media_prompt_part,
+    plan_visual_requirements,
     program_v2_image_prompt,
     program_v2_visual_plan,
     program_v2_visual_type,
-    without_canvas_background_elements,
 )
 
 
@@ -398,6 +402,15 @@ class DeckGenerationOrchestrator:
         design_plan = self.run_design_director_agent(raw_input, slide_plans)
         template_selection: list[TemplateSelectionItem] = []
         layout_result = self.run_layout_agent(raw_input, design_plan)
+        visual_requirements = plan_visual_requirements(
+            raw_input,
+            design_plan,
+            layout_result,
+        )
+        layout_result = apply_visual_requirements(
+            layout_result,
+            visual_requirements,
+        )
         deck = self.build_deck(raw_input, outline, design_plan, layout_result)
         deck = enforce_design_pack_constraints(deck, raw_input)
         self.run_chart_data_agent(deck)

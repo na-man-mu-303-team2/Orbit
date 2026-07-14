@@ -24,13 +24,15 @@ from app.ai.deck_generation.design_planning import (
     plan_design,
     program_v2_slide_summary,
 )
-from app.ai.deck_generation.layout_compiler import (
-    compile_layout,
-    program_v2_visual_plan,
-)
+from app.ai.deck_generation.layout_compiler import compile_layout
 from app.ai.deck_generation.source_grounding import (
     design_pack_source_ledgers,
     initial_source_records,
+)
+from app.ai.deck_generation.visual_requirements import (
+    apply_visual_requirements,
+    plan_visual_requirements,
+    program_v2_visual_plan,
 )
 from app.ai.generate_deck import (
     DeckGenerationOrchestrator,
@@ -660,6 +662,36 @@ def test_program_v2_design_and_layout_stages_compile_canonical_backgrounds() -> 
         raw_input,
         design_plan,
     )
+    assert all(
+        "visualPlan" not in slide["aiNotes"] for slide in layout_result.slides
+    )
+    expected_visual_plans = [
+        program_v2_visual_plan(
+            raw_input,
+            slide_plan,
+            design_plan.design_program,
+            design_plan.design_program.slides[slide_plan.order - 1],
+        )
+        for slide_plan in design_plan.slide_plans
+    ]
+    requirements = plan_visual_requirements(
+        raw_input,
+        design_plan,
+        layout_result,
+    )
+    assert [item.visual_plan for item in requirements.items] == expected_visual_plans
+    layout_result = apply_visual_requirements(layout_result, requirements)
+    assert [
+        slide["aiNotes"]["visualPlan"] for slide in layout_result.slides
+    ] == expected_visual_plans
+    assert list(layout_result.slides[0]["aiNotes"]) == [
+        "emphasisPoints",
+        "sourceEvidence",
+        "visualPlan",
+        "sourceLedger",
+        "timingPlan",
+        "compositionPlan",
+    ]
     deck = orchestrator.build_deck(
         raw_input,
         type("Outline", (), {"title": "Splatoon Raiders"})(),
