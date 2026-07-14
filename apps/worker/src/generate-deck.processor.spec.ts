@@ -328,16 +328,22 @@ describe("processGenerateDeckJob", () => {
         (slide) => slide.aiNotes?.compositionPlan?.backgroundMode
       )
     );
-    expect(events).toEqual(
-      expect.arrayContaining([
-        "ai-ppt.design-program.created",
-        "ai-ppt.composition.completed",
-        "ai-ppt.asset.resolved",
-        "ai-ppt.visual-review.completed",
-        "ai-ppt.deck.published"
-      ])
-    );
-    expect(events.filter((event) => event === "ai-ppt.deck.published")).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "http://localhost:8000/ai/generate-deck",
+      "http://localhost:8000/ai/review-deck-visuals"
+    ]);
+    expect(
+      query.mock.calls
+        .filter(([sql]) => String(sql).includes("UPDATE jobs"))
+        .map(([, params]) => params[2])
+    ).toEqual([15, 45, 65, 75, 95, 100]);
+    expect(events).toEqual([
+      "ai-ppt.design-program.created",
+      "ai-ppt.composition.completed",
+      "ai-ppt.asset.resolved",
+      "ai-ppt.visual-review.completed",
+      "ai-ppt.deck.published"
+    ]);
   });
 
   it("embeds stored image assets only in the visual review request", async () => {

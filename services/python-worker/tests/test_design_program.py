@@ -24,6 +24,7 @@ from app.ai.generate_deck import (
     SourceRecord,
     VisualIntent,
     analyze_input,
+    apply_timing_to_slide_plans,
     apply_program_v2_design_tokens,
     design_pack_source_ledgers,
     initial_source_records,
@@ -180,6 +181,22 @@ class FakeResponses:
             else json.dumps(payload, ensure_ascii=False)
         )
         return SimpleNamespace(output_text=output_text)
+
+
+class PipelineFakeResponses:
+    def __init__(self, payloads: dict[str, dict[str, Any]]) -> None:
+        self.payloads = payloads
+        self.requests: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        response_format_name = kwargs["text"]["format"]["name"]
+        return SimpleNamespace(
+            output_text=json.dumps(
+                self.payloads[response_format_name],
+                ensure_ascii=False,
+            )
+        )
 
 
 def test_art_director_prompt_uses_only_compact_slide_summaries() -> None:
@@ -651,6 +668,102 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
     assert all(slide["animations"] == [] for slide in deck["slides"])
 
 
+def test_program_v2_golden_pipeline_contract() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "splatoon_product_launch_golden_request.json"
+    )
+    request = GenerateDeckRequest.model_validate_json(fixture_path.read_text("utf-8"))
+    request.reference_policy = "user-input-only"
+    request.brief.reference_policy = "user-input-only"
+    request.design.reference_policy = "user-input-only"
+    responses = PipelineFakeResponses(
+        {
+            "design_pack_content_plan": golden_content_plan(request),
+            "deck_design_program": golden_design_program(),
+        }
+    )
+    orchestrator = DeckGenerationOrchestrator(
+        request,
+        client=SimpleNamespace(responses=responses),
+    )
+
+    response = orchestrator.run()
+
+    assert list(orchestrator.agent_outputs) == [
+        "BriefAgent",
+        "SourceGroundingAgent",
+        "NarrativeAgent",
+        "DesignDirectorAgent",
+        "LayoutAgent",
+        "ChartDataAgent",
+        "MediaAgent",
+        "QualityReviewerAgent",
+        "RefinerAgent",
+    ]
+    assert [
+        request_payload["text"]["format"]["name"]
+        for request_payload in responses.requests
+    ] == [
+        "design_pack_content_plan",
+        "design_pack_content_plan",
+        "deck_design_program",
+    ]
+
+    deck = response.deck
+    assert [slide["order"] for slide in deck["slides"]] == list(range(1, 11))
+    assert [slide["slideId"] for slide in deck["slides"]] == [
+        f"slide_{order}" for order in range(1, 11)
+    ]
+    title_element = next(
+        element
+        for element in deck["slides"][0]["elements"]
+        if element["elementId"] == "el_1_program_v2_title"
+    )
+    assert {
+        key: title_element[key]
+        for key in ("elementId", "type", "role", "x", "y", "width", "height")
+    } == {
+        "elementId": "el_1_program_v2_title",
+        "type": "text",
+        "role": "title",
+        "x": 120,
+        "y": 304,
+        "width": 1254,
+        "height": 256,
+    }
+    assert title_element["props"]["text"] == "미지의 군도로"
+    assert all(slide["animations"] == [] for slide in deck["slides"])
+
+    assert response.validation.model_dump(by_alias=True) == {
+        "passed": True,
+        "layoutIssues": [],
+        "contentIssues": [],
+        "designIssues": [],
+        "presentationIssues": [],
+    }
+    assert response.warnings == [
+        "참고자료 없이 topic-only generation으로 생성했습니다."
+    ]
+    assert response.diagnostics.model_dump(by_alias=True) == {
+        "referencePolicy": "user-input-only",
+        "uploadedSourceCount": 0,
+        "webSourceCount": 0,
+        "researchAttempts": 0,
+        "relevantWebSourceCount": 0,
+        "officialWebSourceCount": 0,
+        "repairAttempted": True,
+        "repairReasons": ["CONTENT_DUPLICATED", "SPEAKER_NOTES_SHORT"],
+        "uniqueCoreLayoutCount": 6,
+        "validationIssueCount": 0,
+        "visualQaStatus": "not-run",
+        "visualReviewAttempts": 0,
+        "visualRepairAttempts": 0,
+        "visualIssueCodes": [],
+    }
+
+
 def test_splatoon_product_launch_golden_composition_contract() -> None:
     fixture_path = (
         Path(__file__).parent
@@ -783,6 +896,38 @@ def golden_slide_plans() -> list[SlidePlan]:
             )
         )
     return plans
+
+
+def golden_content_plan(request: GenerateDeckRequest) -> dict[str, Any]:
+    raw_input = analyze_input(request)
+    plans = apply_timing_to_slide_plans(raw_input, golden_slide_plans())
+    slides: list[dict[str, Any]] = []
+    for plan in plans:
+        note_seed = "".join(
+            [
+                plan.title,
+                plan.message,
+                *[item.text for item in plan.content_items],
+            ]
+        )
+        target = plan.target_speaker_notes_chars
+        speaker_notes = (note_seed * (target // len(note_seed) + 1))[:target]
+        slides.append(
+            {
+                "title": plan.title,
+                "message": plan.message,
+                "speakerNotes": speaker_notes,
+                "keywords": plan.keywords,
+                "slideType": plan.slide_type,
+                "visualIntent": plan.visual_intent.model_dump(by_alias=True),
+                "mediaIntent": plan.media_intent.model_dump(by_alias=True),
+                "contentItems": [
+                    item.model_dump(by_alias=True) for item in plan.content_items
+                ],
+                "sourceRefs": plan.source_refs,
+            }
+        )
+    return {"title": "스플래툰 레이더스", "slides": slides}
 
 
 def golden_design_program() -> dict[str, Any]:
