@@ -147,6 +147,63 @@ PresentationBrief와 RehearsalFocusProfile Snapshot
 
 마지막 기준까지 고정해 입력 배열 순서가 달라도 같은 결과를 만든다.
 
+#### 구현에서 추가로 구체화한 정렬 결정
+
+위 정렬 기준은 업무분담 문서의 정책을 구현 가능한 비교 규칙으로 구체화한 것이다.
+아래 세부 규칙은 `deriveProblemCandidates()`의 `compareCandidates()`에 고정한다.
+
+1. `focusPriority`를 가장 먼저 비교한다.
+   - `RehearsalFocusProfileSnapshot`에서 Criterion과 일치하는 Focus Item을 찾는다.
+   - Focus Item의 `priority`가 낮을수록 먼저 정렬한다.
+   - Focus Item이 없는 후보는 `99`로 취급해 사용자 지정 목표보다 뒤에 둔다.
+   - 이 값은 최종 `PracticeGoal.priority`가 아니다. 정렬에 사용하는 사용자 목표의 우선순위다.
+2. Brief Criterion을 system Criterion보다 먼저 둔다.
+   - 현재 구현에서는 영향도 점수를 별도로 계산하지 않고 `criterion.source === "brief"` 여부를 비교한다.
+   - Brief에서 승인된 필수 내용·시작·마무리에서 파생된 문제를 먼저 고려한다.
+3. evaluator Lens별 category 순서를 고정한다.
+
+   | evaluator Lens | category 우선순위 |
+   | --- | --- |
+   | `decision-maker` | `semantic` → `structure` → `timing` → `delivery` |
+   | `strict-reviewer` | `semantic` → `delivery` → `structure` → `timing` |
+   | `general-novice` | `structure` → `semantic` → `timing` → `delivery` |
+
+   category 순서는 `lensOrder()`에서 index로 변환하고, index가 낮은 후보를 먼저 둔다.
+4. 같은 조건에서는 `failed`를 `partial`보다 먼저 둔다.
+   - 둘 다 measured 문제 후보지만, 완전 실패를 부분 전달보다 먼저 노출한다.
+   - 업무분담 문서의 고수준 기준을 구현 단계에서 추가로 세분화한 tie-break다.
+5. `severity`를 관측값 종류별로 수치화한다.
+   - `partial`은 `1`로 둔다.
+   - semantic `contradicted`는 `3`, 그 외 semantic 실패는 `2`로 둔다.
+   - 최대 허용 시간 criterion은 `관측 시간 / 허용 시간`으로 계산한다.
+   - 최대 횟수 criterion은 `1 + (관측 횟수 - 허용 횟수) / (허용 횟수 + 1)`로 계산한다.
+   - 같은 값이면 다음 정렬 기준으로 넘어가며, severity가 큰 후보를 먼저 둔다.
+6. 근거 신뢰도는 bounded evidence의 존재 여부로 구체화한다.
+   - `observation.evidenceRefs.length > 0`이면 `hasBoundedEvidence=true`다.
+   - 근거의 개수나 종류별 가중치는 별도로 계산하지 않는다.
+   - 근거가 있는 후보를 근거가 없는 후보보다 먼저 둔다.
+7. 반복 여부는 `patternKey`로 판정한다.
+   - `patternKey`는 category, `criterionId`, revision, scope를 hash한 값이다.
+   - 이 값이 `repeatedPatternKeys`에 있으면 반복 문제로 처리한다.
+   - 반복 여부는 비교 가능한 전체 발표에서 계산된 입력만 사용하며, Top 3 도출기에서 새로 추정하지 않는다.
+8. 집중 연습 가능 여부는 `targetScope`의 존재 여부로 비교한다.
+   - `targetScope !== null`이면 focused practice가 가능한 후보로 보고 먼저 둔다.
+   - `targetScope === null`이면 full rehearsal 대상이므로 뒤에 둔다.
+9. 슬라이드 순서를 deterministic 값으로 변환한다.
+   - `opening`은 `0`, `closing`은 `998`을 사용한다.
+   - 슬라이드 또는 슬라이드 범위는 실제 slide order를 사용하며, 범위는 시작 슬라이드 순서를 사용한다.
+   - order를 찾지 못한 범위와 run scope는 `999`로 둔다.
+10. 마지막 tie-break는 `stableCandidateKey`로 고정한다.
+    - key에는 `criterionId`, revision, scope, `observationIds`를 포함한다.
+    - canonical JSON으로 직렬화한 뒤 사전순 비교한다.
+    - 따라서 입력 배열 순서가 달라도 같은 후보 순서를 만든다.
+
+후보는 같은 `criterionId`, revision, scope를 가진 문제를 하나로 병합한다.
+병합 시 `evidenceRefs`와 `observationIds`를 합치고, 중복을 제거한 뒤 안정적으로 정렬한다.
+병합이 끝난 후보를 다시 `compareCandidates()`로 정렬하고 최대 3개를 선택한다.
+최종 `PracticeGoal.priority`는 이 선택 결과의 배열 index에 `1`을 더해 부여한다.
+따라서 `focusPriority`나 severity가 최종 goal의 priority 값으로 직접 복사되는 것은 아니다.
+
 ### 5. CoachingAction
 
 각 Top 3에서 다음 항목을 만든다.

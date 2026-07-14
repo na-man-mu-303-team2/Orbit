@@ -1,6 +1,9 @@
 import {
   rehearsalEvaluationSnapshotSchema,
-  rehearsalReportSchema
+  rehearsalReportSchema,
+  type EvaluationCriterion,
+  type RehearsalEvaluationSnapshot,
+  type RehearsalReport
 } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,9 +11,10 @@ import {
   derivePracticeGoalSet,
   deriveProblemCandidates,
   evaluateFullRunCriteria,
-  loadRepeatedPatternKeys,
+  loadPracticeGoalRankingContext,
   persistPracticeGoalSet,
-  persistSourceGoalResolutions
+  persistSourceGoalResolutions,
+  type PracticeGoalRankingContext
 } from "./practice-goal-derivation";
 
 describe("practice goal derivation", () => {
@@ -64,7 +68,7 @@ describe("practice goal derivation", () => {
     expect(set?.goals).toEqual([]);
   });
 
-  it("prioritizes a measured failing user focus without turning passed items into problems", () => {
+  it("keeps core semantic ahead of focused delivery and excludes passed focus items", () => {
     const focusedSnapshot = rehearsalEvaluationSnapshotSchema.parse({
       ...snapshot(),
       focusProfileSnapshot: {
@@ -95,14 +99,189 @@ describe("practice goal derivation", () => {
       report: report(false)
     });
 
-    expect(set?.goals[0]?.criterionRef.criterionId).toBe(
+    expect(set?.goals.map((goal) => goal.criterionRef.criterionId)).toEqual([
+      "criterion_cue_scue_1_r1",
+      "criterion_timing_slide_1",
       "criterion_system_filler_v1"
-    );
+    ]);
     expect(
       set?.goals.some(
         (goal) => goal.criterionRef.criterionId === "criterion_system_pause_v1"
       )
     ).toBe(false);
+  });
+
+  it("orders rerun issues by repeated core, new core, repeated timing, then repeated delivery", async () => {
+    const sourceSnapshot = twoCoreSnapshot();
+    const currentReport = twoCoreReport("missed");
+    const previousReport = twoCoreReport("covered");
+    const query = vi.fn(async () => [
+      historyRow(
+        "run-previous",
+        "2026-07-10T00:00:00.000Z",
+        previousReport,
+        sourceSnapshot
+      )
+    ]);
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: { query } as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: sourceSnapshot
+    });
+
+    const candidates = candidatesFor(
+      "run-current",
+      sourceSnapshot,
+      currentReport,
+      rankingContext
+    );
+
+    expect(candidates.map((candidate) => candidate.criterion.criterionId)).toEqual([
+      "criterion_cue_scue_1_r1",
+      "criterion_cue_scue_2_r1",
+      "criterion_timing_slide_1",
+      "criterion_system_filler_v1"
+    ]);
+    expect(candidates.map((candidate) => candidate.repeated)).toEqual([
+      true,
+      false,
+      true,
+      true
+    ]);
+  });
+
+  it("uses only the latest compatible run before three total runs", async () => {
+    const sourceSnapshot = snapshot();
+    const query = vi.fn(async () => [
+      historyRow(
+        "run-previous",
+        "2026-07-10T00:00:00.000Z",
+        passingReport(),
+        sourceSnapshot
+      )
+    ]);
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: { query } as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: sourceSnapshot
+    });
+
+    const semantic = candidatesFor(
+      "run-current",
+      sourceSnapshot,
+      report(false),
+      rankingContext
+    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+
+    expect(semantic?.repeated).toBe(false);
+  });
+
+  it("counts up to five compatible runs and reuses any issue from three total runs onward", async () => {
+    const sourceSnapshot = snapshot();
+    const query = vi.fn(async () => [
+      historyRow(
+        "run-latest",
+        "2026-07-10T00:00:00.000Z",
+        passingReport(),
+        sourceSnapshot
+      ),
+      historyRow(
+        "run-previous-2",
+        "2026-07-09T00:00:00.000Z",
+        report(false),
+        sourceSnapshot
+      ),
+      historyRow(
+        "run-previous-3",
+        "2026-07-08T00:00:00.000Z",
+        passingReport(),
+        sourceSnapshot
+      ),
+      historyRow(
+        "run-previous-4",
+        "2026-07-07T00:00:00.000Z",
+        passingReport(),
+        sourceSnapshot
+      ),
+      historyRow(
+        "run-previous-5",
+        "2026-07-06T00:00:00.000Z",
+        passingReport(),
+        sourceSnapshot
+      )
+    ]);
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: { query } as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: sourceSnapshot
+    });
+
+    const semantic = candidatesFor(
+      "run-current",
+      sourceSnapshot,
+      report(false),
+      rankingContext
+    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+
+    expect(semantic?.repeated).toBe(true);
+    expect(
+      [...rankingContext.patternHistory.values()].find(
+        (history) =>
+          history.previousCompatibleRunCount === 5 &&
+          history.previousIssueCount === 1
+      )
+    ).toBeDefined();
+  });
+
+  it("excludes incompatible and unmeasured criterion history", async () => {
+    const sourceSnapshot = snapshot();
+    const unmeasuredReport = rehearsalReportSchema.parse({
+      ...report(false),
+      semanticCueOutcomes: report(false).semanticCueOutcomes.map((outcome) => ({
+        ...outcome,
+        status: "unmeasured" as const,
+        measurementMode: "none" as const,
+        unmeasuredReason: "transcript_incomplete" as const
+      }))
+    });
+    const incompatibleSnapshot = rehearsalEvaluationSnapshotSchema.parse({
+      ...sourceSnapshot,
+      deckContentHash: "b".repeat(64)
+    });
+    const query = vi.fn(async () => [
+      historyRow(
+        "run-incompatible",
+        "2026-07-10T00:00:00.000Z",
+        report(false),
+        incompatibleSnapshot
+      ),
+      historyRow(
+        "run-unmeasured",
+        "2026-07-09T00:00:00.000Z",
+        unmeasuredReport,
+        sourceSnapshot
+      )
+    ]);
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: { query } as never,
+      projectId: "project-a",
+      sourceFullRunId: "run-current",
+      snapshot: sourceSnapshot
+    });
+
+    const semantic = candidatesFor(
+      "run-current",
+      sourceSnapshot,
+      report(false),
+      rankingContext
+    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+
+    expect(rankingContext.mode).toBe("rerun");
+    expect(semantic?.repeated).toBe(false);
+    expect(rankingContext.patternHistory.size).toBe(3);
   });
 
   it("merges duplicate criterion scopes and keeps ordering independent from input order", () => {
@@ -119,9 +298,15 @@ describe("practice goal derivation", () => {
     if (!firstResult?.observationId || !firstObservation) {
       throw new Error("Expected a measured semantic fixture.");
     }
+    const partialResult = {
+      ...firstResult,
+      evaluationStatus: "partial" as const,
+      reasonCode: "PARTIAL" as const
+    };
     const duplicateObservation = {
       ...firstObservation,
-      observationId: "observation_duplicate"
+      observationId: "observation_duplicate",
+      value: { kind: "semantic" as const, value: "contradicted" as const }
     };
     const duplicateResult = {
       ...firstResult,
@@ -132,26 +317,48 @@ describe("practice goal derivation", () => {
       focusProfileSnapshot: null,
       evaluatorLensId: "decision-maker" as const,
       slideOrder: new Map([["slide_1", 1]]),
-      repeatedPatternKeys: new Set<string>()
+      coreSemanticCriterionKeys: new Set<string>(),
+      rankingContext: {
+        mode: "baseline" as const,
+        patternHistory: new Map()
+      }
     };
     const forward = deriveProblemCandidates({
       ...sharedInput,
-      results: [...evaluation.results, duplicateResult],
+      results: [partialResult, ...evaluation.results.slice(1), duplicateResult],
       observations: [...evaluation.observations, duplicateObservation]
     });
     const reversed = deriveProblemCandidates({
       ...sharedInput,
-      results: [...evaluation.results, duplicateResult].reverse(),
+      results: [partialResult, ...evaluation.results.slice(1), duplicateResult].reverse(),
       observations: [...evaluation.observations, duplicateObservation].reverse()
     });
 
     expect(forward).toEqual(reversed);
-    expect(
-      forward.filter(
-        (candidate) =>
-          candidate.criterion.criterionId === firstResult.criterionRef.criterionId
-      )
-    ).toHaveLength(1);
+    const merged = forward.filter(
+      (candidate) =>
+        candidate.criterion.criterionId === firstResult.criterionRef.criterionId
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      evaluationStatus: "failed",
+      severity: 3,
+      observationIds: [firstObservation.observationId, "observation_duplicate"].sort()
+    });
+    expect(merged[0]?.evidenceRefs).toEqual([
+      {
+        kind: "semantic-cue",
+        slideId: "slide_1",
+        cueId: "scue_1",
+        outcome: "contradicted"
+      },
+      {
+        kind: "semantic-cue",
+        slideId: "slide_1",
+        cueId: "scue_1",
+        outcome: "missed"
+      }
+    ]);
   });
 
   it("persists the immutable set before advancing the current head with revision CAS", async () => {
@@ -296,7 +503,7 @@ describe("practice goal derivation", () => {
     ]);
   });
 
-  it("loads repeated patterns only from comparable measured full runs", async () => {
+  it("loads ranking history only from compatible measured full runs", async () => {
     const previousSnapshot = snapshot();
     const previousReport = report(false);
     const previousSet = derivePracticeGoalSet({
@@ -316,25 +523,24 @@ describe("practice goal derivation", () => {
     if (!fillerGoal) throw new Error("Expected a previous filler goal.");
     const rows = [{
       run_id: "run-previous",
+      created_at: "2026-07-10T00:00:00.000Z",
       evaluation_snapshot_json: previousSnapshot,
       report_json: {
         ...previousReport,
         reportId: "report_run-previous",
         runId: "run-previous"
-      },
-      pattern_key: fillerGoal.patternKey,
-      criterion_ref_json: fillerGoal.criterionRef
+      }
     }];
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => rows);
     const executor = { query };
 
-    const repeated = await loadRepeatedPatternKeys({
+    const rankingContext = await loadPracticeGoalRankingContext({
       executor: executor as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
       snapshot: snapshot()
     });
-    const incompatible = await loadRepeatedPatternKeys({
+    const incompatible = await loadPracticeGoalRankingContext({
       executor: executor as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
@@ -344,14 +550,181 @@ describe("practice goal derivation", () => {
       })
     });
 
-    expect(repeated).toEqual(new Set([fillerGoal.patternKey]));
-    expect(incompatible).toEqual(new Set());
+    expect(rankingContext.mode).toBe("rerun");
+    expect(rankingContext.patternHistory.get(fillerGoal.patternKey)).toEqual({
+      previousCompatibleRunCount: 1,
+      previousIssueCount: 1,
+      issueInLatestCompatibleRun: true,
+      lastOccurredAt: "2026-07-10T00:00:00.000Z"
+    });
+    expect(incompatible).toEqual({ mode: "baseline", patternHistory: new Map() });
     expect(query.mock.calls[0]?.[0]).toContain(
       "runs.semantic_evaluation_mode = 'full'"
     );
+    expect(query.mock.calls[0]?.[0]).toContain("runs.status = 'succeeded'");
     expect(query.mock.calls[0]?.[0]).toContain("LIMIT 5");
+    expect(query.mock.calls[0]?.[0]).not.toContain("practice_goals");
   });
 });
+
+function candidatesFor(
+  sourceFullRunId: string,
+  sourceSnapshot: RehearsalEvaluationSnapshot,
+  sourceReport: RehearsalReport,
+  rankingContext: PracticeGoalRankingContext
+) {
+  const evaluation = evaluateFullRunCriteria({
+    sourceFullRunId,
+    snapshot: sourceSnapshot,
+    report: sourceReport
+  });
+  return deriveProblemCandidates({
+    criteria: sourceSnapshot.evaluationPlan?.criteria ?? [],
+    results: evaluation.results,
+    observations: evaluation.observations,
+    focusProfileSnapshot: sourceSnapshot.focusProfileSnapshot,
+    evaluatorLensId:
+      sourceSnapshot.evaluationPlan?.evaluatorLensRef.lensId ?? "general-novice",
+    slideOrder: new Map(
+      sourceSnapshot.slides.map((slide) => [slide.slideId, slide.order])
+    ),
+    coreSemanticCriterionKeys: coreSemanticKeysForTest(sourceSnapshot),
+    rankingContext
+  });
+}
+
+function coreSemanticKeysForTest(snapshot: RehearsalEvaluationSnapshot) {
+  return new Set(
+    (snapshot.evaluationPlan?.criteria ?? [])
+      .filter((criterion) => {
+        if (
+          criterion.source === "brief" &&
+          criterion.category === "semantic" &&
+          criterion.measurement.type === "semantic-coverage"
+        ) {
+          return true;
+        }
+        if (criterion.source !== "deck-cue" || criterion.scope.type !== "slide") {
+          return false;
+        }
+        const slideId = criterion.scope.slideId;
+        return snapshot.slides.some(
+          (slide) =>
+            slide.slideId === slideId &&
+            slide.semanticCues.some(
+              (cue) =>
+                cue.importance === "core" &&
+                criterion.criterionId ===
+                  `criterion_cue_${cue.cueId}_r${cue.revision}`.slice(0, 128) &&
+                criterion.revision === cue.revision
+            )
+        );
+      })
+      .map(criterionScopeKeyForTest)
+  );
+}
+
+function criterionScopeKeyForTest(criterion: EvaluationCriterion) {
+  return canonicalJsonForTest({
+    criterionId: criterion.criterionId,
+    revision: criterion.revision,
+    scope: criterion.scope
+  });
+}
+
+function canonicalJsonForTest(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJsonForTest).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonForTest(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function historyRow(
+  runId: string,
+  createdAt: string,
+  sourceReport: RehearsalReport,
+  sourceSnapshot: RehearsalEvaluationSnapshot
+) {
+  return {
+    run_id: runId,
+    created_at: createdAt,
+    evaluation_snapshot_json: sourceSnapshot,
+    report_json: {
+      ...sourceReport,
+      reportId: `report_${runId}`,
+      runId
+    }
+  };
+}
+
+function twoCoreSnapshot() {
+  const base = snapshot();
+  const plan = base.evaluationPlan;
+  const firstSlide = base.slides[0];
+  if (!plan || !firstSlide) throw new Error("Expected ranking snapshot fixtures.");
+  return rehearsalEvaluationSnapshotSchema.parse({
+    ...base,
+    evaluationPlan: {
+      ...plan,
+      criteria: [
+        plan.criteria[0],
+        {
+          criterionId: "criterion_cue_scue_2_r1",
+          revision: 1,
+          category: "semantic",
+          source: "deck-cue",
+          scope: { type: "slide", slideId: "slide_1" },
+          label: "두 번째 핵심 가치",
+          measurement: {
+            type: "semantic-coverage",
+            expectedConceptIds: ["concept_second_value"]
+          }
+        },
+        ...plan.criteria.slice(1)
+      ]
+    },
+    slides: [
+      {
+        ...firstSlide,
+        semanticCues: [
+          ...firstSlide.semanticCues,
+          {
+            ...firstSlide.semanticCues[0],
+            cueId: "scue_2",
+            meaning: "두 번째 핵심 가치",
+            requiredConcepts: ["두 번째 가치"],
+            nliHypotheses: ["발표자는 두 번째 가치를 설명했다"]
+          }
+        ]
+      }
+    ]
+  });
+}
+
+function twoCoreReport(secondStatus: "covered" | "missed") {
+  const base = report(false);
+  const firstOutcome = base.semanticCueOutcomes[0];
+  if (!firstOutcome) throw new Error("Expected a semantic outcome fixture.");
+  return rehearsalReportSchema.parse({
+    ...base,
+    semanticCueOutcomes: [
+      firstOutcome,
+      {
+        ...firstOutcome,
+        cueId: "scue_2",
+        cueMeaningSnapshot: "두 번째 핵심 가치",
+        reportLabelSnapshot: "두 번째 핵심 가치",
+        status: secondStatus,
+        coveredConcepts: secondStatus === "covered" ? ["두 번째 가치"] : [],
+        missingConcepts: secondStatus === "covered" ? [] : ["두 번째 가치"]
+      }
+    ]
+  });
+}
 
 function snapshot(sourceGoalSetId: string | null = null) {
   return rehearsalEvaluationSnapshotSchema.parse({

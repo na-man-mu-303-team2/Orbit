@@ -25,6 +25,25 @@ import { compareCriterionSources } from "./coaching/criterion-comparability";
 
 type QueryExecutor = Pick<DataSource, "query">;
 
+export type PracticeGoalPatternHistory = {
+  previousCompatibleRunCount: number;
+  previousIssueCount: number;
+  issueInLatestCompatibleRun: boolean;
+  lastOccurredAt: string | null;
+};
+
+export type PracticeGoalRankingContext = {
+  mode: "baseline" | "rerun";
+  patternHistory: ReadonlyMap<string, PracticeGoalPatternHistory>;
+};
+
+type CandidateRankKind =
+  | "core-semantic"
+  | "opening-closing"
+  | "timing"
+  | "delivery"
+  | "other";
+
 type Candidate = {
   category: PracticeGoal["category"];
   criterion: EvaluationCriterion;
@@ -42,6 +61,7 @@ type Candidate = {
   lensPriority: number;
   hasBoundedEvidence: boolean;
   repeated: boolean;
+  rankKind: CandidateRankKind;
 };
 
 export type FullRunCriterionEvaluation = {
@@ -56,7 +76,7 @@ export function derivePracticeGoalSet(input: {
   snapshot: RehearsalEvaluationSnapshot;
   report: RehearsalReport;
   dataOrigin?: "live" | "fixture";
-  repeatedPatternKeys?: ReadonlySet<string>;
+  rankingContext?: PracticeGoalRankingContext;
 }): PracticeGoalSet | null {
   const plan = input.snapshot.evaluationPlan;
   if (!plan || input.sourceAnalysisRevision < 1) return null;
@@ -75,7 +95,8 @@ export function derivePracticeGoalSet(input: {
     slideOrder: new Map(
       input.snapshot.slides.map((slide) => [slide.slideId, slide.order]),
     ),
-    repeatedPatternKeys: input.repeatedPatternKeys ?? new Set<string>(),
+    coreSemanticCriterionKeys: coreSemanticCriterionKeys(input.snapshot),
+    rankingContext: input.rankingContext ?? emptyRankingContext(),
   });
 
   const goalSetId = `goalset_${hash([input.sourceFullRunId, input.sourceAnalysisRevision]).slice(0, 32)}`;
@@ -132,12 +153,12 @@ export async function persistPracticeGoalSet(
   await dataSource.transaction((manager) => persistPracticeGoalSetWithExecutor(manager, set));
 }
 
-export async function loadRepeatedPatternKeys(input: {
+export async function loadPracticeGoalRankingContext(input: {
   executor: QueryExecutor;
   projectId: string;
   sourceFullRunId: string;
   snapshot: RehearsalEvaluationSnapshot;
-}): Promise<Set<string>> {
+}): Promise<PracticeGoalRankingContext> {
   const rows = await input.executor.query(
     `WITH current_run AS (
        SELECT created_at, run_id
@@ -157,72 +178,80 @@ export async function loadRepeatedPatternKeys(input: {
        ORDER BY runs.created_at DESC, runs.run_id DESC
        LIMIT 5
      )
-     SELECT runs.run_id, runs.evaluation_snapshot_json, runs.report_json,
-            goals.pattern_key, goals.criterion_ref_json
+     SELECT runs.run_id, runs.created_at, runs.evaluation_snapshot_json,
+            runs.report_json
      FROM recent_full_runs runs
-     JOIN practice_goal_heads heads
-       ON heads.project_id = $1
-      AND heads.source_full_run_id = runs.run_id
-     JOIN practice_goal_sets sets
-       ON sets.project_id = heads.project_id
-      AND sets.goal_set_id = heads.current_goal_set_id
-      AND sets.analysis_state = 'final'
-     JOIN practice_goals goals
-       ON goals.project_id = sets.project_id
-      AND goals.goal_set_id = sets.goal_set_id
-     ORDER BY runs.created_at DESC, runs.run_id DESC, goals.priority ASC`,
+     ORDER BY runs.created_at DESC, runs.run_id DESC`,
     [input.projectId, input.sourceFullRunId],
   );
-  if (!Array.isArray(rows)) return new Set<string>();
+  if (!Array.isArray(rows)) return emptyRankingContext();
 
-  const repeated = new Set<string>();
-  const evaluationByRun = new Map<string, FullRunCriterionEvaluation>();
+  const patternHistory = new Map<string, PracticeGoalPatternHistory>();
   for (const item of rows) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    if (typeof row.run_id !== "string" || typeof row.pattern_key !== "string") {
-      continue;
-    }
+    if (typeof row.run_id !== "string") continue;
     const previousSnapshot = rehearsalEvaluationSnapshotSchema.safeParse(
       row.evaluation_snapshot_json,
     );
     const previousReport = rehearsalReportSchema.safeParse(row.report_json);
-    const criterionRef = criterionRefFromRow(row.criterion_ref_json);
-    if (!previousSnapshot.success || !previousReport.success || !criterionRef) {
+    if (!previousSnapshot.success || !previousReport.success) {
       continue;
     }
-    const currentCriterion = criterionByRef(input.snapshot, criterionRef);
-    const previousCriterion = criterionByRef(previousSnapshot.data, criterionRef);
-    if (!currentCriterion || !previousCriterion) continue;
-    if (
-      !compareCriterionSources({
-        currentSnapshot: input.snapshot,
-        currentCriterion,
-        previousSnapshot: previousSnapshot.data,
-        previousCriterion,
-      }).comparable
-    ) {
-      continue;
-    }
+    const previousEvaluation = evaluateFullRunCriteria({
+      sourceFullRunId: row.run_id,
+      snapshot: previousSnapshot.data,
+      report: previousReport.data,
+    });
+    const occurredAt = isoDateTime(row.created_at);
 
-    const previousEvaluation = evaluationByRun.get(row.run_id) ??
-      evaluateFullRunCriteria({
-        sourceFullRunId: row.run_id,
-        snapshot: previousSnapshot.data,
-        report: previousReport.data,
-      });
-    evaluationByRun.set(row.run_id, previousEvaluation);
-    const previousResult = previousEvaluation.results.find(
-      (result) =>
-        result.criterionRef.criterionId === criterionRef.criterionId &&
-        result.criterionRef.revision === criterionRef.revision &&
-        sameJson(result.scope, previousCriterion.scope),
-    );
-    if (previousResult && isProblemResult(previousResult)) {
-      repeated.add(row.pattern_key);
+    for (const currentCriterion of input.snapshot.evaluationPlan?.criteria ?? []) {
+      const previousCriterion = criterionByRef(previousSnapshot.data, currentCriterion);
+      if (!previousCriterion) continue;
+      if (
+        !compareCriterionSources({
+          currentSnapshot: input.snapshot,
+          currentCriterion,
+          previousSnapshot: previousSnapshot.data,
+          previousCriterion,
+        }).comparable
+      ) {
+        continue;
+      }
+
+      const previousResult = previousEvaluation.results.find(
+        (result) =>
+          result.criterionRef.criterionId === currentCriterion.criterionId &&
+          result.criterionRef.revision === currentCriterion.revision &&
+          sameJson(result.scope, previousCriterion.scope),
+      );
+      if (!previousResult || previousResult.measurementState !== "measured") {
+        continue;
+      }
+
+      const key = patternKeyForCriterion(currentCriterion);
+      const current = patternHistory.get(key) ?? {
+        previousCompatibleRunCount: 0,
+        previousIssueCount: 0,
+        issueInLatestCompatibleRun: false,
+        lastOccurredAt: null,
+      };
+      const issue = isProblemResult(previousResult);
+      if (current.previousCompatibleRunCount === 0) {
+        current.issueInLatestCompatibleRun = issue;
+      }
+      current.previousCompatibleRunCount += 1;
+      if (issue) {
+        current.previousIssueCount += 1;
+        current.lastOccurredAt ??= occurredAt;
+      }
+      patternHistory.set(key, current);
     }
   }
-  return repeated;
+  return {
+    mode: patternHistory.size > 0 ? "rerun" : "baseline",
+    patternHistory,
+  };
 }
 
 export async function publishPracticeGoalSet(
@@ -404,7 +433,8 @@ export function deriveProblemCandidates(input: {
   focusProfileSnapshot: RehearsalFocusProfileSnapshot | null;
   evaluatorLensId: "general-novice" | "decision-maker" | "strict-reviewer";
   slideOrder: Map<string, number>;
-  repeatedPatternKeys: ReadonlySet<string>;
+  coreSemanticCriterionKeys: ReadonlySet<string>;
+  rankingContext: PracticeGoalRankingContext;
 }): Candidate[] {
   const observationsById = new Map(
     input.observations.map((observation) => [observation.observationId, observation]),
@@ -436,12 +466,17 @@ export function deriveProblemCandidates(input: {
       focusItem,
       lensPriority: lensPriority.get(criterion.category) ?? 99,
       slideOrder: slideOrderForCriterion(criterion, input.slideOrder),
+      rankKind: candidateRankKind(criterion, input.coreSemanticCriterionKeys),
     });
-    candidate.repeated = input.repeatedPatternKeys.has(patternKey(candidate));
+    candidate.repeated = isRepeatedIssue(
+      input.rankingContext.patternHistory.get(patternKey(candidate)),
+    );
     return [candidate];
   });
 
-  candidates.sort(compareCandidates);
+  const compare = (left: Candidate, right: Candidate) =>
+    compareCandidates(left, right, input.rankingContext.mode);
+  candidates.sort(compare);
   const merged = new Map<string, Candidate>();
   for (const candidate of candidates) {
     const key = criterionScopeKey(candidate.criterion);
@@ -450,19 +485,10 @@ export function deriveProblemCandidates(input: {
       merged.set(key, candidate);
       continue;
     }
-    current.evidenceRefs = mergeStable(
-      current.evidenceRefs,
-      candidate.evidenceRefs,
-    );
-    current.observationIds = Array.from(
-      new Set([...current.observationIds, ...candidate.observationIds]),
-    ).sort();
-    current.hasBoundedEvidence =
-      current.hasBoundedEvidence || candidate.hasBoundedEvidence;
-    current.repeated = current.repeated || candidate.repeated;
+    merged.set(key, mergeDuplicateCandidates(current, candidate, compare));
   }
 
-  return [...merged.values()].sort(compareCandidates);
+  return [...merged.values()].sort(compare);
 }
 
 function fullRunObservation(
@@ -637,20 +663,6 @@ function isProblemResult(
   );
 }
 
-function criterionRefFromRow(value: unknown) {
-  if (!value || typeof value !== "object") return null;
-  const ref = value as Record<string, unknown>;
-  if (
-    typeof ref.criterionId !== "string" ||
-    typeof ref.revision !== "number" ||
-    !Number.isInteger(ref.revision) ||
-    ref.revision < 1
-  ) {
-    return null;
-  }
-  return { criterionId: ref.criterionId, revision: ref.revision };
-}
-
 function criterionByRef(
   snapshot: RehearsalEvaluationSnapshot,
   ref: { criterionId: string; revision: number },
@@ -669,6 +681,7 @@ function candidateFromEvaluation(input: {
   focusItem: RehearsalFocusItem | null;
   lensPriority: number;
   slideOrder: number;
+  rankKind: CandidateRankKind;
 }): Candidate {
   const targetScope = input.focusItem?.targetScope ?? targetScopeForCriterion(input.criterion);
   return {
@@ -688,6 +701,7 @@ function candidateFromEvaluation(input: {
     lensPriority: input.lensPriority,
     hasBoundedEvidence: input.observation.evidenceRefs.length > 0,
     repeated: false,
+    rankKind: input.rankKind,
   };
 }
 
@@ -852,14 +866,19 @@ function slideOrderForCriterion(
   return 999;
 }
 
-function compareCandidates(left: Candidate, right: Candidate) {
+function compareCandidates(
+  left: Candidate,
+  right: Candidate,
+  mode: PracticeGoalRankingContext["mode"],
+) {
+  const leftTier = rankingTier(left, mode);
+  const rightTier = rankingTier(right, mode);
+  if (leftTier !== rightTier) return leftTier - rightTier;
+
   const leftFocus = left.focusPriority ?? 99;
   const rightFocus = right.focusPriority ?? 99;
   if (leftFocus !== rightFocus) return leftFocus - rightFocus;
 
-  const briefOrder = Number(right.criterion.source === "brief") -
-    Number(left.criterion.source === "brief");
-  if (briefOrder !== 0) return briefOrder;
   if (left.lensPriority !== right.lensPriority) {
     return left.lensPriority - right.lensPriority;
   }
@@ -870,12 +889,55 @@ function compareCandidates(left: Candidate, right: Candidate) {
   if (left.hasBoundedEvidence !== right.hasBoundedEvidence) {
     return left.hasBoundedEvidence ? -1 : 1;
   }
-  if (left.repeated !== right.repeated) return left.repeated ? -1 : 1;
   if ((left.targetScope !== null) !== (right.targetScope !== null)) {
     return left.targetScope ? -1 : 1;
   }
   if (left.slideOrder !== right.slideOrder) return left.slideOrder - right.slideOrder;
   return stableCandidateKey(left).localeCompare(stableCandidateKey(right));
+}
+
+function rankingTier(
+  candidate: Candidate,
+  mode: PracticeGoalRankingContext["mode"],
+) {
+  if (mode === "baseline") {
+    if (candidate.rankKind === "core-semantic") return 0;
+    if (candidate.rankKind === "opening-closing") return 1;
+    if (candidate.rankKind === "timing") return 2;
+    if (candidate.rankKind === "delivery") return 3;
+    return 4;
+  }
+
+  if (candidate.rankKind === "core-semantic") {
+    return candidate.repeated ? 0 : 1;
+  }
+  if (candidate.rankKind === "timing" && candidate.repeated) return 2;
+  if (candidate.rankKind === "delivery" && candidate.repeated) return 3;
+  if (candidate.rankKind === "opening-closing") return 4;
+  if (candidate.repeated) return 5;
+  return 6;
+}
+
+function mergeDuplicateCandidates(
+  left: Candidate,
+  right: Candidate,
+  compare: (left: Candidate, right: Candidate) => number,
+): Candidate {
+  const representative = compare(left, right) <= 0 ? left : right;
+  return {
+    ...representative,
+    evaluationStatus:
+      left.evaluationStatus === "failed" || right.evaluationStatus === "failed"
+        ? "failed"
+        : "partial",
+    severity: Math.max(left.severity, right.severity),
+    evidenceRefs: mergeStable(left.evidenceRefs, right.evidenceRefs).slice(0, 20),
+    observationIds: Array.from(
+      new Set([...left.observationIds, ...right.observationIds]),
+    ).sort().slice(0, 20),
+    hasBoundedEvidence: left.hasBoundedEvidence || right.hasBoundedEvidence,
+    repeated: left.repeated || right.repeated,
+  };
 }
 
 function problemLabel(
@@ -921,6 +983,64 @@ function successCondition(criterion: EvaluationCriterion) {
   return `${criterion.measurement.maximum}회 이하로 줄입니다.`;
 }
 
+function coreSemanticCriterionKeys(snapshot: RehearsalEvaluationSnapshot) {
+  const keys = new Set<string>();
+  for (const criterion of snapshot.evaluationPlan?.criteria ?? []) {
+    if (
+      criterion.source === "brief" &&
+      criterion.category === "semantic" &&
+      criterion.measurement.type === "semantic-coverage"
+    ) {
+      keys.add(criterionScopeKey(criterion));
+    }
+  }
+  for (const slide of snapshot.slides) {
+    for (const cue of slide.semanticCues) {
+      if (cue.importance !== "core") continue;
+      const criterion = snapshot.evaluationPlan?.criteria.find(
+        (item) =>
+          item.source === "deck-cue" &&
+          item.criterionId ===
+            `criterion_cue_${cue.cueId}_r${cue.revision}`.slice(0, 128) &&
+          item.revision === cue.revision &&
+          item.scope.type === "slide" &&
+          item.scope.slideId === slide.slideId,
+      );
+      if (criterion) keys.add(criterionScopeKey(criterion));
+    }
+  }
+  return keys;
+}
+
+function candidateRankKind(
+  criterion: EvaluationCriterion,
+  coreSemanticKeys: ReadonlySet<string>,
+): CandidateRankKind {
+  if (coreSemanticKeys.has(criterionScopeKey(criterion))) return "core-semantic";
+  if (
+    criterion.category === "structure" &&
+    criterion.scope.type === "time-window" &&
+    (criterion.scope.window === "opening" || criterion.scope.window === "closing")
+  ) {
+    return "opening-closing";
+  }
+  if (criterion.category === "timing") return "timing";
+  if (criterion.category === "delivery") return "delivery";
+  return "other";
+}
+
+function isRepeatedIssue(history: PracticeGoalPatternHistory | undefined) {
+  if (!history) return false;
+  const totalCompatibleRunCount = history.previousCompatibleRunCount + 1;
+  return totalCompatibleRunCount < 3
+    ? history.issueInLatestCompatibleRun
+    : history.previousIssueCount > 0;
+}
+
+function emptyRankingContext(): PracticeGoalRankingContext {
+  return { mode: "baseline", patternHistory: new Map() };
+}
+
 function criterionScopeKey(criterion: EvaluationCriterion) {
   return canonicalJson({
     criterionId: criterion.criterionId,
@@ -949,12 +1069,25 @@ function mergeStable<T>(left: T[], right: T[]) {
 }
 
 function patternKey(candidate: Candidate) {
+  return patternKeyForCriterion(candidate.criterion);
+}
+
+function patternKeyForCriterion(criterion: EvaluationCriterion) {
   return hash({
-    category: candidate.category,
-    criterionId: candidate.criterion.criterionId,
-    revision: candidate.criterion.revision,
-    scope: candidate.criterion.scope,
+    category: criterion.category,
+    criterionId: criterion.criterionId,
+    revision: criterion.revision,
+    scope: criterion.scope,
   });
+}
+
+function isoDateTime(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value !== "string") return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
 function sameJson(left: unknown, right: unknown) {
