@@ -5,6 +5,7 @@ export * from "./coaching/challenge-qna.schema";
 export * from "./coaching/evaluation-criterion.schema";
 export * from "./coaching/evaluator-lens.schema";
 export * from "./coaching/focused-practice.schema";
+export * from "./coaching/focused-practice-target";
 export * from "./coaching/presentation-brief.schema";
 export * from "./coaching/practice-goal.schema";
 export * from "./coaching/private-audio-cleanup.schema";

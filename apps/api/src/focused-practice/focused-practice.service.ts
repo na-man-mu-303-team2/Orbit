@@ -2,20 +2,31 @@ import {
   completeFocusedPracticeAudioRequestSchema,
   createFocusedPracticeAttemptRequestSchema,
   createFocusedPracticeSessionRequestSchema,
+  deckSchema,
   focusedPracticeAttemptSchema,
   focusedPracticeSessionSchema,
+  rehearsalEvaluationSnapshotSchema,
+  type Deck,
   type FocusedPracticeAttempt,
   type FocusedPracticeSession,
+  type RehearsalEvaluationSnapshot,
 } from "@orbit/shared";
 import { enqueueFocusedPracticeAnalysisJob } from "@orbit/job-queue";
 import { isAdaptiveCoachingProjectAllowed, loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 import { DataSource } from "typeorm";
 
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import {
+  assertFocusedPracticeTimeline,
+  FocusedPracticeTargetValidationError,
+  resolveFocusedPracticeTarget,
+  type FocusedPracticeTargetResolution,
+} from "./focused-practice-target";
 
 @Injectable()
 export class FocusedPracticeService {
@@ -26,6 +37,9 @@ export class FocusedPracticeService {
     private readonly projects: ProjectsService,
     private readonly files: FilesService,
     private readonly jobs: JobsService,
+    @Optional()
+    @InjectPinoLogger(FocusedPracticeService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async createSession(projectId: string, actorUserId: string, body: unknown) {
@@ -64,9 +78,23 @@ export class FocusedPracticeService {
           throw new BadRequestException("Focused practice goals must share the requested measured target scope.");
         }
       }
-      const snapshot = source.evaluation_snapshot_json as Record<string, any>;
-      const plan = snapshot?.evaluationPlan;
+      const snapshotResult = rehearsalEvaluationSnapshotSchema.safeParse(source.evaluation_snapshot_json);
+      if (!snapshotResult.success) {
+        throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Evaluation snapshot is unavailable." });
+      }
+      const snapshot = snapshotResult.data;
+      const plan = snapshot.evaluationPlan;
       if (!plan) throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Evaluation plan is unavailable." });
+      const deckRow = first(await manager.query(
+        `SELECT deck_json FROM decks WHERE project_id = $1 AND deck_id = $2`,
+        [projectId, source.deck_id],
+      ));
+      const deckResult = deckSchema.safeParse(deckRow?.deck_json);
+      const targetResolution = resolveTargetOrBadRequest(
+        request.targetScope,
+        snapshot,
+        deckResult.success ? deckResult.data : null,
+      );
       const now = new Date().toISOString();
       const session = focusedPracticeSessionSchema.parse({
         practiceSessionId: `practice_${randomUUID()}`,
@@ -82,7 +110,7 @@ export class FocusedPracticeService {
           evaluatorLensRef: plan.evaluatorLensRef,
           criterionRefs: goals.map((goal) => goal.criterion_ref_json),
         },
-        compatibilityState: "current",
+        compatibilityState: targetResolution.compatibilityState,
         status: "active",
         dataOrigin: "live",
         createdBy: actorUserId,
@@ -113,8 +141,9 @@ export class FocusedPracticeService {
   }
 
   async getSession(sessionId: string, actorUserId: string) {
-    const row = await this.getSessionRow(sessionId);
-    await this.projects.assertCanReadProject(String(row.project_id), actorUserId);
+    const storedRow = await this.getSessionRow(sessionId);
+    await this.projects.assertCanReadProject(String(storedRow.project_id), actorUserId);
+    const { row } = await this.refreshSessionCompatibility(storedRow);
     const attempts = (await this.dataSource.query(
       `SELECT * FROM focused_practice_attempts WHERE practice_session_id = $1 ORDER BY attempt_number ASC`,
       [sessionId],
@@ -124,9 +153,10 @@ export class FocusedPracticeService {
 
   async createAttempt(sessionId: string, actorUserId: string, body: unknown) {
     const request = createFocusedPracticeAttemptRequestSchema.parse(body);
-    const sessionRow = await this.getSessionRow(sessionId);
-    const projectId = String(sessionRow.project_id);
+    const storedRow = await this.getSessionRow(sessionId);
+    const projectId = String(storedRow.project_id);
     await this.projects.assertCanWriteProject(projectId, actorUserId);
+    const { row: sessionRow } = await this.refreshSessionCompatibility(storedRow);
     if (sessionRow.status !== "active" || sessionRow.compatibility_state !== "current") {
       throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Focused practice session is not active." });
     }
@@ -167,8 +197,26 @@ export class FocusedPracticeService {
     if (attempt.status !== "uploading" || attempt.audio_file_id !== request.fileId) {
       throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Attempt is not awaiting this audio file." });
     }
-    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, "focused-practice-audio");
+    const refreshed = await this.refreshSessionCompatibility(
+      await this.getSessionRow(String(attempt.practice_session_id)),
+    );
+    if (refreshed.row.compatibility_state !== "current" || !refreshed.resolution) {
+      throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Focused practice target is stale." });
+    }
     validateTimeline(request.slideTimeline, request.durationMs);
+    try {
+      assertFocusedPracticeTimeline(
+        toSession(refreshed.row).targetScope,
+        refreshed.resolution,
+        request.slideTimeline,
+      );
+    } catch (error) {
+      if (error instanceof FocusedPracticeTargetValidationError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, "focused-practice-audio");
     const job = await this.jobs.create({
       projectId: String(attempt.project_id),
       type: "focused-practice-analysis",
@@ -210,10 +258,80 @@ export class FocusedPracticeService {
     return row;
   }
 
+  private async refreshSessionCompatibility(
+    row: Record<string, any>,
+    executor: QueryExecutor = this.dataSource,
+  ): Promise<{ row: Record<string, any>; resolution: FocusedPracticeTargetResolution | null }> {
+    if (row.compatibility_state !== "current") return { row, resolution: null };
+
+    const source = first(await executor.query(
+      `SELECT runs.evaluation_snapshot_json, decks.deck_json
+       FROM rehearsal_runs runs
+       LEFT JOIN decks ON decks.project_id = runs.project_id AND decks.deck_id = runs.deck_id
+       WHERE runs.project_id = $1 AND runs.run_id = $2`,
+      [row.project_id, row.source_full_run_id],
+    ));
+    const snapshotResult = rehearsalEvaluationSnapshotSchema.safeParse(source?.evaluation_snapshot_json);
+    const deckResult = deckSchema.safeParse(source?.deck_json);
+    if (!snapshotResult.success) return { row: await this.markSessionStale(executor, row), resolution: null };
+
+    let resolution: FocusedPracticeTargetResolution;
+    try {
+      resolution = resolveFocusedPracticeTarget({
+        currentDeck: deckResult.success ? deckResult.data : null,
+        sourceSnapshot: snapshotResult.data,
+        targetScope: toSession(row).targetScope,
+      });
+    } catch (error) {
+      if (error instanceof FocusedPracticeTargetValidationError) {
+        return { row: await this.markSessionStale(executor, row), resolution: null };
+      }
+      throw error;
+    }
+    if (resolution.compatibilityState === "stale") {
+      return { row: await this.markSessionStale(executor, row), resolution };
+    }
+    return { row, resolution };
+  }
+
+  private async markSessionStale(executor: QueryExecutor, row: Record<string, any>) {
+    await executor.query(
+      `UPDATE focused_practice_sessions SET compatibility_state = 'stale'
+       WHERE practice_session_id = $1 AND compatibility_state = 'current'`,
+      [row.practice_session_id],
+    );
+    this.logger?.warn({
+      event: "focused_practice.target_stale",
+      projectId: row.project_id,
+      runId: row.source_full_run_id,
+      sessionId: row.practice_session_id,
+    }, "Focused practice target became stale.");
+    return { ...row, compatibility_state: "stale" };
+  }
+
   private async getAttemptRow(attemptId: string) {
     const row = first(await this.dataSource.query(`SELECT * FROM focused_practice_attempts WHERE attempt_id = $1`, [attemptId]));
     if (!row) throw new NotFoundException("Focused practice attempt not found.");
     return row;
+  }
+}
+
+type QueryExecutor = {
+  query: (sql: string, parameters?: unknown[]) => Promise<unknown>;
+};
+
+function resolveTargetOrBadRequest(
+  targetScope: FocusedPracticeSession["targetScope"],
+  sourceSnapshot: RehearsalEvaluationSnapshot,
+  currentDeck: Deck | null,
+) {
+  try {
+    return resolveFocusedPracticeTarget({ targetScope, sourceSnapshot, currentDeck });
+  } catch (error) {
+    if (error instanceof FocusedPracticeTargetValidationError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
   }
 }
 
