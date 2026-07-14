@@ -1,11 +1,10 @@
 import {
   Job,
-  JobType,
+  type ActiveJobType,
   deckSchema,
   demoIds,
   deckExportFormatSchema,
   generateDeckRequestSchema,
-  aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   semanticCueExtractionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
@@ -13,7 +12,6 @@ import {
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
   nowIso,
-  type AiTemplateDeckGenerationRequest,
   type Deck,
   type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
@@ -26,7 +24,7 @@ import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
   projectId?: string;
-  type: JobType;
+  type: ActiveJobType;
   payload?: Record<string, unknown>;
 }
 
@@ -158,12 +156,6 @@ export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
   redisUrl: string;
 }
 
-export interface AiTemplateDeckGenerationBullMqPayload {
-  jobId: string;
-  projectId: string;
-  request: AiTemplateDeckGenerationRequest;
-}
-
 export type SemanticCueExtractionBullMqPayload = SemanticCueExtractionJobPayload;
 
 export type EnqueueSemanticCueExtractionJobInput =
@@ -171,23 +163,6 @@ export type EnqueueSemanticCueExtractionJobInput =
   driver: "bullmq" | "sqs";
   redisUrl: string;
 };
-
-export interface EnqueueAiTemplateDeckGenerationJobInput
-  extends AiTemplateDeckGenerationBullMqPayload {
-  driver: "bullmq" | "sqs";
-  redisUrl: string;
-}
-
-export interface PptxImportBullMqPayload {
-  jobId: string;
-  projectId: string;
-  fileId: string;
-}
-
-export interface EnqueuePptxImportJobInput extends PptxImportBullMqPayload {
-  driver: "bullmq" | "sqs";
-  redisUrl: string;
-}
 
 export interface PptxOoxmlGenerationBullMqPayload {
   jobId: string;
@@ -387,28 +362,6 @@ export async function enqueueDeckExportJob(
   }
 }
 
-export async function enqueueAiTemplateDeckGenerationJob(
-  input: EnqueueAiTemplateDeckGenerationJobInput,
-): Promise<void> {
-  if (input.driver === "sqs") {
-    throw new Error("SqsJobQueue adapter is not implemented yet.");
-  }
-
-  const queue = new Queue(aiTemplateDeckGenerationQueueName, {
-    connection: redisConnectionOptions(input.redisUrl),
-  });
-
-  try {
-    await queue.add(aiTemplateDeckGenerationJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
-    } satisfies AiTemplateDeckGenerationBullMqPayload, canonicalJobOptions(input.jobId));
-  } finally {
-    await queue.close();
-  }
-}
-
 export async function enqueueSemanticCueExtractionJob(
   input: EnqueueSemanticCueExtractionJobInput,
 ): Promise<void> {
@@ -426,28 +379,6 @@ export async function enqueueSemanticCueExtractionJob(
       projectId: input.projectId,
       request: input.request,
     }), canonicalJobOptions(input.jobId));
-  } finally {
-    await queue.close();
-  }
-}
-
-export async function enqueuePptxImportJob(
-  input: EnqueuePptxImportJobInput,
-): Promise<void> {
-  if (input.driver === "sqs") {
-    throw new Error("SqsJobQueue adapter is not implemented yet.");
-  }
-
-  const queue = new Queue(pptxImportQueueName, {
-    connection: redisConnectionOptions(input.redisUrl),
-  });
-
-  try {
-    await queue.add(pptxImportJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      fileId: input.fileId,
-    } satisfies PptxImportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeJobTypeSchema,
+  historicalJobTypeSchema,
   internalCoachingJobTypeSchema,
+  jobSchema,
   jobTypeSchema,
   publicCreatableJobTypeSchema,
 } from "./job.schema";
@@ -18,10 +21,27 @@ describe("jobTypeSchema", () => {
     );
   });
 
-  it("accepts AI template deck generation jobs", () => {
-    expect(jobTypeSchema.parse("ai-template-deck-generation")).toBe(
-      "ai-template-deck-generation",
-    );
+  it("keeps legacy job types readable but blocks new creation", () => {
+    for (const type of ["pptx-import", "ai-template-deck-generation"] as const) {
+      expect(historicalJobTypeSchema.parse(type)).toBe(type);
+      expect(jobTypeSchema.parse(type)).toBe(type);
+      expect(activeJobTypeSchema.parse(type)).toBe(type);
+      expect(publicCreatableJobTypeSchema.safeParse(type).success).toBe(false);
+      expect(
+        jobSchema.parse({
+          jobId: `job-${type}`,
+          projectId: "project-a",
+          type,
+          status: "succeeded",
+          progress: 100,
+          message: "done",
+          result: null,
+          error: null,
+          createdAt: "2026-07-14T00:00:00.000Z",
+          updatedAt: "2026-07-14T00:00:00.000Z",
+        }).type
+      ).toBe(type);
+    }
   });
 
   it("accepts PPTX OOXML sync jobs", () => {

@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
-  aiTemplateDeckGenerationJobName,
   aiTemplateDeckGenerationQueueName,
   enqueueSemanticCueExtractionJob,
-  enqueueAiTemplateDeckGenerationJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
   enqueueRehearsalSemanticEvaluationJob,
@@ -16,7 +14,8 @@ import {
   semanticCueExtractionJobName,
   semanticCueExtractionQueueName,
   workerHealthCheckJobName,
-  workerHealthCheckQueueName
+  workerHealthCheckQueueName,
+  pptxImportQueueName
 } from "./index";
 
 const queueMock = vi.hoisted(() => ({
@@ -150,56 +149,14 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
   });
 });
 
-describe("enqueueAiTemplateDeckGenerationJob", () => {
-  it("adds an AI template deck generation job to BullMQ", async () => {
-    await enqueueAiTemplateDeckGenerationJob({
-      driver: "bullmq",
-      redisUrl: "redis://localhost:6379",
-      jobId: "job-template",
-      projectId: "project-a",
-      request: {
-        topic: "ORBIT",
-        targetDurationMinutes: 10,
-        slideCountRange: { min: 5, max: 8 },
-        template: "default",
-        metadata: {
-          audience: "general",
-          purpose: "inform",
-          tone: "professional"
-        },
-        design: {
-          engineVersion: "recipe-v1",
-          visualRhythm: "auto",
-          densityTarget: "medium",
-          mediaPolicy: "balanced",
-          layoutDiversity: "stable"
-        },
-        assets: [{ fileId: "file_design", role: "design" }]
-      }
-    });
+describe("legacy queue drain contracts", () => {
+  it("keeps legacy queue names without exposing enqueue helpers", async () => {
+    expect(aiTemplateDeckGenerationQueueName).toBe("ai-template-deck-generation");
+    expect(pptxImportQueueName).toBe("pptx-import");
 
-    expect(queueMock.Queue).toHaveBeenCalledWith(
-      aiTemplateDeckGenerationQueueName,
-      {
-        connection: expect.objectContaining({
-          host: "localhost",
-          port: 6379
-        })
-      }
-    );
-    expect(queueMock.add).toHaveBeenCalledWith(
-      aiTemplateDeckGenerationJobName,
-      {
-        jobId: "job-template",
-        projectId: "project-a",
-        request: expect.objectContaining({
-          topic: "ORBIT",
-          assets: [{ fileId: "file_design", role: "design" }]
-        })
-      },
-      expect.objectContaining({ jobId: "job-template", attempts: 5 })
-    );
-    expect(queueMock.close).toHaveBeenCalled();
+    const queueModule = await import("./index");
+    expect(queueModule).not.toHaveProperty("enqueueAiTemplateDeckGenerationJob");
+    expect(queueModule).not.toHaveProperty("enqueuePptxImportJob");
   });
 });
 
