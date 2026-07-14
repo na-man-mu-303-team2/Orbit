@@ -310,12 +310,18 @@ type RehearsalReportStatus =
   | "not-ready"
   | "unavailable"
   | "failed";
-type RehearsalRuntimeStatus = "idle" | "running" | "paused" | "stopping";
+type RehearsalRuntimeStatus =
+  | "idle"
+  | "running"
+  | "pausing"
+  | "paused"
+  | "resuming"
+  | "stopping";
 
 type RecordingSession = {
   recorder: MediaRecorder;
-  pause: () => void;
-  resume: () => void;
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
   start: () => void;
   stop: () => void;
 };
@@ -1087,14 +1093,18 @@ export function createRecordingSession(
 
   return {
     recorder,
-    pause: () => {
+    pause: async () => {
       if (recorder.state === "recording") {
-        recorder.pause();
+        await transitionMediaRecorder(recorder, "paused", "pause", () =>
+          recorder.pause(),
+        );
       }
     },
-    resume: () => {
+    resume: async () => {
       if (recorder.state === "paused") {
-        recorder.resume();
+        await transitionMediaRecorder(recorder, "recording", "resume", () =>
+          recorder.resume(),
+        );
       }
     },
     start: () => recorder.start(),
@@ -1104,6 +1114,40 @@ export function createRecordingSession(
       }
     },
   };
+}
+
+function transitionMediaRecorder(
+  recorder: MediaRecorder,
+  targetState: RecordingState,
+  eventName: "pause" | "resume",
+  transition: () => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      recorder.removeEventListener?.(eventName, handleTransition);
+      resolve();
+    };
+    const handleTransition = () => {
+      if (recorder.state === targetState) {
+        finish();
+      }
+    };
+
+    recorder.addEventListener?.(eventName, handleTransition, { once: true });
+    try {
+      transition();
+    } catch (error) {
+      recorder.removeEventListener?.(eventName, handleTransition);
+      reject(error);
+      return;
+    }
+    if (recorder.state === targetState) {
+      finish();
+    }
+  });
 }
 
 export function getLiveSttBiasMode(): LiveSttBiasMode {
@@ -2752,7 +2796,10 @@ export function RehearsalWorkspace(props: {
   }
 
   async function pauseActiveRehearsal() {
-    if (rehearsalRuntimeStatusRef.current === "paused") {
+    if (
+      rehearsalRuntimeStatusRef.current === "paused" ||
+      rehearsalRuntimeStatusRef.current === "pausing"
+    ) {
       return;
     }
 
@@ -2760,11 +2807,11 @@ export function RehearsalWorkspace(props: {
     pauseDetectorRef.current?.accept({ type: "reset" });
     setPauseDetectorSnapshot(null);
     setIsTimerRunning(false);
-    setRehearsalRuntimeStatus("paused");
-    rehearsalRuntimeStatusRef.current = "paused";
+    setRehearsalRuntimeStatus("pausing");
+    rehearsalRuntimeStatusRef.current = "pausing";
 
     if (phase === "recording") {
-      sessionRef.current?.pause();
+      await sessionRef.current?.pause();
       const p3Session = p3SessionRef.current;
       if (p3Session) {
         await p3Session.pause();
@@ -2772,9 +2819,13 @@ export function RehearsalWorkspace(props: {
       } else {
         await liveSttPortRef.current?.stop();
       }
+      setMediaStreamTracksEnabled(streamRef.current, false);
+      setLiveAudioLevel(null);
       setLiveStatus((current) =>
         current === "listening" || current === "starting" ? "stopped" : current,
       );
+      setRehearsalRuntimeStatus("paused");
+      rehearsalRuntimeStatusRef.current = "paused";
       return;
     }
 
@@ -2786,10 +2837,14 @@ export function RehearsalWorkspace(props: {
       } else {
         await liveSttPortRef.current?.stop();
       }
+      setMediaStreamTracksEnabled(liveDemoStreamRef.current, false);
+      setLiveAudioLevel(null);
       setLiveStatus((current) =>
         current === "listening" || current === "starting" ? "stopped" : current,
       );
     }
+    setRehearsalRuntimeStatus("paused");
+    rehearsalRuntimeStatusRef.current = "paused";
   }
 
   async function resumePausedRehearsal() {
@@ -2800,12 +2855,10 @@ export function RehearsalWorkspace(props: {
     const p3Session = p3SessionRef.current;
     let stream =
       phase === "recording" ? streamRef.current : liveDemoStreamRef.current;
+    setRehearsalRuntimeStatus("resuming");
+    rehearsalRuntimeStatusRef.current = "resuming";
     try {
-      if (phase === "recording") {
-        sessionRef.current?.resume();
-      }
-
-      if (p3Session) {
+      if (phase === "recording" || p3Session) {
         if (!isReusableRehearsalMediaStream(stream)) {
           if (phase === "recording") {
             throw new LiveSttError(
@@ -2824,6 +2877,19 @@ export function RehearsalWorkspace(props: {
           );
         }
 
+        setMediaStreamTracksEnabled(stream, true);
+        if (phase === "recording") {
+          await sessionRef.current?.resume();
+        }
+      }
+
+      if (p3Session) {
+        if (!stream) {
+          throw new LiveSttError(
+            "start_failed",
+            "음성 인식에 사용할 마이크 연결을 찾지 못했습니다.",
+          );
+        }
         setLiveError("");
         setLiveStatus("starting");
         const resumedState = await p3Session.resume({ audioSource: stream });
@@ -2843,16 +2909,17 @@ export function RehearsalWorkspace(props: {
       setScriptAutoFollowKey((current) => current + 1);
     } catch (cause) {
       const error = toLiveSttError(cause);
+      await sessionRef.current?.pause().catch(() => undefined);
+      setMediaStreamTracksEnabled(stream, false);
       if (phase === "recording") {
         setError(error.message);
-        setPhase("failed");
       } else {
         setLiveError(error.message);
         setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       }
       setIsTimerRunning(false);
-      setRehearsalRuntimeStatus("idle");
-      rehearsalRuntimeStatusRef.current = "idle";
+      setRehearsalRuntimeStatus("paused");
+      rehearsalRuntimeStatusRef.current = "paused";
     }
   }
 
@@ -3329,7 +3396,7 @@ export function RehearsalWorkspace(props: {
     if (
       !deck ||
       !currentSlide ||
-      rehearsalRuntimeStatusRef.current === "paused"
+      rehearsalRuntimeStatusRef.current !== "running"
     ) {
       return;
     }
@@ -6800,17 +6867,21 @@ function stopMediaStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
 }
 
+export function setMediaStreamTracksEnabled(
+  stream: MediaStream | null,
+  enabled: boolean,
+) {
+  stream?.getAudioTracks().forEach((track) => {
+    track.enabled = enabled;
+  });
+}
+
 export function isReusableRehearsalMediaStream(stream: MediaStream | null) {
   if (!stream) {
     return false;
   }
 
-  return (
-    stream.active ||
-    stream
-      .getAudioTracks()
-      .some((track) => track.enabled && track.readyState === "live")
-  );
+  return stream.getAudioTracks().some((track) => track.readyState === "live");
 }
 
 async function readSemanticRetryError(response: Response) {

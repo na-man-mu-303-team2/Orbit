@@ -262,7 +262,7 @@ describe("p3RehearsalSession", () => {
     const meta = await session.stop();
 
     expect(meta).toEqual({
-      recordingDurationSeconds: null,
+      recordingDurationSeconds: 2,
       slideTimeline: [
         {
           slideId: "slide_1",
@@ -481,6 +481,31 @@ describe("p3RehearsalSession", () => {
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"]
     });
+  });
+
+  it("사용자 일시정지를 제외한 활성 시간으로 녹음 길이와 슬라이드 타임라인을 기록한다", async () => {
+    let nowMs = 1_000;
+    const session = createP3RehearsalSession({
+      slides,
+      port: createMockLiveSttPort(),
+      now: () => nowMs
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    nowMs = 11_000;
+    await session.pause();
+    nowMs = 21_000;
+    await session.resume({ audioSource: {} as MediaStream });
+    nowMs = 31_000;
+    session.enterSlide(1);
+    nowMs = 41_000;
+    const meta = await session.stop();
+
+    expect(meta.recordingDurationSeconds).toBe(30);
+    expect(meta.slideTimeline).toEqual([
+      { slideId: "slide_1", enteredAt: new Date(1_000).toISOString() },
+      { slideId: "slide_2", enteredAt: new Date(21_000).toISOString() }
+    ]);
   });
 
   it("finalizes active advice state into local run meta", async () => {

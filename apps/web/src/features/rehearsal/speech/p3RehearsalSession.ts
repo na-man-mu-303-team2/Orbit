@@ -121,13 +121,22 @@ export function createP3RehearsalSession(
     currentNowMs = now();
     return currentNowMs;
   };
+  let totalPausedMs = 0;
+  let pausedAtMs: number | null = null;
+  const toActiveTimestampMs = (rawTimestampMs: number) =>
+    rawTimestampMs -
+    totalPausedMs -
+    (pausedAtMs === null ? 0 : Math.max(rawTimestampMs - pausedAtMs, 0));
   const collector = createRehearsalLogCollector({
     slides: input.slides.map((slide) => ({
       slideId: slide.slideId,
       keywordIds: slide.keywords.map((keyword) => keyword.keywordId),
       matchableSentenceIds: getMatchableSentenceIdsForSlide(slide, input.config)
     })),
-    now: () => new Date(currentNowMs || now()),
+    now: () => {
+      const rawTimestampMs = currentNowMs || now();
+      return new Date(toActiveTimestampMs(rawTimestampMs));
+    },
     adviceReentryCooldownMs:
       input.config?.adviceReentryCooldownMs ??
       defaultSpeechTrackingConfig.adviceReentryCooldownMs
@@ -188,6 +197,8 @@ export function createP3RehearsalSession(
     const slide = getSlide(slideIndex);
     status = "starting";
     runMeta = null;
+    totalPausedMs = 0;
+    pausedAtMs = null;
     finalSegments.length = 0;
     const startRequestedAt = getNowMs();
     resultTimestampOffsetMs = 0;
@@ -254,10 +265,11 @@ export function createP3RehearsalSession(
       return getState();
     }
 
-    semanticGeneration += 1;
-    await input.port.stop();
-    cleanupSubscriptions?.();
+    pausedAtMs = getNowMs();
     status = "paused";
+    semanticGeneration += 1;
+    cleanupSubscriptions?.();
+    await input.port.stop();
     emitSnapshot();
     return getState();
   }
@@ -270,6 +282,7 @@ export function createP3RehearsalSession(
     }
 
     const slide = getSlide(slideIndex);
+    finishPause(getNowMs());
     resultTimestampOffsetMs = lastAcceptedResultEndMs;
     status = "starting";
     try {
@@ -280,7 +293,8 @@ export function createP3RehearsalSession(
         biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
       });
     } catch (error) {
-      status = "failed";
+      status = "paused";
+      pausedAtMs = getNowMs();
       cleanupSubscriptions?.();
       throw error;
     }
@@ -391,12 +405,20 @@ export function createP3RehearsalSession(
   }
 
   async function stop() {
+    const stoppedAtMs = getNowMs();
+    finishPause(stoppedAtMs);
     cleanupSubscriptions?.();
     await input.port.stop();
     await flushSemanticQueueForSlide(slideIndex);
     status = "stopped";
     semanticGeneration += 1;
-    runMeta = collector.finalize();
+    runMeta = {
+      ...collector.finalize(),
+      recordingDurationSeconds:
+        startedAtMs === null
+          ? null
+          : Math.max((stoppedAtMs - startedAtMs - totalPausedMs) / 1000, 0)
+    };
     return runMeta;
   }
 
@@ -497,7 +519,15 @@ export function createP3RehearsalSession(
 
   function getRelativeNowMs() {
     const base = startedAtMs ?? getNowMs();
-    return Math.max(getNowMs() - base, 0);
+    return Math.max(toActiveTimestampMs(getNowMs()) - base, 0);
+  }
+
+  function finishPause(resumedAtMs: number) {
+    if (pausedAtMs === null) {
+      return;
+    }
+    totalPausedMs += Math.max(resumedAtMs - pausedAtMs, 0);
+    pausedAtMs = null;
   }
 
   function getSlide(index: number) {

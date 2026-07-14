@@ -1126,18 +1126,27 @@ function buildSlideTimings(
   const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
+  const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
+  const recordingDurationSeconds = runMeta.recordingDurationSeconds;
+  const recordingEndedAt =
+    !Number.isNaN(firstEnteredAt) && recordingDurationSeconds !== null
+      ? firstEnteredAt + recordingDurationSeconds * 1000
+      : null;
 
   for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry || !nextEntry) {
+    if (!entry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = Date.parse(nextEntry.enteredAt);
+    const exitedAt = nextEntry
+      ? Date.parse(nextEntry.enteredAt)
+      : recordingEndedAt;
     if (
       Number.isNaN(enteredAt) ||
+      exitedAt === null ||
       Number.isNaN(exitedAt) ||
       exitedAt <= enteredAt
     ) {

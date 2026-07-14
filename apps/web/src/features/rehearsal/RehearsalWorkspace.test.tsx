@@ -50,6 +50,7 @@ import {
   getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
   getRehearsalTimingProgress,
+  isReusableRehearsalMediaStream,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   prepareRehearsalEvaluationRun,
@@ -62,6 +63,7 @@ import {
   retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  setMediaStreamTracksEnabled,
   shouldLoadPracticeGoalSummary,
   shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
@@ -778,6 +780,24 @@ describe("RehearsalWorkspace", () => {
     );
     expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
       .toBeLessThan(handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"));
+  });
+
+  it("녹음 pause 완료 후 STT와 마이크를 멈추고 역순으로 재시작한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const pauseStart = source.indexOf("async function pauseActiveRehearsal");
+    const resumeStart = source.indexOf("async function resumePausedRehearsal");
+    const actionStart = source.indexOf("async function handleTimePrimaryAction");
+    const pauseBody = source.slice(pauseStart, resumeStart);
+    const resumeBody = source.slice(resumeStart, actionStart);
+
+    expect(pauseBody.indexOf("await sessionRef.current?.pause()"))
+      .toBeLessThan(pauseBody.indexOf("await p3Session.pause()"));
+    expect(pauseBody.indexOf("await p3Session.pause()"))
+      .toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled(streamRef.current, false)"));
+    expect(resumeBody.indexOf("setMediaStreamTracksEnabled(stream, true)"))
+      .toBeLessThan(resumeBody.indexOf("await sessionRef.current?.resume()"));
+    expect(resumeBody.indexOf("await sessionRef.current?.resume()"))
+      .toBeLessThan(resumeBody.indexOf("await p3Session.resume"));
   });
 
   it("starts report recording from the side timer play button", () => {
@@ -2379,7 +2399,7 @@ describe("RehearsalWorkspace", () => {
     } satisfies Partial<LiveSttAdapterError>);
   });
 
-  it("records audio through a MediaRecorder-compatible session", () => {
+  it("records audio through a MediaRecorder-compatible session", async () => {
     const stoppedFiles: File[] = [];
     const errors: Error[] = [];
     const session = createRecordingSession(
@@ -2395,16 +2415,16 @@ describe("RehearsalWorkspace", () => {
     session.start();
     expect(session.recorder.state).toBe("recording");
 
-    session.pause();
+    await session.pause();
     expect(session.recorder.state).toBe("paused");
 
-    session.pause();
+    await session.pause();
     expect(session.recorder.state).toBe("paused");
 
-    session.resume();
+    await session.resume();
     expect(session.recorder.state).toBe("recording");
 
-    session.resume();
+    await session.resume();
     expect(session.recorder.state).toBe("recording");
 
     session.stop();
@@ -2414,6 +2434,21 @@ describe("RehearsalWorkspace", () => {
       "rehearsal-2026-06-29T00-00-00-000Z.webm",
     );
     expect(stoppedFiles[0]?.type).toBe("audio/webm");
+  });
+
+  it("비활성화한 live 오디오 트랙을 재사용하고 다시 활성화한다", () => {
+    const track = { enabled: true, readyState: "live" } as MediaStreamTrack;
+    const stream = {
+      active: true,
+      getAudioTracks: () => [track]
+    } as unknown as MediaStream;
+
+    setMediaStreamTracksEnabled(stream, false);
+    expect(track.enabled).toBe(false);
+    expect(isReusableRehearsalMediaStream(stream)).toBe(true);
+
+    setMediaStreamTracksEnabled(stream, true);
+    expect(track.enabled).toBe(true);
   });
 
   it("selects the first supported recording MIME type", () => {

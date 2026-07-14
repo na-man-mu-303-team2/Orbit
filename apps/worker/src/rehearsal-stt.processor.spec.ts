@@ -684,6 +684,7 @@ describe("processRehearsalSttJob", () => {
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([
         runRow({
+          recordingDurationSeconds: 90,
           slideTimeline: [
             { slideId: "slide_1", enteredAt: "2026-06-27T00:00:00.000Z" },
             { slideId: "slide_3", enteredAt: "2026-06-27T00:00:20.000Z" },
@@ -772,7 +773,7 @@ describe("processRehearsalSttJob", () => {
       expect.stringContaining("report_json"),
       expect.arrayContaining([
         expect.stringContaining(
-          '"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":20},{"slideId":"slide_3","targetSeconds":30,"actualSeconds":30}]'
+          '"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":20},{"slideId":"slide_3","targetSeconds":30,"actualSeconds":30},{"slideId":"slide_2","targetSeconds":60,"actualSeconds":40}]'
         )
       ])
     );
