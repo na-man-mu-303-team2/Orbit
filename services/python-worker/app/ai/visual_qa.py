@@ -21,8 +21,8 @@ from app.ai.composition_library import (
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.design_program import CompositionId, DeckDesignProgram
 from app.ai.deck_generation.layout_compiler import without_canvas_background_elements
-from app.ai.generate_deck import (
-    ValidationResult,
+from app.ai.deck_generation.models import ValidationResult
+from app.ai.deck_generation.quality import (
     validate_content,
     validate_design,
     validate_layout,

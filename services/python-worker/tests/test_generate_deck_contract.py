@@ -15,13 +15,34 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 import app.main as api_module
 import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
-from app.ai.deck_generation.models import RawInput, StylePromptContext
+from app.ai.deck_generation.design_planning import (
+    contrast_ratio,
+    text_color_for_background,
+)
+from app.ai.deck_generation.models import (
+    GenerateDeckDiagnostics,
+    RawInput,
+    StylePromptContext,
+    ValidationIssue,
+    ValidationResult,
+)
+from app.ai.deck_generation.quality import (
+    detect_text_overlap_candidates,
+    is_short_label_text_box_too_narrow,
+    is_text_overflowing,
+    refine_design_issues,
+    repair_program_v2_text_element,
+    review_text_overlap_candidates,
+    validate_and_patch,
+    validate_content,
+    validate_design,
+    validate_presentation,
+)
 from app.ai.design_program import DeckDesignProgram, DesignProgramError
 from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
     DeckGenerationOrchestrator,
-    GenerateDeckDiagnostics,
     GenerateDeckRequest,
     GenerateDeckResponse,
     GeneratedDeckContentPlan,
@@ -31,8 +52,6 @@ from app.ai.generate_deck import (
     SlidePlan,
     SlideCountRange,
     SourceRecord,
-    ValidationIssue,
-    ValidationResult,
     VisualIntent,
     allocate_weighted_integers,
     analyze_input,
@@ -50,13 +69,10 @@ from app.ai.generate_deck import (
     deck_content_response_format_for,
     design_pack_locks_dark_canvas,
     design_pack_source_ledgers,
-    detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
     ensure_profile_closing_action,
     initial_source_records,
-    is_text_overflowing,
-    is_short_label_text_box_too_narrow,
     merge_grounded_repair_notes,
     message_duplicates_content_items,
     normalize_design_pack_slide_title,
@@ -67,9 +83,7 @@ from app.ai.generate_deck import (
     plan_presentation,
     plan_slides,
     presentation_rule_prompt,
-    refine_design_issues,
     repeated_speaker_notes_slide_order,
-    repair_program_v2_text_element,
     repair_content_plan_with_llm,
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
@@ -77,13 +91,6 @@ from app.ai.generate_deck import (
     speaker_notes_maximum_chars,
     speaker_notes_minimum_chars,
     speaker_note_fragments,
-    text_color_for_background,
-    contrast_ratio,
-    review_text_overlap_candidates,
-    validate_and_patch,
-    validate_content,
-    validate_design,
-    validate_presentation,
     web_source_id,
     web_sources_from_response,
 )

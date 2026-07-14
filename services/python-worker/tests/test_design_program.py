@@ -25,6 +25,10 @@ from app.ai.deck_generation.design_planning import (
     program_v2_slide_summary,
 )
 from app.ai.deck_generation.layout_compiler import compile_layout
+from app.ai.deck_generation.quality import (
+    is_expected_media_placeholder,
+    validate_presentation,
+)
 from app.ai.deck_generation.source_grounding import (
     design_pack_source_ledgers,
     initial_source_records,
@@ -43,8 +47,6 @@ from app.ai.generate_deck import (
     SourceRecord,
     VisualIntent,
     analyze_input,
-    is_expected_media_placeholder,
-    validate_presentation,
 )
 
 

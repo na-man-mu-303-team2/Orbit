@@ -695,6 +695,11 @@ class ValidationResult(BaseModel):
         return self
 
 
+class PythonQualityResult(BaseModel):
+    deck: dict[str, Any]
+    validation: ValidationResult
+
+
 class TemplateSelectionItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
