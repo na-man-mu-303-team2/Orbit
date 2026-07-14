@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from app.ai.composition_library import design_program_snapshot
@@ -66,6 +67,7 @@ class DeckGenerationOrchestrator:
         api_key: str | None = None,
         reference_context: list[ReferenceContext] | None = None,
         image_review_mode: ImageReviewMode = "auto",
+        current_date: date | None = None,
     ) -> None:
         self.request = request
         self.client = client
@@ -73,6 +75,7 @@ class DeckGenerationOrchestrator:
         self.api_key = api_key
         self.reference_context = reference_context
         self.image_review_mode = image_review_mode
+        self.current_date = current_date or date.today()
         self.agent_outputs: dict[str, AgentOutput] = {}
 
     def run(self) -> GenerateDeckResponse:
@@ -186,6 +189,7 @@ class DeckGenerationOrchestrator:
             client=self.client,
             model=self.model,
             api_key=self.api_key,
+            current_date=self.current_date,
         )
         self.record(
             "SourceGroundingAgent",
@@ -393,6 +397,7 @@ def generate_deck(
     api_key: str | None = None,
     reference_context: list[ReferenceContext] | None = None,
     image_review_mode: ImageReviewMode = "auto",
+    current_date: date | None = None,
 ) -> GenerateDeckResponse:
     return DeckGenerationOrchestrator(
         request,
@@ -401,6 +406,7 @@ def generate_deck(
         api_key=api_key,
         reference_context=reference_context,
         image_review_mode=image_review_mode,
+        current_date=current_date,
     ).run()
 
 

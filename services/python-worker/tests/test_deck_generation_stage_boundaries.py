@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.ai.deck_generation.content_planning import plan_content
 from app.ai.deck_generation.design_planning import resolve_style_prompt_context
 from app.ai.deck_generation.diagnostics import assemble_generation_diagnostics
@@ -21,7 +23,7 @@ def test_source_and_content_stage_entrypoints_return_boundary_dtos() -> None:
         GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT")
     )
 
-    grounding_result = ground_sources(raw_input)
+    grounding_result = ground_sources(raw_input, current_date=date(2026, 7, 15))
     content_stage_input = grounding_result.raw_input.model_copy(deep=True)
     original_content_stage_input = content_stage_input.model_copy(deep=True)
     content_plan = plan_content(

@@ -85,6 +85,7 @@ WEB_SEARCH_ALIAS_RESPONSE_FORMAT: dict[str, Any] = {
 def ground_sources(
     raw_input: RawInput,
     *,
+    current_date: date,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -96,6 +97,7 @@ def ground_sources(
         client=client,
         model=model,
         api_key=api_key,
+        current_date=current_date,
     )
     raw_input.research_attempts = research.attempts
     raw_input.relevant_web_source_count = research.relevant_source_count
@@ -197,6 +199,7 @@ def validate_reference_policy_inputs(raw_input: RawInput) -> None:
 def research_web_sources(
     raw_input: RawInput,
     *,
+    current_date: date,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -246,6 +249,7 @@ def research_web_sources(
                     attempt=attempt,
                     search_aliases=search_aliases,
                     diagnostic_urls=diagnostic_urls,
+                    current_date=current_date,
                 ),
                 tools=[
                     {
@@ -369,6 +373,7 @@ def plan_web_search_aliases(
 def web_research_query(
     raw_input: RawInput,
     *,
+    current_date: date,
     attempt: int = 1,
     search_aliases: list[str] | None = None,
     diagnostic_urls: list[str] | None = None,
@@ -403,7 +408,7 @@ def web_research_query(
                 if search_aliases
                 else ""
             ),
-            f"Current date: {date.today().isoformat()}",
+            f"Current date: {current_date.isoformat()}",
             f'Localized exact topic: "{raw_input.topic}"',
             f"Extracted keywords: {', '.join(keywords)}" if keywords else "",
             (

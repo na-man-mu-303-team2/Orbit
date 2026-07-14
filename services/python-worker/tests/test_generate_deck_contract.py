@@ -1,6 +1,7 @@
 import base64
 import json
 from copy import deepcopy
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -2222,10 +2223,15 @@ def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
             slideCountRange={"min": 1, "max": 1},
         ),
         client=client,
+        current_date=date(2026, 7, 15),
     )
 
     web_requests = [request for request in client.requests if request.get("tools")]
     assert len(web_requests) == 2
+    assert all(
+        str(request["input"]).count("Current date: 2026-07-15") == 1
+        for request in web_requests
+    )
     assert "Diagnostic candidate URLs from the previous search" in str(
         web_requests[1]["input"]
     )
