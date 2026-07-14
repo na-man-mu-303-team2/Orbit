@@ -2,14 +2,16 @@ import {
   deckCanvasSchema,
   deckElementSchema,
   deckSchema,
+  pptxOoxmlGenerationJobResultSchema,
+  pptxOoxmlGenerationRequestSchema,
   qualityReportSchema,
   slideStyleSchema,
   templateBlueprintSchema,
-  templateBlueprintIdSchema,
   themeSchema,
   type Deck,
   type DeckCanvas,
   type Job,
+  type PptxOoxmlGenerationRequest,
   type QualityReport,
   type TemplateBlueprint,
 } from "@orbit/shared";
@@ -21,11 +23,7 @@ import { z } from "zod";
 const pptxOoxmlGenerationPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
-  request: z.object({
-    fileId: z.string().min(1),
-    topic: z.string().trim().optional(),
-    prompt: z.string().trim().optional(),
-  }),
+  request: pptxOoxmlGenerationRequestSchema,
 });
 
 const generatedDesignAssetSchema = z.object({
@@ -59,21 +57,9 @@ const pptxOoxmlGenerationWorkerResponseSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
-const pptxOoxmlGenerationJobResultSchema = z.object({
-  deckId: z.string().regex(/^deck_[A-Za-z0-9_-]+$/),
-  templateId: templateBlueprintIdSchema,
-  sourceFileId: z.string().min(1),
-  currentPackageFileId: z.string().min(1),
-  qualityReport: qualityReportSchema,
-  warnings: z.array(z.string()).default([]),
-});
-
 type PptxOoxmlGenerationWorkerResponse = z.infer<
   typeof pptxOoxmlGenerationWorkerResponseSchema
 >;
-type PptxOoxmlGenerationRequest = z.infer<
-  typeof pptxOoxmlGenerationPayloadSchema
->["request"];
 type OoxmlGenerationBlueprint =
   PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =

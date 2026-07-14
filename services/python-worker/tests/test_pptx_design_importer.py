@@ -1349,6 +1349,51 @@ def test_ooxml_visual_tree_importer_is_default(
     )
 
 
+def test_ooxml_visual_tree_failure_uses_python_pptx_fallback(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    pptx_path = tmp_path / "vector-failure.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1),
+        Inches(3),
+        Inches(1),
+    ).text_frame.text = "Fallback title"
+    presentation.save(pptx_path)
+
+    def fail_vector_import(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("malformed visual tree")
+
+    monkeypatch.delenv(VECTOR_IMPORT_FLAG, raising=False)
+    monkeypatch.setattr(
+        "app.ai.pptx_ooxml_vector_importer.import_pptx_ooxml_visual_tree",
+        fail_vector_import,
+    )
+
+    result = import_pptx_design_with_optional_ooxml_vector(
+        pptx_path,
+        "file_design",
+    )
+
+    warning = (
+        "OOXML visual tree importer failed; python-pptx fallback used: "
+        "malformed visual tree"
+    )
+    assert result.warnings == [warning]
+    assert result.blueprint["warnings"] == [warning]
+    assert result.template_blueprint["sourcePackageFileId"] == "file_design"
+    assert result.template_blueprint["currentPackageFileId"] == "file_design"
+    assert any(
+        element["type"] == "text"
+        and element["props"]["text"] == "Fallback title"
+        and str(element["elementId"]).startswith("el_imported_")
+        for element in result.blueprint["slides"][0]["elements"]
+    )
+
+
 def replace_shape_fill_with_scheme(
     shape: object,
     scheme: str,

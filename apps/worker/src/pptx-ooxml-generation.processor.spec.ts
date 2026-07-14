@@ -69,12 +69,16 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       return [];
     });
-    const fetchMock = vi.fn(async (input: string | URL) => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "http://storage.local/template.pptx") {
         return new Response("pptx-bytes");
       }
       if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        const form = init?.body as FormData;
+        expect(Array.from(form.keys())).toEqual(["project_id", "file_id", "file"]);
+        expect(form.get("project_id")).toBe("project-a");
+        expect(form.get("file_id")).toBe("file_template");
         return new Response(JSON.stringify(workerResponse()));
       }
 
@@ -86,7 +90,10 @@ describe("processPptxOoxmlGenerationJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      payload
+      {
+        ...payload,
+        request: { fileId: "file_template" }
+      }
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
@@ -161,10 +168,17 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     const blueprint = insertedBlueprints[0] as {
+      sourceFileId: string;
+      sourcePackageFileId: string;
       currentPackageFileId: string;
       slides: Array<{ renderAssetFileId: string }>;
     };
+    expect(blueprint.sourceFileId).toBe("file_template");
+    expect(blueprint.sourcePackageFileId).toBe("file_template");
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
+    expect(blueprint.currentPackageFileId).not.toBe(
+      blueprint.sourcePackageFileId
+    );
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({
       deckId: "deck_ooxml_file_template",

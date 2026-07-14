@@ -746,18 +746,20 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 - `apps/worker/src/generate-deck.processor.ts`
 - `apps/web/src/features/editor/ai/quality/editorValidation.ts`
 
-## PPTX import, Template Blueprint, Quality Report 계약
+## PPTX import legacy, Template Blueprint, Quality Report 계약
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
 
-API:
+`/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 1부터 에디터는 `/pptx-ooxml-generations`만 호출하며, 아래 API·queue·consumer·result schema는 rollback과 이미 enqueue된 Job의 drain을 위해 임시 유지한다. 신규 producer 중단은 #339 PR 3, drain 확인 후 실행 코드 제거는 PR 4에서 수행한다.
+
+Legacy API:
 
 - `POST /api/v1/projects/:projectId/pptx-imports`
 - request: `{ "fileId": "file_1" }`
 - response: `{ "job": "{ JobSchema }" }`
 - Job type: `pptx-import`
 
-PPTX import job result:
+Legacy PPTX import job result:
 
 ```json
 {
@@ -845,18 +847,20 @@ TemplateBlueprint:
 
 ## PPTX OOXML generation contract
 
-PPTX OOXML generation is legacy. New deck creation starts from
-`pptx-import`, which imports editable `DeckElement` objects and keeps the
-OOXML package in `TemplateBlueprint` sidecar fields. Rendered PNGs are
-thumbnail/fallback/sync verification assets, not the default editing layer.
+PPTX OOXML generation은 에디터의 활성 PPTX import 경로다. 에디터는 `purpose=pptx-import`로 업로드한 asset의 `{ fileId }`만 전달하고 공통 Job을 polling한다. 성공하면 OOXML result schema를 검증한 뒤 `result.deckId`와 재조회한 Deck의 `deckId`가 일치할 때만 편집 상태를 갱신한다.
+
+`{ fileId }`만 전달하는 활성 에디터 경로는 원본 문구를 AI로 교체하지 않는 OOXML visual tree 변환이며, 실패하면 `python-pptx` importer로 fallback한다. 변환된 `DeckElement`가 기본 편집 layer이고 rendered PNG는 thumbnail, 비가역 요소 fallback, sync 검증에 사용한다.
 
 API:
 
 - `POST /api/v1/projects/:projectId/pptx-ooxml-generations`
-- request: `{ "fileId": "file_1", "topic": "optional", "prompt": "optional" }`
+- active Editor request: `{ "fileId": "file_1" }`
+- temporary compatibility request: `{ "fileId": "file_1", "topic": "optional", "prompt": "optional" }`
 - response: `{ "job": "{ JobSchema }" }`
 - Job type: `pptx-ooxml-generation`
 - Queue name: `pptx-ooxml-generation`
+
+`topic`과 `prompt`는 #339 PR 5에서 제거하기 전까지만 API 호환 입력으로 허용한다. 에디터는 두 필드를 보내지 않으며, strict `{ fileId }` 계약과 AI slot overwrite 제거도 PR 5에서 함께 확정한다.
 
 Job result:
 
@@ -883,6 +887,16 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slots[].source.slidePart`
 - `slots[].source.shapeId`
 - `slots[].source.relationshipId`
+
+`sourcePackageFileId`는 업로드한 불변 원본 asset을 가리킨다. `currentPackageFileId`는 import 시 별도 `design-asset`으로 저장한 writable package를 가리키며, 이후 OOXML sync와 imported Deck export의 기준이다. 초기 import 결과에서는 `sourceFileId === sourcePackageFileId`이고 `currentPackageFileId`는 원본과 구분되는 저장 asset ID여야 한다. slide의 `renderAssetFileId`도 저장된 `design-asset` ID다.
+
+구현 위치:
+
+- `apps/web/src/features/editor/shell/EditorShell.tsx`
+- `packages/shared/src/deck/pptx-ooxml-generation.schema.ts`
+- `apps/api/src/pptx-ooxml-generations`
+- `apps/worker/src/pptx-ooxml-generation.processor.ts`
+- `services/python-worker/app/ai/pptx_ooxml_generation.py`
 
 ## AI template deck generation contract
 
