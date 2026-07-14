@@ -1,4 +1,5 @@
 import type { LiveSttResult } from "../stt/liveSttPort";
+import { createCanonicalScriptSentenceIndex } from "./canonicalScriptSentenceIndex";
 import type { ScriptProgressSnapshot } from "./speechTrackingEvents";
 
 const MATCH_RESULT_TOLERANCE = 20;
@@ -17,7 +18,8 @@ export type ScriptProgressTracker = {
 export function createScriptProgressTracker(
   speakerNotes: string,
 ): ScriptProgressTracker {
-  const sourceText = normalizeSourceText(speakerNotes);
+  const sentenceIndex = createCanonicalScriptSentenceIndex(speakerNotes);
+  const sourceText = sentenceIndex.sourceText;
   const sourceCharacters = Array.from(sourceText);
   let committedOffset = 0;
   let segmentBaseOffset = 0;
@@ -88,11 +90,30 @@ export function createScriptProgressTracker(
 
   function snapshot(): ScriptProgressSnapshot {
     const totalChars = sourceCharacters.length;
+    const currentSentence =
+      sentenceIndex.sentences.find(
+        (sentence) => committedOffset <= sentence.endOffset + 1
+      ) ?? null;
+    const sentenceTotalChars = currentSentence
+      ? currentSentence.endOffset - currentSentence.startOffset
+      : 0;
+    const sentenceCharOffset = currentSentence
+      ? Math.min(
+          Math.max(committedOffset - currentSentence.startOffset, 0),
+          sentenceTotalChars
+        )
+      : 0;
+
     return {
       charOffset: committedOffset,
       totalChars,
       ratio: totalChars === 0 ? 0 : committedOffset / totalChars,
       confidence,
+      sentenceId: currentSentence?.sentenceId ?? null,
+      sentenceCharOffset,
+      sentenceTotalChars,
+      sentenceRatio:
+        sentenceTotalChars === 0 ? 0 : sentenceCharOffset / sentenceTotalChars
     };
   }
 

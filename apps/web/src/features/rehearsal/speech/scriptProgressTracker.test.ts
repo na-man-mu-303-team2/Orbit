@@ -18,6 +18,10 @@ describe("scriptProgressTracker", () => {
     });
 
     expect(first.charOffset).toBeGreaterThan(0);
+    expect(first).toMatchObject({
+      sentenceId: "sentence_1",
+      sentenceTotalChars: 26
+    });
     expect(unrelated.charOffset).toBe(first.charOffset);
   });
 
@@ -71,6 +75,10 @@ describe("scriptProgressTracker", () => {
 
     expect(secondFinal.charOffset).toBeGreaterThan(firstFinal.charOffset);
     expect(secondFinal.ratio).toBeGreaterThan(0.9);
+    expect(secondFinal).toMatchObject({
+      sentenceId: "sentence_2",
+      sentenceRatio: 1
+    });
   });
 
   it("슬라이드 재방문 시 진행 상태를 초기화한다", () => {
@@ -87,6 +95,36 @@ describe("scriptProgressTracker", () => {
       charOffset: 0,
       confidence: "none",
       ratio: 0,
+      sentenceId: "sentence_1",
+      sentenceCharOffset: 0,
+      sentenceRatio: 0
     });
+  });
+
+  it("canonical 문장 offset을 기준으로 현재 문장 진행률을 계산한다", () => {
+    const tracker = createScriptProgressTracker(
+      "첫 번째 문장을 설명합니다. 두 번째 문장을 정리합니다."
+    );
+
+    tracker.acceptResult({ text: "첫 번째 문장을 설명합니다", isFinal: false });
+    const first = tracker.acceptResult({
+      text: "첫 번째 문장을 설명합니다",
+      isFinal: true
+    });
+
+    expect(first).toMatchObject({
+      sentenceId: "sentence_1",
+      sentenceRatio: 1
+    });
+
+    tracker.acceptResult({ text: "두 번째 문장을", isFinal: false });
+    const second = tracker.acceptResult({
+      text: "두 번째 문장을",
+      isFinal: false
+    });
+
+    expect(second.sentenceId).toBe("sentence_2");
+    expect(second.sentenceCharOffset).toBeGreaterThan(0);
+    expect(second.sentenceRatio).toBeLessThan(1);
   });
 });

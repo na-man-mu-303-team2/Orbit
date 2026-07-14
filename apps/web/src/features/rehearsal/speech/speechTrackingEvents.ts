@@ -24,6 +24,10 @@ export type ScriptProgressSnapshot = {
   totalChars: number;
   ratio: number;
   confidence: "none" | "candidate" | "confirmed";
+  sentenceId: string | null;
+  sentenceCharOffset: number;
+  sentenceTotalChars: number;
+  sentenceRatio: number;
 };
 
 export type SpeechTrackerSnapshot = {
