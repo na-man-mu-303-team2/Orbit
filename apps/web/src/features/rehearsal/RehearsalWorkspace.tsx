@@ -1116,6 +1116,30 @@ export function createRecordingSession(
   };
 }
 
+export async function runRehearsalPauseSequence(options: {
+  pauseRecording?: () => Promise<void>;
+  pauseSpeech: () => Promise<void>;
+}): Promise<{
+  error: unknown | null;
+  status: "paused" | "running";
+}> {
+  let recordingPaused = options.pauseRecording === undefined;
+
+  try {
+    if (options.pauseRecording) {
+      await options.pauseRecording();
+      recordingPaused = true;
+    }
+    await options.pauseSpeech();
+    return { error: null, status: "paused" };
+  } catch (error) {
+    return {
+      error,
+      status: recordingPaused ? "paused" : "running",
+    };
+  }
+}
+
 function transitionMediaRecorder(
   recorder: MediaRecorder,
   targetState: RecordingState,
@@ -2810,41 +2834,58 @@ export function RehearsalWorkspace(props: {
     setRehearsalRuntimeStatus("pausing");
     rehearsalRuntimeStatusRef.current = "pausing";
 
-    if (phase === "recording") {
-      await sessionRef.current?.pause();
-      const p3Session = p3SessionRef.current;
-      if (p3Session) {
-        await p3Session.pause();
-        setP3SessionState(p3Session.getState());
-      } else {
-        await liveSttPortRef.current?.stop();
-      }
-      setMediaStreamTracksEnabled(streamRef.current, false);
+    const isRecordingPause = phase === "recording";
+    const shouldPauseSpeech =
+      isRecordingPause || isLiveDemoActive || isLiveSttActive;
+    const p3Session = p3SessionRef.current;
+    const pauseResult = await runRehearsalPauseSequence({
+      pauseRecording: isRecordingPause
+        ? async () => {
+            await sessionRef.current?.pause();
+          }
+        : undefined,
+      pauseSpeech: async () => {
+        if (!shouldPauseSpeech) {
+          return;
+        }
+        if (p3Session) {
+          try {
+            await p3Session.pause();
+          } finally {
+            setP3SessionState(p3Session.getState());
+          }
+        } else {
+          await liveSttPortRef.current?.stop();
+        }
+      },
+    });
+
+    if (pauseResult.status === "paused") {
+      setMediaStreamTracksEnabled(
+        isRecordingPause ? streamRef.current : liveDemoStreamRef.current,
+        false,
+      );
       setLiveAudioLevel(null);
       setLiveStatus((current) =>
         current === "listening" || current === "starting" ? "stopped" : current,
       );
+      setIsTimerRunning(false);
       setRehearsalRuntimeStatus("paused");
       rehearsalRuntimeStatusRef.current = "paused";
-      return;
+    } else {
+      setIsTimerRunning(true);
+      setRehearsalRuntimeStatus("running");
+      rehearsalRuntimeStatusRef.current = "running";
     }
 
-    if (isLiveDemoActive || isLiveSttActive) {
-      const p3Session = p3SessionRef.current;
-      if (p3Session) {
-        await p3Session.pause();
-        setP3SessionState(p3Session.getState());
+    if (pauseResult.error) {
+      const error = toLiveSttError(pauseResult.error);
+      if (isRecordingPause) {
+        setError(error.message);
       } else {
-        await liveSttPortRef.current?.stop();
+        setLiveError(error.message);
       }
-      setMediaStreamTracksEnabled(liveDemoStreamRef.current, false);
-      setLiveAudioLevel(null);
-      setLiveStatus((current) =>
-        current === "listening" || current === "starting" ? "stopped" : current,
-      );
     }
-    setRehearsalRuntimeStatus("paused");
-    rehearsalRuntimeStatusRef.current = "paused";
   }
 
   async function resumePausedRehearsal() {
