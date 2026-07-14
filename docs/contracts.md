@@ -1000,9 +1000,13 @@ Job result:
 
 ## PPTX OOXML sync contract
 
-Deck patch storage succeeds immediately. If the deck has an OOXML-backed
-`TemplateBlueprint`, `POST /api/v1/projects/:projectId/deck/patches` enqueues
-a background sync job and may include `ooxmlSyncJob` in the response.
+Deck 저장은 OOXML sync와 분리해 먼저 완료한다. OOXML-backed `TemplateBlueprint`가 있는 Deck은 operation 종류와 관계없이 `PUT /api/v1/projects/:projectId/deck`과 `POST /api/v1/projects/:projectId/deck/patches`의 모든 version 전이마다 background sync Job을 enqueue하고 response에 optional `ooxmlSyncJob`을 포함한다.
+
+imported Deck의 full PUT은 저장 version을 `current + 1`로 정규화하고, 변경된 요소를 `add_element`, `delete_element`, `update_element_frame`, `update_element_props` 형태의 synthetic patch로 기록한다. 일반 Deck의 full replacement와 snapshot 동작은 기존 계약을 유지한다.
+
+Deck checkpoint는 일반 Deck patch를 기존처럼 compact한다. OOXML-backed Deck은 patch마다 `decks.deck_json`과 `decks.version`을 즉시 최신 상태로 저장하고, `ooxmlSyncedDeckVersion` 이하 patch만 compact한다. 아직 package에 반영되지 않은 patch는 sync 성공 전까지 보존한다.
+
+OOXML-backed Deck의 snapshot restore는 historical snapshot의 내용을 복원하되 저장 version을 `current + 1`로 만들고 current state에서 복원 내용으로 가는 synthetic patch를 기록한 뒤 sync를 enqueue한다. response의 `restoredSnapshot.version`은 선택한 historical version을 유지하고 `deck.version`은 새 저장 version을 반환한다. 일반 Deck restore의 기존 version rewind 동작은 유지한다.
 
 Job:
 
@@ -1031,10 +1035,31 @@ Supported first-pass patch operations:
 
 `zIndex` sync can warn without reverting the saved `DeckPatch`.
 
+동시성·최신성 규칙:
+
+- sync Worker는 `deckId` 기반 PostgreSQL advisory lock으로 같은 Deck의 package 쓰기를 직렬화한다.
+- lock을 획득한 뒤 저장된 최신 Deck version을 다시 읽고, pending Job의 낮은 target을 최신 version으로 coalesce한다.
+- `ooxmlSyncedDeckVersion >= deck.version`이면 provider와 asset 저장을 반복하지 않는 idempotent success로 종료한다.
+- TemplateBlueprint update는 현재 저장된 `ooxmlSyncedDeckVersion`보다 높은 결과만 반영한다. 낮은 version의 완료가 최신 `currentPackageFileId`를 덮어쓰지 않는다.
+- 성공한 sync version 이하의 patch만 compact한다.
+- writable text/frame과 image source를 동기화한다. 새로 추가된 text/rect/image 요소는 실제 OOXML `shapeId`와 writable source mapping을 만들고, image에는 relationship과 media part를 함께 생성해 후속 편집도 같은 요소를 갱신한다. 내부 image asset은 같은 project의 uploaded image인지 검증한 뒤 Python worker에 전달하고, Python은 대상 picture relationship과 media part만 교체한다. 지원하지 않는 fallback 요소는 package를 손상시키지 않고 warning으로 보존한다.
+- group 내부 child의 frame은 group-local 좌표 역변환을 지원하기 전까지 변경을 건너뛰고 `OOXML grouped frame sync skipped` warning을 반환하며 원본 package bytes를 보존한다. grouped child의 text/image props 동기화는 계속 허용한다.
+
+Imported Deck export 규칙:
+
+- export Worker는 stored Deck과 TemplateBlueprint를 다시 읽어 `ooxmlSyncedDeckVersion === deck.version`을 확인한다.
+- sync가 진행 중이면 제한된 대기·재확인 후 최신 package만 사용한다. 제한을 넘으면 명시적으로 실패하고 이전 package를 성공으로 반환하지 않는다.
+- export에 사용하는 `currentPackageFileId`는 같은 project의 uploaded PPTX `design-asset`이어야 하며, package 복사 transaction 동안 asset row를 shared lock으로 보호한다.
+- 사용자에게 제공하는 결과는 current package 원본 asset을 직접 노출하지 않고 별도 `export-result` asset으로 복사한다.
+- TemplateBlueprint가 없는 일반 Deck은 기존 `/ai/export-deck-pptx` 경로를 유지한다.
+
 Implementation locations:
 
+- `packages/shared/src/deck/deck-api.schema.ts`
+- `apps/api/src/decks/decks.service.ts`
 - `packages/shared/src/deck/pptx-ooxml-generation.schema.ts`
 - `apps/api/src/pptx-ooxml-generations`
+- `apps/worker/src/deck-export.processor.ts`
 - `apps/worker/src/pptx-ooxml-generation.processor.ts`
 - `apps/worker/src/pptx-ooxml-sync.processor.ts`
 - `services/python-worker/app/ai/pptx_ooxml_generation.py`

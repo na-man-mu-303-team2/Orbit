@@ -957,7 +957,7 @@ function formatSessionRemaining(session: EditorSessionDebugState) {
   return `${remainingHours.toFixed(1)}h`;
 }
 
-async function putProjectDeck(
+export async function putProjectDeck(
   projectId: string,
   deck: Deck,
   options: { baseVersion?: number } = {}
@@ -979,6 +979,7 @@ async function putProjectDeck(
   }
 
   const payload = putDeckResponseSchema.parse(await response.json());
+  emitOoxmlSyncJob(payload.ooxmlSyncJob);
   return payload.deck;
 }
 

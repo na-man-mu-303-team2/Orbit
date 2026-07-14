@@ -39,6 +39,7 @@ import {
   importPptxIntoEditor,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
+  putProjectDeck,
   resolveHistoryNavigation,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
@@ -581,6 +582,51 @@ describe("editor shell", () => {
         severity: "warning"
       })
     );
+  });
+
+  it("emits the OOXML sync job returned by a full deck PUT", async () => {
+    const deck = createDemoDeck();
+    deck.projectId = "project-a";
+    const syncJob = jobPayload("queued", null, "pptx-ooxml-sync");
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("PUT");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        baseVersion: deck.version,
+        deck: { deckId: deck.deckId },
+        snapshotReason: "deck-replaced"
+      });
+      return new Response(
+        JSON.stringify({
+          deck: { ...deck, version: deck.version + 1 },
+          snapshot: {
+            snapshotId: "snapshot_put_1",
+            projectId: deck.projectId,
+            deckId: deck.deckId,
+            version: deck.version + 1,
+            reason: "deck-replaced",
+            createdAt: "2026-07-10T00:00:00.000Z"
+          },
+          ooxmlSyncJob: syncJob,
+          updatedAt: "2026-07-10T00:00:00.000Z"
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const originalWindow = globalThis.window;
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { ...originalWindow, dispatchEvent });
+    let persisted: Deck;
+    try {
+      persisted = await putProjectDeck(deck.projectId, deck, {
+        baseVersion: deck.version
+      });
+    } finally {
+      vi.stubGlobal("window", originalWindow);
+    }
+
+    expect(persisted.version).toBe(deck.version + 1);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect((dispatchEvent.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(syncJob);
   });
 
   it("runs the editor PPTX import through OOXML generation and matching Deck hydration", async () => {
@@ -2306,7 +2352,11 @@ function editorTextElement(
 function jobPayload(
   status: "queued" | "running" | "succeeded",
   result: Record<string, unknown> | null = null,
-  type: "pptx-import" | "pptx-ooxml-generation" | "deck-export" = "pptx-import"
+  type:
+    | "pptx-import"
+    | "pptx-ooxml-generation"
+    | "pptx-ooxml-sync"
+    | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",
