@@ -3680,6 +3680,19 @@ def test_generate_deck_endpoint_returns_deck_contract() -> None:
     )
 
 
+def test_generate_deck_endpoint_rejects_removed_generation_mode() -> None:
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_strict_contract",
+            "topic": "Strict request contract",
+            "generationMode": "legacy",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
     response = client().post(
         "/ai/generate-deck",
