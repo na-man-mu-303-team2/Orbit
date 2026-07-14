@@ -167,14 +167,19 @@ def test_program_v2_palette_keeps_focal_and_secondary_roles_distinct() -> None:
 
 
 class FakeResponses:
-    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+    def __init__(self, payloads: list[dict[str, Any] | str]) -> None:
         self.payloads = payloads
         self.requests: list[dict[str, Any]] = []
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
         self.requests.append(kwargs)
         payload = self.payloads[min(len(self.requests) - 1, len(self.payloads) - 1)]
-        return SimpleNamespace(output_text=json.dumps(payload, ensure_ascii=False))
+        output_text = (
+            payload
+            if isinstance(payload, str)
+            else json.dumps(payload, ensure_ascii=False)
+        )
+        return SimpleNamespace(output_text=output_text)
 
 
 def test_art_director_prompt_uses_only_compact_slide_summaries() -> None:
@@ -460,20 +465,78 @@ def test_normalize_replaces_adjacent_comparison_silhouettes() -> None:
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
-def test_create_design_program_retries_one_invalid_response() -> None:
-    invalid = {**valid_program(), "backgroundSequence": ["image"]}
-    responses = FakeResponses([invalid, valid_program()])
+def test_create_design_program_normalizes_background_sequence_without_retry() -> None:
+    mismatched = {**valid_program(), "backgroundSequence": ["light", "light"]}
+    responses = FakeResponses([mismatched, {**valid_program(), "slides": []}])
     client = SimpleNamespace(responses=responses)
 
     program = create_design_program(context(), slides(), client=client)
 
+    assert program.background_sequence == ["image", "dark"]
     assert program.visual_concept == "Energetic ink expedition"
     assert "강한 잉크 색상과 명확한 시각적 중심" in program.image_style
+    assert len(responses.requests) == 1
+
+
+def test_create_design_program_retries_one_wrong_slide_count_response() -> None:
+    invalid = valid_program()
+    invalid["slides"] = invalid["slides"][:1]
+    responses = FakeResponses([invalid, valid_program()])
+
+    program = create_design_program(
+        context(),
+        slides(),
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert program.background_sequence == ["image", "dark"]
     assert len(responses.requests) == 2
 
 
 def test_create_design_program_fails_after_one_retry() -> None:
     invalid = {**valid_program(), "slides": []}
+    responses = FakeResponses([invalid, invalid])
+
+    with pytest.raises(DesignProgramError) as captured:
+        create_design_program(
+            context(),
+            slides(),
+            client=SimpleNamespace(responses=responses),
+        )
+
+    assert str(captured.value) == (
+        "Art Director could not create a valid design plan. "
+        "Please retry deck generation."
+    )
+    assert "validation error" not in str(captured.value)
+    assert "input_value" not in str(captured.value)
+    assert len(responses.requests) == 2
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "{not-json",
+        {
+            **valid_program(),
+            "slides": [
+                {**valid_program()["slides"][0], "backgroundMode": "transparent"},
+                valid_program()["slides"][1],
+            ],
+        },
+        {
+            **valid_program(),
+            "slides": [
+                valid_program()["slides"][0],
+                {**valid_program()["slides"][1], "order": 3},
+            ],
+        },
+    ],
+    ids=["json", "background-mode", "order"],
+)
+def test_create_design_program_keeps_irrecoverable_validation_errors(
+    invalid: dict[str, Any] | str,
+) -> None:
     responses = FakeResponses([invalid, invalid])
 
     with pytest.raises(DesignProgramError):
@@ -483,9 +546,12 @@ def test_create_design_program_fails_after_one_retry() -> None:
             client=SimpleNamespace(responses=responses),
         )
 
+    assert len(responses.requests) == 2
+
 
 def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
-    responses = FakeResponses([valid_program()])
+    mismatched = {**valid_program(), "backgroundSequence": ["light", "light"]}
+    responses = FakeResponses([mismatched])
     orchestrator = DeckGenerationOrchestrator(
         GenerateDeckRequest(
             projectId="project_program_v2",
@@ -556,6 +622,11 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
     )
 
     assert deck["metadata"]["designProgramSnapshot"]["version"] == "program-v2"
+    assert deck["metadata"]["designProgramSnapshot"]["backgroundSequence"] == [
+        slide["aiNotes"]["compositionPlan"]["backgroundMode"]
+        for slide in deck["slides"]
+    ]
+    assert len(responses.requests) == 1
     assert deck["slides"][0]["aiNotes"]["compositionPlan"]["compositionId"] == (
         "hero-full-bleed"
     )

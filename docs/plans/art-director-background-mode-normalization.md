@@ -2,13 +2,13 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 검토 중 · 실행 전
+**상태**: 확정 · 실행 중
 
 **실행 이슈**: [#341 Art Director 배경 모드 불일치로 Design Pack Deck 생성 실패](https://github.com/na-man-mu-303-team2/Orbit/issues/341)
 
 **후속 이슈**: [#339 활성 경로 정리와 stage 분리](https://github.com/na-man-mu-303-team2/Orbit/issues/339), [#338 stage Job·SQS 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
-> 이 계획이 승인되기 전 GitHub의 기존 댓글은 최신 계약으로 보지 않는다. 승인 후 이 문서 전문을 #341에 댓글로 남겨 이슈와 실행 계획의 기준을 동기화한다.
+> 이 문서는 확정된 #341 실행 계약이다. GitHub에서는 이 문서 전문을 최신 기준 댓글로 사용하며 기존 댓글은 기준으로 사용하지 않는다.
 
 ## 목표
 

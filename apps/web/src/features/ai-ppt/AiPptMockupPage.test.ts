@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Job } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -718,6 +719,18 @@ describe("AI PPT wizard payload", () => {
     );
   });
 
+  it("shows only the safe Art Director retry message", () => {
+    const safeMessage =
+      "Art Director could not create a valid design plan. Please retry deck generation.";
+    const message = toAiPptUserErrorMessage(
+      JSON.stringify({ detail: safeMessage })
+    );
+
+    expect(message).toBe(safeMessage);
+    expect(message).not.toContain("validation error");
+    expect(message).not.toContain("input_value");
+  });
+
   it("keeps ai-generated media policy out of advisor override suggestions", () => {
     const suggestions = buildAiPptAdvisorSuggestions({
       topic: "Visual planning",
@@ -827,5 +840,28 @@ describe("AI PPT wizard payload", () => {
       expect.objectContaining({ jobId: "job_1", progress: 100 })
     );
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
+  });
+
+  it("navigates to the generated project only after successful job polling", () => {
+    const source = fs.readFileSync(
+      new URL("./AiPptMockupPage.tsx", import.meta.url),
+      "utf8"
+    );
+    const submitStart = source.indexOf("async function submitGeneration(");
+    const submitEnd = source.indexOf("\n  return (", submitStart);
+    const submitGeneration = source.slice(submitStart, submitEnd);
+    const pollIndex = submitGeneration.indexOf("const completed = await pollJob(");
+    const failureIndex = submitGeneration.indexOf(
+      'if (completed.status === "failed")'
+    );
+    const navigateIndex = submitGeneration.indexOf(
+      "navigateToProject(project.projectId);"
+    );
+
+    expect(submitStart).toBeGreaterThanOrEqual(0);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    expect(pollIndex).toBeGreaterThanOrEqual(0);
+    expect(failureIndex).toBeGreaterThan(pollIndex);
+    expect(navigateIndex).toBeGreaterThan(failureIndex);
   });
 });

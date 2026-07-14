@@ -230,6 +230,7 @@ API:
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - design-pack slide의 `aiNotes.timingPlan`은 선택적으로 `speakingTimeRatio`와 `targetSpokenSeconds`를 포함할 수 있다. `targetSeconds`는 전환을 포함한 장표 점유 시간이고 `targetSpokenSeconds`는 해당 장표의 발화 목표 시간이다. 기존 Deck은 두 필드를 생략할 수 있다.
 - `program-v2` slide는 `aiNotes.compositionPlan`에 검증된 composition ID, variant, background mode, focal type, primary focal element ID, asset role과 필수 asset 여부를 기록한다. `primaryFocalElementId`가 있으면 같은 slide의 element를 가리켜야 한다.
+- 신규 `program-v2` 결과에서 배경 모드의 canonical source는 slide order 순 `slide.aiNotes.compositionPlan.backgroundMode`이며, `metadata.designProgramSnapshot.backgroundSequence`는 같은 길이와 값을 유지하는 파생값이다. Art Director 응답의 중복 표현이 다르면 Python worker가 `slides[].backgroundMode`에서 `backgroundSequence`를 재구성한 뒤 검증하며, 이 불일치는 provider 재시도나 Job 실패 사유가 아니다.
 - `order`는 사용자에게 보이는 슬라이드 번호와 맞춰 `1`부터 시작하는 양의 정수로 관리한다. 배열 index가 필요하면 애플리케이션 내부에서 `order - 1`로 변환한다.
 - 1차 스프린트 MVP에서는 슬라이드별 크기 override를 허용하지 않는다. 모든 슬라이드는 deck top-level의 `canvas` 크기와 비율을 따른다.
 - SlideSchema에는 `width`, `height`, `canvas`, `aspectRatio` 같은 슬라이드별 크기 필드를 두지 않는다.

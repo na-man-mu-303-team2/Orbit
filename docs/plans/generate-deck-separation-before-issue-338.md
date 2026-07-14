@@ -2,9 +2,9 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 검토 중 · 실행 전
+**상태**: 확정 · 실행 전 (#341 완료 대기)
 
-**기준 브랜치**: `origin/develop` (`a5d424b2`, 2026-07-14 확인)
+**기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
 **실행 이슈**: [#339 PPT 생성 - #338 선행 활성 경로 정리 및 generate_deck.py 분리](https://github.com/na-man-mu-303-team2/Orbit/issues/339)
 
@@ -16,11 +16,11 @@
 
 **후속 설계 문서**: `docs/plans/ai-ppt-sqs-pipeline-refactoring.md`
 
-> 이 계획이 승인되기 전 GitHub의 기존 댓글은 최신 계약으로 보지 않는다. 승인 후 이 문서 전문을 #339에 댓글로 남겨 이슈와 실행 계획의 기준을 동기화한다.
+> 이 문서는 확정된 #339 실행 계약이다. GitHub에서는 이 문서 전문을 최신 기준 댓글로 사용하며 기존 댓글은 기준으로 사용하지 않는다.
 
 ## 1. 문서 목적
 
-이 문서는 이슈 #338의 SQS 기반 단계별 job/queue 구조를 구현하기 전에 반드시 끝내야 하는 선행 작업을 정의한다.
+이 문서는 이슈 #338의 staged BullMQ 기반 단계별 Job과 동일 계약의 SQS transport adapter를 구현하기 전에 반드시 끝내야 하는 선행 작업을 정의한다.
 
 현재 `services/python-worker/app/ai/generate_deck.py`는 `origin/develop` 기준 약 1.4만 줄이며, 현재 UI에서 사용하는 `design-pack + program-v2` 경로와 더 이상 사용하지 않는 생성 경로가 같은 요청 계약·Worker processor·Python 분기 안에 섞여 있다. 이 상태에서 바로 stage job과 checkpoint를 도입하면 다음 문제가 생긴다.
 
@@ -122,11 +122,11 @@ AWS SQS는 이 문제를 해결하는 실행 기반이 될 수 있지만, 현재
 
 이 선행 작업은 위 상태 전이를 구현하지 않는다. 대신 `source_grounding.py`와 `SourceGroundingResult`가 source, 품질 판정, warning을 분리해 #338에서 전체 파이프라인을 다시 뜯지 않고 정책을 연결할 수 있게 한다.
 
-현재 첨부자료 OCR도 `reference-extract` BullMQ Job 하나에 여러 파일과 `contentBase64`를 묶어 `/documents/parse`로 전달한다. 파일 하나의 실패가 요청 전체의 재시도로 이어지고, 첨부자료 요청이 몰리면 이후 SQS stage를 분리해도 OCR이 앞단 병목으로 남는다. #339에서는 이 동작을 회귀 테스트로 고정해 삭제나 품질 회귀를 막고, 실제 전환은 #338에서 다음 구조로 수행한다.
+현재 첨부자료 OCR도 `reference-extract` BullMQ Job 하나에 여러 파일과 `contentBase64`를 묶어 `/documents/parse`로 전달한다. 파일 하나의 실패가 요청 전체의 재시도로 이어지고, 첨부자료 요청이 몰리면 이후 stage를 분리해도 OCR이 앞단 병목으로 남는다. #339에서는 이 동작을 회귀 테스트로 고정해 삭제나 품질 회귀를 막고, 실제 전환은 #338의 staged BullMQ 경로에서 시작한 뒤 같은 stage 계약을 SQS transport adapter로 연결한다.
 
 - `reference-extract-file`을 파일별 Job으로 fan-out한다.
-- message에는 binary나 base64가 아니라 `pipelineJobId`, `projectId`, `fileId`, checkpoint 참조만 전달한다.
-- 각 파일 결과를 `stage=reference-extract`, `shardKey=fileId` checkpoint에 저장한다.
+- message에는 binary나 base64가 아니라 `{ pipelineJobId, projectId, stage: "reference-extract-file", shardKey: fileId }`만 전달한다.
+- 각 파일 결과를 `stage=reference-extract-file`, `shardKey=fileId` checkpoint에 저장한다.
 - 실패한 파일만 재시도하고 모든 필수 파일이 종료되면 `source-grounding`을 enqueue한다.
 - `topic-only`, `user-input-only` 요청은 OCR stage를 즉시 skip한다.
 
@@ -180,7 +180,7 @@ services/python-worker/app/ai/
     └── diagnostics.py               # warnings·validation·diagnostics 조립
 ```
 
-모듈 이름은 구현 중 실제 응집도에 따라 소폭 조정할 수 있지만, 다음 의존 방향은 지켜야 한다.
+모듈 이름과 소유권은 아래 구조로 고정하며 다음 의존 방향을 지켜야 한다.
 
 ```mermaid
 flowchart LR
@@ -322,7 +322,7 @@ flowchart LR
 - DesignPack 삭제 또는 BrandKit 재도입
 - `TemplateBlueprint` 삭제
 - 공개 `/ai/generate-deck` endpoint를 여러 endpoint로 분할
-- `reference-extract`를 SQS로 전환하거나 파일별 fan-out/join을 구현하는 작업. 이 항목은 #338의 첫 stage로 수행한다.
+- `reference-extract`를 staged BullMQ 파일별 fan-out/join으로 전환하거나 SQS transport adapter를 구현하는 작업. 이 항목은 #338에서 수행한다.
 
 BrandKit runtime과 organization 기반 기능은 이미 `origin/develop`의 활성 생성 경로에서 제거된 상태이므로 이 계획에서 다시 다루지 않는다. 과거 create migration과 이후 drop migration은 적용 이력 재현을 위해 유지하며 삭제하거나 수정하지 않는다. DesignPack은 현재 활성 기능이므로 모든 단계에서 보존한다.
 
@@ -340,7 +340,7 @@ BrandKit runtime과 organization 기반 기능은 이미 `origin/develop`의 활
 8. 기존 Job 상태값 `queued`, `running`, `succeeded`, `failed`와 공통 envelope를 유지한다.
 9. 로그에 prompt 원문, 첨부자료 원문, API key, base64 파일을 새로 기록하지 않는다.
 10. `GenerateDeckRequest.designReferences`와 `GenerateDeckRequest.templateBlueprintId`만 제거한다. 기존 저장 Deck의 `metadata.createdFrom.designReferences`와 OOXML이 사용하는 `templateBlueprintIdSchema`는 historical read 및 round-trip 계약이므로 유지한다.
-11. 기존 `reference-extract` API·Job 결과 계약과 OCR 성공/부분 실패 동작은 #339에서 회귀 테스트로 보존한다. SQS payload와 파일별 checkpoint 계약은 #338에서 변경한다.
+11. 기존 `reference-extract` API·Job 결과 계약과 OCR 성공/부분 실패 동작은 #339에서 회귀 테스트로 보존한다. transport 공통 stage message와 파일별 checkpoint 계약은 #338에서 변경한다.
 12. 이동과 의미 변경을 한 PR에 섞지 않는다. 먼저 제거·계약 정리, 그 다음 동작 보존형 모듈 이동을 한다.
 
 ## 6. 실행 의존성
@@ -349,17 +349,16 @@ BrandKit runtime과 organization 기반 기능은 이미 `origin/develop`의 활
 flowchart TD
     P0["PR 0\n활성 경로 characterization"] --> P1["PR 1\n에디터 OOXML import 전환"]
     P1 --> P2["PR 2\nOOXML sync·export round-trip 완성"]
-    P2 --> P3["PR 3\n구형 pptx-import 제거"]
-    P0 --> P4["PR 4\n구형 AI UI·template job 제거"]
-    P3 --> P5["PR 5\nPPTX AI slot 생성 제거"]
-    P4 --> P6["PR 6\nGenerateDeck 계약 program-v2 전용화"]
-    P5 --> P6
+    P2 --> P3["PR 3\n레거시 producer 중단"]
+    P3 --> P4["PR 4\ndrain 후 레거시 제거"]
+    P4 --> P5["PR 5\nPPTX AI slot 생성 제거"]
+    P5 --> P6["PR 6\nGenerateDeck 계약 program-v2 전용화"]
     P6 --> P7A["PR 7A\nPython generation core 분리"]
     P7A --> P7B["PR 7B\nWorker 후처리 경계 분리"]
     P7B --> P8["PR 8\n#338 착수 준비 검증"]
 ```
 
-PR 1~3과 PR 4는 코드 충돌이 적어 병렬 진행할 수 있다. 다만 shared Job type과 Worker 등록을 동시에 수정할 가능성이 있으므로 PR 3과 PR 4의 병합 순서는 정하고 진행한다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행한다.
+PR은 위 순서대로 선형 진행한다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지하며, PR 4는 두 레거시 queue의 queued/active가 모두 0인 증거를 확인한 뒤 제거한다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행한다.
 
 각 PR은 최신 `develop`에서 `refactor/ai-ppt-pre-338-*` 형식의 독립 브랜치로 시작하고 GitHub Flow로 병합한다. 이미 push된 공유 브랜치에는 rebase 또는 force push를 하지 않는다. 선행 PR이 병합된 뒤 다음 PR 브랜치를 최신 `develop`에서 새로 만들면 선형 review 단위와 rollback 경계가 분명해진다.
 
@@ -473,15 +472,15 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. imported Deck 저장 후 sync enqueue 조건과 version 비교를 확인한다.
+1. imported Deck의 PUT 저장과 patch 저장 모두 sync를 enqueue하고 version을 비교한다.
 2. `ooxmlSyncedDeckVersion === deck.version`이면 현재 package가 최신임을 보장한다.
-3. 같은 Deck의 sync job은 per-deck 직렬화한다. DB advisory lock 또는 동등한 분산 lock을 사용해 여러 Worker process에서도 동시에 package를 쓰지 못하게 한다.
+3. 같은 Deck의 sync job은 `deckId` 기반 PostgreSQL advisory lock으로 직렬화해 여러 Worker process에서도 동시에 package를 쓰지 못하게 한다.
 4. TemplateBlueprint 갱신은 `ooxmlSyncedDeckVersion`이 현재 저장값보다 큰 경우에만 성공하는 조건부 update로 만든다. 낮은 version의 stale 결과는 package와 blueprint를 덮어쓰지 않고 폐기한다.
 5. 편집이 빠르게 연속 저장되면 pending sync를 최신 Deck version으로 coalesce하되, 실행 중 job의 결과가 최신 version을 역행시키지 않게 한다.
 6. imported Deck export 분기를 추가한다.
    - 연결된 TemplateBlueprint와 `currentPackageFileId`가 있으면 최신 sync 완료를 확인한다.
-   - sync가 진행 중이면 제한된 시간 동안 Job 상태로 대기하거나 export job을 재시도 가능한 상태로 유지한다.
-   - 최신 current package asset을 export result로 복사하거나 안전한 다운로드 참조로 제공한다.
+   - 최신 sync가 아니면 stale package를 반환하지 않고 export Job을 retry한다.
+   - 최신 `currentPackageFileId`의 asset을 별도 export asset으로 복사해 결과로 제공한다.
 7. sync 실패 후 export는 오래된 package를 성공 결과로 내보내지 않고, 명시적인 retryable error 또는 사용자에게 설명 가능한 실패 상태를 반환한다.
 8. 일반 AI 생성 Deck 또는 TemplateBlueprint가 없는 Deck은 기존 `/ai/export-deck-pptx` 경로를 유지한다.
 9. project ownership과 asset status를 재검증한다.
@@ -505,84 +504,87 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **롤백**: imported Deck export 분기만 비활성화하면 기존 generic exporter로 돌아간다. 단, round-trip 품질 저하는 명시적으로 허용한 상태에서만 롤백한다.
 
-### PR 3. 구형 `pptx-import` 경로 제거
+### PR 3. 레거시 producer 중단
 
 **의존성**: PR 2
 
-**목표**: 새 요청이 모두 OOXML 경로를 사용하고 round-trip 검증이 끝난 뒤 구형 import API와 queue를 제거한다.
-
-**주요 파일**
-
-- `apps/api/src/pptx-imports/*`
-- `apps/worker/src/pptx-import.processor.ts`
-- `apps/worker/src/worker.service.ts`
-- `packages/job-queue/src/index.ts`
-- `packages/shared/src/jobs/job.schema.ts`
-- API/Worker module 등록 파일과 테스트
-
-**작업**
-
-1. 배포 전 `pptx-import` queue의 queued/active job 수를 확인하고 drain 기준을 정한다.
-2. 신규 enqueue가 없음을 로그 또는 metric으로 확인한다.
-3. controller, service, module, processor, queue 등록을 제거한다.
-4. `historicalJobTypeSchema`에는 `pptx-import`를 유지하고, `publicCreatableJobTypeSchema`와 enqueue 함수에서만 제거한다.
-5. `jobSchema`의 DB read는 `historicalJobTypeSchema`를 사용하고 신규 생성 API는 active/create schema를 사용한다.
-6. 완료된 DB 이력의 보존 기간이 끝난 뒤 archive/migration은 별도 운영 PR로 수행한다. queue drain은 queued/active job을 안전하게 끝내기 위한 절차일 뿐 historical read compatibility를 대신하지 않는다.
-7. DB enum을 사용한다면 과거 row와 rollback 가능성을 확인한 TypeORM migration으로만 변경한다.
-
-**필수 테스트**
-
-- `/pptx-imports`가 앱 module과 route에 더 이상 등록되지 않는다.
-- Worker가 `pptx-import` queue를 구독하지 않는다.
-- 과거 Job row 조회가 전체 Job 목록 parsing을 깨뜨리지 않는다.
-- `/pptx-ooxml-generations` import 회귀 테스트가 계속 통과한다.
-
-**완료 기준**
-
-- 코드 검색에서 구형 endpoint·queue·processor의 실행 참조가 없다.
-- historical job 처리 방침과 운영 drain 증거가 PR 본문에 기록된다.
-
-### PR 4. 구형 AI 생성 UI와 `ai-template-deck-generation` 제거
-
-**의존성**: PR 0
-
-**목표**: 제품에서 사용하지 않는 생성 UI와 PPTX template 기반 AI 생성 job을 제거한다.
+**목표**: `pptx-import`와 `ai-template-deck-generation`의 신규 enqueue를 모두 중단하되 기존 queued/active Job을 처리할 consumer는 유지한다.
 
 **주요 파일**
 
 - `apps/web/src/App.tsx`
 - 구형 `HomePage`, `GenerateDeckView`, `/mockup/ai-ppt` 관련 파일
+- `apps/api/src/pptx-imports/*`
 - `apps/api/src/ai-template-deck-generation/*`
-- `apps/worker/src/ai-template-deck-generation.processor.ts`
-- `apps/worker/src/worker.service.ts`
-- `packages/shared/src/deck/ai-template-deck-generation.schema.ts`
+- `packages/shared/src/jobs/job.schema.ts`
 - `packages/job-queue/src/index.ts`
-- 관련 테스트와 module export
+- 관련 module 등록과 테스트
 
 **작업**
 
 1. production navigation과 direct route 참조를 다시 검색한다.
 2. `/createdeck`와 `AiPptMockupPage`는 유지한다.
-3. `/mockup/ai-ppt`, 구형 HomePage 생성 submit, `GenerateDeckView` export를 제거한다.
-4. `ai-template-deck-generation` controller/service/module/processor/queue/schema를 제거한다.
-5. `historicalJobTypeSchema`에는 `ai-template-deck-generation`을 유지하고 `publicCreatableJobTypeSchema`와 enqueue 함수에서만 제거한다. 완료 이력은 별도 보존 정책 전까지 읽을 수 있어야 한다.
-6. TemplateBlueprint schema와 DB table은 건드리지 않는다.
+3. `/mockup/ai-ppt`, 구형 HomePage 생성 submit과 `GenerateDeckView` export를 제거한다.
+4. `/pptx-imports`와 `ai-template-deck-generation` 생성 endpoint를 앱 module에서 해제해 신규 enqueue를 막는다.
+5. `publicCreatableJobTypeSchema`와 신규 enqueue 함수에서 `pptx-import`, `ai-template-deck-generation`을 제거한다.
+6. 두 queue의 consumer, processor, queue 등록과 active schema는 drain을 위해 그대로 유지한다.
+7. `historicalJobTypeSchema`에는 두 type을 유지해 완료 이력을 계속 읽는다.
 
 **필수 테스트**
 
-- `/createdeck` AI PPT 생성 테스트 통과
-- removed route가 navigation에 노출되지 않음
-- API와 Worker module이 구형 template job 없이 기동됨
-- TemplateBlueprint 및 PPTX OOXML generation/sync 테스트 통과
+- 에디터 import click path가 `/pptx-ooxml-generations`만 호출한다.
+- removed UI route가 navigation에 노출되지 않는다.
+- 두 레거시 endpoint와 신규 Job 생성 경로가 enqueue를 만들지 않는다.
+- 기존 두 consumer와 historical Job parsing은 계속 동작한다.
+- `/createdeck`와 PPTX OOXML generation/sync 회귀 테스트가 통과한다.
 
 **완료 기준**
 
-- 코드 검색에서 `ai-template-deck-generation`의 실행 참조가 없다.
-- TemplateBlueprint는 PPTX OOXML 기능에서 계속 사용된다.
+- 코드와 공개 route에서 두 레거시 Job의 신규 enqueue 경로가 없다.
+- 두 queue consumer는 기존 queued/active Job의 drain을 위해 유지된다.
+
+### PR 4. drain 후 레거시 제거
+
+**의존성**: PR 3
+
+**목표**: `pptx-import`와 `ai-template-deck-generation` queue가 모두 drain된 뒤 API 잔여 코드, consumer, queue 등록과 active schema를 제거한다.
+
+**주요 파일**
+
+- `apps/api/src/pptx-imports/*`
+- `apps/api/src/ai-template-deck-generation/*`
+- `apps/worker/src/pptx-import.processor.ts`
+- `apps/worker/src/ai-template-deck-generation.processor.ts`
+- `apps/worker/src/worker.service.ts`
+- `packages/shared/src/deck/ai-template-deck-generation.schema.ts`
+- `packages/shared/src/jobs/job.schema.ts`
+- `packages/job-queue/src/index.ts`
+- 관련 API/Worker module 등록과 테스트
+
+**작업**
+
+1. 두 queue의 queued/active가 모두 0이고 PR 3 이후 신규 enqueue가 없다는 운영 증거를 확인한다.
+2. 두 레거시 controller, service, module, processor와 queue 등록을 제거한다.
+3. active/create schema와 runtime dispatch에서 두 Job type을 제거한다.
+4. `historicalJobTypeSchema`와 DB read 경로에는 두 type을 유지한다.
+5. `packages/shared/src/deck/ai-template-deck-generation.schema.ts`와 실행 전용 request schema를 제거하되 TemplateBlueprint schema와 DB table은 유지한다.
+6. 완료 이력의 보존 기간 이후 archive와 enum 축소는 별도 TypeORM migration 및 운영 계획으로 수행한다.
+
+**필수 테스트**
+
+- API와 Worker module이 두 레거시 경로 없이 기동한다.
+- Worker가 두 레거시 queue를 구독하지 않는다.
+- 과거 두 Job type row가 전체 Job 목록 parsing을 깨뜨리지 않는다.
+- `/createdeck`, OOXML import·sync·export, TemplateBlueprint 테스트가 통과한다.
+
+**완료 기준**
+
+- 코드 검색에서 두 레거시 endpoint·queue·processor의 실행 참조가 없다.
+- 두 queue의 drain 증거와 historical Job 처리 방침이 PR 본문에 기록된다.
 
 ### PR 5. PPTX OOXML의 AI slot 생성 제거와 request 축소
 
-**의존성**: PR 3, PR 4
+**의존성**: PR 4
 
 **목표**: PPTX OOXML generation을 `{ fileId }`만 받는 순수 변환으로 만든다.
 
@@ -597,7 +599,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. shared request에서 `topic`, `prompt`를 제거하고 `.strict()` 적용을 검토한다.
+1. shared request를 strict `{ fileId }`로 축소해 `topic`, `prompt`와 모든 extra field를 거부한다.
 2. API와 Worker가 Python form에 `topic`, `prompt`, OpenAI model/key 관련 값을 전달하지 않게 한다.
 3. Python endpoint signature를 pure conversion 입력으로 축소한다.
 4. `wants_ai`, `generate_content_slot_texts()`, AI text replacement를 제거한다.
@@ -621,7 +623,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 ### PR 6. 일반 AI 생성 계약을 `program-v2` 전용으로 정리
 
-**의존성**: PR 4, PR 5
+**의존성**: PR 5
 
 **목표**: 일반 AI PPT 생성에서 레거시 mode/engine과 PPTX 디자인 재사용 입력을 제거한다.
 
@@ -640,15 +642,15 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. `generationMode`를 제거하거나 `design-pack` literal로 고정한다. 외부 request field를 유지할 이유가 없다면 제거를 우선한다.
-2. `design.engineVersion`을 제거하거나 `program-v2` literal로 고정한다. 동일하게 내부 상수로 내리는 방안을 우선한다.
+1. public request에서 `generationMode`를 제거하고 core에서는 `design-pack`을 내부 상수로 사용한다.
+2. public request에서 `design.engineVersion`을 제거하고 core에서는 `program-v2`를 내부 상수로 사용한다.
 3. `GenerateDeckRequest.designReferences`, `GenerateDeckRequest.templateBlueprintId`를 request와 Worker payload에서 제거한다. 저장된 Deck의 `metadata.createdFrom.designReferences`와 공용 `templateBlueprintIdSchema`는 삭제하지 않는다.
 4. `resolveDesignTemplate()`와 관련 asset/template 조회 분기를 제거한다.
 5. Python의 `legacy`, `recipe-v1`, imported design/template blueprint 분기와 전용 model/helper를 삭제한다.
 6. `saved-design-packs.service.ts`의 `resolveGenerationRequest()`가 제거된 `generationMode`에 의존하지 않도록 program-v2 전용 계약으로 갱신한다.
 7. DesignPack, palette/font override, style pack, composition, QA 관련 program-v2 코드는 유지한다.
 8. 공통 계약 변경이므로 `docs/contracts.md`에 GenerateDeck request 경계를 갱신하고, 이 목표 계약과 반대되는 V12의 legacy/template 유지 결정을 #339가 대체했음을 표시한다.
-9. API에서 과거 client 요청을 지원해야 하는 짧은 배포 호환 기간이 필요하면, ingress adapter에서만 deprecated field를 제거하고 core schema에는 전달하지 않는다. 호환 shim의 제거 날짜를 정한다.
+9. TypeScript와 Python request schema를 strict하게 유지해 제거된 필드와 모든 extra field를 거부하며 호환 shim은 두지 않는다.
 
 **필수 테스트**
 
@@ -712,12 +714,12 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **commit 권장 단위**
 
-- `refactor(ai-ppt): extract generation models`
-- `refactor(ai-ppt): extract source and content stages`
-- `refactor(ai-ppt): extract design and layout stages`
-- `refactor(ai-ppt): extract visual requirements`
-- `refactor(ai-ppt): extract quality and diagnostics`
-- `refactor(ai-ppt): reduce generate deck to facade`
+- `refactor: 생성 모델 분리`
+- `refactor: 출처와 콘텐츠 계획 단계 분리`
+- `refactor: 디자인과 레이아웃 단계 분리`
+- `refactor: 시각 자료 요구사항 분리`
+- `refactor: 품질과 진단 단계 분리`
+- `refactor: Deck 생성 호환 façade 정리`
 
 PR은 하나로 유지할 수 있지만 각 commit은 독립적으로 테스트 가능해야 한다. diff review가 불가능할 정도로 move detection과 논리 수정이 섞이면 PR을 둘로 나눈다.
 
@@ -784,7 +786,7 @@ uv run pytest
 
 **완료 기준**
 
-- `generate-deck.processor.ts`에는 payload validation, Job lifecycle, 단계 orchestration만 남는다.
+- `generate-deck.processor.ts`에는 payload validation, Job lifecycle과 `pipeline.ts` 위임만 남고 단계 orchestration은 `pipeline.ts`가 담당한다.
 - asset, semantic quality, rendered quality, publication 경계를 각각 단독 테스트할 수 있다.
 - PR 7A Python stage와 PR 7B Worker stage를 합쳐 #338의 queue/checkpoint 경계가 완성된다.
 - 이 PR 자체에는 queue enqueue, checkpoint, retry 정책이 없다.
@@ -802,7 +804,7 @@ uv run pytest
 | topic만으로 AI PPT 생성 | `program-v2` Deck 저장 및 에디터 진입 |
 | 첨부자료 포함 생성 | OCR/source grounding 결과가 content와 diagnostics에 반영 |
 | 현재 reference extraction | 단일·다중 파일의 결과와 오류 계약이 유지되고 #338용 기준선이 확보됨 |
-| web research 품질 부족 | 정책에 따른 warning/degraded success 또는 명시된 재시도 가능 오류 |
+| web research 품질 부족 | #339 시점의 기존 실패 정책과 오류 계약을 그대로 보존하고 #338의 degraded success 전환은 적용하지 않음 |
 | 이미지 provider 일부 실패 | 현재 합의된 fallback으로 Deck 생성 계속 |
 | Saved DesignPack 선택 | snapshot 기반 palette/font/layout 적용 |
 | PPTX vector import | 편집 가능한 요소, mapping, render, package 저장 |
@@ -878,7 +880,7 @@ sequenceDiagram
 
 ## 9. #338 착수 준비 체크리스트
 
-다음 항목이 모두 완료되어야 #338의 SQS/stage job 구현을 시작한다.
+다음 항목이 모두 완료되어야 #338의 staged BullMQ/checkpoint 구현과 후속 SQS transport adapter 작업을 시작한다.
 
 - [ ] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
 - [ ] #341의 `slides[].backgroundMode` canonical 규칙과 회귀 테스트가 `design_planning.py`에 보존되어 있다.
@@ -894,7 +896,7 @@ sequenceDiagram
 - [ ] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [ ] Python의 source, content, design, layout, visual requirements, quality 단계가 명시적 DTO로 단독 테스트 가능하다.
 - [ ] Worker의 asset resolution, semantic quality, rendered visual quality, publication 단계가 단독 테스트 가능하다.
-- [ ] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 SQS 전환은 #338 범위로 명시되어 있다.
+- [ ] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환과 SQS transport adapter는 #338 범위로 명시되어 있다.
 - [ ] `/ai/generate-deck` 공개 계약과 최종 Deck schema가 유지된다.
 - [ ] 전체 TypeScript/Python 검증이 통과한다.
 
@@ -923,11 +925,11 @@ flowchart LR
 | 구형 Job type을 즉시 schema에서 삭제 | 과거 Job 목록 parsing 실패 | enqueue schema와 read schema 분리, drain 후 제거 |
 | editor import만 전환하고 export는 generic 유지 | 원본 OOXML round-trip 품질 상실 | PR 2에서 current package export를 선행 조건으로 구현 |
 | 모든 helper를 queue job 후보로 분리 | 과도한 queue, 직렬화 비용, 운영 복잡도 증가 | business checkpoint 단위 stage만 #338 job 후보로 사용 |
-| future SQS payload에 Deck/base64 전체 포함 | message 크기 초과와 중복 전송 비용 | DB checkpoint ID와 storage asset ID만 전달 |
+| future stage message에 Deck/base64 전체 포함 | message 크기 초과와 중복 전송 비용 | `{ pipelineJobId, projectId, stage, shardKey }`만 전달하고 DB checkpoint와 Storage는 해당 키로 조회 |
 | stage module 간 순환 import | 분리 효과 상실, 테스트 곤란 | `models.py` 하향 의존과 `pipeline.py` 단방향 orchestration |
 | 호환 façade가 영구적인 두 번째 구현이 됨 | 중복 로직과 수정 누락 | façade에는 validation·delegation만 허용 |
 | web research 실패를 전체 실패로 고정 | 기존 UX 문제 반복 | #338에서 정책별 degraded success와 retryable error를 구분 |
-| OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 파일별 SQS Job과 checkpoint join 도입 |
+| OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 staged BullMQ 파일별 Job과 checkpoint join을 먼저 도입하고 동일 계약을 SQS adapter로 연결 |
 
 ## 11. 계획 변경 규칙
 
@@ -953,6 +955,6 @@ flowchart LR
 6. PPTX OOXML의 AI slot 생성과 일반 생성기의 PPTX 디자인 재사용을 제거한다.
 7. `GenerateDeckRequest`를 `program-v2` 전용으로 축소한다.
 8. 남은 활성 Python 코드와 TypeScript Worker 후처리를 stage 경계로 분리하고 `/ai/generate-deck`를 façade로 유지한다.
-9. readiness checklist를 통과한 뒤 #338에서 파일별 OCR을 첫 SQS stage로 전환하고, 이어서 checkpoint, stage-only retry, image fan-out/join을 구현한다.
+9. readiness checklist를 통과한 뒤 #338에서 checkpoint와 staged BullMQ 기반 파일별 OCR을 먼저 구현하고, stage-only retry와 image fan-out/join을 연결한 다음 같은 계약에 SQS transport adapter를 추가한다.
 
 이 순서를 따르면 PPTX import의 원본 보존 능력과 DesignPack 기반 AI PPT 생성을 유지하면서, #338이 해결하려는 동시 처리·부분 재시도 구조를 불필요한 레거시 없이 설계할 수 있다.
