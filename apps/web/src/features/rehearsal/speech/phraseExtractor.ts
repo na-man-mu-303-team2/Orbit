@@ -1,5 +1,7 @@
-import { splitFocusedPracticeSentences } from "@orbit/shared";
-
+import {
+  createCanonicalScriptSentenceIndex,
+  splitCanonicalScriptSentences
+} from "./canonicalScriptSentenceIndex";
 import {
   defaultSpeechTrackingConfig,
   mergeSpeechTrackingConfig,
@@ -39,11 +41,11 @@ export function createDefaultPhraseExtractor(
 
   return {
     extract(speakerNotes) {
-      const sentenceTexts = splitSpeakerNotesIntoSentences(speakerNotes);
-      const pools = sentenceTexts.map((sentence, sentenceIndex) =>
+      const sentenceIndex = createCanonicalScriptSentenceIndex(speakerNotes);
+      const pools = sentenceIndex.sentences.map((sentence) =>
         buildCandidatePool({
-          sentence,
-          sentenceIndex,
+          sentence: sentence.text,
+          sentenceIndex: sentence.index,
           config,
           controlPhraseKeys,
           keywordKeys
@@ -51,20 +53,19 @@ export function createDefaultPhraseExtractor(
       );
       const selected = selectDistinctCandidates(pools, config);
 
-      return sentenceTexts.map((sentence, sentenceIndex) => {
-        const isFinalTrigger = sentenceIndex === sentenceTexts.length - 1;
-        const candidates = (selected[sentenceIndex] ?? []).map(
+      return sentenceIndex.sentences.map((sentence) => {
+        const candidates = (selected[sentence.index] ?? []).map(
           (candidate, candidateIndex) => ({
             ...candidate,
-            candidateId: `sentence_${sentenceIndex + 1}_phrase_${candidateIndex + 1}`
+            candidateId: `${sentence.sentenceId}_phrase_${candidateIndex + 1}`
           })
         );
 
         return {
-          sentenceId: `sentence_${sentenceIndex + 1}`,
-          text: sentence,
-          index: sentenceIndex,
-          isFinalTrigger,
+          sentenceId: sentence.sentenceId,
+          text: sentence.text,
+          index: sentence.index,
+          isFinalTrigger: sentence.isFinalTrigger,
           matchable: candidates.length > 0,
           candidates
         };
@@ -74,7 +75,7 @@ export function createDefaultPhraseExtractor(
 }
 
 export function splitSpeakerNotesIntoSentences(speakerNotes: string): string[] {
-  return splitFocusedPracticeSentences(speakerNotes);
+  return splitCanonicalScriptSentences(speakerNotes);
 }
 
 export function normalizeSpeechText(

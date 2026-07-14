@@ -34,6 +34,7 @@ describe("PhraseExtractor", () => {
 
     expect(sentences).toHaveLength(3);
     expect(sentences[0]).toMatchObject({
+      sentenceId: "sentence_1",
       index: 0,
       isFinalTrigger: false,
       matchable: false,
@@ -43,6 +44,7 @@ describe("PhraseExtractor", () => {
       "다음으로 넘어가"
     );
     expect(sentences[2]).toMatchObject({
+      sentenceId: "sentence_3",
       index: 2,
       isFinalTrigger: true,
       matchable: true
