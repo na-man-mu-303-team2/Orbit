@@ -1,5 +1,6 @@
 import {
   deckCanvasSchema,
+  deckPatchOperationSchema,
   pptxOoxmlSyncJobResultSchema,
   templateBlueprintSchema,
   type DeckCanvas,
@@ -90,6 +91,7 @@ type TemplateBlueprintRow = {
 
 type DeckRow = {
   deck_json: unknown;
+  version: number;
 };
 
 type DeckPatchRow = {
@@ -100,6 +102,16 @@ type SavedSyncAssets = {
   currentPackageFileId: string;
   renderAssetFileIds: string[];
   renderAssetFileIdsByAssetId: Map<string, string>;
+};
+
+type QueryExecutor = Pick<DataSource, "query">;
+
+type ImageAssetRow = {
+  file_id: string;
+  project_id: string;
+  storage_key: string;
+  mime_type: string;
+  status: string;
 };
 
 const pptxMimeType =
@@ -136,75 +148,108 @@ export async function processPptxOoxmlSyncJob(
   });
 
   try {
-    const templateRow = await loadTemplateBlueprintRow(
-      dataSource,
-      payload.projectId,
-      payload.deckId,
-    );
-    const templateBlueprint = templateBlueprintSchema.parse(
-      templateRow.blueprint_json,
-    );
-    const packageAsset = await loadPackageAsset(
-      dataSource,
-      payload.projectId,
-      currentPackageFileId(templateBlueprint),
-    );
-    const deckCanvas = await loadDeckCanvas(
-      dataSource,
-      payload.projectId,
-      payload.deckId,
-    );
-    const operations = await loadUnsyncedPatchOperations(
-      dataSource,
-      payload.projectId,
-      payload.deckId,
-      templateBlueprint.ooxmlSyncedDeckVersion ?? 1,
-      payload.targetDeckVersion,
-    );
-    const synced = await syncPptxOoxmlWithPython(
-      storage,
-      pythonWorkerUrl,
-      payload,
-      packageAsset,
-      templateBlueprint,
-      deckCanvas,
-      operations,
-    );
-    const savedAssets = await saveSyncAssets(
-      dataSource,
-      storage,
-      payload.projectId,
-      synced,
-    );
-    const nextTemplateBlueprint = withSyncResult(
-      templateBlueprint,
-      savedAssets,
-      payload.targetDeckVersion,
-      synced,
-    );
-    await updateTemplateBlueprint(
-      dataSource,
-      payload.projectId,
-      payload.deckId,
-      nextTemplateBlueprint,
-      templateRow.quality_report_json,
-    );
+    return await dataSource.transaction(async (manager) => {
+      await acquireDeckAdvisoryLock(manager, payload.projectId, payload.deckId);
 
-    const result = pptxOoxmlSyncJobResultSchema.parse({
-      deckId: payload.deckId,
-      templateId: nextTemplateBlueprint.templateId,
-      currentPackageFileId: savedAssets.currentPackageFileId,
-      renderAssetFileIds: savedAssets.renderAssetFileIds,
-      syncedDeckVersion: payload.targetDeckVersion,
-      warnings: synced.warnings,
-    });
+      const templateRow = await loadTemplateBlueprintRow(
+        manager,
+        payload.projectId,
+        payload.deckId,
+      );
+      const templateBlueprint = templateBlueprintSchema.parse(
+        templateRow.blueprint_json,
+      );
+      const deck = await loadStoredDeck(
+        manager,
+        payload.projectId,
+        payload.deckId,
+      );
+      const latestDeckVersion = deck.version;
+      const syncedDeckVersion = templateBlueprint.ooxmlSyncedDeckVersion ?? 1;
 
-    return updateJob(dataSource, payload.jobId, {
-      status: "succeeded",
-      progress: 100,
-      message: "PPTX OOXML sync completed.",
-      result,
-      error: null,
+      if (syncedDeckVersion >= latestDeckVersion) {
+        await compactSyncedPatches(
+          manager,
+          payload.projectId,
+          payload.deckId,
+          latestDeckVersion,
+        );
+        return completeSyncJob(manager, payload, {
+          templateId: templateBlueprint.templateId,
+          currentPackageFileId: currentPackageFileId(templateBlueprint),
+          renderAssetFileIds: templateBlueprint.slides.flatMap((slide) =>
+            slide.renderAssetFileId ? [slide.renderAssetFileId] : [],
+          ),
+          syncedDeckVersion,
+          warnings: [],
+        });
+      }
+
+      const packageAsset = await loadPackageAsset(
+        manager,
+        payload.projectId,
+        currentPackageFileId(templateBlueprint),
+      );
+      const operations = await loadUnsyncedPatchOperations(
+        manager,
+        payload.projectId,
+        payload.deckId,
+        syncedDeckVersion,
+        latestDeckVersion,
+      );
+      const embeddedOperations = await embedProjectImageAssets(
+        manager,
+        storage,
+        payload.projectId,
+        operations,
+      );
+      const synced = await syncPptxOoxmlWithPython(
+        storage,
+        pythonWorkerUrl,
+        latestDeckVersion,
+        packageAsset,
+        templateBlueprint,
+        deckCanvasSchema.parse((deck.deck_json as { canvas?: unknown }).canvas),
+        embeddedOperations,
+      );
+      const savedAssets = await saveSyncAssets(
+        manager,
+        storage,
+        payload.projectId,
+        synced,
+      );
+      const nextTemplateBlueprint = withSyncResult(
+        templateBlueprint,
+        savedAssets,
+        latestDeckVersion,
+        synced,
+      );
+      const updated = await updateTemplateBlueprintConditionally(
+        manager,
+        payload.projectId,
+        payload.deckId,
+        nextTemplateBlueprint,
+        latestDeckVersion,
+      );
+      if (!updated) {
+        throw new Error(
+          `A newer PPTX OOXML package already exists for deck: ${payload.deckId}`,
+        );
+      }
+      await compactSyncedPatches(
+        manager,
+        payload.projectId,
+        payload.deckId,
+        latestDeckVersion,
+      );
+
+      return completeSyncJob(manager, payload, {
+        templateId: nextTemplateBlueprint.templateId,
+        currentPackageFileId: savedAssets.currentPackageFileId,
+        renderAssetFileIds: savedAssets.renderAssetFileIds,
+        syncedDeckVersion: latestDeckVersion,
+        warnings: synced.warnings,
+      });
     });
   } catch (error) {
     return failJob(
@@ -218,7 +263,7 @@ export async function processPptxOoxmlSyncJob(
 }
 
 async function loadTemplateBlueprintRow(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   projectId: string,
   deckId: string,
 ): Promise<TemplateBlueprintRow> {
@@ -242,7 +287,7 @@ async function loadTemplateBlueprintRow(
 }
 
 async function loadPackageAsset(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   projectId: string,
   fileId: string,
 ): Promise<ProjectAssetRow> {
@@ -271,30 +316,31 @@ async function loadPackageAsset(
   return asset;
 }
 
-async function loadDeckCanvas(
-  dataSource: DataSource,
+async function loadStoredDeck(
+  dataSource: QueryExecutor,
   projectId: string,
   deckId: string,
-): Promise<DeckCanvas> {
+): Promise<DeckRow> {
   const rows = readQueryRows<DeckRow>(
     await dataSource.query(
       `
-        SELECT deck_json
+        SELECT deck_json, version
         FROM decks
         WHERE project_id = $1 AND deck_id = $2
       `,
       [projectId, deckId],
     ),
   );
-  const deck = rows[0]?.deck_json;
-  if (isRecord(deck)) {
-    return deckCanvasSchema.parse(deck.canvas);
+  const deck = rows[0];
+  if (deck && isRecord(deck.deck_json)) {
+    deckCanvasSchema.parse(deck.deck_json.canvas);
+    return deck;
   }
   throw new Error(`Deck not found for OOXML sync: ${deckId}`);
 }
 
 async function loadUnsyncedPatchOperations(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   projectId: string,
   deckId: string,
   syncedVersion: number,
@@ -317,10 +363,171 @@ async function loadUnsyncedPatchOperations(
   return rows.flatMap((row) => row.operations);
 }
 
+async function acquireDeckAdvisoryLock(
+  dataSource: QueryExecutor,
+  projectId: string,
+  deckId: string,
+): Promise<void> {
+  await dataSource.query(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+    [`${projectId}:${deckId}`],
+  );
+}
+
+async function compactSyncedPatches(
+  dataSource: QueryExecutor,
+  projectId: string,
+  deckId: string,
+  syncedDeckVersion: number,
+): Promise<void> {
+  await dataSource.query(
+    `
+      DELETE FROM deck_patches
+      WHERE project_id = $1 AND deck_id = $2 AND after_version <= $3
+    `,
+    [projectId, deckId, syncedDeckVersion],
+  );
+}
+
+async function completeSyncJob(
+  dataSource: QueryExecutor,
+  payload: z.infer<typeof pptxOoxmlSyncPayloadSchema>,
+  resultInput: {
+    templateId: string;
+    currentPackageFileId: string;
+    renderAssetFileIds: string[];
+    syncedDeckVersion: number;
+    warnings: string[];
+  },
+): Promise<Job> {
+  const result = pptxOoxmlSyncJobResultSchema.parse({
+    deckId: payload.deckId,
+    ...resultInput,
+  });
+  return updateJob(dataSource, payload.jobId, {
+    status: "succeeded",
+    progress: 100,
+    message: "PPTX OOXML sync completed.",
+    result,
+    error: null,
+  });
+}
+
+async function embedProjectImageAssets(
+  dataSource: QueryExecutor,
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  projectId: string,
+  operations: DeckPatchOperation[],
+): Promise<DeckPatchOperation[]> {
+  const references = operations.flatMap((operation) => {
+    const src = operationImageSource(operation);
+    const reference = src ? parseInternalAssetReference(src) : null;
+    if (reference && reference.projectId !== projectId) {
+      throw new Error(
+        `OOXML image asset project mismatch: ${reference.fileId}`,
+      );
+    }
+    return reference ? [reference] : [];
+  });
+  const fileIds = [...new Set(references.map((reference) => reference.fileId))];
+  if (fileIds.length === 0) return operations;
+
+  const rows = readQueryRows<ImageAssetRow>(
+    await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, mime_type, status
+        FROM project_assets
+        WHERE file_id = ANY($1)
+      `,
+      [fileIds],
+    ),
+  );
+  const assets = new Map(rows.map((row) => [row.file_id, row]));
+  const dataUrls = new Map<string, string>();
+
+  for (const fileId of fileIds) {
+    const asset = assets.get(fileId);
+    if (!asset) throw new Error(`OOXML image asset not found: ${fileId}`);
+    if (asset.project_id !== projectId) {
+      throw new Error(`OOXML image asset project mismatch: ${fileId}`);
+    }
+    if (
+      asset.status !== "uploaded" ||
+      !isSupportedImageMimeType(asset.mime_type)
+    ) {
+      throw new Error(`OOXML image asset must be an uploaded image: ${fileId}`);
+    }
+    const response = await fetch(
+      await storage.getSignedReadUrl(asset.storage_key),
+    );
+    if (!response.ok) {
+      throw new Error(`OOXML image asset content unavailable: ${fileId}`);
+    }
+    const content = Buffer.from(await response.arrayBuffer()).toString(
+      "base64",
+    );
+    dataUrls.set(fileId, `data:${asset.mime_type};base64,${content}`);
+  }
+
+  return operations.map((operation) => {
+    const src = operationImageSource(operation);
+    const reference = src ? parseInternalAssetReference(src) : null;
+    const dataUrl = reference ? dataUrls.get(reference.fileId) : undefined;
+    if (!dataUrl) return operation;
+    if (operation.type === "update_element_props") {
+      return deckPatchOperationSchema.parse({
+        ...operation,
+        props: { ...operation.props, src: dataUrl },
+      });
+    }
+    if (
+      operation.type === "add_element" &&
+      operation.element.type === "image"
+    ) {
+      return deckPatchOperationSchema.parse({
+        ...operation,
+        element: {
+          ...operation.element,
+          props: { ...operation.element.props, src: dataUrl },
+        },
+      });
+    }
+    return operation;
+  });
+}
+
+function operationImageSource(operation: DeckPatchOperation): string | null {
+  if (
+    operation.type === "update_element_props" &&
+    typeof operation.props.src === "string"
+  ) {
+    return operation.props.src;
+  }
+  if (operation.type === "add_element" && operation.element.type === "image") {
+    return operation.element.props.src;
+  }
+  return null;
+}
+
+function parseInternalAssetReference(src: string) {
+  const match = src.match(
+    /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/,
+  );
+  if (!match) return null;
+  return {
+    projectId: decodeURIComponent(match[1]),
+    fileId: decodeURIComponent(match[2]),
+  };
+}
+
+function isSupportedImageMimeType(mimeType: string): boolean {
+  return ["image/jpeg", "image/png", "image/webp"].includes(mimeType);
+}
+
 async function syncPptxOoxmlWithPython(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   pythonWorkerUrl: string,
-  payload: z.infer<typeof pptxOoxmlSyncPayloadSchema>,
+  targetDeckVersion: number,
   asset: ProjectAssetRow,
   templateBlueprint: TemplateBlueprint,
   deckCanvas: DeckCanvas,
@@ -339,7 +546,7 @@ async function syncPptxOoxmlWithPython(
   form.append("template_blueprint", JSON.stringify(templateBlueprint));
   form.append("operations", JSON.stringify(ooxmlOperations));
   form.append("deck_canvas", JSON.stringify(deckCanvas));
-  form.append("synced_deck_version", String(payload.targetDeckVersion));
+  form.append("synced_deck_version", String(targetDeckVersion));
   form.append("render", "true");
   form.append(
     "file",
@@ -377,7 +584,7 @@ function isOoxmlSyncOperation(operation: DeckPatchOperation): boolean {
 }
 
 async function saveSyncAssets(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   storage: Pick<StoragePort, "putObject">,
   projectId: string,
   synced: PptxOoxmlSyncWorkerResponse,
@@ -430,7 +637,11 @@ async function saveSyncAssets(
     throw new Error("PPTX OOXML sync did not return a current package asset.");
   }
 
-  return { currentPackageFileId, renderAssetFileIds, renderAssetFileIdsByAssetId };
+  return {
+    currentPackageFileId,
+    renderAssetFileIds,
+    renderAssetFileIdsByAssetId,
+  };
 }
 
 function withSyncResult(
@@ -446,8 +657,11 @@ function withSyncResult(
     slides: templateBlueprint.slides.map((slide, index) => ({
       ...slide,
       renderAssetFileId:
-        assets.renderAssetFileIdsByAssetId.get(`slide_render_${slide.sourceSlideIndex}`) ??
-        assets.renderAssetFileIds[index] ?? slide.renderAssetFileId,
+        assets.renderAssetFileIdsByAssetId.get(
+          `slide_render_${slide.sourceSlideIndex}`,
+        ) ??
+        assets.renderAssetFileIds[index] ??
+        slide.renderAssetFileId,
       elementSources: mergeElementSources(
         slide.elementSources,
         synced.elementSources.filter((source) =>
@@ -467,8 +681,12 @@ function withSourceSlideId(
   const sourceSlideIndex = templateBlueprint.slides.find(
     (slide) => slide.slideIndex === generatedSlideIndex,
   )?.sourceSlideIndex;
-  if (!sourceSlideIndex || sourceSlideIndex === generatedSlideIndex) return operation;
-  return { ...operation, slideId: `slide_${sourceSlideIndex}` } as DeckPatchOperation;
+  if (!sourceSlideIndex || sourceSlideIndex === generatedSlideIndex)
+    return operation;
+  return {
+    ...operation,
+    slideId: `slide_${sourceSlideIndex}`,
+  } as DeckPatchOperation;
 }
 
 function slideIndexFromId(slideId: string): number {
@@ -490,29 +708,33 @@ function mergeElementSources(
   return [...byElementId.values()];
 }
 
-async function updateTemplateBlueprint(
-  dataSource: DataSource,
+async function updateTemplateBlueprintConditionally(
+  dataSource: QueryExecutor,
   projectId: string,
   deckId: string,
   templateBlueprint: TemplateBlueprint,
-  qualityReport: unknown,
-): Promise<void> {
-  await dataSource.query(
-    `
+  syncedDeckVersion: number,
+): Promise<boolean> {
+  const rows = readQueryRows<{ template_id: string }>(
+    await dataSource.query(
+      `
       UPDATE template_blueprints
       SET blueprint_json = $4,
-          quality_report_json = $5,
           updated_at = now()
       WHERE project_id = $1 AND deck_id = $2 AND template_id = $3
+        AND COALESCE((blueprint_json->>'ooxmlSyncedDeckVersion')::integer, 0) < $5
+      RETURNING template_id
     `,
-    [
-      projectId,
-      deckId,
-      templateBlueprint.templateId,
-      templateBlueprint,
-      qualityReport,
-    ],
+      [
+        projectId,
+        deckId,
+        templateBlueprint.templateId,
+        templateBlueprint,
+        syncedDeckVersion,
+      ],
+    ),
   );
+  return rows.length === 1;
 }
 
 function currentPackageFileId(templateBlueprint: TemplateBlueprint): string {
@@ -526,7 +748,7 @@ function currentPackageFileId(templateBlueprint: TemplateBlueprint): string {
 }
 
 async function failJob(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   jobId: string,
   progress: number,
   code: string,
@@ -542,7 +764,7 @@ async function failJob(
 }
 
 async function updateJob(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   jobId: string,
   patch: {
     status: "running" | "succeeded" | "failed";

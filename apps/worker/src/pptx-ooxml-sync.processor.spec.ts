@@ -15,7 +15,11 @@ const payload = {
 };
 
 const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
-  getSignedReadUrl: vi.fn(async () => "http://storage.local/current.pptx"),
+  getSignedReadUrl: vi.fn(async (key: string) =>
+    key.endsWith("image.png")
+      ? "http://storage.local/image.png"
+      : "http://storage.local/current.pptx",
+  ),
   putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
     key: input.key,
     url: "http://storage.local/design-asset",
@@ -31,129 +35,49 @@ describe("processPptxOoxmlSyncJob", () => {
     vi.clearAllMocks();
   });
 
-  it("syncs unsynced deck patches into the current PPTX package", async () => {
-    const insertedAssets: Array<{ fileId: string; originalName: string }> = [];
-    const updatedBlueprints: unknown[] = [];
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
-        return [
-          jobRow(
-            params[1] as "running" | "succeeded" | "failed",
-            params[2] as number,
-            params[4] as Record<string, unknown> | null,
-            params[5] as { code: string; message: string } | null,
-          ),
-        ];
-      }
-      if (sql.includes("FROM template_blueprints")) {
-        return [
-          {
-            template_id: "template_a",
-            blueprint_json: templateBlueprint(),
-            quality_report_json: qualityReport(),
+  it("coalesces to the latest stored version, embeds project images, and conditionally compacts patches", async () => {
+    let savedBlueprint: Record<string, unknown> | null = null;
+    const { dataSource, query } = createDataSource({
+      deckVersion: 3,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: "Updated title" },
+        },
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_image",
+          props: {
+            src: "/api/v1/projects/project-a/assets/file_image/content",
           },
-        ];
-      }
-      if (sql.includes("FROM project_assets")) {
-        return [
-          {
-            file_id: "file_current",
-            project_id: "project-a",
-            storage_key: "projects/project-a/assets/file_current-current.pptx",
-            mime_type: pptxMimeType,
-            original_name: "current.pptx",
-            size: 12,
-            purpose: "design-asset",
-            status: "uploaded",
-          },
-        ];
-      }
-      if (sql.includes("SELECT deck_json")) {
-        return [
-          {
-            deck_json: {
-              canvas: {
-                preset: "wide-16-9",
-                width: 1920,
-                height: 1080,
-                aspectRatio: "16:9",
-              },
-            },
-          },
-        ];
-      }
-      if (sql.includes("FROM deck_patches")) {
-        return [
-          {
-            operations: [
-              {
-                type: "update_element_props",
-                slideId: "slide_1",
-                elementId: "el_title",
-                props: { text: "Updated title" },
-              },
-              {
-                type: "add_element",
-                slideId: "slide_1",
-                element: {
-                  elementId: "el_added",
-                  type: "text",
-                  role: "body",
-                  x: 120,
-                  y: 180,
-                  width: 400,
-                  height: 80,
-                  rotation: 0,
-                  opacity: 1,
-                  zIndex: 2,
-                  locked: false,
-                  visible: true,
-                  props: {
-                    text: "Added",
-                    fontSize: 24,
-                    color: "#111827",
-                    align: "left",
-                    verticalAlign: "top",
-                    lineHeight: 1.2,
-                  },
-                },
-              },
-              { type: "update_deck", title: "Ignored by OOXML sync" },
-            ],
-          },
-        ];
-      }
-      if (sql.includes("INSERT INTO project_assets")) {
-        insertedAssets.push({
-          fileId: params[0] as string,
-          originalName: params[3] as string,
-        });
-        return [];
-      }
-      if (sql.includes("UPDATE template_blueprints")) {
-        updatedBlueprints.push(params[3]);
-        return [];
-      }
-      return [];
+        },
+      ],
+      onBlueprintUpdate: (blueprint) => {
+        savedBlueprint = blueprint;
+        return true;
+      },
     });
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "http://storage.local/current.pptx") {
-        return new Response("pptx-bytes");
+      if (url.endsWith("current.pptx")) return new Response("pptx-bytes");
+      if (url.endsWith("image.png")) {
+        return new Response(new Uint8Array([1, 2, 3]));
       }
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
+        expect(form.get("synced_deck_version")).toBe("3");
         expect(JSON.parse(String(form.get("operations")))).toEqual([
-          {
-            type: "update_element_props",
-            slideId: "slide_3",
-            elementId: "el_title",
-            props: { text: "Updated title" },
-          },
           expect.objectContaining({
-            type: "add_element",
-            slideId: "slide_3",
-            element: expect.objectContaining({ elementId: "el_added" }),
+            type: "update_element_props",
+            props: { text: "Updated title" },
+          }),
+          expect.objectContaining({
+            type: "update_element_props",
+            props: { src: "data:image/png;base64,AQID" },
           }),
         ]);
         return new Response(JSON.stringify(workerResponse()));
@@ -163,51 +87,220 @@ describe("processPptxOoxmlSyncJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlSyncJob(
-      { query } as unknown as DataSource,
+      dataSource,
       storage,
       "http://localhost:8000",
       payload,
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect(storage.putObject).toHaveBeenCalledTimes(3);
-    expect(job.result).toMatchObject({
-      deckId: "deck_a",
-      templateId: "template_a",
-      syncedDeckVersion: 2,
-    });
-    const slide3RenderFileId = insertedAssets.find(
-      (asset) => asset.originalName === "slide-03.png",
-    )?.fileId;
-    expect(updatedBlueprints[0]).toMatchObject({
+    expect(job.result).toMatchObject({ syncedDeckVersion: 3 });
+    expect(savedBlueprint).toMatchObject({
       currentPackageFileId: expect.stringMatching(/^file_/),
-      ooxmlSyncedDeckVersion: 2,
-      slides: [
+      ooxmlSyncedDeckVersion: 3,
+    });
+    expect(query).toHaveBeenCalledWith(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      ["project-a:deck_a"],
+    );
+    const conditionalUpdate = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE template_blueprints"),
+    );
+    expect(String(conditionalUpdate?.[0])).toContain(
+      "ooxmlSyncedDeckVersion')::integer, 0) < $5",
+    );
+    expect(conditionalUpdate?.[1]?.[4]).toBe(3);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("DELETE FROM deck_patches"),
+      ["project-a", "deck_a", 3],
+    );
+  });
+
+  it("treats a lower queued version as a no-op after a newer package is synced", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 3,
+      syncedVersion: 3,
+      operations: [],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(job.result).toMatchObject({
+      currentPackageFileId: "file_current",
+      syncedDeckVersion: 3,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not compact patches when the conditional blueprint update loses to a newer version", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
         {
-          renderAssetFileId: slide3RenderFileId,
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: "Version two" },
         },
       ],
+      onBlueprintUpdate: () => false,
     });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(JSON.stringify(workerResponse())),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PPTX_OOXML_SYNC_FAILED");
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
   });
 });
 
-function templateBlueprint() {
+function createDataSource(input: {
+  deckVersion: number;
+  syncedVersion: number;
+  operations: unknown[];
+  onBlueprintUpdate?: (blueprint: Record<string, unknown>) => boolean;
+}) {
+  const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+    if (sql.includes("UPDATE jobs")) {
+      return [
+        jobRow(
+          params[1] as "running" | "succeeded" | "failed",
+          params[2] as number,
+          params[4] as Record<string, unknown> | null,
+          params[5] as { code: string; message: string } | null,
+        ),
+      ];
+    }
+    if (sql.includes("pg_advisory_xact_lock")) return [{ locked: true }];
+    if (sql.includes("FROM template_blueprints")) {
+      return [
+        {
+          template_id: "template_a",
+          blueprint_json: templateBlueprint(input.syncedVersion),
+          quality_report_json: {},
+        },
+      ];
+    }
+    if (sql.includes("SELECT deck_json, version")) {
+      return [
+        {
+          deck_json: {
+            canvas: {
+              preset: "wide-16-9",
+              width: 1920,
+              height: 1080,
+              aspectRatio: "16:9",
+            },
+          },
+          version: input.deckVersion,
+        },
+      ];
+    }
+    if (sql.includes("FROM project_assets") && sql.includes("ANY($1)")) {
+      return [
+        {
+          file_id: "file_image",
+          project_id: "project-a",
+          storage_key: "projects/project-a/assets/image.png",
+          mime_type: "image/png",
+          status: "uploaded",
+        },
+      ];
+    }
+    if (sql.includes("FROM project_assets")) {
+      return [
+        {
+          file_id: "file_current",
+          project_id: "project-a",
+          storage_key: "projects/project-a/assets/current.pptx",
+          mime_type: pptxMimeType,
+          original_name: "current.pptx",
+          size: 12,
+          purpose: "design-asset",
+          status: "uploaded",
+        },
+      ];
+    }
+    if (sql.includes("FROM deck_patches")) {
+      return [{ operations: input.operations }];
+    }
+    if (sql.includes("INSERT INTO project_assets")) return [];
+    if (sql.includes("UPDATE template_blueprints")) {
+      const accepted =
+        input.onBlueprintUpdate?.(params[3] as Record<string, unknown>) ?? true;
+      return accepted ? [{ template_id: "template_a" }] : [];
+    }
+    if (sql.includes("DELETE FROM deck_patches")) return [];
+    return [];
+  });
+  const manager = { query };
+  const dataSource = {
+    query,
+    transaction: vi.fn(async (callback: (value: typeof manager) => unknown) =>
+      callback(manager),
+    ),
+  } as unknown as DataSource;
+  return { dataSource, query };
+}
+
+function templateBlueprint(syncedVersion: number) {
   return {
     templateId: "template_a",
     sourceFileId: "file_source",
     sourcePackageFileId: "file_source",
     currentPackageFileId: "file_current",
-    ooxmlSyncedDeckVersion: 1,
+    ooxmlSyncedDeckVersion: syncedVersion,
     slides: [
       {
         slideIndex: 1,
-        sourceSlideIndex: 3,
+        sourceSlideIndex: 1,
+        renderAssetFileId: "file_render_1",
         elementSources: [
           {
             elementId: "el_title",
-            slidePart: "ppt/slides/slide3.xml",
+            slidePart: "ppt/slides/slide1.xml",
             shapeId: "2",
             sourceType: "slide",
+            writable: true,
+          },
+          {
+            elementId: "el_image",
+            slidePart: "ppt/slides/slide1.xml",
+            shapeId: "3",
+            relationshipId: "rId2",
+            sourceType: "image",
             writable: true,
           },
         ],
@@ -225,18 +318,6 @@ function workerResponse() {
         fileName: "current.pptx",
         mimeType: pptxMimeType,
         contentBase64: Buffer.from("pptx").toString("base64"),
-      },
-      {
-        assetId: "slide_render_1",
-        fileName: "slide-01.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("png").toString("base64"),
-      },
-      {
-        assetId: "slide_render_3",
-        fileName: "slide-03.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("png-3").toString("base64"),
       },
     ],
     elementSources: [],
@@ -261,30 +342,5 @@ function jobRow(
     error,
     created_at: "2026-07-03T00:00:00.000Z",
     updated_at: "2026-07-03T00:00:01.000Z",
-  };
-}
-
-function qualityReport() {
-  return {
-    compositeScore: 82,
-    metrics: {
-      geometry: 90,
-      text: 80,
-      color: 80,
-      layer: 90,
-      editability: 60,
-      pixelSimilarity: null,
-    },
-    weights: {
-      geometry: 25,
-      text: 15,
-      color: 10,
-      layer: 10,
-      editability: 10,
-      pixelSimilarity: 30,
-    },
-    editabilityCoverage: 0.6,
-    appliedCap: null,
-    notes: [],
   };
 }
