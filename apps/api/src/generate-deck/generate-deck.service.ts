@@ -18,6 +18,7 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import { z } from "zod";
+import { parseRequest } from "../common/zod-request";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -29,9 +30,6 @@ const generateDeckJobResponseSchema = z.object({
 });
 
 type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
-const pptxMimeType =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
 @Injectable()
 export class GenerateDeckService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
@@ -58,7 +56,7 @@ export class GenerateDeckService {
   ): Promise<GenerateDeckJobResponse> {
     await this.projectsService.getAccessibleProject(projectId);
 
-    const parsedRequest = generateDeckRequestSchema.parse(body);
+    const parsedRequest = parseRequest(generateDeckRequestSchema, body);
     const resolved =
       this.savedDesignPacksService && userId
         ? await this.savedDesignPacksService.resolveGenerationRequest(
@@ -69,7 +67,6 @@ export class GenerateDeckService {
         : { request: parsedRequest };
     const request = resolved.request;
     await this.assertCoachingContext(projectId, request.coachingContext);
-    await this.assertDesignReferences(projectId, request.designReferences);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -158,27 +155,6 @@ export class GenerateDeckService {
           ? error.message
           : "Python worker returned invalid color options."
       );
-    }
-  }
-
-  private async assertDesignReferences(
-    projectId: string,
-    designReferences: Array<{ fileId: string }>
-  ): Promise<void> {
-    if (designReferences.length === 0) return;
-    if (!this.filesService) {
-      throw new BadRequestException("Design reference validation is unavailable.");
-    }
-
-    for (const reference of designReferences) {
-      const asset = await this.filesService.getUploadedAsset(
-        projectId,
-        reference.fileId
-      );
-
-      if (asset.mimeType !== pptxMimeType) {
-        throw new BadRequestException("Design references must be uploaded PPTX files.");
-      }
     }
   }
 

@@ -1379,6 +1379,25 @@ describe("deckSchema validation", () => {
     expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
+  it("keeps historical AI metadata design references readable", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "Historical AI design reference",
+        references: [],
+        designReferences: [{ fileId: "file_design_legacy" }]
+      }
+    };
+
+    expect(
+      deckSchema.parse(deck).metadata.createdFrom?.designReferences
+    ).toEqual([{ fileId: "file_design_legacy" }]);
+  });
+
   it("accepts every supported AI presentation profile", () => {
     for (const presentationProfile of [
       "proposal",

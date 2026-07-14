@@ -1,5 +1,8 @@
 # AI PPT 생성 고도화 기획서
 
+> [!IMPORTANT]
+> 이 문서는 과거 설계 이력을 보존한다. GenerateDeck의 legacy/template 유지와 public selector 계약은 후속 확정 계획인 #339 PR6의 `program-v2` 전용 계약이 대체한다.
+
 ## 1. 배경
 
 현재 서비스는 기존 `.pptx` 템플릿을 가져와 그 위에 내용을 덮어쓰는 방식에 가깝다.

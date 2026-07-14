@@ -49,7 +49,7 @@ flowchart LR
 | 339-3 | 레거시 producer 중단 | `/pptx-imports`, `/mockup/ai-ppt`, 구형 HomePage·`GenerateDeckView`, `ai-template-deck-generation` 신규 enqueue를 중단한다. 기존 consumer는 drain을 위해 유지한다. |
 | 339-4 | drain 후 레거시 제거 | 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0임을 확인한 다음 API·consumer·queue 등록·active schema를 제거한다. 로컬 drain 결과만으로 merge/deploy하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
 | 339-5 | OOXML 순수 변환 계약 | `PptxOoxmlGenerationRequest`를 strict `{ fileId }`로 축소하고 AI slot 생성, OpenAI 입력, apply-slot-text route를 제거한다. TemplateBlueprint mapping은 유지한다. |
-| 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python 모두 extra field를 거부한다. 호환 shim은 두지 않는다. 저장 Deck metadata와 PPTX용 TemplateBlueprint 계약은 유지한다. |
+| 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
 | 339-7A | Python generation core 분리 | `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. #341 정규화도 `design_planning.py`로 함께 이동한다. |
 | 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
 | 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시키고 #339를 종료한다. |
@@ -126,6 +126,7 @@ uv run pytest
 - #341 mismatch fixture가 provider 한 번만 호출하고 최종 Deck snapshot까지 일치한다.
 - PPTX import → PUT/patch 편집 → sync → export → 재-import에서 최신 writable 요소가 유지된다.
 - 레거시 consumer는 배포 환경 drain 전 제거되지 않으며, 로컬 결과만으로 merge/deploy하지 않고 과거 Job row는 계속 조회된다.
+- 339-6 breaking cutover는 mixed-version rolling deployment를 금지한다. generate-deck ingress를 중단하고 BullMQ `generate-deck` queue 전체 상태와 DB `type = ai-deck-generation`의 queued/running을 drain한 뒤 Web/API/Worker/Python worker를 함께 교체하고 Web cache를 무효화한다.
 - duplicate stage message, enqueue 직후 crash, provider 완료 직후 crash, lease 만료를 각각 재현한다.
 - OCR 하나 또는 image 하나의 실패가 다른 shard와 이전 stage를 재실행하지 않는다.
 - queue message에 bytes/base64가 없고 결정적 asset key와 publication upsert가 중복 결과를 막는다.
@@ -139,4 +140,5 @@ uv run pytest
 - 실제 다섯 SQS/DLQ, IAM, ECS service, autoscaling, CloudWatch alarm과 production cutover는 별도 인프라 이슈로 분리한다. 이 범위 변경을 #338 계획과 GitHub 댓글에 함께 반영한다.
 - 후속 인프라 이슈가 완료되기 전 production의 `AI_DECK_EXECUTION_MODE=sqs`는 활성화하지 않는다.
 - 외부 AWS 리소스 생성·배포·GitHub 원격 변경은 별도 사용자 승인 후 수행한다.
+- 339-6 cutover 증거가 없으면 production과 `develop` 자동 personal staging 배포를 모두 차단한다. PR은 `personal-staging` required reviewer 활성화 또는 자동 deploy workflow 중단이 확인되고 cutover 담당자·시간·maintenance 전환 방법이 본문에 기록될 때까지 Draft로 유지한다. 이 merge gate를 충족한 뒤에만 Ready 전환과 merge를 허용하며, merge 뒤에도 queue/DB drain 증거 없이 대기 중인 workflow를 승인하지 않는다.
 - #341 완료 전 #339 baseline을 만들지 않고, #339 readiness 완료 전 #338 persistence 작업을 병합하지 않는다.

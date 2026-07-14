@@ -13,7 +13,6 @@ import {
 } from "./composition.schema";
 import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
 import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
-import { templateBlueprintIdSchema } from "./template-blueprint.schema";
 import { themeColorSchema } from "./theme.schema";
 
 export const generateDeckTemplateSchema = z.enum([
@@ -24,20 +23,20 @@ export const generateDeckTemplateSchema = z.enum([
 ]);
 
 export const generateDeckReferenceSchema = z.object({
-  fileId: z.string().min(1)
-});
+  fileId: z.string().trim().min(1)
+}).strict();
 
 export const generateDeckReferenceKeywordSchema = z.object({
   text: z.string().trim().min(1)
-});
+}).strict();
 
 export const generateDeckReferenceContextSchema = z.object({
-  fileId: z.string().min(1),
+  fileId: z.string().trim().min(1),
   title: z.string().trim().default(""),
   content: z.string().trim().min(1),
   sourceId: z.string().trim().min(1).optional(),
   chunkId: z.string().trim().min(1).optional()
-});
+}).strict();
 
 export const generateDeckMetadataSchema = z
   .object({
@@ -45,6 +44,7 @@ export const generateDeckMetadataSchema = z
     purpose: aiDeckPurposeSchema.default("inform"),
     tone: aiDeckToneSchema.default("professional")
   })
+  .strict()
   .default({});
 
 export const generateDeckReferencePolicySchema = z.enum([
@@ -66,20 +66,12 @@ export const generateDeckMediaPolicySchema = z.enum([
   "minimal"
 ]);
 
-export const generateDeckEngineVersionSchema = z
-  .enum(["recipe-v1", "program-v2"])
-  .default("recipe-v1");
-
-export const generateDeckGenerationModeSchema = z
-  .enum(["legacy", "design-pack"])
-  .default("legacy");
-
 export const generateDeckForbiddenStyleSchema = z.enum(["gradient", "pastel"]);
 
 export const generateDeckDesignConstraintsSchema = z.object({
   canvasBackground: z.enum(["auto", "white"]).default("auto"),
   forbiddenStyles: z.array(generateDeckForbiddenStyleSchema).default([])
-});
+}).strict();
 
 export const generateDeckColorIntentSchema = z.object({
   mood: z
@@ -113,7 +105,7 @@ export const generateDeckColorIntentSchema = z.object({
     .default("auto"),
   backgroundPreference: z.enum(["auto", "white", "light", "dark"]).default("auto"),
   forbiddenStyles: z.array(generateDeckForbiddenStyleSchema).default([])
-});
+}).strict();
 
 export const generateDeckBriefSchema = z
   .object({
@@ -124,6 +116,7 @@ export const generateDeckBriefSchema = z
     durationMinutes: z.number().int().min(1).max(120).optional(),
     referencePolicy: generateDeckReferencePolicySchema.default("topic-only")
   })
+  .strict()
   .default({});
 
 export const generateDeckPaletteOverrideSchema = z
@@ -137,7 +130,8 @@ export const generateDeckPaletteOverrideSchema = z
     text: themeColorSchema.optional(),
     accentColor: themeColorSchema.optional()
   })
-  .partial();
+  .partial()
+  .strict();
 
 export const generateDeckFontOverrideSchema = z.object({
   fontId: z.string().trim().min(1),
@@ -156,17 +150,17 @@ export const generateDeckFontOverrideSchema = z.object({
   lineHeight: z.number().min(1).max(1.6).default(1.15),
   widthFactor: z.number().min(0.8).max(1.4).default(1),
   overflowRisk: z.enum(["low", "medium", "high"]).default("medium")
-});
+}).strict();
 
 export const generateDeckVisualPlanPolicySchema = z
   .object({
     mediaPolicy: generateDeckMediaPolicySchema.default("balanced")
   })
+  .strict()
   .default({});
 
 export const generateDeckDesignSchema = z
   .object({
-    engineVersion: generateDeckEngineVersionSchema,
     profile: z
       .enum([
         "executive-report",
@@ -177,7 +171,6 @@ export const generateDeckDesignSchema = z
       ])
       .optional(),
     stylePackId: z.string().trim().min(1).optional(),
-    slidePresetId: z.string().trim().min(1).optional(),
     visualRhythm: z
       .enum(["auto", "clean", "editorial", "bold", "technical"])
       .default("auto"),
@@ -190,6 +183,7 @@ export const generateDeckDesignSchema = z
     fontOverride: generateDeckFontOverrideSchema.optional(),
     referencePolicy: generateDeckReferencePolicySchema.optional()
   })
+  .strict()
   .default({});
 
 export const generateDeckSlideCountRangeSchema = z
@@ -197,6 +191,7 @@ export const generateDeckSlideCountRangeSchema = z
     min: z.number().int().min(1).max(20).default(5),
     max: z.number().int().min(1).max(20).default(8)
   })
+  .strict()
   .default({})
   .superRefine((range, ctx) => {
     if (range.min > range.max) {
@@ -209,7 +204,6 @@ export const generateDeckSlideCountRangeSchema = z
   });
 
 export const generateDeckRequestSchema = z.object({
-  generationMode: generateDeckGenerationModeSchema,
   topic: z.string().trim().min(1),
   prompt: z.string().trim().optional(),
   designPrompt: z.string().trim().optional(),
@@ -219,14 +213,12 @@ export const generateDeckRequestSchema = z.object({
   template: generateDeckTemplateSchema.default("default"),
   metadata: generateDeckMetadataSchema,
   design: generateDeckDesignSchema,
-  savedDesignPack: savedDesignPackSelectionSchema.optional(),
+  savedDesignPack: savedDesignPackSelectionSchema.strict().optional(),
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
-  referenceFileIds: z.array(z.string().min(1)).default([]),
-  officialAssetFileIds: z.array(z.string().min(1)).optional(),
+  referenceFileIds: z.array(z.string().trim().min(1)).default([]),
+  officialAssetFileIds: z.array(z.string().trim().min(1)).optional(),
   references: z.array(generateDeckReferenceSchema).default([]),
-  designReferences: z.array(generateDeckReferenceSchema).default([]),
-  templateBlueprintId: templateBlueprintIdSchema.optional(),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([]),
   referenceContext: z.array(generateDeckReferenceContextSchema).default([]),
   coachingContext: z
@@ -237,7 +229,7 @@ export const generateDeckRequestSchema = z.object({
     .strict()
     .nullable()
     .default(null)
-});
+}).strict();
 
 export const deckColorOptionRequestSchema = z.object({
   topic: z.string().trim().min(1),
@@ -402,12 +394,6 @@ export type GenerateDeckReferencePolicy = z.infer<
 >;
 export type GenerateDeckMediaPolicy = z.infer<
   typeof generateDeckMediaPolicySchema
->;
-export type GenerateDeckEngineVersion = z.infer<
-  typeof generateDeckEngineVersionSchema
->;
-export type GenerateDeckGenerationMode = z.infer<
-  typeof generateDeckGenerationModeSchema
 >;
 export type GenerateDeckForbiddenStyle = z.infer<
   typeof generateDeckForbiddenStyleSchema

@@ -68,25 +68,12 @@ describe("processGenerateDeckJob", () => {
         }
       ]
     });
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          {
-            deckId: deck.deckId,
-            deck,
-            warnings,
-            validation: deckValidation
-          },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     let pythonRequestBody = "";
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (String(input).endsWith("/ai/review-deck-visuals")) {
+        return visualPassResponse();
+      }
       pythonRequestBody = String(init?.body ?? "");
       return new Response(
         JSON.stringify({
@@ -111,7 +98,7 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
     );
-    expect(timeoutSpy).toHaveBeenCalledWith(120_000);
+    expect(timeoutSpy).toHaveBeenCalledWith(300_000);
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         designPrompt: "retro pixel palette",
@@ -131,12 +118,11 @@ describe("processGenerateDeckJob", () => {
       })
     );
     expect(JSON.parse(pythonRequestBody)).not.toHaveProperty("imageReviewMode");
-    expect(query).toHaveBeenCalledTimes(3);
-    expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
-    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
-    const jobResult = (query.mock.calls[2][1] as unknown[])[4] as {
-      deck: Deck;
-    };
+    const saveCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
+    );
+    const savedDeck = saveCall?.[1]?.[2] as Deck;
+    const jobResult = job.result as GenerateDeckJobResult;
     expect(savedDeck.metadata.thumbnailSource).toBe("import-render");
     expect(savedDeck.slides[0].thumbnailUrl).toBe(
       "asset:generated_slide_render_slide_1"
@@ -179,16 +165,19 @@ describe("processGenerateDeckJob", () => {
     const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (input: unknown) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        return new Response(
           JSON.stringify({
             deck,
             warnings: [],
             validation: validation(),
             diagnostics: diagnostics()
           })
-        )
-      )
+        );
+      })
     );
 
     const job = await processGenerateDeckJob(
@@ -199,7 +188,7 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
-    const result = (query.mock.calls[2][1] as unknown[])[4] as GenerateDeckJobResult;
+    const result = job.result as GenerateDeckJobResult;
     expect(result.warnings).toContain(
       "Semantic QA bounded repair applied once."
     );
@@ -261,11 +250,6 @@ describe("processGenerateDeckJob", () => {
         ...payload,
         request: {
           ...payload.request,
-          generationMode: "design-pack",
-          design: {
-            ...payload.request.design,
-            engineVersion: "program-v2"
-          },
           savedDesignPack: { id: snapshot.id, version: snapshot.version }
         },
         designPackSnapshot: snapshot
@@ -1076,7 +1060,7 @@ describe("processGenerateDeckJob", () => {
     });
   });
 
-  it("publishes a design-pack deck with non-blocking quality warnings", async () => {
+  it("publishes a program-v2 deck with non-blocking quality warnings", async () => {
     const deck = createDeck();
     const deckValidation = validation({
       passed: false,
@@ -1112,16 +1096,19 @@ describe("processGenerateDeckJob", () => {
     const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (input: unknown) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        return new Response(
           JSON.stringify({
             deck,
             warnings: [],
             validation: deckValidation,
             diagnostics: diagnostics({ validationIssueCount: 1 })
           })
-        )
-      )
+        );
+      })
     );
     const generate = vi.fn();
 
@@ -1131,7 +1118,6 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000",
       {
         ...payload,
-        request: { ...payload.request, generationMode: "design-pack" },
         imageAssetScope: { userId: "user-1" }
       },
       {
@@ -1204,17 +1190,7 @@ describe("processGenerateDeckJob", () => {
         ]
       })
     );
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
-        jobRow(
-          "failed",
-          90,
-          params[4] as Record<string, unknown>,
-          params[5] as { code: string; message: string }
-        )
-      ]);
+    const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -1233,10 +1209,7 @@ describe("processGenerateDeckJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      {
-        ...payload,
-        request: { ...payload.request, generationMode: "design-pack" }
-      }
+      payload
     );
 
     expect(job.status).toBe("failed");
@@ -1291,7 +1264,7 @@ describe("processGenerateDeckJob", () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
-  it("passes explicit design-pack generation mode to Python deck generation", async () => {
+  it("passes a program-v2 request without deprecated selectors", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const deck = createDeck({
       slides: [
@@ -1323,27 +1296,14 @@ describe("processGenerateDeckJob", () => {
       ]
     });
     const deckValidation = validation();
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          {
-            deckId: deck.deckId,
-            deck,
-            warnings: [],
-            validation: deckValidation
-          },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     let pythonRequestBody = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: unknown, init?: RequestInit) => {
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
         pythonRequestBody = String(init?.body ?? "");
         return new Response(
           JSON.stringify({ deck, warnings: [], validation: deckValidation })
@@ -1359,331 +1319,25 @@ describe("processGenerateDeckJob", () => {
         ...payload,
         request: {
           ...payload.request,
-          generationMode: "design-pack",
           slideCountRange: { min: 4, max: 4 }
         }
       }
     );
 
     expect(job.status).toBe("succeeded");
-    expect(JSON.parse(pythonRequestBody)).toEqual(
+    const pythonRequest = JSON.parse(pythonRequestBody);
+    expect(pythonRequest).toEqual(
       expect.objectContaining({
         projectId: "project-a",
-        generationMode: "design-pack",
         slideCountRange: { min: 4, max: 4 }
       })
     );
+    expect(pythonRequest).not.toHaveProperty("generationMode");
+    expect(pythonRequest.design).not.toHaveProperty("engineVersion");
+    expect(pythonRequest.design).not.toHaveProperty("slidePresetId");
+    expect(pythonRequest).not.toHaveProperty("designReferences");
+    expect(pythonRequest).not.toHaveProperty("templateBlueprintId");
     expect(timeoutSpy).toHaveBeenCalledWith(300_000);
-  });
-
-  it("imports PPTX design references and stores derived images before generation", async () => {
-    const deck = createDeck({
-      metadata: {
-        language: "ko",
-        locale: "ko-KR",
-        sourceType: "ai",
-        generatedBy: "ai",
-        createdFrom: {
-          topic: "AI ???앹꽦",
-          references: [{ fileId: "file_1" }],
-          designReferences: [{ fileId: "file_design" }]
-        }
-      },
-      slides: [
-        {
-          slideId: "slide_1",
-          order: 1,
-          title: "AI ???앹꽦",
-          thumbnailUrl: "",
-          style: {},
-          speakerNotes: "notes",
-          elements: [
-            {
-              elementId: "el_1_imported_image_1",
-              type: "image",
-              role: "media",
-              x: 100,
-              y: 100,
-              width: 320,
-              height: 180,
-              rotation: 0,
-              opacity: 1,
-              zIndex: 1,
-              locked: false,
-              visible: true,
-              props: {
-                src: "/api/v1/projects/project-a/assets/file_design_asset/content",
-                alt: "Imported image",
-                fit: "contain"
-              }
-            }
-          ],
-          keywords: [],
-          aiNotes: {
-            emphasisPoints: ["message"],
-            sourceEvidence: [{ fileId: "file_1" }]
-          }
-        }
-      ]
-    });
-    const deckValidation = validation();
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
-        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
-      }
-      if (sql.includes("FROM project_assets")) {
-        return [
-          {
-            file_id: "file_design",
-            project_id: "project-a",
-            storage_key: "projects/project-a/assets/file_design-template.pptx",
-            mime_type:
-              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            original_name: "template.pptx",
-            size: 12,
-            purpose: "pptx-import",
-            status: "uploaded"
-          }
-        ];
-      }
-      return [];
-    });
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "http://storage.local/design.pptx") {
-        return new Response("pptx-bytes");
-      }
-      if (url.endsWith("/design/import-pptx")) {
-        return new Response(
-          JSON.stringify({
-            blueprint: {
-              slides: [
-                {
-                  elements: [
-                    {
-                      type: "image",
-                      props: { src: "asset:image_1" }
-                    }
-                  ]
-                }
-              ]
-            },
-            templateBlueprint: templateBlueprint(),
-            qualityReport: qualityReport(),
-            assets: [
-              {
-                assetId: "image_1",
-                fileName: "image.png",
-                mimeType: "image/png",
-                contentBase64: Buffer.from("img").toString("base64")
-              }
-            ],
-            warnings: []
-          })
-        );
-      }
-
-      expect(url).toBe("http://localhost:8000/ai/generate-deck");
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        designReferences: [{ fileId: "file_design" }],
-        templateBlueprint: expect.objectContaining({
-          templateId: "template_file_design"
-        }),
-        designBlueprint: {
-          slides: [
-            {
-              elements: [
-                {
-                  props: {
-                    src: expect.stringMatching(
-                      /^\/api\/v1\/projects\/project-a\/assets\/file_/
-                    )
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      });
-      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const job = await processGenerateDeckJob(
-      { query } as unknown as DataSource,
-      storage,
-      "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [{ fileId: "file_design" }]
-        }
-      }
-    );
-
-    expect(job.status).toBe("succeeded");
-    expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
-      "projects/project-a/assets/file_design-template.pptx"
-    );
-    expect(storage.putObject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contentType: "image/png",
-        purpose: "design-asset"
-      })
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/design/import-pptx",
-      expect.objectContaining({ method: "POST" })
-    );
-    expect(
-      query.mock.calls.some(([sql]) => String(sql).includes("template_blueprints"))
-    ).toBe(true);
-  });
-
-  it("fails when a design reference is not an uploaded PPTX asset", async () => {
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
-        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
-      }
-      if (sql.includes("FROM project_assets")) {
-        return [
-          {
-            file_id: "file_design",
-            project_id: "project-a",
-            storage_key: "projects/project-a/assets/file_design.pdf",
-            mime_type: "application/pdf",
-            original_name: "template.pdf",
-            size: 12,
-            purpose: "reference-material",
-            status: "uploaded"
-          }
-        ];
-      }
-      return [];
-    });
-    vi.stubGlobal("fetch", vi.fn());
-
-    const job = await processGenerateDeckJob(
-      { query } as unknown as DataSource,
-      storage,
-      "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [{ fileId: "file_design" }]
-        }
-      }
-    );
-
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_DESIGN_REFERENCE_FAILED");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("loads a stored template blueprint when templateBlueprintId is provided", async () => {
-    const deck = createDeck();
-    const deckValidation = validation();
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
-        return [
-          jobRow(
-            params[1] as "running" | "succeeded" | "failed",
-            params[2] as number,
-            params[4] as Record<string, unknown> | null,
-            params[5] as { code: string; message: string } | null
-          )
-        ];
-      }
-      if (sql.includes("FROM template_blueprints")) {
-        return [
-          {
-            template_id: "template_file_design",
-            project_id: "project-a",
-            deck_id: "deck_import_file_design",
-            source_file_id: "file_design",
-            blueprint_json: templateBlueprint(),
-            quality_report_json: qualityReport(),
-            deck_json: createDeck({
-              deckId: "deck_import_file_design",
-              metadata: { language: "ko", locale: "ko-KR", sourceType: "import" },
-              slides: [
-                {
-                  slideId: "slide_import_file_design_1",
-                  order: 1,
-                  title: "Template",
-                  thumbnailUrl: "",
-                  style: {},
-                  speakerNotes: "",
-                  elements: [
-                    {
-                      elementId: "el_imported_1_title",
-                      type: "text",
-                      role: "title",
-                      x: 120,
-                      y: 96,
-                      width: 1200,
-                      height: 120,
-                      rotation: 0,
-                      opacity: 1,
-                      zIndex: 2,
-                      locked: false,
-                      visible: true,
-                      props: {
-                        text: "Template title",
-                        fontSize: 52,
-                        fontWeight: "bold"
-                      }
-                    }
-                  ]
-                }
-              ]
-            })
-          }
-        ];
-      }
-      return [];
-    });
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://localhost:8000/ai/generate-deck");
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        templateBlueprintId: "template_file_design",
-        templateBlueprint: expect.objectContaining({
-          templateId: "template_file_design"
-        }),
-        designBlueprint: {
-          slides: [
-            {
-              elements: [
-                expect.objectContaining({
-                  elementId: "el_imported_1_title"
-                })
-              ]
-            }
-          ]
-        }
-      });
-      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const job = await processGenerateDeckJob(
-      { query } as unknown as DataSource,
-      storage,
-      "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [],
-          templateBlueprintId: "template_file_design"
-        }
-      }
-    );
-
-    expect(job.status).toBe("succeeded");
-    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
   });
 });
 
@@ -1691,12 +1345,7 @@ function programV2Payload() {
   return {
     ...payload,
     request: {
-      ...payload.request,
-      generationMode: "design-pack" as const,
-      design: {
-        ...payload.request.design,
-        engineVersion: "program-v2" as const
-      }
+      ...payload.request
     }
   };
 }
@@ -2115,55 +1764,6 @@ function diagnostics(overrides: Record<string, unknown> = {}) {
     uniqueCoreLayoutCount: 1,
     validationIssueCount: 0,
     ...overrides
-  };
-}
-
-function templateBlueprint() {
-  return {
-    templateId: "template_file_design",
-    sourceFileId: "file_design",
-    slides: [
-      {
-        slideIndex: 1,
-        sourceSlideIndex: 1,
-        slots: [
-          {
-            elementId: "el_imported_1_title",
-            usage: "content-slot",
-            slotRole: "title",
-            replaceMode: "replace",
-            confidence: 0.95,
-            bounds: { x: 120, y: 96, width: 1200, height: 120 },
-            source: { type: "placeholder", name: "Title 1" }
-          }
-        ]
-      }
-    ]
-  };
-}
-
-function qualityReport() {
-  return {
-    compositeScore: 84,
-    weights: {
-      geometry: 25,
-      text: 15,
-      color: 10,
-      layer: 10,
-      editability: 10,
-      pixelSimilarity: 30
-    },
-    metrics: {
-      geometry: 0.9,
-      text: 0.8,
-      color: 0.8,
-      layer: 0.9,
-      editability: 0.8,
-      pixelSimilarity: null
-    },
-    editabilityCoverage: 0.8,
-    capsApplied: [],
-    warnings: []
   };
 }
 

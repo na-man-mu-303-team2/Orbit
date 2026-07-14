@@ -151,6 +151,26 @@ cd /var/www/orbit
 
 `develop`에 merge되면 `.github/workflows/deploy-personal-staging.yml`이 개인 서버 self-hosted runner에서 배포 wrapper를 실행한다.
 
+### GenerateDeck breaking contract cutover
+
+#339 PR 6처럼 Web/API/Worker/Python worker가 공유하는 GenerateDeck request를 호환 shim 없이 축소하는 변경은 일반 자동 배포 대상이 아니다. 현재 배포 script는 queue drain이나 ingress freeze 없이 `docker compose up -d`로 서비스를 교체하므로 mixed-version window를 막지 못한다.
+
+이 변경은 merge 전에 GitHub Environment `personal-staging`에 required reviewer를 임시 설정해 자동 workflow가 승인 대기하도록 만들거나 자동 배포 자체를 중단해야 한다. 둘 다 준비하지 못했다면 PR을 merge하지 않는다.
+
+merge 및 승인 순서는 다음과 같다.
+
+1. PR을 Draft로 유지한다.
+2. `personal-staging` required reviewer 또는 자동 deploy workflow 중단을 설정하고 설정 증거를 PR 본문에 남긴다.
+3. cutover 담당자·시간·maintenance 전환 방법을 PR 본문에 기록한 뒤 Ready for review로 전환한다.
+4. 리뷰와 merge가 끝나면 자동 workflow가 승인 대기 또는 중단 상태인지 확인한다.
+5. generate-deck ingress를 maintenance 상태로 전환해 새 요청을 막는다.
+6. BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0인지 확인한다.
+7. DB에서 `type = 'ai-deck-generation'`이고 `status IN ('queued', 'running')`인 Job이 0인지 확인한다.
+8. queue와 DB 증거를 PR 또는 승인 기록에 남긴 뒤 대기 중인 personal staging workflow를 승인해 Web/API/Worker/Python worker를 같은 cutover window에 교체한다.
+9. health check를 통과시키고 기존 Web asset/cache를 무효화한 다음 ingress를 재개한다.
+
+production ECS/CloudFront cutover는 이 personal staging runbook으로 대신하지 않는다. production에서도 같은 drain 불변조건을 만족하되 서비스 동시 교체와 cache invalidation은 별도 승인된 배포 계획으로 수행한다.
+
 필수 서버 조건:
 
 - GitHub Actions runner label: `orbit-personal-staging`

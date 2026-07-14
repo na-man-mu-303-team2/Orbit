@@ -107,7 +107,6 @@ describe("SavedDesignPacksService", () => {
     const request = baseRequest({
       savedDesignPack: { id: "design_pack_1", version: 1 },
       design: {
-        engineVersion: "recipe-v1",
         visualRhythm: "clean",
         densityTarget: "medium",
         mediaPolicy: "minimal",
@@ -127,12 +126,34 @@ describe("SavedDesignPacksService", () => {
     expect(resolved.request.design.mediaPolicy).toBe("public-assets");
     expect(resolved.request.design.fontOverride?.recommendedBodySize).toBeGreaterThanOrEqual(18);
     expect(resolved.snapshot?.id).toBe("design_pack_1");
+    expect(resolved.request).not.toHaveProperty("generationMode");
+    expect(resolved.request).not.toHaveProperty("design.engineVersion");
+  });
+
+  it("restores the default pack without a deprecated mode selector", async () => {
+    const fixture = repositoryFixture([entity({ isDefault: true })]);
+    const service = new SavedDesignPacksService(fixture.repository);
+
+    const resolved = await service.resolveGenerationRequest(
+      baseRequest({}),
+      {},
+      "user_1"
+    );
+
+    expect(resolved.request.savedDesignPack).toEqual({
+      id: "design_pack_1",
+      version: 1
+    });
+    expect(resolved.snapshot).toMatchObject({
+      id: "design_pack_1",
+      version: 1,
+      baseStylePackId: "brandlogy-modern"
+    });
   });
 });
 
 function baseRequest(overrides: Partial<GenerateDeckRequest>): GenerateDeckRequest {
   return {
-    generationMode: "design-pack",
     topic: "Saved pack",
     brief: { referencePolicy: "topic-only" },
     targetDurationMinutes: 10,
@@ -140,7 +161,6 @@ function baseRequest(overrides: Partial<GenerateDeckRequest>): GenerateDeckReque
     template: "default",
     metadata: { audience: "general", purpose: "inform", tone: "professional" },
     design: {
-      engineVersion: "recipe-v1",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
@@ -148,7 +168,6 @@ function baseRequest(overrides: Partial<GenerateDeckRequest>): GenerateDeckReque
     },
     referenceFileIds: [],
     references: [],
-    designReferences: [],
     referenceKeywords: [],
     referenceContext: [],
     coachingContext: null,

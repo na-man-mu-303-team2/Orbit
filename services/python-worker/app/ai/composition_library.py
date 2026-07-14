@@ -1922,7 +1922,7 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
 COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "hero-split": CompositionSpec("hero-split", ("cover", "title", "solution", "feature-grid"), 1, 3, "optional", ("light", "dark"), "split-hero", "hero-image-or-title", _hero_split),
     "hero-full-bleed": CompositionSpec("hero-full-bleed", ("cover", "title"), 1, 2, "required", ("image",), "full-bleed", "hero-image", _hero_full_bleed),
-    "minimal-cover": CompositionSpec("minimal-cover", ("cover", "title"), 1, 3, "none", ("light", "dark"), "minimal", "title", _minimal_cover),
+    "minimal-cover": CompositionSpec("minimal-cover", ("cover", "title"), 0, 3, "none", ("light", "dark"), "minimal", "title", _minimal_cover),
     "statement-poster": CompositionSpec("statement-poster", ("problem", "solution", "quote", "summary"), 1, 2, "none", ("light", "dark"), "poster", "statement", _statement_poster),
     "editorial-split": CompositionSpec("editorial-split", ("problem", "solution", "feature-grid", "data", "comparison"), 2, 4, "optional", ("light", "dark"), "split-editorial", "message-or-image", _editorial_split),
     "metric-poster": CompositionSpec("metric-poster", ("data", "chart", "summary"), 1, 3, "none", ("light", "dark"), "poster-metric", "metric", _metric_poster),
@@ -1932,7 +1932,7 @@ COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "process-horizontal": CompositionSpec("process-horizontal", ("process", "architecture"), 3, 6, "none", ("light", "dark"), "segmented-fields", "first-step", _process_horizontal),
     "timeline": CompositionSpec("timeline", ("process", "data", "summary"), 3, 6, "none", ("light", "dark"), "timeline", "first-milestone", _timeline),
     "diagram-hub": CompositionSpec("diagram-hub", ("architecture", "feature-grid", "solution"), 3, 6, "none", ("light", "dark"), "diagram", "hub", _diagram_hub),
-    "cta-closing": CompositionSpec("cta-closing", ("summary",), 1, 3, "optional", ("light", "dark"), "closing", "cta", _cta_closing),
+    "cta-closing": CompositionSpec("cta-closing", ("summary",), 0, 3, "optional", ("light", "dark"), "closing", "cta", _cta_closing),
 }
 
 

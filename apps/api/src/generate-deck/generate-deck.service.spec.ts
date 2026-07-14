@@ -1,4 +1,6 @@
+import type { EnqueueGenerateDeckJobInput } from "@orbit/job-queue";
 import type { Job } from "@orbit/shared";
+import { BadRequestException } from "@nestjs/common";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
@@ -159,21 +161,17 @@ describe("GenerateDeckService", () => {
     });
   });
 
-  it("validates PPTX design references before enqueue", async () => {
-    const job: Job = {
-      jobId: "job-design",
-      projectId: "project_generated_1",
-      type: "ai-deck-generation",
-      status: "queued",
-      progress: 0,
-      message: "Job queued",
-      result: null,
-      error: null,
-      createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:00.000Z"
-    };
+  it.each([
+    { generationMode: "legacy" },
+    { generationMode: "design-pack" },
+    { design: { engineVersion: "recipe-v1" } },
+    { design: { engineVersion: "program-v2" } },
+    { design: { slidePresetId: "process-cards-horizontal-6" } },
+    { designReferences: [{ fileId: "file_design_1" }] },
+    { templateBlueprintId: "template_file_design_1" }
+  ])("rejects deprecated GenerateDeck fields before enqueue", async (field) => {
     const jobsService = {
-      create: vi.fn(async () => job),
+      create: vi.fn(),
       update: vi.fn()
     } as unknown as JobsService;
     const projectsService = {
@@ -185,40 +183,23 @@ describe("GenerateDeckService", () => {
         createdAt: "2026-06-27T00:00:00.000Z"
       }))
     } as unknown as ProjectsService;
-    const enqueueJob = vi.fn(async () => undefined);
-    const filesService = {
-      getUploadedAsset: vi.fn(async () => ({
-        fileId: "file_design_1",
-        projectId: "project_generated_1",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      }))
-    } as unknown as FilesService;
+    const enqueueJob = vi.fn();
 
-    await new GenerateDeckService(
-      jobsService,
-      projectsService,
-      enqueueJob,
-      filesService
-    ).createJob("project_generated_1", {
-      topic: "AI deck",
-      designReferences: [{ fileId: "file_design_1" }]
-    });
-
-    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
-      "project_generated_1",
-      "file_design_1"
-    );
-    expect(enqueueJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          designReferences: [{ fileId: "file_design_1" }]
-        })
+    await expect(
+      new GenerateDeckService(
+        jobsService,
+        projectsService,
+        enqueueJob
+      ).createJob("project_generated_1", {
+        topic: "AI deck",
+        ...field
       })
-    );
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
-  it("keeps the program-v2 design-pack contract in the DB and worker payloads", async () => {
+  it("keeps the program-v2-only contract in the DB and worker payloads", async () => {
     const job: Job = {
       jobId: "job-design-pack",
       projectId: "project_generated_1",
@@ -244,20 +225,20 @@ describe("GenerateDeckService", () => {
         createdAt: "2026-06-27T00:00:00.000Z"
       }))
     } as unknown as ProjectsService;
-    const enqueueJob = vi.fn(async () => undefined);
+    const enqueueJob = vi.fn(
+      async (_input: EnqueueGenerateDeckJobInput) => undefined,
+    );
 
     await new GenerateDeckService(
       jobsService,
       projectsService,
       enqueueJob
     ).createJob("project_generated_1", {
-      generationMode: "design-pack",
       topic: "AI deck",
       brief: {},
       slideCountRange: { min: 4, max: 4 },
       metadata: {},
       design: {
-        engineVersion: "program-v2",
         stylePackId: "brandlogy-modern"
       }
     });
@@ -266,9 +247,9 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         payload: {
           request: expect.objectContaining({
-            generationMode: "design-pack",
+            slideCountRange: { min: 4, max: 4 },
             design: expect.objectContaining({
-              engineVersion: "program-v2"
+              stylePackId: "brandlogy-modern"
             })
           })
         }
@@ -277,17 +258,26 @@ describe("GenerateDeckService", () => {
     expect(enqueueJob).toHaveBeenCalledWith(
       expect.objectContaining({
         request: expect.objectContaining({
-          generationMode: "design-pack",
           slideCountRange: { min: 4, max: 4 },
           design: expect.objectContaining({
-            engineVersion: "program-v2"
+            stylePackId: "brandlogy-modern"
           })
         })
       })
     );
+    const storedRequest = vi.mocked(jobsService.create).mock.calls[0]![0]!
+      .payload?.request;
+    const queuedRequest = enqueueJob.mock.calls[0]![0].request;
+    for (const request of [storedRequest, queuedRequest]) {
+      expect(request).not.toHaveProperty("generationMode");
+      expect(request).not.toHaveProperty("design.engineVersion");
+      expect(request).not.toHaveProperty("design.slidePresetId");
+      expect(request).not.toHaveProperty("designReferences");
+      expect(request).not.toHaveProperty("templateBlueprintId");
+    }
   });
 
-  it("rejects invalid design references and official assets", async () => {
+  it("rejects invalid official assets", async () => {
     const jobsService = {
       create: vi.fn(),
       update: vi.fn()
@@ -315,12 +305,6 @@ describe("GenerateDeckService", () => {
       vi.fn(async () => undefined),
       filesService
     );
-    await expect(
-      service.createJob("project_generated_1", {
-        topic: "AI deck",
-        designReferences: [{ fileId: "file_pdf" }]
-      })
-    ).rejects.toThrow("Design references must be uploaded PPTX files.");
     await expect(
       service.createJob("project_generated_1", {
         topic: "AI deck",

@@ -7,22 +7,17 @@ import {
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema,
-  qualityReportSchema,
-  templateBlueprintSchema,
   type Deck,
   type GenerateDeckDiagnostics,
   type GenerateDeckValidation,
   type GenerateDeckVisualRepairAction,
   type Job,
-  type QualityReport,
   savedDesignPackSnapshotSchema,
   type SavedDesignPackSnapshot,
   getSemanticQaIssues,
-  repairSemanticQaOnce,
-  type TemplateBlueprint
+  repairSemanticQaOnce
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 import { resolveDeckImageAssets, type ImageAssetRuntime } from "./image-asset-pipeline";
@@ -38,23 +33,6 @@ const generateDeckPayloadSchema = z.object({
       userId: z.string().min(1)
     })
     .optional()
-});
-
-const designImportResponseSchema = z.object({
-  blueprint: z.record(z.unknown()).default({}),
-  templateBlueprint: templateBlueprintSchema,
-  qualityReport: qualityReportSchema,
-  assets: z
-    .array(
-      z.object({
-        assetId: z.string().min(1),
-        fileName: z.string().min(1),
-        mimeType: z.string().min(1),
-        contentBase64: z.string().min(1)
-      })
-    )
-    .default([]),
-  warnings: z.array(z.string()).default([])
 });
 
 const pythonVisualRepairActionSchema = z.object({
@@ -107,8 +85,6 @@ const visualRepairResponseSchema = z.object({
   warnings: z.array(z.string()).default([])
 });
 
-type DesignImportResponse = z.infer<typeof designImportResponseSchema>;
-type GenerateDeckPayload = z.infer<typeof generateDeckPayloadSchema>;
 type VisualQaIssue = z.infer<typeof visualQaIssueSchema>;
 type VisualRepairResponse = z.infer<typeof visualRepairResponseSchema>;
 type NormalizedVisualQaReview = {
@@ -142,12 +118,6 @@ export type GenerateDeckEventLogger = (
   event: string,
   fields: Record<string, unknown>
 ) => void;
-type DesignTemplateContext = {
-  designBlueprint?: Record<string, unknown>;
-  qualityReport?: QualityReport;
-  templateBlueprint?: TemplateBlueprint;
-};
-
 type JobRow = {
   job_id: string;
   project_id: string;
@@ -161,31 +131,7 @@ type JobRow = {
   updated_at: Date | string;
 };
 
-type ProjectAssetRow = {
-  file_id: string;
-  project_id: string;
-  storage_key: string;
-  mime_type: string;
-  original_name: string;
-  size: number;
-  purpose: string;
-  status: string;
-};
-
-type TemplateBlueprintRow = {
-  template_id: string;
-  project_id: string;
-  deck_id: string;
-  source_file_id: string;
-  blueprint_json: unknown;
-  quality_report_json: unknown;
-  deck_json: unknown;
-};
-
-const pptxMimeType =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const legacyGenerateDeckTimeoutMs = 120_000;
-const designPackGenerateDeckTimeoutMs = 300_000;
+const generateDeckTimeoutMs = 300_000;
 const visualQaTimeoutMs = 300_000;
 const visualRepairTimeoutMs = 120_000;
 const maxVisualRepairAttempts = 2;
@@ -229,11 +175,8 @@ export async function processGenerateDeckJob(
   }
 
   const payload = payloadResult.data;
-  const usesProgramV2 =
-    payload.request.generationMode === "design-pack" &&
-    payload.request.design.engineVersion === "program-v2";
   const enforcesHybridMediaBudget =
-    usesProgramV2 && payload.request.design.mediaPolicy === "hybrid";
+    payload.request.design.mediaPolicy === "hybrid";
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 15,
@@ -241,24 +184,6 @@ export async function processGenerateDeckJob(
     result: null,
     error: null
   });
-
-  let designTemplate: DesignTemplateContext = {};
-  try {
-    designTemplate = await resolveDesignTemplate(
-      dataSource,
-      storage,
-      pythonWorkerUrl,
-      payload
-    );
-  } catch (error) {
-    return failJob(
-      dataSource,
-      payload.jobId,
-      15,
-      "GENERATE_DECK_DESIGN_REFERENCE_FAILED",
-      error instanceof Error ? error.message : "Design reference import failed."
-    );
-  }
 
   let response: Response;
   try {
@@ -268,26 +193,11 @@ export async function processGenerateDeckJob(
       body: JSON.stringify({
         projectId: payload.projectId,
         ...payload.request,
-        ...(designTemplate.designBlueprint
-          ? { designBlueprint: designTemplate.designBlueprint }
-          : {}),
-        ...(designTemplate.templateBlueprint
-          ? { templateBlueprint: designTemplate.templateBlueprint }
-          : {}),
-        ...(payload.request.design.engineVersion === "program-v2"
-          ? {
-              designProgramContext: {
-                savedDesignPreferences:
-                  payload.designPackSnapshot?.preferences ?? {}
-              }
-            }
-          : {})
+        designProgramContext: {
+          savedDesignPreferences: payload.designPackSnapshot?.preferences ?? {}
+        }
       }),
-      signal: AbortSignal.timeout(
-        payload.request.generationMode === "design-pack"
-          ? designPackGenerateDeckTimeoutMs
-          : legacyGenerateDeckTimeoutMs
-      )
+      signal: AbortSignal.timeout(generateDeckTimeoutMs)
     });
   } catch (error) {
     return failJob(
@@ -333,46 +243,39 @@ export async function processGenerateDeckJob(
       workerPayload.deck,
       payload.designPackSnapshot
     );
-    if (usesProgramV2) {
-      emitGenerateDeckEvent(eventLogger, "ai-ppt.design-program.created", {
+    emitGenerateDeckEvent(eventLogger, "ai-ppt.design-program.created", {
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      deckId: deck.deckId,
+      slideCount: deck.slides.length
+    });
+    emitGenerateDeckEvent(eventLogger, "ai-ppt.composition.completed", {
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      deckId: deck.deckId,
+      compositionCount: new Set(
+        deck.slides
+          .map(
+            (slide) => slide.aiNotes?.compositionPlan?.compositionId
+          )
+          .flatMap((value) => (value ? [value] : []))
+      ).size
+    });
+    await updateJob(dataSource, payload.jobId, {
+      status: "running",
+      progress: 45,
+      message: "AI deck composition completed.",
+      result: null,
+      error: null
+    });
+    if (hasBlockingQualityGateIssues(workerPayload.validation)) {
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
         jobId: payload.jobId,
         projectId: payload.projectId,
         deckId: deck.deckId,
-        slideCount: deck.slides.length
+        issueCount: allValidationIssues(workerPayload.validation).length,
+        stage: "deterministic"
       });
-      emitGenerateDeckEvent(eventLogger, "ai-ppt.composition.completed", {
-        jobId: payload.jobId,
-        projectId: payload.projectId,
-        deckId: deck.deckId,
-        compositionCount: new Set(
-          deck.slides
-            .map(
-              (slide) => slide.aiNotes?.compositionPlan?.compositionId
-            )
-            .flatMap((value) => (value ? [value] : []))
-        ).size
-      });
-      await updateJob(dataSource, payload.jobId, {
-        status: "running",
-        progress: 45,
-        message: "AI deck composition completed.",
-        result: null,
-        error: null
-      });
-    }
-    if (
-      payload.request.generationMode === "design-pack" &&
-      hasBlockingQualityGateIssues(workerPayload.validation)
-    ) {
-      if (usesProgramV2) {
-        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-          jobId: payload.jobId,
-          projectId: payload.projectId,
-          deckId: deck.deckId,
-          issueCount: allValidationIssues(workerPayload.validation).length,
-          stage: "deterministic"
-        });
-      }
       return failQualityGate(
         dataSource,
         payload.jobId,
@@ -384,11 +287,7 @@ export async function processGenerateDeckJob(
     }
     let imageWarnings: string[] = [];
     let deterministicValidation = workerPayload.validation;
-    if (
-      imageRuntime &&
-      payload.imageAssetScope &&
-      payload.request.generationMode === "design-pack"
-    ) {
+    if (imageRuntime && payload.imageAssetScope) {
       try {
         const resolvedImages = await resolveDeckImageAssets(
           dataSource,
@@ -409,48 +308,68 @@ export async function processGenerateDeckJob(
         );
       }
     }
-
-    if (usesProgramV2) {
-      const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck);
-      if (optionalSlideIds.length > 0) {
-        try {
-          const fallback = await requestVisualRepair(
-            pythonWorkerUrl,
-            deck,
-            [],
-            optionalSlideIds
-          );
-          deck = fallback.deck;
-          deterministicValidation = fallback.validation;
-          imageWarnings.push(...fallback.warnings);
-        } catch (error) {
-          emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-            jobId: payload.jobId,
-            projectId: payload.projectId,
-            deckId: deck.deckId,
-            stage: "optional-asset-fallback"
-          });
-          return failVisualQaUnavailable(
-            dataSource,
-            payload.jobId,
-            workerPayload,
-            deck,
-            deterministicValidation,
-            [...workerPayload.warnings, ...imageWarnings],
-            error instanceof Error ? error.message : "Visual repair unavailable.",
-            { visualReviewAttempts: 0, visualRepairAttempts: 0 }
-          );
-        }
+    const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck);
+    if (optionalSlideIds.length > 0) {
+      try {
+        const fallback = await requestVisualRepair(
+          pythonWorkerUrl,
+          deck,
+          [],
+          optionalSlideIds
+        );
+        deck = fallback.deck;
+        deterministicValidation = fallback.validation;
+        imageWarnings.push(...fallback.warnings);
+      } catch (error) {
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          stage: "optional-asset-fallback"
+        });
+        return failVisualQaUnavailable(
+          dataSource,
+          payload.jobId,
+          workerPayload,
+          deck,
+          deterministicValidation,
+          [...workerPayload.warnings, ...imageWarnings],
+          error instanceof Error ? error.message : "Visual repair unavailable.",
+          { visualReviewAttempts: 0, visualRepairAttempts: 0 }
+        );
       }
-      emitGenerateDeckEvent(eventLogger, "ai-ppt.asset.resolved", {
+    }
+    emitGenerateDeckEvent(eventLogger, "ai-ppt.asset.resolved", {
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      deckId: deck.deckId,
+      resolvedAssetCount: resolvedVisualAssetCount(deck),
+      unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
+      unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
+    });
+    deterministicValidation = withDuplicateMediaAssetIssue(
+      deterministicValidation,
+      deck
+    );
+    if (hasBlockingQualityGateIssues(deterministicValidation)) {
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
         jobId: payload.jobId,
         projectId: payload.projectId,
         deckId: deck.deckId,
-        resolvedAssetCount: resolvedVisualAssetCount(deck),
-        unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
-        unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
+        issueCount: allValidationIssues(deterministicValidation).length,
+        stage: "asset-identity"
       });
-      deterministicValidation = withDuplicateMediaAssetIssue(
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        deterministicValidation,
+        [...workerPayload.warnings, ...imageWarnings]
+      );
+    }
+    if (enforcesHybridMediaBudget) {
+      deterministicValidation = withHybridMediaBudgetIssue(
         deterministicValidation,
         deck
       );
@@ -460,7 +379,7 @@ export async function processGenerateDeckJob(
           projectId: payload.projectId,
           deckId: deck.deckId,
           issueCount: allValidationIssues(deterministicValidation).length,
-          stage: "asset-identity"
+          stage: "asset-budget"
         });
         return failQualityGate(
           dataSource,
@@ -471,37 +390,14 @@ export async function processGenerateDeckJob(
           [...workerPayload.warnings, ...imageWarnings]
         );
       }
-      if (enforcesHybridMediaBudget) {
-        deterministicValidation = withHybridMediaBudgetIssue(
-          deterministicValidation,
-          deck
-        );
-        if (hasBlockingQualityGateIssues(deterministicValidation)) {
-          emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-            jobId: payload.jobId,
-            projectId: payload.projectId,
-            deckId: deck.deckId,
-            issueCount: allValidationIssues(deterministicValidation).length,
-            stage: "asset-budget"
-          });
-          return failQualityGate(
-            dataSource,
-            payload.jobId,
-            workerPayload,
-            deck,
-            deterministicValidation,
-            [...workerPayload.warnings, ...imageWarnings]
-          );
-        }
-      }
-      await updateJob(dataSource, payload.jobId, {
-        status: "running",
-        progress: 65,
-        message: "AI deck image assets prepared.",
-        result: null,
-        error: null
-      });
     }
+    await updateJob(dataSource, payload.jobId, {
+      status: "running",
+      progress: 65,
+      message: "AI deck image assets prepared.",
+      result: null,
+      error: null
+    });
 
     const initialSemanticIssues = getSemanticQaIssues(deck);
     const shouldRepairSemanticIssues = initialSemanticIssues.some((issue) =>
@@ -522,22 +418,17 @@ export async function processGenerateDeckJob(
     };
 
     const unresolvedMedia = hasMediaPlaceholder(deck);
-    if (
-      payload.request.generationMode === "design-pack" &&
-      (hasBlockingQualityGateIssues(validation) || unresolvedMedia)
-    ) {
+    if (hasBlockingQualityGateIssues(validation) || unresolvedMedia) {
       const finalValidation = unresolvedMedia
         ? withUnresolvedMediaIssue(validation)
         : validation;
-      if (usesProgramV2) {
-        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-          jobId: payload.jobId,
-          projectId: payload.projectId,
-          deckId: deck.deckId,
-          issueCount: allValidationIssues(finalValidation).length,
-          stage: unresolvedMedia ? "asset" : "semantic"
-        });
-      }
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        issueCount: allValidationIssues(finalValidation).length,
+        stage: unresolvedMedia ? "asset" : "semantic"
+      });
       return failQualityGate(
         dataSource,
         payload.jobId,
@@ -552,111 +443,107 @@ export async function processGenerateDeckJob(
       ...workerPayload.diagnostics,
       validationIssueCount: allValidationIssues(validation).length
     };
-    if (usesProgramV2) {
-      await updateJob(dataSource, payload.jobId, {
-        status: "running",
-        progress: 75,
-        message: "AI deck rendered visual review running.",
-        result: null,
-        error: null
+    await updateJob(dataSource, payload.jobId, {
+      status: "running",
+      progress: 75,
+      message: "AI deck rendered visual review running.",
+      result: null,
+      error: null
+    });
+    let visualOutcome: ProgramV2VisualOutcome;
+    try {
+      visualOutcome = await runProgramV2VisualQa({
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        deck,
+        validation,
+        imageRuntime,
+        imageAssetScope: payload.imageAssetScope,
+        officialAssetFileIds: payload.request.officialAssetFileIds ?? [],
+        enforcesHybridMediaBudget,
+        eventLogger,
+        jobId: payload.jobId,
+        projectId: payload.projectId
       });
-      let visualOutcome: ProgramV2VisualOutcome;
-      try {
-        visualOutcome = await runProgramV2VisualQa({
-          dataSource,
-          storage,
-          pythonWorkerUrl,
-          deck,
-          validation,
-          imageRuntime,
-          imageAssetScope: payload.imageAssetScope,
-          officialAssetFileIds: payload.request.officialAssetFileIds ?? [],
-          enforcesHybridMediaBudget,
-          eventLogger,
-          jobId: payload.jobId,
-          projectId: payload.projectId
-        });
-      } catch (error) {
-        const unavailable =
-          error instanceof ProgramV2VisualQaUnavailableError ? error : undefined;
-        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-          jobId: payload.jobId,
-          projectId: payload.projectId,
-          deckId: deck.deckId,
-          stage: "visual-qa-unavailable"
-        });
-        return failVisualQaUnavailable(
-          dataSource,
-          payload.jobId,
-          workerPayload,
-          unavailable?.deck ?? deck,
-          unavailable?.validation ?? validation,
-          [
-            ...workerPayload.warnings,
-            ...imageWarnings,
-            ...(unavailable?.warnings ?? [])
-          ],
-          error instanceof Error ? error.message : "Vision QA unavailable.",
-          {
-            visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
-            visualRepairAttempts: unavailable?.repairAttempts ?? 0
-          }
-        );
-      }
-      deck = visualOutcome.deck;
-      validation = visualOutcome.validation;
-      imageWarnings.push(...visualOutcome.warnings);
-      diagnostics = {
-        ...diagnostics,
-        visualQaStatus: visualOutcome.passed ? "passed" : "failed",
-        visualReviewAttempts: visualOutcome.reviewAttempts,
-        visualRepairAttempts: visualOutcome.repairAttempts,
-        visualIssueCodes: visualOutcome.issues.map((issue) => issue.code),
-        validationIssueCount: allValidationIssues(validation).length
-      };
-      if (!visualOutcome.passed) {
-        const visualValidation = withVisualIssues(
-          validation,
-          visualOutcome.issues
-        );
-        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
-          jobId: payload.jobId,
-          projectId: payload.projectId,
-          deckId: deck.deckId,
-          issueCount: visualOutcome.issues.length,
-          stage: "visual-review"
-        });
-        return failQualityGate(
-          dataSource,
-          payload.jobId,
-          workerPayload,
-          deck,
-          visualValidation,
-          [...workerPayload.warnings, ...imageWarnings],
-          {
-            errorCode: "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
-            diagnostics
-          }
-        );
-      }
-      await updateJob(dataSource, payload.jobId, {
-        status: "running",
-        progress: 95,
-        message: "AI deck final publication running.",
-        result: null,
-        error: null
-      });
-    }
-
-    await saveDeck(dataSource, deck);
-    if (usesProgramV2) {
-      emitGenerateDeckEvent(eventLogger, "ai-ppt.deck.published", {
+    } catch (error) {
+      const unavailable =
+        error instanceof ProgramV2VisualQaUnavailableError ? error : undefined;
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
         jobId: payload.jobId,
         projectId: payload.projectId,
         deckId: deck.deckId,
-        slideCount: deck.slides.length
+        stage: "visual-qa-unavailable"
       });
+      return failVisualQaUnavailable(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        unavailable?.deck ?? deck,
+        unavailable?.validation ?? validation,
+        [
+          ...workerPayload.warnings,
+          ...imageWarnings,
+          ...(unavailable?.warnings ?? [])
+        ],
+        error instanceof Error ? error.message : "Vision QA unavailable.",
+        {
+          visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
+          visualRepairAttempts: unavailable?.repairAttempts ?? 0
+        }
+      );
     }
+    deck = visualOutcome.deck;
+    validation = visualOutcome.validation;
+    imageWarnings.push(...visualOutcome.warnings);
+    diagnostics = {
+      ...diagnostics,
+      visualQaStatus: visualOutcome.passed ? "passed" : "failed",
+      visualReviewAttempts: visualOutcome.reviewAttempts,
+      visualRepairAttempts: visualOutcome.repairAttempts,
+      visualIssueCodes: visualOutcome.issues.map((issue) => issue.code),
+      validationIssueCount: allValidationIssues(validation).length
+    };
+    if (!visualOutcome.passed) {
+      const visualValidation = withVisualIssues(
+        validation,
+        visualOutcome.issues
+      );
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        issueCount: visualOutcome.issues.length,
+        stage: "visual-review"
+      });
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        visualValidation,
+        [...workerPayload.warnings, ...imageWarnings],
+        {
+          errorCode: "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
+          diagnostics
+        }
+      );
+    }
+    await updateJob(dataSource, payload.jobId, {
+      status: "running",
+      progress: 95,
+      message: "AI deck final publication running.",
+      result: null,
+      error: null
+    });
+
+    await saveDeck(dataSource, deck);
+    emitGenerateDeckEvent(eventLogger, "ai-ppt.deck.published", {
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      deckId: deck.deckId,
+      slideCount: deck.slides.length
+    });
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
@@ -1358,292 +1245,6 @@ function markDeckForInitialThumbnailRefresh(
   };
 }
 
-async function resolveDesignTemplate(
-  dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
-  pythonWorkerUrl: string,
-  payload: GenerateDeckPayload
-): Promise<DesignTemplateContext> {
-  if (payload.request.templateBlueprintId) {
-    return loadTemplateBlueprintContext(
-      dataSource,
-      payload.projectId,
-      payload.request.templateBlueprintId
-    );
-  }
-
-  if (payload.request.designReferences.length === 0) {
-    return {};
-  }
-
-  const assets = await loadDesignReferenceAssets(
-    dataSource,
-    payload.projectId,
-    payload.request.designReferences.map((reference) => reference.fileId)
-  );
-  const form = new FormData();
-  form.append("project_id", payload.projectId);
-
-  for (const asset of assets) {
-    const readUrl = await storage.getSignedReadUrl(asset.storage_key);
-    const response = await fetch(readUrl);
-    if (!response.ok) {
-      throw new Error(`Design reference content unavailable: ${asset.file_id}`);
-    }
-
-    form.append("file_ids", asset.file_id);
-    form.append(
-      "files",
-      new Blob([Buffer.from(await response.arrayBuffer())], {
-        type: asset.mime_type
-      }),
-      asset.original_name
-    );
-  }
-
-  const response = await fetch(workerUrl(pythonWorkerUrl, "/design/import-pptx"), {
-    method: "POST",
-    body: form,
-    signal: AbortSignal.timeout(120_000)
-  });
-
-  if (!response.ok) {
-    throw new Error((await response.text()) || "Design reference import failed.");
-  }
-
-  const imported = designImportResponseSchema.parse(await response.json());
-  const assetUrlMap = await saveImportedDesignAssets(
-    dataSource,
-    storage,
-    payload.projectId,
-    imported
-  );
-  const designBlueprint = replaceImportedAssetRefs(imported.blueprint, assetUrlMap);
-  await saveTemplateBlueprint(
-    dataSource,
-    payload.projectId,
-    `deck_import_${safeId(imported.templateBlueprint.sourceFileId)}`,
-    imported.templateBlueprint,
-    imported.qualityReport
-  );
-
-  return {
-    designBlueprint,
-    qualityReport: imported.qualityReport,
-    templateBlueprint: imported.templateBlueprint
-  };
-}
-
-async function loadTemplateBlueprintContext(
-  dataSource: DataSource,
-  projectId: string,
-  templateBlueprintId: string
-): Promise<DesignTemplateContext> {
-  const rows = readQueryRows<TemplateBlueprintRow>(
-    await dataSource.query(
-      `
-        SELECT
-          template_id,
-          project_id,
-          deck_id,
-          source_file_id,
-          blueprint_json,
-          quality_report_json,
-          (
-            SELECT deck_json
-            FROM decks
-            WHERE project_id = template_blueprints.project_id
-              AND deck_id = template_blueprints.deck_id
-            LIMIT 1
-          ) AS deck_json
-        FROM template_blueprints
-        WHERE template_id = $1
-      `,
-      [templateBlueprintId]
-    )
-  );
-  const row = rows[0];
-  if (!row) {
-    throw new Error(`Template blueprint not found: ${templateBlueprintId}`);
-  }
-  if (row.project_id !== projectId) {
-    throw new Error(`Template blueprint project mismatch: ${templateBlueprintId}`);
-  }
-
-  return {
-    designBlueprint: designBlueprintFromDeck(row.deck_json, row.source_file_id),
-    qualityReport: qualityReportSchema.parse(row.quality_report_json),
-    templateBlueprint: templateBlueprintSchema.parse(row.blueprint_json)
-  };
-}
-
-async function loadDesignReferenceAssets(
-  dataSource: DataSource,
-  projectId: string,
-  fileIds: string[]
-): Promise<ProjectAssetRow[]> {
-  const rows = readQueryRows<ProjectAssetRow>(
-    await dataSource.query(
-      `
-        SELECT file_id, project_id, storage_key, mime_type, original_name, size, purpose, status
-        FROM project_assets
-        WHERE file_id = ANY($1)
-      `,
-      [fileIds]
-    )
-  );
-  const byFileId = new Map(rows.map((row) => [row.file_id, row]));
-
-  return fileIds.map((fileId) => {
-    const asset = byFileId.get(fileId);
-    if (!asset) {
-      throw new Error(`Design reference asset not found: ${fileId}`);
-    }
-    if (asset.project_id !== projectId) {
-      throw new Error(`Design reference project mismatch: ${fileId}`);
-    }
-    if (asset.status !== "uploaded") {
-      throw new Error(`Design reference asset is not uploaded: ${fileId}`);
-    }
-    if (asset.mime_type !== pptxMimeType) {
-      throw new Error(`Design reference must be PPTX: ${fileId}`);
-    }
-
-    return asset;
-  });
-}
-
-async function saveImportedDesignAssets(
-  dataSource: DataSource,
-  storage: Pick<StoragePort, "putObject">,
-  projectId: string,
-  imported: DesignImportResponse
-): Promise<Map<string, string>> {
-  const assetUrlMap = new Map<string, string>();
-
-  for (const asset of imported.assets) {
-    const fileId = `file_${randomUUID()}`;
-    const originalName = safeStorageName(asset.fileName);
-    const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
-    const body = Buffer.from(asset.contentBase64, "base64");
-    const url = createAssetContentUrl(projectId, fileId);
-
-    await storage.putObject({
-      key: storageKey,
-      body,
-      contentType: asset.mimeType,
-      purpose: "design-asset"
-    });
-    await dataSource.query(
-      `
-        INSERT INTO project_assets (
-          file_id, project_id, storage_key, original_name, mime_type, size, url,
-          purpose, status, created_at, uploaded_at, deleted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
-      `,
-      [
-        fileId,
-        projectId,
-        storageKey,
-        originalName,
-        asset.mimeType,
-        body.byteLength,
-        url
-      ]
-    );
-
-    assetUrlMap.set(`asset:${asset.assetId}`, url);
-  }
-
-  return assetUrlMap;
-}
-
-async function saveTemplateBlueprint(
-  dataSource: DataSource,
-  projectId: string,
-  deckId: string,
-  templateBlueprint: TemplateBlueprint,
-  qualityReport: QualityReport
-): Promise<void> {
-  await dataSource.query(
-    `
-      INSERT INTO template_blueprints (
-        template_id, project_id, deck_id, source_file_id,
-        blueprint_json, quality_report_json, created_at, updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, now(), now())
-      ON CONFLICT (template_id)
-      DO UPDATE SET
-        project_id = EXCLUDED.project_id,
-        deck_id = EXCLUDED.deck_id,
-        source_file_id = EXCLUDED.source_file_id,
-        blueprint_json = EXCLUDED.blueprint_json,
-        quality_report_json = EXCLUDED.quality_report_json,
-        updated_at = EXCLUDED.updated_at
-    `,
-    [
-      templateBlueprint.templateId,
-      projectId,
-      deckId,
-      templateBlueprint.sourceFileId,
-      templateBlueprint,
-      qualityReport
-    ]
-  );
-}
-
-function designBlueprintFromDeck(
-  deckJson: unknown,
-  sourceFileId: string
-): Record<string, unknown> {
-  const deck = deckSchema.parse(deckJson);
-  return {
-    sourceFileId,
-    canvas: {
-      width: deck.canvas.width,
-      height: deck.canvas.height
-    },
-    theme: deck.theme,
-    warnings: [],
-    slides: deck.slides.map((slide) => ({
-      sourceFileId,
-      sourceSlideIndex: slide.order,
-      style: slide.style,
-      elements: slide.elements
-    }))
-  };
-}
-
-function replaceImportedAssetRefs(
-  value: unknown,
-  assetUrlMap: Map<string, string>
-): Record<string, unknown> {
-  const replaced = replaceValue(value, assetUrlMap);
-  return isRecord(replaced) ? replaced : {};
-}
-
-function replaceValue(value: unknown, assetUrlMap: Map<string, string>): unknown {
-  if (typeof value === "string") {
-    return assetUrlMap.get(value) ?? value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => replaceValue(item, assetUrlMap));
-  }
-
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [
-        key,
-        replaceValue(item, assetUrlMap)
-      ])
-    );
-  }
-
-  return value;
-}
-
 async function saveDeck(
   dataSource: DataSource,
   deck: Deck
@@ -1727,15 +1328,6 @@ function readFirstQueryRow<T>(queryResult: unknown): T | null {
   return (first as T | undefined) ?? null;
 }
 
-function readQueryRows<T>(queryResult: unknown): T[] {
-  if (!Array.isArray(queryResult)) {
-    return [];
-  }
-
-  const first = queryResult[0];
-  return (Array.isArray(first) ? first : queryResult) as T[];
-}
-
 function rowToJob(row: JobRow): Job {
   return {
     jobId: row.job_id,
@@ -1767,20 +1359,6 @@ function workerUrl(baseUrl: string, path: string): string {
   ).toString();
 }
 
-function createAssetContentUrl(projectId: string, fileId: string): string {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId
-  )}/content`;
-}
-
-function safeStorageName(fileName: string): string {
-  return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
 function safeId(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_") || "pptx";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

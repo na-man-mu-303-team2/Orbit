@@ -4,6 +4,9 @@
 > 브랜치: `feature/ai-ppt-visual-core-v2`
 > 판정: **최종 승인 완료**
 
+> [!IMPORTANT]
+> 이 문서는 2026-07-13의 품질 승인 결과를 보존한다. 당시의 `recipe-v1`·legacy/template 회귀 기준은 #339 PR6의 GenerateDeck `program-v2` 전용 계약이 대체하며, `program-v2` 품질 fixture와 Gate 결과는 계속 회귀 기준으로 사용한다.
+
 ## 1. 결론
 
 `/ai-ppt`의 `program-v2` 생성 경로는 최종 승인 기준을 충족했다.
