@@ -247,6 +247,12 @@ export const practiceVerificationSummarySchema = z
 export const focusedPracticeSnapshotSchema = z
   .object({
     deckVersion: z.number().int().positive(),
+    goalSetRef: z
+      .object({
+        goalSetId: coachingIdSchema,
+        revision: z.number().int().positive(),
+      })
+      .strict(),
     briefRef: frozenBriefRefSchema,
     evaluatorLensRef: evaluatorLensRefSchema,
     criterionRefs: z.array(criterionRefSchema).min(1).max(3),
@@ -277,6 +283,13 @@ export const focusedPracticeSessionSchema = z
         code: z.ZodIssueCode.custom,
         message: "focused practice goals must be unique.",
         path: ["goalIds"],
+      });
+    }
+    if (session.sourceGoalSetId !== session.snapshot.goalSetRef.goalSetId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "focused practice source goal set must match its frozen snapshot reference.",
+        path: ["snapshot", "goalSetRef", "goalSetId"],
       });
     }
   });

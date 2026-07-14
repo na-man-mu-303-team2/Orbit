@@ -4,7 +4,55 @@ import {
   completeFocusedPracticeAudioRequestSchema,
   focusedPracticeAttemptSummarySchema,
   focusedPracticeAttemptSchema,
+  focusedPracticeSessionSchema,
 } from "./focused-practice.schema";
+
+const focusedPracticeSession = {
+  practiceSessionId: "practice_1",
+  projectId: "project_1",
+  deckId: "deck_1",
+  sourceFullRunId: "run_1",
+  sourceGoalSetId: "goalset_1",
+  goalIds: ["goal_1"],
+  targetScope: { type: "slide" as const, scopeId: "scope_1", slideId: "slide_1" },
+  snapshot: {
+    deckVersion: 2,
+    goalSetRef: { goalSetId: "goalset_1", revision: 3 },
+    briefRef: { mode: "generic" as const },
+    evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const },
+    criterionRefs: [{ criterionId: "criterion_1", revision: 1 }],
+  },
+  compatibilityState: "current" as const,
+  status: "active" as const,
+  dataOrigin: "live" as const,
+  createdBy: "user_1",
+  createdAt: "2026-07-15T00:00:00.000Z",
+  completedAt: null,
+};
+
+describe("focusedPracticeSessionSchema", () => {
+  it("freezes the source goal-set revision in the session snapshot", () => {
+    expect(focusedPracticeSessionSchema.parse(focusedPracticeSession).snapshot.goalSetRef)
+      .toEqual({ goalSetId: "goalset_1", revision: 3 });
+  });
+
+  it("rejects a goal-set snapshot that does not match the session source", () => {
+    expect(focusedPracticeSessionSchema.safeParse({
+      ...focusedPracticeSession,
+      snapshot: {
+        ...focusedPracticeSession.snapshot,
+        goalSetRef: { goalSetId: "goalset_2", revision: 3 },
+      },
+    }).success).toBe(false);
+    expect(focusedPracticeSessionSchema.safeParse({
+      ...focusedPracticeSession,
+      snapshot: {
+        ...focusedPracticeSession.snapshot,
+        goalSetRef: { goalSetId: "goalset_1", revision: 0 },
+      },
+    }).success).toBe(false);
+  });
+});
 
 describe("completeFocusedPracticeAudioRequestSchema", () => {
   it("allows only the final timeline entry to remain open", () => {

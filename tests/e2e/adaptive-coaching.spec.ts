@@ -60,7 +60,7 @@ const focusedSession = {
   sourceGoalSetId: goal.goalSetId,
   goalIds: [goalId],
   targetScope: goal.targetScope,
-  snapshot: { deckVersion: 1, briefRef: { mode: "generic" as const }, evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const }, criterionRefs: [goal.criterionRef] },
+  snapshot: { deckVersion: 1, goalSetRef: { goalSetId: goal.goalSetId, revision: 1 }, briefRef: { mode: "generic" as const }, evaluatorLensRef: { lensId: "general-novice" as const, revision: 1 as const }, criterionRefs: [goal.criterionRef] },
   compatibilityState: "current" as const,
   status: "active" as const,
   dataOrigin: "fixture" as const,

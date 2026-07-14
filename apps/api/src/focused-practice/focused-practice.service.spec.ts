@@ -1,4 +1,5 @@
 import type { FocusedPracticeAttempt } from "@orbit/shared";
+import { ConflictException } from "@nestjs/common";
 import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
@@ -49,6 +50,7 @@ describe("FocusedPracticeService", () => {
         deck_id: "deck_a",
         analysis_state: "final",
         goal_set_id: "goalset-a",
+        goal_set_revision: 3,
         evaluation_snapshot_json: evaluationSnapshot(),
         goals: [{
           goal_id: "goal-a",
@@ -76,6 +78,7 @@ describe("FocusedPracticeService", () => {
     });
 
     expect(result.session.status).toBe("active");
+    expect(result.session.snapshot.goalSetRef).toEqual({ goalSetId: "goalset-a", revision: 3 });
     expect(query.mock.calls[5]?.[0]).toContain("INSERT INTO focused_practice_sessions");
   });
 
@@ -89,6 +92,7 @@ describe("FocusedPracticeService", () => {
         deck_id: "deck_a",
         analysis_state: "final",
         goal_set_id: "goalset-a",
+        goal_set_revision: 3,
         evaluation_snapshot_json: evaluationSnapshot(),
         goals: [{
           goal_id: "goal-a",
@@ -136,6 +140,7 @@ describe("FocusedPracticeService", () => {
         deck_id: "deck_a",
         analysis_state: "final",
         goal_set_id: "goalset-a",
+        goal_set_revision: 3,
         evaluation_snapshot_json: evaluationSnapshot(),
         goals: [{
           goal_id: "goal-a",
@@ -189,6 +194,65 @@ describe("FocusedPracticeService", () => {
     expect(query.mock.calls[2]?.[0]).toContain("compatibility_state = 'stale'");
   });
 
+  it("rejects a new attempt before creating an upload when the target became stale", async () => {
+    let queryIndex = 0;
+    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+      queryIndex += 1;
+      if (queryIndex === 1) return [focusedSessionRow()];
+      if (queryIndex === 2) return [{
+        evaluation_snapshot_json: evaluationSnapshot(),
+        deck_json: currentDeckWithSlide("slide_replacement"),
+      }];
+      return [];
+    });
+    const files = { createUploadUrl: vi.fn() } as unknown as FilesService;
+
+    await expect(createService({ query } as unknown as DataSource, files).createAttempt(
+      "practice-existing",
+      "user-a",
+      { clientRequestId: "request-stale", mimeType: "audio/webm", size: 1024 },
+    )).rejects.toBeInstanceOf(ConflictException);
+
+    expect(files.createUploadUrl).not.toHaveBeenCalled();
+    expect(query.mock.calls[2]?.[0]).toContain("compatibility_state = 'stale'");
+  });
+
+  it("rejects upload completion without enqueueing analysis when the target became stale", async () => {
+    let queryIndex = 0;
+    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+      queryIndex += 1;
+      if (queryIndex === 1) return [{
+        attempt_id: "attempt-a",
+        project_id: "project-a",
+        practice_session_id: "practice-existing",
+        status: "uploading",
+        audio_file_id: "file-a",
+      }];
+      if (queryIndex === 2) return [focusedSessionRow()];
+      if (queryIndex === 3) return [{
+        evaluation_snapshot_json: evaluationSnapshot(),
+        deck_json: currentDeckWithSlide("slide_replacement"),
+      }];
+      return [];
+    });
+    const files = { completeUpload: vi.fn() } as unknown as FilesService;
+    const jobs = { create: vi.fn() } as unknown as JobsService;
+
+    await expect(createService({ query } as unknown as DataSource, files, jobs).completeAttempt(
+      "attempt-a",
+      "user-a",
+      {
+        fileId: "file-a",
+        durationMs: 1000,
+        slideTimeline: [{ slideId: "slide_a", enteredAtMs: 0, exitedAtMs: 1000 }],
+      },
+    )).rejects.toBeInstanceOf(ConflictException);
+
+    expect(files.completeUpload).not.toHaveBeenCalled();
+    expect(jobs.create).not.toHaveBeenCalled();
+    expect(query.mock.calls[3]?.[0]).toContain("compatibility_state = 'stale'");
+  });
+
   it("requires adjacent measured passes for stabilization and does not complete the session", () => {
     const attempts = [attempt(1, "passed"), attempt(2, "unmeasured"), attempt(3, "passed")];
     expect(deriveStabilization(attempts)).toEqual([{ goalId: "goal-a", stabilized: false }]);
@@ -212,12 +276,16 @@ describe("FocusedPracticeService", () => {
   });
 });
 
-function createService(dataSource: DataSource) {
+function createService(
+  dataSource: DataSource,
+  files = {} as FilesService,
+  jobs = {} as JobsService,
+) {
   return new FocusedPracticeService(
     dataSource,
     { assertCanReadProject: vi.fn(async () => ({})), assertCanWriteProject: vi.fn(async () => ({})) } as unknown as ProjectsService,
-    {} as FilesService,
-    {} as JobsService,
+    files,
+    jobs,
   );
 }
 
@@ -243,11 +311,19 @@ function focusedSessionRow() {
     target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
     snapshot_json: {
       deckVersion: 2, briefRef: { mode: "generic" },
+      goalSetRef: { goalSetId: "goalset-a", revision: 3 },
       evaluatorLensRef: { lensId: "general-novice", revision: 1 },
       criterionRefs: [{ criterionId: "criterion-a", revision: 1 }],
     },
     compatibility_state: "current", status: "active", data_origin: "live", created_by: "user-a",
     created_at: "2026-07-12T00:00:00.000Z", completed_at: null,
+  };
+}
+
+function currentDeckWithSlide(slideId: string) {
+  return {
+    ...currentDeck(),
+    slides: [{ slideId, order: 1, title: "Replacement", style: {}, speakerNotes: "Replacement" }],
   };
 }
 
