@@ -25,6 +25,18 @@ from app.ai.deck_generation.design_planning import (
     program_v2_slide_summary,
 )
 from app.ai.deck_generation.layout_compiler import compile_layout
+from app.ai.deck_generation.models import (
+    GenerateDeckRequest,
+    GeneratedContentItem,
+    MediaIntent,
+    SlidePlan,
+    SourceRecord,
+    VisualIntent,
+)
+from app.ai.deck_generation.pipeline import (
+    DeckGenerationOrchestrator,
+    analyze_input,
+)
 from app.ai.deck_generation.quality import (
     is_expected_media_placeholder,
     validate_presentation,
@@ -37,16 +49,6 @@ from app.ai.deck_generation.visual_requirements import (
     apply_visual_requirements,
     plan_visual_requirements,
     program_v2_visual_plan,
-)
-from app.ai.generate_deck import (
-    DeckGenerationOrchestrator,
-    GenerateDeckRequest,
-    GeneratedContentItem,
-    MediaIntent,
-    SlidePlan,
-    SourceRecord,
-    VisualIntent,
-    analyze_input,
 )
 
 

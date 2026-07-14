@@ -15,6 +15,7 @@ from app.ai.deck_generation.models import (
     RawInput,
     SlidePlan,
     SourceEvidence,
+    SourceGroundingResult,
     SourceRecord,
     WebResearchResult,
     WebSearchAliasPlan,
@@ -79,6 +80,47 @@ WEB_SEARCH_ALIAS_RESPONSE_FORMAT: dict[str, Any] = {
         },
     }
 }
+
+
+def ground_sources(
+    raw_input: RawInput,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> SourceGroundingResult:
+    raw_input.source_records = initial_source_records(raw_input)
+    validate_reference_policy_inputs(raw_input)
+    research = research_web_sources(
+        raw_input,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
+    raw_input.research_attempts = research.attempts
+    raw_input.relevant_web_source_count = research.relevant_source_count
+    raw_input.official_web_source_count = research.official_source_count
+    warnings: list[str] = []
+    if research.status == "succeeded":
+        raw_input.source_records.extend(research.sources)
+    elif raw_input.brief.reference_policy == "research-first":
+        raise DeckContentGenerationError(
+            "WEB_RESEARCH_QUALITY_FAILED: "
+            + (
+                research.message
+                or "관련성 있는 공식·독립 웹 출처를 확보하지 못했습니다."
+            )
+        )
+    elif raw_input.brief.reference_policy == "references-first":
+        warnings.append(
+            "Web research was unavailable; generation continued with uploaded references."
+        )
+    return SourceGroundingResult(
+        rawInput=raw_input,
+        sourceRecords=raw_input.source_records,
+        warnings=warnings,
+        webSourceCount=len(research.sources),
+    )
 
 
 def initial_source_records(raw_input: RawInput) -> list[SourceRecord]:

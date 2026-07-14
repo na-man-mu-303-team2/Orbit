@@ -501,6 +501,15 @@ class RawInput(BaseModel):
     )
 
 
+class SourceGroundingResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    raw_input: RawInput = Field(alias="rawInput")
+    source_records: list[SourceRecord] = Field(alias="sourceRecords")
+    warnings: list[str] = Field(default_factory=list)
+    web_source_count: int = Field(default=0, alias="webSourceCount", ge=0)
+
+
 class StylePromptContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -608,6 +617,13 @@ class SlidePlan(BaseModel):
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+
+
+class ContentPlan(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    outline: DeckOutline
+    slide_plans: list[SlidePlan] = Field(alias="slidePlans")
 
 
 class DesignPlan(BaseModel):

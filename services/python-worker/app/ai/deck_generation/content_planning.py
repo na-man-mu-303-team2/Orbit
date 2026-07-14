@@ -11,6 +11,7 @@ from typing import Any
 import unicodedata
 
 from app.ai.deck_generation.models import (
+    ContentPlan,
     DeckContentGenerationError,
     DeckOutline,
     DesignProfile,
@@ -1983,6 +1984,24 @@ def plan_deck_content(
     slide_plans = compact_program_v2_content_items(slide_plans)
     slide_plans = normalize_program_v2_action_titles(slide_plans)
     return outline, slide_plans
+
+
+def plan_content(
+    raw_input: RawInput,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> ContentPlan:
+    outline, slide_plans = plan_deck_content(
+        raw_input,
+        style_context,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
+    return ContentPlan(outline=outline, slidePlans=slide_plans)
 
 
 def repair_content_plan_with_llm(
