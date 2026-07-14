@@ -92,6 +92,35 @@ final result: passed
 
 ---
 
+## Brief Entry, PPTX Import, and Editor Overlay (2026-07-15)
+
+- Source visual truth: `prototypes/brief-ux/qa/ai-brief.png`, `prototypes/brief-ux/qa/pptx-import.png`, `prototypes/brief-ux/qa/editor-brief-postfix-1440.png`.
+- Implementation evidence: `/tmp/orbit-ai-brief-1440-final.png`, `/tmp/orbit-pptx-import-1440.png`, `/tmp/orbit-editor-brief-1440.png`.
+- Combined comparison inputs: `/tmp/orbit-compare-ai-final.png`, `/tmp/orbit-compare-pptx-final.png`, `/tmp/orbit-compare-editor-final.png`.
+- Responsive evidence: `/tmp/orbit-ai-brief-390-v2.png`, `/tmp/orbit-pptx-import-390-final.png`, `/tmp/orbit-editor-brief-390.png`.
+- Viewports: desktop `1440x1024`; mobile `390x844`.
+
+### Full-view and focused comparison
+
+The AI generation entry now follows the selected structured Brief hierarchy: step rail, audience/purpose choices, duration, outcome and requirements, evaluation lens, persistent live summary, and a single forward action. The production header, fifth Deck step, and design-system tokens remain intentional ORBIT additions. The PPTX route uses the selected cream import hero and three-step workflow while creating a separate project; its empty upload state was compared because no user file was selected during browser QA. The editor retains the existing canvas and right-panel state while the 392px Brief drawer overlays the right tools area; the mobile drawer occupies the viewport without changing the underlying editor state.
+
+### Findings and verification
+
+- P0: none.
+- P1: none. The initial AI production screen used a generic field grid and unrelated preview; it was replaced with the selected structured Brief and live summary before final comparison.
+- P2: none. A decorative Brief status was changed from an inert button to text, and the PPTX back action now uses the full content width for stable left alignment.
+- Accessibility: Brief choices expose pressed state, every input keeps an accessible label, the PPTX primary action is disabled before file selection, and the editor drawer retains labelled close/save controls.
+- Responsive behavior: AI generation, PPTX import, and editor drawer report no horizontal overflow at `390x844`.
+- State preservation: text entered in the existing editor AI chat remained unchanged after opening and closing the Brief drawer; the chat panel stayed mounted.
+- Browser interaction: custom/generic Brief modes switched correctly, custom state restored after switching back, the enabled Brief CTA advanced to Style, and the AI header link navigated to `/importdeck`.
+- Browser console: no errors or warnings in the checked states.
+- Automated verification: Web typecheck passed; Web suite passed with 143 files and 1,023 tests; the full monorepo build had already passed after the shared/API/Worker/Python integration.
+- Residual P3 test gap: the operating-system picker and an actual user `.pptx` file were not driven by the in-app browser; API, Worker, extraction fallback, and import contracts are covered by automated tests.
+
+final result: passed
+
+---
+
 ## Rehearsal Stopwatch and Lyric Prompter Annotations (2026-07-14)
 
 - Source visual truth: `/tmp/orbit-rehearsal-before.png` and Browser Comments 1-2 at the rehearsal route.
