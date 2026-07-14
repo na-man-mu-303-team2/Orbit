@@ -18,16 +18,19 @@ from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
     DeckGenerationOrchestrator,
+    DeckNarrativePlan,
     GenerateDeckDiagnostics,
     GenerateDeckRequest,
     GenerateDeckResponse,
     GeneratedDeckContentPlan,
     GeneratedContentItem,
     MediaIntent,
+    NarrativeMessage,
     ReferenceContext,
     SpeakerNoteQualityProblem,
     SpeakerNoteUnit,
     SlidePlan,
+    SlideNarrativeBeat,
     SlideCountRange,
     SourceRecord,
     ValidationIssue,
@@ -42,12 +45,14 @@ from app.ai.generate_deck import (
     choose_slide_count,
     clear_deck_content_plan_cache,
     compact_program_v2_content_items,
+    content_narrative_alignment_reasons,
     deduplicate_speaker_notes_across_slides,
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
     deck_content_prompt,
     deck_content_response_format_for,
+    deck_narrative_plan_problems,
     design_pack_insight_elements,
     design_pack_comparison_elements,
     design_pack_decision_actions_elements,
@@ -64,6 +69,7 @@ from app.ai.generate_deck import (
     finalize_speaker_notes,
     generate_content_plan_with_llm,
     generate_deck,
+    generate_deck_narrative_plan_with_llm,
     ensure_profile_closing_action,
     icon_name_for_keyword,
     initial_source_records,
@@ -87,6 +93,7 @@ from app.ai.generate_deck import (
     repair_content_plan_with_llm,
     repair_reason_codes,
     repair_speaker_note_units_with_llm,
+    required_speaker_note_roles,
     slide_plans_from_generated_content,
     speaker_notes_maximum_chars,
     speaker_notes_minimum_chars,
@@ -2109,7 +2116,11 @@ def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
         keywords=[],
         evidence=[],
         content_items=[
-            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            GeneratedContentItem(
+                contentItemId=f"item-{index}",
+                text=text,
+                messageRefs=[f"message-{index}"],
+            )
             for index, text in enumerate(original_texts, start=1)
         ],
     )
@@ -2133,6 +2144,10 @@ def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
     assert len(compacted[1].content_items) == 4
     assert compacted[1].content_items[-1].content_item_id == "item-4"
     assert all(text in compacted[1].content_items[-1].text for text in original_texts[3:])
+    assert compacted[1].content_items[-1].message_refs == [
+        "message-4",
+        "message-5",
+    ]
     assert all(text in compacted[1].message for text in original_texts)
     assert slide_plan.content_items[-1].content_item_id == "item-5"
     assert compacted[2] is closing
@@ -9132,6 +9147,8 @@ class FakeOpenAIClient:
         payload: dict[str, object] | list[dict[str, object]],
     ) -> None:
         self.requests: list[dict[str, object]] = []
+        self.narrative_requests: list[dict[str, object]] = []
+        self.all_requests: list[dict[str, object]] = []
         self.responses = FakeResponses(self, payload)
 
 
@@ -9152,20 +9169,192 @@ class FakeResponses:
     ) -> None:
         self.parent = parent
         self.payloads = payload if isinstance(payload, list) else [payload]
+        self.narrative_payload: dict[str, object] | None = None
 
     def create(self, **kwargs: object) -> object:
-        self.parent.requests.append(kwargs)
-        payload_index = min(len(self.parent.requests) - 1, len(self.payloads) - 1)
+        self.parent.all_requests.append(kwargs)
+        response_format = kwargs.get("text")
+        format_name = (
+            response_format.get("format", {}).get("name")
+            if isinstance(response_format, dict)
+            else ""
+        )
+        if format_name == "deck_narrative_plan":
+            self.parent.narrative_requests.append(kwargs)
+            source_payload = self.payloads[0]
+            self.narrative_payload = synthetic_narrative_payload(source_payload)
+            payload = self.narrative_payload
+        else:
+            self.parent.requests.append(kwargs)
+            payload_index = min(
+                len(self.parent.requests) - 1,
+                len(self.payloads) - 1,
+            )
+            payload = deepcopy(self.payloads[payload_index])
+            if format_name == "design_pack_content_plan":
+                payload = apply_narrative_refs_to_content(
+                    payload,
+                    self.narrative_payload,
+                )
         return type(
             "Response",
             (),
             {
                 "output_text": json.dumps(
-                    self.payloads[payload_index],
+                    payload,
                     ensure_ascii=False,
                 )
             },
         )()
+
+
+def complete_test_sentence(text: str) -> str:
+    sentence = " ".join(text.split()).strip()
+    if sentence.endswith((".", "!", "?", "。", "！", "？")):
+        return sentence
+    return f"{sentence}."
+
+
+def synthetic_narrative_payload(
+    content_payload: dict[str, object],
+) -> dict[str, object]:
+    narrative_labels = [
+        "출발점과 핵심 질문",
+        "용어와 판단 기준",
+        "원인과 작동 원리",
+        "관찰 가능한 사례",
+        "대안별 차이와 선택",
+        "실행 절차와 적용 조건",
+        "검증 방법과 예상 결과",
+        "위험 요인과 대응 원칙",
+        "운영 지표와 점검 주기",
+        "최종 결론과 다음 행동",
+    ]
+    slides = content_payload.get("slides")
+    slide_payloads = slides if isinstance(slides, list) else []
+    messages: list[dict[str, object]] = []
+    beats: list[dict[str, object]] = []
+    total = len(slide_payloads) or 1
+    for order in range(1, total + 1):
+        slide = (
+            slide_payloads[order - 1]
+            if order <= len(slide_payloads)
+            and isinstance(slide_payloads[order - 1], dict)
+            else {}
+        )
+        message_id = f"narrative_{order}"
+        title = str(slide.get("title") or f"Slide {order}")
+        narrative_label = narrative_labels[(order - 1) % len(narrative_labels)]
+        message_text = complete_test_sentence(
+            f"{narrative_label}: {title}에서 "
+            f"{slide.get('message') or '해당 단계의 핵심을 설명합니다'}"
+        )
+        messages.append(
+            {
+                "messageId": message_id,
+                "role": "action" if total > 1 and order == total else "claim",
+                "text": message_text,
+                "sourceRefs": [],
+                "introducedAt": order,
+            }
+        )
+        slide_type = str(slide.get("slideType") or "content")
+        purpose = (
+            "introduce"
+            if total > 1 and order == 1
+            else "conclude"
+            if total > 1 and order == total
+            else "apply"
+            if slide_type in {"solution", "process"}
+            else "compare"
+            if slide_type == "comparison"
+            else "introduce"
+            if total == 1
+            else "explain"
+        )
+        context_ids = [] if order == 1 else [f"narrative_{order - 1}"]
+        beats.append(
+            {
+                "order": order,
+                "purpose": purpose,
+                "audienceQuestion": complete_test_sentence(
+                    f"청중은 {title}에서 무엇을 이해해야 합니까"
+                ),
+                "ownedMessageIds": [message_id],
+                "contextMessageIds": context_ids,
+                "bridgeFromPrevious": (
+                    ""
+                    if order == 1
+                    else complete_test_sentence(
+                        f"앞의 핵심을 바탕으로 {title} 내용을 이어서 살펴봅니다"
+                    )
+                ),
+            }
+        )
+    return {
+        "thesis": "각 슬라이드의 핵심이 하나의 발표 흐름으로 이어집니다.",
+        "opening": "발표의 핵심 질문과 진행 방향을 먼저 확인하겠습니다.",
+        "closing": "앞서 확인한 내용을 바탕으로 실행할 핵심을 정리하겠습니다.",
+        "messages": messages,
+        "beats": beats,
+    }
+
+
+def apply_narrative_refs_to_content(
+    content_payload: dict[str, object],
+    narrative_payload: dict[str, object] | None,
+) -> dict[str, object]:
+    if narrative_payload is None:
+        return content_payload
+    slides = content_payload.get("slides")
+    beats = narrative_payload.get("beats")
+    if not isinstance(slides, list) or not isinstance(beats, list):
+        return content_payload
+    for order, slide in enumerate(slides, start=1):
+        if not isinstance(slide, dict) or order > len(beats):
+            continue
+        beat = beats[order - 1]
+        if not isinstance(beat, dict):
+            continue
+        owned_ids = list(beat.get("ownedMessageIds") or [])
+        context_ids = list(beat.get("contextMessageIds") or [])
+        content_items = slide.get("contentItems")
+        if isinstance(content_items, list):
+            for item in content_items:
+                if isinstance(item, dict):
+                    item["messageRefs"] = owned_ids
+        units = slide.get("speakerNoteUnits")
+        if not isinstance(units, list):
+            continue
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            is_conclude_core = (
+                beat.get("purpose") == "conclude"
+                and unit.get("role") == "core"
+            )
+            unit["messageRefs"] = (
+                [*context_ids, *owned_ids]
+                if unit.get("role") == "transition" or is_conclude_core
+                else owned_ids
+            )
+        if order > 1 and not any(
+            isinstance(unit, dict)
+            and unit.get("role") == "transition"
+            and unit.get("required") is True
+            for unit in units
+        ):
+            units.insert(
+                0,
+                {
+                    "role": "transition",
+                    "required": True,
+                    "text": beat.get("bridgeFromPrevious"),
+                    "sourceRefs": [],
+                    "messageRefs": [*context_ids, *owned_ids],
+                },
+            )
+    return content_payload
 
 
 class FakeResearchOpenAIClient:
@@ -9184,6 +9373,8 @@ class FakeResearchOpenAIClient:
         retry_fact_coverage_satisfied: bool | None = None,
     ) -> None:
         self.requests: list[dict[str, object]] = []
+        self.narrative_requests: list[dict[str, object]] = []
+        self.all_requests: list[dict[str, object]] = []
         self.responses = FakeResearchResponses(
             self,
             content_payload,
@@ -9227,8 +9418,27 @@ class FakeResearchResponses:
         self.retry_fact_coverage_satisfied = retry_fact_coverage_satisfied
         self.web_attempts = 0
         self.seen_citations: dict[str, str] = {}
+        self.narrative_payload: dict[str, object] | None = None
 
     def create(self, **kwargs: object) -> object:
+        self.parent.all_requests.append(kwargs)
+        response_format = kwargs.get("text")
+        format_name = (
+            response_format.get("format", {}).get("name")
+            if isinstance(response_format, dict)
+            else ""
+        )
+        if format_name == "deck_narrative_plan":
+            self.parent.narrative_requests.append(kwargs)
+            self.narrative_payload = synthetic_narrative_payload(
+                self.content_payload
+            )
+            return SimpleNamespace(
+                output_text=json.dumps(
+                    self.narrative_payload,
+                    ensure_ascii=False,
+                )
+            )
         self.parent.requests.append(kwargs)
         if "web_search_aliases" in str(kwargs.get("text")):
             return SimpleNamespace(
@@ -9307,8 +9517,14 @@ class FakeResearchResponses:
             return SimpleNamespace(
                 output_text=json.dumps(payload, ensure_ascii=False)
             )
+        content_payload = deepcopy(self.content_payload)
+        if format_name == "design_pack_content_plan":
+            content_payload = apply_narrative_refs_to_content(
+                content_payload,
+                self.narrative_payload,
+            )
         return SimpleNamespace(
-            output_text=json.dumps(self.content_payload, ensure_ascii=False)
+            output_text=json.dumps(content_payload, ensure_ascii=False)
         )
 
 
@@ -9328,3 +9544,388 @@ def bounded_speaker_notes(order: int) -> str:
         f"{order}번째 장에서 관련 자료의 범위와 한계를 확인해 과도한 해석을 피합니다. "
         f"{order}번째 장의 판단 기준을 마지막으로 명확히 정리합니다."
     )
+
+
+class SequencedNarrativeClient:
+    def __init__(self, payloads: list[dict[str, object]]) -> None:
+        self.requests: list[dict[str, object]] = []
+        self.responses = SequencedNarrativeResponses(self, payloads)
+
+
+class SequencedNarrativeResponses:
+    def __init__(
+        self,
+        parent: SequencedNarrativeClient,
+        payloads: list[dict[str, object]],
+    ) -> None:
+        self.parent = parent
+        self.payloads = payloads
+
+    def create(self, **kwargs: object) -> object:
+        self.parent.requests.append(kwargs)
+        payload = self.payloads[
+            min(len(self.parent.requests) - 1, len(self.payloads) - 1)
+        ]
+        return SimpleNamespace(
+            output_text=json.dumps(payload, ensure_ascii=False)
+        )
+
+
+def test_design_pack_generates_narrative_before_tree_dfs_content() -> None:
+    content_payload = {
+        "title": "트리 DFS 풀이 흐름",
+        "slides": [
+            slide_payload(
+                "트리와 DFS의 출발점",
+                "트리는 연결되어 있고 사이클이 없는 그래프입니다.",
+                (
+                    "트리는 정점이 N개일 때 간선이 N-1개인 연결 그래프입니다. "
+                    "무방향 DFS에서는 부모 노드를 제외해야 같은 간선을 되짚지 않습니다."
+                ),
+                slide_type="cover",
+                slot_preset="title_center",
+                content_items=["트리의 구조적 조건", "부모 제외 DFS"],
+            ),
+            slide_payload(
+                "서브트리 크기 계산",
+                "후위 순회로 자식의 결과를 부모에 합산합니다.",
+                (
+                    "현재 노드의 서브트리 크기를 1로 초기화합니다. "
+                    "부모를 제외한 자식의 서브트리 크기를 재귀적으로 계산합니다. "
+                    "계산을 마친 자식의 값을 부모 노드에 누적합니다."
+                ),
+                slide_type="process",
+                slot_preset="title_left_visual_right",
+                content_items=[
+                    "현재 노드 크기를 1로 초기화",
+                    "자식 노드를 후위 순회",
+                    "자식 결과를 부모에 누적",
+                ],
+            ),
+            slide_payload(
+                "구현 전 확인 사항",
+                "부모 인자와 재귀 깊이를 함께 점검합니다.",
+                (
+                    "DFS 함수는 현재 노드와 부모 노드를 인자로 받습니다. "
+                    "입력이 크면 언어별 재귀 제한과 스택 사용량을 확인합니다."
+                ),
+                slide_type="summary",
+                slot_preset="insight_with_evidence",
+                content_items=["현재 노드와 부모 인자", "재귀 깊이 점검"],
+            ),
+        ],
+    }
+    fake_client = FakeOpenAIClient(content_payload)
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_tree_dfs",
+            generationMode="design-pack",
+            topic="트리 알고리즘 풀이 팁",
+            prompt="DFS와 서브트리 크기 계산을 3장으로 가르쳐 주세요.",
+            targetDurationMinutes=3,
+            slideCountRange={"min": 3, "max": 3},
+        ),
+        client=fake_client,
+    )
+
+    format_names = [
+        request["text"]["format"]["name"]
+        for request in fake_client.all_requests
+        if isinstance(request.get("text"), dict)
+    ]
+    assert format_names[:2] == [
+        "deck_narrative_plan",
+        "design_pack_content_plan",
+    ]
+    assert "Verified Deck narrative plan" in str(
+        fake_client.all_requests[1]["input"]
+    )
+    notes = [slide["speakerNotes"] for slide in response.deck["slides"]]
+    assert "부모 노드를 제외" in notes[0]
+    assert notes[1].startswith(
+        "앞의 핵심을 바탕으로 서브트리 크기 계산 내용을 이어서 살펴봅니다."
+    )
+    assert "재귀 제한과 스택 사용량" in notes[2]
+    serialized_deck = json.dumps(response.deck, ensure_ascii=False)
+    assert "speakerNoteUnits" not in serialized_deck
+    assert "messageRefs" not in serialized_deck
+    assert "ownedMessageIds" not in serialized_deck
+
+
+def test_invalid_narrative_plan_is_repaired_once() -> None:
+    source_payload = {
+        "slides": [
+            {"title": "문제 정의", "message": "출발점을 정합니다."},
+            {"title": "실행 결론", "message": "다음 행동을 정합니다."},
+        ]
+    }
+    valid_payload = synthetic_narrative_payload(source_payload)
+    invalid_payload = deepcopy(valid_payload)
+    invalid_payload["beats"][0]["purpose"] = "explain"
+    invalid_payload["beats"][1]["purpose"] = "apply"
+    fake_client = SequencedNarrativeClient([invalid_payload, valid_payload])
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_narrative_repair",
+            generationMode="design-pack",
+            topic="서사 계획 보정",
+            prompt="두 장의 발표 흐름을 만드세요.",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    plan = generate_deck_narrative_plan_with_llm(
+        raw_input,
+        client=fake_client,
+    )
+
+    assert plan is not None
+    assert [beat.purpose for beat in plan.beats] == ["introduce", "conclude"]
+    assert len(fake_client.requests) == 2
+    assert "Narrative repair reasons" in str(fake_client.requests[1]["input"])
+
+
+def test_narrative_plan_fails_after_one_unsuccessful_repair() -> None:
+    invalid_payload = synthetic_narrative_payload(
+        {
+            "slides": [
+                {"title": "첫 장", "message": "첫 내용을 설명합니다."},
+                {"title": "둘째 장", "message": "둘째 내용을 설명합니다."},
+            ]
+        }
+    )
+    invalid_payload["beats"][0]["purpose"] = "compare"
+    fake_client = SequencedNarrativeClient(
+        [invalid_payload, deepcopy(invalid_payload)]
+    )
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_narrative_failure",
+            generationMode="design-pack",
+            topic="서사 계획 실패",
+            prompt="수정되지 않는 잘못된 계획을 검증합니다.",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+
+    with pytest.raises(
+        DeckContentGenerationError,
+        match="DECK_NARRATIVE_PLAN_FAILED",
+    ):
+        generate_deck_narrative_plan_with_llm(
+            raw_input,
+            client=fake_client,
+        )
+
+    assert len(fake_client.requests) == 2
+
+
+def test_narrative_plan_rejects_future_context_and_duplicate_ownership() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_narrative_ownership",
+            generationMode="design-pack",
+            topic="메시지 소유권",
+            prompt="두 장의 메시지 소유권을 검증합니다.",
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+    plan = DeckNarrativePlan(
+        thesis="메시지는 처음 소개되는 슬라이드가 명확해야 합니다.",
+        opening="첫 장에서 발표의 출발점을 제시합니다.",
+        closing="마지막 장에서 앞선 내용을 행동으로 정리합니다.",
+        messages=[
+            NarrativeMessage(
+                messageId="claim-one",
+                role="claim",
+                text="첫 장은 문제의 기준을 정의합니다.",
+                sourceRefs=[],
+                introducedAt=1,
+            ),
+            NarrativeMessage(
+                messageId="action-two",
+                role="action",
+                text="둘째 장은 다음 행동을 확정합니다.",
+                sourceRefs=[],
+                introducedAt=2,
+            ),
+        ],
+        beats=[
+            SlideNarrativeBeat(
+                order=1,
+                purpose="introduce",
+                audienceQuestion="무엇을 먼저 이해해야 합니까?",
+                ownedMessageIds=["claim-one"],
+                contextMessageIds=["action-two"],
+                bridgeFromPrevious="",
+            ),
+            SlideNarrativeBeat(
+                order=2,
+                purpose="conclude",
+                audienceQuestion="어떤 행동으로 마무리해야 합니까?",
+                ownedMessageIds=["claim-one", "action-two"],
+                contextMessageIds=["claim-one"],
+                bridgeFromPrevious="문제의 기준을 바탕으로 실행 행동을 정리합니다.",
+            ),
+        ],
+    )
+
+    problems = deck_narrative_plan_problems(raw_input, plan)
+
+    assert any("must come from an earlier beat" in problem for problem in problems)
+    assert any("exactly one owner" in problem for problem in problems)
+
+
+def test_required_speaker_roles_follow_narrative_purpose() -> None:
+    assert required_speaker_note_roles("cover", "apply", 2) == (
+        "transition",
+        "core",
+        "evidence",
+        "action",
+    )
+    assert required_speaker_note_roles("process", "conclude", 3) == (
+        "transition",
+        "core",
+        "action",
+    )
+
+
+def test_conclusion_core_must_recall_an_earlier_narrative_message() -> None:
+    beat = SlideNarrativeBeat(
+        order=2,
+        purpose="conclude",
+        audienceQuestion="앞선 핵심을 어떤 행동으로 정리해야 합니까?",
+        ownedMessageIds=["action-two"],
+        contextMessageIds=["claim-one"],
+        bridgeFromPrevious="앞의 판단 기준을 바탕으로 실행 결론을 정리합니다.",
+    )
+    slide = SlidePlan(
+        order=2,
+        slide_type="summary",
+        title="실행 결론",
+        message="앞선 핵심과 다음 행동을 정리합니다.",
+        speaker_notes="",
+        keywords=[],
+        evidence=[],
+        narrative_beat=beat,
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="action-item",
+                text="첫 번째 실행 항목을 확정합니다.",
+                messageRefs=["action-two"],
+            )
+        ],
+        speaker_note_units=[
+            SpeakerNoteUnit(
+                role="transition",
+                required=True,
+                text=beat.bridge_from_previous,
+                sourceRefs=[],
+                messageRefs=["claim-one", "action-two"],
+            ),
+            SpeakerNoteUnit(
+                role="core",
+                required=True,
+                text="실행할 항목을 한 가지로 정리합니다.",
+                sourceRefs=[],
+                messageRefs=["action-two"],
+            ),
+            SpeakerNoteUnit(
+                role="action",
+                required=True,
+                text="발표 직후 담당자와 기한을 확정합니다.",
+                sourceRefs=[],
+                messageRefs=["action-two"],
+            ),
+        ],
+    )
+
+    reasons = content_narrative_alignment_reasons(slide)
+
+    assert any("conclude core must recall prior context" in reason for reason in reasons)
+
+
+def test_required_narrative_transition_is_preserved_over_optional_budget() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_transition_budget",
+            generationMode="design-pack",
+            topic="필수 연결 문장",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 2, "max": 2},
+        )
+    )
+    raw_input.timing_plan.target_total_chars = 1
+    bridge = "앞에서 정의한 기준을 바탕으로 이제 실행 결론을 정리합니다."
+    slides = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="기준 정의",
+            message="판단 기준을 정의합니다.",
+            speaker_notes="",
+            keywords=[],
+            evidence=[],
+            speaker_note_units=[
+                SpeakerNoteUnit(
+                    role="core",
+                    required=True,
+                    text="첫 장에서 판단 기준의 핵심을 정의합니다.",
+                    sourceRefs=[],
+                    messageRefs=["claim-one"],
+                ),
+                SpeakerNoteUnit(
+                    role="interpretation",
+                    required=True,
+                    text="이 기준은 다음 실행 결론의 출발점이 됩니다.",
+                    sourceRefs=[],
+                    messageRefs=["claim-one"],
+                ),
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="summary",
+            title="실행 결론",
+            message="다음 행동을 정합니다.",
+            speaker_notes="",
+            keywords=[],
+            evidence=[],
+            speaker_note_units=[
+                SpeakerNoteUnit(
+                    role="transition",
+                    required=True,
+                    text=bridge,
+                    sourceRefs=[],
+                    messageRefs=["claim-one", "action-two"],
+                ),
+                SpeakerNoteUnit(
+                    role="core",
+                    required=True,
+                    text="앞선 기준에 맞는 실행 선택지를 정리합니다.",
+                    sourceRefs=[],
+                    messageRefs=["claim-one", "action-two"],
+                ),
+                SpeakerNoteUnit(
+                    role="action",
+                    required=True,
+                    text="발표가 끝나면 첫 번째 실행 항목을 확정합니다.",
+                    sourceRefs=[],
+                    messageRefs=["action-two"],
+                ),
+                SpeakerNoteUnit(
+                    role="detail",
+                    required=False,
+                    text="추가 세부 설명은 남은 시간이 있을 때만 제공합니다.",
+                    sourceRefs=[],
+                    messageRefs=["action-two"],
+                ),
+            ],
+        ),
+    ]
+
+    assembled = assemble_speaker_notes_quality_first(raw_input, slides)
+
+    assert assembled[1].speaker_notes.startswith(bridge)
+    assert "추가 세부 설명" not in assembled[1].speaker_notes

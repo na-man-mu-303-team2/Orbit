@@ -78,6 +78,16 @@ SpeakerNoteRole = Literal[
     "detail",
     "transition",
 ]
+NarrativeMessageRole = Literal["claim", "evidence", "interpretation", "action"]
+NarrativePurpose = Literal[
+    "introduce",
+    "define",
+    "explain",
+    "demonstrate",
+    "compare",
+    "apply",
+    "conclude",
+]
 RepairReasonCode = Literal[
     "SLIDE_COUNT_SHORT",
     "CONTENT_DUPLICATED",
@@ -524,6 +534,41 @@ class GeneratedContentItem(BaseModel):
 
     content_item_id: str = Field(alias="contentItemId", min_length=1)
     text: str = Field(min_length=1)
+    message_refs: list[str] = Field(default_factory=list, alias="messageRefs")
+
+
+class NarrativeMessage(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    message_id: str = Field(alias="messageId", min_length=1)
+    role: NarrativeMessageRole
+    text: str = Field(min_length=1)
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    introduced_at: int = Field(alias="introducedAt", ge=1)
+
+
+class SlideNarrativeBeat(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    order: int = Field(ge=1)
+    purpose: NarrativePurpose
+    audience_question: str = Field(alias="audienceQuestion", min_length=1)
+    owned_message_ids: list[str] = Field(alias="ownedMessageIds", min_length=1)
+    context_message_ids: list[str] = Field(
+        default_factory=list,
+        alias="contextMessageIds",
+    )
+    bridge_from_previous: str = Field(default="", alias="bridgeFromPrevious")
+
+
+class DeckNarrativePlan(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    thesis: str = Field(min_length=1)
+    opening: str = Field(min_length=1)
+    closing: str = Field(min_length=1)
+    messages: list[NarrativeMessage] = Field(min_length=1)
+    beats: list[SlideNarrativeBeat] = Field(min_length=1)
 
 
 class SpeakerNoteUnit(BaseModel):
@@ -533,6 +578,7 @@ class SpeakerNoteUnit(BaseModel):
     required: bool
     text: str = Field(min_length=1)
     source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    message_refs: list[str] = Field(default_factory=list, alias="messageRefs")
 
 
 class GeneratedSlideContent(BaseModel):
@@ -604,6 +650,7 @@ class SlidePlan(BaseModel):
     source_refs: list[str] = Field(default_factory=list)
     speaker_note_units: list[SpeakerNoteUnit] = Field(default_factory=list)
     speaker_note_units_structured: bool = False
+    narrative_beat: SlideNarrativeBeat | None = None
 
 
 class ElementIntent(BaseModel):
@@ -873,11 +920,16 @@ GRID_SPACING = 8
 GRID_TOLERANCE = 4
 TEXT_OVERLAP_WARNING_RATIO = 0.15
 MAX_IMAGE_REVIEW_SLIDES = 3
-DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v3-narrative"
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
     GeneratedDeckContentPlan,
+] = OrderedDict()
+DECK_NARRATIVE_PLAN_CACHE_VERSION = "v1"
+DECK_NARRATIVE_PLAN_CACHE: OrderedDict[
+    tuple[str, str, str],
+    DeckNarrativePlan,
 ] = OrderedDict()
 STYLE_PACK_REGISTRY = load_json_registry(DESIGN_LIBRARY_DIR / "style-packs")
 STYLE_PACK_PROMPT_REGISTRY = load_text_registry(DESIGN_LIBRARY_DIR / "style-prompts")
@@ -1092,6 +1144,21 @@ SPEAKER_NOTE_ROLES: tuple[SpeakerNoteRole, ...] = (
     "caution",
     "detail",
     "transition",
+)
+NARRATIVE_MESSAGE_ROLES: tuple[NarrativeMessageRole, ...] = (
+    "claim",
+    "evidence",
+    "interpretation",
+    "action",
+)
+NARRATIVE_PURPOSES: tuple[NarrativePurpose, ...] = (
+    "introduce",
+    "define",
+    "explain",
+    "demonstrate",
+    "compare",
+    "apply",
+    "conclude",
 )
 SPEAKER_NOTE_OPTIONAL_ROLE_PRIORITY: tuple[SpeakerNoteRole, ...] = (
     "interpretation",
@@ -1785,6 +1852,39 @@ THEME_TOKEN_ANY_RE = re.compile(
 )
 NEUTRAL_COLORS = {"#ffffff", "#111827", "#000000", "#6b7280"}
 
+DECK_NARRATIVE_INSTRUCTIONS = """
+You plan the spoken narrative for one Korean ORBIT presentation before slides are written.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Build one deck-level thesis and a deliberate introduce-to-conclude progression.
+- Give every factual message exactly one introducedAt slide and one owner beat.
+- Later beats may recall only messages introduced by earlier beats.
+- The first beat has purpose introduce and an empty bridgeFromPrevious.
+- The final beat has purpose conclude, recalls earlier messages, and may introduce only
+  an action message.
+- Every beat after the first has one concise, complete Korean bridgeFromPrevious
+  sentence that connects a prior message to the current slide without generic filler.
+- Do not repeat or paraphrase the same message as a new message on another slide.
+- Use only supplied source IDs. Do not invent unsupported facts or numeric claims.
+- opening, closing, message text, and bridges must be complete Korean sentences.
+- Never use "..." or "…" and never include visual design instructions.
+""".strip()
+
+DECK_NARRATIVE_REPAIR_INSTRUCTIONS = """
+You repair one Korean ORBIT deck narrative plan.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Fix every supplied structural, ownership, source, ordering, and duplication problem.
+- Preserve the requested slide count, topic, factual meaning, and source boundaries.
+- Keep the first beat as introduce and the final beat as conclude.
+- Give every message exactly one owner and never reference a future message as context.
+- The final beat may introduce only an action message.
+- Write a specific complete bridge sentence for every beat after the first.
+- Never use generic filler, "...", or "…".
+""".strip()
+
 DECK_CONTENT_INSTRUCTIONS = """
 You create Korean presentation slide content for ORBIT.
 Return only JSON that matches the requested schema.
@@ -1811,6 +1911,11 @@ Rules:
   aloud, not a guide about what the presenter should explain.
 - In design-pack mode, return speakerNoteUnits instead of speakerNotes. Put required
   units before optional units, and make every unit one complete Korean sentence.
+- Follow the supplied Deck narrative plan exactly. Every contentItem and
+  speakerNoteUnit must declare messageRefs.
+- Explain only messages owned by the current beat. A required transition may also
+  reference that beat's prior context messages and must reproduce bridgeFromPrevious.
+- Do not preview messages owned by future slides or re-explain a prior message as new.
 - Never use "..." or "…" in speaker notes. Never cut a sentence to meet a character
   target. Treat the duration-derived character count as an advisory budget.
 - Build the core message and required evidence, interpretation, or action first.
@@ -1887,6 +1992,11 @@ Rules:
 - Never output "..." or "…" and never cut a sentence to meet the advisory budget.
 - Rewrite the supplied units as a coherent replacement; do not append restatements.
 - Express each claim or transition only once across the selected slides.
+- Preserve message ownership from the supplied Deck narrative plan.
+- Every unit must include messageRefs. Non-transition units may use only current owned
+  messages, except a conclude core must summarize current context messages.
+- A required transition must reproduce bridgeFromPrevious and reference both prior
+  context and current owned messages.
 - Keep evidence sourceRefs non-empty and within the slide's allowedSourceRefs.
 - Use only facts directly supported by the supplied slide content and verified sources.
 - Preserve exact names, dates, platforms, availability, and defining features.
@@ -2034,8 +2144,18 @@ def design_pack_content_response_format() -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "messageRefs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
-            "required": ["role", "required", "text", "sourceRefs"],
+            "required": [
+                "role",
+                "required",
+                "text",
+                "sourceRefs",
+                "messageRefs",
+            ],
         },
     }
     slide_schema["properties"]["contentItems"] = {
@@ -2047,8 +2167,12 @@ def design_pack_content_response_format() -> dict[str, Any]:
             "properties": {
                 "contentItemId": {"type": "string"},
                 "text": {"type": "string"},
+                "messageRefs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
-            "required": ["contentItemId", "text"],
+            "required": ["contentItemId", "text", "messageRefs"],
         },
     }
     slide_schema["properties"]["sourceRefs"] = {
@@ -2069,6 +2193,7 @@ def deck_content_response_format_for(
     raw_input: RawInput,
     *,
     exact_slide_count: int | None = None,
+    narrative_plan: DeckNarrativePlan | None = None,
 ) -> dict[str, Any]:
     response_format = deepcopy(
         DESIGN_PACK_CONTENT_RESPONSE_FORMAT
@@ -2096,7 +2221,116 @@ def deck_content_response_format_for(
             "speakerNoteUnits"
         ]["items"]["properties"]["sourceRefs"]["items"]
         unit_source_ref_items["enum"] = source_ids
+    if narrative_plan is not None:
+        message_ids = sorted(
+            message.message_id for message in narrative_plan.messages
+        )
+        slide_item_schema = slides_schema["items"]
+        slide_item_schema["properties"]["contentItems"]["items"]["properties"][
+            "messageRefs"
+        ]["items"]["enum"] = message_ids
+        slide_item_schema["properties"]["speakerNoteUnits"]["items"][
+            "properties"
+        ]["messageRefs"]["items"]["enum"] = message_ids
     return response_format
+
+
+def deck_narrative_response_format(raw_input: RawInput) -> dict[str, Any]:
+    source_ids = sorted(
+        source.source_id
+        for source in (raw_input.source_records or initial_source_records(raw_input))
+    )
+    source_ref_items: dict[str, Any] = {"type": "string"}
+    if source_ids:
+        source_ref_items["enum"] = source_ids
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": "deck_narrative_plan",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "thesis": {"type": "string"},
+                    "opening": {"type": "string"},
+                    "closing": {"type": "string"},
+                    "messages": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "messageId": {"type": "string"},
+                                "role": {
+                                    "type": "string",
+                                    "enum": list(NARRATIVE_MESSAGE_ROLES),
+                                },
+                                "text": {"type": "string"},
+                                "sourceRefs": {
+                                    "type": "array",
+                                    "items": source_ref_items,
+                                },
+                                "introducedAt": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": raw_input.slide_count,
+                                },
+                            },
+                            "required": [
+                                "messageId",
+                                "role",
+                                "text",
+                                "sourceRefs",
+                                "introducedAt",
+                            ],
+                        },
+                    },
+                    "beats": {
+                        "type": "array",
+                        "minItems": raw_input.slide_count,
+                        "maxItems": raw_input.slide_count,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "order": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": raw_input.slide_count,
+                                },
+                                "purpose": {
+                                    "type": "string",
+                                    "enum": list(NARRATIVE_PURPOSES),
+                                },
+                                "audienceQuestion": {"type": "string"},
+                                "ownedMessageIds": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {"type": "string"},
+                                },
+                                "contextMessageIds": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "bridgeFromPrevious": {"type": "string"},
+                            },
+                            "required": [
+                                "order",
+                                "purpose",
+                                "audienceQuestion",
+                                "ownedMessageIds",
+                                "contextMessageIds",
+                                "bridgeFromPrevious",
+                            ],
+                        },
+                    },
+                },
+                "required": ["thesis", "opening", "closing", "messages", "beats"],
+            },
+        }
+    }
 
 
 TEXT_OVERLAP_REVIEW_INSTRUCTIONS = """
@@ -2217,12 +2451,17 @@ SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT: dict[str, Any] = {
                                             "type": "array",
                                             "items": {"type": "string"},
                                         },
+                                        "messageRefs": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
                                     },
                                     "required": [
                                         "role",
                                         "required",
                                         "text",
                                         "sourceRefs",
+                                        "messageRefs",
                                     ],
                                 },
                             },
@@ -3644,14 +3883,25 @@ def plan_deck_content(
     model: str | None = None,
     api_key: str | None = None,
 ) -> tuple[DeckOutline, list[SlidePlan]]:
-    generated_plan = generate_content_plan_with_llm(
+    narrative_plan = generate_deck_narrative_plan_with_llm(
         raw_input,
         client=client,
         model=model,
         api_key=api_key,
     )
+    generated_plan = generate_content_plan_with_llm(
+        raw_input,
+        narrative_plan=narrative_plan,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
     if generated_plan is not None:
-        slide_plans = slide_plans_from_generated_content(raw_input, generated_plan)
+        slide_plans = slide_plans_from_generated_content(
+            raw_input,
+            generated_plan,
+            narrative_plan=narrative_plan,
+        )
         if slide_plans:
             if raw_input.generation_mode == "design-pack":
                 slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
@@ -3669,6 +3919,7 @@ def plan_deck_content(
                         generated_plan,
                         slide_plans,
                         repair_reasons,
+                        narrative_plan=narrative_plan,
                         client=client,
                         model=model,
                         api_key=api_key,
@@ -3677,6 +3928,7 @@ def plan_deck_content(
                         repaired_slide_plans = slide_plans_from_generated_content(
                             raw_input,
                             repaired_plan,
+                            narrative_plan=narrative_plan,
                         )
                         if len(repaired_slide_plans) == len(slide_plans):
                             timed_repaired_slide_plans = apply_timing_to_slide_plans(
@@ -3688,6 +3940,16 @@ def plan_deck_content(
                                 slide_plans,
                             )
                             generated_plan = repaired_plan
+                    remaining_narrative_reasons = [
+                        reason
+                        for slide_plan in slide_plans
+                        for reason in content_narrative_alignment_reasons(slide_plan)
+                    ]
+                    if remaining_narrative_reasons:
+                        raise DeckContentGenerationError(
+                            "DECK_NARRATIVE_ALIGNMENT_FAILED: "
+                            + "; ".join(remaining_narrative_reasons[:8])
+                        )
                     remaining_numeric_reasons = unsupported_numeric_claim_reasons(
                         raw_input,
                         slide_plans,
@@ -3700,6 +3962,7 @@ def plan_deck_content(
                 slide_plans = finalize_speaker_notes(
                     raw_input,
                     slide_plans,
+                    narrative_plan=narrative_plan,
                     client=client,
                     model=model,
                     api_key=api_key,
@@ -4043,7 +4306,21 @@ class SpeakerNoteQualityProblem:
     message: str
 
 
-def required_speaker_note_roles(slide_type: SlideType) -> tuple[SpeakerNoteRole, ...]:
+def required_speaker_note_roles(
+    slide_type: SlideType,
+    narrative_purpose: NarrativePurpose | None = None,
+    slide_order: int = 1,
+) -> tuple[SpeakerNoteRole, ...]:
+    if narrative_purpose is not None:
+        if narrative_purpose == "introduce":
+            roles: tuple[SpeakerNoteRole, ...] = ("core", "interpretation")
+        elif narrative_purpose in {"define", "explain", "demonstrate", "compare"}:
+            roles = ("core", "evidence", "interpretation")
+        elif narrative_purpose == "apply":
+            roles = ("core", "evidence", "action")
+        else:
+            roles = ("core", "action")
+        return ("transition", *roles) if slide_order > 1 else roles
     if slide_type in {"title", "cover"}:
         return ("core", "interpretation")
     if slide_type == "summary":
@@ -4061,6 +4338,7 @@ def normalize_speaker_note_units(
         slide_plan.source_refs = default_source_refs(raw_input, slide_plan.order)
     if not slide_plan.speaker_note_units:
         slide_plan.speaker_note_units = legacy_speaker_note_units(slide_plan)
+    beat = slide_plan.narrative_beat
     slide_plan.speaker_note_units = [
         SpeakerNoteUnit(
             role=unit.role,
@@ -4075,14 +4353,39 @@ def normalize_speaker_note_units(
                 )
                 else list(slide_plan.source_refs)
             ),
+            messageRefs=(
+                unique_non_empty(unit.message_refs)
+                or narrative_message_refs_for_unit(beat, unit.role)
+            ),
         )
         for unit in slide_plan.speaker_note_units
         if unit.text.strip()
     ]
 
 
+def narrative_message_refs_for_unit(
+    beat: SlideNarrativeBeat | None,
+    role: SpeakerNoteRole,
+) -> list[str]:
+    if beat is None:
+        return []
+    if role == "transition":
+        return unique_non_empty(
+            [*beat.context_message_ids, *beat.owned_message_ids]
+        )
+    if beat.purpose == "conclude" and role == "core":
+        return unique_non_empty(
+            [*beat.context_message_ids, *beat.owned_message_ids]
+        )
+    return list(beat.owned_message_ids)
+
+
 def legacy_speaker_note_units(slide_plan: SlidePlan) -> list[SpeakerNoteUnit]:
-    required_roles = required_speaker_note_roles(slide_plan.slide_type)
+    required_roles = required_speaker_note_roles(
+        slide_plan.slide_type,
+        slide_plan.narrative_beat.purpose if slide_plan.narrative_beat else None,
+        slide_plan.order,
+    )
     candidates = unique_non_empty(
         [
             *speaker_note_fragments(slide_plan.speaker_notes),
@@ -4101,27 +4404,54 @@ def legacy_speaker_note_units(slide_plan: SlidePlan) -> list[SpeakerNoteUnit]:
         sentence_keys.add(key)
 
     units: list[SpeakerNoteUnit] = []
-    for role, sentence in zip(required_roles, sentences, strict=False):
+    remaining_roles = required_roles
+    if (
+        slide_plan.narrative_beat is not None
+        and slide_plan.order > 1
+        and required_roles[0] == "transition"
+    ):
+        units.append(
+            SpeakerNoteUnit(
+                role="transition",
+                required=True,
+                text=slide_plan.narrative_beat.bridge_from_previous,
+                sourceRefs=slide_plan.source_refs,
+                messageRefs=narrative_message_refs_for_unit(
+                    slide_plan.narrative_beat,
+                    "transition",
+                ),
+            )
+        )
+        remaining_roles = required_roles[1:]
+    for role, sentence in zip(remaining_roles, sentences, strict=False):
         units.append(
             SpeakerNoteUnit(
                 role=role,
                 required=True,
                 text=sentence,
                 sourceRefs=slide_plan.source_refs,
+                messageRefs=narrative_message_refs_for_unit(
+                    slide_plan.narrative_beat,
+                    role,
+                ),
             )
         )
     optional_roles: tuple[SpeakerNoteRole, ...] = (
-        "example",
-        "detail",
-        "transition",
+        ("example", "detail")
+        if slide_plan.narrative_beat is not None
+        else ("example", "detail", "transition")
     )
-    for index, sentence in enumerate(sentences[len(required_roles) :]):
+    for index, sentence in enumerate(sentences[len(remaining_roles) :]):
         units.append(
             SpeakerNoteUnit(
                 role=optional_roles[index % len(optional_roles)],
                 required=False,
                 text=sentence,
                 sourceRefs=slide_plan.source_refs,
+                messageRefs=narrative_message_refs_for_unit(
+                    slide_plan.narrative_beat,
+                    optional_roles[index % len(optional_roles)],
+                ),
             )
         )
     return units
@@ -4143,6 +4473,9 @@ def speaker_note_unit_is_filler(unit: SpeakerNoteUnit) -> bool:
         "다시한번핵심을살펴보겠습니다",
         "이슬라이드에서는내용을자세히설명하겠습니다",
         "이내용을꼭기억해주세요",
+        "앞의내용을바탕으로다음내용을살펴보겠습니다",
+        "앞의핵심을바탕으로다음내용을살펴봅니다",
+        "이전내용을바탕으로이어서살펴보겠습니다",
     }
     if normalized in exact_fillers:
         return True
@@ -4179,6 +4512,7 @@ def speaker_note_quality_problems(
     slide_plans: list[SlidePlan],
     *,
     include_density: bool,
+    narrative_plan: DeckNarrativePlan | None = None,
 ) -> list[SpeakerNoteQualityProblem]:
     problems: list[SpeakerNoteQualityProblem] = []
     required_seen: list[tuple[str, int]] = []
@@ -4186,11 +4520,30 @@ def speaker_note_quality_problems(
     target_total_chars = sum(
         slide.target_speaker_notes_chars for slide in slide_plans
     )
+    narrative_message_ids = {
+        message.message_id for message in narrative_plan.messages
+    } if narrative_plan is not None else set()
+    narrative_beats = {
+        beat.order: beat for beat in narrative_plan.beats
+    } if narrative_plan is not None else {}
 
     for slide in sorted(slide_plans, key=lambda item: item.order):
+        beat = narrative_beats.get(slide.order)
+        if narrative_plan is not None and beat is None:
+            problems.append(
+                SpeakerNoteQualityProblem(
+                    slide.order,
+                    "SPEAKER_NOTES_NARRATIVE_MISSING",
+                    "narrative beat is missing",
+                )
+            )
         required_units = [unit for unit in slide.speaker_note_units if unit.required]
         required_roles = {unit.role for unit in required_units}
-        for role in required_speaker_note_roles(slide.slide_type):
+        for role in required_speaker_note_roles(
+            slide.slide_type,
+            beat.purpose if beat else None,
+            slide.order,
+        ):
             if role not in required_roles:
                 problems.append(
                     SpeakerNoteQualityProblem(
@@ -4239,6 +4592,62 @@ def speaker_note_quality_problems(
                         "evidence sourceRefs must be non-empty and allowed",
                     )
                 )
+            if beat is not None:
+                owned_ids = set(beat.owned_message_ids)
+                context_ids = set(beat.context_message_ids)
+                unit_refs = set(unit.message_refs)
+                if not unit_refs or not unit_refs <= narrative_message_ids:
+                    problems.append(
+                        SpeakerNoteQualityProblem(
+                            slide.order,
+                            "SPEAKER_NOTES_SCOPE_LEAK",
+                            f"{unit.role} must reference known narrative messages",
+                        )
+                    )
+                elif unit.role == "transition":
+                    if (
+                        slide.order == 1
+                        or not unit.required
+                        or normalize_structural_content_text(unit.text)
+                        != normalize_structural_content_text(
+                            beat.bridge_from_previous
+                        )
+                        or not unit_refs & owned_ids
+                        or not unit_refs & context_ids
+                        or not unit_refs <= owned_ids | context_ids
+                    ):
+                        problems.append(
+                            SpeakerNoteQualityProblem(
+                                slide.order,
+                                "SPEAKER_NOTES_TRANSITION_INVALID",
+                                "transition must reproduce the narrative bridge and connect prior and current messages",
+                            )
+                        )
+                else:
+                    allowed_ids = set(owned_ids)
+                    if beat.purpose == "conclude" and unit.role == "core":
+                        allowed_ids.update(context_ids)
+                    conclusion_misses_context = (
+                        beat.purpose == "conclude"
+                        and unit.role == "core"
+                        and not unit_refs & context_ids
+                    )
+                    if not unit_refs <= allowed_ids or conclusion_misses_context:
+                        problems.append(
+                            SpeakerNoteQualityProblem(
+                                slide.order,
+                                (
+                                    "SPEAKER_NOTES_CONCLUSION_INVALID"
+                                    if conclusion_misses_context
+                                    else "SPEAKER_NOTES_SCOPE_LEAK"
+                                ),
+                                (
+                                    "conclude core must summarize an earlier narrative message"
+                                    if conclusion_misses_context
+                                    else f"{unit.role} references a message outside the current narrative scope"
+                                ),
+                            )
+                        )
             if not unit.required or not slide.speaker_note_units_structured:
                 continue
             key = normalize_structural_content_text(unit.text)
@@ -4262,6 +4671,19 @@ def speaker_note_quality_problems(
                 )
             elif len(key) >= 20:
                 required_seen.append((unit.text, slide.order))
+
+        if beat is not None:
+            owned_ids = set(beat.owned_message_ids)
+            for item in slide.content_items:
+                item_refs = set(item.message_refs)
+                if not item_refs or not item_refs <= owned_ids:
+                    problems.append(
+                        SpeakerNoteQualityProblem(
+                            slide.order,
+                            "CONTENT_NARRATIVE_SCOPE",
+                            "contentItem messageRefs must stay within current owned messages",
+                        )
+                    )
 
         required_text = " ".join(unit.text for unit in required_units)
         required_chars = count_speaker_note_chars(required_text)
@@ -4539,8 +4961,59 @@ def content_plan_repair_reasons(
             reasons.append(
                 f"slide {slide_plan.order}: message duplicates content items"
             )
+        reasons.extend(content_narrative_alignment_reasons(slide_plan))
     if raw_input is not None:
         reasons.extend(unsupported_numeric_claim_reasons(raw_input, slide_plans))
+    return reasons
+
+
+def content_narrative_alignment_reasons(slide_plan: SlidePlan) -> list[str]:
+    beat = slide_plan.narrative_beat
+    if beat is None:
+        return []
+    reasons: list[str] = []
+    owned_ids = set(beat.owned_message_ids)
+    context_ids = set(beat.context_message_ids)
+    for item in slide_plan.content_items:
+        item_refs = set(item.message_refs)
+        if not item_refs or not item_refs <= owned_ids:
+            reasons.append(
+                f"slide {slide_plan.order}: content item {item.content_item_id} "
+                "must reference only owned narrative messages"
+            )
+    for unit in slide_plan.speaker_note_units:
+        unit_refs = set(unit.message_refs)
+        if unit.role == "transition":
+            if (
+                slide_plan.order == 1
+                or not unit.required
+                or normalize_structural_content_text(unit.text)
+                != normalize_structural_content_text(beat.bridge_from_previous)
+                or not unit_refs & owned_ids
+                or not unit_refs & context_ids
+                or not unit_refs <= owned_ids | context_ids
+            ):
+                reasons.append(
+                    f"slide {slide_plan.order}: transition must connect context and owned messages"
+                )
+        else:
+            allowed_ids = set(owned_ids)
+            if beat.purpose == "conclude" and unit.role == "core":
+                allowed_ids.update(context_ids)
+            conclusion_misses_context = (
+                beat.purpose == "conclude"
+                and unit.role == "core"
+                and not unit_refs & context_ids
+            )
+            if (
+                not unit_refs
+                or not unit_refs <= allowed_ids
+                or conclusion_misses_context
+            ):
+                reasons.append(
+                    f"slide {slide_plan.order}: {unit.role} unit must stay within "
+                    "narrative ownership and conclude core must recall prior context"
+                )
     return reasons
 
 
@@ -4712,6 +5185,13 @@ def compact_program_v2_content_items(
             GeneratedContentItem(
                 contentItemId=merged_items[0].content_item_id,
                 text=" · ".join(item.text for item in merged_items),
+                messageRefs=unique_non_empty(
+                    [
+                        reference
+                        for item in merged_items
+                        for reference in item.message_refs
+                    ]
+                ),
             ),
         ]
         if message_duplicates_content_items(
@@ -4790,6 +5270,7 @@ def repair_content_plan_with_llm(
     slide_plans: list[SlidePlan],
     reasons: list[str],
     *,
+    narrative_plan: DeckNarrativePlan | None = None,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -4815,7 +5296,7 @@ def repair_content_plan_with_llm(
     ]
     prompt = "\n".join(
         [
-            deck_content_prompt(raw_input),
+            content_prompt_with_narrative(raw_input, narrative_plan),
             "Repair reasons:",
             *[f"- {reason}" for reason in reasons],
             f"Advisory per-slide targets: {json.dumps(targets, ensure_ascii=False)}",
@@ -4839,6 +5320,7 @@ def repair_content_plan_with_llm(
                     if raw_input.generation_mode == "design-pack"
                     else None
                 ),
+                narrative_plan=narrative_plan,
             ),
         )
         repaired = GeneratedDeckContentPlan.model_validate_json(
@@ -4856,6 +5338,7 @@ def repair_speaker_note_units_with_llm(
     slide_plans: list[SlidePlan],
     problems: list[SpeakerNoteQualityProblem],
     *,
+    narrative_plan: DeckNarrativePlan | None = None,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -4891,18 +5374,46 @@ def repair_speaker_note_units_with_llm(
     payload = {
         "topic": raw_input.topic,
         "referencePolicy": raw_input.brief.reference_policy,
+        "narrativePlan": (
+            narrative_plan.model_dump(by_alias=True)
+            if narrative_plan is not None
+            else None
+        ),
         "slides": [
             {
                 "order": slide.order,
                 "title": slide.title,
                 "message": slide.message,
                 "contentItems": [item.text for item in slide.content_items],
-                "requiredRoles": list(required_speaker_note_roles(slide.slide_type)),
+                "requiredRoles": list(
+                    required_speaker_note_roles(
+                        slide.slide_type,
+                        slide.narrative_beat.purpose
+                        if slide.narrative_beat
+                        else None,
+                        slide.order,
+                    )
+                ),
                 "currentSpeakerNoteUnits": [
                     unit.model_dump(by_alias=True)
                     for unit in slide.speaker_note_units
                 ],
                 "allowedSourceRefs": slide.source_refs,
+                "ownedMessageIds": (
+                    slide.narrative_beat.owned_message_ids
+                    if slide.narrative_beat
+                    else []
+                ),
+                "contextMessageIds": (
+                    slide.narrative_beat.context_message_ids
+                    if slide.narrative_beat
+                    else []
+                ),
+                "bridgeFromPrevious": (
+                    slide.narrative_beat.bridge_from_previous
+                    if slide.narrative_beat
+                    else ""
+                ),
                 "targetNonWhitespaceChars": slide.target_speaker_notes_chars,
                 "repairReasons": [
                     problem.message
@@ -4926,11 +5437,21 @@ def repair_speaker_note_units_with_llm(
         ],
     }
     try:
+        response_format = deepcopy(SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT)
+        if narrative_plan is not None:
+            message_ids = sorted(
+                message.message_id for message in narrative_plan.messages
+            )
+            response_format["format"]["schema"]["properties"]["slides"][
+                "items"
+            ]["properties"]["speakerNoteUnits"]["items"]["properties"][
+                "messageRefs"
+            ]["items"]["enum"] = message_ids
         response = api_client.responses.create(
             model=model or "gpt-4.1-mini",
             instructions=SPEAKER_NOTES_REPAIR_INSTRUCTIONS,
             input=json.dumps(payload, ensure_ascii=False),
-            text=SPEAKER_NOTES_REPAIR_RESPONSE_FORMAT,
+            text=response_format,
         )
         repaired = SpeakerNotesRepairPlan.model_validate_json(
             str(getattr(response, "output_text", "")).strip()
@@ -4956,6 +5477,7 @@ def finalize_speaker_notes(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
     *,
+    narrative_plan: DeckNarrativePlan | None = None,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -4966,6 +5488,7 @@ def finalize_speaker_notes(
     problems = speaker_note_quality_problems(
         slide_plans,
         include_density=True,
+        narrative_plan=narrative_plan,
     )
     if problems:
         raw_input.repair_attempted = True
@@ -4982,6 +5505,7 @@ def finalize_speaker_notes(
             raw_input,
             slide_plans,
             problems,
+            narrative_plan=narrative_plan,
             client=client,
             model=model,
             api_key=api_key,
@@ -5001,6 +5525,7 @@ def finalize_speaker_notes(
         for problem in speaker_note_quality_problems(
             slide_plans,
             include_density=False,
+            narrative_plan=narrative_plan,
         )
         if problem.code != "SPEAKER_NOTES_LONG"
     ]
@@ -5018,7 +5543,19 @@ def raise_speaker_note_quality_error(
         else f"deck: {problem.code} ({problem.message})"
         for problem in problems[:8]
     )
-    raise DeckContentGenerationError(f"SPEAKER_NOTES_QUALITY_FAILED: {summary}")
+    narrative_codes = {
+        "SPEAKER_NOTES_NARRATIVE_MISSING",
+        "SPEAKER_NOTES_SCOPE_LEAK",
+        "SPEAKER_NOTES_TRANSITION_INVALID",
+        "SPEAKER_NOTES_CONCLUSION_INVALID",
+        "CONTENT_NARRATIVE_SCOPE",
+    }
+    error_code = (
+        "SPEAKER_NOTES_NARRATIVE_FAILED"
+        if any(problem.code in narrative_codes for problem in problems)
+        else "SPEAKER_NOTES_QUALITY_FAILED"
+    )
+    raise DeckContentGenerationError(f"{error_code}: {summary}")
 
 
 def slide_type_for(order: int, total: int) -> SlideType:
@@ -5091,9 +5628,271 @@ def reference_keywords_for(
     return keywords[:5]
 
 
+def narrative_sentence_is_complete(text: str) -> bool:
+    fragments = speaker_note_fragments(text)
+    return (
+        len(fragments) == 1
+        and fragments[0] == text
+        and text.endswith((".", "!", "?", "。", "！", "？"))
+        and "..." not in text
+        and "…" not in text
+    )
+
+
+def deck_narrative_plan_problems(
+    raw_input: RawInput,
+    plan: DeckNarrativePlan,
+) -> list[str]:
+    problems: list[str] = []
+    expected_orders = list(range(1, raw_input.slide_count + 1))
+    actual_orders = [beat.order for beat in plan.beats]
+    if actual_orders != expected_orders:
+        problems.append(
+            f"beats must use exact orders {expected_orders}, received {actual_orders}"
+        )
+    if len(plan.beats) != raw_input.slide_count:
+        problems.append(
+            f"beats must contain {raw_input.slide_count} items, received {len(plan.beats)}"
+        )
+    if len(plan.beats) > 1:
+        if plan.beats[0].purpose != "introduce":
+            problems.append("the first beat purpose must be introduce")
+        if plan.beats[-1].purpose != "conclude":
+            problems.append("the final beat purpose must be conclude")
+    elif plan.beats and plan.beats[0].purpose not in {"introduce", "conclude"}:
+        problems.append("a one-slide deck purpose must be introduce or conclude")
+
+    for field_name, text in (
+        ("thesis", plan.thesis),
+        ("opening", plan.opening),
+        ("closing", plan.closing),
+    ):
+        if not narrative_sentence_is_complete(text):
+            problems.append(f"{field_name} must be one complete sentence")
+
+    messages_by_id: dict[str, NarrativeMessage] = {}
+    message_owners: dict[str, list[int]] = {}
+    known_source_ids = {
+        source.source_id
+        for source in (raw_input.source_records or initial_source_records(raw_input))
+    }
+    prior_message_texts: list[tuple[str, str]] = []
+    for message in plan.messages:
+        if message.message_id in messages_by_id:
+            problems.append(f"messageId {message.message_id} is duplicated")
+            continue
+        messages_by_id[message.message_id] = message
+        if not narrative_sentence_is_complete(message.text):
+            problems.append(f"message {message.message_id} must be one complete sentence")
+        unknown_source_refs = set(message.source_refs) - known_source_ids
+        if unknown_source_refs:
+            problems.append(
+                f"message {message.message_id} uses unknown sourceRefs "
+                + ", ".join(sorted(unknown_source_refs))
+            )
+        normalized = normalize_structural_content_text(message.text)
+        duplicate_id = next(
+            (
+                prior_id
+                for prior_id, prior_text in prior_message_texts
+                if normalized == normalize_structural_content_text(prior_text)
+                or speaker_note_token_overlap(prior_text, message.text) >= 0.9
+                or speaker_note_character_similarity(prior_text, message.text) >= 0.9
+            ),
+            None,
+        )
+        if len(normalized) >= 20 and duplicate_id is not None:
+            problems.append(
+                f"message {message.message_id} repeats narrative message {duplicate_id}"
+            )
+        prior_message_texts.append((message.message_id, message.text))
+
+    for beat in plan.beats:
+        if beat.order == 1:
+            if beat.bridge_from_previous:
+                problems.append("the first beat bridgeFromPrevious must be empty")
+        elif not narrative_sentence_is_complete(beat.bridge_from_previous):
+            problems.append(
+                f"beat {beat.order} bridgeFromPrevious must be one complete sentence"
+            )
+        elif speaker_note_unit_is_filler(
+            SpeakerNoteUnit(
+                role="transition",
+                required=True,
+                text=beat.bridge_from_previous,
+            )
+        ):
+            problems.append(
+                f"beat {beat.order} bridgeFromPrevious must not be generic filler"
+            )
+        for message_id in beat.owned_message_ids:
+            message_owners.setdefault(message_id, []).append(beat.order)
+            owned_message = messages_by_id.get(message_id)
+            if owned_message is None:
+                problems.append(
+                    f"beat {beat.order} owns unknown messageId {message_id}"
+                )
+            elif owned_message.introduced_at != beat.order:
+                problems.append(
+                    f"message {message_id} introducedAt must match owner beat {beat.order}"
+                )
+        for message_id in beat.context_message_ids:
+            context_message = messages_by_id.get(message_id)
+            if context_message is None:
+                problems.append(
+                    f"beat {beat.order} references unknown context message {message_id}"
+                )
+            elif context_message.introduced_at >= beat.order:
+                problems.append(
+                    f"beat {beat.order} context message {message_id} must come from an earlier beat"
+                )
+
+    for message_id, message in messages_by_id.items():
+        owners = message_owners.get(message_id, [])
+        if owners != [message.introduced_at]:
+            problems.append(
+                f"message {message_id} must have exactly one owner at beat "
+                f"{message.introduced_at}"
+            )
+    if len(plan.beats) > 1:
+        final_beat = plan.beats[-1]
+        if not final_beat.context_message_ids:
+            problems.append("the final conclude beat must recall an earlier message")
+        for message_id in final_beat.owned_message_ids:
+            final_message = messages_by_id.get(message_id)
+            if final_message is not None and final_message.role != "action":
+                problems.append(
+                    f"the final beat may introduce only action messages, received {message_id}"
+                )
+    return unique_non_empty(problems)
+
+
+def narrative_plan_cache_key(model: str, prompt: str) -> tuple[str, str, str]:
+    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    return (model, DECK_NARRATIVE_PLAN_CACHE_VERSION, digest)
+
+
+def narrative_plan_prompt(raw_input: RawInput) -> str:
+    return "\n".join(
+        [
+            deck_content_prompt(raw_input),
+            "Plan the complete spoken narrative before writing any slide content.",
+            "Assign every message to exactly one owner slide and use contextMessageIds "
+            "only to recall earlier messages.",
+        ]
+    )
+
+
+def generate_deck_narrative_plan_with_llm(
+    raw_input: RawInput,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> DeckNarrativePlan | None:
+    if raw_input.generation_mode != "design-pack":
+        return None
+    resolved_model = model or "gpt-4.1-mini"
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            if requires_llm_content(raw_input):
+                raise DeckContentGenerationError(
+                    "OPENAI_API_KEY is required for prompt or reference-based deck generation."
+                )
+            return None
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    prompt = narrative_plan_prompt(raw_input)
+    cache_key = narrative_plan_cache_key(resolved_model, prompt)
+    cached_plan = DECK_NARRATIVE_PLAN_CACHE.get(cache_key)
+    if cached_plan is not None:
+        DECK_NARRATIVE_PLAN_CACHE.move_to_end(cache_key)
+        return deepcopy(cached_plan)
+
+    output_text = ""
+    parse_error = ""
+    plan: DeckNarrativePlan | None = None
+    try:
+        response = api_client.responses.create(
+            model=resolved_model,
+            instructions=DECK_NARRATIVE_INSTRUCTIONS,
+            input=prompt,
+            text=deck_narrative_response_format(raw_input),
+        )
+        output_text = str(getattr(response, "output_text", "")).strip()
+        plan = DeckNarrativePlan.model_validate_json(output_text)
+    except Exception as error:
+        parse_error = str(error)
+
+    problems = (
+        deck_narrative_plan_problems(raw_input, plan)
+        if plan is not None
+        else [f"invalid narrative response: {parse_error or 'empty output'}"]
+    )
+    if problems:
+        repair_prompt = "\n".join(
+            [
+                prompt,
+                "Narrative repair reasons:",
+                *[f"- {problem}" for problem in problems],
+                "Current narrative response:",
+                output_text or "(invalid or empty)",
+            ]
+        )
+        try:
+            response = api_client.responses.create(
+                model=resolved_model,
+                instructions=DECK_NARRATIVE_REPAIR_INSTRUCTIONS,
+                input=repair_prompt,
+                text=deck_narrative_response_format(raw_input),
+            )
+            plan = DeckNarrativePlan.model_validate_json(
+                str(getattr(response, "output_text", "")).strip()
+            )
+        except Exception as error:
+            raise DeckContentGenerationError(
+                f"DECK_NARRATIVE_PLAN_FAILED: {error}"
+            ) from error
+        problems = deck_narrative_plan_problems(raw_input, plan)
+    if problems:
+        raise DeckContentGenerationError(
+            "DECK_NARRATIVE_PLAN_FAILED: " + "; ".join(problems[:8])
+        )
+    if plan is None:
+        raise DeckContentGenerationError(
+            "DECK_NARRATIVE_PLAN_FAILED: narrative plan is missing"
+        )
+
+    DECK_NARRATIVE_PLAN_CACHE[cache_key] = deepcopy(plan)
+    DECK_NARRATIVE_PLAN_CACHE.move_to_end(cache_key)
+    while len(DECK_NARRATIVE_PLAN_CACHE) > DECK_CONTENT_PLAN_CACHE_MAX:
+        DECK_NARRATIVE_PLAN_CACHE.popitem(last=False)
+    return plan
+
+
+def content_prompt_with_narrative(
+    raw_input: RawInput,
+    narrative_plan: DeckNarrativePlan | None,
+) -> str:
+    prompt = deck_content_prompt(raw_input)
+    if narrative_plan is None:
+        return prompt
+    return "\n".join(
+        [
+            prompt,
+            "Verified Deck narrative plan:",
+            json.dumps(narrative_plan.model_dump(by_alias=True), ensure_ascii=False),
+        ]
+    )
+
+
 def generate_content_plan_with_llm(
     raw_input: RawInput,
     *,
+    narrative_plan: DeckNarrativePlan | None = None,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
@@ -5112,7 +5911,7 @@ def generate_content_plan_with_llm(
 
         api_client = OpenAI(api_key=api_key)
 
-    prompt = deck_content_prompt(raw_input)
+    prompt = content_prompt_with_narrative(raw_input, narrative_plan)
     cache_key = deck_content_plan_cache_key(resolved_model, prompt)
     cached_plan = DECK_CONTENT_PLAN_CACHE.get(cache_key)
     if cached_plan is not None:
@@ -5132,9 +5931,15 @@ def generate_content_plan_with_llm(
                 "\n- For summary require core and action. For solution/process require core, "
                 "evidence, and action. For other body slides require core, evidence, "
                 "and interpretation. Mark these required=true and put them first."
+                "\n- Follow the supplied narrative purpose instead when a verified Deck "
+                "narrative plan is present. Add its bridgeFromPrevious as the first required "
+                "transition unit on every slide after the first."
             ),
             input=prompt,
-            text=deck_content_response_format_for(raw_input),
+            text=deck_content_response_format_for(
+                raw_input,
+                narrative_plan=narrative_plan,
+            ),
         )
     except Exception as error:
         raise DeckContentGenerationError(
@@ -5170,6 +5975,7 @@ def generate_content_plan_with_llm(
         repaired_plan = repair_slide_count_with_llm(
             raw_input,
             plan,
+            narrative_plan=narrative_plan,
             client=api_client,
             model=resolved_model,
         )
@@ -5200,12 +6006,13 @@ def repair_slide_count_with_llm(
     raw_input: RawInput,
     plan: GeneratedDeckContentPlan,
     *,
+    narrative_plan: DeckNarrativePlan | None = None,
     client: Any,
     model: str,
 ) -> GeneratedDeckContentPlan | None:
     prompt = "\n".join(
         [
-            deck_content_prompt(raw_input),
+            content_prompt_with_narrative(raw_input, narrative_plan),
             f"Requested exact slide count: {raw_input.slide_count}",
             f"Current slide count: {len(plan.slides)}",
             "Current content plan:",
@@ -5220,6 +6027,7 @@ def repair_slide_count_with_llm(
             text=deck_content_response_format_for(
                 raw_input,
                 exact_slide_count=raw_input.slide_count,
+                narrative_plan=narrative_plan,
             ),
         )
         return GeneratedDeckContentPlan.model_validate_json(
@@ -5236,6 +6044,7 @@ def deck_content_plan_cache_key(model: str, prompt: str) -> tuple[str, str, str]
 
 def clear_deck_content_plan_cache() -> None:
     DECK_CONTENT_PLAN_CACHE.clear()
+    DECK_NARRATIVE_PLAN_CACHE.clear()
 
 
 def deck_content_prompt(raw_input: RawInput) -> str:
@@ -5349,12 +6158,18 @@ def compact_design_prompt(design_prompt: str) -> str:
 def slide_plans_from_generated_content(
     raw_input: RawInput,
     plan: GeneratedDeckContentPlan,
+    *,
+    narrative_plan: DeckNarrativePlan | None = None,
 ) -> list[SlidePlan]:
     keyword_pool = reference_keywords_for(raw_input.reference_keywords)
     slide_plans: list[SlidePlan] = []
     content_item_ids: set[str] = set()
+    narrative_beats = {
+        beat.order: beat for beat in narrative_plan.beats
+    } if narrative_plan is not None else {}
 
     for index, slide in enumerate(plan.slides[: raw_input.slide_count], start=1):
+        narrative_beat = narrative_beats.get(index)
         slide_keywords = merge_keywords(keyword_pool, slide.keywords)
         fallback_type = slide_type_for(index, raw_input.slide_count)
         slide_type = normalize_slide_type(slide.slide_type, fallback_type)
@@ -5379,8 +6194,20 @@ def slide_plans_from_generated_content(
                 GeneratedContentItem(
                     contentItemId=f"content_{index}_{item_index}",
                     text=item.text,
+                    messageRefs=item.message_refs,
                 )
                 for item_index, item in enumerate(content_items, start=1)
+            ]
+        if narrative_beat is not None:
+            content_items = [
+                GeneratedContentItem(
+                    contentItemId=item.content_item_id,
+                    text=item.text,
+                    messageRefs=(
+                        item.message_refs or narrative_beat.owned_message_ids
+                    ),
+                )
+                for item in content_items
             ]
         duplicate_content_ids = [
             item.content_item_id
@@ -5440,6 +6267,11 @@ def slide_plans_from_generated_content(
                     for unit in slide.speaker_note_units
                 ],
                 speaker_note_units_structured=bool(slide.speaker_note_units),
+                narrative_beat=(
+                    narrative_beat.model_copy(deep=True)
+                    if narrative_beat is not None
+                    else None
+                ),
             )
         )
 
@@ -5456,6 +6288,7 @@ def content_items_from_message(message: str, slide_order: int) -> list[Generated
         GeneratedContentItem(
             contentItemId=f"content_{slide_order}_{index}",
             text=part,
+            messageRefs=[],
         )
         for index, part in enumerate(parts, start=1)
         if part
