@@ -113,11 +113,17 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     const scriptProgress = scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
+    const prompterProgressBeforeResult = prompterProgressTracker.snapshot();
     const isDuplicatePrompterFinal =
-      result.isFinal && !prompterFinalDeduplicator.acceptFinal(result);
+      result.isFinal &&
+      !prompterFinalDeduplicator.acceptFinal(result, {
+        slideId: prompterProgressBeforeResult.slideId,
+        revision: prompterProgressBeforeResult.revision,
+        currentSentenceId: prompterProgressBeforeResult.currentSentenceId
+      });
 
     if (!isDuplicatePrompterFinal) {
-      const prompterProgress = prompterProgressTracker.snapshot();
+      const prompterProgress = prompterProgressBeforeResult;
       let lookaheadCarry: PrompterLookaheadCarry | null = null;
       const currentSentence = sentences.find(
         (sentence) => sentence.sentenceId === prompterProgress.currentSentenceId
@@ -208,7 +214,12 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       if (result.isFinal) {
         const committed = acceptPrompterBoundary({ type: "stt-final", atMs });
         if (committed) {
-          prompterFinalDeduplicator.markCommitted(result);
+          const progressAfterCommit = prompterProgressTracker.snapshot();
+          prompterFinalDeduplicator.markCommitted(result, {
+            slideId: progressAfterCommit.slideId,
+            revision: progressAfterCommit.revision,
+            currentSentenceId: progressAfterCommit.currentSentenceId
+          });
           if (lookaheadCarry) {
             inheritPrompterLookaheadEvidence(lookaheadCarry);
           }

@@ -655,7 +655,7 @@ describe("SpeechTracker", () => {
     });
   });
 
-  it("identity가 없는 동일 final도 commit 이후 재전달로 다음 문장을 넘기지 않는다", () => {
+  it("identity가 없는 동일 transcript도 dedupe window 이후 새 발화로 처리한다", () => {
     let nowMs = 0;
     const tracker = createSpeechTracker({
       slideId: "slide_1",
@@ -675,8 +675,34 @@ describe("SpeechTracker", () => {
     tracker.acceptResult({ ...result, timestampMs: [2_000, 3_000] });
 
     expect(tracker.snapshot().prompterProgress).toMatchObject({
-      currentSentenceId: "sentence_2",
-      committedSentenceIds: ["sentence_1"]
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"]
+    });
+  });
+
+  it("manual previous 이후 identity 없는 동일 문장을 다시 commit할 수 있다", () => {
+    let nowMs = 1_000;
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: "반복해서 설명할 수 있는 발표 문장입니다.",
+      keywords: [],
+      now: () => nowMs
+    });
+    const result = {
+      text: "반복해서 설명할 수 있는 발표 문장입니다",
+      isFinal: true,
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(result);
+    expect(tracker.manualPreviousPrompter(1_100)).toBe(true);
+    nowMs = 1_100;
+    tracker.acceptResult({ ...result, timestampMs: [1_100, 1_500] });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1"],
+      finalSentenceCommitted: true
     });
   });
 
