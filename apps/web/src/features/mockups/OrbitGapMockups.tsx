@@ -25,7 +25,6 @@ import {
   OrbitStatus,
   OrbitTextarea
 } from "../../design-system";
-import { AiPptMockupPage } from "../ai-ppt/AiPptMockupPage";
 import { ChallengeQnaPage } from "../coaching/ChallengeQnaPage";
 import type { ChallengeQnaView } from "../coaching/challengeQnaApi";
 import { FocusedPracticePage } from "../coaching/FocusedPracticePage";
@@ -80,11 +79,11 @@ const catalogItems = [
     title: "청중 입장"
   },
   {
-    category: "고립된 독립 페이지",
-    description: "기존 AI PPT 위저드를 목업 플로우에서 확인합니다.",
+    category: "fixture-only 목업",
+    description: "운영 API와 분리된 발표 기준 입력 흐름을 확인합니다.",
     icon: <IconPresentation size={24} />,
     path: "/mockup/ai-ppt",
-    title: "AI PPT 상세 위저드"
+    title: "AI 발표 기준 입력"
   }
 ] as const;
 
@@ -118,7 +117,7 @@ export function OrbitMockupCatalog(props: MockupNavigateProps) {
 }
 
 export function OrbitAiPptConnectedMockup(props: MockupNavigateProps) {
-  return <div className="gap-ai-ppt-connected"><button onClick={() => props.onNavigate("/mockup/catalog")} type="button"><IconArrowLeft size={17} /> 목업 맵</button><AiPptMockupPage /></div>;
+  return <OrbitPresentationBriefMockup {...props} />;
 }
 
 const audienceOptions = ["처음 듣는 청중", "실무자", "의사결정자"];

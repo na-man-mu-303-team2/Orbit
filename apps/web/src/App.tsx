@@ -60,7 +60,7 @@ import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
-import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
+import { AiPptCreationPage } from "./features/ai-ppt/AiPptCreationPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
@@ -706,7 +706,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "signup") {
     return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
   }
-  if (route.name === "create-deck") return <AiPptWizardPage />;
+  if (route.name === "create-deck") return <AiPptCreationPage />;
   if (route.name === "project-list") {
     return <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />;
   }

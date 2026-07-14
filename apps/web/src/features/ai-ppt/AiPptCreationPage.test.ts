@@ -24,7 +24,7 @@ import {
   startReferenceExtraction,
   toAiPptUserErrorMessage,
   type PaletteOption
-} from "./AiPptMockupPage";
+} from "./AiPptCreationPage";
 
 const palette: PaletteOption = {
   optionId: "resort-blue",
@@ -844,7 +844,7 @@ describe("AI PPT wizard payload", () => {
 
   it("submits the compiled request and navigates only after successful polling", () => {
     const source = fs.readFileSync(
-      new URL("./AiPptMockupPage.tsx", import.meta.url),
+      new URL("./AiPptCreationPage.tsx", import.meta.url),
       "utf8"
     );
     const submitStart = source.indexOf("async function submitGeneration(");

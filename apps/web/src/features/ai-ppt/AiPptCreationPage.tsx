@@ -47,7 +47,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { OrbitIconButton } from "../../design-system";
 import { createProject, deleteProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
-import "./ai-ppt-mockup.css";
+import "./ai-ppt-creation.css";
 
 type StepId = "brief" | "style" | "color" | "references" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
@@ -406,7 +406,7 @@ export function buildAiPptAdvisorSuggestions(
   return suggestions.slice(0, 3);
 }
 
-export function AiPptMockupPage() {
+export function AiPptCreationPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
   const [form, setForm] = useState(initialAiPptWizardState);
   const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
