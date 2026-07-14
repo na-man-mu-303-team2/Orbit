@@ -53,6 +53,26 @@ describe("PhraseExtractor", () => {
     expect(sentences[2].candidates.length).toBeLessThanOrEqual(3);
   });
 
+  it("블랙리스트 표현만 제거하고 주변의 식별 가능한 토큰은 후보로 유지한다", () => {
+    const extractor = createDefaultPhraseExtractor();
+
+    const [sentence] = extractor.extract(
+      "ORBIT을 안녕하세요 소개하겠습니다."
+    );
+
+    expect(sentence).toMatchObject({
+      matchable: true
+    });
+    expect(sentence?.candidates.map((candidate) => candidate.text)).toContain(
+      "ORBIT을 소개하겠습니다"
+    );
+    expect(
+      sentence?.candidates.every(
+        (candidate) => !candidate.text.includes("안녕하세요")
+      )
+    ).toBe(true);
+  });
+
   it("명시적인 speaker notes 줄바꿈을 문장부호보다 우선하는 대본 줄로 사용한다", () => {
     const extractor = createDefaultPhraseExtractor();
 

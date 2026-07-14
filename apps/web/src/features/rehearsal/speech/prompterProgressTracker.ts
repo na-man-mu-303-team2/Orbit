@@ -28,6 +28,7 @@ export type PrompterProgressSnapshot = {
   currentSentenceId: string | null;
   candidateSentenceId: string | null;
   candidateSinceMs: number | null;
+  hasCurrentLexicalEvidence?: boolean;
   committedSentenceIds: string[];
   lastCommittedSentenceId: string | null;
   lastCommitSource: "lexical" | "semantic-assisted" | "manual" | null;
@@ -57,6 +58,7 @@ export function createPrompterProgressTracker(options: {
   let phase: PrompterProgressPhase = "tracking";
   let latestEvidence: PrompterProgressEvidence | null = null;
   let candidateSinceMs: number | null = null;
+  let hasCurrentLexicalEvidence = false;
   let committedSentenceIds: string[] = [];
   let lastCommittedSentenceId: string | null = null;
   let lastCommitSource: PrompterProgressSnapshot["lastCommitSource"] = null;
@@ -73,6 +75,9 @@ export function createPrompterProgressTracker(options: {
 
     latestEvidence = evidence;
     if (evidence.candidate) {
+      if (evidence.source === "lexical") {
+        hasCurrentLexicalEvidence = true;
+      }
       phase = "candidate";
       candidateSinceMs ??= evidence.atMs;
     } else {
@@ -119,6 +124,7 @@ export function createPrompterProgressTracker(options: {
     lastCommittedSentenceId = committedSentenceIds.at(-1) ?? null;
     lastCommitSource = null;
     revision += 1;
+    hasCurrentLexicalEvidence = false;
     clearCandidate();
     return true;
   }
@@ -129,6 +135,7 @@ export function createPrompterProgressTracker(options: {
     lastCommittedSentenceId = null;
     lastCommitSource = null;
     revision += 1;
+    hasCurrentLexicalEvidence = false;
     clearCandidate();
   }
 
@@ -142,6 +149,7 @@ export function createPrompterProgressTracker(options: {
       candidateSentenceId:
         phase === "candidate" ? (latestEvidence?.sentenceId ?? null) : null,
       candidateSinceMs,
+      hasCurrentLexicalEvidence,
       committedSentenceIds: [...committedSentenceIds],
       lastCommittedSentenceId,
       lastCommitSource,
@@ -172,6 +180,7 @@ export function createPrompterProgressTracker(options: {
     lastCommitSource = source;
     currentIndex += 1;
     revision += 1;
+    hasCurrentLexicalEvidence = false;
     clearCandidate();
     return true;
   }

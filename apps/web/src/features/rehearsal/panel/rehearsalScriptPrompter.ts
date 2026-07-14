@@ -27,21 +27,29 @@ export function createRehearsalScriptPrompterRows(input: {
       ? input.coveredSentenceIds
       : new Set(input.coveredSentenceIds);
   const matchableSentences = input.sentences.filter((sentence) => sentence.matchable);
-  const currentSentence = findCurrentMatchableSentence(
+  const trackingSentence = findCurrentMatchableSentence(
     matchableSentences,
     input.prompterProgress
   );
   const finalFocusSentence =
-    !currentSentence && input.prompterProgress?.finalSentenceCommitted
+    !trackingSentence && input.prompterProgress?.finalSentenceCommitted
       ? (matchableSentences.at(-1) ?? null)
       : null;
-  const focusSentence = currentSentence ?? finalFocusSentence;
-  const nextSentence = currentSentence
-    ? findNextMatchableSentence(
+  const leadingDisplaySentence = findLeadingUnmatchableDisplaySentence(
+    input.sentences,
+    trackingSentence,
+    input.prompterProgress
+  );
+  const focusSentence =
+    leadingDisplaySentence ?? trackingSentence ?? finalFocusSentence;
+  const nextSentence = leadingDisplaySentence
+    ? trackingSentence
+    : trackingSentence
+      ? findNextMatchableSentence(
         matchableSentences,
-        currentSentence.sentenceId
+        trackingSentence.sentenceId
       )
-    : null;
+      : null;
 
   return input.sentences.map((sentence) => {
     const covered = coveredSentenceIds.has(sentence.sentenceId);
@@ -51,15 +59,6 @@ export function createRehearsalScriptPrompterRows(input: {
         ? "paraphrased"
         : "covered"
       : null;
-
-    if (!sentence.matchable) {
-      return {
-        sentence,
-        status: "unmatchable",
-        coverageStatus,
-        isFocusTarget: sentence.sentenceId === focusSentence?.sentenceId
-      };
-    }
 
     if (sentence.sentenceId === focusSentence?.sentenceId) {
       return {
@@ -74,6 +73,15 @@ export function createRehearsalScriptPrompterRows(input: {
       return {
         sentence,
         status: "next",
+        coverageStatus,
+        isFocusTarget: false
+      };
+    }
+
+    if (!sentence.matchable) {
+      return {
+        sentence,
+        status: "unmatchable",
         coverageStatus,
         isFocusTarget: false
       };
@@ -95,6 +103,36 @@ export function createRehearsalScriptPrompterRows(input: {
       isFocusTarget: false
     };
   });
+}
+
+function findLeadingUnmatchableDisplaySentence(
+  sentences: readonly ExtractedSentence[],
+  trackingSentence: ExtractedSentence | null,
+  prompterProgress?: PrompterProgressSnapshot
+) {
+  if (!trackingSentence) {
+    return null;
+  }
+
+  const hasReachedTrackingSentence =
+    prompterProgress?.hasCurrentLexicalEvidence === true ||
+    prompterProgress?.candidateSentenceId === trackingSentence.sentenceId ||
+    (prompterProgress?.committedSentenceIds.length ?? 0) > 0;
+  if (hasReachedTrackingSentence) {
+    return null;
+  }
+
+  const leadingSentences = sentences.filter(
+    (sentence) => sentence.index < trackingSentence.index
+  );
+  if (
+    leadingSentences.length === 0 ||
+    leadingSentences.some((sentence) => sentence.matchable)
+  ) {
+    return null;
+  }
+
+  return leadingSentences[0] ?? null;
 }
 
 export function getRehearsalScriptFocusSentenceId(

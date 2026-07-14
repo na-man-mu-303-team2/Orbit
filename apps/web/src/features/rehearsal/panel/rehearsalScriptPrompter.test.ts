@@ -7,6 +7,43 @@ import {
 } from "./rehearsalScriptPrompter";
 
 describe("createRehearsalScriptPrompterRows", () => {
+  it("shows a leading unmatchable greeting as current before lexical evidence", () => {
+    const rows = createRehearsalScriptPrompterRows({
+      sentences: introSentences,
+      coveredSentenceIds: [],
+      prompterProgress: progress({ currentSentenceId: "sentence_2" })
+    });
+
+    expect(rows.map((row) => [row.sentence.sentenceId, row.status])).toEqual([
+      ["sentence_1", "current"],
+      ["sentence_2", "next"],
+      ["sentence_3", "pending"]
+    ]);
+    expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
+      "sentence_1"
+    );
+  });
+
+  it("moves focus from the ignored greeting when the next sentence gets lexical evidence", () => {
+    const rows = createRehearsalScriptPrompterRows({
+      sentences: introSentences,
+      coveredSentenceIds: [],
+      prompterProgress: progress({
+        currentSentenceId: "sentence_2",
+        hasCurrentLexicalEvidence: true
+      })
+    });
+
+    expect(rows.map((row) => [row.sentence.sentenceId, row.status])).toEqual([
+      ["sentence_1", "unmatchable"],
+      ["sentence_2", "current"],
+      ["sentence_3", "next"]
+    ]);
+    expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
+      "sentence_2"
+    );
+  });
+
   it("keeps a candidate sentence current when coaching coverage changes", () => {
     const rows = createRehearsalScriptPrompterRows({
       sentences,
@@ -187,6 +224,33 @@ const sentences: ExtractedSentence[] = [
     sentenceId: "sentence_5",
     text: "마지막 줄",
     index: 4,
+    isFinalTrigger: true,
+    matchable: true,
+    candidates: []
+  }
+];
+
+const introSentences: ExtractedSentence[] = [
+  {
+    sentenceId: "sentence_1",
+    text: "안녕하세요",
+    index: 0,
+    isFinalTrigger: false,
+    matchable: false,
+    candidates: []
+  },
+  {
+    sentenceId: "sentence_2",
+    text: "이번 발표에서는 ORBIT 출시 목표를 공유하겠습니다",
+    index: 1,
+    isFinalTrigger: false,
+    matchable: true,
+    candidates: []
+  },
+  {
+    sentenceId: "sentence_3",
+    text: "마지막으로 실행 계획을 정리하겠습니다",
+    index: 2,
     isFinalTrigger: true,
     matchable: true,
     candidates: []

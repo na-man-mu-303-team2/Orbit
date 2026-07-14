@@ -32,6 +32,22 @@ describe("createPrompterProgressTracker", () => {
       phase: "candidate",
       currentSentenceId: "sentence_1",
       candidateSentenceId: "sentence_1",
+      hasCurrentLexicalEvidence: true,
+      committedSentenceIds: []
+    });
+  });
+
+  it("lexical evidence 시작 여부를 candidate 해제 뒤에도 유지한다", () => {
+    const tracker = createTracker();
+
+    tracker.acceptEvidence(evidence());
+    tracker.acceptEvidence(evidence({ candidate: false, atMs: 1_100 }));
+
+    expect(tracker.snapshot()).toMatchObject({
+      phase: "tracking",
+      currentSentenceId: "sentence_1",
+      candidateSentenceId: null,
+      hasCurrentLexicalEvidence: true,
       committedSentenceIds: []
     });
   });

@@ -3,6 +3,41 @@ import { describe, expect, it } from "vitest";
 import { createSpeechTracker } from "./speechTracker";
 
 describe("SpeechTracker", () => {
+  it("인사말은 진행률 분모에서 제외하고 다음 문장의 lexical evidence를 즉시 표시한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "안녕하세요. 이번 발표에서는 ORBIT 출시 목표를 공유하겠습니다. 마지막으로 실행 계획을 정리하겠습니다.",
+      keywords: []
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      matchableSentenceCount: 2,
+      sentenceCoverage: 0,
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        hasCurrentLexicalEvidence: false,
+        committedSentenceIds: []
+      }
+    });
+
+    tracker.acceptResult({
+      text: "이번 발표에서는 ORBIT 출시 목표",
+      isFinal: false,
+      timestampMs: [0, 500]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      matchableSentenceCount: 2,
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_2",
+        hasCurrentLexicalEvidence: true,
+        committedSentenceIds: []
+      }
+    });
+  });
+
   it("partial 전사에서도 키워드를 즉시 체크하고 final 문장 진행과 함께 유지한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
