@@ -169,6 +169,55 @@ final result: passed
 
 ---
 
+## Rehearsal Design-System Token Migration (2026-07-14)
+
+- Source visual truth: `/tmp/orbit-rehearsal-token-before.jpg` and the canonical ORBIT guidance in `docs/orbit-design-system.md`.
+- Implementation screenshots: `/tmp/orbit-rehearsal-token-final-desktop.jpg`, `/tmp/orbit-rehearsal-token-final-timing.jpg`, and `/tmp/orbit-rehearsal-token-status-panel.jpg`.
+- Viewport/state: `1280x720`, rehearsal running without microphone input, slide 1 of 8, stopwatch active.
+- Route: `http://localhost:5174/rehearsal/project_3e0e3c8e-5766-4158-8e91-09cf1a52735a?snapshotPreparationId=38f55d3c-b72e-4387-a7e7-cbe63b146f15`.
+
+### Full-view comparison evidence
+
+The source and final desktop screenshots were opened together at the same viewport and rehearsal state. The initial capture retained a blue legacy primary action, pushed the 360px coaching column beyond the viewport, and left only a partial presenter canvas visible. The final capture keeps the current slide, timer, coach panel, next-slide preview, and lyric prompter inside the `1280px` viewport. The stage remains the dominant surface while the timer and presenter action use canonical Lilac and Ink roles.
+
+### Focused region comparison evidence
+
+The timer/prompter and coaching-panel captures were inspected separately because their small labels and semantic states are not readable in the full-view comparison. The stopwatch uses the ORBIT mono token; total and per-slide tracks use Ink by default, Warning near the target, and Danger beyond the five-second tolerance. The lyric surface uses Ink with white focus text, muted surrounding lines, the existing scroll affordance, and Lilac focus treatment. The formerly unstyled system-status list now uses Info Soft, semantic icon colors, 12–13px support text, and a bounded count pill.
+
+### Required fidelity surfaces
+
+- Fonts and typography: passed. Pretendard/Inter/system fallbacks, ORBIT UI/caption sizes, mono stopwatch numerals, and existing slide typography are preserved.
+- Spacing and layout rhythm: passed. The `24px` page grid, `20–24px` primary gaps, `8/12/16px` internal rhythm, panel radii, and hairline borders use the documented scale. At `1120px` and below the workspace becomes a vertical flow rather than clipping the coach panel.
+- Colors and visual tokens: passed. Canvas, Surface, Ink, Lilac, Lilac Strong, Lime, Info Soft, Warning, Danger, Border, and Focus tokens replace the legacy blue/teal styling in the migrated rehearsal surface.
+- Image quality and asset fidelity: passed. The current and next-slide renderers reuse the original deck assets without replacement, filtering, or distortion.
+- Copy and content: passed. Rehearsal labels, timing values, script text, live-STT state, and system-status explanations remain unchanged.
+- Icons and accessibility: passed. Existing outline icons remain visually consistent; icon-only controls retain accessible names and at least 44px targets in the migrated timer and slide controls. Keyboard focus uses `--orbit-ds-focus`.
+
+### Comparison history
+
+1. P1 — the first design-system pass still allowed later global CSS to win, leaving the primary display action and timer card blue. Fixed with rehearsal-shell-scoped selectors that resolve directly to canonical tokens.
+2. P1 — the initial `1280px` capture pushed the coaching column outside the viewport. Fixed by preserving the 360px desktop column at available widths and adding a tested single-column fallback at `1120px`.
+3. P2 — an early responsive fallback collapsed the slide row because the full-height shell still overrode the feature stylesheet. Fixed with higher-specificity responsive height/grid rules and verified computed dimensions.
+4. P2 — `SemanticCapabilityStatus` had no visual styles and rendered as a plain list. Added a token-based Info Soft status surface with semantic warning/error colors.
+5. Post-fix evidence — the final `1280x720` screenshot reports layout bounds `30.3–1249.7px`, main width `787.4px`, side width `360px`, and no horizontal overflow.
+
+### Interaction and verification
+
+- Timer pause changed the action to `리허설 다시 시작`; resuming restored `타이머 일시정지`.
+- The current rehearsal remained active after exceeding the slide target and exposed the Danger progress state instead of auto-ending.
+- The coach panel retained independent scrolling; the lyric prompter remained independently scrollable.
+- Browser console: no errors or warnings (only Vite debug and React DevTools informational entries).
+- Web suite: 141 files, 962 tests passed.
+- Web lint/typecheck: passed.
+- Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
+- `git diff --check`: passed.
+
+No actionable P0/P1/P2 visual findings remain. No focused crop was needed beyond the timer/prompter and coach-panel captures because the slide imagery and primary toolbar were fully readable in the full-view comparison.
+
+final result: passed
+
+---
+
 ## Reference Upload Annotations (2026-07-13)
 
 - Source visual truth: current task attachment, `Browser Comment 2` (`/createdeck`, 2192 x 1164)
