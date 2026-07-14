@@ -1,9 +1,11 @@
 import {
+  coachingIdSchema,
   completeFocusedPracticeAudioRequestSchema,
   createFocusedPracticeAttemptRequestSchema,
   createFocusedPracticeSessionRequestSchema,
   deckSchema,
   focusedPracticeAttemptSchema,
+  focusedPracticeAttemptSummarySchema,
   focusedPracticeSessionSchema,
   rehearsalEvaluationSnapshotSchema,
   type Deck,
@@ -54,6 +56,18 @@ export class FocusedPracticeService {
         [projectId, request.clientRequestId],
       ));
       if (existing) return { session: toSession(existing) };
+      const resumeLockKey = [
+        projectId,
+        actorUserId,
+        request.sourceFullRunId,
+        request.sourceGoalSetId,
+        [...request.goalIds].sort().join(","),
+        canonical(request.targetScope),
+      ].join(":");
+      await manager.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        [resumeLockKey],
+      );
       const rows = await manager.query(
         `
           SELECT runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state,
@@ -95,6 +109,25 @@ export class FocusedPracticeService {
         snapshot,
         deckResult.success ? deckResult.data : null,
       );
+      if (targetResolution.compatibilityState === "current") {
+        const resumable = first(await manager.query(
+          `SELECT * FROM focused_practice_sessions
+           WHERE project_id = $1
+             AND created_by = $2
+             AND source_full_run_id = $3
+             AND source_goal_set_id = $4
+             AND goal_ids_json @> $5::jsonb
+             AND goal_ids_json <@ $5::jsonb
+             AND target_scope_json = $6::jsonb
+             AND status = 'active'
+             AND compatibility_state = 'current'
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [projectId, actorUserId, request.sourceFullRunId, request.sourceGoalSetId,
+            JSON.stringify(request.goalIds), JSON.stringify(request.targetScope)],
+        ));
+        if (resumable) return { session: toSession(resumable) };
+      }
       const now = new Date().toISOString();
       const session = focusedPracticeSessionSchema.parse({
         practiceSessionId: `practice_${randomUUID()}`,
@@ -149,6 +182,51 @@ export class FocusedPracticeService {
       [sessionId],
     )).map(toAttempt);
     return { session: toSession(row), attempts, stabilization: deriveStabilization(attempts) };
+  }
+
+  async getAttemptSummary(projectId: string, sourceFullRunId: string, actorUserId: string) {
+    const validatedRunId = coachingIdSchema.parse(sourceFullRunId);
+    await this.projects.assertCanReadProject(projectId, actorUserId);
+    const rows = await this.dataSource.query(
+      `SELECT goals.goal_id,
+              COUNT(attempts.attempt_id) FILTER (
+                WHERE attempts.status = 'succeeded'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(COALESCE(attempts.goal_outcomes_json, '[]'::jsonb)) outcome
+                    WHERE outcome->>'goalId' = goals.goal_id
+                      AND outcome->>'outcome' = 'passed'
+                  )
+              )::int AS passed_count
+       FROM practice_goal_heads heads
+       JOIN practice_goal_sets sets
+         ON sets.project_id = heads.project_id
+        AND sets.goal_set_id = heads.current_goal_set_id
+       JOIN practice_goals goals
+         ON goals.project_id = sets.project_id
+        AND goals.goal_set_id = sets.goal_set_id
+       LEFT JOIN focused_practice_sessions sessions
+         ON sessions.project_id = goals.project_id
+        AND sessions.source_full_run_id = sets.source_full_run_id
+        AND sessions.source_goal_set_id = sets.goal_set_id
+        AND sessions.created_by = $3
+        AND sessions.goal_ids_json @> jsonb_build_array(goals.goal_id)
+       LEFT JOIN focused_practice_attempts attempts
+         ON attempts.project_id = sessions.project_id
+        AND attempts.practice_session_id = sessions.practice_session_id
+       WHERE heads.project_id = $1
+         AND heads.source_full_run_id = $2
+       GROUP BY goals.goal_id, goals.priority
+       ORDER BY goals.priority ASC`,
+      [projectId, validatedRunId, actorUserId],
+    );
+    return focusedPracticeAttemptSummarySchema.parse({
+      sourceFullRunId: validatedRunId,
+      goals: (Array.isArray(rows) ? rows : []).map((row) => ({
+        goalId: row.goal_id,
+        passedCount: Number(row.passed_count),
+      })),
+    });
   }
 
   async createAttempt(sessionId: string, actorUserId: string, body: unknown) {

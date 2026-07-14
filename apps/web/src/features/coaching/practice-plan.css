@@ -45,9 +45,13 @@
 .practice-report-summary strong { font-size: 16px; }
 .practice-report-summary li p { color: var(--orbit-ds-text-muted); font-size: 14px; margin: 7px 0 0; }
 .practice-report-summary .orbit-ds-status { align-items: center; display: inline-flex; gap: 5px; }
+.practice-goal-result { align-items: flex-end; display: flex; flex-direction: column; gap: 12px; }
+.practice-pass-marks { display: flex; gap: 12px; }
+.practice-pass-marks > span { align-items: center; background: #8a8a8a; border-radius: 50%; color: white; display: inline-flex; height: 34px; justify-content: center; width: 34px; }
+.practice-pass-marks > span.is-passed { background: #1daf55; }
 .practice-report-summary-state > p { align-items: center; border-top: 1px solid var(--orbit-ds-border); color: var(--orbit-ds-text-muted); display: flex; gap: 8px; line-height: 1.6; margin: 24px 0 0; padding-top: 20px; }
 .practice-report-summary-state > p svg { color: var(--orbit-ds-lilac-strong); flex: 0 0 auto; }
-@media (max-width: 680px) { .practice-report-summary { padding: 22px; } .practice-report-summary > header { align-items: start; gap: 18px; } .practice-report-summary li { grid-template-columns: 30px 1fr; } .practice-report-summary .orbit-ds-status { grid-column: 2; justify-self: start; } }
+@media (max-width: 680px) { .practice-report-summary { padding: 22px; } .practice-report-summary > header { align-items: start; gap: 18px; } .practice-report-summary li { grid-template-columns: 30px 1fr; } .practice-goal-result { align-items: flex-start; grid-column: 2; } .practice-report-summary .orbit-ds-status { justify-self: start; } }
 .practice-goal-reminder { align-items: center; background: var(--orbit-ds-lilac-soft); border: 1px solid var(--orbit-ds-lilac); border-radius: var(--orbit-ds-radius-control); color: var(--orbit-ds-ink); display: flex; gap: 12px; margin: 12px 20px; padding: 12px 14px; }
 .practice-goal-reminder > span { display: flex; flex: 1; font-size: 13px; gap: 8px; line-height: 1.45; }
 .practice-goal-reminder button { background: transparent; border: 0; border-radius: var(--orbit-ds-radius-control); color: inherit; display: flex; padding: 5px; }

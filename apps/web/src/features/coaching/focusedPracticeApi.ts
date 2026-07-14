@@ -1,7 +1,9 @@
 import {
   focusedPracticeAttemptSchema,
+  focusedPracticeAttemptSummarySchema,
   focusedPracticeSessionSchema,
   type FocusedPracticeAttempt,
+  type FocusedPracticeAttemptSummary,
   type FocusedPracticeSession,
   type PracticePlanResponse,
 } from "@orbit/shared";
@@ -9,6 +11,18 @@ import { normalizeCoachingAudioMimeType } from "./coachingAudioMimeType";
 
 const jsonHeaders = { "content-type": "application/json" };
 async function json(response: Response) { if (!response.ok) throw new Error("부분 연습 요청에 실패했습니다."); return response.json(); }
+
+export async function getFocusedPracticeSummary(
+  projectId: string,
+  sourceFullRunId: string,
+): Promise<FocusedPracticeAttemptSummary> {
+  const query = new URLSearchParams({ sourceFullRunId });
+  const data = await json(await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/focused-practice-summary?${query}`,
+    { credentials: "include" },
+  ));
+  return focusedPracticeAttemptSummarySchema.parse(data);
+}
 
 export async function createFocusedSession(projectId: string, plan: Extract<PracticePlanResponse, { status: "ready" }>, goalId: string, clientRequestId: string) {
   const goal = plan.goals.find((item) => item.goalId === goalId);
