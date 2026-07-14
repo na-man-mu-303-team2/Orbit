@@ -347,6 +347,22 @@ export const focusedPracticeAttemptSchema = z
   })
   .strict();
 
+export const focusedPracticeAttemptSummarySchema = z
+  .object({
+    sourceFullRunId: coachingIdSchema,
+    goals: z
+      .array(
+        z
+          .object({
+            goalId: coachingIdSchema,
+            passedCount: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(3),
+  })
+  .strict();
+
 export const createFocusedPracticeSessionRequestSchema = z
   .object({
     clientRequestId: clientRequestIdSchema,
@@ -387,6 +403,9 @@ export type PracticeVerificationSummary = z.infer<
 >;
 export type FocusedPracticeSession = z.infer<typeof focusedPracticeSessionSchema>;
 export type FocusedPracticeAttempt = z.infer<typeof focusedPracticeAttemptSchema>;
+export type FocusedPracticeAttemptSummary = z.infer<
+  typeof focusedPracticeAttemptSummarySchema
+>;
 export type CreateFocusedPracticeSessionRequest = z.infer<
   typeof createFocusedPracticeSessionRequestSchema
 >;

@@ -1,7 +1,4 @@
-import {
-  calculateWordMultisetRecall,
-  tokenizeSpeechRecallWords
-} from "./speechMatcher";
+import { calculateWordMultisetRecall, tokenizeSpeechRecallWords } from "./speechMatcher";
 
 export type PrompterLexicalSentence = {
   sentenceId: string;
@@ -54,29 +51,36 @@ export function createPrompterLexicalEvidenceAccumulator(
       return snapshot();
     }
 
-    const resultCounts = countWords(
-      tokenizeSpeechRecallWords(result.transcriptText)
-    );
+    const resultCounts = countWords(tokenizeSpeechRecallWords(result.transcriptText));
+    let hasRelevantResultToken = false;
+    let evidenceIncreased = false;
     for (const [word, count] of resultCounts.entries()) {
       const maximumUsefulCount = scriptWordCounts.get(word) ?? 0;
       if (maximumUsefulCount === 0) {
         continue;
       }
 
-      observedWordCounts.set(
-        word,
-        Math.min(
-          maximumUsefulCount,
-          Math.max(observedWordCounts.get(word) ?? 0, count)
-        )
+      hasRelevantResultToken = true;
+      const previousObservedCount = observedWordCounts.get(word) ?? 0;
+      const nextObservedCount = Math.min(
+        maximumUsefulCount,
+        Math.max(previousObservedCount, count)
       );
+      if (nextObservedCount > previousObservedCount) {
+        evidenceIncreased = true;
+      }
+      observedWordCounts.set(word, nextObservedCount);
     }
 
-    sentenceProgressRatio = Math.max(
+    const nextSentenceProgressRatio = Math.max(
       sentenceProgressRatio,
       clampRatio(result.sentenceProgressRatio)
     );
-    updatedAtMs = result.atMs;
+    const progressAdvanced = nextSentenceProgressRatio > sentenceProgressRatio;
+    sentenceProgressRatio = nextSentenceProgressRatio;
+    if (evidenceIncreased || progressAdvanced) {
+      updatedAtMs = result.atMs;
+    }
 
     const nextSnapshot = snapshot();
     const signature = [
@@ -84,13 +88,15 @@ export function createPrompterLexicalEvidenceAccumulator(
       nextSnapshot.terminalAnchorMatched,
       nextSnapshot.sentenceProgressRatio
     ].join(":");
-    stableResultCount =
-      nextSnapshot.matchedMeaningfulTokenCount === 0
-        ? 0
-        : signature === previousEvidenceSignature
-          ? stableResultCount + 1
-          : 1;
-    previousEvidenceSignature = signature;
+    if (hasRelevantResultToken || progressAdvanced) {
+      stableResultCount =
+        nextSnapshot.matchedMeaningfulTokenCount === 0
+          ? 0
+          : signature === previousEvidenceSignature
+            ? stableResultCount + 1
+            : 1;
+      previousEvidenceSignature = signature;
+    }
     return snapshot();
   }
 
@@ -113,9 +119,7 @@ export function createPrompterLexicalEvidenceAccumulator(
       scriptText: sentence.text,
       transcriptText
     });
-    const matchedMeaningfulTokenCount = Math.round(
-      lexicalRecall * scriptWords.length
-    );
+    const matchedMeaningfulTokenCount = Math.round(lexicalRecall * scriptWords.length);
 
     return {
       sentenceId: sentence.sentenceId,

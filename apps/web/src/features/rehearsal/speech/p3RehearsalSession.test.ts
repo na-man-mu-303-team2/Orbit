@@ -2,20 +2,16 @@ import type { SemanticCapabilityEvent, SemanticCue } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveSttError, type LiveSttPort, type LiveSttResult } from "../stt/liveSttPort";
-import {
-  createP3RehearsalSession,
-  type P3RehearsalSessionSlide
-} from "./p3RehearsalSession";
+import { defaultPauseDetectorConfig } from "../advance/autoAdvanceConfig";
+import { createP3RehearsalSession, type P3RehearsalSessionSlide } from "./p3RehearsalSession";
+import { createPauseDetector } from "./pauseDetector";
 import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
 import { createSemanticCueEmbeddingIndex } from "./semanticCueEmbeddingIndex";
 import { createSemanticCueRuntime } from "./semanticCueRuntime";
 import { createMockSemanticCueNliProvider } from "./mockSemanticCueNliProvider";
 import type { SemanticUtteranceDebugState } from "./semanticSpeechDebug";
 import type { SemanticUtteranceDecision } from "./semanticUtteranceDecision";
-import type {
-  SemanticUtteranceMatcher,
-  SemanticUtteranceMatch
-} from "./semanticUtteranceMatcher";
+import type { SemanticUtteranceMatcher, SemanticUtteranceMatch } from "./semanticUtteranceMatcher";
 import type { SpeechTrackingEvent } from "./speechTrackingEvents";
 
 describe("p3RehearsalSession", () => {
@@ -203,9 +199,7 @@ describe("p3RehearsalSession", () => {
       })
     );
     const startConfig = (port.start as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    const startBiasTexts = startConfig.biasPhrases.map(
-      (phrase: { text: string }) => phrase.text
-    );
+    const startBiasTexts = startConfig.biasPhrases.map((phrase: { text: string }) => phrase.text);
     expect(startBiasTexts).not.toContain("SECRET");
     expect(startBiasTexts).not.toContain("FAR_CODE");
 
@@ -344,9 +338,7 @@ describe("p3RehearsalSession", () => {
     session.enterSlide(1);
     session.enterSlide(0);
 
-    expect(
-      events.filter((event) => event.type === "keyword-missing")
-    ).toMatchObject([
+    expect(events.filter((event) => event.type === "keyword-missing")).toMatchObject([
       {
         type: "keyword-missing",
         slideId: "slide_2",
@@ -409,9 +401,7 @@ describe("p3RehearsalSession", () => {
       isFinal: true,
       timestampMs: [0, 1_000]
     });
-    expect(session.getState().snapshot?.coveredSentenceIds).toEqual([
-      "sentence_1"
-    ]);
+    expect(session.getState().snapshot?.coveredSentenceIds).toEqual(["sentence_1"]);
 
     await session.pause();
     expect(session.getState().status).toBe("paused");
@@ -423,9 +413,7 @@ describe("p3RehearsalSession", () => {
       isFinal: true,
       timestampMs: [0, 500]
     });
-    expect(session.getState().snapshot?.coveredSentenceIds).toEqual([
-      "sentence_1"
-    ]);
+    expect(session.getState().snapshot?.coveredSentenceIds).toEqual(["sentence_1"]);
 
     await session.resume({
       audioSource: { id: "stream-1" } as unknown as MediaStream
@@ -480,6 +468,140 @@ describe("p3RehearsalSession", () => {
     expect(session.getState().snapshot?.prompterProgress).toMatchObject({
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"]
+    });
+  });
+
+  it("다문장 final 뒤 실제 pause detector 경계로 다음 문장까지 commit한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+    const detector = createPauseDetector({
+      config: defaultPauseDetectorConfig,
+      pauseMs: 600
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    detector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
+    port.emit(p3CombinedFinalResult());
+    detector.accept({
+      type: "transcript-activity",
+      atMs: 1_000,
+      isFinal: true
+    });
+
+    expect(session.getState().snapshot?.prompterProgress).toMatchObject({
+      revision: 1,
+      phase: "candidate",
+      currentSentenceId: "sentence_2",
+      candidateSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"],
+      finalSentenceCommitted: false
+    });
+
+    const pauseOutputs = detector.accept({ type: "tick", atMs: 1_600 });
+    for (const output of pauseOutputs) {
+      if (output.type === "pause-started") {
+        session.acceptPrompterPauseBoundary(output.silenceDurationMs);
+      }
+    }
+
+    expect(pauseOutputs).toEqual([{ type: "pause-started", atMs: 1_600, silenceDurationMs: 600 }]);
+    expect(session.getState().snapshot).toMatchObject({
+      finalSentenceCommitted: true,
+      prompterProgress: {
+        revision: 2,
+        currentSentenceId: null,
+        committedSentenceIds: ["sentence_1", "sentence_2"],
+        finalSentenceCommitted: true
+      }
+    });
+  });
+
+  it("동일 final dedupe 뒤에도 별도 pause boundary는 승계 candidate를 commit한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+    const finalResult = p3CombinedFinalResult();
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit(finalResult);
+    port.emit({
+      ...finalResult,
+      timestampMs: [1_000, 1_000],
+      resultRevision: 2
+    });
+
+    expect(session.getState().snapshot?.prompterProgress).toMatchObject({
+      phase: "candidate",
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+    expect(session.acceptPrompterPauseBoundary(600)).toBe(true);
+    expect(session.getState().snapshot?.prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"],
+      finalSentenceCommitted: true
+    });
+  });
+
+  it("pause 없이 동일 final만 반복하면 다음 문장을 추가 commit하지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+    const finalResult = p3CombinedFinalResult();
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit(finalResult);
+    port.emit({ ...finalResult, resultRevision: 2 });
+    port.emit({ ...finalResult, resultRevision: 3 });
+
+    expect(session.getState().snapshot).toMatchObject({
+      finalSentenceCommitted: false,
+      prompterProgress: {
+        revision: 1,
+        phase: "candidate",
+        currentSentenceId: "sentence_2",
+        candidateSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"],
+        finalSentenceCommitted: false
+      }
+    });
+  });
+
+  it("다문장 final의 E5 결과를 같은 boundary로 재사용하지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const semanticMatcher = createMockSemanticMatcher({
+      accepted: true,
+      topMatches: [semanticMatch({ rank: 1, sentenceId: "sentence_2", sentenceIndex: 1 })]
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => true,
+      now: () => 100_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit(p3CombinedFinalResult());
+    await flushSemanticQueue();
+
+    expect(session.getState().snapshot?.prompterProgress).toMatchObject({
+      revision: 1,
+      phase: "candidate",
+      currentSentenceId: "sentence_2",
+      candidateSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"],
+      finalSentenceCommitted: false
     });
   });
 
@@ -607,7 +729,11 @@ describe("p3RehearsalSession", () => {
       slideIndex: 0
     });
     port.emit({ text: "partial text", isFinal: false, timestampMs: [0, 500] });
-    port.emit({ text: "semantic final text", isFinal: true, timestampMs: [500, 1000] });
+    port.emit({
+      text: "semantic final text",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
     await flushSemanticQueue();
 
     expect(semanticMatcher.matchFinalTranscript).toHaveBeenCalledTimes(1);
@@ -650,7 +776,11 @@ describe("p3RehearsalSession", () => {
       audioSource: {} as MediaStream,
       slideIndex: 0
     });
-    port.emit({ text: "semantic final text", isFinal: true, timestampMs: [500, 1000] });
+    port.emit({
+      text: "semantic final text",
+      isFinal: true,
+      timestampMs: [500, 1000]
+    });
     await flushSemanticQueue();
 
     expect(events).toContainEqual({
@@ -898,8 +1028,7 @@ describe("p3RehearsalSession", () => {
         accepted: false,
         topMatches: [semanticMatch({ similarity: 0.87 })],
         decision: semanticDecision({
-          transcript:
-            "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
+          transcript: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다",
           reason: "ad-lib",
           outcome: "ad-lib",
           accepted: false,
@@ -957,8 +1086,7 @@ describe("p3RehearsalSession", () => {
         cueId: "scue_cac_reason",
         label: "covered",
         provider: "mock",
-        premise:
-          "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다"
+        premise: "처음엔 세일즈에 돈이 많이 들어 고객 한 명 데려오는 비용이 컸습니다"
       })
     ]);
   });
@@ -1023,9 +1151,7 @@ describe("p3RehearsalSession", () => {
             cueCount: input.cues.length,
             vectorCount: input.cues.length
           })),
-          retrieveScores: vi.fn(async () =>
-            new Map([["scue_cac_reason", 0.9]])
-          )
+          retrieveScores: vi.fn(async () => new Map([["scue_cac_reason", 0.9]]))
         }
       }),
       isSemanticMatchingEnabled: () => true,
@@ -1057,9 +1183,7 @@ describe("p3RehearsalSession", () => {
       port,
       semanticCueRuntime: {
         prepareSlide: vi.fn(async () => undefined),
-        evaluateFinalResult: vi.fn(
-          async () => await new Promise<never>(() => undefined)
-        )
+        evaluateFinalResult: vi.fn(async () => await new Promise<never>(() => undefined))
       },
       isSemanticMatchingEnabled: () => true,
       semanticQueueFlushTimeoutMs: 5,
@@ -1093,9 +1217,7 @@ describe("p3RehearsalSession", () => {
         })
       ])
     );
-    expect(JSON.stringify(meta.semanticCapabilityEvents)).not.toContain(
-      "대기 중인 의미 근거"
-    );
+    expect(JSON.stringify(meta.semanticCapabilityEvents)).not.toContain("대기 중인 의미 근거");
   });
 
   it("semantic runtime 예외를 STT 실패와 다른 capability reason으로 기록한다", async () => {
@@ -1357,8 +1479,7 @@ describe("p3RehearsalSession", () => {
 const slides: P3RehearsalSessionSlide[] = [
   {
     slideId: "slide_1",
-    speakerNotes:
-      "생성형 AI 초안을 안정적으로 추적합니다. 마지막으로 개인정보를 보호합니다.",
+    speakerNotes: "생성형 AI 초안을 안정적으로 추적합니다. 마지막으로 개인정보를 보호합니다.",
     keywords: [
       {
         keywordId: "kw_ai",
@@ -1384,6 +1505,16 @@ const slides: P3RehearsalSessionSlide[] = [
     controlPhrases: ["다음 슬라이드"]
   }
 ];
+
+function p3CombinedFinalResult(): LiveSttResult {
+  return {
+    text: "생성형 AI 초안을 안정적으로 추적합니다 마지막으로 개인정보를 보호합니다",
+    isFinal: true,
+    timestampMs: [0, 1_000],
+    utteranceId: "utterance_1",
+    resultRevision: 1
+  };
+}
 
 const semanticCueSlides: P3RehearsalSessionSlide[] = [
   {
@@ -1528,9 +1659,7 @@ function createMockSemanticMatcher(options: {
   };
 }
 
-function semanticMatch(
-  override: Partial<SemanticUtteranceMatch>
-): SemanticUtteranceMatch {
+function semanticMatch(override: Partial<SemanticUtteranceMatch>): SemanticUtteranceMatch {
   return {
     rank: 1,
     sentenceId: "sentence_1",
@@ -1542,9 +1671,7 @@ function semanticMatch(
   };
 }
 
-function semanticDecision(
-  override: Partial<SemanticUtteranceDecision>
-): SemanticUtteranceDecision {
+function semanticDecision(override: Partial<SemanticUtteranceDecision>): SemanticUtteranceDecision {
   const topMatches = [semanticMatch({ similarity: 0.87 })];
   return {
     accepted: false,

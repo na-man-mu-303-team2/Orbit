@@ -17,12 +17,35 @@ vi.mock("@orbit/config", () => ({
 }));
 
 describe("FocusedPracticeService", () => {
+  it("summarizes the current user's attempts and passed outcomes for report goals", async () => {
+    const query = vi.fn(async () => [
+      { goal_id: "goal-a", passed_count: 2 },
+      { goal_id: "goal-b", passed_count: 0 },
+    ]);
+    const dataSource = { query } as unknown as DataSource;
+
+    await expect(createService(dataSource).getAttemptSummary("project-a", "run-a", "user-a"))
+      .resolves.toEqual({
+        sourceFullRunId: "run-a",
+        goals: [
+          { goalId: "goal-a", passedCount: 2 },
+          { goalId: "goal-b", passedCount: 0 },
+        ],
+      });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("sessions.created_by = $3"), [
+      "project-a",
+      "run-a",
+      "user-a",
+    ]);
+  });
+
   it("creates an idempotent session only from final goals sharing one target scope", async () => {
     let queryIndex = 0;
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
       queryIndex += 1;
       if (queryIndex === 1) return [];
-      if (queryIndex === 2) return [{
+      if (queryIndex === 2) return [];
+      if (queryIndex === 3) return [{
         deck_id: "deck_a",
         analysis_state: "final",
         goal_set_id: "goalset-a",
@@ -34,8 +57,9 @@ describe("FocusedPracticeService", () => {
           criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
         }],
       }];
-      if (queryIndex === 3) return [{ deck_json: currentDeck() }];
-      if (queryIndex === 4) return [{ practice_session_id: "practice-created" }];
+      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+      if (queryIndex === 5) return [];
+      if (queryIndex === 6) return [{ practice_session_id: "practice-created" }];
       return [];
     });
     const dataSource = {
@@ -52,15 +76,16 @@ describe("FocusedPracticeService", () => {
     });
 
     expect(result.session.status).toBe("active");
-    expect(query.mock.calls[3]?.[0]).toContain("INSERT INTO focused_practice_sessions");
+    expect(query.mock.calls[5]?.[0]).toContain("INSERT INTO focused_practice_sessions");
   });
 
-  it("returns the existing session when concurrent idempotent creation collides", async () => {
+  it("resumes the matching active session when browser storage loses its request ID", async () => {
     let queryIndex = 0;
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
       queryIndex += 1;
       if (queryIndex === 1) return [];
-      if (queryIndex === 2) return [{
+      if (queryIndex === 2) return [];
+      if (queryIndex === 3) return [{
         deck_id: "deck_a",
         analysis_state: "final",
         goal_set_id: "goalset-a",
@@ -72,8 +97,56 @@ describe("FocusedPracticeService", () => {
           criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
         }],
       }];
-      if (queryIndex === 3) return [{ deck_json: currentDeck() }];
-      if (queryIndex === 4) return [];
+      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+      if (queryIndex === 5) return [focusedSessionRow()];
+      return [];
+    });
+    const dataSource = {
+      transaction: vi.fn(async (callback: (manager: { query: typeof query }) => unknown) => callback({ query })),
+    } as unknown as DataSource;
+
+    await expect(createService(dataSource).createSession("project-a", "user-a", {
+      clientRequestId: "request-from-a-new-tab",
+      sourceFullRunId: "run-a",
+      sourceGoalSetId: "goalset-a",
+      goalIds: ["goal-a"],
+      targetScope: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
+    })).resolves.toMatchObject({ session: { practiceSessionId: "practice-existing" } });
+
+    expect(query.mock.calls[1]?.[0]).toContain("pg_advisory_xact_lock");
+    expect(query.mock.calls[4]?.[0]).toContain("status = 'active'");
+    expect(query.mock.calls[4]?.[1]).toEqual([
+      "project-a",
+      "user-a",
+      "run-a",
+      "goalset-a",
+      '["goal-a"]',
+      '{"type":"slide","scopeId":"scope-a","slideId":"slide_a"}',
+    ]);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO focused_practice_sessions"))).toBe(false);
+  });
+
+  it("returns the existing session when concurrent idempotent creation collides", async () => {
+    let queryIndex = 0;
+    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+      queryIndex += 1;
+      if (queryIndex === 1) return [];
+      if (queryIndex === 2) return [];
+      if (queryIndex === 3) return [{
+        deck_id: "deck_a",
+        analysis_state: "final",
+        goal_set_id: "goalset-a",
+        evaluation_snapshot_json: evaluationSnapshot(),
+        goals: [{
+          goal_id: "goal-a",
+          target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
+          measurement_state: "measured",
+          criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
+        }],
+      }];
+      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+      if (queryIndex === 5) return [];
+      if (queryIndex === 6) return [];
       return [focusedSessionRow()];
     });
     const dataSource = {

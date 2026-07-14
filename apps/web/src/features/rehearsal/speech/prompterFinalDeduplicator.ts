@@ -3,9 +3,20 @@ import { normalizeSpeechText } from "./phraseExtractor";
 
 const DEFAULT_DEDUPE_WINDOW_MS = 2_000;
 
+export type PrompterFinalDedupeScope = {
+  slideId: string;
+  revision: number;
+  currentSentenceId: string | null;
+};
+
+type ScopedFallbackFingerprint = {
+  scopeKey: string;
+  seenAtMs: number;
+};
+
 export type PrompterFinalDeduplicator = {
-  acceptFinal: (result: LiveSttResult) => boolean;
-  markCommitted: (result: LiveSttResult) => void;
+  acceptFinal: (result: LiveSttResult, scope: PrompterFinalDedupeScope) => boolean;
+  markCommitted: (result: LiveSttResult, scope: PrompterFinalDedupeScope) => void;
   reset: () => void;
 };
 
@@ -17,17 +28,17 @@ export function createPrompterFinalDeduplicator(options: {
   const fingerprintSalt = createFingerprintSalt();
   const processedRevisionsByUtterance = new Map<string, Set<number>>();
   const committedUtteranceIds = new Set<string>();
-  const recentFallbackFingerprints = new Map<string, number>();
+  const committedFallbackFingerprints = new Map<string, ScopedFallbackFingerprint>();
+  const recentFallbackFingerprints = new Map<string, ScopedFallbackFingerprint>();
 
-  function acceptFinal(result: LiveSttResult) {
+  function acceptFinal(result: LiveSttResult, scope: PrompterFinalDedupeScope) {
     const identity = readResultIdentity(result);
     if (identity) {
       if (committedUtteranceIds.has(identity.utteranceId)) {
         return false;
       }
 
-      const revisions =
-        processedRevisionsByUtterance.get(identity.utteranceId) ?? new Set();
+      const revisions = processedRevisionsByUtterance.get(identity.utteranceId) ?? new Set();
       if (revisions.has(identity.resultRevision)) {
         return false;
       }
@@ -39,43 +50,66 @@ export function createPrompterFinalDeduplicator(options: {
 
     const nowMs = options.now();
     pruneFallbackFingerprints(nowMs);
-    const fingerprint = createSaltedTranscriptFingerprint(
-      result.text,
-      fingerprintSalt
-    );
-    const previousAtMs = recentFallbackFingerprints.get(fingerprint);
-    recentFallbackFingerprints.set(fingerprint, nowMs);
-    if (previousAtMs === undefined) {
-      return true;
+    const fingerprint = createSaltedTranscriptFingerprint(result.text, fingerprintSalt);
+    const scopeKey = createScopeKey(scope);
+    const committedFingerprint = committedFallbackFingerprints.get(fingerprint);
+    if (committedFingerprint?.scopeKey === scopeKey) {
+      return false;
+    }
+    const recentFingerprint = recentFallbackFingerprints.get(fingerprint);
+    if (recentFingerprint?.scopeKey === scopeKey) {
+      return false;
     }
 
-    const ageMs = nowMs - previousAtMs;
-    return ageMs < 0 || ageMs > dedupeWindowMs;
+    recentFallbackFingerprints.set(fingerprint, { scopeKey, seenAtMs: nowMs });
+    return true;
   }
 
-  function markCommitted(result: LiveSttResult) {
+  function markCommitted(result: LiveSttResult, scope: PrompterFinalDedupeScope) {
     const identity = readResultIdentity(result);
     if (identity) {
       committedUtteranceIds.add(identity.utteranceId);
+      return;
     }
+
+    const nowMs = options.now();
+    pruneFallbackFingerprints(nowMs);
+    committedFallbackFingerprints.set(
+      createSaltedTranscriptFingerprint(result.text, fingerprintSalt),
+      {
+        scopeKey: createScopeKey(scope),
+        seenAtMs: nowMs
+      }
+    );
   }
 
   function reset() {
     processedRevisionsByUtterance.clear();
     committedUtteranceIds.clear();
+    committedFallbackFingerprints.clear();
     recentFallbackFingerprints.clear();
   }
 
   function pruneFallbackFingerprints(nowMs: number) {
-    for (const [fingerprint, seenAtMs] of recentFallbackFingerprints) {
-      const ageMs = nowMs - seenAtMs;
+    for (const [fingerprint, record] of recentFallbackFingerprints) {
+      const ageMs = nowMs - record.seenAtMs;
       if (ageMs < 0 || ageMs > dedupeWindowMs) {
         recentFallbackFingerprints.delete(fingerprint);
+      }
+    }
+    for (const [fingerprint, record] of committedFallbackFingerprints) {
+      const ageMs = nowMs - record.seenAtMs;
+      if (ageMs < 0 || ageMs > dedupeWindowMs) {
+        committedFallbackFingerprints.delete(fingerprint);
       }
     }
   }
 
   return { acceptFinal, markCommitted, reset };
+}
+
+function createScopeKey(scope: PrompterFinalDedupeScope) {
+  return JSON.stringify([scope.slideId, scope.revision, scope.currentSentenceId]);
 }
 
 function readResultIdentity(result: LiveSttResult): {
