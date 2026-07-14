@@ -1,4 +1,6 @@
 import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
+import fs from "node:fs";
+import path from "node:path";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +9,11 @@ import {
   KeywordHighlightedNotes,
   KeywordList
 } from "./KeywordInspector";
+
+const editorShellCssPath = path.join(
+  process.cwd(),
+  "src/features/editor/editor-shell.css"
+);
 
 describe("KeywordDetail", () => {
   it("renders selection clearing and deletion controls for a selected keyword", () => {
@@ -85,6 +92,41 @@ describe("KeywordDetail", () => {
 });
 
 describe("KeywordHighlightedNotes", () => {
+  it("keeps punctuation and manual line breaks in the original reading order", () => {
+    const html = renderToString(
+      <KeywordHighlightedNotes
+        keywords={[]}
+        notes={"첫 문장입니다.\n둘째 문장입니다."}
+        selectedKeywordId={null}
+        showIds={false}
+        slideId="slide_1"
+        onSelectKeyword={vi.fn()}
+        onSelectKeywordText={vi.fn()}
+      />
+    );
+
+    expect(html).toContain(
+      "<strong>문장입니다</strong></button>.\n<button"
+    );
+  });
+
+  it("uses natural text spacing and preserves line breaks in the editor stylesheet", () => {
+    const css = fs.readFileSync(editorShellCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.script-copy\s*\{[^}]*white-space:\s*pre-wrap;[^}]*word-break:\s*keep-all;/s
+    );
+    expect(css).toMatch(
+      /\.keyword-note-token\s*\{[^}]*margin:\s*0;[^}]*padding:\s*0;/s
+    );
+    expect(css).toMatch(
+      /\.keyword-note-token strong\s*\{[^}]*font-weight:\s*inherit;/s
+    );
+    expect(css).toMatch(
+      /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*1\.6;/s
+    );
+  });
+
   it("selects only the clicked keyword occurrence when the same keyword appears repeatedly", () => {
     const keyword: Keyword = {
       keywordId: "kw_ai",
