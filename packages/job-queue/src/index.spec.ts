@@ -129,7 +129,7 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project-a",
-      request: { fileId: "file_1", topic: "Topic" }
+      request: { fileId: "file_1" }
     });
 
     expect(queueMock.Queue).toHaveBeenCalledWith(pptxOoxmlGenerationQueueName, {
@@ -140,7 +140,7 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
     });
     expect(queueMock.add).toHaveBeenCalledWith(
       pptxOoxmlGenerationJobName,
-      { jobId: "job-1", projectId: "project-a", request: { fileId: "file_1", topic: "Topic" } },
+      { jobId: "job-1", projectId: "project-a", request: { fileId: "file_1" } },
       expect.objectContaining({ jobId: "job-1", attempts: 5 })
     );
     expect(queueMock.close).toHaveBeenCalled();

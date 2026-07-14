@@ -169,10 +169,17 @@ describe("pptxOoxmlGeneration schemas", () => {
     expect(
       pptxOoxmlGenerationRequestSchema.parse({
         fileId: "file_1",
-        topic: "Topic",
-        prompt: "Prompt",
       }),
-    ).toEqual({ fileId: "file_1", topic: "Topic", prompt: "Prompt" });
+    ).toEqual({ fileId: "file_1" });
+
+    for (const field of ["topic", "prompt", "extraField"]) {
+      expect(
+        pptxOoxmlGenerationRequestSchema.safeParse({
+          fileId: "file_1",
+          [field]: "legacy value",
+        }).success,
+      ).toBe(false);
+    }
 
     const result = pptxOoxmlGenerationJobResultSchema.parse({
       deckId: "deck_ooxml_1",

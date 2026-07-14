@@ -10,9 +10,7 @@ const payload = {
   jobId: "job-ooxml",
   projectId: "project-a",
   request: {
-    fileId: "file_template",
-    topic: "ORBIT",
-    prompt: "Use this template"
+    fileId: "file_template"
   }
 };
 
@@ -76,8 +74,7 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       if (url.endsWith("/ai/pptx-ooxml-generation")) {
         const form = init?.body as FormData;
-        expect(Array.from(form.keys())).toEqual(["project_id", "file_id", "file"]);
-        expect(form.get("project_id")).toBe("project-a");
+        expect(Array.from(form.keys())).toEqual(["file_id", "file"]);
         expect(form.get("file_id")).toBe("file_template");
         return new Response(JSON.stringify(workerResponse()));
       }
@@ -90,10 +87,7 @@ describe("processPptxOoxmlGenerationJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      {
-        ...payload,
-        request: { fileId: "file_template" }
-      }
+      payload
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
@@ -380,6 +374,35 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_SOURCE_FAILED");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each(["topic", "prompt", "extraField"])(
+    "rejects unsupported queue request field %s before source loading",
+    async (field) => {
+      const query = vi.fn(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          params[1] as "running" | "succeeded" | "failed",
+          params[2] as number,
+          params[4] as Record<string, unknown> | null,
+          params[5] as { code: string; message: string } | null
+        )
+      ]);
+      vi.stubGlobal("fetch", vi.fn());
+
+      const job = await processPptxOoxmlGenerationJob(
+        { query } as unknown as DataSource,
+        storage,
+        "http://localhost:8000",
+        {
+          ...payload,
+          request: { fileId: "file_template", [field]: "legacy value" }
+        }
+      );
+
+      expect(job.status).toBe("failed");
+      expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_PAYLOAD_INVALID");
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  );
 });
 
 function workerResponse() {
