@@ -24,8 +24,8 @@ The selected regions are readable in the full comparison, so a separate crop was
 
 - Previous-slide navigation moved to `8 / 29`; next-slide navigation returned to `9 / 29`.
 - Browser console: no errors or warnings.
-- Web suite: 141 files, 992 tests passed.
-- Focused rehearsal/presenter suite: 2 files, 110 tests passed.
+- Web suite: 141 files, 993 tests passed.
+- Focused rehearsal/presenter suite: 2 files, 111 tests passed.
 - Web lint/typecheck: passed.
 - Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
 - `git diff --check`: passed.

@@ -139,8 +139,22 @@ describe("RehearsalWorkspace", () => {
 
     expect(hookBody).toContain("useState<number | null>(null)");
     expect(hookBody).toContain("useLayoutEffect(() => {");
+    expect(hookBody).toContain("const observer = new ResizeObserver(updateScale)");
+    expect(hookBody).toContain('window.addEventListener("resize", updateScale)');
+    expect(hookBody).not.toContain("scheduleScaleUpdate");
     expect(hookBody).not.toContain("useState(0.44)");
     expect(stageRenderBody).toContain("presenterScale !== null");
+  });
+
+  it("keeps the presenter layout width and responsive stage height stable", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: 100%;/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\) 44px;/,
+    );
   });
 
   it("keeps rehearsal assistance mounted while hiding the annotated presenter chrome", () => {
