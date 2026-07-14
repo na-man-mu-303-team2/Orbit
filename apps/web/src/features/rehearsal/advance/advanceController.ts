@@ -29,6 +29,8 @@ export type AdvanceControllerState = {
 
 export type AdvanceControllerSnapshot = {
   effectiveCoverage: number;
+  finalSentenceCommitted: boolean;
+  finalSentenceCommittedAtMs: number | null;
   finalSentenceSpoken: boolean;
   finalSentenceSpokenAtMs: number | null;
   isLastSlide: boolean;
@@ -138,7 +140,7 @@ export function evaluateAdvanceController(
   }
 
   const meetsCoverage = snapshot.effectiveCoverage >= snapshot.policy.threshold;
-  const hasFinalSentence = snapshot.finalSentenceSpoken;
+  const hasFinalSentence = snapshot.finalSentenceCommitted;
   const baseReady = meetsCoverage && hasFinalSentence;
 
   if (snapshot.remainingTriggerSteps > 0 && baseReady) {
