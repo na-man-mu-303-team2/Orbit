@@ -127,4 +127,31 @@ describe("scriptProgressTracker", () => {
     expect(second.sentenceCharOffset).toBeGreaterThan(0);
     expect(second.sentenceRatio).toBeLessThan(1);
   });
+
+  it("emoji가 포함된 canonical offset으로 다음 문장 진행률을 계산한다", () => {
+    const tracker = createScriptProgressTracker(
+      "😀 첫 문장을 설명합니다. 둘째 🚀 문장을 정리합니다."
+    );
+
+    tracker.acceptResult({ text: "😀 첫 문장을 설명합니다", isFinal: false });
+    const first = tracker.acceptResult({
+      text: "😀 첫 문장을 설명합니다",
+      isFinal: true
+    });
+    tracker.acceptResult({ text: "둘째 🚀 문장을", isFinal: false });
+    const second = tracker.acceptResult({
+      text: "둘째 🚀 문장을",
+      isFinal: false
+    });
+
+    expect(first).toMatchObject({
+      totalChars: 28,
+      sentenceId: "sentence_1",
+      sentenceTotalChars: 13,
+      sentenceRatio: 1
+    });
+    expect(second.sentenceId).toBe("sentence_2");
+    expect(second.sentenceCharOffset).toBeGreaterThan(0);
+    expect(second.sentenceRatio).toBeLessThan(1);
+  });
 });

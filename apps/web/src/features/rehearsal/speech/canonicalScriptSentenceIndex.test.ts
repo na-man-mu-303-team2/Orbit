@@ -61,9 +61,30 @@ describe("createCanonicalScriptSentenceIndex", () => {
       { sentenceId: "sentence_2", index: 1, isFinalTrigger: true }
     ]);
     for (const sentence of index.sentences) {
-      expect(index.sourceText.slice(sentence.startOffset, sentence.endOffset)).toBe(
-        sentence.text
-      );
+      expect(
+        Array.from(index.sourceText)
+          .slice(sentence.startOffset, sentence.endOffset)
+          .join("")
+      ).toBe(sentence.text);
+    }
+  });
+
+  it("surrogate pair가 있어도 Unicode code point offset으로 문장을 가리킨다", () => {
+    const index = createCanonicalScriptSentenceIndex(
+      "😀 첫 문장을 설명합니다. 둘째 🚀 문장을 정리합니다."
+    );
+
+    expect(index.sentences).toMatchObject([
+      { text: "😀 첫 문장을 설명합니다", startOffset: 0, endOffset: 13 },
+      { text: "둘째 🚀 문장을 정리합니다", startOffset: 14, endOffset: 28 }
+    ]);
+    expect(Array.from(index.sourceText)).toHaveLength(28);
+    for (const sentence of index.sentences) {
+      expect(
+        Array.from(index.sourceText)
+          .slice(sentence.startOffset, sentence.endOffset)
+          .join("")
+      ).toBe(sentence.text);
     }
   });
 });

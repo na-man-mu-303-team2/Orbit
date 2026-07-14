@@ -206,7 +206,7 @@ function wordLevelMatch(source: string, spoken: string) {
     const normalizedSpokenWord = normalizeWord(spokenWord);
 
     if (isFuzzyWordMatch(normalizedSourceWord, normalizedSpokenWord)) {
-      matchedCharCount += sourceWord.length;
+      matchedCharCount += countUnicodeCodePoints(sourceWord);
       sourceIndex += 1;
       spokenIndex += 1;
       if (sourceIndex < sourceWords.length) {
@@ -232,7 +232,8 @@ function wordLevelMatch(source: string, spoken: string) {
     );
     if (sourceResync !== null) {
       for (let index = sourceIndex; index < sourceResync; index += 1) {
-        matchedCharCount += (sourceWords[index]?.length ?? 0) + 1;
+        matchedCharCount +=
+          countUnicodeCodePoints(sourceWords[index] ?? "") + 1;
       }
       sourceIndex = sourceResync;
       continue;
@@ -339,6 +340,10 @@ function normalizeWord(value: string) {
   return Array.from(value.toLocaleLowerCase("ko-KR"))
     .filter(isLetterOrNumber)
     .join("");
+}
+
+function countUnicodeCodePoints(value: string): number {
+  return Array.from(value).length;
 }
 
 function isLetterOrNumber(value: string) {
