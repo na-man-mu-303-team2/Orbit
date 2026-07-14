@@ -17,6 +17,7 @@ export function createPrompterFinalDeduplicator(options: {
   const fingerprintSalt = createFingerprintSalt();
   const processedRevisionsByUtterance = new Map<string, Set<number>>();
   const committedUtteranceIds = new Set<string>();
+  const committedFallbackFingerprints = new Set<string>();
   const recentFallbackFingerprints = new Map<string, number>();
 
   function acceptFinal(result: LiveSttResult) {
@@ -26,8 +27,7 @@ export function createPrompterFinalDeduplicator(options: {
         return false;
       }
 
-      const revisions =
-        processedRevisionsByUtterance.get(identity.utteranceId) ?? new Set();
+      const revisions = processedRevisionsByUtterance.get(identity.utteranceId) ?? new Set();
       if (revisions.has(identity.resultRevision)) {
         return false;
       }
@@ -39,10 +39,10 @@ export function createPrompterFinalDeduplicator(options: {
 
     const nowMs = options.now();
     pruneFallbackFingerprints(nowMs);
-    const fingerprint = createSaltedTranscriptFingerprint(
-      result.text,
-      fingerprintSalt
-    );
+    const fingerprint = createSaltedTranscriptFingerprint(result.text, fingerprintSalt);
+    if (committedFallbackFingerprints.has(fingerprint)) {
+      return false;
+    }
     const previousAtMs = recentFallbackFingerprints.get(fingerprint);
     recentFallbackFingerprints.set(fingerprint, nowMs);
     if (previousAtMs === undefined) {
@@ -57,12 +57,18 @@ export function createPrompterFinalDeduplicator(options: {
     const identity = readResultIdentity(result);
     if (identity) {
       committedUtteranceIds.add(identity.utteranceId);
+      return;
     }
+
+    committedFallbackFingerprints.add(
+      createSaltedTranscriptFingerprint(result.text, fingerprintSalt)
+    );
   }
 
   function reset() {
     processedRevisionsByUtterance.clear();
     committedUtteranceIds.clear();
+    committedFallbackFingerprints.clear();
     recentFallbackFingerprints.clear();
   }
 

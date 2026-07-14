@@ -9,18 +9,10 @@ describe("createPrompterFinalDeduplicator", () => {
     const deduplicator = createPrompterFinalDeduplicator({ now: () => nowMs });
 
     expect(deduplicator.acceptFinal(finalResult())).toBe(true);
-    expect(
-      deduplicator.acceptFinal(
-        finalResult({ timestampMs: [2_000, 2_100] })
-      )
-    ).toBe(false);
+    expect(deduplicator.acceptFinal(finalResult({ timestampMs: [2_000, 2_100] }))).toBe(false);
 
     nowMs = 3_001;
-    expect(
-      deduplicator.acceptFinal(
-        finalResult({ timestampMs: [3_000, 3_100] })
-      )
-    ).toBe(true);
+    expect(deduplicator.acceptFinal(finalResult({ timestampMs: [3_000, 3_100] }))).toBe(true);
   });
 
   it("utterance revision 중복과 이미 commit된 utterance의 후속 revision을 차단한다", () => {
@@ -48,6 +40,18 @@ describe("createPrompterFinalDeduplicator", () => {
         })
       )
     ).toBe(false);
+  });
+
+  it("identity 없는 final도 commit 이후에는 window 밖 재전달을 차단한다", () => {
+    let nowMs = 1_000;
+    const deduplicator = createPrompterFinalDeduplicator({ now: () => nowMs });
+    const result = finalResult();
+
+    expect(deduplicator.acceptFinal(result)).toBe(true);
+    deduplicator.markCommitted(result);
+    nowMs = 3_001;
+
+    expect(deduplicator.acceptFinal(result)).toBe(false);
   });
 
   it("reset하면 이전 세션의 identity와 fingerprint를 폐기한다", () => {

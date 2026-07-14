@@ -55,14 +55,10 @@ describe("createPrompterProgressTracker", () => {
   it("다른 문장과 이전 revision evidence를 거부한다", () => {
     const tracker = createTracker();
 
-    expect(
-      tracker.acceptEvidence(evidence({ sentenceId: "sentence_2" }))
-    ).toBe(false);
+    expect(tracker.acceptEvidence(evidence({ sentenceId: "sentence_2" }))).toBe(false);
     tracker.manualNext(1_100);
     expect(
-      tracker.acceptEvidence(
-        evidence({ sentenceId: "sentence_2", revision: 0, atMs: 1_200 })
-      )
+      tracker.acceptEvidence(evidence({ sentenceId: "sentence_2", revision: 0, atMs: 1_200 }))
     ).toBe(false);
   });
 
@@ -70,9 +66,7 @@ describe("createPrompterProgressTracker", () => {
     const tracker = createTracker();
     tracker.acceptEvidence(evidence());
 
-    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(
-      true
-    );
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       revision: 1,
       phase: "tracking",
@@ -83,18 +77,39 @@ describe("createPrompterProgressTracker", () => {
       lastCommittedSentenceId: "sentence_1",
       lastCommitSource: "lexical"
     });
-    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_200 })).toBe(
-      false
-    );
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_200 })).toBe(false);
+  });
+
+  it("commit 후 새 revision으로 승계한 evidence는 다음 boundary에서만 commit한다", () => {
+    const tracker = createTracker();
+    tracker.acceptEvidence(evidence());
+
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_000 })).toBe(true);
+    expect(
+      tracker.acceptEvidence(evidence({ sentenceId: "sentence_2", revision: 1, atMs: 1_000 }))
+    ).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      revision: 1,
+      phase: "candidate",
+      currentSentenceId: "sentence_2",
+      candidateSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+
+    expect(tracker.acceptBoundary({ type: "pause-started", atMs: 1_600 })).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      revision: 2,
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"],
+      finalSentenceCommitted: true
+    });
   });
 
   it("다음 문장의 강한 evidence로 현재 위치를 한 문장만 복구한다", () => {
     const tracker = createTracker();
 
     expect(
-      tracker.resyncNext(
-        evidence({ sentenceId: "sentence_2", source: "semantic-assisted" })
-      )
+      tracker.resyncNext(evidence({ sentenceId: "sentence_2", source: "semantic-assisted" }))
     ).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       currentSentenceId: "sentence_2",
@@ -103,9 +118,7 @@ describe("createPrompterProgressTracker", () => {
       lastCommitSource: null
     });
 
-    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(
-      true
-    );
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       currentSentenceId: null,
       committedSentenceIds: ["sentence_2"],
@@ -118,15 +131,11 @@ describe("createPrompterProgressTracker", () => {
     const tracker = createTracker();
     tracker.acceptEvidence(evidence());
 
-    expect(tracker.acceptBoundary({ type: "pause-started", atMs: 2_501 })).toBe(
-      false
-    );
+    expect(tracker.acceptBoundary({ type: "pause-started", atMs: 2_501 })).toBe(false);
     expect(tracker.snapshot().phase).toBe("tracking");
 
     tracker.acceptEvidence(evidence({ atMs: 3_000 }));
-    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 2_999 })).toBe(
-      false
-    );
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 2_999 })).toBe(false);
   });
 
   it("manual next는 한 문장만 이동하고 previous는 해당 commit만 되돌린다", () => {

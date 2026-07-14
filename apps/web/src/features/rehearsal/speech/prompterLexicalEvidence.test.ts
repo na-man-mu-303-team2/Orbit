@@ -52,6 +52,29 @@ describe("createPrompterLexicalEvidenceAccumulator", () => {
     expect(snapshot.stableResultCount).toBe(2);
   });
 
+  it("관련 없는 결과는 누적 evidence 시각과 안정 횟수를 갱신하지 않는다", () => {
+    const evidence = createAccumulator();
+    evidence.acceptResult({
+      sentenceId: "sentence_1",
+      transcriptText: "오르빗 리허설 화면은 발표 흐름과 함께 점검합니다",
+      sentenceProgressRatio: 1,
+      atMs: 1_000
+    });
+
+    const unrelated = evidence.acceptResult({
+      sentenceId: "sentence_1",
+      transcriptText: "확인했습니다",
+      sentenceProgressRatio: 0,
+      atMs: 3_000
+    });
+
+    expect(unrelated).toMatchObject({
+      lexicalRecall: 1,
+      stableResultCount: 1,
+      updatedAtMs: 1_000
+    });
+  });
+
   it("마지막 2~3개 meaningful token을 terminal anchor로 사용한다", () => {
     const evidence = createAccumulator();
 
