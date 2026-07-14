@@ -2009,6 +2009,69 @@ describe("RehearsalWorkspace", () => {
     });
   });
 
+  it("keeps the previous and current prompter sentences distinct after all sentences are covered", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장입니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "두 번째 문장입니다.",
+          index: 1,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_3",
+          text: "마지막 문장입니다.",
+          index: 2,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      ["sentence_1", "sentence_2", "sentence_3"],
+      "",
+    );
+
+    expect(rows).toEqual({
+      previous: "두 번째 문장입니다.",
+      current: "마지막 문장입니다.",
+      next: "",
+    });
+    expect(rows.previous).not.toBe(rows.current);
+  });
+
+  it("leaves the previous prompter sentence empty when the only sentence is covered", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "유일한 문장입니다.",
+          index: 0,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      ["sentence_1"],
+      "",
+    );
+
+    expect(rows).toEqual({
+      previous: "",
+      current: "유일한 문장입니다.",
+      next: "",
+    });
+  });
+
   it("uses E5 script alignment in rehearsal while keeping the NLI runtime out of the live path", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
