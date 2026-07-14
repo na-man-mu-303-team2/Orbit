@@ -1,3 +1,5 @@
+import { splitFocusedPracticeSentences } from "@orbit/shared";
+
 import {
   defaultSpeechTrackingConfig,
   mergeSpeechTrackingConfig,
@@ -72,41 +74,7 @@ export function createDefaultPhraseExtractor(
 }
 
 export function splitSpeakerNotesIntoSentences(speakerNotes: string): string[] {
-  const normalized = speakerNotes
-    .normalize("NFC")
-    .replace(/\r\n?/g, "\n")
-    .replace(/…+/g, "…")
-    .trim();
-
-  if (!normalized) {
-    return [];
-  }
-
-  const explicitLines = normalized
-    .split("\n")
-    .map((line) => formatSentenceText(line))
-    .filter(Boolean);
-  if (explicitLines.length > 1) {
-    return explicitLines;
-  }
-
-  const sentences: string[] = [];
-  let current = "";
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized[index] ?? "";
-    current += char;
-
-    if (!isSentenceBoundary(normalized, index)) {
-      continue;
-    }
-
-    addSentence(sentences, current);
-    current = "";
-  }
-
-  addSentence(sentences, current);
-  return sentences;
+  return splitFocusedPracticeSentences(speakerNotes);
 }
 
 export function normalizeSpeechText(
@@ -440,36 +408,6 @@ function compareCandidateDrafts(left: CandidateDraft, right: CandidateDraft) {
   }
 
   return left.startWordIndex - right.startWordIndex;
-}
-
-function isSentenceBoundary(text: string, index: number) {
-  const char = text[index] ?? "";
-  const next = text[index + 1] ?? "";
-  const previous = text[index - 1] ?? "";
-
-  if (char === "\n") {
-    return true;
-  }
-
-  if (char === "." && /\d/.test(previous) && /\d/.test(next)) {
-    return false;
-  }
-
-  return /[.!?。！？…]/.test(char);
-}
-
-function addSentence(sentences: string[], rawSentence: string) {
-  const sentence = formatSentenceText(rawSentence);
-  if (sentence) {
-    sentences.push(sentence);
-  }
-}
-
-function formatSentenceText(rawSentence: string) {
-  return rawSentence
-    .replace(/[.!?。！？…]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function tokenizeWords(value: string) {
