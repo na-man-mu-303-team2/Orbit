@@ -65,9 +65,27 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     });
 
     expect(results).toEqual([
-      { text: "오르", isFinal: false, timestampMs: [0, 0] },
-      { text: "오르빗", isFinal: false, timestampMs: [0, 0] },
-      { text: "오르빗", isFinal: true, timestampMs: [0, 0] }
+      {
+        text: "오르",
+        isFinal: false,
+        timestampMs: [0, 0],
+        utteranceId: "item_1:0",
+        resultRevision: 1
+      },
+      {
+        text: "오르빗",
+        isFinal: false,
+        timestampMs: [0, 0],
+        utteranceId: "item_1:0",
+        resultRevision: 2
+      },
+      {
+        text: "오르빗",
+        isFinal: true,
+        timestampMs: [0, 0],
+        utteranceId: "item_1:0",
+        resultRevision: 3
+      }
     ]);
   });
 
@@ -156,7 +174,9 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     expect(results.at(-1)).toEqual({
       text: "첫 번째",
       isFinal: true,
-      timestampMs: [0, 0]
+      timestampMs: [0, 0],
+      utteranceId: "item_a:0",
+      resultRevision: 2
     });
   });
 

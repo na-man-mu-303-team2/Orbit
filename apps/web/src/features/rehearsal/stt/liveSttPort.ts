@@ -52,6 +52,8 @@ export type LiveSttResult = {
   text: string;
   isFinal: boolean;
   timestampMs: [number, number];
+  utteranceId?: string;
+  resultRevision?: number;
   confidence?: number;
   alternatives?: LiveSttAlternative[];
 };
