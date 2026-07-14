@@ -1448,12 +1448,14 @@ def test_finalize_speaker_notes_places_scope_preview_first() -> None:
     finalized = finalize_speaker_notes(raw_input, slide_plans)
 
     assert finalized[0].speaker_notes.startswith(
-        "오늘은 트리 탐색의 핵심을 함께 정리해 보겠습니다. "
-        "먼저 DFS·BFS 선택 기준을 확인하고, 실제 적용 기준까지 "
-        "살펴보겠습니다."
+        "오늘은 트리 탐색을 실제로 활용할 때 필요한 기준부터 짚어보겠습니다. "
+        "DFS·BFS 선택 기준부터 시작해서, 실제 상황에 적용하는 방법까지 "
+        "이어가 보겠습니다."
     )
-    assert "먼저 DFS·BFS 선택 기준을 확인하고" in finalized[0].speaker_notes
+    assert "DFS·BFS 선택 기준부터 시작해서" in finalized[0].speaker_notes
     assert "DFS·BFS 선택 기준" in finalized[0].speaker_notes
+    assert "핵심을 함께 정리해 보겠습니다" not in finalized[0].speaker_notes
+    assert "차례로 살펴보겠습니다" not in finalized[0].speaker_notes
     assert "주제로" not in finalized[0].speaker_notes
     assert "이어지는 흐름" not in finalized[0].speaker_notes
 
@@ -10853,6 +10855,9 @@ def test_compiler_rewrites_meta_bridge_as_spoken_logic() -> None:
     assert "앞서" not in bridge
     assert "이번에는" not in bridge
     assert "슬라이드" not in bridge
+    assert "·" not in bridge
+    assert "트리 판별" in bridge
+    assert "DFS" in bridge
     assert speaker_note_unit_is_filler(
         SpeakerNoteUnit(role="transition", required=True, text=bridge)
     ) is False

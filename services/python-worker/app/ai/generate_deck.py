@@ -2033,6 +2033,9 @@ Rules:
   say that the presenter previously explained something or will now discuss something.
   Avoid formulas such as "앞서 A를 설명했고 이번에는 B를 살펴보겠습니다", "이어서",
   and "앞 슬라이드". Do not quote keywords merely to satisfy message references.
+- Write as a presenter speaking to an audience, not as a report describing the deck.
+  Vary sentence endings and do not repeatedly use "정리합니다", "확인하겠습니다",
+  or "살펴보겠습니다". Prefer direct explanation of why the content matters.
 - Do not preview messages owned by future slides or re-explain a prior message as new.
 - Never use "..." or "…" in speaker notes. Never cut a sentence to meet a character
   target. Treat the duration-derived character count as an advisory budget.
@@ -2118,6 +2121,9 @@ Rules:
 - Replace slide-navigation narration such as "앞서 설명한 후 이번에는", "이어서",
   or "앞 슬라이드" with one substantive sentence that states the logical relationship
   between the prior and current messages directly.
+- Preserve natural spoken Korean and vary sentence endings. Do not turn every unit into
+  a deck-navigation phrase ending in "정리합니다", "확인하겠습니다", or
+  "살펴보겠습니다".
 - Keep evidence sourceRefs non-empty and within the slide's allowedSourceRefs.
 - Use only facts directly supported by the supplied slide content and verified sources.
 - Preserve exact names, dates, platforms, availability, and defining features.
@@ -4456,13 +4462,18 @@ def final_speaker_note_fallback_candidates(
     title = opening_scope_label(slide_plan.title, "핵심 내용")
     message = opening_scope_label(slide_plan.message, "")
     candidates = [speaker_note_sentence(message)] if message else []
+    if slide_plan.content_items:
+        candidates.append(
+            complete_recoverable_speaker_note_text(
+                slide_plan.content_items[0].text,
+                "core",
+                slide_plan,
+            )
+        )
     candidates.extend(
         [
-            f"{title}에서 청중이 기억할 핵심 판단 기준을 정리합니다.",
-            (
-                f"발표의 {slide_plan.order}번째 핵심으로 "
-                f"{title}의 적용 기준을 확인합니다."
-            ),
+            f"{title}에서 중요한 건 이 기준을 실제 상황에 맞게 판단하는 것입니다.",
+            f"{title}는 상황에 맞는 선택을 위한 기준으로 기억하면 됩니다.",
         ]
     )
     return unique_non_empty(candidates)
@@ -4557,6 +4568,17 @@ def korean_subject_phrase(text: str) -> str:
     return f"{text}이"
 
 
+def korean_conjunction_phrase(text: str) -> str:
+    last_character = next(
+        (character for character in reversed(text) if character.isalnum()),
+        "",
+    )
+    if "가" <= last_character <= "힣":
+        has_final_consonant = (ord(last_character) - ord("가")) % 28 != 0
+        return f"{text}{'과' if has_final_consonant else '와'}"
+    return f"{text}와"
+
+
 def opening_uses_document_tone(text: str) -> bool:
     normalized = normalize_structural_content_text(text)
     return any(
@@ -4616,7 +4638,10 @@ def natural_narrative_opening_sentences(
 
 def deterministic_opening_topic_sentence(raw_input: RawInput) -> str:
     topic = opening_scope_label(raw_input.topic, "발표 주제")
-    return f"오늘은 {topic}의 핵심을 함께 정리해 보겠습니다."
+    return (
+        f"오늘은 {korean_object_phrase(topic)} 실제로 활용할 때 필요한 기준부터 "
+        "짚어보겠습니다."
+    )
 
 
 def deterministic_opening_roadmap_sentence(
@@ -4631,16 +4656,19 @@ def deterministic_opening_roadmap_sentence(
         ]
     )
     if not labels:
-        return "먼저 핵심 기준을 확인하고, 실제 적용 방법까지 살펴보겠습니다."
+        return (
+            "먼저 기본 개념을 짚고, 마지막에는 실제로 적용하는 방법까지 "
+            "연결해 보겠습니다."
+        )
     first_label = labels[0]
     if len(labels) == 1:
         return (
-            f"먼저 {korean_object_phrase(first_label)} 확인하고, "
-            "실제 적용 기준까지 살펴보겠습니다."
+            f"{first_label}부터 시작해서, 실제 상황에 적용하는 방법까지 "
+            "이어가 보겠습니다."
         )
     return (
-        f"먼저 {korean_object_phrase(first_label)} 확인하고, "
-        f"{labels[-1]}까지 차례로 살펴보겠습니다."
+        f"{first_label}부터 출발해, 마지막에는 {labels[-1]}까지 "
+        "직접 연결해 보겠습니다."
     )
 
 
@@ -4737,19 +4765,19 @@ def complete_recoverable_speaker_note_text(
         return f"{cleaned}."
     if role == "core":
         return (
-            f"{opening_scope_label(slide_plan.title, '핵심 내용')}에서 "
-            f"{korean_object_phrase(cleaned)} 핵심으로 확인하겠습니다."
+            f"{korean_subject_phrase(cleaned)} 이번 내용에서 가장 먼저 잡아야 할 "
+            "기준입니다."
         )
     if role == "interpretation":
         return (
-            f"{korean_subject_phrase(cleaned)} 실제 문제 해결에 어떤 의미인지 "
-            "살펴보겠습니다."
+            f"{korean_subject_phrase(cleaned)} 실제 상황에서 판단 방향을 정하는 "
+            "기준이 됩니다."
         )
     if role == "action":
-        return f"{korean_object_phrase(cleaned)} 실제 풀이에 적용해 보겠습니다."
+        return f"{korean_object_phrase(cleaned)} 실제 상황에 바로 적용해 보면 됩니다."
     if role == "evidence":
         return f"{cleaned}에서 이 설명을 뒷받침하는 근거를 확인할 수 있습니다."
-    return f"{cleaned}도 함께 확인하겠습니다."
+    return f"{korean_object_phrase(cleaned)} 함께 기억해 두면 좋습니다."
 
 
 def fallback_required_speaker_note_unit(
@@ -4778,12 +4806,12 @@ def fallback_required_speaker_note_unit(
     elif role == "interpretation":
         title = opening_scope_label(slide_plan.title, "핵심 내용")
         text = (
-            f"{title}의 핵심 기준이 실제 문제 해결에 어떤 의미인지 "
-            "살펴보겠습니다."
+            f"{title}의 핵심 기준은 실제 상황에서 판단 방향을 정하는 기준이 "
+            "됩니다."
         )
     else:
         title = opening_scope_label(slide_plan.title, "핵심 내용")
-        text = f"{title}에서 확인한 기준을 실제 풀이에 적용해 보겠습니다."
+        text = f"{title}에서 잡은 기준을 실제 상황에 바로 적용해 보면 됩니다."
 
     return SpeakerNoteUnit(
         role=role,
@@ -6938,10 +6966,12 @@ def narrative_anchor_phrase(text: str) -> str:
             or token in words
         ):
             continue
-        words.append(token)
+        words.append(raw_token if re.search(r"[A-Za-z]", raw_token) else token)
         if len(words) == 2:
             break
-    return "·".join(words) or "핵심 조건"
+    if len(words) == 2 and all(re.fullmatch(r"[0-9A-Za-z]+", word) for word in words):
+        return f"{words[0]}와 {words[1]}"
+    return " ".join(words) or "핵심 조건"
 
 
 def compiled_bridge_sentence(
@@ -6971,27 +7001,29 @@ def compiled_bridge_sentence(
     resolved_purpose = purpose or beat.purpose_hint
     if resolved_purpose == "demonstrate":
         return (
-            f"{context_anchor}를 실제 입력에 적용하면, "
-            f"{owned_anchor}의 동작을 확인할 수 있습니다."
+            f"{context_anchor}가 실제로 어떻게 쓰이는지는 "
+            f"{owned_anchor} 예제에서 바로 확인할 수 있습니다."
         )
     if resolved_purpose == "compare":
         return (
-            f"{context_anchor}와 {owned_anchor}의 차이는 문제에서 요구하는 "
-            "결과에 따라 드러납니다."
+            f"{korean_conjunction_phrase(context_anchor)} {owned_anchor} 중 무엇을 "
+            "쓸지는 문제에서 원하는 "
+            "결과가 결정합니다."
         )
     if resolved_purpose == "apply":
         return (
-            f"{context_anchor}를 선택 기준으로 삼으면, "
-            f"{owned_anchor}를 풀이에 바로 적용할 수 있습니다."
+            f"{context_anchor}를 기준으로 잡으면 {owned_anchor}를 실제 상황에 "
+            "바로 적용할 수 있습니다."
         )
     if resolved_purpose == "conclude":
         return (
-            f"{context_anchor}와 {owned_anchor}를 함께 기억하면, "
-            "문제에 맞는 탐색 방법을 직접 선택할 수 있습니다."
+            f"{korean_conjunction_phrase(context_anchor)} {owned_anchor}만 연결해 "
+            "기억하면 상황에 맞는 "
+            "방법을 스스로 고를 수 있습니다."
         )
     return (
-        f"{context_anchor}의 성격을 이해하면, "
-        f"{owned_anchor}가 필요한 이유도 분명해집니다."
+        f"{context_anchor}를 이해하고 나면 {owned_anchor}가 왜 필요한지도 "
+        "자연스럽게 이어집니다."
     )
 
 
