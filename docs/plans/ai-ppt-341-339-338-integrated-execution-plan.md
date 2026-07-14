@@ -47,7 +47,7 @@ flowchart LR
 | 339-1 | 에디터 PPTX import 전환 | `/pptx-imports` 대신 `/pptx-ooxml-generations`에 `{ fileId }`만 전달한다. 구형 consumer는 아직 유지한다. |
 | 339-2 | OOXML sync·export 완성 | imported Deck의 PUT과 patch 저장 모두 sync를 enqueue한다. `deckId` 기반 PostgreSQL advisory lock으로 sync를 직렬화하고 높은 `ooxmlSyncedDeckVersion`만 조건부 반영한다. export는 최신 sync가 아니면 retry하고, 최신 `currentPackageFileId`를 별도 export asset으로 복사한다. |
 | 339-3 | 레거시 producer 중단 | `/pptx-imports`, `/mockup/ai-ppt`, 구형 HomePage·`GenerateDeckView`, `ai-template-deck-generation` 신규 enqueue를 중단한다. 기존 consumer는 drain을 위해 유지한다. |
-| 339-4 | drain 후 레거시 제거 | 두 queue의 queued/active가 0임을 확인한 다음 API·consumer·queue 등록·active schema를 제거한다. `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
+| 339-4 | drain 후 레거시 제거 | 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0임을 확인한 다음 API·consumer·queue 등록·active schema를 제거한다. 로컬 drain 결과만으로 merge/deploy하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
 | 339-5 | OOXML 순수 변환 계약 | `PptxOoxmlGenerationRequest`를 strict `{ fileId }`로 축소하고 AI slot 생성, OpenAI 입력, apply-slot-text route를 제거한다. TemplateBlueprint mapping은 유지한다. |
 | 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python 모두 extra field를 거부한다. 호환 shim은 두지 않는다. 저장 Deck metadata와 PPTX용 TemplateBlueprint 계약은 유지한다. |
 | 339-7A | Python generation core 분리 | `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. #341 정규화도 `design_planning.py`로 함께 이동한다. |
@@ -125,7 +125,7 @@ uv run pytest
 
 - #341 mismatch fixture가 provider 한 번만 호출하고 최종 Deck snapshot까지 일치한다.
 - PPTX import → PUT/patch 편집 → sync → export → 재-import에서 최신 writable 요소가 유지된다.
-- 레거시 consumer는 drain 전 제거되지 않으며 과거 Job row는 계속 조회된다.
+- 레거시 consumer는 배포 환경 drain 전 제거되지 않으며, 로컬 결과만으로 merge/deploy하지 않고 과거 Job row는 계속 조회된다.
 - duplicate stage message, enqueue 직후 crash, provider 완료 직후 crash, lease 만료를 각각 재현한다.
 - OCR 하나 또는 image 하나의 실패가 다른 shard와 이전 stage를 재실행하지 않는다.
 - queue message에 bytes/base64가 없고 결정적 asset key와 publication upsert가 중복 결과를 막는다.

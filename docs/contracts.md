@@ -750,16 +750,18 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
 
-`/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 3부터 API module이 앱에서 해제되어 신규 요청과 Job 생성이 불가능하다. queue name, consumer, processor, result schema와 historical Job type은 이미 enqueue된 Job의 drain 및 이력 조회를 위해 PR 4까지 유지한다.
+`/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 3부터 신규 요청과 Job 생성을 중단했고, PR 4에서 남은 API tombstone, queue/job constant, consumer, processor를 제거한다. `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 과거 row 조회 호환을 유지하며 `pptxImportJobResultSchema`는 historical result parser로만 남긴다. `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 `pptx-import`를 거부한다.
 
-비활성 Legacy API 경로:
+PR 4의 런타임 제거는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 queued/active 및 예약·repeat 잔여 Job이 없다는 증거를 merge hard gate로 둔다. 로컬 queue와 DB의 drain 결과는 이 배포 환경 증거를 대신하지 않는다.
+
+제거된 Legacy API 계약:
 
 - `POST /api/v1/projects/:projectId/pptx-imports`
 - request: `{ "fileId": "file_1" }`
 - response: `{ "job": "{ JobSchema }" }`
 - Job type: `pptx-import`
 
-이 경로는 앱에 등록되지 않으므로 `404`이며, `enqueuePptxImportJob` export도 존재하지 않는다. 활성 대체 경로는 `POST /api/v1/projects/:projectId/pptx-ooxml-generations`다.
+controller와 module이 제거되어 이 경로는 `404`이며, queue/job constant와 `enqueuePptxImportJob` export도 존재하지 않는다. 활성 대체 경로는 `POST /api/v1/projects/:projectId/pptx-ooxml-generations`다.
 
 Legacy PPTX import job result:
 
@@ -844,8 +846,8 @@ TemplateBlueprint:
 
 - `packages/shared/src/deck/template-blueprint.schema.ts`
 - `services/python-worker/app/ai/pptx_design_importer.py`
-- `apps/api/src/pptx-imports` (PR 4 삭제 전 비활성 tombstone)
-- `apps/worker/src/pptx-import.processor.ts`
+- `apps/worker/src/generate-deck.processor.ts`
+- `apps/worker/src/pptx-ooxml-generation.processor.ts`
 
 ## PPTX OOXML generation contract
 
@@ -902,102 +904,13 @@ TemplateBlueprint optional OOXML tracking fields:
 
 ## AI template deck generation historical contract
 
-#339 PR 3부터 Home의 구형 생성 UI와 API module이 제거되어 신규 `ai-template-deck-generation` Job을 만들 수 없다. 아래 request/result와 queue consumer는 이미 queued/active인 Job의 drain 및 historical row parsing을 위해 PR 4까지 유지한다. 신규 AI PPT 생성은 `/createdeck`의 `generate-deck` `program-v2` 경로를 사용한다.
+#339 PR 3부터 신규 `ai-template-deck-generation` Job 생성을 중단했고, PR 4에서 남은 API tombstone, request/result schema, queue/job constant, consumer, processor를 제거한다. 제거 대상 historical endpoint는 `POST /api/v1/projects/:projectId/jobs/ai-template-deck-generation`이며 controller와 module이 없으므로 `404`다.
 
-비활성 API 경로:
+`historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 `ai-template-deck-generation` 과거 row와 generic `result`를 계속 읽는다. `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 이 type을 거부하고, `packages/job-queue`와 Worker에는 해당 runtime dispatch가 없다.
 
-- `POST /api/v1/projects/:projectId/jobs/ai-template-deck-generation`
-- Job type: `ai-template-deck-generation`
-- Queue name: `ai-template-deck-generation`
+신규 AI PPT 생성은 `/createdeck`의 `generate-deck` `program-v2` 경로만 사용한다. `TemplateBlueprint`, `template_blueprints` 테이블, `purpose: "pptx-import"`, Python `/design/import-pptx`, PPTX OOXML generation/sync/export 경로는 활성 PPTX round-trip 계약이므로 이 레거시 제거 범위에 포함하지 않는다.
 
-이 경로는 앱에 등록되지 않으므로 `404`이며, `enqueueAiTemplateDeckGenerationJob` export도 존재하지 않는다.
-
-Request:
-
-```json
-{
-  "topic": "발표 주제",
-  "prompt": "내용 지시사항",
-  "designPrompt": "디자인 지시사항",
-  "targetDurationMinutes": 10,
-  "slideCountRange": { "min": 5, "max": 8 },
-  "template": "default",
-  "metadata": {
-    "audience": "general",
-    "purpose": "inform",
-    "tone": "professional"
-  },
-  "design": {
-    "visualRhythm": "auto",
-    "densityTarget": "medium",
-    "mediaPolicy": "balanced",
-    "layoutDiversity": "stable"
-  },
-  "assets": [
-    { "fileId": "file_content_1", "role": "content" },
-    { "fileId": "file_design_1", "role": "design" }
-  ]
-}
-```
-
-Rules:
-
-- `assets[].role` is `content`, `design`, or `both`.
-- Exactly one `design` or `both` asset is required.
-- The design asset must be an uploaded PPTX with `purpose: "pptx-import"`.
-- Content assets are sent through `/documents/parse` and become
-  `references`/`referenceKeywords` for `/ai/generate-deck`.
-- A `both` PPTX is sent through both `/documents/parse` and
-  `/ai/pptx-ooxml-generation`; its extracted text is forwarded to
-  `/ai/generate-deck` as `referenceContext` so speaker notes and keywords can
-  be grounded without depending on reference search availability.
-- A `design`-only PPTX is never added to `references`, `referenceKeywords`, or
-  `referenceContext`.
-- The design PPTX is sent through `/ai/pptx-ooxml-generation`; the final
-  generated text is applied through `/ai/pptx-ooxml-apply-slot-texts`.
-- The worker saves the final Deck and creates an initial `deck-replaced`
-  snapshot from that same Deck, including generated `thumbnailUrl` values.
-- Final AI template deck thumbnails come from the generated PPTX render assets;
-  every generated slide must have a matching render asset, and the saved deck
-  sets `metadata.thumbnailSource = "import-render"`.
-- `slideCountRange` is the authoritative user-requested generation range.
-  The reference PPTX page count never overrides it.
-- `referenceSlideCount` means the number of slides imported from the design
-  PPTX. It is only the size of the reusable layout pool.
-- `requestedSlideCountRange` is the exact `{ min, max }` forwarded from the
-  home request to `/ai/generate-deck`.
-- `targetSlideCount` is the Python worker's selected count inside
-  `requestedSlideCountRange`; `generatedSlideCount` is the final
-  `deck.slides.length` and must stay inside that requested range.
-- `templateSelection` maps each generated slide to a reference layout:
-  `{ generatedOrder, sourceSlideIndex, selectionReason }`. The API worker uses
-  this mapping to filter/reorder `TemplateBlueprint.slides` before slot text
-  extraction, PPTX apply, render asset linking, and sidecar save.
-- Successful job results include `timings` as stage durations in seconds, with
-  `prepare.content` and `prepare.design` split so content parsing and PPTX
-  template analysis bottlenecks can be compared.
-- If a reference layout is reused or selected out of source order, the API
-  worker saves generated slides as sequential `sourceSlideIndex` values and
-  stores the original PPTX page in `cloneSourceSlideIndex` and the actual
-  OOXML part in `cloneSourceSlidePart`. The Python worker clones that source
-  part into the generated slide part before applying text, so the saved PPTX
-  package and sidecar have the same slide count and order.
-- `TemplateBlueprint.slides[]` may include semantic selection metadata:
-  `slideRole`, `layoutType`, `contentCapacity`, and `selectionReason`.
-
-Job result:
-
-```json
-{
-  "deckId": "deck_ai_project_1",
-  "templateId": "template_file_design_1",
-  "sourceFileId": "file_design_1",
-  "currentPackageFileId": "file_current_package",
-  "contentReferenceFileIds": ["file_content_1"],
-  "qualityReport": "{ QualityReport }",
-  "warnings": []
-}
-```
+PR 4 merge 전에는 배포 환경의 `ai-template-deck-generation` queue가 PR 3 이후 신규 enqueue 없이 완전히 drain됐다는 운영 증거를 확인해야 한다.
 
 ## PPTX OOXML sync contract
 
@@ -1453,13 +1366,13 @@ live `semanticCueDecisions`는 provisional/debug 호환 필드이며 canonical r
 
 ## Job 상태 구조
 
-PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고서는 모두 동일한 Job 구조를 사용한다.
+PPTX OOXML import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고서는 모두 동일한 Job 구조를 사용한다.
 
 ```json
 {
   "jobId": "job_1",
   "projectId": "project_demo_1",
-  "type": "pptx-import",
+  "type": "pptx-ooxml-generation",
   "status": "queued",
   "progress": 0,
   "message": "작업 대기 중",
@@ -1484,6 +1397,7 @@ historical `type` 값:
 - `reference-extract`
 - `ai-deck-generation`
 - `ai-template-deck-generation`
+- `semantic-cue-extraction`
 - `pptx-ooxml-generation`
 - `pptx-ooxml-sync`
 - `worker-health-check`
@@ -1491,13 +1405,18 @@ historical `type` 값:
 - `rehearsal-semantic-evaluation`
 - `final-report-generation`
 - `report-pdf-export`
+- `focused-practice-analysis`
+- `challenge-qna-generation`
+- `challenge-qna-answer-analysis`
+- `private-audio-cleanup`
 
 결정 사항:
 
 - 오래 걸리는 작업은 전부 Job으로 처리한다.
-- `historicalJobTypeSchema`와 `jobSchema`는 `pptx-import`, `ai-template-deck-generation` 과거 row를 계속 읽는다.
-- PR 3의 `activeJobTypeSchema`는 drain 중인 두 type을 유지하지만 `publicCreatableJobTypeSchema`는 두 type을 거부한다. 두 type의 active schema·consumer·queue 제거는 drain 확인 후 PR 4에서 수행한다.
-- `packages/job-queue`는 두 legacy queue name을 consumer용으로 유지하되 신규 enqueue helper를 export하지 않는다.
+- `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 `pptx-import`, `ai-template-deck-generation` 과거 row를 계속 읽는다.
+- `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 두 historical-only type을 거부한다.
+- `packages/job-queue`는 두 legacy queue/job constant와 enqueue helper를 export하지 않으며 Worker도 해당 queue를 구독하지 않는다.
+- PR 4 merge 전 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue가 완전히 drain됐다는 운영 증거를 확인한다. 로컬 증거만으로 merge gate를 충족하지 않는다.
 - 프론트는 `jobId`로 진행률을 조회한다.
 - Job 조회 API는 `GET /jobs/:jobId`를 기본 경로로 사용하고, 기존/캐시된 web client 호환을 위해 `GET /api/v1/jobs/:jobId`도 같은 응답을 반환한다.
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.
@@ -1769,7 +1688,7 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - `rehearsal-audio`, `focused-practice-audio`, `qna-answer-audio`는 private purpose다.
 - generic file upload/list/get/content는 private purpose를 생성하거나 반환하지 않는다.
 - `focused-practice-analysis`, `challenge-qna-generation`, `challenge-qna-answer-analysis`, `private-audio-cleanup`은 internal Job type이다.
-- public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job과 drain-only `pptx-import`, `ai-template-deck-generation`을 거부한다.
+- public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job과 historical-only `pptx-import`, `ai-template-deck-generation`을 거부한다.
 - Job payload/result에는 canonical ID와 bounded result만 넣고 audio key/URL/bytes, transcript, typed answer, Question/AnswerGuide 원문, reference chunk 원문, speaker notes, provider raw error를 넣지 않는다.
 - Worker는 Job 완료 결과를 generic `z.record(z.unknown())`에 직접 저장하지 않고 해당 Job type의 shared result schema로 검증한 값만 저장한다.
 - Question과 AnswerGuide 원문은 project-private canonical table에만 저장한다.

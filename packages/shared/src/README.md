@@ -33,7 +33,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/generate-deck.schema.ts` | AI 덱 생성 request, response, validation issue, job result 계약. API, worker, web이 같은 generate-deck payload를 검증할 때 사용한다. |
 | `deck/deck-export.schema.ts` | Deck JSON을 PPTX로 export하는 request와 job result 계약. API, worker, web이 같은 export 결과 payload를 검증할 때 사용한다. |
-| `deck/template-blueprint.schema.ts` | PPTX import TemplateBlueprint sidecar, quality report, import job result 계약. Deck/DeckElement schema 변경 없이 template slot 의미를 관리한다. |
+| `deck/template-blueprint.schema.ts` | 활성 PPTX OOXML 경로의 TemplateBlueprint sidecar와 quality report 계약, historical-only `pptxImportJobResultSchema` parser. 활성 Job 결과는 `pptxOoxmlGenerationJobResultSchema`를 사용하며 Deck/DeckElement schema 변경 없이 template slot 의미를 관리한다. |
 | `deck/deck.schema.ts` | deck top-level 구조, presenter timing, metadata, canvas preset, theme, slide layout/style, slide, keyword, slide action schema와 `Deck`, `DeckCanvas`, `DeckMetadata`, `Slide`, `SlideLayout`, `SlideStyle`, `Keyword` 타입. |
 | `deck/id.schema.ts` | deck 내부 ID prefix schema와 `DeckId`, `DeckSlideId`, `DeckElementId`, `DeckAnimationId`, `DeckActionId`, `DeckKeywordId`, `DeckChangeId` 타입. |
 | `deck/patch.schema.ts` | deck 변경 요청과 적용 이력 schema. AI, 편집기, import가 전체 Deck JSON을 다시 만들지 않고 patch operation으로 변경을 전달할 때 사용한다. |
@@ -43,7 +43,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `deck/chart.schema.ts` | chart type, 타입별 chart datum, chart style, chart schema. chart object props 검증에 사용한다. |
 | `deck/theme.schema.ts` | deck theme schema. deck 전체 기본 디자인 토큰, palette, typography, effects 계약을 관리한다. |
 | `files/file.schema.ts` | 파일 업로드 결과, file purpose, rehearsal audio MIME schema와 runtime size limit 주입 helper. |
-| `jobs/job.schema.ts` | 비동기 Job 상태, 진행률, 결과/에러 schema. historical/active type은 drain과 이력 조회를 보존하고 public creatable type은 신규 생성 경계를 제한한다. |
+| `jobs/job.schema.ts` | 비동기 Job 상태, 진행률, 결과/에러 schema. `historicalJobTypeSchema`/`jobTypeSchema`/`jobSchema`는 과거 row 조회를 보존하고, active/public creatable schema는 retired legacy type의 신규 실행을 거부한다. |
 | `projects/project.schema.ts` | 프로젝트 생성/삭제 요청과 프로젝트 응답 schema. |
 | `rehearsals/live-stt.schema.ts` | 발표/리허설 중 온디바이스 Live STT가 내보내는 local transcript, keyword, cue, slide advance event 계약. |
 | `rehearsals/realtime-transcription.schema.ts` | 브라우저 Live STT가 OpenAI Realtime transcription에 연결할 때 API에서 받는 project-scoped client secret 응답 계약. |

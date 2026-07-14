@@ -21,11 +21,11 @@ describe("jobTypeSchema", () => {
     );
   });
 
-  it("keeps legacy job types readable but blocks new creation", () => {
+  it("keeps legacy job types readable but blocks active and public creation", () => {
     for (const type of ["pptx-import", "ai-template-deck-generation"] as const) {
       expect(historicalJobTypeSchema.parse(type)).toBe(type);
       expect(jobTypeSchema.parse(type)).toBe(type);
-      expect(activeJobTypeSchema.parse(type)).toBe(type);
+      expect(activeJobTypeSchema.safeParse(type).success).toBe(false);
       expect(publicCreatableJobTypeSchema.safeParse(type).success).toBe(false);
       expect(
         jobSchema.parse({
@@ -57,6 +57,7 @@ describe("jobTypeSchema", () => {
   it("accepts internal coaching jobs but never exposes them as public create types", () => {
     for (const type of internalCoachingJobTypeSchema.options) {
       expect(jobTypeSchema.parse(type)).toBe(type);
+      expect(activeJobTypeSchema.parse(type)).toBe(type);
       expect(publicCreatableJobTypeSchema.safeParse(type).success).toBe(false);
     }
   });
