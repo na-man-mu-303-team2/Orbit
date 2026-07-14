@@ -63,9 +63,13 @@ describe("createRehearsalScriptPrompterRows", () => {
       ["sentence_1", "current"],
       ["sentence_2", "unmatchable"],
       ["sentence_3", "next"],
-      ["sentence_4", "covered"],
+      ["sentence_4", "pending"],
       ["sentence_5", "pending"]
     ]);
+    expect(rows[3]).toMatchObject({
+      coverageStatus: "covered",
+      isCommitted: false
+    });
     expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
       "sentence_1"
     );
@@ -126,6 +130,7 @@ describe("createRehearsalScriptPrompterRows", () => {
       "sentence_5"
     );
     expect(rows[4]?.coverageStatus).toBe("covered");
+    expect(rows[4]?.isCommitted).toBe(true);
   });
 
   it("preserves a paraphrased badge on the current prompter sentence", () => {
@@ -140,6 +145,7 @@ describe("createRehearsalScriptPrompterRows", () => {
 
     expect(rows[2]?.status).toBe("current");
     expect(rows[2]?.coverageStatus).toBe("paraphrased");
+    expect(rows[2]?.isCommitted).toBe(false);
     expect(getRehearsalScriptFocusSentenceId(sentences, progress({
       currentSentenceId: "sentence_3"
     }))).toBe(

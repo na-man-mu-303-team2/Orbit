@@ -292,7 +292,7 @@ describe("PresenterRemoteWindow", () => {
     );
 
     expect(html).toContain("presenter-script-row--paraphrased");
-    expect(html).toContain("의미 전달");
+    expect(html).toContain("체크됨");
   });
 
   it("retries idempotent remote timer pause commands across transient channel races", () => {

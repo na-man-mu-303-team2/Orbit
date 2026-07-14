@@ -307,11 +307,11 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   ),
                   id: sentence.sentenceId,
                   label:
-                    row.coverageStatus === "paraphrased"
+                    row.isCommitted
+                      ? "체크됨"
+                      : row.coverageStatus === "paraphrased"
                       ? "의미 전달"
-                      : row.coverageStatus === "covered"
-                        ? "체크됨"
-                        : undefined,
+                      : undefined,
                   status: row.status
                 };
               })}

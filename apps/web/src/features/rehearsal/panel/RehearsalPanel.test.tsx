@@ -156,7 +156,7 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("체크됨");
   });
 
-  it("keeps current emphasis and the coaching badge on the same sentence", () => {
+  it("does not mark the current sentence checked before the prompter commits", () => {
     const html = renderPanel({
       snapshot: {
         ...snapshot,
@@ -172,7 +172,7 @@ describe("RehearsalPanel", () => {
     expect(currentRow).toContain("presenter-script-row--current");
     expect(currentRow).toContain("<strong>OpenAI</strong>");
     expect(currentRow).toContain("helps presenters rehearse.");
-    expect(currentRow).toContain("체크됨");
+    expect(currentRow).not.toContain("체크됨");
   });
 
   it("distinguishes semantic paraphrase coverage in the script rows", () => {

@@ -13,6 +13,7 @@ export type RehearsalScriptPrompterRow = {
   sentence: ExtractedSentence;
   status: RehearsalScriptPrompterRowStatus;
   coverageStatus: "covered" | "paraphrased" | null;
+  isCommitted: boolean;
   isFocusTarget: boolean;
 };
 
@@ -26,6 +27,9 @@ export function createRehearsalScriptPrompterRows(input: {
     input.coveredSentenceIds instanceof Set
       ? input.coveredSentenceIds
       : new Set(input.coveredSentenceIds);
+  const committedSentenceIds = new Set(
+    input.prompterProgress?.committedSentenceIds ?? coveredSentenceIds
+  );
   const matchableSentences = input.sentences.filter((sentence) => sentence.matchable);
   const trackingSentence = findCurrentMatchableSentence(
     matchableSentences,
@@ -53,6 +57,7 @@ export function createRehearsalScriptPrompterRows(input: {
 
   return input.sentences.map((sentence) => {
     const covered = coveredSentenceIds.has(sentence.sentenceId);
+    const isCommitted = committedSentenceIds.has(sentence.sentenceId);
     const matchKind = input.coveredSentenceMatchKinds?.[sentence.sentenceId];
     const coverageStatus = covered
       ? matchKind === "paraphrased"
@@ -65,6 +70,7 @@ export function createRehearsalScriptPrompterRows(input: {
         sentence,
         status: "current",
         coverageStatus,
+        isCommitted,
         isFocusTarget: true
       };
     }
@@ -74,6 +80,7 @@ export function createRehearsalScriptPrompterRows(input: {
         sentence,
         status: "next",
         coverageStatus,
+        isCommitted,
         isFocusTarget: false
       };
     }
@@ -83,15 +90,17 @@ export function createRehearsalScriptPrompterRows(input: {
         sentence,
         status: "unmatchable",
         coverageStatus,
+        isCommitted,
         isFocusTarget: false
       };
     }
 
-    if (coverageStatus) {
+    if (isCommitted) {
       return {
         sentence,
-        status: coverageStatus,
+        status: coverageStatus === "paraphrased" ? "paraphrased" : "covered",
         coverageStatus,
+        isCommitted,
         isFocusTarget: false
       };
     }
@@ -100,6 +109,7 @@ export function createRehearsalScriptPrompterRows(input: {
       sentence,
       status: "pending",
       coverageStatus,
+      isCommitted,
       isFocusTarget: false
     };
   });
