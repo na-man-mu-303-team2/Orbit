@@ -98,6 +98,12 @@ const rehearsalWorkspaceSourcePath = fileURLToPath(
 const rehearsalWorkspaceCssPath = fileURLToPath(
   new URL("./rehearsal-workspace-orbit.css", import.meta.url),
 );
+const rehearsalPanelSourcePath = fileURLToPath(
+  new URL("./panel/RehearsalPanel.tsx", import.meta.url),
+);
+const presenterScaffoldSourcePath = fileURLToPath(
+  new URL("../presenter-shell/PresenterScaffold.tsx", import.meta.url),
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -160,13 +166,26 @@ describe("RehearsalWorkspace", () => {
   it("keeps rehearsal assistance mounted while hiding the annotated presenter chrome", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+    const panelSource = fs.readFileSync(rehearsalPanelSourcePath, "utf8");
+    const presenterScaffoldSource = fs.readFileSync(
+      presenterScaffoldSourcePath,
+      "utf8",
+    );
 
     expect(source).toContain('className="rehearsal-assist-card checklist-card"');
     expect(source).toContain('className="rehearsal-teleprompter-progress"');
+    expect(panelSource).toContain(
+      'className="rehearsal-panel-section rehearsal-panel-script"',
+    );
+    expect(presenterScaffoldSource).toContain(
+      'className="rehearsal-side-audio-gauge"',
+    );
     expect(css).toMatch(/\.rehearsal-stage-label,[^{]+\{[^}]*display: none;/s);
     expect(css).toMatch(/\.rehearsal-next-slide-preview \{[^}]*display: none;/s);
     expect(css).toMatch(/\.rehearsal-teleprompter-progress \{[^}]*display: none;/s);
     expect(css).toMatch(/\.rehearsal-panel-live-slot \{[^}]*display: none;/s);
+    expect(css).toMatch(/\.rehearsal-side-audio-gauge,[^{]+\{[^}]*display: none;/s);
+    expect(css).toMatch(/\.rehearsal-panel-script \{[^}]*display: none;/s);
   });
 
   it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
