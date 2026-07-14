@@ -15,9 +15,7 @@ from app.ai.deck_generation.design_planning import (
     resolve_style_prompt_context,
 )
 from app.ai.deck_generation.diagnostics import (
-    generate_deck_diagnostics,
-    generation_warnings,
-    unique_warnings,
+    assemble_generation_diagnostics,
 )
 from app.ai.deck_generation.layout_compiler import (
     compile_layout,
@@ -30,11 +28,13 @@ from app.ai.deck_generation.models import (
     DeckContentGenerationError,
     DeckOutline,
     DesignPlan,
+    GenerationDiagnosticsInput,
     GenerateDeckReference,
     GenerateDeckRequest,
     GenerateDeckResponse,
     ImageReviewMode,
     LayoutCompileResult,
+    PythonQualityInput,
     RawInput,
     ReferenceContext,
     SlidePlan,
@@ -81,6 +81,14 @@ class DeckGenerationOrchestrator:
         raw_input = grounding_result.raw_input
         style_context = resolve_style_prompt_context(raw_input)
         content_plan = self.run_narrative_agent(raw_input, style_context)
+        raw_input = raw_input.model_copy(
+            update={
+                "slide_count": content_plan.slide_count,
+                "timing_plan": content_plan.timing_plan.model_copy(deep=True),
+                "repair_attempted": content_plan.repair_attempted,
+                "repair_reason_codes": list(content_plan.repair_reason_codes),
+            }
+        )
         design_plan = self.run_design_director_agent(
             raw_input,
             content_plan.slide_plans,
@@ -92,7 +100,7 @@ class DeckGenerationOrchestrator:
             design_plan,
             layout_result,
         )
-        layout_result = apply_visual_requirements(
+        visualized_slides = apply_visual_requirements(
             layout_result,
             visual_requirements,
         )
@@ -100,32 +108,40 @@ class DeckGenerationOrchestrator:
             raw_input,
             content_plan.outline,
             design_plan,
-            layout_result,
+            visualized_slides,
         )
         deck = enforce_design_pack_constraints(deck, raw_input)
         self.run_chart_data_agent(deck)
         self.run_media_agent(deck)
-        reviewer_validation = self.run_quality_reviewer_agent(deck)
-        deck, validation = self.run_refiner_agent(deck, reviewer_validation)
-        quality_result = finalize_python_quality(deck, raw_input)
+        reviewer_validation = self.run_quality_reviewer_agent(raw_input, deck)
+        deck, validation = self.run_refiner_agent(
+            raw_input,
+            deck,
+            reviewer_validation,
+        )
+        quality_result = finalize_python_quality(
+            PythonQualityInput(rawInput=raw_input, deck=deck)
+        )
         deck = quality_result.deck
         validation = quality_result.validation
-        warnings = unique_warnings(
-            [
-                *generation_warnings(
-                    raw_input,
-                    len(layout_result.slides),
-                    validation,
+        body_slides = deck.get("slides", [])[1:-1]
+        diagnostics_result = assemble_generation_diagnostics(
+            GenerationDiagnosticsInput(
+                rawInput=raw_input,
+                validation=validation,
+                generatedSlideCount=len(visualized_slides),
+                uniqueCoreLayoutCount=len(
+                    {core_geometry_fingerprint(slide) for slide in body_slides}
                 ),
-                *self.agent_warnings(),
-            ]
+                agentWarnings=self.agent_warnings(),
+            )
         )
         return GenerateDeckResponse(
             deck=deck,
             templateSelection=template_selection,
-            warnings=warnings,
+            warnings=diagnostics_result.warnings,
             validation=validation,
-            diagnostics=generate_deck_diagnostics(raw_input, deck, validation),
+            diagnostics=diagnostics_result.diagnostics,
         )
 
     def record(
@@ -282,8 +298,14 @@ class DeckGenerationOrchestrator:
             artifacts={"imageCount": image_count},
         )
 
-    def run_quality_reviewer_agent(self, deck: dict[str, Any]) -> ValidationResult:
-        quality_result = review_python_quality(deck)
+    def run_quality_reviewer_agent(
+        self,
+        raw_input: RawInput,
+        deck: dict[str, Any],
+    ) -> ValidationResult:
+        quality_result = review_python_quality(
+            PythonQualityInput(rawInput=raw_input, deck=deck)
+        )
         validation = quality_result.validation
         self.record(
             "QualityReviewerAgent",
@@ -294,12 +316,16 @@ class DeckGenerationOrchestrator:
 
     def run_refiner_agent(
         self,
+        raw_input: RawInput,
         deck: dict[str, Any],
         reviewer_validation: ValidationResult,
     ) -> tuple[dict[str, Any], ValidationResult]:
         quality_result = refine_python_quality(
-            deck,
-            reviewer_validation,
+            PythonQualityInput(
+                rawInput=raw_input,
+                deck=deck,
+                reviewerValidation=reviewer_validation,
+            ),
             client=self.client,
             model=self.model,
             api_key=self.api_key,
@@ -317,7 +343,7 @@ class DeckGenerationOrchestrator:
         raw_input: RawInput,
         outline: DeckOutline,
         design_plan: DesignPlan,
-        layout_result: LayoutCompileResult,
+        slides: list[dict[str, Any]],
     ) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "language": "ko",
@@ -355,7 +381,7 @@ class DeckGenerationOrchestrator:
                 "aspectRatio": "16:9",
             },
             "theme": design_plan.theme,
-            "slides": layout_result.slides,
+            "slides": slides,
         }
 
 

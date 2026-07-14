@@ -5606,8 +5606,10 @@ def test_refiner_records_text_overlap_as_layout_issue() -> None:
         GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
         image_review_mode="off",
     )
+    raw_input = analyze_input(orchestrator.request)
 
     _, validation = orchestrator.run_refiner_agent(
+        raw_input,
         deck,
         ValidationResult(passed=True),
     )

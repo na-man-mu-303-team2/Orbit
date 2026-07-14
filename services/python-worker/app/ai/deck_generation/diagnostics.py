@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
-from app.ai.deck_generation.layout_compiler import core_geometry_fingerprint
 from app.ai.deck_generation.models import (
+    GenerationDiagnosticsInput,
+    GenerationDiagnosticsResult,
     GenerateDeckDiagnostics,
     RawInput,
     ValidationIssue,
@@ -13,8 +12,8 @@ from app.ai.deck_generation.models import (
 
 def generate_deck_diagnostics(
     raw_input: RawInput,
-    deck: dict[str, Any],
     validation: ValidationResult,
+    unique_core_layout_count: int,
 ) -> GenerateDeckDiagnostics:
     source_records = raw_input.source_records
     uploaded_source_ids = {
@@ -23,7 +22,6 @@ def generate_deck_diagnostics(
     web_source_urls = {
         record.url for record in source_records if record.source_type == "web" and record.url
     }
-    body_slides = deck.get("slides", [])[1:-1]
     validation_issue_count = sum(
         len(issues)
         for issues in (
@@ -42,9 +40,7 @@ def generate_deck_diagnostics(
         officialWebSourceCount=raw_input.official_web_source_count,
         repairAttempted=raw_input.repair_attempted,
         repairReasons=raw_input.repair_reason_codes,
-        uniqueCoreLayoutCount=(
-            len({core_geometry_fingerprint(slide) for slide in body_slides})
-        ),
+        uniqueCoreLayoutCount=unique_core_layout_count,
         validationIssueCount=validation_issue_count,
     )
 
@@ -81,6 +77,28 @@ def unique_warnings(warnings: list[str]) -> list[str]:
         seen.add(warning)
         result.append(warning)
     return result
+
+
+def assemble_generation_diagnostics(
+    stage_input: GenerationDiagnosticsInput,
+) -> GenerationDiagnosticsResult:
+    return GenerationDiagnosticsResult(
+        warnings=unique_warnings(
+            [
+                *generation_warnings(
+                    stage_input.raw_input,
+                    stage_input.generated_slide_count,
+                    stage_input.validation,
+                ),
+                *stage_input.agent_warnings,
+            ]
+        ),
+        diagnostics=generate_deck_diagnostics(
+            stage_input.raw_input,
+            stage_input.validation,
+            stage_input.unique_core_layout_count,
+        ),
+    )
 
 
 

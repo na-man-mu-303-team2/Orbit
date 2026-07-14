@@ -684,11 +684,22 @@ def test_program_v2_design_and_layout_stages_compile_canonical_backgrounds() -> 
         layout_result,
     )
     assert [item.visual_plan for item in requirements.items] == expected_visual_plans
-    layout_result = apply_visual_requirements(layout_result, requirements)
+    visualized_slides = apply_visual_requirements(layout_result, requirements)
+    assert all(
+        "visualPlan" not in slide["aiNotes"] for slide in layout_result.slides
+    )
     assert [
-        slide["aiNotes"]["visualPlan"] for slide in layout_result.slides
+        slide["aiNotes"]["visualPlan"] for slide in visualized_slides
     ] == expected_visual_plans
-    assert list(layout_result.slides[0]["aiNotes"]) == [
+    assert all(
+        slide["aiNotes"]["visualPlan"] is not requirement.visual_plan
+        for slide, requirement in zip(
+            visualized_slides,
+            requirements.items,
+            strict=True,
+        )
+    )
+    assert list(visualized_slides[0]["aiNotes"]) == [
         "emphasisPoints",
         "sourceEvidence",
         "visualPlan",
@@ -700,7 +711,7 @@ def test_program_v2_design_and_layout_stages_compile_canonical_backgrounds() -> 
         raw_input,
         type("Outline", (), {"title": "Splatoon Raiders"})(),
         design_plan,
-        layout_result,
+        visualized_slides,
     )
 
     assert deck["metadata"]["designProgramSnapshot"]["version"] == "program-v2"
@@ -877,7 +888,7 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
         raw_input,
         type("Outline", (), {"title": "스플래툰 레이더스"})(),
         design_plan,
-        layout_result,
+        layout_result.slides,
     )
 
     composition_ids = [

@@ -33,6 +33,7 @@ from app.ai.deck_generation.models import (
     CANVAS,
     DesignConstraints,
     ImageReviewMode,
+    PythonQualityInput,
     PythonQualityResult,
     RawInput,
     SlideTextOverlapReview,
@@ -2098,7 +2099,8 @@ def correct_text_contrast(element: dict[str, Any], background_color: str) -> Non
         props["color"] = text_color_for_background(background_color)
 
 
-def review_python_quality(deck: dict[str, Any]) -> PythonQualityResult:
+def review_python_quality(stage_input: PythonQualityInput) -> PythonQualityResult:
+    deck = stage_input.deck
     validation = ValidationResult(
         passed=not (
             validate_layout(deck)
@@ -2114,14 +2116,17 @@ def review_python_quality(deck: dict[str, Any]) -> PythonQualityResult:
 
 
 def refine_python_quality(
-    deck: dict[str, Any],
-    reviewer_validation: ValidationResult,
+    stage_input: PythonQualityInput,
     *,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
     image_review_mode: ImageReviewMode = "auto",
 ) -> PythonQualityResult:
+    reviewer_validation = stage_input.reviewer_validation
+    if reviewer_validation is None:
+        raise ValueError("reviewerValidation is required for quality refinement")
+    deck = stage_input.deck
     refined_deck = refine_design_issues(deck, reviewer_validation.design_issues)
     refined_deck, validation = validate_and_patch(refined_deck)
     text_overlap_candidates = detect_text_overlap_candidates(refined_deck)
@@ -2142,10 +2147,9 @@ def refine_python_quality(
     return PythonQualityResult(deck=refined_deck, validation=validation)
 
 
-def finalize_python_quality(
-    deck: dict[str, Any],
-    raw_input: RawInput,
-) -> PythonQualityResult:
+def finalize_python_quality(stage_input: PythonQualityInput) -> PythonQualityResult:
+    deck = stage_input.deck
+    raw_input = stage_input.raw_input
     finalized_deck = enforce_design_pack_constraints(deck, raw_input)
     finalized_deck = repair_program_v2_deck(finalized_deck)
     finalized_deck, validation = validate_and_patch(

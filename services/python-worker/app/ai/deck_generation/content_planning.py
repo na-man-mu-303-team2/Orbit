@@ -2001,7 +2001,14 @@ def plan_content(
         model=model,
         api_key=api_key,
     )
-    return ContentPlan(outline=outline, slidePlans=slide_plans)
+    return ContentPlan(
+        outline=outline,
+        slidePlans=slide_plans,
+        slideCount=raw_input.slide_count,
+        timingPlan=raw_input.timing_plan.model_copy(deep=True),
+        repairAttempted=raw_input.repair_attempted,
+        repairReasonCodes=list(raw_input.repair_reason_codes),
+    )
 
 
 def repair_content_plan_with_llm(

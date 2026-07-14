@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import re
 from typing import Any
 
@@ -44,20 +45,23 @@ def plan_visual_requirements(
 def apply_visual_requirements(
     layout_result: LayoutCompileResult,
     requirements: VisualRequirements,
-) -> LayoutCompileResult:
+) -> list[dict[str, Any]]:
     visual_plans = {
         requirement.slide_id: requirement.visual_plan
         for requirement in requirements.items
     }
-    for slide in layout_result.slides:
+    slides = deepcopy(layout_result.slides)
+    for slide in slides:
         ai_notes = slide["aiNotes"]
         updated_ai_notes: dict[str, Any] = {}
         for key, value in ai_notes.items():
             updated_ai_notes[key] = value
             if key == "sourceEvidence":
-                updated_ai_notes["visualPlan"] = visual_plans[str(slide["slideId"])]
+                updated_ai_notes["visualPlan"] = deepcopy(
+                    visual_plans[str(slide["slideId"])]
+                )
         slide["aiNotes"] = updated_ai_notes
-    return layout_result
+    return slides
 
 
 def program_v2_visual_plan(

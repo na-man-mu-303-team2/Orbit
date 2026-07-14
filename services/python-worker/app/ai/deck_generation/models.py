@@ -624,6 +624,10 @@ class ContentPlan(BaseModel):
 
     outline: DeckOutline
     slide_plans: list[SlidePlan] = Field(alias="slidePlans")
+    slide_count: int = Field(alias="slideCount", ge=1)
+    timing_plan: PresentationTimingPlan = Field(alias="timingPlan")
+    repair_attempted: bool = Field(alias="repairAttempted")
+    repair_reason_codes: list[RepairReasonCode] = Field(alias="repairReasonCodes")
 
 
 class DesignPlan(BaseModel):
@@ -711,6 +715,17 @@ class ValidationResult(BaseModel):
         return self
 
 
+class PythonQualityInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    deck: dict[str, Any]
+    raw_input: RawInput = Field(alias="rawInput")
+    reviewer_validation: ValidationResult | None = Field(
+        default=None,
+        alias="reviewerValidation",
+    )
+
+
 class PythonQualityResult(BaseModel):
     deck: dict[str, Any]
     validation: ValidationResult
@@ -777,6 +792,21 @@ class GenerateDeckDiagnostics(BaseModel):
         default_factory=list,
         alias="visualIssueCodes",
     )
+
+
+class GenerationDiagnosticsInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    raw_input: RawInput = Field(alias="rawInput")
+    validation: ValidationResult
+    generated_slide_count: int = Field(alias="generatedSlideCount", ge=0)
+    unique_core_layout_count: int = Field(alias="uniqueCoreLayoutCount", ge=0)
+    agent_warnings: list[str] = Field(alias="agentWarnings")
+
+
+class GenerationDiagnosticsResult(BaseModel):
+    warnings: list[str]
+    diagnostics: GenerateDeckDiagnostics
 
 
 class GenerateDeckResponse(BaseModel):
