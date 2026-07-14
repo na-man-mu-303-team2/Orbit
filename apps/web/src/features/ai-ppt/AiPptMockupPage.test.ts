@@ -290,7 +290,6 @@ describe("AI PPT wizard payload", () => {
     );
 
     expect(payload).toMatchObject({
-      generationMode: "design-pack",
       topic: "JSON-first AI PPT",
       brief: {
         presentationContext: "internal review",
@@ -306,7 +305,6 @@ describe("AI PPT wizard payload", () => {
       },
       design: {
         stylePackId: "brandlogy-modern",
-        engineVersion: "program-v2",
         colorIntent: {
           mood: "calm",
           energyLevel: "low",
@@ -337,9 +335,14 @@ describe("AI PPT wizard payload", () => {
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
     expect(payload.referencePolicy).toBe("references-first");
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
+    expect(payload).not.toHaveProperty("generationMode");
+    expect(payload).not.toHaveProperty("design.engineVersion");
+    expect(payload).not.toHaveProperty("design.slidePresetId");
+    expect(payload).not.toHaveProperty("designReferences");
+    expect(payload).not.toHaveProperty("templateBlueprintId");
   });
 
-  it("keeps hybrid official and AI image policy in the program-v2 request", () => {
+  it("keeps hybrid official and AI image policy in the generation request", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {
         topic: "제품 공개",
@@ -365,7 +368,6 @@ describe("AI PPT wizard payload", () => {
     );
 
     expect(payload.design).toMatchObject({
-      engineVersion: "program-v2",
       mediaPolicy: "hybrid"
     });
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "hybrid" });

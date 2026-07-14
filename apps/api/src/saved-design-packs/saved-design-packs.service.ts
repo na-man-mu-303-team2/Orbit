@@ -138,10 +138,6 @@ export class SavedDesignPacksService {
     rawBody: unknown,
     userId: string
   ): Promise<ResolvedSavedDesignPack> {
-    if (request.generationMode !== "design-pack") {
-      return { request };
-    }
-
     const selected = request.savedDesignPack
       ? await this.requireAccessible(request.savedDesignPack.id, userId)
       : await this.repository.findOne({

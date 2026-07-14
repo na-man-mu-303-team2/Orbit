@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from app.ai.composition_library import COMPOSITION_SPECS, normalize_design_program
+from app.ai.composition_library import (
+    COMPOSITION_SPECS,
+    compile_composition,
+    normalize_design_program,
+)
 from app.ai.design_program import (
     ArtDirectorContext,
     DeckDesignProgram,
@@ -166,6 +170,32 @@ def test_program_v2_palette_keeps_focal_and_secondary_roles_distinct() -> None:
     assert themed.palette_roles.secondary == "#22D3EE"
 
 
+def test_program_v2_compiles_empty_cover_and_closing_content_items() -> None:
+    slide_summaries = slides()
+    for slide in slide_summaries:
+        slide["contentItems"] = []
+    program = normalize_design_program(
+        DeckDesignProgram.model_validate(valid_program()),
+        slide_summaries,
+        media_policy="minimal",
+    )
+
+    compiled = [
+        compile_composition(direction, slide, program)
+        for direction, slide in zip(
+            program.slides,
+            slide_summaries,
+            strict=True,
+        )
+    ]
+
+    assert [slide.composition_id for slide in program.slides] == [
+        "minimal-cover",
+        "cta-closing",
+    ]
+    assert all(item.elements for item in compiled)
+
+
 class FakeResponses:
     def __init__(self, payloads: list[dict[str, Any] | str]) -> None:
         self.payloads = payloads
@@ -234,10 +264,8 @@ def test_program_v2_visual_plan_replaces_generic_media_prompt_with_slide_subject
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
             design={
-                "engineVersion": "program-v2",
                 "mediaPolicy": "hybrid",
                 "constraints": {
                     "forbiddenStyles": ["gradient", "pastel"],
@@ -283,9 +311,8 @@ def test_program_v2_visual_plan_omits_icon_style_from_large_media_prompt() -> No
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
-            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+            design={"mediaPolicy": "hybrid"},
         )
     )
     slide = SlidePlan(
@@ -317,7 +344,6 @@ def test_program_v2_slide_summary_reports_official_source_availability() -> None
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
         )
     )
@@ -354,9 +380,8 @@ def test_program_v2_hybrid_cover_reserves_deck_official_source() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
-            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+            design={"mediaPolicy": "hybrid"},
         )
     )
     raw_input.source_records = [
@@ -403,10 +428,9 @@ def test_program_v2_evidence_ledger_includes_deck_official_source() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
             brief={"referencePolicy": "research-first"},
-            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+            design={"mediaPolicy": "hybrid"},
         )
     )
     raw_input.source_records = [
@@ -571,11 +595,10 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
     orchestrator = DeckGenerationOrchestrator(
         GenerateDeckRequest(
             projectId="project_program_v2",
-            generationMode="design-pack",
             topic="Splatoon Raiders",
             targetDurationMinutes=2,
             slideCountRange={"min": 2, "max": 2},
-            design={"engineVersion": "program-v2", "mediaPolicy": "hybrid"},
+            design={"mediaPolicy": "hybrid"},
             visualPlanPolicy={"mediaPolicy": "hybrid"},
         ),
         client=SimpleNamespace(responses=responses),
@@ -628,7 +651,6 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
         raw_input,
         slide_plans,
         theme,
-        [],
     )
     deck = orchestrator.build_deck(
         raw_input,
@@ -803,7 +825,6 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
         raw_input,
         normalized_plans,
         theme,
-        [],
     )
     deck = orchestrator.build_deck(
         raw_input,

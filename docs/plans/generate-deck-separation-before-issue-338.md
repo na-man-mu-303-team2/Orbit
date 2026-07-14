@@ -60,7 +60,7 @@ flowchart LR
     K --> L["에디터"]
 ```
 
-`AiPptMockupPage`는 요청에 `generationMode: "design-pack"`을 명시하고 `design.engineVersion: "program-v2"`를 사용한다. 다음 기능은 이 활성 경로의 일부이므로 유지해야 한다.
+PR 6 이전의 `AiPptMockupPage`는 요청에 `generationMode: "design-pack"`과 `design.engineVersion: "program-v2"`를 명시했다. PR 6부터 public selector를 보내지 않으며 같은 경로가 내부 상수 `design-pack + program-v2`로 실행된다. 다음 기능은 이 활성 경로의 일부이므로 유지해야 한다.
 
 - Saved DesignPack CRUD와 snapshot 선택
 - 색상 옵션과 폰트 추천
@@ -73,10 +73,11 @@ flowchart LR
 
 ### 2.2 현재 섞여 있는 레거시 경로
 
-공통 요청 schema는 현재 다음 조합을 허용한다.
+계획 작성 당시 공통 요청 schema는 다음 조합을 허용했다. PR 6에서 이 selector와 PPTX 디자인 재사용 입력을 strict rejection 대상으로 바꾼다.
 
 - `generationMode`: `legacy | design-pack`
 - `design.engineVersion`: `recipe-v1 | program-v2`
+- `design.slidePresetId`와 내부 `layoutVariant`·`slotPreset`
 - `designReferences`
 - `templateBlueprintId`
 
@@ -96,7 +97,7 @@ flowchart TD
     NEW_P --> NEW_PY["/ai/pptx-ooxml-generation"]
 ```
 
-`TemplateBlueprint`, `purpose: "pptx-import"`, Python `/design/import-pptx`와 `pptx_design_importer.py`는 활성 OOXML 및 `generate-deck` 경로가 재사용하므로 제거하지 않는다.
+`TemplateBlueprint`, `purpose: "pptx-import"`, Python `/design/import-pptx`와 `pptx_design_importer.py`는 활성 OOXML round-trip 경로가 사용하므로 제거하지 않는다. PR 6 이후 일반 `generate-deck` 경로에서는 이 구조를 참조하지 않는다.
 
 PR 5부터 `PptxOoxmlGenerationRequest`는 strict `{ fileId }`만 허용하고 OOXML import call graph의 AI 문구 생성과 apply-slot-text 경로는 제거된다. TemplateBlueprint의 slot/source mapping은 후속 OOXML sync를 위해 유지한다.
 
@@ -338,7 +339,7 @@ BrandKit runtime과 organization 기반 기능은 이미 `origin/develop`의 활
 7. imported Deck의 편집 후 `pptx-ooxml-sync` 결과가 export에 사용된다.
 8. 기존 Job 상태값 `queued`, `running`, `succeeded`, `failed`와 공통 envelope를 유지한다.
 9. 로그에 prompt 원문, 첨부자료 원문, API key, base64 파일을 새로 기록하지 않는다.
-10. `GenerateDeckRequest.designReferences`와 `GenerateDeckRequest.templateBlueprintId`만 제거한다. 기존 저장 Deck의 `metadata.createdFrom.designReferences`와 OOXML이 사용하는 `templateBlueprintIdSchema`는 historical read 및 round-trip 계약이므로 유지한다.
+10. 일반 AI 생성 public request에서는 `generationMode`, `design.engineVersion`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거한다. 기존 저장 Deck의 `metadata.createdFrom.designReferences`와 OOXML이 사용하는 `templateBlueprintIdSchema`는 historical read 및 round-trip 계약이므로 유지한다.
 11. 기존 `reference-extract` API·Job 결과 계약과 OCR 성공/부분 실패 동작은 #339에서 회귀 테스트로 보존한다. transport 공통 stage message와 파일별 checkpoint 계약은 #338에서 변경한다.
 12. 이동과 의미 변경을 한 PR에 섞지 않는다. 먼저 제거·계약 정리, 그 다음 동작 보존형 모듈 이동을 한다.
 
@@ -624,7 +625,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **의존성**: PR 5
 
-**목표**: 일반 AI PPT 생성에서 레거시 mode/engine과 PPTX 디자인 재사용 입력을 제거한다.
+**목표**: 일반 AI PPT 생성에서 레거시 mode/engine, recipe-v1 slide preset과 PPTX 디자인 재사용 입력을 제거한다.
 
 **주요 파일**
 
@@ -642,31 +643,36 @@ uv run pytest tests/test_generate_deck_contract.py
 **작업**
 
 1. public request에서 `generationMode`를 제거하고 core에서는 `design-pack`을 내부 상수로 사용한다.
-2. public request에서 `design.engineVersion`을 제거하고 core에서는 `program-v2`를 내부 상수로 사용한다.
+2. public request에서 `design.engineVersion`과 recipe-v1 전용 `design.slidePresetId`를 제거하고 core에서는 `program-v2`를 내부 상수로 사용한다.
 3. `GenerateDeckRequest.designReferences`, `GenerateDeckRequest.templateBlueprintId`를 request와 Worker payload에서 제거한다. 저장된 Deck의 `metadata.createdFrom.designReferences`와 공용 `templateBlueprintIdSchema`는 삭제하지 않는다.
 4. `resolveDesignTemplate()`와 관련 asset/template 조회 분기를 제거한다.
-5. Python의 `legacy`, `recipe-v1`, imported design/template blueprint 분기와 전용 model/helper를 삭제한다.
+5. Python의 `legacy`, `recipe-v1`, imported design/template blueprint 분기와 전용 model/helper를 삭제한다. `layoutVariant`, `slotPreset`, `SlotPreset`, slide-preset registry/selector도 program-v2 Art Director 입력과 최종 composition에 쓰이지 않으므로 함께 제거한다.
 6. `saved-design-packs.service.ts`의 `resolveGenerationRequest()`가 제거된 `generationMode`에 의존하지 않도록 program-v2 전용 계약으로 갱신한다.
 7. DesignPack, palette/font override, style pack, composition, QA 관련 program-v2 코드는 유지한다.
 8. 공통 계약 변경이므로 `docs/contracts.md`에 GenerateDeck request 경계를 갱신하고, 이 목표 계약과 반대되는 V12의 legacy/template 유지 결정을 #339가 대체했음을 표시한다.
 9. TypeScript와 Python request schema를 strict하게 유지해 제거된 필드와 모든 extra field를 거부하며 호환 shim은 두지 않는다.
+10. 호환 shim이 없는 breaking cutover이므로 mixed-version rolling deployment를 금지한다. generate-deck ingress 중단, BullMQ `generate-deck` queue 전체 상태와 DB `type = ai-deck-generation`의 queued/running drain, Web/API/Worker/Python worker 동시 교체, Web cache 무효화를 배포 hard gate로 기록한다. 이 증거 없이 production 또는 `develop` 자동 personal staging에 배포하지 않는다.
+11. PR 6은 `personal-staging` required reviewer 활성화 또는 자동 deploy workflow 중단이 확인되고, cutover 담당자·시간·maintenance 전환 방법이 PR 본문에 기록될 때까지 Draft로 유지한다. 이 merge gate가 준비된 뒤에만 Ready for review 및 merge할 수 있으며, merge 뒤에도 queue/DB drain 증거를 확인하기 전에는 대기 중인 deploy workflow를 승인하지 않는다.
 
 **필수 테스트**
 
-- `legacy`, `recipe-v1`, `designReferences`, `templateBlueprintId` 입력 거부
-- `program-v2` request/response contract 통과
+- `generationMode`의 `legacy`·`design-pack`, `design.engineVersion`의 `recipe-v1`·`program-v2`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`, 임의 root/nested extra field 입력 거부
+- selector field가 없는 request가 내부 `design-pack + program-v2` request/response contract를 통과
 - Saved DesignPack selection과 snapshot 적용
 - `resolveGenerationRequest()`가 deprecated mode 없이도 Saved DesignPack snapshot을 복원
 - 과거 저장 Deck의 `metadata.createdFrom.designReferences` parsing 유지
 - PPTX OOXML의 `templateBlueprintIdSchema` parsing 유지
 - reference policy, image asset, QA/repair, Deck 저장 회귀 테스트
 - `generate_deck.py` 내부에서 TemplateBlueprint importer를 참조하지 않음
+- Python content/design/layout call graph에 `layoutVariant`, `slotPreset`, slide-preset registry/selector가 없고 최종 구조는 Design Program `compositionId`만 사용
 
 **완료 기준**
 
 - 일반 AI 생성 call graph가 PPTX import 모듈이나 TemplateBlueprint DB를 사용하지 않는다.
 - 활성 UI 요청에 deprecated field가 없다.
 - shared TypeScript schema와 Python Pydantic model의 허용 필드가 일치한다.
+- 배포 전 mixed-version 금지, queue/DB drain, 동시 cutover와 cache 무효화 hard gate가 운영 인계에 기록돼 있다.
+- Draft 유지 조건, Ready 전환 증거와 deploy workflow 승인 순서가 PR 본문과 운영 인계에 기록돼 있다.
 
 ### PR 7A. `generate_deck.py`의 Python generation core를 stage 경계로 분리
 
@@ -886,7 +892,7 @@ sequenceDiagram
 - [ ] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
 - [ ] #341의 `slides[].backgroundMode` canonical 규칙과 회귀 테스트가 `design_planning.py`에 보존되어 있다.
 - [ ] 일반 AI 생성 request가 `program-v2` 전용이며 `legacy`, `recipe-v1` 분기가 없다.
-- [ ] `designReferences`, `templateBlueprintId`가 일반 AI 생성 계약에 없다.
+- [ ] `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 일반 AI 생성 계약에 없고 내부 recipe-v1 `layoutVariant`·`slotPreset` selector도 없다.
 - [ ] DesignPack 기능과 기존 생성 품질 회귀 테스트가 통과한다.
 - [ ] 에디터 PPTX import가 `/pptx-ooxml-generations`를 사용한다.
 - [ ] PPTX OOXML request는 `{ fileId }`만 받고 LLM을 호출하지 않는다.
@@ -930,6 +936,7 @@ flowchart LR
 | future stage message에 Deck/base64 전체 포함 | message 크기 초과와 중복 전송 비용 | `{ pipelineJobId, projectId, stage, shardKey }`만 전달하고 DB checkpoint와 Storage는 해당 키로 조회 |
 | stage module 간 순환 import | 분리 효과 상실, 테스트 곤란 | `models.py` 하향 의존과 `pipeline.py` 단방향 orchestration |
 | 호환 façade가 영구적인 두 번째 구현이 됨 | 중복 로직과 수정 누락 | façade에는 validation·delegation만 허용 |
+| selector 제거 버전이 Web/API/Worker/Python worker에 섞여 배포됨 | 구 payload 400/422, 새 payload의 구 recipe-v1 실행, queued Job 실패 | PR 6은 ingress 중단 → BullMQ `generate-deck` queue와 DB `ai-deck-generation` Job drain → 전 서비스 동시 cutover → Web cache 무효화를 배포 hard gate로 두고 일반 rolling deploy를 금지 |
 | web research 실패를 전체 실패로 고정 | 기존 UX 문제 반복 | #338에서 정책별 degraded success와 retryable error를 구분 |
 | OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 staged BullMQ 파일별 Job과 checkpoint join을 먼저 도입하고 동일 계약을 SQS adapter로 연결 |
 

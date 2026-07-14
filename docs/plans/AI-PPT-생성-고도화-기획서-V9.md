@@ -6,6 +6,9 @@
 > 상태: 1차 완료, 2차 및 기본 생성 계약 완료, 3차 선행 규칙 최종 승인 완료, 3차 착수 가능
 >
 
+> [!IMPORTANT]
+> 이 문서는 과거 설계 이력을 보존한다. GenerateDeck의 legacy/template 유지와 public selector 계약은 후속 확정 계획인 #339 PR6의 `program-v2` 전용 계약이 대체한다.
+
 ---
 
 ## 1. 배경

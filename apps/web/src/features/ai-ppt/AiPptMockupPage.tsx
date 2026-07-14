@@ -273,7 +273,6 @@ export function buildAiPptGenerateDeckPayload(
   const fontOverride = fontOverrideFromOption(selectedFont);
 
   return {
-    generationMode: "design-pack",
     topic: state.topic.trim(),
     prompt: [
       state.purpose.trim(),
@@ -309,7 +308,6 @@ export function buildAiPptGenerateDeckPayload(
     },
     design: {
       stylePackId,
-      engineVersion: "program-v2",
       visualRhythm: "clean",
       densityTarget: "medium",
       mediaPolicy: state.mediaPolicy,
@@ -335,7 +333,6 @@ export function buildAiPptGenerateDeckPayload(
     referenceFileIds,
     officialAssetFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
-    designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
     referenceContext: referenceGrounding.referenceContext,
     coachingContext: coachingContext ?? null

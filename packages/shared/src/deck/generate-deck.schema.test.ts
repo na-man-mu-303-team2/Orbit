@@ -16,7 +16,6 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.targetDurationMinutes).toBe(10);
-    expect(request.generationMode).toBe("legacy");
     expect(request.slideCountRange).toEqual({ min: 5, max: 8 });
     expect(request.metadata).toEqual({
       audience: "general",
@@ -27,14 +26,12 @@ describe("generateDeckRequestSchema", () => {
       referencePolicy: "topic-only"
     });
     expect(request.design).toEqual({
-      engineVersion: "recipe-v1",
       visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy: "balanced",
       layoutDiversity: "stable"
     });
     expect(request.template).toBe("default");
-    expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
     expect(request.referenceContext).toEqual([]);
   });
@@ -65,7 +62,6 @@ describe("generateDeckRequestSchema", () => {
   it("accepts an optional saved design pack selection", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "Reusable report",
-      generationMode: "design-pack",
       savedDesignPack: {
         id: "design_pack_user_1",
         version: 3
@@ -115,24 +111,47 @@ describe("generateDeckRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts design references separately from content references", () => {
-    const request = generateDeckRequestSchema.parse({
-      topic: "AI deck generation",
-      references: [{ fileId: "file_content" }],
-      designReferences: [{ fileId: "file_design" }]
-    });
-
-    expect(request.references).toEqual([{ fileId: "file_content" }]);
-    expect(request.designReferences).toEqual([{ fileId: "file_design" }]);
-  });
-
-  it("accepts only a template blueprint id for imported template semantics", () => {
-    const request = generateDeckRequestSchema.parse({
-      topic: "AI deck generation",
-      templateBlueprintId: "template_file_design"
-    });
-
-    expect(request.templateBlueprintId).toBe("template_file_design");
+  it.each([
+    ["legacy mode", { generationMode: "legacy" }],
+    ["design-pack mode", { generationMode: "design-pack" }],
+    ["recipe-v1 engine", { design: { engineVersion: "recipe-v1" } }],
+    ["program-v2 engine", { design: { engineVersion: "program-v2" } }],
+    ["design references", { designReferences: [{ fileId: "file_design" }] }],
+    ["template blueprint", { templateBlueprintId: "template_file_design" }],
+    ["slide preset", { design: { slidePresetId: "process-cards-horizontal-6" } }],
+    ["unknown root field", { unknownField: true }],
+    ["unknown nested field", { design: { unknownField: true } }],
+    ["blank reference file ID", { referenceFileIds: ["   "] }],
+    ["blank official asset file ID", { officialAssetFileIds: ["   "] }],
+    ["blank reference ID", { references: [{ fileId: "   " }] }],
+    [
+      "blank reference context content",
+      { referenceContext: [{ fileId: "file_1", content: "   " }] }
+    ],
+    [
+      "blank reference context source ID",
+      {
+        referenceContext: [
+          { fileId: "file_1", content: "content", sourceId: "   " }
+        ]
+      }
+    ],
+    [
+      "blank coaching brief ID",
+      {
+        coachingContext: {
+          briefRef: { mode: "briefed", briefId: "   ", revision: 1 },
+          evaluatorLensRef: { lensId: "general-novice", revision: 1 }
+        }
+      }
+    ]
+  ])("rejects deprecated or extra %s input", (_name, input) => {
+    expect(
+      generateDeckRequestSchema.safeParse({
+        topic: "AI deck generation",
+        ...input
+      }).success
+    ).toBe(false);
   });
 
   it("normalizes design direction defaults", () => {
@@ -146,7 +165,6 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.design).toEqual({
-      engineVersion: "recipe-v1",
       visualRhythm: "technical",
       densityTarget: "medium",
       mediaPolicy: "placeholder-ok",
@@ -167,7 +185,6 @@ describe("generateDeckRequestSchema", () => {
 
   it("accepts v2 design-pack font and policy options", () => {
     const request = generateDeckRequestSchema.parse({
-      generationMode: "design-pack",
       topic: "AI PPT generation",
       referencePolicy: "references-first",
       referenceFileIds: ["file_reference_1"],
@@ -200,32 +217,27 @@ describe("generateDeckRequestSchema", () => {
     expect(request.design.fontOverride?.overflowRisk).toBe("medium");
   });
 
-  it("accepts optional v2 design preset overrides", () => {
+  it("accepts an optional v2 style pack override", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",
       design: {
-        stylePackId: "teal-professional-process",
-        slidePresetId: "process-cards-horizontal-6"
+        stylePackId: "teal-professional-process"
       }
     });
 
     expect(request.design.stylePackId).toBe("teal-professional-process");
-    expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
   });
 
-  it("accepts the program-v2 engine with hybrid media", () => {
+  it("accepts hybrid media without a public engine selector", () => {
     const request = generateDeckRequestSchema.parse({
-      generationMode: "design-pack",
       topic: "Splatoon Raiders launch",
       design: {
-        engineVersion: "program-v2",
         mediaPolicy: "hybrid"
       },
       visualPlanPolicy: { mediaPolicy: "hybrid" },
       officialAssetFileIds: ["file_official_1"]
     });
 
-    expect(request.design.engineVersion).toBe("program-v2");
     expect(request.design.mediaPolicy).toBe("hybrid");
     expect(request.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
     expect(request.officialAssetFileIds).toEqual(["file_official_1"]);
@@ -244,7 +256,6 @@ describe("generateDeckRequestSchema", () => {
 
   it("accepts design-pack color intent and hard design constraints", () => {
     const request = generateDeckRequestSchema.parse({
-      generationMode: "design-pack",
       topic: "AI deck generation",
       design: {
         stylePackId: "brandlogy-modern",
@@ -264,7 +275,6 @@ describe("generateDeckRequestSchema", () => {
       }
     });
 
-    expect(request.generationMode).toBe("design-pack");
     expect(request.design.colorIntent).toMatchObject({
       mood: "trustworthy",
       preferredHue: "blue",
