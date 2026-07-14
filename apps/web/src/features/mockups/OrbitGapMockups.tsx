@@ -25,7 +25,6 @@ import {
   OrbitStatus,
   OrbitTextarea
 } from "../../design-system";
-import { AiPptMockupPage } from "../ai-ppt/AiPptMockupPage";
 import { ChallengeQnaPage } from "../coaching/ChallengeQnaPage";
 import type { ChallengeQnaView } from "../coaching/challengeQnaApi";
 import { FocusedPracticePage } from "../coaching/FocusedPracticePage";
@@ -78,13 +77,6 @@ const catalogItems = [
     icon: <IconUsers size={24} />,
     path: "/mockup/audience",
     title: "청중 입장"
-  },
-  {
-    category: "고립된 독립 페이지",
-    description: "기존 AI PPT 위저드를 목업 플로우에서 확인합니다.",
-    icon: <IconPresentation size={24} />,
-    path: "/mockup/ai-ppt",
-    title: "AI PPT 상세 위저드"
   }
 ] as const;
 
@@ -99,7 +91,7 @@ export function OrbitMockupCatalog(props: MockupNavigateProps) {
         </div>
         <dl>
           <div><dt>신규 목업</dt><dd>6</dd></div>
-          <div><dt>연결한 페이지</dt><dd>1</dd></div>
+          <div><dt>연결한 페이지</dt><dd>0</dd></div>
           <div><dt>디자인 기준</dt><dd>ORBIT DS</dd></div>
         </dl>
       </section>
@@ -115,10 +107,6 @@ export function OrbitMockupCatalog(props: MockupNavigateProps) {
       </section>
     </MockupPage>
   );
-}
-
-export function OrbitAiPptConnectedMockup(props: MockupNavigateProps) {
-  return <div className="gap-ai-ppt-connected"><button onClick={() => props.onNavigate("/mockup/catalog")} type="button"><IconArrowLeft size={17} /> 목업 맵</button><AiPptMockupPage /></div>;
 }
 
 const audienceOptions = ["처음 듣는 청중", "실무자", "의사결정자"];

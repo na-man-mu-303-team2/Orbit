@@ -4,9 +4,6 @@
   min-height: 100vh;
 }
 
-.gap-ai-ppt-connected { position: relative; }
-.gap-ai-ppt-connected > button { align-items: center; background: white; border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-pill); display: flex; gap: 7px; left: 18px; min-height: 38px; padding: 0 14px; position: fixed; top: 18px; z-index: 50; }
-
 .orbit-gap-mockup > main {
   margin: 0 auto;
   max-width: 1340px;
