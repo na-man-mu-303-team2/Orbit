@@ -13,11 +13,13 @@ import {
 import { createP4FixtureSnapshot } from "./__fixtures__/p4AutoAdvanceFixture";
 
 describe("advanceController", () => {
-  it("starts countdown immediately when ready enters after an existing pause", () => {
+  it("마지막 문장 commit과 기존 pause가 함께 있으면 countdown을 시작한다", () => {
     const result = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 900,
         finalSentenceSpoken: true,
         pause: { isPaused: true, silenceDurationMs: 900 }
       }),
@@ -31,11 +33,32 @@ describe("advanceController", () => {
     });
   });
 
+  it("마지막 phrase가 covered돼도 문장이 commit되지 않았으면 tracking을 유지한다", () => {
+    const result = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 1,
+        finalSentenceCommitted: false,
+        finalSentenceCommittedAtMs: null,
+        finalSentenceSpoken: true,
+        pause: { isPaused: true, silenceDurationMs: 3_000 }
+      }),
+      defaultAutoAdvanceConfig
+    );
+
+    expect(result.commands).toEqual([]);
+    expect(result.state).toMatchObject({
+      countdownStartedAtMs: null,
+      status: "tracking"
+    });
+  });
+
   it("advances only after countdown completes without resumed speech", () => {
     const first = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         nowMs: 1000,
         pause: { isPaused: true, silenceDurationMs: 900 }
@@ -46,6 +69,7 @@ describe("advanceController", () => {
       first.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         nowMs: 2999,
         pause: { isPaused: true, silenceDurationMs: 2899 }
@@ -56,6 +80,7 @@ describe("advanceController", () => {
       beforeComplete.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         nowMs: 3000,
         pause: { isPaused: true, silenceDurationMs: 2900 }
@@ -74,6 +99,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         pause: { isPaused: true, silenceDurationMs: 900 }
       }),
@@ -83,6 +109,7 @@ describe("advanceController", () => {
       countdown.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         nowMs: 1200,
         pause: { isPaused: false, silenceDurationMs: 0 }
@@ -101,6 +128,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         pause: { isPaused: true, silenceDurationMs: 900 }
       }),
@@ -124,6 +152,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         pause: { isPaused: true, silenceDurationMs: 3_000 },
         semanticAutoActionAllowed: false
@@ -143,6 +172,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createP4FixtureSnapshot({
         effectiveCoverage: 0.95,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         slideIndex: 1
       }),
@@ -161,6 +191,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createP4FixtureSnapshot({
         effectiveCoverage: 0.95,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         isLastSlide: true,
         pause: { isPaused: true, silenceDurationMs: 2000 },
@@ -210,6 +241,7 @@ describe("advanceController", () => {
       guided.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 1000,
         nowMs: 6200
@@ -220,6 +252,7 @@ describe("advanceController", () => {
       guided.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 1000,
         nowMs: 6200,
@@ -231,6 +264,7 @@ describe("advanceController", () => {
       guided.state,
       createSnapshot({
         effectiveCoverage: 0.8,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 1000,
         isLastSlide: true,
@@ -277,6 +311,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         policy: {
           ...defaultAutoAdvancePolicy,
@@ -295,6 +330,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         mode: "live",
         policy: {
@@ -309,6 +345,7 @@ describe("advanceController", () => {
       createInitialAdvanceControllerState(),
       createSnapshot({
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
         finalSentenceSpoken: true,
         mode: "live",
         policy: {
@@ -330,6 +367,8 @@ function createSnapshot(
 ): AdvanceControllerSnapshot {
   return {
     effectiveCoverage: 0,
+    finalSentenceCommitted: false,
+    finalSentenceCommittedAtMs: null,
     finalSentenceSpoken: false,
     finalSentenceSpokenAtMs: null,
     isLastSlide: false,

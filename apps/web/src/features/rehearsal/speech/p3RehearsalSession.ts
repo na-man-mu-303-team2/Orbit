@@ -106,6 +106,7 @@ export type P3RehearsalSession = {
   resume: (options: { audioSource: MediaStream }) => Promise<P3RehearsalSessionState>;
   enterSlide: (slideIndex: number) => SpeechTrackingEvent[];
   acceptResult: (result: LiveSttResult) => SpeechTrackingEvent[];
+  acceptPrompterPauseBoundary: (silenceDurationMs: number) => boolean;
   setAdviceState: (type: AdviceEventType, active: boolean) => void;
   stop: () => Promise<RehearsalRunMeta>;
   getState: () => P3RehearsalSessionState;
@@ -120,13 +121,22 @@ export function createP3RehearsalSession(
     currentNowMs = now();
     return currentNowMs;
   };
+  let totalPausedMs = 0;
+  let pausedAtMs: number | null = null;
+  const toActiveTimestampMs = (rawTimestampMs: number) =>
+    rawTimestampMs -
+    totalPausedMs -
+    (pausedAtMs === null ? 0 : Math.max(rawTimestampMs - pausedAtMs, 0));
   const collector = createRehearsalLogCollector({
     slides: input.slides.map((slide) => ({
       slideId: slide.slideId,
       keywordIds: slide.keywords.map((keyword) => keyword.keywordId),
       matchableSentenceIds: getMatchableSentenceIdsForSlide(slide, input.config)
     })),
-    now: () => new Date(currentNowMs || now()),
+    now: () => {
+      const rawTimestampMs = currentNowMs || now();
+      return new Date(toActiveTimestampMs(rawTimestampMs));
+    },
     adviceReentryCooldownMs:
       input.config?.adviceReentryCooldownMs ??
       defaultSpeechTrackingConfig.adviceReentryCooldownMs
@@ -156,6 +166,29 @@ export function createP3RehearsalSession(
   let resultTimestampOffsetMs = 0;
   let lastAcceptedResultEndMs = 0;
 
+  function subscribeToPort() {
+    cleanupSubscriptions?.();
+    const unsubscribeResult = input.port.onResult(acceptResult);
+    const unsubscribeError = input.port.onError((error) => {
+      transitionCapability({
+        capability: "stt",
+        toState: "unavailable",
+        reason: error.code === "permission_denied" ? "permission_denied" : "stt_unavailable",
+        measurementMode: "none",
+        retryable: error.code !== "permission_denied",
+        slideId: getSlide(slideIndex).slideId,
+        cueIds: (getSlide(slideIndex).semanticCues ?? []).map((cue) => cue.cueId)
+      });
+      status = "failed";
+      cleanupSubscriptions?.();
+    });
+    cleanupSubscriptions = () => {
+      unsubscribeResult();
+      unsubscribeError();
+      cleanupSubscriptions = null;
+    };
+  }
+
   async function start(options: {
     audioSource: MediaStream;
     slideIndex?: number;
@@ -164,6 +197,8 @@ export function createP3RehearsalSession(
     const slide = getSlide(slideIndex);
     status = "starting";
     runMeta = null;
+    totalPausedMs = 0;
+    pausedAtMs = null;
     finalSegments.length = 0;
     const startRequestedAt = getNowMs();
     resultTimestampOffsetMs = 0;
@@ -180,26 +215,7 @@ export function createP3RehearsalSession(
     });
 
     try {
-      cleanupSubscriptions?.();
-      const unsubscribeResult = input.port.onResult(acceptResult);
-      const unsubscribeError = input.port.onError((error) => {
-        transitionCapability({
-          capability: "stt",
-          toState: "unavailable",
-          reason: error.code === "permission_denied" ? "permission_denied" : "stt_unavailable",
-          measurementMode: "none",
-          retryable: error.code !== "permission_denied",
-          slideId: slide.slideId,
-          cueIds: (slide.semanticCues ?? []).map((cue) => cue.cueId)
-        });
-        status = "failed";
-        cleanupSubscriptions?.();
-      });
-      cleanupSubscriptions = () => {
-        unsubscribeResult();
-        unsubscribeError();
-        cleanupSubscriptions = null;
-      };
+      subscribeToPort();
 
       await input.port.start({
         language: "ko",
@@ -249,9 +265,11 @@ export function createP3RehearsalSession(
       return getState();
     }
 
-    semanticGeneration += 1;
-    await input.port.stop();
+    pausedAtMs = getNowMs();
     status = "paused";
+    semanticGeneration += 1;
+    cleanupSubscriptions?.();
+    await input.port.stop();
     emitSnapshot();
     return getState();
   }
@@ -264,16 +282,19 @@ export function createP3RehearsalSession(
     }
 
     const slide = getSlide(slideIndex);
+    finishPause(getNowMs());
     resultTimestampOffsetMs = lastAcceptedResultEndMs;
     status = "starting";
     try {
+      subscribeToPort();
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
         biasPhrases: buildBiasPhrasesForSlide(slide, input.config)
       });
     } catch (error) {
-      status = "failed";
+      status = "paused";
+      pausedAtMs = getNowMs();
       cleanupSubscriptions?.();
       throw error;
     }
@@ -365,17 +386,39 @@ export function createP3RehearsalSession(
     return events;
   }
 
+  function acceptPrompterPauseBoundary(silenceDurationMs: number) {
+    if (status !== "running" || !currentTracker) {
+      return false;
+    }
+    const committed = currentTracker.acceptPrompterBoundary({
+      type: "pause-started",
+      atMs: lastAcceptedResultEndMs + Math.max(silenceDurationMs, 0)
+    });
+    if (committed) {
+      emitSnapshot();
+    }
+    return committed;
+  }
+
   function setAdviceState(type: AdviceEventType, active: boolean) {
     collector.setAdviceState(type, active);
   }
 
   async function stop() {
+    const stoppedAtMs = getNowMs();
+    finishPause(stoppedAtMs);
     cleanupSubscriptions?.();
     await input.port.stop();
     await flushSemanticQueueForSlide(slideIndex);
     status = "stopped";
     semanticGeneration += 1;
-    runMeta = collector.finalize();
+    runMeta = {
+      ...collector.finalize(),
+      recordingDurationSeconds:
+        startedAtMs === null
+          ? null
+          : Math.max((stoppedAtMs - startedAtMs - totalPausedMs) / 1000, 0)
+    };
     return runMeta;
   }
 
@@ -476,7 +519,15 @@ export function createP3RehearsalSession(
 
   function getRelativeNowMs() {
     const base = startedAtMs ?? getNowMs();
-    return Math.max(getNowMs() - base, 0);
+    return Math.max(toActiveTimestampMs(getNowMs()) - base, 0);
+  }
+
+  function finishPause(resumedAtMs: number) {
+    if (pausedAtMs === null) {
+      return;
+    }
+    totalPausedMs += Math.max(resumedAtMs - pausedAtMs, 0);
+    pausedAtMs = null;
   }
 
   function getSlide(index: number) {
@@ -755,8 +806,8 @@ export function createP3RehearsalSession(
       applyEventsToLog(events, collector);
       if (events.length > 0) {
         input.onEvents?.(events);
-        emitSnapshot();
       }
+      emitSnapshot();
     } catch (error) {
       if (isSemanticGenerationCurrent(options.generation, options.resultSlideIndex)) {
         emitSemanticDebugState({
@@ -912,6 +963,7 @@ export function createP3RehearsalSession(
     resume,
     enterSlide,
     acceptResult,
+    acceptPrompterPauseBoundary,
     setAdviceState,
     stop,
     getState

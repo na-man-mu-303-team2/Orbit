@@ -282,21 +282,26 @@ export function PresenterRemoteWindow(props: {
               const covered = Boolean(
                 state.speech?.coveredSentenceIds.includes(sentenceId),
               );
+              const committed = Boolean(
+                state.speech?.snapshot?.prompterProgress?.committedSentenceIds.includes(
+                  sentenceId,
+                ) ?? covered,
+              );
               const matchKind =
                 state.speech?.coveredSentenceMatchKinds[sentenceId];
               return {
                 content: sentence,
                 id: sentenceId,
                 label:
-                  matchKind === "paraphrased"
+                  committed
+                    ? "체크됨"
+                    : matchKind === "paraphrased"
                     ? "의미 전달"
-                    : covered
-                      ? "체크됨"
-                      : undefined,
+                    : undefined,
                 status:
                   index === currentSentenceIndex
                     ? "current"
-                    : covered
+                    : committed
                       ? matchKind === "paraphrased"
                         ? "paraphrased"
                         : "covered"

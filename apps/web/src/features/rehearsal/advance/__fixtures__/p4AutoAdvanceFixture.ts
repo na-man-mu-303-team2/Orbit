@@ -36,6 +36,8 @@ export const p4AutoAdvanceFixture = Object.freeze({
 
 export function createP4FixtureSnapshot(options: {
   effectiveCoverage?: number;
+  finalSentenceCommitted?: boolean;
+  finalSentenceCommittedAtMs?: number | null;
   finalSentenceSpoken?: boolean;
   finalSentenceSpokenAtMs?: number | null;
   isLastSlide?: boolean;
@@ -48,6 +50,8 @@ export function createP4FixtureSnapshot(options: {
 
   return {
     effectiveCoverage: options.effectiveCoverage ?? 0,
+    finalSentenceCommitted: options.finalSentenceCommitted ?? false,
+    finalSentenceCommittedAtMs: options.finalSentenceCommittedAtMs ?? null,
     finalSentenceSpoken: options.finalSentenceSpoken ?? false,
     finalSentenceSpokenAtMs: options.finalSentenceSpokenAtMs ?? null,
     isLastSlide: options.isLastSlide ?? false,

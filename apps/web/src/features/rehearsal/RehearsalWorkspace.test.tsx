@@ -49,6 +49,9 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
+  getRehearsalTeleprompterScrollBehavior,
+  getRehearsalTimingProgress,
+  isReusableRehearsalMediaStream,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   prepareRehearsalEvaluationRun,
@@ -61,6 +64,7 @@ import {
   retryRehearsalSemanticEvaluation,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
+  setMediaStreamTracksEnabled,
   shouldLoadPracticeGoalSummary,
   shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
@@ -777,6 +781,24 @@ describe("RehearsalWorkspace", () => {
     );
     expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
       .toBeLessThan(handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"));
+  });
+
+  it("녹음 pause 완료 후 STT와 마이크를 멈추고 역순으로 재시작한다", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const pauseStart = source.indexOf("async function pauseActiveRehearsal");
+    const resumeStart = source.indexOf("async function resumePausedRehearsal");
+    const actionStart = source.indexOf("async function handleTimePrimaryAction");
+    const pauseBody = source.slice(pauseStart, resumeStart);
+    const resumeBody = source.slice(resumeStart, actionStart);
+
+    expect(pauseBody.indexOf("await sessionRef.current?.pause()"))
+      .toBeLessThan(pauseBody.indexOf("await p3Session.pause()"));
+    expect(pauseBody.indexOf("await p3Session.pause()"))
+      .toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled(streamRef.current, false)"));
+    expect(resumeBody.indexOf("setMediaStreamTracksEnabled(stream, true)"))
+      .toBeLessThan(resumeBody.indexOf("await sessionRef.current?.resume()"));
+    expect(resumeBody.indexOf("await sessionRef.current?.resume()"))
+      .toBeLessThan(resumeBody.indexOf("await p3Session.resume"));
   });
 
   it("starts report recording from the side timer play button", () => {
@@ -1590,6 +1612,25 @@ describe("RehearsalWorkspace", () => {
     expect(setIsTimerRunning).toHaveBeenCalledWith(false);
   });
 
+  it("fills expected-time progress and applies the five-second warning window", () => {
+    expect(getRehearsalTimingProgress(44, 50)).toEqual({
+      percent: 88,
+      tone: "default",
+    });
+    expect(getRehearsalTimingProgress(45, 50)).toEqual({
+      percent: 90,
+      tone: "warning",
+    });
+    expect(getRehearsalTimingProgress(55, 50)).toEqual({
+      percent: 100,
+      tone: "warning",
+    });
+    expect(getRehearsalTimingProgress(56, 50)).toEqual({
+      percent: 100,
+      tone: "danger",
+    });
+  });
+
   it("matches live STT keywords with normalized Korean aliases", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -1949,7 +1990,7 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("moves the prompter to the next uncovered sentence even when the covered sentence transcript is partial", () => {
+  it("keeps the current prompter sentence when coaching coverage comes from a partial transcript", () => {
     const rows = getRehearsalPrompterRows(
       [
         {
@@ -1971,11 +2012,85 @@ describe("RehearsalWorkspace", () => {
       ],
       ["sentence_1"],
       "",
+      {
+        slideId: "slide_1",
+        revision: 0,
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        candidateSentenceId: "sentence_1",
+        candidateSinceMs: 1_000,
+        committedSentenceIds: [],
+        lastCommittedSentenceId: null,
+        lastCommitSource: null,
+        finalSentenceCommitted: false,
+      },
+    );
+
+    expect(rows.current).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
+    expect(rows.previous).toBe("");
+    expect(rows.next).toBe("다음 문장입니다.");
+  });
+
+  it("moves the prompter after the current sentence is committed", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장입니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "다음 문장입니다.",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      [],
+      "",
+      {
+        slideId: "slide_1",
+        revision: 1,
+        phase: "tracking",
+        currentSentenceId: "sentence_2",
+        candidateSentenceId: null,
+        candidateSinceMs: null,
+        committedSentenceIds: ["sentence_1"],
+        lastCommittedSentenceId: "sentence_1",
+        lastCommitSource: "lexical",
+        finalSentenceCommitted: false,
+      },
     );
 
     expect(rows.current).toBe("다음 문장입니다.");
-    expect(rows.previous).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
+    expect(rows.previous).toBe("첫 문장입니다.");
     expect(rows.next).toBe("");
+  });
+
+  it("recenters the lower prompter only when its focused sentence changes", () => {
+    expect(
+      getRehearsalTeleprompterScrollBehavior(undefined, "sentence_1"),
+    ).toBe("auto");
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_1", "sentence_1"),
+    ).toBeNull();
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_1", "sentence_2"),
+    ).toBe("smooth");
+    expect(
+      getRehearsalTeleprompterScrollBehavior(
+        "slide_1:sentence_1",
+        "slide_2:sentence_1",
+      ),
+    ).toBe("smooth");
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_2", null),
+    ).toBeNull();
   });
 
   it("returns current prompter sentence as a single sentence block", () => {
@@ -2006,6 +2121,17 @@ describe("RehearsalWorkspace", () => {
       previous: "",
       current: "첫 문장입니다.",
       next: "두 번째 문장입니다.",
+      focusSentenceId: "sentence_1",
+      items: [
+        expect.objectContaining({
+          sentenceId: "sentence_1",
+          status: "current",
+        }),
+        expect.objectContaining({
+          sentenceId: "sentence_2",
+          status: "next",
+        }),
+      ],
     });
   });
 
@@ -2095,10 +2221,34 @@ describe("RehearsalWorkspace", () => {
     pauseDetector.accept({ type: "tick", atMs: 700 });
     const pause = pauseDetector.snapshot(700);
 
+    const premature = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 1,
+        finalSentenceCommitted: false,
+        finalSentenceCommittedAtMs: null,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: slide.slideId,
+      },
+      defaultAutoAdvanceConfig,
+    );
+
+    expect(premature.commands).toEqual([]);
+    expect(premature.state.status).toBe("tracking");
+
     const blocked = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2137,6 +2287,8 @@ describe("RehearsalWorkspace", () => {
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2157,6 +2309,8 @@ describe("RehearsalWorkspace", () => {
       countdown.state,
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2179,6 +2333,8 @@ describe("RehearsalWorkspace", () => {
         countdown.state,
         {
           effectiveCoverage: 0.7,
+          finalSentenceCommitted: true,
+          finalSentenceCommittedAtMs: 100,
           finalSentenceSpoken: true,
           finalSentenceSpokenAtMs: 100,
           isLastSlide: false,
@@ -2201,6 +2357,8 @@ describe("RehearsalWorkspace", () => {
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: true,
@@ -2263,7 +2421,7 @@ describe("RehearsalWorkspace", () => {
     } satisfies Partial<LiveSttAdapterError>);
   });
 
-  it("records audio through a MediaRecorder-compatible session", () => {
+  it("records audio through a MediaRecorder-compatible session", async () => {
     const stoppedFiles: File[] = [];
     const errors: Error[] = [];
     const session = createRecordingSession(
@@ -2279,16 +2437,16 @@ describe("RehearsalWorkspace", () => {
     session.start();
     expect(session.recorder.state).toBe("recording");
 
-    session.pause();
+    await session.pause();
     expect(session.recorder.state).toBe("paused");
 
-    session.pause();
+    await session.pause();
     expect(session.recorder.state).toBe("paused");
 
-    session.resume();
+    await session.resume();
     expect(session.recorder.state).toBe("recording");
 
-    session.resume();
+    await session.resume();
     expect(session.recorder.state).toBe("recording");
 
     session.stop();
@@ -2298,6 +2456,21 @@ describe("RehearsalWorkspace", () => {
       "rehearsal-2026-06-29T00-00-00-000Z.webm",
     );
     expect(stoppedFiles[0]?.type).toBe("audio/webm");
+  });
+
+  it("비활성화한 live 오디오 트랙을 재사용하고 다시 활성화한다", () => {
+    const track = { enabled: true, readyState: "live" } as MediaStreamTrack;
+    const stream = {
+      active: true,
+      getAudioTracks: () => [track]
+    } as unknown as MediaStream;
+
+    setMediaStreamTracksEnabled(stream, false);
+    expect(track.enabled).toBe(false);
+    expect(isReusableRehearsalMediaStream(stream)).toBe(true);
+
+    setMediaStreamTracksEnabled(stream, true);
+    expect(track.enabled).toBe(true);
   });
 
   it("selects the first supported recording MIME type", () => {

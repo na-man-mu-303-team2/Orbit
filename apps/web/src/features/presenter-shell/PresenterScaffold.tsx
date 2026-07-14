@@ -205,6 +205,14 @@ export type PresenterInfoCardItem = {
   variantClassName?: string;
 };
 
+export type PresenterTimingProgressItem = {
+  currentLabel: ReactNode;
+  label: ReactNode;
+  percent: number;
+  targetLabel: ReactNode;
+  tone?: "default" | "warning" | "danger";
+};
+
 export function PresenterTimerCard(props: {
   ariaLabel: string;
   currentTimeLabel: string;
@@ -218,7 +226,10 @@ export function PresenterTimerCard(props: {
   primaryActionAriaLabel: string;
   primaryActionDisabled?: boolean;
   primaryActionRunning: boolean;
+  progressItems?: readonly PresenterTimingProgressItem[];
   progressPercent: number;
+  resetAriaLabel?: string;
+  timeReadOnly?: boolean;
   timeInputValue: string;
   timeMetaLeft: ReactNode;
   timeMetaRight: ReactNode;
@@ -230,15 +241,24 @@ export function PresenterTimerCard(props: {
         <div className="rehearsal-side-timer-header">
           <div>
             <span className="rehearsal-side-timer-title">{props.title}</span>
-            <input
-              className="rehearsal-side-timer-time"
-              aria-label={props.currentTimeLabel}
-              inputMode="numeric"
-              value={props.timeInputValue}
-              onBlur={(event) => props.onTimeInputBlur(event.target.value)}
-              onChange={(event) => props.onTimeInputChange(event.target.value)}
-              onFocus={props.onTimeInputFocus}
-            />
+            {props.timeReadOnly ? (
+              <output
+                className="rehearsal-side-timer-time"
+                aria-label={props.currentTimeLabel}
+              >
+                {props.timeInputValue}
+              </output>
+            ) : (
+              <input
+                className="rehearsal-side-timer-time"
+                aria-label={props.currentTimeLabel}
+                inputMode="numeric"
+                value={props.timeInputValue}
+                onBlur={(event) => props.onTimeInputBlur(event.target.value)}
+                onChange={(event) => props.onTimeInputChange(event.target.value)}
+                onFocus={props.onTimeInputFocus}
+              />
+            )}
           </div>
           <div className="rehearsal-side-timer-actions">
             <button
@@ -253,7 +273,11 @@ export function PresenterTimerCard(props: {
                 <PlayCircle size={15} />
               )}
             </button>
-            <button type="button" aria-label="타이머 초기화" onClick={props.onReset}>
+            <button
+              type="button"
+              aria-label={props.resetAriaLabel ?? "타이머 초기화"}
+              onClick={props.onReset}
+            >
               <RotateCcw size={15} />
             </button>
           </div>
@@ -271,14 +295,38 @@ export function PresenterTimerCard(props: {
           </span>
         </div>
 
-        <div className="rehearsal-side-timer-progress" aria-hidden="true">
-          <span style={{ width: `${props.progressPercent}%` }} />
-        </div>
+        {props.progressItems?.length ? (
+          <div className="rehearsal-side-timing-progress-list">
+            {props.progressItems.map((item, index) => (
+              <div
+                aria-label={`${String(item.label)} ${String(item.currentLabel)} ${String(item.targetLabel)}`}
+                className={`rehearsal-side-timing-progress rehearsal-side-timing-progress-${item.tone ?? "default"}`}
+                key={index}
+              >
+                <div className="rehearsal-side-timing-progress-meta">
+                  <strong>{item.label}</strong>
+                  <span>
+                    {item.currentLabel} · {item.targetLabel}
+                  </span>
+                </div>
+                <span className="rehearsal-side-timing-progress-track" aria-hidden="true">
+                  <span style={{ width: `${item.percent}%` }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="rehearsal-side-timer-progress" aria-hidden="true">
+              <span style={{ width: `${props.progressPercent}%` }} />
+            </div>
 
-        <div className="rehearsal-side-timer-meta">
-          <span>{props.timeMetaLeft}</span>
-          <span>{props.timeMetaRight}</span>
-        </div>
+            <div className="rehearsal-side-timer-meta">
+              <span>{props.timeMetaLeft}</span>
+              <span>{props.timeMetaRight}</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="rehearsal-side-detail-grid">
