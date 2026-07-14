@@ -92,6 +92,43 @@ final result: passed
 
 ---
 
+## AI 생성과 발표 프로젝트 여정 연결 (2026-07-15)
+
+- 기준 화면: `orbit-access-ux-audit-2026-07-15/06-reference-policy.png`, `08-generated-editor.png`, `18-practice-plan.png`.
+- 구현 화면: `orbit-ux-redesign-implementation/02-ai-review.png`, `08-generated-editor.png`, `07-practice-plan-fallback.png`.
+- 함께 본 비교 입력: `orbit-ux-redesign-implementation/compare-ai-review.png`, `compare-editor.png`, `compare-practice-plan.png`.
+- 데스크톱 검증: `1280x720`, `1512x900`; 모바일 검증: `390x844`.
+- 실제 데이터: AI 생성으로 만든 14장 프로젝트와 14회 리허설 기록이 있는 기존 프로젝트.
+
+### 흐름과 시각 비교
+
+AI 생성은 기존 다섯 단계에서 `발표 내용 → 구성 확인 → 생성` 세 단계로 정리했다. 발표 시간으로 슬라이드 수를 자동 추천하고, 참고자료와 디자인 세부 설정은 선택 영역에 접어 두어 최종 생성 행동을 한 화면에서 결정할 수 있게 했다. 에디터·리허설·결과·맞춤 연습에는 같은 `준비 → 연습 → 결과 → 실전` 내비게이션을 적용했으며, 기존 ORBIT 토큰·폰트·pill·panel·border 체계를 그대로 사용했다.
+
+기존 리포트에서 `연습 계획 열기`로 이동한 뒤 집중 연습 기능이 제공되지 않는 상태에서도 기본 행동이 비활성화되지 않았다. `이 목표로 리허설 시작`은 `goalId`, `sourceGoalSetId`, `sourceFullRunId`를 보존해 전체 리허설 준비 화면으로 연결됐다.
+
+### 발견 및 수정
+
+1. P1 — 오래 실행된 API 컨테이너가 현재 `origin` 계약을 인식하지 못해 생성이 실패했다. 저장소 기준 API를 재빌드한 뒤 같은 입력으로 14장 생성과 에디터 진입을 완료했다. 소스 변경이 필요한 결함은 아니었다.
+2. P2 — 1280px 에디터 상단바에서 `브리프`, `버전`이 줄바꿈되어 세로로 보였다. 상단 문맥 버튼에 `white-space: nowrap`을 적용했고 가로 넘침 없이 한 줄 표시를 확인했다.
+3. P2 — 390px에서 단계 전환 시 구성 확인 제목이 sticky 앱 헤더 아래로 가려졌다. 생성 패널에 데스크톱·모바일 `scroll-margin-top`을 추가했고 패널 상단이 헤더 아래 16px에 위치하는 것을 측정했다.
+4. P2 — 집중 연습 capability가 꺼진 경우 핵심 CTA가 막다른 경로였다. 같은 목표를 유지하는 전체 리허설 fallback으로 교체하고 실제 리포트 데이터에서 이동을 검증했다.
+
+### 검증
+
+- 실제 AI 생성: `Orbit의 AI 발표 워크스페이스 개편안`, 15분, 자동 14장 — 성공.
+- 데스크톱·모바일 핵심 화면: `scrollWidth - innerWidth = 0`.
+- 현재 단계: 준비·연습·결과 화면에서 `aria-current="page"`가 각각 올바르게 노출됨.
+- 모바일 프로젝트 단계 내비게이션: 4열, 폭 354px, 가로 넘침 없음.
+- 브라우저 콘솔: 오류·경고 없음.
+- 마이크 연결 확인 동작은 실행했으나 자동화 브라우저에 입력 장치가 없어 권한 완료 상태까지 전환되지는 않았다.
+- `pnpm --filter @orbit/web typecheck` — passed.
+- `pnpm --filter @orbit/web test` — 144 files, 1,026 tests passed.
+- `pnpm --filter @orbit/web build` — passed; 기존 Vite chunk-size advisory만 남음.
+
+final result: passed
+
+---
+
 ## Brief Entry, PPTX Import, and Editor Overlay (2026-07-15)
 
 - Source visual truth: `prototypes/brief-ux/qa/ai-brief.png`, `prototypes/brief-ux/qa/pptx-import.png`, `prototypes/brief-ux/qa/editor-brief-postfix-1440.png`.

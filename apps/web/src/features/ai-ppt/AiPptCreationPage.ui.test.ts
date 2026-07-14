@@ -5,11 +5,14 @@ import { describe, expect, it } from "vitest";
 import { AiPptCreationPage } from "./AiPptCreationPage";
 
 describe("AI PPT creation UI", () => {
-  it("does not expose the payload review step", () => {
+  it("presents a three-step user-facing creation flow", () => {
     const html = renderToStaticMarkup(createElement(AiPptCreationPage));
 
-    expect(html).toContain(">References<");
-    expect(html).not.toContain(">Review<");
+    expect(html).toContain(">발표 내용<");
+    expect(html).toContain(">구성 확인<");
+    expect(html).toContain(">생성<");
+    expect(html).not.toContain(">References<");
+    expect(html).not.toContain(">Deck<");
     expect(html).not.toContain("고급 설정 JSON 보기");
   });
 

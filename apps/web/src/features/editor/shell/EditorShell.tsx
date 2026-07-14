@@ -46,6 +46,7 @@ import {
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
+import { PresentationJourneyNav } from "../../projects/PresentationJourneyNav";
 import {
   normalizeEditorAssetUrl,
   resolveEditorAssetUrl
@@ -5016,6 +5017,8 @@ export function EditorShell(props: { initialBriefOpen?: boolean; projectId?: str
             ) : null}
           </div>
         </div>
+
+        <PresentationJourneyNav active="prepare" compact projectId={projectId} />
 
         <div className="top-actions">
           {projectPresenceUsers.length > 0 ? (

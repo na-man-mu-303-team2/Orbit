@@ -32,7 +32,6 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
-  IconDownload,
   IconFileText,
   IconInfoCircle,
   IconPalette,
@@ -49,7 +48,7 @@ import { createProject, deleteProject, uploadProjectAsset } from "../projects/Pr
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
 import "./ai-ppt-creation.css";
 
-type StepId = "brief" | "style" | "color" | "references" | "preview";
+type StepId = "brief" | "review" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
 type MediaPolicy = GenerateDeckMediaPolicy;
 type Tone = "professional" | "friendly" | "confident" | "concise";
@@ -181,11 +180,9 @@ export const mediaPolicyOptions = [
 const stylePackId = "brandlogy-modern";
 
 const steps: Array<{ id: StepId; label: string }> = [
-  { id: "brief", label: "Brief" },
-  { id: "style", label: "Style" },
-  { id: "color", label: "Color" },
-  { id: "references", label: "References" },
-  { id: "preview", label: "Deck" }
+  { id: "brief", label: "발표 내용" },
+  { id: "review", label: "구성 확인" },
+  { id: "preview", label: "생성" }
 ];
 
 const fallbackPaletteOptions: PaletteOption[] = [
@@ -378,6 +375,9 @@ export function getAiPptWizardValidationMessage(
   if (state.slides.trim() && parsePositiveInteger(state.slides, 0) < 1) {
     return "슬라이드 수는 1장 이상이어야 합니다.";
   }
+  if (parsePositiveInteger(state.slides, 0) > 20) {
+    return "슬라이드는 최대 20장까지 만들 수 있습니다.";
+  }
   if (
     ["references-first", "references-only"].includes(state.referencePolicy) &&
     referenceFiles.length === 0
@@ -433,8 +433,7 @@ export function AiPptCreationPage() {
     audience: "의사결정자",
     context: "AI 발표자료 생성",
     duration: "15",
-    presentationType: "설득",
-    slides: "15"
+    presentationType: "설득"
   });
   const [presentationBriefForm, setPresentationBriefForm] = useState(
     initialPresentationBriefForm
@@ -507,7 +506,7 @@ export function AiPptCreationPage() {
   }, [fontOptions, selectedFontId]);
 
   useEffect(() => {
-    if (currentStep !== "color") return;
+    if (currentStep !== "review") return;
     if (loadedColorRequestKey.current === colorRequestKey) return;
     void loadColorOptions();
   }, [colorRequestKey, currentStep]);
@@ -651,7 +650,7 @@ export function AiPptCreationPage() {
         presentationType: "설명",
         purpose: "핵심 내용을 이해하기 쉽게 전달",
         successCriteria: `${current.topic.trim() || "발표"}의 핵심 내용을 이해한다.`,
-        slides: current.slides || "10"
+        slides: current.slides
       }));
       return;
     }
@@ -674,7 +673,13 @@ export function AiPptCreationPage() {
   }
 
   function goNext() {
-    if (currentStep === "references") {
+    if (currentStep === "review") {
+      const validationMessage = getAiPptWizardValidationMessage(form, referenceFiles);
+      if (validationMessage) {
+        setError(validationMessage);
+        return;
+      }
+      goToStep("preview");
       void submitGeneration();
       return;
     }
@@ -792,7 +797,7 @@ export function AiPptCreationPage() {
         }
       }
 
-      setStatus(briefMode === "custom" ? "맞춤 Brief 저장 중..." : "기본 Brief 저장 중...");
+      setStatus(briefMode === "custom" ? "발표 기준 저장 중..." : "기본 발표 기준 저장 중...");
       const isGenericBrief = briefMode === "generic";
       const presentationBrief = await putPresentationBrief(project.projectId, {
         expectedRevision: 0,
@@ -906,24 +911,24 @@ export function AiPptCreationPage() {
     <section className="ai-ppt-page">
       <header className="ai-ppt-header">
         <div>
-          <span>AI PPT Wizard</span>
-          <h1>Design Pack으로 시작하는 새 발표 생성</h1>
+          <span>AI 발표자료 만들기</span>
+          <h1>내용을 알려주면 발표 흐름부터 디자인까지 준비해 드려요.</h1>
           <p>
-            템플릿 파일을 덮어쓰지 않고 brief, 색상 선택, 참고자료 정책을 모아
-            ORBIT Design Pack 기반 Deck JSON을 생성합니다.
+            발표 목적과 청중을 먼저 맞춘 뒤, 추천 구성을 확인하고 바로 편집을 시작하세요.
+            디자인과 참고자료 활용 방식은 필요할 때만 조정할 수 있습니다.
           </p>
         </div>
         <div className="ai-ppt-header-actions">
           <a className="ai-ppt-import-link" href="/importdeck">기존 PPTX 가져오기</a>
           <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
             <IconSparkles size={17} />
-            처음부터 입력
+            발표 내용 입력
           </button>
         </div>
       </header>
 
       <div className="ai-ppt-layout">
-        <aside className="ai-ppt-steps" aria-label="AI PPT wizard steps">
+        <aside className="ai-ppt-steps" aria-label="발표자료 생성 단계">
           {steps.map((step, index) => (
             <button
               key={step.id}
@@ -953,42 +958,53 @@ export function AiPptCreationPage() {
                 onChange={updateForm}
               />
             ) : null}
-            {currentStep === "style" ? (
-              <StyleStep
-                designPacks={designPacks}
-                fontOptions={fontOptions}
-                form={form}
-                isSavingDesignPack={isSavingDesignPack}
-                onApplyDesignPack={applyDesignPack}
-                onChange={updateForm}
-                onDeleteDesignPack={() => void deleteCurrentDesignPack()}
-                onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
-                onFontSelect={setSelectedFontId}
-                onSaveDesignPack={() => void saveCurrentDesignPack()}
-                onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
-                selectedDesignPackId={selectedDesignPackId}
-                selectedFontId={selectedFont.fontId}
-              />
-            ) : null}
-            {currentStep === "color" ? (
-              <ColorStep
-                selectedFont={selectedFont}
-                isLoading={isLoadingColors}
-                options={paletteOptions}
-                selectedPaletteId={selectedPalette.optionId}
-                onRefresh={loadColorOptions}
-                onSelect={setSelectedPaletteId}
-              />
-            ) : null}
-            {currentStep === "references" ? (
-              <ReferencesStep
-                files={referenceFiles}
-                officialAssetFiles={officialAssetFiles}
-                form={form}
+            {currentStep === "review" ? (
+              <>
+                <PanelHeading kicker="2. 구성 확인" title="추천 구성을 확인하고 바로 생성하세요." />
+                <CreationSummary form={form} onSlideCountChange={(value) => updateForm("slides", value)} />
+                <ReferencesStep
+                  embedded
+                  files={referenceFiles}
+                  officialAssetFiles={officialAssetFiles}
+                  form={form}
                 onChange={updateForm}
                 onFilesChange={setReferenceFiles}
-                onOfficialAssetFilesChange={setOfficialAssetFiles}
-              />
+                  onOfficialAssetFilesChange={setOfficialAssetFiles}
+                />
+                <details className="ai-ppt-advanced-settings">
+                  <summary>
+                    <span>디자인과 자료 활용 방식</span>
+                    <small>선택 사항 · 기본 추천값이 적용됩니다.</small>
+                  </summary>
+                  <div className="ai-ppt-advanced-settings-body">
+                    <StyleStep
+                      embedded
+                      designPacks={designPacks}
+                      fontOptions={fontOptions}
+                      form={form}
+                      isSavingDesignPack={isSavingDesignPack}
+                      onApplyDesignPack={applyDesignPack}
+                      onChange={updateForm}
+                      onDeleteDesignPack={() => void deleteCurrentDesignPack()}
+                      onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
+                      onFontSelect={setSelectedFontId}
+                      onSaveDesignPack={() => void saveCurrentDesignPack()}
+                      onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
+                      selectedDesignPackId={selectedDesignPackId}
+                      selectedFontId={selectedFont.fontId}
+                    />
+                    <ColorStep
+                      embedded
+                      selectedFont={selectedFont}
+                      isLoading={isLoadingColors}
+                      options={paletteOptions}
+                      selectedPaletteId={selectedPalette.optionId}
+                      onRefresh={loadColorOptions}
+                      onSelect={setSelectedPaletteId}
+                    />
+                  </div>
+                </details>
+              </>
             ) : null}
             {currentStep === "preview" ? (
               <PreviewStep
@@ -1055,10 +1071,10 @@ export function AiPptCreationPage() {
               <IconPlayerPlay size={17} />
               생성 중
             </>
-          ) : currentStep === "references" ? (
+          ) : currentStep === "review" ? (
             <>
               <IconPlayerPlay size={17} />
-              Deck JSON 생성
+              발표자료 생성
             </>
           ) : (
             <>
@@ -1138,30 +1154,30 @@ function BriefStep(props: {
 
   return (
     <>
-      <PanelHeading kicker="1. Presentation Brief" title="발표 방향을 먼저 맞춰볼게요." />
-      <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
+      <PanelHeading kicker="1. 발표 내용" title="누구에게 무엇을 전달할지 알려주세요." />
+      <div className="ai-ppt-tone-grid" aria-label="발표 내용 입력 방식">
         <button
           className={props.briefMode === "custom" ? "selected" : ""}
           type="button"
           onClick={() => props.onBriefModeChange("custom")}
         >
-          맞춤 Brief
+          발표 맞춤 설정
         </button>
         <button
           className={props.briefMode === "generic" ? "selected" : ""}
           type="button"
           onClick={() => props.onBriefModeChange("generic")}
         >
-          일반 모드
+          빠르게 시작
         </button>
       </div>
       {props.briefMode === "generic" ? (
         <div className="ai-ppt-generic-brief">
-          <p className="ai-ppt-status">일반 초보자 관점의 기본 Brief를 저장합니다. 에디터에서 언제든 확인하고 수정할 수 있어요.</p>
+          <p className="ai-ppt-status">주제와 시간만 입력하면 처음 듣는 청중을 위한 기본 구성으로 시작합니다. 에디터에서 언제든 수정할 수 있어요.</p>
           <div className="ai-ppt-field-grid">
             <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
             <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-            <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+            <TextField label="슬라이드 수 (선택)" placeholder="자동" value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
           </div>
         </div>
       ) : (
@@ -1190,7 +1206,7 @@ function BriefStep(props: {
             <TextField label="오프닝 조건" placeholder="최근 산업기 성장과 하반기 시장 환경 요약" value={props.brief.opening} onChange={(value) => props.onBriefChange({ ...props.brief, opening: value })} />
             <TextField label="클로징 조건" placeholder="예산 승인 요청 및 다음 단계 안내" value={props.brief.closing} onChange={(value) => props.onBriefChange({ ...props.brief, closing: value })} />
           </div>
-          <BriefChoice label="AI가 먼저 볼 평가 관점" options={lensOptions} selected={props.brief.lensId} onChange={(lensId) => props.onBriefChange({ ...props.brief, lensId })} />
+          <BriefChoice label="피드백 기준" options={lensOptions} selected={props.brief.lensId} onChange={(lensId) => props.onBriefChange({ ...props.brief, lensId })} />
         </div>
       )}
     </>
@@ -1233,21 +1249,52 @@ function BriefLiveSummary(props: {
     : { inform: "설명", persuade: "설득", teach: "교육", report: "보고" }[props.brief.purpose];
   return (
     <aside className="ai-ppt-brief-summary">
-      <div className="ai-ppt-preview-top"><span>Live Summary</span><strong>입력한 발표 기준</strong></div>
+      <div className="ai-ppt-preview-top"><span>발표 기준</span><strong>입력한 내용 요약</strong></div>
       <dl>
         <div><dt>청중</dt><dd>{audience}</dd></div>
         <div><dt>발표 목적</dt><dd>{purpose}</dd></div>
         <div><dt>목표 시간</dt><dd>{props.duration || "15"}분</dd></div>
       </dl>
       <section><span>원하는 결과</span><strong>{props.brief.desiredOutcome || "발표 후 원하는 결과를 입력해 주세요."}</strong></section>
-      <div className="ai-ppt-brief-impact"><IconSparkles size={18} /><span><strong>이 기준을 계속 이어가요.</strong>AI 구성과 이후 리허설 평가가 같은 Brief를 사용합니다.</span></div>
-      <button className="ai-ppt-primary" disabled={!props.canContinue} type="button" onClick={props.onContinue}>브리프 저장하고 디자인 선택</button>
-      <span className="ai-ppt-brief-mode-status">{props.briefMode === "generic" ? "일반 기준으로 시작 중" : "맞춤 Brief 적용 중"}</span>
+      <div className="ai-ppt-brief-impact"><IconSparkles size={18} /><span><strong>이 기준을 계속 이어가요.</strong>자료 생성과 이후 리허설 피드백이 같은 발표 기준을 사용합니다.</span></div>
+      <button className="ai-ppt-primary" disabled={!props.canContinue} type="button" onClick={props.onContinue}>추천 구성 보기</button>
+      <span className="ai-ppt-brief-mode-status">{props.briefMode === "generic" ? "기본 발표 기준 적용 중" : "맞춤 발표 기준 적용 중"}</span>
     </aside>
   );
 }
 
+function CreationSummary(props: {
+  form: AiPptWizardState;
+  onSlideCountChange: (value: string) => void;
+}) {
+  const slideCount = resolveSlideCountRange(props.form).min;
+  const duration = parsePositiveInteger(props.form.duration, 10);
+
+  return (
+    <section className="ai-ppt-creation-summary" aria-label="추천 발표 구성">
+      <div>
+        <span>추천 구성</span>
+        <strong>{duration}분 발표 · {slideCount}장</strong>
+        <p>슬라이드 수는 발표 시간과 청중에 맞춰 자동으로 계산했습니다.</p>
+      </div>
+      <label>
+        <span>슬라이드 수 직접 지정</span>
+        <input
+          inputMode="numeric"
+          max="20"
+          min="1"
+          placeholder={`자동 ${slideCount}`}
+          type="number"
+          value={props.form.slides}
+          onChange={(event) => props.onSlideCountChange(event.currentTarget.value)}
+        />
+      </label>
+    </section>
+  );
+}
+
 function StyleStep(props: {
+  embedded?: boolean;
   designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
@@ -1266,27 +1313,30 @@ function StyleStep(props: {
   selectedFontId: string;
 }) {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
+  const toneLabels: Record<Tone, string> = {
+    professional: "전문적인",
+    friendly: "친근한",
+    confident: "자신감 있는",
+    concise: "간결한",
+  };
   const selectedPack = props.designPacks.find(
     (pack) => pack.id === props.selectedDesignPackId
   );
   return (
     <>
-      <PanelHeading
-        kicker="2. Style"
-        title="ORBIT Design Pack에 얹을 톤 선택"
-      />
+      {!props.embedded ? <PanelHeading kicker="디자인" title="발표 분위기를 선택하세요." /> : <h3 className="ai-ppt-advanced-heading">발표 분위기</h3>}
       <div className="ai-ppt-pack-manager">
         <label>
-          <span>Saved Design Pack</span>
+          <span>저장한 디자인</span>
           <select
             value={props.selectedDesignPackId}
             onChange={(event) => props.onApplyDesignPack(event.target.value)}
           >
-            <option value="">현재 세션 설정</option>
+            <option value="">현재 추천 설정</option>
             {props.designPacks.map((pack) => (
               <option key={pack.id} value={pack.id}>
                 {pack.isDefault ? "★ " : ""}{pack.name}
-                {pack.ownerType === "system" ? " (Preset)" : ""}
+                {pack.ownerType === "system" ? " (기본)" : ""}
               </option>
             ))}
           </select>
@@ -1334,7 +1384,7 @@ function StyleStep(props: {
             type="button"
             onClick={() => props.onChange("tone", tone)}
           >
-            {tone}
+            {toneLabels[tone]}
           </button>
         ))}
       </div>
@@ -1346,7 +1396,7 @@ function StyleStep(props: {
         />
       </label>
       <label className="ai-ppt-textarea">
-        <span>Font mood</span>
+        <span>글꼴 분위기</span>
         <textarea
           value={props.form.fontMood}
           onChange={(event) => props.onChange("fontMood", event.target.value)}
@@ -1376,6 +1426,7 @@ function StyleStep(props: {
 }
 
 function ColorStep(props: {
+  embedded?: boolean;
   isLoading: boolean;
   options: PaletteOption[];
   selectedFont: GenerateDeckFontOption;
@@ -1385,10 +1436,7 @@ function ColorStep(props: {
 }) {
   return (
     <>
-      <PanelHeading
-        kicker="3. Color"
-        title="색상 후보 3개와 미니 슬라이드 preview"
-      />
+      {!props.embedded ? <PanelHeading kicker="색상" title="색상 후보를 확인하세요." /> : <h3 className="ai-ppt-advanced-heading">색상과 글꼴 미리보기</h3>}
       <div className="ai-ppt-result-toolbar">
         <span>{props.options.length} palettes ready</span>
         <button disabled={props.isLoading} type="button" onClick={props.onRefresh}>
@@ -1416,6 +1464,7 @@ function ColorStep(props: {
 }
 
 function ReferencesStep(props: {
+  embedded?: boolean;
   files: File[];
   officialAssetFiles: File[];
   form: AiPptWizardState;
@@ -1468,7 +1517,7 @@ function ReferencesStep(props: {
 
   return (
     <>
-      <PanelHeading kicker="4. References" title="참고자료와 활용 방식" />
+      {!props.embedded ? <PanelHeading kicker="참고자료" title="발표에 반영할 자료를 추가하세요." /> : <h3 className="ai-ppt-review-section-title">참고자료 <small>선택 사항</small></h3>}
       <p className="ai-ppt-reference-intro">
         발표 생성에 참고할 자료를 추가하고, 내용과 이미지의 반영 기준을 선택하세요.
       </p>
@@ -1545,65 +1594,66 @@ function ReferencesStep(props: {
           </ul>
         </section>
       ) : null}
-      <div className="ai-ppt-reference-policy-grid">
-        <fieldset className="ai-ppt-reference-policy">
-          <legend>참고자료 활용 기준</legend>
-          <p>발표 내용에서 참고자료가 차지할 우선순위를 선택합니다.</p>
-          <div className="ai-ppt-choice-list">
-            {referencePolicyOptions.map((option) => (
-              <PolicyChoiceButton
-                key={option.value}
-                option={option}
-                selected={props.form.referencePolicy === option.value}
-                tooltipId={`reference-policy-${option.value}`}
-                onSelect={(value) => props.onChange("referencePolicy", value)}
-              />
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="ai-ppt-reference-policy">
-          <legend>이미지 구성</legend>
-          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
-          <div className="ai-ppt-choice-list">
-            {mediaPolicyOptions.map((option) => (
-              <PolicyChoiceButton
-                key={option.value}
-                option={option}
-                selected={props.form.mediaPolicy === option.value}
-                tooltipId={`media-policy-${option.value}`}
-                onSelect={(value) => props.onChange("mediaPolicy", value)}
-              />
-            ))}
-          </div>
-        </fieldset>
-      </div>
-      {props.form.mediaPolicy === "hybrid" ? (
-        <label className="ai-ppt-reference-drop ai-ppt-official-asset-drop">
-          <ImageIcon size={28} />
-          <strong>
-            {props.officialAssetFiles.length
-              ? `공식 이미지 ${props.officialAssetFiles.length}개 선택됨`
-              : "공식 이미지 업로드 (권장)"}
-          </strong>
-          <span>
-            제품 화면, 공식 발표 그래프, 보도용 이미지를 올리세요.
-          </span>
-          <input
-            accept="image/png,image/jpeg,image/webp"
-            multiple
-            type="file"
-            onChange={(event) =>
-              props.onOfficialAssetFilesChange(filesFromEvent(event))
-            }
-          />
-        </label>
-      ) : null}
-      <div className="ai-ppt-media-policy-help">
-        <strong>공식 이미지</strong>
-        <span>회사·기관이 직접 제공한 제품 화면, 공식 그래프, 보도용 이미지</span>
-        <strong>공개 이미지</strong>
-        <span>Openverse 등에서 검색한 제3자 라이선스 이미지</span>
-      </div>
+      <details className="ai-ppt-reference-options">
+        <summary>참고자료와 이미지 활용 방식 조정</summary>
+        <div className="ai-ppt-reference-policy-grid">
+          <fieldset className="ai-ppt-reference-policy">
+            <legend>참고자료 활용 기준</legend>
+            <p>발표 내용에서 참고자료가 차지할 우선순위를 선택합니다.</p>
+            <div className="ai-ppt-choice-list">
+              {referencePolicyOptions.map((option) => (
+                <PolicyChoiceButton
+                  key={option.value}
+                  option={option}
+                  selected={props.form.referencePolicy === option.value}
+                  tooltipId={`reference-policy-${option.value}`}
+                  onSelect={(value) => props.onChange("referencePolicy", value)}
+                />
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="ai-ppt-reference-policy">
+            <legend>이미지 구성</legend>
+            <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
+            <div className="ai-ppt-choice-list">
+              {mediaPolicyOptions.map((option) => (
+                <PolicyChoiceButton
+                  key={option.value}
+                  option={option}
+                  selected={props.form.mediaPolicy === option.value}
+                  tooltipId={`media-policy-${option.value}`}
+                  onSelect={(value) => props.onChange("mediaPolicy", value)}
+                />
+              ))}
+            </div>
+          </fieldset>
+        </div>
+        {props.form.mediaPolicy === "hybrid" ? (
+          <label className="ai-ppt-reference-drop ai-ppt-official-asset-drop">
+            <ImageIcon size={28} />
+            <strong>
+              {props.officialAssetFiles.length
+                ? `공식 이미지 ${props.officialAssetFiles.length}개 선택됨`
+                : "공식 이미지 업로드 (권장)"}
+            </strong>
+            <span>제품 화면, 공식 발표 그래프, 보도용 이미지를 올리세요.</span>
+            <input
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              type="file"
+              onChange={(event) =>
+                props.onOfficialAssetFilesChange(filesFromEvent(event))
+              }
+            />
+          </label>
+        ) : null}
+        <div className="ai-ppt-media-policy-help">
+          <strong>공식 이미지</strong>
+          <span>회사·기관이 직접 제공한 제품 화면, 공식 그래프, 보도용 이미지</span>
+          <strong>공개 이미지</strong>
+          <span>Openverse 등에서 검색한 제3자 라이선스 이미지</span>
+        </div>
+      </details>
     </>
   );
 }
@@ -1642,19 +1692,15 @@ function PreviewStep(props: {
   return (
     <>
       <PanelHeading
-        kicker="Generated Deck"
-        title="Deck JSON 생성 후 에디터에서 수정"
+        kicker="3. 생성"
+        title="발표자료를 만들고 있어요."
       />
       <div className="ai-ppt-result-toolbar">
-        <span>{props.job?.status ?? "ready"}</span>
-        <span>{props.payload.slideCountRange.min} slides</span>
-        <button type="button">
-          <IconDownload size={16} />
-          PPTX export
-        </button>
+        <span>{props.job?.status === "failed" ? "확인이 필요해요" : props.job?.status === "succeeded" ? "완료" : "생성 진행 중"}</span>
+        <span>{props.payload.slideCountRange.min}장 구성</span>
       </div>
       <div className="ai-ppt-slide-grid">
-        {["Cover", "Why change", "Design Pack", "Pipeline"].map((title, index) => (
+        {["표지", "배경과 문제", "핵심 제안", "실행 계획"].map((title, index) => (
           <article key={title}>
             <MiniSlide
               dense={index > 0}
@@ -1678,7 +1724,7 @@ function LivePreview(props: {
   return (
     <div className="ai-ppt-preview-card">
       <div className="ai-ppt-preview-top">
-        <span>Live Preview</span>
+        <span>구성 미리보기</span>
         <strong>{props.selectedPalette.name} · {props.selectedFont.name}</strong>
       </div>
       <MiniSlide font={props.selectedFont} palette={props.selectedPalette.palette} />
@@ -1704,7 +1750,7 @@ function AdvisorPanel(props: {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<PptAdvisorHistoryItem[]>([]);
   const [answer, setAnswer] = useState(
-    "현재 brief 기준으로 적용 가능한 제안을 아래에 정리했습니다."
+    "현재 발표 기준에 맞는 제안을 아래에 정리했습니다."
   );
   const [suggestions, setSuggestions] = useState<AiPptAdvisorSuggestion[]>(() =>
     buildAiPptAdvisorSuggestions(props.form)
@@ -1760,8 +1806,8 @@ function AdvisorPanel(props: {
   return (
     <section className="ai-ppt-advisor">
       <div className="ai-ppt-preview-top">
-        <span>Side AI</span>
-        <strong>Decision helper</strong>
+        <span>AI 구성 도우미</span>
+        <strong>선택 도움</strong>
       </div>
       {history.length > 0 ? (
         <div className="ai-ppt-advisor-history" aria-live="polite">
@@ -1780,7 +1826,7 @@ function AdvisorPanel(props: {
         }}
       >
         <label>
-          <span>Ask</span>
+          <span>질문</span>
           <textarea
             value={question}
             maxLength={1000}

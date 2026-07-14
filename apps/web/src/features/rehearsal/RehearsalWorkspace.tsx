@@ -62,6 +62,7 @@ import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import { PresentationJourneyNav } from "../projects/PresentationJourneyNav";
 import "./rehearsal-preflight.css";
 import "./rehearsal-report-detail.css";
 import "./rehearsal-workspace-orbit.css";
@@ -5395,6 +5396,7 @@ function RehearsalPreflightScreen(props: {
 
   return (
     <main className="rehearsal-preflight-screen" aria-label="리허설 시작 전">
+      <PresentationJourneyNav active="practice" projectId={props.deck.projectId} />
       <div className="rehearsal-preflight-banner">
         <Zap size={17} />
         <span>{preflightBanner}</span>
@@ -6146,6 +6148,7 @@ export function RehearsalReportPage(props: {
             </span>
           )}
         </div>
+        <PresentationJourneyNav active="results" compact projectId={props.projectId} />
       </header>
 
       <div className="rehearsal-report-body">

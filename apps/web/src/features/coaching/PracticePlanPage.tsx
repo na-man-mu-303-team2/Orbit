@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { OrbitButton, OrbitStatus } from "../../design-system";
+import { PresentationJourneyNav } from "../projects/PresentationJourneyNav";
 import { fetchPracticePlan } from "./practicePlanApi";
 import {
   firstSelectableGoal,
@@ -18,6 +19,18 @@ import {
   practiceHistoryLabel,
 } from "./practicePlanViewModel";
 import "./practice-plan.css";
+
+export function getPracticeGoalHref(options: {
+  focusedPracticeAvailable: boolean;
+  goalId: string;
+  goalSetId: string;
+  projectId: string;
+  sourceFullRunId: string;
+}) {
+  return options.focusedPracticeAvailable
+    ? `/rehearsal/${encodeURIComponent(options.projectId)}/focus/${encodeURIComponent(options.goalId)}?sourceFullRunId=${encodeURIComponent(options.sourceFullRunId)}`
+    : `/rehearsal/${encodeURIComponent(options.projectId)}?sourceGoalSetId=${encodeURIComponent(options.goalSetId)}&sourceFullRunId=${encodeURIComponent(options.sourceFullRunId)}&goalId=${encodeURIComponent(options.goalId)}`;
+}
 
 export function PracticePlanPage(props: {
   previewCapabilities?: { challengeQnaEnabled: boolean; focusedPracticeEnabled: boolean };
@@ -57,6 +70,18 @@ export function PracticePlanPage(props: {
       : undefined,
     [plan, selectedGoalId],
   );
+  const focusedPracticeAvailable = Boolean(
+    selectedGoal?.canStartFocusedPractice && capabilities?.focusedPracticeEnabled,
+  );
+  const primaryPracticeHref = plan?.status === "ready" && selectedGoal
+    ? getPracticeGoalHref({
+        focusedPracticeAvailable,
+        goalId: selectedGoal.goalId,
+        goalSetId: plan.goalSet.goalSetId,
+        projectId: props.projectId,
+        sourceFullRunId: props.sourceFullRunId,
+      })
+    : "";
 
   return (
     <div className="orbit-ds-page practice-plan-page">
@@ -64,6 +89,7 @@ export function PracticePlanPage(props: {
         <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/report/${encodeURIComponent(props.sourceFullRunId)}`}>
           <IconArrowLeft aria-hidden="true" size={18} /> 리포트로 돌아가기
         </a>
+        <PresentationJourneyNav active="practice" compact projectId={props.projectId} />
         <OrbitStatus tone="lilac">맞춤 연습</OrbitStatus>
       </header>
 
@@ -116,14 +142,15 @@ export function PracticePlanPage(props: {
                 <div><dt><IconCircleCheck aria-hidden="true" size={17} /> 성공 기준</dt><dd>{selectedGoal.successCondition}</dd></div>
               </dl>
               <OrbitButton
-                disabled={!selectedGoal.canStartFocusedPractice || !capabilities?.focusedPracticeEnabled}
-                onClick={() => { window.location.href = `/rehearsal/${encodeURIComponent(props.projectId)}/focus/${encodeURIComponent(selectedGoal.goalId)}?sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`; }}
+                onClick={() => {
+                  window.location.href = primaryPracticeHref;
+                }}
               >
-                선택한 구간 연습
+                {focusedPracticeAvailable ? "이 부분 바로 연습" : "이 목표로 리허설 시작"}
               </OrbitButton>
-              {!selectedGoal.canStartFocusedPractice || !capabilities?.focusedPracticeEnabled ? (
+              {!focusedPracticeAvailable ? (
                 <p className="practice-action-note" role="status">
-                  집중 연습은 현재 사용할 수 없습니다. 전체 리허설로 목표를 확인할 수 있습니다.
+                  짧은 구간 연습이 준비되지 않아도 선택한 목표를 유지한 전체 리허설로 바로 이어집니다.
                 </p>
               ) : null}
               <a className="practice-full-run-link" href={`/rehearsal/${encodeURIComponent(props.projectId)}?sourceGoalSetId=${encodeURIComponent(plan.goalSet.goalSetId)}&sourceFullRunId=${encodeURIComponent(props.sourceFullRunId)}`}>

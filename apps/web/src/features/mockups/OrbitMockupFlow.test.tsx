@@ -145,7 +145,7 @@ describe("Orbit mockup flow", () => {
   it("renders the adaptive practice plan mockup", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="practice-plan" />);
     expect(html).toContain("다음 연습은 이 세 가지에 집중하세요.");
-    expect(html).toContain("선택한 구간 연습");
+    expect(html).toContain("이 부분 바로 연습");
   });
 
   it("renders the focused practice mockup", () => {

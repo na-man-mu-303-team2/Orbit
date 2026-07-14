@@ -26,6 +26,7 @@ import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview
 import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
 import { OrbitButton, OrbitEmptyState } from "../../design-system";
+import { PresentationJourneyNav } from "../projects/PresentationJourneyNav";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 import {
@@ -128,6 +129,7 @@ export function RehearsalProjectOverviewPage({
             {project?.title ?? "리포트"}
           </span>
         </div>
+        <PresentationJourneyNav active="results" compact projectId={projectId} />
         <div className="rehearsal-report-topbar-actions">
           <button
             type="button"

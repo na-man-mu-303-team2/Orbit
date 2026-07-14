@@ -246,8 +246,8 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("AI PPT Wizard");
-      expect(html).toContain("Design Pack으로 시작하는 새 발표 생성");
+      expect(html).toContain("AI 발표자료 만들기");
+      expect(html).toContain("내용을 알려주면 발표 흐름부터 디자인까지 준비해 드려요.");
     } finally {
       vi.unstubAllGlobals();
       queryClient.clear();

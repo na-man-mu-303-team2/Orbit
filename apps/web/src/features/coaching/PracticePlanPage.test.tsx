@@ -3,16 +3,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { PracticePlanPage } from "./PracticePlanPage";
+import { getPracticeGoalHref, PracticePlanPage } from "./PracticePlanPage";
 
 describe("PracticePlanPage", () => {
-  it("keeps unavailable advanced practice actions visible with a reason", () => {
+  it("keeps the primary retry action available when focused practice is unavailable", () => {
     const html = render(false);
 
-    expect(html).toContain("선택한 구간 연습");
+    expect(html).toContain("이 목표로 리허설 시작");
     expect(html).toContain("도전 질문 3개 연습");
     expect(html).toContain('aria-disabled="true"');
-    expect(html).toContain("현재 사용할 수 없습니다");
+    expect(html).toContain("전체 리허설로 바로 이어집니다");
   });
 
   it("uses Korean labels for the coaching flow", () => {
@@ -20,8 +20,19 @@ describe("PracticePlanPage", () => {
 
     expect(html).toContain("맞춤 연습");
     expect(html).toContain("다음 리허설");
+    expect(html).toContain("이 부분 바로 연습");
     expect(html).not.toContain("Adaptive coach");
     expect(html).not.toContain("Next rehearsal");
+  });
+
+  it("keeps the selected goal when falling back to a full rehearsal", () => {
+    expect(getPracticeGoalHref({
+      focusedPracticeAvailable: false,
+      goalId: "goal-a",
+      goalSetId: "goalset-a",
+      projectId: "project-a",
+      sourceFullRunId: "run-a",
+    })).toBe("/rehearsal/project-a?sourceGoalSetId=goalset-a&sourceFullRunId=run-a&goalId=goal-a");
   });
 });
 

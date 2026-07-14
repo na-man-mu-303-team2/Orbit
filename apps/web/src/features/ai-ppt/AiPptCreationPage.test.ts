@@ -193,6 +193,26 @@ describe("AI PPT wizard payload", () => {
     ).toBe(expected);
   });
 
+  it("blocks a manual slide count outside the generation contract", () => {
+    expect(
+      getAiPptWizardValidationMessage({
+        topic: "AI PPT",
+        purpose: "목적",
+        context: "맥락",
+        audience: "청중",
+        presentationType: "제안",
+        successCriteria: "합의",
+        duration: "10",
+        slides: "21",
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "user-input-only",
+      }),
+    ).toBe("슬라이드는 최대 20장까지 만들 수 있습니다.");
+  });
+
   it("normalizes selected reference files from a file list", () => {
     const files = [
       new File(["brief"], "brief.pdf", { type: "application/pdf" }),
