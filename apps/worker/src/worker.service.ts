@@ -1,8 +1,6 @@
 import {
-  aiTemplateDeckGenerationQueueName,
   deckExportQueueName,
   generateDeckQueueName,
-  pptxImportQueueName,
   pptxOoxmlGenerationQueueName,
   pptxOoxmlSyncQueueName,
   redisConnectionOptions,
@@ -22,14 +20,12 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
-import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
 import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
 import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
 import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
-import { processPptxImportJob } from "./pptx-import.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-evaluation.processor";
@@ -52,11 +48,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     rehearsalSemanticEvaluationQueueName,
     generateDeckQueueName,
     deckExportQueueName,
-    aiTemplateDeckGenerationQueueName,
     semanticCueExtractionQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
-    pptxImportQueueName,
     workerHealthCheckQueueName,
     focusedPracticeAnalysisQueueName,
     challengeQnaGenerationQueueName,
@@ -163,14 +157,6 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           job.data,
         ),
       ),
-      this.createWorker(aiTemplateDeckGenerationQueueName, (job) =>
-        processAiTemplateDeckGenerationJob(
-          this.dataSource,
-          storage,
-          this.config.PYTHON_WORKER_URL,
-          job.data,
-        ),
-      ),
       this.createWorker(semanticCueExtractionQueueName, (job) =>
         processSemanticCueExtractionJob(
           this.dataSource,
@@ -188,14 +174,6 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(pptxOoxmlSyncQueueName, (job) =>
         processPptxOoxmlSyncJob(
-          this.dataSource,
-          storage,
-          this.config.PYTHON_WORKER_URL,
-          job.data,
-        ),
-      ),
-      this.createWorker(pptxImportQueueName, (job) =>
-        processPptxImportJob(
           this.dataSource,
           storage,
           this.config.PYTHON_WORKER_URL,

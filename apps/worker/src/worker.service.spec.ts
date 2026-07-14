@@ -2,8 +2,8 @@ import type { PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  aiTemplateDeckGenerationQueueName,
-  pptxImportQueueName,
+  generateDeckQueueName,
+  pptxOoxmlGenerationQueueName,
 } from "@orbit/job-queue";
 import { WorkerService } from "./worker.service";
 
@@ -58,8 +58,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("WorkerService legacy drain subscriptions", () => {
-  it("keeps both legacy queue consumers registered", async () => {
+describe("WorkerService queue subscriptions", () => {
+  it("registers active queues without legacy consumers", async () => {
     vi.spyOn(globalThis, "setInterval").mockReturnValue(1 as never);
     vi.spyOn(globalThis, "clearInterval").mockImplementation(() => undefined);
     const logger = {
@@ -71,8 +71,10 @@ describe("WorkerService legacy drain subscriptions", () => {
 
     service.onModuleInit();
 
-    expect(bullMq.queues).toContain(pptxImportQueueName);
-    expect(bullMq.queues).toContain(aiTemplateDeckGenerationQueueName);
+    expect(bullMq.queues).toContain(generateDeckQueueName);
+    expect(bullMq.queues).toContain(pptxOoxmlGenerationQueueName);
+    expect(bullMq.queues).not.toContain("pptx-import");
+    expect(bullMq.queues).not.toContain("ai-template-deck-generation");
 
     await service.onModuleDestroy();
   });
