@@ -59,9 +59,12 @@ describe("createPrompterProgressTracker", () => {
     );
     expect(tracker.snapshot()).toMatchObject({
       revision: 1,
-      phase: "committed",
+      phase: "tracking",
       currentSentenceId: "sentence_2",
+      candidateSentenceId: null,
+      candidateSinceMs: null,
       committedSentenceIds: ["sentence_1"],
+      lastCommittedSentenceId: "sentence_1",
       lastCommitSource: "lexical"
     });
     expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_200 })).toBe(
@@ -89,8 +92,10 @@ describe("createPrompterProgressTracker", () => {
 
     expect(tracker.manualNext(1_000)).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
+      phase: "tracking",
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"],
+      lastCommittedSentenceId: "sentence_1",
       lastCommitSource: "manual"
     });
 

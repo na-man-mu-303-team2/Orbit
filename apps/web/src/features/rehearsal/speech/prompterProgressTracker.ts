@@ -1,4 +1,4 @@
-export type PrompterProgressPhase = "tracking" | "candidate" | "committed";
+export type PrompterProgressPhase = "tracking" | "candidate";
 
 export type PrompterProgressSentence = {
   sentenceId: string;
@@ -172,9 +172,7 @@ export function createPrompterProgressTracker(options: {
     lastCommitSource = source;
     currentIndex += 1;
     revision += 1;
-    latestEvidence = null;
-    candidateSinceMs = null;
-    phase = "committed";
+    clearCandidate();
     return true;
   }
 

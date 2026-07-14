@@ -337,9 +337,10 @@ describe("SpeechTracker", () => {
 
     expect(tracker.snapshot()).toMatchObject({
       prompterProgress: {
-        phase: "committed",
+        phase: "tracking",
         currentSentenceId: "sentence_2",
-        committedSentenceIds: ["sentence_1"]
+        committedSentenceIds: ["sentence_1"],
+        lastCommittedSentenceId: "sentence_1"
       }
     });
   });
