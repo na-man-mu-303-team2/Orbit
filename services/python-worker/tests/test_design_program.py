@@ -529,6 +529,27 @@ def test_create_design_program_fails_after_one_retry() -> None:
     assert len(responses.requests) == 2
 
 
+def test_create_design_program_does_not_retry_provider_timeout() -> None:
+    class TimeoutResponses:
+        def __init__(self) -> None:
+            self.requests: list[dict[str, Any]] = []
+
+        def create(self, **kwargs: Any) -> SimpleNamespace:
+            self.requests.append(kwargs)
+            raise TimeoutError("provider timeout")
+
+    responses = TimeoutResponses()
+
+    with pytest.raises(DesignProgramError, match="DECK_PROVIDER_TIMEOUT"):
+        create_design_program(
+            context(),
+            slides(),
+            client=SimpleNamespace(responses=responses),
+        )
+
+    assert len(responses.requests) == 1
+
+
 @pytest.mark.parametrize(
     "invalid",
     [
@@ -679,6 +700,7 @@ def test_program_v2_golden_pipeline_contract() -> None:
     request.design.reference_policy = "user-input-only"
     responses = PipelineFakeResponses(
         {
+            "deck_narrative_draft": golden_narrative_draft(),
             "design_pack_content_plan": golden_content_plan(),
             "deck_design_program": golden_design_program(),
         }
@@ -705,6 +727,7 @@ def test_program_v2_golden_pipeline_contract() -> None:
         request_payload["text"]["format"]["name"]
         for request_payload in responses.requests
     ] == [
+        "deck_narrative_draft",
         "design_pack_content_plan",
         "design_pack_content_plan",
         "deck_design_program",
@@ -739,13 +762,13 @@ def test_program_v2_golden_pipeline_contract() -> None:
     assert title_element["props"]["text"] == "미지의 군도로"
     assert all(slide["animations"] == [] for slide in deck["slides"])
 
-    assert response.validation.model_dump(by_alias=True) == {
-        "passed": True,
-        "layoutIssues": [],
-        "contentIssues": [],
-        "designIssues": [],
-        "presentationIssues": [],
-    }
+    assert response.validation.passed is False
+    assert response.validation.layout_issues == []
+    assert response.validation.design_issues == []
+    assert response.validation.presentation_issues == []
+    assert len(response.validation.content_issues) == 1
+    assert response.validation.content_issues[0].code == "SPEAKER_NOTES_DENSE"
+    assert response.validation.content_issues[0].blocking is False
     assert response.warnings == [
         "참고자료 없이 topic-only generation으로 생성했습니다."
     ]
@@ -755,11 +778,11 @@ def test_program_v2_golden_pipeline_contract() -> None:
         "webSourceCount": 0,
         "researchAttempts": 0,
         "relevantWebSourceCount": 0,
-        "officialWebSourceCount": 0,
-        "repairAttempted": True,
-        "repairReasons": ["CONTENT_DUPLICATED", "SPEAKER_NOTES_SHORT"],
-        "uniqueCoreLayoutCount": 6,
-        "validationIssueCount": 0,
+            "officialWebSourceCount": 0,
+            "repairAttempted": True,
+            "repairReasons": ["CONTENT_DUPLICATED"],
+            "uniqueCoreLayoutCount": 6,
+            "validationIssueCount": 1,
         "visualQaStatus": "not-run",
         "visualReviewAttempts": 0,
         "visualRepairAttempts": 0,
@@ -905,6 +928,46 @@ def golden_slide_plans() -> list[SlidePlan]:
             )
         )
     return plans
+
+
+def golden_narrative_draft() -> dict[str, Any]:
+    definitions = golden_slide_definitions()
+    beats: list[dict[str, Any]] = []
+    purpose_hints = (
+        "define",
+        "explain",
+        "demonstrate",
+        "compare",
+        "apply",
+    )
+    for order, (_, title, message, _) in enumerate(definitions, start=1):
+        previous_title = definitions[order - 2][1] if order > 1 else ""
+        beats.append(
+            {
+                "purposeHint": purpose_hints[
+                    min(order - 1, len(purpose_hints) - 1)
+                ],
+                "audienceQuestion": f"{title}에서 무엇을 이해해야 합니까?",
+                "messages": [
+                    {
+                        "role": "action" if order == len(definitions) else "claim",
+                        "text": f"{title}에서 {message}",
+                        "sourceRefs": [],
+                    }
+                ],
+                "bridgeIntent": (
+                    ""
+                    if order == 1
+                    else f"{previous_title}의 판단을 {title}의 핵심과 연결합니다."
+                ),
+            }
+        )
+    return {
+        "thesis": "스플래툰 레이더스의 공개 정보를 이해하고 선택 기준을 확인합니다",
+        "opening": "공식 발표의 핵심 질문과 범위를 확인합니다",
+        "closing": "확인한 정보를 바탕으로 다음 행동을 결정합니다",
+        "beats": beats,
+    }
 
 
 def golden_content_plan() -> dict[str, Any]:

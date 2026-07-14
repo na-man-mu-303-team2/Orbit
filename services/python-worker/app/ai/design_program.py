@@ -325,6 +325,11 @@ def create_design_program(
             if len(program.slides) != len(slides):
                 raise ValueError("Art Director returned the wrong slide count")
             return apply_art_director_context(program, context)
+        except TimeoutError as error:
+            raise DesignProgramError(
+                "DECK_PROVIDER_TIMEOUT: Art Director provider call exceeded its time "
+                "budget. Please retry deck generation."
+            ) from error
         except Exception:
             prompt += "\nThe previous response violated the strict schema. Return a corrected plan."
     raise DesignProgramError(
