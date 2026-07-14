@@ -3,6 +3,7 @@
   allowedAssetMimeTypes,
   deckSchema,
   demoIds,
+  legacyRehearsalReportMetricsDefaults,
   maxAssetUploadSizeBytes,
   type AiTemplateDeckGenerationJobResult,
   type Deck,
@@ -341,6 +342,7 @@ const reportMockupReport: RehearsalReport = {
   transcriptRetained: false,
   transcript: null,
   metrics: {
+    ...legacyRehearsalReportMetricsDefaults,
     durationSeconds: 286,
     wordsPerMinute: 128,
     fillerWordCount: 3,
@@ -355,6 +357,7 @@ const reportMockupReport: RehearsalReport = {
   ],
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
+  pauseV2Details: [],
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
   utteranceOutcomes: [],
   semanticCueDecisions: [],

@@ -262,6 +262,7 @@ describe("p3RehearsalSession", () => {
     const meta = await session.stop();
 
     expect(meta).toEqual({
+      recordingDurationSeconds: null,
       slideTimeline: [
         {
           slideId: "slide_1",

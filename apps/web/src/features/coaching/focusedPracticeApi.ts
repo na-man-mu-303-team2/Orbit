@@ -26,7 +26,12 @@ export async function getFocusedSession(sessionId: string): Promise<{ session: F
   return { session: focusedPracticeSessionSchema.parse(data.session), attempts: data.attempts.map((item: unknown) => focusedPracticeAttemptSchema.parse(item)), stabilization: data.stabilization };
 }
 
-export async function submitFocusedAudio(sessionId: string, blob: Blob, durationMs: number, slideId: string) {
+export async function submitFocusedAudio(
+  sessionId: string,
+  blob: Blob,
+  durationMs: number,
+  slideTimeline: FocusedPracticeAttempt["slideTimeline"],
+) {
   const attemptData = await json(await fetch(`/api/v1/focused-practice-sessions/${encodeURIComponent(sessionId)}/attempts`, {
     method: "POST", headers: jsonHeaders, credentials: "include",
     body: JSON.stringify({ clientRequestId: crypto.randomUUID(), mimeType: normalizeCoachingAudioMimeType(blob.type), size: blob.size }),
@@ -36,8 +41,7 @@ export async function submitFocusedAudio(sessionId: string, blob: Blob, duration
   if (!uploadResponse.ok) throw new Error("부분 연습 녹음을 업로드하지 못했습니다.");
   const data = await json(await fetch(`/api/v1/focused-practice-attempts/${encodeURIComponent(attempt.attemptId)}/audio/complete`, {
     method: "POST", headers: jsonHeaders, credentials: "include",
-    body: JSON.stringify({ fileId: attemptData.upload.fileId, durationMs,
-      slideTimeline: [{ slideId, enteredAtMs: 0, exitedAtMs: durationMs }] }),
+    body: JSON.stringify({ fileId: attemptData.upload.fileId, durationMs, slideTimeline }),
   })) as { attempt: unknown };
   return focusedPracticeAttemptSchema.parse(data.attempt);
 }

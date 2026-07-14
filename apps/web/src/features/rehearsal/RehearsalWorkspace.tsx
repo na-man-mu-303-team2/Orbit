@@ -962,6 +962,7 @@ export async function runRehearsalUploadFlow(options: {
     options.runMeta ??
     (options.slideTimeline?.length
         ? {
+            recordingDurationSeconds: null,
             slideTimeline: options.slideTimeline,
             missedKeywords: [],
             adviceEvents: [],
