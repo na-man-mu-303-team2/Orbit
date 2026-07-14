@@ -136,3 +136,98 @@ def test_documents_parse_connects_extraction_cleanup_and_indexing(monkeypatch) -
             },
         ],
     }
+
+
+def test_documents_parse_returns_ordered_success_and_failure_results(monkeypatch) -> None:
+    def fake_extract_file(source_path: Path, config: object) -> ExtractionResult:
+        if source_path.name == "usable.pdf":
+            return ExtractionResult(
+                source_path=source_path,
+                kind=FileKind.PDF,
+                status=ResultStatus.SUCCEEDED,
+                sections=[
+                    ExtractedSection(
+                        title="PDF text",
+                        text="usable reference text",
+                        status="text",
+                    )
+                ],
+                message="PDF extraction completed.",
+            )
+        return ExtractionResult(
+            source_path=source_path,
+            kind=FileKind.DOCX,
+            status=ResultStatus.FAILED,
+            message="Document extraction failed.",
+        )
+
+    def fake_clean_reference_text(
+        raw_text: str,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> object:
+        return type(
+            "Cleanup",
+            (),
+            {"text": raw_text, "status": "succeeded", "message": ""},
+        )()
+
+    def fake_extract_presentation_keywords(
+        cleaned_text: str,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> KeywordExtractionResult:
+        return KeywordExtractionResult(keywords=[], status="succeeded")
+
+    def fake_index_reference_text(**kwargs: object) -> object:
+        has_text = bool(str(kwargs["text"]).strip())
+        return type(
+            "IndexResult",
+            (),
+            {
+                "status": "indexed" if has_text else "skipped",
+                "message": "",
+                "chunk_count": 1 if has_text else 0,
+            },
+        )()
+
+    monkeypatch.setattr(api_module, "extract_file", fake_extract_file)
+    monkeypatch.setattr(api_module, "clean_reference_text", fake_clean_reference_text)
+    monkeypatch.setattr(
+        api_module,
+        "extract_presentation_keywords",
+        fake_extract_presentation_keywords,
+    )
+    monkeypatch.setattr(api_module, "index_reference_text", fake_index_reference_text)
+    api_module.app.state.config = load_config(VALID_ENV)
+
+    client = TestClient(api_module.app)
+    response = client.post(
+        "/documents/parse",
+        data={
+            "project_id": "project-a",
+            "file_ids": ["file-1", "file-2"],
+        },
+        files=[
+            ("files", ("usable.pdf", b"pdf", "application/pdf")),
+            (
+                "files",
+                (
+                    "broken.docx",
+                    b"docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            ),
+        ],
+    )
+
+    assert response.status_code == 200
+    files = response.json()["files"]
+    assert [file["referenceDocumentId"] for file in files] == ["file-1", "file-2"]
+    assert [file["fileName"] for file in files] == ["usable.pdf", "broken.docx"]
+    assert [file["status"] for file in files] == ["succeeded", "failed"]
+    assert files[0]["rawText"] == "usable reference text"
+    assert files[1]["rawText"] == ""
+    assert files[1]["message"] == "Document extraction failed."
