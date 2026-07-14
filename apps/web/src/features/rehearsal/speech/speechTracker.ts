@@ -1,6 +1,15 @@
 import type { LiveSttResult } from "../stt/liveSttPort";
 import { createDefaultPhraseExtractor } from "./phraseExtractor";
 import {
+  createPrompterLexicalEvidenceAccumulator,
+  type PrompterLexicalEvidenceAccumulator,
+  type PrompterLexicalEvidenceSnapshot
+} from "./prompterLexicalEvidence";
+import {
+  createPrompterProgressTracker,
+  type PrompterBoundary
+} from "./prompterProgressTracker";
+import {
   mergeSpeechTrackingConfig,
   type SpeechTrackingConfig,
   type SpeechTrackingConfigOverride
@@ -44,6 +53,9 @@ export type SpeechTracker = {
     lexicalOverlap?: number;
     atMs: number;
   }) => SpeechTrackingEvent[];
+  acceptPrompterBoundary: (boundary: PrompterBoundary) => boolean;
+  manualNextPrompter: (atMs: number) => boolean;
+  manualPreviousPrompter: (atMs: number) => boolean;
   exitSlide: (atMs: number) => SpeechTrackingEvent[];
   resetForSlideVisit: () => void;
   snapshot: () => SpeechTrackerSnapshot;
@@ -68,11 +80,44 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
   const sessionKeywordHits = new Set<string>();
   const visit = createVisitState();
   const scriptProgressTracker = createScriptProgressTracker(input.speakerNotes);
+  const prompterProgressTracker = createPrompterProgressTracker({
+    slideId: input.slideId,
+    sentences
+  });
+  let prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
-    scriptProgressTracker.acceptResult(result);
+    const scriptProgress = scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
+    const prompterProgress = prompterProgressTracker.snapshot();
+    const currentSentence = sentences.find(
+      (sentence) => sentence.sentenceId === prompterProgress.currentSentenceId
+    );
+    if (currentSentence && prompterLexicalEvidence) {
+      const lexicalEvidence = prompterLexicalEvidence.acceptResult({
+        sentenceId: currentSentence.sentenceId,
+        transcriptText: result.text,
+        sentenceProgressRatio:
+          scriptProgress.sentenceId === currentSentence.sentenceId
+            ? scriptProgress.sentenceRatio
+            : 0,
+        atMs
+      });
+      prompterProgressTracker.acceptEvidence({
+        sentenceId: currentSentence.sentenceId,
+        revision: prompterProgress.revision,
+        candidate: lexicalEvidence.matchedMeaningfulTokenCount > 0,
+        commitEligible: isPrompterLexicalCommitEligible(lexicalEvidence),
+        source: "lexical",
+        atMs
+      });
+    }
+
+    if (result.isFinal) {
+      acceptPrompterBoundary({ type: "stt-final", atMs });
+    }
+
     const finalWindow = createFinalSegmentWindow({
       previousFinalTranscript: visit.finalTranscript,
       latestFinalSegment: result.text,
@@ -179,13 +224,40 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     }));
   }
 
+  function acceptPrompterBoundary(boundary: PrompterBoundary) {
+    const committed = prompterProgressTracker.acceptBoundary(boundary);
+    if (committed) {
+      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    }
+    return committed;
+  }
+
+  function manualNextPrompter(atMs: number) {
+    const committed = prompterProgressTracker.manualNext(atMs);
+    if (committed) {
+      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    }
+    return committed;
+  }
+
+  function manualPreviousPrompter(atMs: number) {
+    const moved = prompterProgressTracker.manualPrevious(atMs);
+    if (moved) {
+      prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
+    }
+    return moved;
+  }
+
   function resetForSlideVisit() {
     const nextVisit = createVisitState();
     Object.assign(visit, nextVisit);
     scriptProgressTracker.reset();
+    prompterProgressTracker.reset();
+    prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
   }
 
   function snapshot(): SpeechTrackerSnapshot {
+    const prompterProgress = prompterProgressTracker.snapshot();
     return {
       slideId: input.slideId,
       coveredSentenceIds: Array.from(visit.coveredSentenceIds),
@@ -199,17 +271,35 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       finalSentenceSpoken: visit.finalSentenceSpoken,
       hitKeywordIds: Array.from(sessionKeywordHits),
       provisionalMissingKeywordIds: Array.from(visit.provisionalMissingKeywordIds),
-      scriptProgress: scriptProgressTracker.snapshot()
+      scriptProgress: scriptProgressTracker.snapshot(),
+      prompterProgress,
+      finalSentenceCommitted: prompterProgress.finalSentenceCommitted
     };
   }
 
   return {
     acceptResult,
     acceptSemanticSentenceMatch,
+    acceptPrompterBoundary,
+    manualNextPrompter,
+    manualPreviousPrompter,
     exitSlide,
     resetForSlideVisit,
     snapshot
   };
+
+  function createLexicalEvidenceForCurrentSentence():
+    | PrompterLexicalEvidenceAccumulator
+    | null {
+    const currentSentenceId =
+      prompterProgressTracker.snapshot().currentSentenceId;
+    const currentSentence = sentences.find(
+      (sentence) => sentence.sentenceId === currentSentenceId
+    );
+    return currentSentence
+      ? createPrompterLexicalEvidenceAccumulator(currentSentence)
+      : null;
+  }
 
   function coverSentence(
     sentence: ExtractedSentence,
@@ -270,6 +360,22 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       atMs
     };
   }
+}
+
+function isPrompterLexicalCommitEligible(
+  evidence: PrompterLexicalEvidenceSnapshot
+) {
+  if (evidence.meaningfulTokenCount === 0) {
+    return false;
+  }
+  if (evidence.meaningfulTokenCount <= 4) {
+    return evidence.lexicalRecall >= 1 && evidence.terminalAnchorMatched;
+  }
+
+  return (
+    evidence.lexicalRecall >= 0.7 &&
+    (evidence.terminalAnchorMatched || evidence.sentenceProgressRatio >= 0.85)
+  );
 }
 
 function createVisitState() {

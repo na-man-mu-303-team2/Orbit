@@ -40,7 +40,13 @@ describe("SpeechTracker", () => {
     });
     expect(tracker.snapshot()).toMatchObject({
       effectiveCoverage: 0.5,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      },
+      finalSentenceCommitted: false
     });
 
     const events = tracker.acceptResult({
@@ -53,7 +59,11 @@ describe("SpeechTracker", () => {
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 0.5,
       finalSentenceSpoken: false,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"]
+      }
     });
   });
 
@@ -82,6 +92,14 @@ describe("SpeechTracker", () => {
     expect(coverage?.type === "coverage-updated" ? coverage.wordCoverage : 0).toBeGreaterThan(
       0.6
     );
+    expect(tracker.snapshot()).toMatchObject({
+      finalSentenceSpoken: true,
+      finalSentenceCommitted: false,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
   });
 
   it("threshold 근처에서만 어절 보조 신호를 +/-10%p로 반영한다", () => {
@@ -147,7 +165,12 @@ describe("SpeechTracker", () => {
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 0,
       effectiveCoverage: 0,
-      hitKeywordIds: ["kw_orbit"]
+      hitKeywordIds: ["kw_orbit"],
+      finalSentenceCommitted: false,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
     });
   });
 
@@ -275,7 +298,101 @@ describe("SpeechTracker", () => {
     ]);
     expect(tracker.snapshot()).toMatchObject({
       sentenceCoverage: 1,
-      finalSentenceSpoken: true
+      finalSentenceSpoken: true,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      },
+      finalSentenceCommitted: false
+    });
+  });
+
+  it("partial lexical evidence는 final boundary 전까지 프롬프터를 넘기지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락과 사용자 문제를 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      isFinal: false,
+      timestampMs: [0, 900]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      prompterProgress: {
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
+
+    tracker.acceptResult({
+      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      isFinal: true,
+      timestampMs: [900, 1200]
+    });
+
+    expect(tracker.snapshot()).toMatchObject({
+      prompterProgress: {
+        phase: "committed",
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"]
+      }
+    });
+  });
+
+  it("manual API는 coverage를 변경하지 않고 프롬프터 위치만 이동한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락을 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    expect(tracker.manualNextPrompter(1_000)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: ["sentence_1"]
+      }
+    });
+
+    expect(tracker.manualPreviousPrompter(1_100)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
+    });
+  });
+
+  it("pause boundary는 충분한 lexical candidate가 있을 때만 현재 문장을 commit한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes: "오르빗 리허설 화면은 발표 흐름을 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설 화면은 발표 흐름을 점검합니다",
+      isFinal: false,
+      timestampMs: [0, 800]
+    });
+
+    expect(
+      tracker.acceptPrompterBoundary({ type: "pause-started", atMs: 900 })
+    ).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      finalSentenceCommitted: true,
+      prompterProgress: {
+        currentSentenceId: null,
+        committedSentenceIds: ["sentence_1"]
+      }
     });
   });
 
