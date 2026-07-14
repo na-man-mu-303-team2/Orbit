@@ -2,14 +2,16 @@ import {
   deckCanvasSchema,
   deckElementSchema,
   deckSchema,
+  pptxOoxmlGenerationJobResultSchema,
+  pptxOoxmlGenerationRequestSchema,
   qualityReportSchema,
   slideStyleSchema,
   templateBlueprintSchema,
-  templateBlueprintIdSchema,
   themeSchema,
   type Deck,
   type DeckCanvas,
   type Job,
+  type PptxOoxmlGenerationRequest,
   type QualityReport,
   type TemplateBlueprint,
 } from "@orbit/shared";
@@ -21,11 +23,7 @@ import { z } from "zod";
 const pptxOoxmlGenerationPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
-  request: z.object({
-    fileId: z.string().min(1),
-    topic: z.string().trim().optional(),
-    prompt: z.string().trim().optional(),
-  }),
+  request: pptxOoxmlGenerationRequestSchema,
 });
 
 const generatedDesignAssetSchema = z.object({
@@ -59,21 +57,9 @@ const pptxOoxmlGenerationWorkerResponseSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
-const pptxOoxmlGenerationJobResultSchema = z.object({
-  deckId: z.string().regex(/^deck_[A-Za-z0-9_-]+$/),
-  templateId: templateBlueprintIdSchema,
-  sourceFileId: z.string().min(1),
-  currentPackageFileId: z.string().min(1),
-  qualityReport: qualityReportSchema,
-  warnings: z.array(z.string()).default([]),
-});
-
 type PptxOoxmlGenerationWorkerResponse = z.infer<
   typeof pptxOoxmlGenerationWorkerResponseSchema
 >;
-type PptxOoxmlGenerationRequest = z.infer<
-  typeof pptxOoxmlGenerationPayloadSchema
->["request"];
 type OoxmlGenerationBlueprint =
   PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
@@ -407,14 +393,7 @@ function buildOoxmlDeck(
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
-      const elements =
-        !useSnapshotFallback
-          ? visualElements
-          : slide.slots
-              .filter(isReplaceableSlot)
-              .map((slot, slotIndex) =>
-                slotOverlayElement(slot, 1000 + slotIndex),
-              );
+      const elements = useSnapshotFallback ? [] : visualElements;
 
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
@@ -454,53 +433,6 @@ function elementHasUnresolvedAssetRef(element: unknown): boolean {
   }
   const src = element.props.src;
   return typeof src === "string" && src.startsWith("asset:");
-}
-
-function slotOverlayElement(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
-  zIndex: number,
-) {
-  return {
-    elementId: slot.elementId,
-    type: "rect",
-    role: deckRoleForSlot(slot),
-    x: slot.bounds.x,
-    y: slot.bounds.y,
-    width: slot.bounds.width,
-    height: slot.bounds.height,
-    rotation: 0,
-    opacity: 1,
-    zIndex,
-    locked: true,
-    visible: true,
-    props: {
-      fill: "transparent",
-      stroke: "transparent",
-      strokeWidth: 0,
-      borderRadius: 0,
-    },
-  };
-}
-
-function isReplaceableSlot(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
-) {
-  return (
-    (slot.usage === "content-slot" || slot.usage === "media-slot") &&
-    slot.replaceMode === "replace"
-  );
-}
-
-function deckRoleForSlot(
-  slot: OoxmlTemplateBlueprint["slides"][number]["slots"][number],
-) {
-  if (["title", "subtitle", "body", "caption"].includes(slot.slotRole)) {
-    return slot.slotRole;
-  }
-  if (slot.slotRole === "chart") {
-    return "chart";
-  }
-  return "media";
 }
 
 async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {

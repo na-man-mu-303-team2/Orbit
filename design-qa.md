@@ -89,3 +89,138 @@
 - Regression verification: Web suite — 123 files, 852 tests passed; `git diff --check` passed.
 
 final result: passed
+
+---
+
+## Compact Editor Annotations (2026-07-14)
+
+- Source visual truth: `/tmp/orbit-editor-720-before-responsive-fix-ready.png` and the current task's Browser Comments for the element quickbar scrollbar and the header-to-slide-strip gap.
+- Implementation screenshots: `/tmp/orbit-editor-720-final-ready.png`, `/tmp/orbit-editor-720-element-quickbar-final.png`, `/tmp/orbit-editor-desktop-quickbar-after.png`.
+- Full comparison: `/tmp/orbit-editor-720-responsive-comparison.png`.
+- Focused comparison: `/tmp/orbit-editor-720-responsive-focused-comparison.png`.
+- Viewport/state: `720x900`, project editor slide 1 in the default and chart-selected states; desktop regression at `2163x1324` with the chart selected.
+
+### Full-view comparison evidence
+
+The compact editor now follows one vertical reading flow: the two-row application header is followed immediately by the horizontal slide strip, responsive editor controls, a fully visible slide canvas, and the AI tools panel. The desktop-only fixed control offsets and side-panel columns no longer reserve or overlap space at `720px`.
+
+### Focused region comparison evidence
+
+The supplied header annotation showed a `116px` empty band between the application header and slide strip. Compact editor rows now use intrinsic `max-content` sizing and zero desktop control offset, removing that band. The chart-selected quickbar wraps its fields into two rows and reports no horizontal or vertical overflow; the slide strip remains horizontally operable while its visual scrollbar is hidden.
+
+### Comparison history
+
+1. P1: fixed desktop positions caused the slide rail, canvas, and AI panel to overlap or clip in the initial `720x900` rendering.
+2. P1: the first compact pass still allowed the stage grid row to shrink, which overlaid the AI panel and produced a vertical scrollbar inside the element quickbar.
+3. P2: the desktop quickbar reservation left the annotated `116px` blank area above the slide strip.
+4. Fixes: compact rows now size to content, desktop padding is removed, the stage scale derives from available viewport width, and element controls wrap without nested scrollbars.
+5. Post-fix measurements: page `clientWidth` and `scrollWidth` are both `720px`; stage shell `clientWidth` and `scrollWidth` are both `688px`; element quickbar `clientWidth` and `scrollWidth` are both `692px`.
+
+### Required fidelity surfaces
+
+- Layout and hierarchy: passed. Existing ORBIT header, slide strip, toolbar, canvas, and tools order is preserved.
+- Typography, color, radius, and border tokens: passed. No new visual language or one-off token was introduced.
+- Responsive behavior: passed. Compact controls reflow; the canvas fits; the tools panel returns to document flow; desktop controls remain fully visible.
+- Accessibility: passed. Existing control labels remain available, and hidden scrollbars do not remove horizontal slide-strip input behavior.
+- Browser console: no errors.
+
+### Verification
+
+- Web suite: 133 files, 926 tests passed.
+- Web lint: passed.
+- Latest Docker Web build: passed.
+- `git diff --check`: passed.
+- Findings after the final full and focused comparisons: no actionable P0/P1/P2/P3 issue.
+
+final result: passed
+
+---
+
+## Reference Upload Annotations (2026-07-13)
+
+- Source visual truth: current task attachment, `Browser Comment 2` (`/createdeck`, 2192 x 1164)
+- Implementation screenshot: `/private/tmp/orbit-reference-panel-multi-file.png`
+- Viewport: 2192 x 1164; focused panel capture: 740 x 743
+- State: References step with two files attached
+
+## Full-view comparison evidence
+
+The existing three-column wizard shell, step rail, main work panel, and right preview column remain unchanged. The References panel intentionally replaces the single selected-file drop surface from the source with a compact add-files surface followed by a row list. The surrounding ORBIT hierarchy and panel proportions remain consistent with the source screen.
+
+## Focused region comparison evidence
+
+The focused implementation capture was compared with the selected References panel in Browser Comment 2. File names are now visible as separate rows below the drop surface, each row has a Tabler file icon, type and size metadata, and an accessible delete action. A count badge and `전체 삭제` action provide list-level feedback. Reference and image policies are separated into labeled groups instead of one undifferentiated chip area.
+
+## Findings
+
+- Fonts and typography: Passed. Pretendard/ORBIT type tokens, heading hierarchy, 13-14px interactive text, and non-negative letter spacing are retained.
+- Spacing and layout rhythm: Passed. The upload, list, and policy groups follow the 8/12/16/24px spacing scale. Rows grow vertically and are not placed in a nested card.
+- Colors and visual tokens: Passed. Canvas, Surface, Lilac, Success, Danger, and border tokens are used semantically. Success is limited to the small file-count badge.
+- Image quality and asset fidelity: Passed. No new raster assets were needed; visible UI uses the existing Tabler outline icon family.
+- Copy and content: Passed. Accepted formats, the 50MB per-file limit, multiple selection, file count, and policy purposes are explicit.
+- Accessibility: Passed. The file input has an accessible name, policy buttons expose `aria-pressed`, and per-file delete buttons include the filename in `aria-label`.
+
+## Comparison history
+
+- Earlier P1: only one selected filename was summarized inside the drop surface, so users could not scan or remove individual files. Fixed with an unbounded row list, per-file delete, and `전체 삭제`.
+- Earlier P2: image and reference policies appeared as visually identical adjacent chip groups without labels. Fixed with separate fieldsets, legends, and helper copy.
+- Post-fix evidence: `/private/tmp/orbit-reference-panel-multi-file.png` shows both fixes in the same two-file state. No actionable P0/P1/P2 visual findings remain.
+
+## Verification
+
+- Primary behavior: file-list normalization, append/deduplication, and removal covered by 17 focused unit tests.
+- Browser rendering: two-file list state rendered successfully; `multiple` is present on the file input.
+- Browser console: no errors or warnings.
+- Residual test gap: the operating-system file picker and physical drag gesture were not automated in the in-app browser.
+
+## Follow-up polish
+
+- P3: validate very long filenames and a larger file set with real user documents during manual QA.
+
+final result: passed
+
+---
+
+## Policy Tooltip Annotations (2026-07-13)
+
+- Source: current task Browser Comments 1-2 at `/createdeck`, viewport 2192 x 1164.
+- Implementation evidence: `/private/tmp/orbit-policy-tooltip-media.png`.
+- Each reference and media policy now has an info icon and a hover/focus tooltip connected with `aria-describedby` and `role="tooltip"`.
+- Tooltip copy reflects the current shared schema, contracts, and Python worker behavior, including the placeholder-only limits for public and AI images and the blocking source requirement for web research.
+- Browser verification covered the focused `research-first` and `ai-generated` states; no console errors or warnings were reported.
+- Focused tests: 18 passed. Web typecheck and `git diff --check` passed.
+- No actionable P0/P1/P2 issue remains.
+
+final result: passed
+
+---
+
+## Editor Toolbar Annotations (2026-07-14)
+
+- Source: `/tmp/orbit-editor-toolbar-before.png`
+- Implementation: `/tmp/orbit-editor-toolbar-after-default-final.png`
+- Full comparison: `/tmp/orbit-editor-full-comparison.png`
+- Focused comparison: `/tmp/orbit-editor-toolbar-tabs-comparison.png`
+- Responsive evidence: `/tmp/orbit-editor-toolbar-after-720.png`
+- Viewport/state: `2163x1324`, project editor, slide 1, AI chat panel
+- Responsive viewport/state: `720x900`, same project and slide
+
+### Full-view and focused comparison
+
+The existing editor hierarchy, canvas placement, toolbar heights, typography, colors, and active-tab treatment remain unchanged at the source viewport. The right panel now exposes only `AI 채팅` and `AI 도구`; the semantic cue panel contract remains available without showing the annotated `발표 메시지 3` tab.
+
+At `720px`, tool labels collapse to accessible icon controls and the slide properties use a bounded responsive grid. The page, toolbar, and quickbar each reported matching `clientWidth` and `scrollWidth` at both tested widths.
+
+### Findings and verification
+
+- P0: none
+- P1: none
+- P2: none
+- P3: none
+- Accessibility: responsive icon-only tools retain Korean `aria-label` values.
+- Browser console: no errors.
+- Web suite: 133 files, 919 tests passed.
+- Web lint: passed.
+- `git diff --check`: passed.
+
+final result: passed

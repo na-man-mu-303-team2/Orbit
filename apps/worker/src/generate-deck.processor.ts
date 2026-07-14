@@ -1,24 +1,43 @@
 import {
   deckSchema,
+  generateDeckValidationSchema,
+  generateDeckVisualIssueCodeSchema,
+  generateDeckVisualRepairActionSchema,
+  generateDeckVisualRepairActionTypeSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema,
   qualityReportSchema,
   templateBlueprintSchema,
   type Deck,
+  type GenerateDeckDiagnostics,
+  type GenerateDeckValidation,
+  type GenerateDeckVisualRepairAction,
   type Job,
   type QualityReport,
+  savedDesignPackSnapshotSchema,
+  type SavedDesignPackSnapshot,
+  getSemanticQaIssues,
+  repairSemanticQaOnce,
   type TemplateBlueprint
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import { resolveDeckImageAssets, type ImageAssetRuntime } from "./image-asset-pipeline";
+import { embedDeckImageAssets } from "./deck-export.processor";
 
 const generateDeckPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
-  request: generateDeckRequestSchema
+  request: generateDeckRequestSchema,
+  designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
+  imageAssetScope: z
+    .object({
+      userId: z.string().min(1)
+    })
+    .optional()
 });
 
 const designImportResponseSchema = z.object({
@@ -38,8 +57,91 @@ const designImportResponseSchema = z.object({
   warnings: z.array(z.string()).default([])
 });
 
+const pythonVisualRepairActionSchema = z.object({
+  action: generateDeckVisualRepairActionTypeSchema,
+  slideId: z.string().min(1),
+  targetElementId: z.string().min(1).nullish(),
+  compositionId: z.string().min(1).nullish(),
+  backgroundMode: z.enum(["light", "dark", "image"]).nullish(),
+  reason: z.string().min(1)
+});
+
+const visualQaIssueSchema = z.object({
+  code: generateDeckVisualIssueCodeSchema,
+  slideOrder: z.number().int().positive(),
+  message: z.string().min(1)
+});
+
+const visualQaReviewSchema = z
+  .object({
+    passed: z.boolean(),
+    issues: z.array(visualQaIssueSchema).default([]),
+    repairActions: z.array(pythonVisualRepairActionSchema).default([])
+  })
+  .superRefine((review, context) => {
+    if (review.passed && review.issues.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passed"],
+        message: "passed visual review cannot contain issues"
+      });
+    }
+    if (!review.passed && review.issues.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["issues"],
+        message: "failed visual review must contain at least one issue"
+      });
+    }
+  });
+
+const visualQaResponseSchema = z.object({
+  review: visualQaReviewSchema,
+  warnings: z.array(z.string()).default([])
+});
+
+const visualRepairResponseSchema = z.object({
+  deck: deckSchema,
+  validation: generateDeckValidationSchema,
+  assetSlideIds: z.array(z.string().min(1)).default([]),
+  warnings: z.array(z.string()).default([])
+});
+
 type DesignImportResponse = z.infer<typeof designImportResponseSchema>;
 type GenerateDeckPayload = z.infer<typeof generateDeckPayloadSchema>;
+type VisualQaIssue = z.infer<typeof visualQaIssueSchema>;
+type VisualRepairResponse = z.infer<typeof visualRepairResponseSchema>;
+type NormalizedVisualQaReview = {
+  passed: boolean;
+  issues: VisualQaIssue[];
+  repairActions: GenerateDeckVisualRepairAction[];
+};
+type ProgramV2VisualOutcome = {
+  passed: boolean;
+  deck: Deck;
+  validation: GenerateDeckValidation;
+  warnings: string[];
+  reviewAttempts: number;
+  repairAttempts: number;
+  issues: VisualQaIssue[];
+};
+class ProgramV2VisualQaUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly reviewAttempts: number,
+    readonly repairAttempts: number,
+    readonly deck: Deck,
+    readonly validation: GenerateDeckValidation,
+    readonly warnings: string[]
+  ) {
+    super(message);
+    this.name = "ProgramV2VisualQaUnavailableError";
+  }
+}
+export type GenerateDeckEventLogger = (
+  event: string,
+  fields: Record<string, unknown>
+) => void;
 type DesignTemplateContext = {
   designBlueprint?: Record<string, unknown>;
   qualityReport?: QualityReport;
@@ -84,12 +186,24 @@ const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const legacyGenerateDeckTimeoutMs = 120_000;
 const designPackGenerateDeckTimeoutMs = 300_000;
+const visualQaTimeoutMs = 300_000;
+const visualRepairTimeoutMs = 120_000;
+const maxVisualRepairAttempts = 2;
+const advisoryVisualIssueCodes = new Set<VisualQaIssue["code"]>([
+  "BALANCE_WEAK",
+  "LAYOUT_REPETITIVE",
+  "BACKGROUND_RHYTHM_FLAT",
+  "CARD_OVERUSED"
+]);
+const hybridMediaBudget = { min: 3, max: 5 } as const;
 
 export async function processGenerateDeckJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
   pythonWorkerUrl: string,
-  rawPayload: unknown
+  rawPayload: unknown,
+  imageRuntime?: ImageAssetRuntime,
+  eventLogger?: GenerateDeckEventLogger
 ): Promise<Job> {
   const payloadResult = generateDeckPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -115,6 +229,11 @@ export async function processGenerateDeckJob(
   }
 
   const payload = payloadResult.data;
+  const usesProgramV2 =
+    payload.request.generationMode === "design-pack" &&
+    payload.request.design.engineVersion === "program-v2";
+  const enforcesHybridMediaBudget =
+    usesProgramV2 && payload.request.design.mediaPolicy === "hybrid";
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 15,
@@ -154,6 +273,14 @@ export async function processGenerateDeckJob(
           : {}),
         ...(designTemplate.templateBlueprint
           ? { templateBlueprint: designTemplate.templateBlueprint }
+          : {}),
+        ...(payload.request.design.engineVersion === "program-v2"
+          ? {
+              designProgramContext: {
+                savedDesignPreferences:
+                  payload.designPackSnapshot?.preferences ?? {}
+              }
+            }
           : {})
       }),
       signal: AbortSignal.timeout(
@@ -202,12 +329,340 @@ export async function processGenerateDeckJob(
         }
       );
     }
-    const deck = markDeckForInitialThumbnailRefresh(workerPayload.deck);
+    let deck = markDeckForInitialThumbnailRefresh(
+      workerPayload.deck,
+      payload.designPackSnapshot
+    );
+    if (usesProgramV2) {
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.design-program.created", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        slideCount: deck.slides.length
+      });
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.composition.completed", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        compositionCount: new Set(
+          deck.slides
+            .map(
+              (slide) => slide.aiNotes?.compositionPlan?.compositionId
+            )
+            .flatMap((value) => (value ? [value] : []))
+        ).size
+      });
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 45,
+        message: "AI deck composition completed.",
+        result: null,
+        error: null
+      });
+    }
+    if (
+      payload.request.generationMode === "design-pack" &&
+      hasBlockingQualityGateIssues(workerPayload.validation)
+    ) {
+      if (usesProgramV2) {
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          issueCount: allValidationIssues(workerPayload.validation).length,
+          stage: "deterministic"
+        });
+      }
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        workerPayload.validation,
+        workerPayload.warnings
+      );
+    }
+    let imageWarnings: string[] = [];
+    let deterministicValidation = workerPayload.validation;
+    if (
+      imageRuntime &&
+      payload.imageAssetScope &&
+      payload.request.generationMode === "design-pack"
+    ) {
+      try {
+        const resolvedImages = await resolveDeckImageAssets(
+          dataSource,
+          storage,
+          deck,
+          imageRuntime,
+          payload.imageAssetScope,
+          undefined,
+          payload.request.officialAssetFileIds ?? []
+        );
+        deck = resolvedImages.deck;
+        imageWarnings.push(...resolvedImages.warnings);
+      } catch (error) {
+        imageWarnings.push(
+          `Image asset pipeline fallback retained placeholders: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`
+        );
+      }
+    }
+
+    if (usesProgramV2) {
+      const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck);
+      if (optionalSlideIds.length > 0) {
+        try {
+          const fallback = await requestVisualRepair(
+            pythonWorkerUrl,
+            deck,
+            [],
+            optionalSlideIds
+          );
+          deck = fallback.deck;
+          deterministicValidation = fallback.validation;
+          imageWarnings.push(...fallback.warnings);
+        } catch (error) {
+          emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+            jobId: payload.jobId,
+            projectId: payload.projectId,
+            deckId: deck.deckId,
+            stage: "optional-asset-fallback"
+          });
+          return failVisualQaUnavailable(
+            dataSource,
+            payload.jobId,
+            workerPayload,
+            deck,
+            deterministicValidation,
+            [...workerPayload.warnings, ...imageWarnings],
+            error instanceof Error ? error.message : "Visual repair unavailable.",
+            { visualReviewAttempts: 0, visualRepairAttempts: 0 }
+          );
+        }
+      }
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.asset.resolved", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        resolvedAssetCount: resolvedVisualAssetCount(deck),
+        unresolvedRequiredCount: unresolvedRequiredMediaSlideIds(deck).length,
+        unresolvedOptionalCount: unresolvedOptionalMediaSlideIds(deck).length
+      });
+      deterministicValidation = withDuplicateMediaAssetIssue(
+        deterministicValidation,
+        deck
+      );
+      if (hasBlockingQualityGateIssues(deterministicValidation)) {
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          issueCount: allValidationIssues(deterministicValidation).length,
+          stage: "asset-identity"
+        });
+        return failQualityGate(
+          dataSource,
+          payload.jobId,
+          workerPayload,
+          deck,
+          deterministicValidation,
+          [...workerPayload.warnings, ...imageWarnings]
+        );
+      }
+      if (enforcesHybridMediaBudget) {
+        deterministicValidation = withHybridMediaBudgetIssue(
+          deterministicValidation,
+          deck
+        );
+        if (hasBlockingQualityGateIssues(deterministicValidation)) {
+          emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+            jobId: payload.jobId,
+            projectId: payload.projectId,
+            deckId: deck.deckId,
+            issueCount: allValidationIssues(deterministicValidation).length,
+            stage: "asset-budget"
+          });
+          return failQualityGate(
+            dataSource,
+            payload.jobId,
+            workerPayload,
+            deck,
+            deterministicValidation,
+            [...workerPayload.warnings, ...imageWarnings]
+          );
+        }
+      }
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 65,
+        message: "AI deck image assets prepared.",
+        result: null,
+        error: null
+      });
+    }
+
+    const initialSemanticIssues = getSemanticQaIssues(deck);
+    const shouldRepairSemanticIssues = initialSemanticIssues.some((issue) =>
+      ["SLIDE_MESSAGE_MULTIPLE", "IMAGE_RELEVANCE_WEAK"].includes(issue.code)
+    );
+    if (shouldRepairSemanticIssues) {
+      deck = deckSchema.parse(repairSemanticQaOnce(deck));
+      imageWarnings.push("Semantic QA bounded repair applied once.");
+    }
+    const semanticIssues = getSemanticQaIssues(deck);
+    let validation: GenerateDeckValidation = {
+      ...deterministicValidation,
+      passed: deterministicValidation.passed && semanticIssues.length === 0,
+      presentationIssues: [
+        ...deterministicValidation.presentationIssues,
+        ...semanticIssues
+      ]
+    };
+
+    const unresolvedMedia = hasMediaPlaceholder(deck);
+    if (
+      payload.request.generationMode === "design-pack" &&
+      (hasBlockingQualityGateIssues(validation) || unresolvedMedia)
+    ) {
+      const finalValidation = unresolvedMedia
+        ? withUnresolvedMediaIssue(validation)
+        : validation;
+      if (usesProgramV2) {
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          issueCount: allValidationIssues(finalValidation).length,
+          stage: unresolvedMedia ? "asset" : "semantic"
+        });
+      }
+      return failQualityGate(
+        dataSource,
+        payload.jobId,
+        workerPayload,
+        deck,
+        finalValidation,
+        [...workerPayload.warnings, ...imageWarnings]
+      );
+    }
+
+    let diagnostics: GenerateDeckDiagnostics = {
+      ...workerPayload.diagnostics,
+      validationIssueCount: allValidationIssues(validation).length
+    };
+    if (usesProgramV2) {
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 75,
+        message: "AI deck rendered visual review running.",
+        result: null,
+        error: null
+      });
+      let visualOutcome: ProgramV2VisualOutcome;
+      try {
+        visualOutcome = await runProgramV2VisualQa({
+          dataSource,
+          storage,
+          pythonWorkerUrl,
+          deck,
+          validation,
+          imageRuntime,
+          imageAssetScope: payload.imageAssetScope,
+          officialAssetFileIds: payload.request.officialAssetFileIds ?? [],
+          enforcesHybridMediaBudget,
+          eventLogger,
+          jobId: payload.jobId,
+          projectId: payload.projectId
+        });
+      } catch (error) {
+        const unavailable =
+          error instanceof ProgramV2VisualQaUnavailableError ? error : undefined;
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          stage: "visual-qa-unavailable"
+        });
+        return failVisualQaUnavailable(
+          dataSource,
+          payload.jobId,
+          workerPayload,
+          unavailable?.deck ?? deck,
+          unavailable?.validation ?? validation,
+          [
+            ...workerPayload.warnings,
+            ...imageWarnings,
+            ...(unavailable?.warnings ?? [])
+          ],
+          error instanceof Error ? error.message : "Vision QA unavailable.",
+          {
+            visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
+            visualRepairAttempts: unavailable?.repairAttempts ?? 0
+          }
+        );
+      }
+      deck = visualOutcome.deck;
+      validation = visualOutcome.validation;
+      imageWarnings.push(...visualOutcome.warnings);
+      diagnostics = {
+        ...diagnostics,
+        visualQaStatus: visualOutcome.passed ? "passed" : "failed",
+        visualReviewAttempts: visualOutcome.reviewAttempts,
+        visualRepairAttempts: visualOutcome.repairAttempts,
+        visualIssueCodes: visualOutcome.issues.map((issue) => issue.code),
+        validationIssueCount: allValidationIssues(validation).length
+      };
+      if (!visualOutcome.passed) {
+        const visualValidation = withVisualIssues(
+          validation,
+          visualOutcome.issues
+        );
+        emitGenerateDeckEvent(eventLogger, "ai-ppt.visual-gate.failed", {
+          jobId: payload.jobId,
+          projectId: payload.projectId,
+          deckId: deck.deckId,
+          issueCount: visualOutcome.issues.length,
+          stage: "visual-review"
+        });
+        return failQualityGate(
+          dataSource,
+          payload.jobId,
+          workerPayload,
+          deck,
+          visualValidation,
+          [...workerPayload.warnings, ...imageWarnings],
+          {
+            errorCode: "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
+            diagnostics
+          }
+        );
+      }
+      await updateJob(dataSource, payload.jobId, {
+        status: "running",
+        progress: 95,
+        message: "AI deck final publication running.",
+        result: null,
+        error: null
+      });
+    }
 
     await saveDeck(dataSource, deck);
+    if (usesProgramV2) {
+      emitGenerateDeckEvent(eventLogger, "ai-ppt.deck.published", {
+        jobId: payload.jobId,
+        projectId: payload.projectId,
+        deckId: deck.deckId,
+        slideCount: deck.slides.length
+      });
+    }
     const result = generateDeckJobResultSchema.parse({
       deckId: deck.deckId,
       ...workerPayload,
+      warnings: [...workerPayload.warnings, ...imageWarnings],
+      validation,
+      diagnostics,
       deck,
       coachingProvenance: payload.request.coachingContext
     });
@@ -243,12 +698,656 @@ function allValidationIssues(
   ];
 }
 
-function markDeckForInitialThumbnailRefresh(deck: Deck): Deck {
+function hasBlockingQualityGateIssues(
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"]
+) {
+  return allValidationIssues(validation).some((issue) => issue.blocking);
+}
+
+function hasMediaPlaceholder(deck: Deck) {
+  return deck.slides.some(isUnresolvedMediaSlide);
+}
+
+function unresolvedOptionalMediaSlideIds(deck: Deck) {
+  return deck.slides
+    .filter(
+      (slide) =>
+        isUnresolvedMediaSlide(slide) &&
+        slide.aiNotes?.compositionPlan?.requiredAsset === false
+    )
+    .map((slide) => slide.slideId);
+}
+
+function unresolvedRequiredMediaSlideIds(deck: Deck) {
+  return deck.slides
+    .filter(
+      (slide) =>
+        isUnresolvedMediaSlide(slide) &&
+        slide.aiNotes?.compositionPlan?.requiredAsset !== false
+    )
+    .map((slide) => slide.slideId);
+}
+
+function isUnresolvedMediaSlide(deckSlide: Deck["slides"][number]) {
+  return (
+    deckSlide.aiNotes?.visualPlan?.imageNeeded === true &&
+    deckSlide.elements.some(
+      (element) =>
+        element.visible &&
+        element.role === "media" &&
+        element.elementId.endsWith("_media_placeholder")
+    )
+  );
+}
+
+function resolvedVisualAssetCount(deck: Deck) {
+  return resolvedVisualAssetSlides(deck).length;
+}
+
+function resolvedVisualAssetSlides(deck: Deck) {
+  return deck.slides.filter(
+    (slide) =>
+      slide.aiNotes?.visualPlan?.asset &&
+      slide.elements.some(
+        (element) =>
+          element.visible && element.role === "media" && element.type === "image"
+      )
+  );
+}
+
+function withHybridMediaBudgetIssue(
+  validation: GenerateDeckValidation,
+  deck: Deck
+): GenerateDeckValidation {
+  const resolvedCount = resolvedVisualAssetCount(deck);
+  if (
+    resolvedCount >= hybridMediaBudget.min &&
+    resolvedCount <= hybridMediaBudget.max
+  ) {
+    const resolvedSlides = resolvedVisualAssetSlides(deck);
+    const hasOfficialEvidence = resolvedSlides.some(
+      (slide) =>
+        slide.aiNotes?.compositionPlan?.assetRole === "evidence" &&
+        slide.aiNotes?.visualPlan?.imageSourcePolicy === "official-assets"
+    );
+    const hasGeneratedAtmosphere = resolvedSlides.some(
+      (slide) =>
+        slide.aiNotes?.compositionPlan?.assetRole === "atmosphere" &&
+        slide.aiNotes?.visualPlan?.imageSourcePolicy === "ai-generated"
+    );
+    const contractIssues: GenerateDeckValidation["designIssues"] = [];
+    if (!hasOfficialEvidence || !hasGeneratedAtmosphere) {
+      contractIssues.push({
+        code: "MEDIA_MIX_UNDERSUPPLIED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "Hybrid media requires at least one official evidence asset and one AI-generated atmosphere asset."
+      });
+    }
+    if (contractIssues.length === 0) return validation;
+    return {
+      ...validation,
+      passed: false,
+      designIssues: [...validation.designIssues, ...contractIssues]
+    };
+  }
+  const code =
+    resolvedCount < hybridMediaBudget.min
+      ? "MEDIA_BUDGET_UNDERSUPPLIED"
+      : "MEDIA_BUDGET_EXCEEDED";
+  if (validation.designIssues.some((issue) => issue.code === code)) {
+    return { ...validation, passed: false };
+  }
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [
+      ...validation.designIssues,
+      {
+        code,
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message: `Hybrid media requires ${hybridMediaBudget.min}-${hybridMediaBudget.max} resolved visual assets; received ${resolvedCount}.`
+      }
+    ]
+  };
+}
+
+function withDuplicateMediaAssetIssue(
+  validation: GenerateDeckValidation,
+  deck: Deck
+): GenerateDeckValidation {
+  const assetIdentities = resolvedVisualAssetSlides(deck)
+    .map((slide) => {
+      const asset = slide.aiNotes?.visualPlan?.asset;
+      return asset?.sourceAssetUrl ?? asset?.fileId ?? "";
+    })
+    .filter(Boolean);
+  const hasDuplicateAssets =
+    new Set(assetIdentities).size !== assetIdentities.length;
+  if (!hasDuplicateAssets) return validation;
+  if (
+    validation.designIssues.some(
+      (issue) => issue.code === "MEDIA_ASSET_DUPLICATED"
+    )
+  ) {
+    return { ...validation, passed: false };
+  }
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [
+      ...validation.designIssues,
+      {
+        code: "MEDIA_ASSET_DUPLICATED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "Media contains a repeated visual asset; each media slide requires a distinct asset."
+      }
+    ]
+  };
+}
+
+function withUnresolvedMediaIssue(
+  validation: GenerateDeckValidation
+): GenerateDeckValidation {
+  if (
+    validation.designIssues.some(
+      (issue) => issue.code === "MEDIA_PLACEHOLDER_UNRESOLVED"
+    )
+  ) {
+    return { ...validation, passed: false };
+  }
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [
+      ...validation.designIssues,
+      {
+        code: "MEDIA_PLACEHOLDER_UNRESOLVED",
+        scope: "deck",
+        severity: "warning",
+        blocking: false,
+        path: "slides",
+        message:
+          "이미지 자리 표시자가 실제 asset 또는 no-media composition으로 해소되지 않았습니다."
+      }
+    ]
+  };
+}
+
+function withVisualIssues(
+  validation: GenerateDeckValidation,
+  issues: VisualQaIssue[]
+): GenerateDeckValidation {
+  const existing = new Set(
+    validation.designIssues.map((issue) => `${issue.code}:${issue.path}`)
+  );
+  const visualIssues = issues
+    .map((issue) => ({
+      code: issue.code,
+      scope: "slide" as const,
+      severity: "warning" as const,
+      blocking: false,
+      path: `slides.${issue.slideOrder - 1}`,
+      message: issue.message
+    }))
+    .filter((issue) => !existing.has(`${issue.code}:${issue.path}`));
+  return {
+    ...validation,
+    passed: false,
+    designIssues: [...validation.designIssues, ...visualIssues]
+  };
+}
+
+async function runProgramV2VisualQa(input: {
+  dataSource: DataSource;
+  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">;
+  pythonWorkerUrl: string;
+  deck: Deck;
+  validation: GenerateDeckValidation;
+  imageRuntime?: ImageAssetRuntime;
+  imageAssetScope?: { userId: string };
+  officialAssetFileIds: readonly string[];
+  enforcesHybridMediaBudget: boolean;
+  eventLogger?: GenerateDeckEventLogger;
+  jobId: string;
+  projectId: string;
+}): Promise<ProgramV2VisualOutcome> {
+  let deck = input.deck;
+  let validation = input.validation;
+  const warnings: string[] = [];
+  let reviewAttempts = 0;
+  let repairAttempts = 0;
+  reviewAttempts += 1;
+  let reviewed: Awaited<ReturnType<typeof requestVisualReview>>;
+  try {
+    reviewed = await requestVisualReview(
+      input.dataSource,
+      input.storage,
+      input.pythonWorkerUrl,
+      deck
+    );
+  } catch (error) {
+    throw unavailableVisualQaError(
+      error,
+      reviewAttempts,
+      repairAttempts,
+      deck,
+      validation,
+      warnings
+    );
+  }
+  let review = reviewed.review;
+  warnings.push(...reviewed.warnings);
+  emitVisualReviewEvent(input, deck, review, reviewAttempts);
+
+  while (
+    !review.passed &&
+    repairAttempts < maxVisualRepairAttempts &&
+    review.repairActions.length > 0
+  ) {
+    repairAttempts += 1;
+    await updateJob(input.dataSource, input.jobId, {
+      status: "running",
+      progress: Math.min(90, 80 + repairAttempts * 5),
+      message: `AI deck visual repair ${repairAttempts}/${maxVisualRepairAttempts} running.`,
+      result: null,
+      error: null
+    });
+    let repaired: VisualRepairResponse;
+    try {
+      repaired = await requestVisualRepair(
+        input.pythonWorkerUrl,
+        deck,
+        review.repairActions,
+        []
+      );
+    } catch (error) {
+      throw unavailableVisualQaError(
+        error,
+        reviewAttempts,
+        repairAttempts,
+        deck,
+        validation,
+        warnings
+      );
+    }
+    deck = repaired.deck;
+    validation = repaired.validation;
+    warnings.push(...repaired.warnings);
+    emitGenerateDeckEvent(input.eventLogger, "ai-ppt.visual-repair.applied", {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      deckId: deck.deckId,
+      attempt: repairAttempts,
+      actionTypes: review.repairActions.map((action) => action.action),
+      slideCount: new Set(
+        review.repairActions.map((action) => action.slideId)
+      ).size
+    });
+
+    if (repaired.assetSlideIds.length > 0) {
+      if (input.imageRuntime && input.imageAssetScope) {
+        try {
+          const resolved = await resolveDeckImageAssets(
+            input.dataSource,
+            input.storage,
+            deck,
+            input.imageRuntime,
+            input.imageAssetScope,
+            new Set(repaired.assetSlideIds),
+            input.officialAssetFileIds
+          );
+          deck = resolved.deck;
+          warnings.push(...resolved.warnings);
+        } catch (error) {
+          warnings.push(
+            `Visual repair image re-resolution failed: ${
+              error instanceof Error ? error.message : "unknown error"
+            }`
+          );
+        }
+      } else {
+        warnings.push(
+          "Visual repair requested image re-resolution without an available provider scope."
+        );
+      }
+    }
+
+    const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck);
+    if (optionalSlideIds.length > 0) {
+      let fallback: VisualRepairResponse;
+      try {
+        fallback = await requestVisualRepair(
+          input.pythonWorkerUrl,
+          deck,
+          [],
+          optionalSlideIds
+        );
+      } catch (error) {
+        throw unavailableVisualQaError(
+          error,
+          reviewAttempts,
+          repairAttempts,
+          deck,
+          validation,
+          warnings
+        );
+      }
+      deck = fallback.deck;
+      validation = fallback.validation;
+      warnings.push(...fallback.warnings);
+    }
+
+    const semanticIssues = getSemanticQaIssues(deck);
+    validation = {
+      ...validation,
+      passed: validation.passed && semanticIssues.length === 0,
+      presentationIssues: [
+        ...validation.presentationIssues,
+        ...semanticIssues
+      ]
+    };
+    if (hasMediaPlaceholder(deck)) {
+      validation = withUnresolvedMediaIssue(validation);
+    }
+    validation = withDuplicateMediaAssetIssue(validation, deck);
+    if (input.enforcesHybridMediaBudget) {
+      validation = withHybridMediaBudgetIssue(validation, deck);
+    }
+    if (hasBlockingQualityGateIssues(validation)) {
+      return {
+        passed: false,
+        deck,
+        validation,
+        warnings,
+        reviewAttempts,
+        repairAttempts,
+        issues: review.issues
+      };
+    }
+
+    reviewAttempts += 1;
+    try {
+      reviewed = await requestVisualReview(
+        input.dataSource,
+        input.storage,
+        input.pythonWorkerUrl,
+        deck
+      );
+    } catch (error) {
+      throw unavailableVisualQaError(
+        error,
+        reviewAttempts,
+        repairAttempts,
+        deck,
+        validation,
+        warnings
+      );
+    }
+    review = reviewed.review;
+    warnings.push(...reviewed.warnings);
+    emitVisualReviewEvent(input, deck, review, reviewAttempts);
+  }
+
+  const passed = visualReviewMeetsAcceptanceThreshold(review, deck.slides.length);
+  if (passed && !review.passed) {
+    warnings.push(
+      `Vision QA accepted ${review.issues.length} advisory issue(s) after bounded repair.`
+    );
+    emitGenerateDeckEvent(input.eventLogger, "ai-ppt.visual-gate.advisory-accepted", {
+      jobId: input.jobId,
+      projectId: input.projectId,
+      deckId: deck.deckId,
+      issueCodes: review.issues.map((issue) => issue.code),
+      affectedSlideCount: new Set(review.issues.map((issue) => issue.slideOrder)).size
+    });
+  }
+  return {
+    passed,
+    deck,
+    validation,
+    warnings,
+    reviewAttempts,
+    repairAttempts,
+    issues: review.issues
+  };
+}
+
+function visualReviewMeetsAcceptanceThreshold(
+  review: NormalizedVisualQaReview,
+  slideCount: number
+) {
+  if (review.passed) return true;
+  if (!review.issues.every((issue) => advisoryVisualIssueCodes.has(issue.code))) {
+    return false;
+  }
+  const affectedSlideCount = new Set(review.issues.map((issue) => issue.slideOrder)).size;
+  return affectedSlideCount <= Math.max(1, Math.floor(slideCount * 0.2));
+}
+
+function unavailableVisualQaError(
+  error: unknown,
+  reviewAttempts: number,
+  repairAttempts: number,
+  deck: Deck,
+  validation: GenerateDeckValidation,
+  warnings: string[]
+) {
+  return new ProgramV2VisualQaUnavailableError(
+    error instanceof Error ? error.message : "Vision QA unavailable.",
+    reviewAttempts,
+    repairAttempts,
+    deck,
+    validation,
+    [...warnings]
+  );
+}
+
+async function requestVisualReview(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  pythonWorkerUrl: string,
+  deck: Deck
+): Promise<{ review: NormalizedVisualQaReview; warnings: string[] }> {
+  let response: Response;
+  try {
+    const reviewDeck = await embedDeckImageAssets(
+      dataSource,
+      storage,
+      deck.projectId,
+      deck
+    );
+    response = await fetch(workerUrl(pythonWorkerUrl, "/ai/review-deck-visuals"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deck: reviewDeck }),
+      signal: AbortSignal.timeout(visualQaTimeoutMs)
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : "Vision QA request unavailable."
+    );
+  }
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Vision QA request failed.");
+  }
+  const payload = visualQaResponseSchema.parse(await response.json());
+  return {
+    review: {
+      passed: payload.review.passed,
+      issues: payload.review.issues,
+      repairActions: payload.review.repairActions.map((action) =>
+        generateDeckVisualRepairActionSchema.parse({
+          action: action.action,
+          slideId: action.slideId,
+          ...(action.targetElementId
+            ? { targetElementId: action.targetElementId }
+            : {}),
+          ...(action.compositionId
+            ? { compositionId: action.compositionId }
+            : {}),
+          ...(action.backgroundMode
+            ? { backgroundMode: action.backgroundMode }
+            : {}),
+          reason: action.reason
+        })
+      )
+    },
+    warnings: payload.warnings
+  };
+}
+
+async function requestVisualRepair(
+  pythonWorkerUrl: string,
+  deck: Deck,
+  actions: GenerateDeckVisualRepairAction[],
+  dropOptionalMediaSlideIds: string[]
+): Promise<VisualRepairResponse> {
+  let response: Response;
+  try {
+    response = await fetch(workerUrl(pythonWorkerUrl, "/ai/repair-deck-visuals"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deck, actions, dropOptionalMediaSlideIds }),
+      signal: AbortSignal.timeout(visualRepairTimeoutMs)
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : "Visual repair request unavailable."
+    );
+  }
+  if (!response.ok) {
+    throw new Error((await response.text()) || "Visual repair request failed.");
+  }
+  return visualRepairResponseSchema.parse(await response.json());
+}
+
+function emitVisualReviewEvent(
+  input: {
+    eventLogger?: GenerateDeckEventLogger;
+    jobId: string;
+    projectId: string;
+  },
+  deck: Deck,
+  review: NormalizedVisualQaReview,
+  attempt: number
+) {
+  emitGenerateDeckEvent(input.eventLogger, "ai-ppt.visual-review.completed", {
+    jobId: input.jobId,
+    projectId: input.projectId,
+    deckId: deck.deckId,
+    attempt,
+    passed: review.passed,
+    issueCodes: review.issues.map((issue) => issue.code)
+  });
+}
+
+function emitGenerateDeckEvent(
+  logger: GenerateDeckEventLogger | undefined,
+  event: string,
+  fields: Record<string, unknown>
+) {
+  try {
+    logger?.(event, fields);
+  } catch {
+    // Business event logging must not change generation behavior.
+  }
+}
+
+async function failQualityGate(
+  dataSource: DataSource,
+  jobId: string,
+  workerPayload: ReturnType<typeof generateDeckResponseSchema.parse>,
+  deck: Deck,
+  validation: ReturnType<typeof generateDeckResponseSchema.parse>["validation"],
+  warnings: string[],
+  options: {
+    errorCode?: string;
+    diagnostics?: GenerateDeckDiagnostics;
+  } = {}
+) {
+  const issueCount = allValidationIssues(validation).length;
+  const result = generateDeckJobResultSchema.parse({
+    deckId: deck.deckId,
+    ...workerPayload,
+    deck,
+    warnings,
+    validation,
+    diagnostics: {
+      ...workerPayload.diagnostics,
+      ...options.diagnostics,
+      validationIssueCount: issueCount
+    }
+  });
+  return failJob(
+    dataSource,
+    jobId,
+    90,
+    options.errorCode ?? "GENERATE_DECK_QUALITY_GATE_FAILED",
+    `Deck generation retained ${issueCount} quality issue(s).`,
+    result
+  );
+}
+
+async function failVisualQaUnavailable(
+  dataSource: DataSource,
+  jobId: string,
+  workerPayload: ReturnType<typeof generateDeckResponseSchema.parse>,
+  deck: Deck,
+  validation: GenerateDeckValidation,
+  warnings: string[],
+  message: string,
+  attempts: {
+    visualReviewAttempts: number;
+    visualRepairAttempts: number;
+  }
+) {
+  const result = generateDeckJobResultSchema.parse({
+    deckId: deck.deckId,
+    ...workerPayload,
+    deck,
+    warnings,
+    validation,
+    diagnostics: {
+      ...workerPayload.diagnostics,
+      visualQaStatus: "failed",
+      ...attempts,
+      visualIssueCodes: [],
+      validationIssueCount: allValidationIssues(validation).length
+    }
+  });
+  return failJob(
+    dataSource,
+    jobId,
+    90,
+    "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+    message,
+    result
+  );
+}
+
+function markDeckForInitialThumbnailRefresh(
+  deck: Deck,
+  designPackSnapshot?: SavedDesignPackSnapshot
+): Deck {
   return {
     ...deck,
     metadata: {
       ...deck.metadata,
-      thumbnailSource: "import-render"
+      thumbnailSource: "import-render",
+      ...(designPackSnapshot && deck.metadata.sourceType === "ai"
+        ? { designPackSnapshot }
+        : {})
     },
     slides: deck.slides.map((slide, index) => ({
       ...slide,

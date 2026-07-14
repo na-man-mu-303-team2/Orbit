@@ -2,6 +2,11 @@ import { z } from "zod";
 
 import { animationSchema } from "./animation.schema";
 import {
+  deckCompositionBackgroundModeSchema,
+  deckCompositionIdSchema
+} from "./composition.schema";
+import {
+  deckElementIdSchema,
   deckIdSchema,
   deckKeywordIdSchema,
   deckKeywordOccurrenceIdSchema,
@@ -11,6 +16,7 @@ import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
 import { deckElementSchema } from "./slide-object.schema";
+import { savedDesignPackSnapshotSchema } from "./saved-design-pack.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
 export const deckSourceTypeSchema = z.enum(["manual", "import", "ai"]);
@@ -51,6 +57,21 @@ export const aiDeckPresentationProfileSchema = z.enum([
   "general-inform"
 ]);
 
+export const deckDesignProgramSnapshotSchema = z.object({
+  version: z.string().trim().min(1),
+  visualConcept: z.string().trim().min(1),
+  paletteRoles: z.record(themeColorSchema),
+  typography: z.object({
+    headingFont: z.string().trim().min(1),
+    bodyFont: z.string().trim().min(1),
+    typeScale: z.record(z.number().finite().positive())
+  }),
+  backgroundSequence: z.array(deckCompositionBackgroundModeSchema).min(1),
+  imageStyle: z.string().trim().min(1),
+  surfaceStyle: z.string().trim().min(1),
+  compositionIds: z.array(deckCompositionIdSchema).min(1)
+});
+
 export const deckCreatedFromReferenceSchema = z.object({
   fileId: z.string().min(1)
 });
@@ -71,6 +92,8 @@ export const deckMetadataSchema = z.object({
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
+  designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
+  designProgramSnapshot: deckDesignProgramSnapshotSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
 });
 
@@ -187,7 +210,25 @@ export const slideVisualPlanSchema = z.object({
   visualType: z.string().min(1),
   imageNeeded: z.boolean().default(false),
   imageSourcePolicy: z.string().min(1).default("minimal"),
-  reason: z.string().min(1)
+  reason: z.string().min(1),
+  imagePrompt: z.string().trim().min(1).optional(),
+  imageAlt: z.string().trim().min(1).optional(),
+  imagePlacement: z.string().trim().min(1).optional(),
+  asset: z
+    .object({
+      fileId: z.string().min(1),
+      provider: z.string().min(1),
+      sourceUrl: z.string().url().optional(),
+      sourceAssetUrl: z.string().url().optional(),
+      sourceAuthority: z.enum(["official", "independent", "unknown"]).optional(),
+      usageBasis: z
+        .enum(["user-provided", "licensed", "official-reference", "generated"])
+        .optional(),
+      author: z.string().min(1).optional(),
+      license: z.string().min(1).optional(),
+      checkedAt: z.string().datetime().optional()
+    })
+    .optional()
 });
 
 export const slideSourceLedgerSchema = z.object({
@@ -217,13 +258,24 @@ export const slideTimingPlanSchema = z.object({
   actualSpeakerNotesChars: z.number().int().nonnegative()
 });
 
+export const slideCompositionPlanSchema = z.object({
+  compositionId: deckCompositionIdSchema,
+  variant: z.string().trim().min(1),
+  backgroundMode: deckCompositionBackgroundModeSchema,
+  focalType: z.string().trim().min(1),
+  primaryFocalElementId: deckElementIdSchema.optional(),
+  assetRole: z.enum(["evidence", "atmosphere", "decoration", "none"]),
+  requiredAsset: z.boolean()
+});
+
 export const slideAiNotesSchema = z
   .object({
     emphasisPoints: z.array(z.string().min(1)).default([]),
     sourceEvidence: z.array(slideSourceEvidenceSchema).default([]),
     visualPlan: slideVisualPlanSchema.optional(),
     sourceLedger: z.array(slideSourceLedgerSchema).optional(),
-    timingPlan: slideTimingPlanSchema.optional()
+    timingPlan: slideTimingPlanSchema.optional(),
+    compositionPlan: slideCompositionPlanSchema.optional()
   })
   .default({});
 
@@ -257,6 +309,18 @@ export const slideSchema = z
     const animationIds = new Set(
       slide.animations.map((animation) => animation.animationId)
     );
+    const focalElementId = slide.aiNotes?.compositionPlan?.primaryFocalElementId;
+
+    if (
+      focalElementId !== undefined &&
+      !slide.elements.some((element) => element.elementId === focalElementId)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["aiNotes", "compositionPlan", "primaryFocalElementId"],
+        message: "primary focal element must exist in the same slide"
+      });
+    }
 
     slide.keywords.forEach((keyword, keywordIndex) => {
       keyword.requiredOccurrenceIds?.forEach((occurrenceId, occurrenceIndex) => {
@@ -403,6 +467,9 @@ export type DeckThumbnailSource = z.infer<typeof deckThumbnailSourceSchema>;
 export type AiDeckAudience = z.infer<typeof aiDeckAudienceSchema>;
 export type AiDeckPurpose = z.infer<typeof aiDeckPurposeSchema>;
 export type AiDeckTone = z.infer<typeof aiDeckToneSchema>;
+export type DeckDesignProgramSnapshot = z.infer<
+  typeof deckDesignProgramSnapshotSchema
+>;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
 export type Slide = z.infer<typeof slideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
@@ -415,6 +482,7 @@ export type SlideSourceEvidence = z.infer<typeof slideSourceEvidenceSchema>;
 export type SlideVisualPlan = z.infer<typeof slideVisualPlanSchema>;
 export type SlideSourceLedger = z.infer<typeof slideSourceLedgerSchema>;
 export type SlideTimingPlan = z.infer<typeof slideTimingPlanSchema>;
+export type SlideCompositionPlan = z.infer<typeof slideCompositionPlanSchema>;
 export type SlideAiNotes = z.infer<typeof slideAiNotesSchema>;
 export type KeywordTerm = z.infer<typeof keywordTermSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;

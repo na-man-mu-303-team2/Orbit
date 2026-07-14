@@ -1,13 +1,16 @@
 import base64
 import json
+import re
 from copy import deepcopy
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import app.main as api_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
@@ -15,16 +18,19 @@ from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
     DeckGenerationOrchestrator,
+    GenerateDeckDiagnostics,
     GenerateDeckRequest,
     GenerateDeckResponse,
     GeneratedDeckContentPlan,
     GeneratedContentItem,
+    MediaIntent,
     ReferenceContext,
     SlidePlan,
     SlideCountRange,
     SourceRecord,
     ValidationIssue,
     ValidationResult,
+    VisualIntent,
     allocate_weighted_integers,
     analyze_input,
     apply_design_options,
@@ -33,33 +39,56 @@ from app.ai.generate_deck import (
     choose_slide_count,
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
+    compact_program_v2_content_items,
+    deduplicate_speaker_notes_across_slides,
     build_design_pack_content_manifest,
     content_plan_repair_reasons,
     core_geometry_fingerprint,
     deck_content_prompt,
     deck_content_response_format_for,
     design_pack_insight_elements,
+    design_pack_comparison_elements,
+    design_pack_decision_actions_elements,
+    design_pack_locks_dark_canvas,
     design_pack_items,
+    design_pack_overview_elements,
+    design_pack_process_elements,
+    design_pack_recipe_for,
     design_pack_recipe_elements,
+    design_pack_recipe_variant_for,
+    design_pack_source_ledgers,
     detect_text_overlap_candidates,
     generate_content_plan_with_llm,
     generate_deck,
+    ensure_profile_closing_action,
     icon_name_for_keyword,
     initial_source_records,
     is_text_overflowing,
+    is_short_label_text_box_too_narrow,
     merge_grounded_repair_notes,
     message_duplicates_content_items,
+    normalize_design_pack_slide_title,
+    normalize_program_v2_action_titles,
     normalize_structural_content_text,
+    remove_redundant_speaker_note_sentences,
     presentation_profile_for_request,
     plan_presentation,
     plan_slides,
     presentation_rule_prompt,
     refine_design_issues,
+    recipe_geometry_quality_reasons,
+    repeated_speaker_notes_slide_order,
     repair_design_pack_text_element,
+    repair_program_v2_text_element,
     repair_content_plan_with_llm,
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
     slide_plans_from_generated_content,
+    speaker_notes_maximum_chars,
+    speaker_notes_minimum_chars,
+    speaker_note_fragments,
+    text_color_for_background,
+    contrast_ratio,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_content,
@@ -69,6 +98,56 @@ from app.ai.generate_deck import (
     web_sources_from_response,
 )
 from tests.test_config import VALID_ENV
+
+
+def test_program_v2_golden_request_contract() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "splatoon_product_launch_golden_request.json"
+    )
+    request = GenerateDeckRequest.model_validate_json(fixture_path.read_text("utf-8"))
+
+    assert request.generation_mode == "design-pack"
+    assert request.design.engine_version == "program-v2"
+    assert request.design.media_policy == "hybrid"
+    assert request.slide_count_range.min == request.slide_count_range.max == 10
+
+
+def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
+    diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
+
+    assert diagnostics["visualQaStatus"] == "not-run"
+    assert diagnostics["visualReviewAttempts"] == 0
+    assert diagnostics["visualRepairAttempts"] == 0
+    assert diagnostics["visualIssueCodes"] == []
+
+
+@pytest.mark.parametrize(
+    ("design_prompt", "expected"),
+    [
+        ("Use a black background with white text as the default.", False),
+        ("Use only black backgrounds.", True),
+        ("검은색 배경만 사용", True),
+    ],
+)
+def test_dark_canvas_requires_an_explicit_single_color_lock(
+    design_prompt: str,
+    expected: bool,
+) -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_dark_rhythm",
+            topic="Dark visual rhythm",
+            designPrompt=design_prompt,
+            design={
+                "engineVersion": "program-v2",
+                "colorIntent": {"backgroundPreference": "dark"},
+            },
+        )
+    )
+
+    assert design_pack_locks_dark_canvas(raw_input) is expected
 
 
 def client() -> TestClient:
@@ -118,6 +197,170 @@ def test_choose_slide_count_clamps_duration_to_requested_range() -> None:
     assert choose_slide_count(7, slide_range) == 7
     assert choose_slide_count(10, slide_range) == 10
     assert choose_slide_count(30, slide_range) == 10
+
+
+def test_speaker_note_bounds_enforce_exact_ninety_to_one_ten_percent() -> None:
+    assert speaker_notes_minimum_chars(225) == 203
+    assert speaker_notes_maximum_chars(225) == 247
+    assert speaker_notes_minimum_chars(259) == 234
+    assert speaker_notes_maximum_chars(259) == 284
+
+
+def test_python_repeated_note_detection_matches_shared_semantic_qa() -> None:
+    notes = (
+        "이번 교육의 목표는 신입 PM 여러분이 AI 제품 기획에서 문제를 명확히 "
+        "정의하고 효과적인 해결 가설을 수립하며 그 가설을 실험과 데이터로 "
+        "검증할 수 있도록 돕는 것입니다. 특히 직접 실습을 통해 이러한 절차를 "
+        "이해하고 익숙해지는 데 중점을 두고 있습니다. 이를 통해 반복 가능한 "
+        "체계적 기획 역량을 갖추게 될 것입니다. 오늘 교육의 핵심 목표는 신입 PM "
+        "여러분이 제품 기획의 전 과정을 체계적으로 이해하고 직접 실습해 보는 "
+        "것입니다. 특히 문제 정의 단계부터 시작해 가설을 설정하고 검증하는 반복 "
+        "가능한 절차를 익히는 데 집중합니다."
+    )
+
+    assert repeated_speaker_notes_slide_order([(1, notes)]) == 1
+    deduplicated = remove_redundant_speaker_note_sentences(notes)
+    assert "오늘 교육의 핵심 목표" not in deduplicated
+
+
+def test_speaker_notes_are_deduplicated_after_short_note_repair() -> None:
+    repeated = (
+        "오늘 발표를 통해 스플래툰 레이더스의 주요 차별점과 "
+        "공식 출시 정보를 모두 공유해 드렸습니다."
+    )
+    slides = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="스플래툰 레이더스",
+            message="공식 정보를 소개합니다.",
+            speaker_notes=repeated,
+            keywords=[],
+            evidence=[],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="summary",
+            title="다음 모험",
+            message="새로운 모험을 기대해 주세요.",
+            speaker_notes=(
+                "새로운 모험을 함께 기대해 주세요. "
+                "오늘 발표를 통해 스플래툰 레이더스의 주요 차별점과 "
+                "공식 출시 정보를 모두 공유해 드렸습니다."
+            ),
+            keywords=[],
+            evidence=[],
+        ),
+    ]
+
+    deduplicate_speaker_notes_across_slides(slides)
+
+    assert slides[0].speaker_notes == repeated
+    assert slides[1].speaker_notes == "새로운 모험을 함께 기대해 주세요."
+    assert repeated_speaker_notes_slide_order(
+        [(slide.order, slide.speaker_notes) for slide in slides]
+    ) is None
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("커버: 2026 상반기 AI PPT 고도화 보고", "2026 상반기 AI PPT 고도화 보고"),
+        ("표지：제품 공개", "제품 공개"),
+        ("Cover: Product launch", "Product launch"),
+        ("2026 상반기 경영 보고", "2026 상반기 경영 보고"),
+    ],
+)
+def test_design_pack_cover_title_hides_structural_role_label(
+    title: str,
+    expected: str,
+) -> None:
+    assert normalize_design_pack_slide_title(title, "cover") == expected
+    assert normalize_design_pack_slide_title(title, "data") == title
+
+
+def test_worker_detects_editor_short_label_width_risk() -> None:
+    label = {
+        "elementId": "el_2_priority_stack_number_1",
+        "type": "text",
+        "role": "caption",
+        "x": 137,
+        "y": 348,
+        "width": 14,
+        "height": 28,
+        "props": {
+            "text": "1",
+            "fontSize": 17,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.15,
+        },
+    }
+
+    assert is_short_label_text_box_too_narrow(label)
+    label["width"] = 18
+    assert not is_short_label_text_box_too_narrow(label)
+
+
+def test_worker_accepts_intentional_multi_line_short_label() -> None:
+    label = {
+        "elementId": "el_4_program_v2_hub",
+        "type": "text",
+        "role": "highlight",
+        "x": 724,
+        "y": 384,
+        "width": 472,
+        "height": 256,
+        "props": {
+            "text": "3가지\n핵심 축",
+            "fontSize": 56,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.2,
+        },
+    }
+
+    assert not is_short_label_text_box_too_narrow(label)
+
+
+def test_worker_uses_cjk_width_for_editor_overflow_parity() -> None:
+    element = {
+        "elementId": "el_2_process_vertical_text_1",
+        "type": "text",
+        "role": "body",
+        "x": 1098,
+        "y": 308,
+        "width": 486,
+        "height": 46,
+        "props": {
+            "text": "문제 정의 → 가설 설정 → 테스트 → 결과 분석 → 개선 반복",
+            "fontSize": 21,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.2,
+        },
+    }
+
+    assert is_text_overflowing(element)
+
+
+def test_worker_accounts_for_ragged_mixed_script_title_wrapping() -> None:
+    element = {
+        "elementId": "el_1_program_v2_title",
+        "type": "text",
+        "role": "title",
+        "x": 120,
+        "y": 232,
+        "width": 828,
+        "height": 248,
+        "props": {
+            "text": (
+                "Splatoon Raiders 발표: Nintendo Switch 2 전용 첫 스핀오프 게임"
+            ),
+            "fontSize": 72,
+            "fontFamily": "Pretendard",
+            "lineHeight": 1.05,
+        },
+    }
+
+    assert is_text_overflowing(element)
 
 
 @pytest.mark.parametrize(
@@ -250,6 +493,23 @@ def test_design_pack_deck_persists_profile_without_changing_legacy_metadata() ->
     assert "presentationProfile" not in legacy.deck["metadata"]
 
 
+def test_ai_generated_slides_do_not_add_implicit_title_animations() -> None:
+    decks = [
+        generate_deck(GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT")),
+        generate_deck(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="ORBIT",
+                generationMode="design-pack",
+            )
+        ),
+    ]
+
+    for response in decks:
+        assert response.deck["slides"]
+        assert all(slide["animations"] == [] for slide in response.deck["slides"])
+
+
 def test_presentation_validation_detects_action_title_and_dense_body() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
@@ -294,6 +554,151 @@ def test_presentation_validation_detects_missing_primary_content() -> None:
     assert "VISUAL_HIERARCHY_WEAK" in codes
 
 
+def test_presentation_validation_detects_small_media_and_large_empty_decoration() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Visual quality",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["aiNotes"]["visualPlan"]["imageNeeded"] = True
+    slide["elements"].extend(
+        [
+            {
+                "elementId": "el_small_media",
+                "type": "rect",
+                "role": "media",
+                "x": 1200,
+                "y": 300,
+                "width": 420,
+                "height": 180,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 3,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#eeeeee",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            },
+            {
+                "elementId": "el_empty_decoration",
+                "type": "rect",
+                "role": "decoration",
+                "x": 120,
+                "y": 400,
+                "width": 800,
+                "height": 300,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 2,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#dddddd",
+                    "stroke": "transparent",
+                    "strokeWidth": 0,
+                    "borderRadius": 0,
+                },
+            },
+        ]
+    )
+
+    issues = [
+        issue for issue in validate_presentation(deck) if issue.code == "VISUAL_HIERARCHY_WEAK"
+    ]
+
+    assert len(issues) == 1
+    assert "최소 5열" in issues[0].message
+    assert "대형 장식" in issues[0].message
+
+
+def test_presentation_occupancy_excludes_the_slide_title() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Sparse body",
+            generationMode="design-pack",
+        )
+    ).deck
+    slide = deck["slides"][1]
+    slide["aiNotes"]["visualPlan"]["imageNeeded"] = False
+    for element in slide["elements"]:
+        if element.get("role") in {"body", "highlight"}:
+            element.update(x=120, y=420, width=300, height=100)
+        if element.get("role") == "media":
+            element["visible"] = False
+
+    issues = [
+        issue
+        for issue in validate_presentation(deck)
+        if issue.code == "VISUAL_HIERARCHY_WEAK"
+    ]
+
+    assert any("안전 영역" in issue.message for issue in issues)
+
+
+def test_recipe_geometry_validation_rejects_old_sparse_frames() -> None:
+    old_process = [
+        {
+            "elementId": f"el_3_process_step_card_{index}",
+            "x": 120 + (index - 1) * 408,
+            "y": 420,
+            "width": 360,
+            "height": 260,
+        }
+        for index in range(1, 4)
+    ]
+    old_comparison = [
+        {
+            "elementId": f"el_5_comparison_matrix_cell_{index}",
+            "x": 120 if index in {1, 3} else 970,
+            "y": 358 if index < 3 else 584,
+            "width": 760,
+            "height": 174,
+        }
+        for index in range(1, 4)
+    ]
+    old_decision = [
+        {
+            "elementId": "el_4_decision_actions_focus_panel",
+            "x": 120,
+            "y": 292,
+            "width": 570,
+            "height": 500,
+            "props": {},
+        },
+        {
+            "elementId": "el_4_decision_actions_focus_text",
+            "x": 172,
+            "y": 414,
+            "width": 466,
+            "height": 250,
+            "props": {"text": "브랜치 구조 단순화"},
+        },
+        *[
+            {
+                "elementId": f"el_4_decision_actions_row_{index}",
+                "x": 780,
+                "y": 292 + (index - 1) * 122,
+                "width": 960,
+                "height": 102,
+                "props": {},
+            }
+            for index in range(1, 3)
+        ],
+    ]
+
+    assert recipe_geometry_quality_reasons(old_process, "process")
+    assert recipe_geometry_quality_reasons(old_comparison, "comparison")
+    assert recipe_geometry_quality_reasons(old_decision, "decision")
+
+
 def test_presentation_validation_detects_structural_content_duplication() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
@@ -335,15 +740,75 @@ def test_timing_validation_uses_design_pack_short_and_dense_codes() -> None:
 
     first = deck["slides"][0]
     first_target = first["aiNotes"]["timingPlan"]["targetSpeakerNotesChars"]
-    first["speakerNotes"] = "가" * max(1, round(first_target * 0.69))
+    first["speakerNotes"] = "가" * max(1, round(first_target * 0.89))
     assert "SPEAKER_NOTES_SHORT" in {
         issue.code for issue in validate_content(deck)
     }
 
-    first["speakerNotes"] = "가" * round(first_target * 1.16)
+    first["speakerNotes"] = "가" * round(first_target * 1.11)
     assert "SPEAKER_NOTES_DENSE" in {
         issue.code for issue in validate_content(deck)
     }
+
+
+def test_timing_validation_detects_repeated_speaker_note_sentences() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Repeated notes",
+            generationMode="design-pack",
+        )
+    ).deck
+    repeated = (
+        "이 문장은 발표 분량을 채우지 않고 핵심 근거를 한 번만 설명하기 위한 충분히 긴 문장입니다."
+    )
+    deck["slides"][0]["speakerNotes"] = repeated
+    deck["slides"][1]["speakerNotes"] = repeated
+
+    assert "SPEAKER_NOTES_REPEATED" in {
+        issue.code for issue in validate_content(deck)
+    }
+
+
+@pytest.mark.parametrize(
+    ("notes", "expected_sentences"),
+    [
+        (
+            (
+                "안녕하세요. 오늘은 원격 근무 환경의 집중력 저하를 설명합니다. "
+                "업무 도구 차이는 소통 지연과 혼선을 만듭니다. "
+                "안녕하세요, 오늘은 원격 팀의 업무 공간 개선안을 제안합니다."
+            ),
+            3,
+        ),
+        (
+            (
+                "제안된 공간 운영안은 다음 분기 시범 운영부터 시작합니다. "
+                "사용자 피드백으로 운영 모델을 구체화합니다. "
+                "제안하는 공간 운영안은 다음 분기 시범 운영부터 시작합니다."
+            ),
+            2,
+        ),
+        (
+            (
+                "Nintendo Switch 2는 도킹 모드에서 4K 60fps를 지원하며, "
+                "휴대용 모드에서는 120fps 화면을 제공합니다. "
+                "더 큰 Joy-Con은 다양한 조작 방식을 지원합니다. "
+                "Nintendo Switch 2는 4K 60fps 도킹 모드와 휴대 모드의 "
+                "120fps 화면으로 게임 몰입감을 높입니다. "
+                "더 큰 Joy-Con은 다양한 조작 방식을 지원합니다."
+            ),
+            2,
+        ),
+    ],
+)
+def test_redundant_speaker_note_restatements_are_removed(
+    notes: str,
+    expected_sentences: int,
+) -> None:
+    cleaned = remove_redundant_speaker_note_sentences(notes)
+
+    assert len(speaker_note_fragments(cleaned)) == expected_sentences
 
 
 @pytest.mark.parametrize(
@@ -373,6 +838,40 @@ def test_profile_fallback_closing_contains_required_action(
     }
 
 
+def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="New product",
+            generationMode="design-pack",
+            brief={
+                "presentationType": "신상품 공개",
+                "successCriteria": "출시 정보와 구매 조건을 이해한다.",
+            },
+        )
+    )
+    closing = SlidePlan(
+        order=3,
+        slide_type="summary",
+        title="출시 일정과 구매 정보",
+        message="출시 일정과 구매 조건을 정리합니다.",
+        speaker_notes="출시 정보를 정리합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="release", text="7월 출시"),
+            GeneratedContentItem(contentItemId="purchase", text="구매 조건 안내"),
+        ],
+    )
+
+    ensure_profile_closing_action(raw_input, [closing])
+
+    assert closing.title == "지금 출시 정보를 확인하세요"
+    assert closing.message == "출시 정보를 확인하고 다음 행동을 선택하세요."
+    assert closing.content_items[0].text == closing.message
+    assert design_pack_source_ledgers(raw_input, closing)[0]["claim"] == closing.message
+
+
 def test_presentation_validation_detects_missing_profile_closing_action() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
@@ -390,6 +889,29 @@ def test_presentation_validation_detects_missing_profile_closing_action() -> Non
             "footer",
         }:
             element["props"]["text"] = "핵심 정리"
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
+    assert "CTA_MISSING" in codes
+
+
+def test_presentation_validation_rejects_release_nouns_without_action() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            generationMode="design-pack",
+            brief={"presentationType": "신상품 공개"},
+        )
+    ).deck
+    closing = deck["slides"][-1]
+    closing["title"] = "출시 일정과 구매 정보"
+    for element in closing["elements"]:
+        if element.get("type") == "text" and element.get("role") not in {
+            "caption",
+            "footer",
+        }:
+            element["props"]["text"] = "출시 일정과 구매 정보"
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
@@ -672,16 +1194,34 @@ def test_dense_speaker_notes_are_compacted_without_repeated_fillers() -> None:
         ),
         keywords=[],
         evidence=[],
-        target_speaker_notes_chars=160,
+        target_speaker_notes_chars=170,
     )
     original_chars = len("".join(slide.speaker_notes.split()))
 
     compact_dense_speaker_notes(slide)
 
     compacted_chars = len("".join(slide.speaker_notes.split()))
-    assert round(160 * 0.7) <= compacted_chars <= round(160 * 1.15)
+    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
     assert compacted_chars < original_chars
-    assert slide.speaker_notes.count("Distinct evidence sentence") == 3
+    assert slide.speaker_notes.count("Distinct evidence sentence") == 4
+
+
+def test_dense_single_sentence_speaker_notes_are_trimmed_to_upper_bound() -> None:
+    slide = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Dense single sentence",
+        message="Evidence supports the decision.",
+        speaker_notes=" ".join(f"evidence-{index}" for index in range(40)),
+        keywords=[],
+        evidence=[],
+        target_speaker_notes_chars=170,
+    )
+
+    compact_dense_speaker_notes(slide)
+
+    compacted_chars = len("".join(slide.speaker_notes.split()))
+    assert round(170 * 0.9) <= compacted_chars <= round(170 * 1.1)
 
 
 def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> None:
@@ -706,7 +1246,7 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
         ),
         keywords=["성과", "위험"],
         evidence=[],
-        target_speaker_notes_chars=80,
+        target_speaker_notes_chars=70,
         content_items=[
             GeneratedContentItem(contentItemId="item-1", text="성과와 위험 확인")
         ],
@@ -715,8 +1255,264 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     apply_design_options(raw_input, [slide])
 
     actual_chars = len("".join(slide.speaker_notes.split()))
-    assert round(80 * 0.7) <= actual_chars <= round(80 * 1.15)
+    assert round(70 * 0.9) <= actual_chars <= round(70 * 1.1)
     assert any("승인" in item.text for item in slide.content_items)
+
+
+def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Git 브랜치 전략 설명",
+            generationMode="design-pack",
+            design={"mediaPolicy": "public-assets"},
+        )
+    )
+    diagram = SlidePlan(
+        order=2,
+        slide_type="feature-grid",
+        title="Git 브랜치 전략의 기본 원칙",
+        message="각 브랜치는 특정 목적을 수행합니다.",
+        speaker_notes="브랜치 역할을 구분하는 원칙을 설명합니다.",
+        keywords=["Git", "branch"],
+        evidence=[],
+        visual_intent=VisualIntent(mediaStyle="diagram"),
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Diagram showing roles of Git branches",
+            alt="Git 브랜치 역할 개념도",
+            required=True,
+        ),
+    )
+    photo = SlidePlan(
+        order=3,
+        slide_type="solution",
+        title="팀이 브랜치 전략을 적용하는 현장",
+        message="개발자가 함께 변경 사항을 검토합니다.",
+        speaker_notes="실제 협업 장면을 통해 적용 맥락을 설명합니다.",
+        keywords=["developer", "team"],
+        evidence=[],
+        visual_intent=VisualIntent(mediaStyle="editorial photo"),
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Software developers reviewing code together in an office",
+            alt="코드를 검토하는 개발팀",
+            required=True,
+        ),
+    )
+
+    apply_design_options(raw_input, [diagram, photo])
+
+    assert diagram.media_intent.kind == "none"
+    assert photo.media_intent.kind == "generate"
+
+
+def test_recipe_selector_prioritizes_slide_meaning_over_variety() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Git 브랜치 전략 설명",
+            generationMode="design-pack",
+        )
+    )
+
+    def plan(order: int, slide_type: str, title: str, message: str) -> SlidePlan:
+        return SlidePlan(
+            order=order,
+            slide_type=slide_type,
+            title=title,
+            message=message,
+            speaker_notes="발표 내용을 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId=f"item-{order}-{index}",
+                    text=text,
+                )
+                for index, text in enumerate(
+                    ["첫 번째 핵심", "두 번째 핵심", "세 번째 핵심"],
+                    start=1,
+                )
+            ],
+        )
+
+    slides = [
+        plan(1, "cover", "Git 브랜치 전략", "전략을 소개합니다."),
+        plan(2, "architecture", "Git Flow의 특징", "브랜치별 역할이 다릅니다."),
+        plan(3, "solution", "GitHub Flow의 특징", "구조가 단순합니다."),
+        plan(4, "comparison", "Git Flow와 GitHub Flow 비교", "두 전략의 차이입니다."),
+        plan(5, "summary", "적합한 전략 선택", "팀에 맞는 전략을 선택합니다."),
+    ]
+
+    assert design_pack_recipe_for(raw_input, slides[1], slides) != "process_steps"
+    assert design_pack_recipe_for(raw_input, slides[2], slides) != "decision_actions"
+    assert design_pack_recipe_for(raw_input, slides[3], slides) == "comparison_split"
+
+
+def test_dynamic_recipe_frames_fill_the_available_grid() -> None:
+    theme = {
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#111827",
+        "accentColor": "#2563EB",
+        "palette": {
+            "primary": "#2563EB",
+            "secondary": "#0F766E",
+            "surface": "#FFFFFF",
+            "muted": "#F3F4F6",
+            "border": "#D1D5DB",
+        },
+        "typography": {
+            "headingFontFamily": "Pretendard",
+            "bodyFontFamily": "Pretendard",
+            "titleSize": 50,
+            "bodySize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    def plan(slide_type: str, items: list[str]) -> SlidePlan:
+        return SlidePlan(
+            order=2,
+            slide_type=slide_type,
+            title="동적 레이아웃",
+            message="각 항목을 명확히 보여줍니다.",
+            speaker_notes="각 항목을 순서대로 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+                for index, text in enumerate(items, start=1)
+            ],
+        )
+
+    process = design_pack_process_elements(
+        plan("process", ["준비", "실행", "검증"]),
+        theme,
+        "process_horizontal",
+    )
+    process_cards = [
+        element
+        for element in process
+        if re.search(r"_process_step_card_\d+$", element["elementId"])
+    ]
+    assert len(process_cards) == 3
+    assert process_cards[0]["x"] == 120
+    assert process_cards[-1]["x"] + process_cards[-1]["width"] == 1800
+    assert all(card["height"] >= 360 for card in process_cards)
+    meeting_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1", topic="Workflow", generationMode="design-pack",
+            brief={"presentationContext": "team planning meeting"},
+        )
+    )
+    assert design_pack_recipe_variant_for(meeting_input, plan("process", ["Prepare", "Publish", "Measure"]), "process_steps") == "process_horizontal"
+
+    comparison = design_pack_comparison_elements(
+        plan("comparison", ["Git Flow", "GitHub Flow", "선택 기준"]),
+        theme,
+        "comparison_matrix",
+    )
+    comparison_cells = [
+        element
+        for element in comparison
+        if re.search(r"_comparison_matrix_cell_\d+$", element["elementId"])
+    ]
+    assert len(comparison_cells) == 3
+    assert len({cell["y"] for cell in comparison_cells}) == 1
+    assert comparison_cells[-1]["x"] + comparison_cells[-1]["width"] == 1800
+
+    overview = design_pack_overview_elements(
+        plan("feature-grid", ["원칙", "역할", "통합"]),
+        theme,
+        "overview_2x2",
+    )
+    overview_cards = [
+        element
+        for element in overview
+        if re.search(r"_overview_card_\d+$", element["elementId"])
+    ]
+    assert len({card["y"] for card in overview_cards}) == 1
+    assert overview_cards[-1]["x"] + overview_cards[-1]["width"] == 1800
+
+    decision = design_pack_decision_actions_elements(
+        plan("solution", ["지금 시작", "담당자 지정", "일정 확정"]),
+        theme,
+    )
+    focus_panel = next(
+        element
+        for element in decision
+        if element["elementId"].endswith("_decision_actions_focus_panel")
+    )
+    focus_text = next(
+        element
+        for element in decision
+        if element["elementId"].endswith("_decision_actions_focus_text")
+    )
+    assert focus_panel["height"] == 360
+    assert focus_text["props"]["fontSize"] == 42
+
+
+def test_media_overview_uses_explicit_seven_five_column_frames() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="제품 협업 현장",
+            generationMode="design-pack",
+            design={"mediaPolicy": "public-assets"},
+        )
+    )
+    slide = SlidePlan(
+        order=2,
+        slide_type="feature-grid",
+        title="팀 협업의 핵심",
+        message="역할과 피드백 흐름을 정리합니다.",
+        speaker_notes="팀 협업 현장을 설명합니다.",
+        keywords=[],
+        evidence=[],
+        media_intent=MediaIntent(
+            kind="generate",
+            prompt="Software developers collaborating in an office",
+            alt="협업하는 개발팀",
+            required=True,
+        ),
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(["역할", "피드백", "통합"], start=1)
+        ],
+    )
+    theme = {
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#111827",
+        "accentColor": "#2563EB",
+        "palette": {},
+        "typography": {
+            "headingFontFamily": "Pretendard",
+            "bodyFontFamily": "Pretendard",
+            "titleSize": 50,
+            "bodySize": 24,
+            "lineHeight": 1.2,
+        },
+    }
+
+    elements = design_pack_recipe_elements(
+        raw_input,
+        slide,
+        "overview_cards",
+        theme,
+    )
+
+    title = next(element for element in elements if element["role"] == "title")
+    panel = next(
+        element
+        for element in elements
+        if element["elementId"].endswith("_overview_rail_panel")
+    )
+    media = next(element for element in elements if element["role"] == "media")
+    assert (title["x"], title["width"]) == (120, 970)
+    assert (panel["x"], panel["width"]) == (120, 970)
+    assert (media["x"], media["width"]) == (1114, 686)
+    assert media["height"] >= 420
 
 
 def test_design_pack_six_step_process_renders_every_content_item_once() -> None:
@@ -843,6 +1639,87 @@ def test_single_insight_content_item_is_rendered_once() -> None:
     ]
 
 
+def test_single_insight_content_item_alternates_geometry() -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Single insight",
+        generationMode="design-pack",
+    )
+    raw_input = analyze_input(request)
+    even_plan = SlidePlan(
+        order=2,
+        slide_type="data",
+        title="Concept",
+        message="One concept",
+        speaker_notes="Explain the concept.",
+        keywords=[],
+        evidence=[],
+        content_items=[GeneratedContentItem(contentItemId="item-1", text="One concept")],
+    )
+    odd_plan = even_plan.model_copy(
+        update={
+            "order": 3,
+            "content_items": [
+                GeneratedContentItem(contentItemId="item-2", text="One example")
+            ],
+        }
+    )
+
+    assert design_pack_recipe_variant_for(raw_input, even_plan, "insight_evidence") == "insight_evidence"
+    assert design_pack_recipe_variant_for(raw_input, odd_plan, "insight_evidence") == "insight_callout"
+
+    theme = generate_deck(request).deck["theme"]
+    even_elements = design_pack_insight_elements(even_plan, theme, "insight_evidence")
+    odd_elements = design_pack_insight_elements(odd_plan, theme, "insight_callout")
+    assert element_by_id(
+        {"elements": even_elements}, "el_2_insight_single_block"
+    )["x"] != element_by_id(
+        {"elements": odd_elements}, "el_3_insight_single_block"
+    )["x"]
+
+
+def test_text_color_fallback_always_meets_contrast_floor() -> None:
+    background = "#4A7DBE"
+    foreground = text_color_for_background(background)
+
+    assert contrast_ratio(background, foreground) >= 4.5
+
+
+def test_program_v2_text_fit_preserves_composition_frame() -> None:
+    element = {
+        "elementId": "el_5_program_v2_metric",
+        "type": "text",
+        "role": "highlight",
+        "x": 120,
+        "y": 280,
+        "width": 970,
+        "height": 272,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 5,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "text": "살모니드 적과 다채로운 전투 플레이어 경험",
+            "fontFamily": "Gmarket Sans",
+            "fontSize": 83,
+            "fontWeight": "bold",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        },
+    }
+    original_frame = tuple(element[key] for key in ("x", "y", "width", "height"))
+
+    repair_program_v2_text_element(element)
+
+    assert not is_text_overflowing(element)
+    assert not is_short_label_text_box_too_narrow(element)
+    assert element["props"]["fontSize"] >= 18
+    assert tuple(element[key] for key in ("x", "y", "width", "height")) == original_frame
+
+
 @pytest.mark.parametrize(
     ("message", "items", "expected"),
     [
@@ -884,6 +1761,493 @@ def test_content_plan_repair_marks_structural_duplication() -> None:
 
     assert "slide 1: message duplicates content items" in reasons
     assert "CONTENT_DUPLICATED" in repair_reason_codes(reasons)
+
+
+def test_content_plan_repair_rejects_numbers_missing_from_allowed_sources() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="사업 방향 보고",
+            prompt="근거 없는 수치를 사용하지 않습니다.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+    slide_plan = SlidePlan(
+        order=20,
+        slide_type="cover",
+        title="전환율 20% 개선",
+        message="도입 후 전환율이 20% 개선됩니다.",
+        speaker_notes="검증된 근거만 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text="전환율 20% 개선")
+        ],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert reasons == ["slide 20: unsupported numeric claim values 20"]
+    assert repair_reason_codes(reasons) == ["UNSUPPORTED_NUMERIC_CLAIM"]
+
+
+def test_content_plan_repair_accepts_grounded_and_structural_numbers() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="전환율 20% 개선 계획",
+            prompt="근거는 20% 개선 수치입니다.",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="3가지 실행으로 전환율 20% 개선",
+        message="3가지 실행으로 전환율을 20% 개선합니다.",
+        speaker_notes="검증된 근거만 설명합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(["진단", "실행", "검증"], start=1)
+        ],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons)
+
+
+def test_content_plan_repair_accepts_numbers_from_another_allowed_source() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="PIVO 출시",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="topic",
+            sourceId="topic:brief",
+            content="PIVO 제품 출시 발표",
+        ),
+        SourceRecord(
+            sourceType="uploaded",
+            sourceId="uploaded:launch-brief",
+            fileId="file_launch_brief",
+            content="사전 신청은 2026년 8월에 시작하고 정식 출시는 9월 15일입니다.",
+        ),
+    ]
+    slide_plan = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="2026년 출시 일정",
+        message="8월 사전 신청 후 9월 15일 정식 출시합니다.",
+        speaker_notes="공식 출시 일정을 안내합니다.",
+        keywords=[],
+        evidence=[],
+        content_items=[],
+        sourceRefs=["topic:brief"],
+    )
+
+    reasons = content_plan_repair_reasons([slide_plan], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons)
+
+
+def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="정성 비교 연구",
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = initial_source_records(raw_input)
+
+    def reasons_for(message: str) -> list[str]:
+        slide = SlidePlan(
+            order=1,
+            slide_type="comparison",
+            title="기회와 위험을 비교합니다",
+            message=message,
+            speaker_notes="두 관점을 비교합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="item-1", text="기회"),
+                GeneratedContentItem(contentItemId="item-2", text="위험"),
+            ],
+            sourceRefs=["topic:brief"],
+        )
+        return content_plan_repair_reasons([slide], raw_input=raw_input)
+
+    assert not any("unsupported numeric claim" in reason for reason in reasons_for("관점 2개를 비교합니다"))
+    assert "slide 1: unsupported numeric claim values 2" in reasons_for("효과가 2% 증가합니다")
+
+
+def test_content_prompt_separates_operational_and_grounded_numbers() -> None:
+    without_numbers = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="정성 운영 보고",
+            targetDurationMinutes=6,
+            slideCountRange={"min": 6, "max": 6},
+        )
+    )
+    with_numbers = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="전환율 20% 개선 보고",
+            prompt="검증된 전환율 개선 수치는 20%입니다.",
+            targetDurationMinutes=6,
+            slideCountRange={"min": 6, "max": 6},
+        )
+    )
+
+    assert "Allowed factual numeric values from source records: (none)" in deck_content_prompt(
+        without_numbers
+    )
+    assert "Allowed factual numeric values from source records: 20" in deck_content_prompt(
+        with_numbers
+    )
+    assert "operational instructions, not evidence" in deck_content_prompt(without_numbers)
+
+
+def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
+    original_texts = [
+        "First difference",
+        "Second difference",
+        "Third difference",
+        "Fourth difference",
+        "Fifth difference",
+    ]
+    cover = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="Comparison deck",
+        message="Comparison premise",
+        speaker_notes="Introduce the comparison.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="cover-1", text="Comparison premise")
+        ],
+    )
+    slide_plan = SlidePlan(
+        order=2,
+        slide_type="comparison",
+        title="Five-way comparison",
+        message="\n".join(original_texts),
+        speaker_notes="Explain each comparison point.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId=f"item-{index}", text=text)
+            for index, text in enumerate(original_texts, start=1)
+        ],
+    )
+    closing = SlidePlan(
+        order=3,
+        slide_type="summary",
+        title="Closing",
+        message="Next step\nDecision",
+        speaker_notes="Close the presentation.",
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="closing-1", text="Next step"),
+            GeneratedContentItem(contentItemId="closing-2", text="Decision"),
+        ],
+    )
+
+    compacted = compact_program_v2_content_items([cover, slide_plan, closing])
+
+    assert compacted[0] is cover
+    assert len(compacted[1].content_items) == 4
+    assert compacted[1].content_items[-1].content_item_id == "item-4"
+    assert all(text in compacted[1].content_items[-1].text for text in original_texts[3:])
+    assert all(text in compacted[1].message for text in original_texts)
+    assert slide_plan.content_items[-1].content_item_id == "item-5"
+    assert compacted[2] is closing
+
+
+def test_program_v2_compacts_general_body_to_composition_capacity() -> None:
+    items = [
+        GeneratedContentItem(contentItemId=f"item-{index}", text=f"Point {index}")
+        for index in range(1, 6)
+    ]
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[items[0]],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="problem",
+            title="Five launch constraints",
+            message="\n".join(item.text for item in items),
+            speaker_notes="Explain all constraints.",
+            keywords=[],
+            evidence=[],
+            content_items=items,
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Closing",
+            message="Review",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[items[0]],
+        ),
+    ]
+
+    compacted = compact_program_v2_content_items(plans)
+
+    assert len(compacted[1].content_items) == 4
+    assert compacted[1].content_items[-1].text == "Point 4 · Point 5"
+    assert compacted[1].message.endswith("Point 4 · Point 5")
+
+
+def test_program_v2_promotes_grounded_message_for_long_action_title() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Splatoon Raiders",
+            message="신작 공개",
+            speaker_notes="신작을 소개합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="신작 공개")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="feature-grid",
+            title="총평 – Splatoon Raiders로 한층 진화하는 Splatoon 시리즈",
+            message="새로운 모험과 협력 플레이를 통해 시리즈 진화",
+            speaker_notes="신작의 의미를 설명합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="body-1",
+                    text="Nintendo Switch 2에서의 전략적 확장",
+                )
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="출시 정보를 확인하세요",
+            message="공식 웹사이트 방문",
+            speaker_notes="공식 정보를 확인하도록 안내합니다.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="closing-1",
+                    text="공식 웹사이트 방문",
+                )
+            ],
+        ),
+    ]
+
+    normalized = normalize_program_v2_action_titles(plans)
+
+    assert normalized[1].title == "Splatoon Raiders로 한층 진화하는 Splatoon 시리즈"
+    assert len(normalized[1].title) <= 40
+    assert plans[1].title.startswith("총평")
+    assert normalized[0] is plans[0]
+    assert normalized[2] is plans[2]
+
+
+def test_program_v2_reclassifies_two_step_process_without_inventing_content() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="process",
+            title="Two confirmed milestones",
+            message="Pre-order then launch",
+            speaker_notes="Explain both confirmed milestones.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="step-1", text="Pre-order"),
+                GeneratedContentItem(contentItemId="step-2", text="Launch"),
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "feature-grid"
+    assert [item.text for item in normalized[1].content_items] == [
+        "Pre-order",
+        "Launch",
+    ]
+    assert plans[1].slide_type == "process"
+
+
+def test_program_v2_compacts_quote_support_for_no_media_fallback() -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="quote",
+            title="Official statement",
+            message="A new kind of adventure begins.",
+            speaker_notes="Explain the official statement.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="quote-1", text="First context"),
+                GeneratedContentItem(contentItemId="quote-2", text="Second context"),
+                GeneratedContentItem(contentItemId="quote-3", text="Third context"),
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "quote"
+    assert [item.content_item_id for item in normalized[1].content_items] == [
+        "quote-1",
+        "quote-2",
+    ]
+    assert normalized[1].content_items[1].text == "Second context · Third context"
+    assert [item.text for item in plans[1].content_items] == [
+        "First context",
+        "Second context",
+        "Third context",
+    ]
+
+
+@pytest.mark.parametrize("slide_type", ["comparison", "process", "architecture"])
+def test_program_v2_reclassifies_single_item_structure_without_duplication(
+    slide_type: str,
+) -> None:
+    plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="Launch",
+            message="Launch premise",
+            speaker_notes="Introduce the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="cover-1", text="Launch premise")
+            ],
+        ),
+        SlidePlan(
+            order=2,
+            slide_type=slide_type,
+            title="Confirmed differentiator",
+            message="One confirmed differentiator",
+            speaker_notes="Explain the confirmed differentiator.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(
+                    contentItemId="comparison-1",
+                    text="Nintendo Switch 2 exclusive",
+                )
+            ],
+        ),
+        SlidePlan(
+            order=3,
+            slide_type="summary",
+            title="Next action",
+            message="Review\nDecide",
+            speaker_notes="Close the launch.",
+            keywords=[],
+            evidence=[],
+            content_items=[
+                GeneratedContentItem(contentItemId="close-1", text="Review"),
+                GeneratedContentItem(contentItemId="close-2", text="Decide"),
+            ],
+        ),
+    ]
+
+    normalized = compact_program_v2_content_items(plans)
+
+    assert normalized[1].slide_type == "solution"
+    assert [item.text for item in normalized[1].content_items] == [
+        "Nintendo Switch 2 exclusive"
+    ]
+    assert plans[1].slide_type == slide_type
 
 
 @pytest.mark.parametrize(
@@ -1129,7 +2493,7 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     web_requests = [request for request in client.requests if request.get("tools")]
     assert len(web_requests) == 1
     assert web_requests[0]["tools"] == [
-        {"type": "web_search", "search_context_size": "medium"}
+        {"type": "web_search", "search_context_size": "high"}
     ]
     assert "at least two distinct authoritative public URLs" in str(
         web_requests[0]["instructions"]
@@ -1176,7 +2540,7 @@ def test_research_first_retries_then_rejects_fewer_than_two_url_citations() -> N
             client=client,
         )
 
-    assert len([request for request in client.requests if request.get("tools")]) == 2
+    assert len([request for request in client.requests if request.get("tools")]) == 3
 
 
 def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
@@ -1304,6 +2668,24 @@ def test_web_sources_canonicalize_and_dedupe_citation_urls() -> None:
     sources = web_sources_from_response(response)
 
     assert [source.url for source in sources] == ["https://example.com/news?id=7"]
+
+
+def test_web_sources_accept_inline_markdown_url_citations_without_annotations() -> None:
+    first_url = "https://publisher.example/release"
+    second_url = "https://news.example/report"
+    summary = "\n".join(
+        [
+            f"출시 일정은 공식 발표로 확인했습니다. [공식 발표]({first_url})",
+            f"시장 반응은 독립 보도로 교차 검증했습니다. [독립 보도]({second_url})",
+        ]
+    )
+    response = SimpleNamespace(output_text=summary, output=[])
+
+    sources = web_sources_from_response(response)
+
+    assert [source.url for source in sources] == [first_url, second_url]
+    assert "출시 일정" in sources[0].content
+    assert "시장 반응" in sources[1].content
 
 
 def test_web_sources_merge_claim_lines_for_repeated_citation_url() -> None:
@@ -1867,7 +3249,7 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
     slide = response.deck["slides"][0]
     timing = slide["aiNotes"]["timingPlan"]
     assert len(slide["speakerNotes"].replace(" ", "")) >= round(
-        timing["targetSpeakerNotesChars"] * 0.7
+        timing["targetSpeakerNotesChars"] * 0.9
     )
 
 
@@ -2007,7 +3389,7 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
             {"contentItemId": "fact-1", "text": "A verified release fact"}
         ],
         target_seconds=60,
-        target_speaker_notes_chars=200,
+        target_speaker_notes_chars=180,
     )
     long_repaired_note = " ".join(
         f"Verified detail {index} explains a distinct supported announcement fact."
@@ -2023,7 +3405,7 @@ def test_short_speaker_note_repair_trims_model_output_above_limit() -> None:
         client=fake_client,
     )[0]
 
-    assert 160 <= len(repaired.speaker_notes.replace(" ", "")) <= 250
+    assert 162 <= len(repaired.speaker_notes.replace(" ", "")) <= 198
     assert "Verified detail 1" in repaired.speaker_notes
 
 
@@ -2143,6 +3525,122 @@ def test_short_speaker_note_repair_retries_remaining_slide_individually() -> Non
 
     assert len(fake_client.requests) == 2
     assert 140 <= len("".join(repaired.speaker_notes.split())) <= 230
+
+
+def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="교체형 배터리 모델",
+            prompt="검증된 출시 일정을 설명합니다.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:verified",
+            url="https://example.com/verified",
+            title="Verified product update",
+            content=(
+                "유럽의 배터리 규정은 소비자가 일반 공구로 배터리를 교체할 수 있게 요구합니다. "
+                "교체형 설계는 제품 수명을 늘리고 전자 폐기물 감소에 기여합니다. "
+                "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다. "
+                "제조사는 부품 접근성과 수리 가능성을 제품 설계 단계에서 함께 고려합니다. "
+                "소비자는 배터리 수명이 끝난 뒤에도 본체를 계속 사용할 수 있습니다."
+            ),
+            authority="independent",
+        )
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="data",
+        title="교체형 배터리 모델 출시",
+        message="2026년 여름부터 유럽에 교체형 배터리 모델이 출시됩니다.",
+        speaker_notes="2026년 여름 유럽 출시 일정을 소개합니다.",
+        keywords=["배터리", "유럽"],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="item-1",
+                text="기존 모델 판매 종료 일정과 구분",
+            )
+        ],
+        source_refs=["web:verified"],
+        target_seconds=60,
+        target_speaker_notes_chars=224,
+    )
+    fake_client = FakeOpenAIClient(
+        [
+            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
+            {"slides": [{"order": 1, "speakerNotes": "여전히 짧은 메모입니다."}]},
+        ]
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+
+    actual_chars = len("".join(repaired.speaker_notes.split()))
+    assert round(224 * 0.9) <= actual_chars <= round(224 * 1.1)
+    assert actual_chars >= round(raw_input.timing_plan.chars_per_minute * 0.75)
+    assert "전자 폐기물" in repaired.speaker_notes
+
+
+def test_short_speaker_note_near_miss_uses_source_title_attribution() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="예약 안내",
+            prompt="검증된 예약 정보를 설명합니다.",
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        )
+    )
+    repeated_fact = "A" * 281
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official pre-order announcement",
+            content=repeated_fact,
+            authority="official",
+        )
+    ]
+    slide = SlidePlan(
+        order=1,
+        slide_type="summary",
+        title="사전 예약 안내",
+        message=repeated_fact,
+        speaker_notes=repeated_fact,
+        keywords=[],
+        evidence=[],
+        content_items=[
+            GeneratedContentItem(contentItemId="item-1", text=repeated_fact)
+        ],
+        source_refs=["web:official"],
+        target_seconds=60,
+        target_speaker_notes_chars=322,
+    )
+    fake_client = FakeOpenAIClient(
+        {"slides": [{"order": 1, "speakerNotes": repeated_fact}]}
+    )
+
+    repaired = repair_short_speaker_notes_with_llm(
+        raw_input,
+        [slide],
+        client=fake_client,
+    )[0]
+    actual_chars = len("".join(repaired.speaker_notes.split()))
+
+    assert round(322 * 0.9) <= actual_chars <= round(322 * 1.1)
+    assert "Official pre-order" in repaired.speaker_notes
 
 
 def test_single_uploaded_context_uses_short_unambiguous_source_id() -> None:
@@ -2319,6 +3817,41 @@ def test_design_pack_content_response_format_uses_slide_range() -> None:
 
     assert slides_schema["minItems"] == 5
     assert slides_schema["maxItems"] == 8
+
+
+def test_design_pack_content_response_format_limits_source_refs_to_records() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="ORBIT",
+        )
+    )
+    raw_input.source_records = [
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:official",
+            url="https://example.com/official",
+            title="Official",
+            content="Official facts",
+            authority="official",
+        ),
+        SourceRecord(
+            sourceType="web",
+            sourceId="web:independent",
+            url="https://example.com/news",
+            title="News",
+            content="Independent facts",
+            authority="independent",
+        ),
+    ]
+
+    slides_schema = deck_content_response_format_for(raw_input)["format"]["schema"][
+        "properties"
+    ]["slides"]
+    source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
+
+    assert source_ref_items["enum"] == ["web:independent", "web:official"]
 
 
 def test_design_pack_repairs_exact_slide_count_once() -> None:
@@ -2676,6 +4209,40 @@ def test_deck_color_options_apply_intent_constraints() -> None:
     assert all(option["palette"]["border"] == "#D1D5DB" for option in options)
 
 
+def test_deck_color_options_preserve_dark_background_without_pastels() -> None:
+    response = client().post(
+        "/ai/deck-color-options",
+        json={
+            "topic": "Energetic game reveal",
+            "colorMood": "black background, vivid cyan, no pastel",
+            "stylePackId": "brandlogy-modern",
+            "colorIntent": {
+                "mood": "energetic",
+                "trustLevel": "medium",
+                "energyLevel": "high",
+                "formality": "professional",
+                "preferredHue": "teal",
+                "backgroundPreference": "dark",
+                "forbiddenStyles": ["pastel"],
+            },
+            "constraints": {
+                "canvasBackground": "auto",
+                "forbiddenStyles": ["pastel"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    options = response.json()["options"]
+
+    assert len(options) == 3
+    assert all(option["palette"]["background"] == "#050505" for option in options)
+    assert all(option["palette"]["surface"] == "#111827" for option in options)
+    assert all(option["palette"]["muted"] == "#1F2937" for option in options)
+    assert all(option["palette"]["border"] == "#374151" for option in options)
+    assert all(option["palette"]["text"] == "#F8FAFC" for option in options)
+
+
 def test_export_deck_pptx_creates_pptx_binary() -> None:
     deck = {
         "deckId": "deck_ai_1",
@@ -2770,6 +4337,31 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
                             "strokeWidth": 2,
                         },
                     },
+                    {
+                        "elementId": "el_image",
+                        "type": "image",
+                        "role": "media",
+                        "x": 1120,
+                        "y": 320,
+                        "width": 480,
+                        "height": 270,
+                        "rotation": 0,
+                        "opacity": 1,
+                        "zIndex": 3,
+                        "locked": False,
+                        "visible": True,
+                        "props": {
+                            "src": (
+                                "data:image/png;base64,"
+                                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC"
+                                "AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+                            ),
+                            "alt": "Product visual",
+                            "fit": "contain",
+                            "focusX": 0.5,
+                            "focusY": 0.5,
+                        },
+                    },
                 ],
                 "keywords": [],
                 "animations": [],
@@ -2791,6 +4383,37 @@ def test_export_deck_pptx_creates_pptx_binary() -> None:
     assert response.warnings == []
     assert text_shapes[0].text_frame.word_wrap is True
     assert text_shapes[0].text_frame.paragraphs[0].font.size.pt == 22
+    assert any(
+        shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+        for shape in presentation.slides[0].shapes
+    )
+
+
+def test_export_deck_pptx_preserves_more_than_twenty_editor_slides() -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Editor slide limit contract",
+            generationMode="design-pack",
+            slideCountRange={"min": 8, "max": 8},
+        )
+    ).deck
+    template_slide = deck["slides"][0]
+    deck["slides"] = []
+
+    for index in range(21):
+        slide = deepcopy(template_slide)
+        slide["slideId"] = f"slide_{index + 1}"
+        slide["order"] = index + 1
+        slide["title"] = f"Slide {index + 1}"
+        for element_index, element in enumerate(slide["elements"]):
+            element["elementId"] = f"el_{index + 1}_{element_index + 1}"
+        deck["slides"].append(slide)
+
+    response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(BytesIO(base64.b64decode(response.content_base64)))
+
+    assert len(presentation.slides) == 21
 
 
 def test_generate_deck_endpoint_uses_payload_image_review_mode(
@@ -3046,6 +4669,51 @@ def test_generate_deck_keeps_theme_tokens_before_semantic_palette() -> None:
     assert theme["accentColor"] == "#ff0066"
     assert theme["palette"]["primary"] == "#ff0066"
     assert theme["palette"]["secondary"] == "#ff0066"
+
+
+def test_generate_deck_keeps_explicit_colors_before_semantic_palette() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Explicit color priority",
+            "slides": [
+                slide_payload(
+                    "Visual plan",
+                    "Explicit user colors should win over the editorial mood.",
+                    "Use the requested color roles.",
+                    slide_type="title",
+                    slot_preset="title_center",
+                    visual_intent={
+                        "emphasis": "color",
+                        "mood": "soft editorial",
+                        "structure": "cover",
+                        "paletteHint": "pink editorial palette",
+                        "emphasisStyle": "",
+                        "composition": "",
+                        "decorationDensity": "medium",
+                        "mediaStyle": "",
+                    },
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Game launch",
+            designPrompt=(
+                "White editorial deck with electric yellow, ink purple, and blue accents"
+            ),
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=fake_client,
+    )
+
+    theme = response.deck["theme"]
+    assert theme["backgroundColor"] == "#ffffff"
+    assert theme["accentColor"] == "#facc15"
+    assert theme["palette"]["primary"] == "#facc15"
+    assert theme["palette"]["secondary"] == "#7c3aed"
 
 
 def test_generate_deck_separates_design_prompt_from_content_prompt() -> None:
@@ -3657,6 +5325,10 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     assert deck["theme"]["palette"]["muted"] == "#F3F4F6"
     assert deck["slides"][0]["style"]["backgroundColor"] == "#FFFFFF"
     assert not has_element(deck["slides"][0], "el_1_design_pack_background")
+    assert not any(
+        element.get("role") == "background"
+        for element in deck["slides"][0]["elements"]
+    )
     assert has_element(deck["slides"][0], "el_1_cover_summary_card_1_text")
     assert not has_element(deck["slides"][0], "el_1_body")
 
@@ -3744,7 +5416,8 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
     )
 
     cover, overview, process, comparison, closing = response.deck["slides"]
-    assert has_element(cover, "el_1_cover_trust_signal_panel")
+    assert not has_element(cover, "el_1_cover_trust_signal_panel")
+    assert not has_element(cover, "el_1_cover_trust_signal_accent")
     assert has_element(cover, "el_1_cover_summary_card_1")
     assert not has_element(cover, "el_1_body")
     assert not has_element(cover, "el_1_accent_rail")
@@ -3753,17 +5426,19 @@ def test_generate_deck_design_pack_uses_brandlogy_layout_recipes() -> None:
         props = label["props"]
         assert label["height"] - 8 >= props["fontSize"] * props.get("lineHeight", 1.2)
     cover_title = element_by_id(cover, "el_1_title")
-    assert cover_title["width"] >= 1000
+    assert cover_title["width"] == 1680
     assert cover_title["props"]["fontSize"] <= 50
+    assert element_by_id(cover, "el_1_cover_summary_card_1")["width"] == 544
     assert has_element(overview, "el_2_overview_card_1")
     assert has_element(process, "el_3_process_step_card_1")
     assert has_element(process, "el_3_process_step_connector_1")
     assert has_element(comparison, "el_4_comparison_split_left_panel")
     assert has_element(comparison, "el_4_comparison_split_right_panel")
     assert has_element(comparison, "el_4_comparison_split_divider")
-    assert has_element(closing, "el_5_closing_summary_accent_block")
+    assert not has_element(closing, "el_5_closing_summary_accent_block")
+    assert element_by_id(closing, "el_5_closing_summary_card_1")["width"] == 1680
 
-    assert element_by_id(cover, "el_1_cover_trust_signal_accent")["props"]["fill"] == "#001F3F"
+    assert element_by_id(cover, "el_1_design_pack_top_rule")["props"]["fill"] == "#001F3F"
     assert element_by_id(process, "el_3_process_step_connector_1")["props"]["fill"] == "#001F3F"
     assert element_by_id(overview, "el_2_overview_card_1")["props"]["stroke"] == "#D1D5DB"
     for slide in response.deck["slides"]:
@@ -4632,6 +6307,84 @@ def test_generate_deck_avoid_media_policy_suppresses_placeholders() -> None:
     assert not has_element(response.deck["slides"][0], "el_1_media_placeholder")
 
 
+def test_generate_deck_preserves_media_intent_for_image_provider() -> None:
+    fake_client = FakeOpenAIClient(
+        {
+            "title": "Hybrid workspace",
+            "slides": [
+                slide_payload(
+                    "Focus and collaboration",
+                    "A hybrid workspace separates focus and collaboration zones.",
+                    (
+                        "Explain how the spatial strategy separates quiet focus work "
+                        "from live collaboration, then connect each zone to the team tools, "
+                        "communication rituals, and measurable outcomes that support both "
+                        "work modes without interrupting concentration or delaying decisions."
+                    ),
+                    slide_type="problem",
+                    slot_preset="title_left_visual_right",
+                    media_intent={
+                        "kind": "generate",
+                        "prompt": "A focused hybrid workspace with human collaboration",
+                        "alt": "Hybrid team workspace",
+                        "caption": "Focus and collaboration zones",
+                        "rationale": "Show the proposed work environment",
+                        "required": True,
+                        "placement": "right",
+                        "src": "",
+                    },
+                    visual_intent={
+                        "emphasis": "workspace",
+                        "mood": "calm",
+                        "structure": "split",
+                        "paletteHint": "blue",
+                        "emphasisStyle": "editorial",
+                        "composition": "hero",
+                        "decorationDensity": "low",
+                        "mediaStyle": "clean editorial photography",
+                    },
+                    content_items=["Focus zone", "Collaboration zone"],
+                )
+            ],
+        }
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Hybrid workspace",
+            prompt="Propose a workspace strategy.",
+            slideCountRange={"min": 1, "max": 1},
+            visualPlanPolicy={"mediaPolicy": "ai-generated"},
+            design={"mediaPolicy": "ai-generated"},
+        ),
+        client=fake_client,
+    )
+
+    visual_plan = response.deck["slides"][0]["aiNotes"]["visualPlan"]
+    assert visual_plan["imagePrompt"] == (
+        "A focused hybrid workspace with human collaboration "
+        "clean editorial photography"
+    )
+    assert visual_plan["imageAlt"] == "Hybrid team workspace"
+    assert visual_plan["imagePlacement"] == "right"
+    placeholder = element_by_id(
+        response.deck["slides"][0],
+        "el_1_design_pack_visual_media_placeholder",
+    )
+    assert placeholder["x"] == 1114
+    assert placeholder["width"] == 686
+    assert placeholder["height"] >= 560
+    title = element_by_id(response.deck["slides"][0], "el_1_title")
+    label = element_by_id(
+        response.deck["slides"][0],
+        "el_1_cover_summary_card_1_label",
+    )
+    assert title["width"] == 970
+    assert label["x"] == 152
+
+
 def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     fake_client = FakeOpenAIClient(
         {
@@ -4681,6 +6434,29 @@ def test_generate_deck_does_not_choose_media_preset_without_media() -> None:
     slide = response.deck["slides"][0]
     assert slide["style"]["layout"] == "title"
     assert not has_element(slide, "el_1_media_placeholder")
+
+
+def test_design_pack_cover_without_media_uses_full_width_information_card() -> None:
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            generationMode="design-pack",
+            topic="Executive report",
+            slideCountRange={"min": 1, "max": 1},
+            design={"mediaPolicy": "avoid"},
+        )
+    )
+
+    slide = response.deck["slides"][0]
+    assert not has_element(slide, "el_1_cover_trust_signal_panel")
+    assert not has_element(slide, "el_1_cover_trust_signal_accent")
+    title = element_by_id(slide, "el_1_title")
+    card = element_by_id(slide, "el_1_cover_summary_card_1")
+    card_text = element_by_id(slide, "el_1_cover_summary_card_1_text")
+    assert title["width"] == 1680
+    assert card["width"] == 1680
+    assert card["height"] == 232
+    assert card_text["props"]["fontSize"] == 28
 
 
 def test_text_overlap_candidates_ignore_empty_and_footer_text() -> None:
@@ -5177,6 +6953,11 @@ def test_generate_deck_applies_v1_design_profile_to_theme_and_slots() -> None:
     assert response.deck["theme"]["name"] == "pitch-startup-pitch-ai"
     assert response.deck["theme"]["backgroundColor"] == "#0f172a"
     assert response.deck["slides"][0]["style"]["backgroundColor"] == "#0f172a"
+    assert all(
+        element.get("role") != "background"
+        for slide in response.deck["slides"]
+        for element in slide["elements"]
+    )
     assert_validation_result_consistent(response.validation)
 
 
@@ -5782,6 +7563,49 @@ def test_validation_marks_gradient_text_background_as_unverifiable() -> None:
     )
 
 
+def test_validation_accepts_white_text_over_guaranteed_dark_overlay() -> None:
+    overlay = {
+        "elementId": "el_1_program_v2_image_overlay",
+        "type": "rect",
+        "role": "decoration",
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080,
+        "rotation": 0,
+        "opacity": 0.58,
+        "zIndex": 3,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "fill": "#000000",
+            "stroke": "transparent",
+            "strokeWidth": 0,
+            "borderRadius": 0,
+        },
+    }
+    text = text_box(
+        "el_1_program_v2_title",
+        120,
+        304,
+        "Readable full-bleed title",
+        width=1254,
+        height=256,
+        role="title",
+    )
+    text["zIndex"] = 4
+    text["props"]["color"] = "#FFFFFF"
+    deck = text_overlap_deck([overlay, text])
+
+    issues = validate_design(deck)
+
+    assert not any(
+        issue.code in {"TEXT_CONTRAST_LOW", "TEXT_CONTRAST_UNVERIFIABLE"}
+        and issue.path == "slides.0.elements.1.props.color"
+        for issue in issues
+    )
+
+
 def test_refiner_does_not_clamp_caption_labels_into_title_area() -> None:
     deck = text_overlap_deck(
         [
@@ -6053,6 +7877,10 @@ def test_generate_deck_applies_imported_design_blueprint_without_schema_leak() -
     ]
     assert all(
         element["elementId"].startswith("el_1_imported_")
+        for element in slide["elements"]
+    )
+    assert any(
+        element.get("role") == "background"
         for element in slide["elements"]
     )
     assert "Original confidential" not in text
@@ -6874,6 +8702,7 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
     order = slide["order"]
     recipe_markers = [
         (f"el_{order}_cover_trust_signal_panel", "cover_trust_signal"),
+        (f"el_{order}_cover_summary_card_1", "cover_trust_signal"),
         (f"el_{order}_overview_card_1", "overview_cards"),
         (f"el_{order}_overview_rail_panel", "overview_cards"),
         (f"el_{order}_decision_actions_focus_panel", "decision_actions"),
@@ -6884,7 +8713,7 @@ def design_pack_recipe_name(slide: dict[str, Any]) -> str:
         (f"el_{order}_process_vertical_axis", "process_steps"),
         (f"el_{order}_comparison_split_left_panel", "comparison_split"),
         (f"el_{order}_comparison_matrix_cell_1", "comparison_split"),
-        (f"el_{order}_closing_summary_accent_block", "closing_summary"),
+        (f"el_{order}_closing_summary_card_1", "closing_summary"),
         (f"el_{order}_insight_evidence_key_panel", "insight_evidence"),
         (f"el_{order}_insight_callout_block", "insight_evidence"),
     ]
@@ -7232,8 +9061,8 @@ def long_speaker_notes(order: int) -> str:
 def bounded_speaker_notes(order: int) -> str:
     return (
         f"{order}번째 장에서는 확인된 근거를 핵심 주장과 연결해 설명합니다. "
-        "첫 번째 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
-        "두 번째 기준은 선택 가능한 행동과 예상 효과를 구분해 보여 줍니다. "
-        "관련 자료의 범위와 한계를 함께 확인해 과도한 해석을 피합니다. "
-        "마지막으로 청중이 다음 단계에서 확인할 판단 기준을 명확히 정리합니다."
+        f"{order}번째 장의 첫 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
+        f"{order}번째 장의 둘째 기준은 선택 가능한 행동과 예상 효과를 구분합니다. "
+        f"{order}번째 장에서 관련 자료의 범위와 한계를 확인해 과도한 해석을 피합니다. "
+        f"{order}번째 장의 판단 기준을 마지막으로 명확히 정리합니다."
     )

@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { applyDeckPatch } from "@orbit/editor-core";
+import {
+  applyDeckPatch,
+  removeLegacyAiGeneratedTitleAnimations,
+} from "@orbit/editor-core";
 import type { ApplyDeckPatchError } from "@orbit/editor-core";
 import { loadOrbitConfig } from "@orbit/config";
 import {
@@ -265,7 +268,11 @@ export class DecksService {
         }
       }
 
-      const deck = await this.upsertDeck(manager, request.deck, updatedAt);
+      const deck = await this.upsertDeck(
+        manager,
+        removeLegacyAiGeneratedTitleAnimations(request.deck),
+        updatedAt,
+      );
       await this.deletePatchRowsAfterVersion(
         manager,
         projectId,
@@ -580,7 +587,9 @@ export class DecksService {
       }
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
-      const deck = parseDeckJson(snapshotRow.deck_json);
+      const deck = removeLegacyAiGeneratedTitleAnimations(
+        parseDeckJson(snapshotRow.deck_json),
+      );
       const updatedAt = nowIso();
       const currentRow = await this.findDeckRowForUpdate(
         manager,
@@ -637,12 +646,14 @@ export class DecksService {
 
     if (patchRows.length === 0) {
       return {
-        deck: checkpointDeck,
+        deck: removeLegacyAiGeneratedTitleAnimations(checkpointDeck),
         updatedAt: checkpointUpdatedAt,
       };
     }
 
-    const deck = replayPatchRows(checkpointDeck, patchRows);
+    const deck = removeLegacyAiGeneratedTitleAnimations(
+      replayPatchRows(checkpointDeck, patchRows),
+    );
     return {
       deck,
       updatedAt: toIso(patchRows.at(-1)?.created_at ?? nowIso()),

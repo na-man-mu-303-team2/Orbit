@@ -362,3 +362,27 @@
 - Rationale: 계약과 fixture를 먼저 고정하면 네 구현 스트림이 같은 상태·단위·보안 경계를 사용하고, confidence·timestamp·audio가 없을 때 값을 추측하지 않는다. 12초 사용자 근거와 30~60초 모범 audio를 분리해 기존 raw audio 삭제 정책과 Later 범위를 보존한다.
 - Affected files: `packages/shared/src/coaching/*`, `packages/shared/src/rehearsals/*`, `packages/shared/src/index.ts`, `packages/shared/src/README.md`, `apps/api/src/database/migrations/2026071301000-CreateP0CoachingContracts.ts`, `apps/api/src/database/data-source.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `services/python-worker/app/main.py`, `services/python-worker/app/audio/transcribe.py`, `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/product/adaptive-rehearsal-coach-direction.md`, `docs/decision-log.md`.
 - Follow-up review notes: API 구현은 focus PUT에서 CAS conflict를 HTTP 409로 매핑하고 Evidence playback마다 project Owner를 재검사한다. clip storage key는 DB 내부와 StoragePort에만 두고 로그에 남기지 않는다. 만료·조기 삭제·project 삭제는 기존 deletion outbox를 재사용한다. Editor 접근 확대, 30일 연장, 30~60초 모범 audio는 별도 제품·개인정보·권한 결정 전에는 구현하지 않는다.
+
+## ORBIT rehearsal analysis DTO v2 contract
+
+- Context: 기존 `/rehearsal/analyze` DTO는 `durationSeconds=0`으로 근거 없음과 실제 값을 구분하지 못하고, language/provider/model, normalized confidence, response measurement state가 없다. TypeScript sender와 Python boundary를 순차 배포하려면 양쪽이 구현할 strict v2 shape와 짧은 v1 호환 표면을 먼저 고정해야 한다.
+- Options considered:
+  - 기존 v1 필드에 optional field만 추가하고 `durationSeconds=0` 의미를 유지한다.
+  - v1/v2 endpoint를 장기간 병행한다.
+  - 같은 endpoint에서 `contractVersion: 2` request/response를 canonical로 고정하고, 기존 v1은 배포 전환 동안만 dual-read한다.
+- Final decision: request와 response는 `contractVersion: 2`를 사용한다. recording/provider duration을 nullable 양수로 분리하고, segment time pair·시간 순서·finite number·ID 길이를 strict Zod schema로 검증한다. response는 Quality Gate, measurement state, capability, filler occurrence, pause v1·v2와 합계·정렬 불변식을 포함한다. confidence 미제공은 `unavailable/CONFIDENCE_NOT_PROVIDED`이며 지표 계산 자체를 차단하지 않는다. 현재 normalization profile registry는 비어 있어 알 수 없는 profile은 거부한다. v1 request schema와 합성 fixture는 Python cutover 및 retry Job drain이 끝날 때까지만 유지한다.
+- Rationale: 값과 측정 상태를 함께 전달하면 `0`을 측정 실패로 오해하지 않고, 양쪽 runtime이 동일한 nested strict 계약을 독립적으로 구현할 수 있다. version literal과 명시적 compatibility schema는 부분 배포 중 신규 write와 legacy read 경계를 드러낸다.
+- Affected files: `packages/shared/src/coaching/rehearsal-analyze.schema.ts`, `packages/shared/src/coaching/p0-core-contract.fixtures.json`, `packages/shared/src/coaching/p0-core-contract.schema.test.ts`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: Python은 canonical v2 fixture를 읽는 strict Pydantic v2 request/response와 안전한 HTTP 422 body를 구현한다. TypeScript worker는 그 다음 v2만 새로 쓰고 response를 shared schema로 parse한다. 두 runtime 배포와 retry Job drain을 확인한 뒤 v1 schema와 fixture를 별도 cleanup PR에서 제거한다.
+
+## ORBIT rehearsal recording duration transport contract
+
+- Context: v2 분석 DTO는 실제 녹음 전체 시간과 Provider duration을 분리하지만, 기존 Run meta와 audio-complete 요청에는 Web recorder가 측정한 실제 경과시간을 전달하는 공통 필드가 없다. 기존 worker는 Provider duration이 없으면 `0` sentinel을 만들어 실제 0과 근거 없음을 구분하지 못한다.
+- Options considered:
+  - Provider duration을 실제 녹음 시간으로 계속 사용한다.
+  - legacy upload와 chunk upload가 서로 다른 duration 필드를 사용한다.
+  - `recordingDurationSeconds` nullable 양수 계약을 audio-complete와 Run meta가 함께 사용하고 기존 payload는 `null`로 읽는다.
+- Final decision: `recordingDurationSeconds`는 생략 또는 `null`, 값이 있으면 양수 finite number만 허용한다. legacy upload complete, chunk upload complete, Run meta가 같은 shared schema를 사용하며 `0`, 음수, `NaN`, `Infinity`를 거부한다. Web/API producer는 분석 enqueue 전에 값을 Run meta에 저장하고, worker는 후속 P1에서 같은 값을 v2 분석 요청에 전달하되 Provider duration으로 덮어쓰지 않는다.
+- Rationale: 실제 전체 녹음 시간을 별도 canonical transport로 보존하면 duration resolver와 마지막 slide timing이 같은 근거를 사용하고, 배포 전 저장된 Run meta와 기존 complete 요청은 `null` default로 계속 읽을 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.test.ts`, `apps/web/src/features/rehearsal/speech/p3RehearsalSession.test.ts`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: Web/API producer는 legacy와 chunk upload 모두 실제 recorder 경과시간을 보내고 Run meta 저장 성공 뒤에만 분석 Job을 enqueue한다. P1 worker sender는 Run meta 값을 `recordingDurationSeconds`로 전달하고 STT Provider 값은 `providerDurationSeconds`에만 둔다.

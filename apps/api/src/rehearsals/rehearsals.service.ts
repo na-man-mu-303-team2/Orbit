@@ -130,6 +130,11 @@ export class RehearsalsService {
           sourceGoalSetRef
         })
       : null;
+    const slideThumbnailUrls = await this.resolveSlideSnapshotUrls(
+      projectId,
+      deckResponse.deck.slides.map((slide) => slide.slideId),
+      request.slideSnapshots
+    );
     let evaluationSnapshot: RehearsalEvaluationSnapshot | null = null;
     if (request.semanticEvaluationMode === "full") {
       try {
@@ -139,7 +144,8 @@ export class RehearsalsService {
           {
             deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
             evaluationPlan,
-            focusProfileSnapshot: createRehearsalFocusProfileSnapshot(focusProfile)
+            focusProfileSnapshot: createRehearsalFocusProfileSnapshot(focusProfile),
+            slideThumbnailUrls
           }
         );
         if (evaluationPlan) {
@@ -240,6 +246,42 @@ export class RehearsalsService {
       createdAt: databaseDateToIso(value.created_at),
       updatedAt: databaseDateToIso(value.updated_at)
     });
+  }
+
+  private async resolveSlideSnapshotUrls(
+    projectId: string,
+    deckSlideIds: readonly string[],
+    snapshots: readonly { slideId: string; fileId: string }[] | undefined
+  ) {
+    const urls = new Map<string, string>();
+    if (!snapshots?.length) {
+      return urls;
+    }
+
+    const validSlideIds = new Set(deckSlideIds);
+    for (const snapshot of snapshots) {
+      if (!validSlideIds.has(snapshot.slideId)) {
+        throw new BadRequestException(
+          `slideSnapshots references an unknown slideId: ${snapshot.slideId}`
+        );
+      }
+
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        snapshot.fileId,
+        "rehearsal-slide-snapshot"
+      );
+      if (!asset.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Rehearsal slide snapshots must be image assets.");
+      }
+
+      urls.set(
+        snapshot.slideId,
+        `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(snapshot.fileId)}/content`
+      );
+    }
+
+    return urls;
   }
 
   private async resolveAdaptiveBrief(

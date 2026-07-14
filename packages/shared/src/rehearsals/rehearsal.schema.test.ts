@@ -10,6 +10,7 @@ import {
   rehearsalRunComparisonSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticCueDecisionSchema,
+  rehearsalRecordingDurationSecondsSchema,
   rehearsalRunMetaSchema,
   rehearsalReportSchema,
   rehearsalRunSchema,
@@ -140,6 +141,26 @@ describe("createRehearsalRunRequestSchema", () => {
     ).toBe("delivery-only");
   });
 
+  it("accepts one persistent slide snapshot asset per slide", () => {
+    const request = createRehearsalRunRequestSchema.parse({
+      deckId: "deck_demo_1",
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file_snapshot_1" }]
+    });
+
+    expect(request.slideSnapshots).toEqual([
+      { slideId: "slide_1", fileId: "file_snapshot_1" }
+    ]);
+    expect(
+      createRehearsalRunRequestSchema.safeParse({
+        deckId: "deck_demo_1",
+        slideSnapshots: [
+          { slideId: "slide_1", fileId: "file_snapshot_1" },
+          { slideId: "slide_1", fileId: "file_snapshot_2" }
+        ]
+      }).success
+    ).toBe(false);
+  });
+
   it("requires a complete adaptive evaluation context", () => {
     expect(
       createRehearsalRunRequestSchema.safeParse({
@@ -261,7 +282,26 @@ describe("rehearsalReportSchema", () => {
   it("defaults optional official detail sections to empty values", () => {
     const report = rehearsalReportSchema.parse(rehearsalReportFixture());
 
+    expect(report.metrics.charactersPerMinute).toBeNull();
+    expect(report.metrics.measurements).toEqual(legacyReportMeasurements());
+    expect(report.metrics.sttQualityGate).toEqual({
+      version: 1,
+      state: "unavailable",
+      reasonCode: "LEGACY_QUALITY_GATE_UNKNOWN",
+      confidence: null,
+      threshold: null,
+      policyId: null
+    });
+    expect(report.metrics.analysisCapabilities).toEqual({
+      recordingDuration: { state: "unavailable", source: "none" },
+      providerDuration: { state: "unavailable", source: "none" },
+      segmentTimestamps: { state: "unavailable", source: "none" },
+      sttConfidence: { state: "unavailable", source: "none" },
+      sentenceBoundaries: { state: "unavailable", source: "none" },
+      pauseIntentClassification: { state: "unavailable", source: "none" }
+    });
     expect(report.speedSamples).toEqual([]);
+    expect(report.pauseV2Details).toEqual([]);
     expect(report.missedKeywords).toEqual([]);
     expect(report.utteranceOutcomes).toEqual([]);
     expect(report.semanticCueDecisions).toEqual([]);
@@ -283,6 +323,142 @@ describe("rehearsalReportSchema", () => {
       unclearTopics: []
     });
     expect(report.aiSummary).toBeUndefined();
+  });
+
+  it("accepts measured speech evidence with canonical metric versions", () => {
+    const report = rehearsalReportSchema.parse({
+      ...rehearsalReportFixture(),
+      metrics: {
+        ...rehearsalReportFixture().metrics,
+        charactersPerMinute: 318,
+        measurements: measuredReportMeasurements(),
+        sttQualityGate: {
+          version: 1,
+          state: "passed",
+          reasonCode: "CONFIDENCE_ACCEPTED",
+          confidence: 0.91,
+          threshold: 0.8,
+          policyId: "quality-policy-ko-1"
+        },
+        analysisCapabilities: {
+          recordingDuration: { state: "available", source: "recording" },
+          providerDuration: { state: "available", source: "provider" },
+          segmentTimestamps: { state: "available", source: "segment" },
+          sttConfidence: { state: "available", source: "provider" },
+          sentenceBoundaries: { state: "available", source: "provider" },
+          pauseIntentClassification: { state: "available", source: "provider" }
+        }
+      },
+      pauseV2Details: [
+        {
+          pauseId: "pause_1",
+          startMs: 2_000,
+          endMs: 3_200,
+          durationMs: 1_200,
+          position: "slide-transition",
+          intent: "unknown",
+          positionSource: "slide-timeline",
+          intentSource: "none",
+          beforeSlideId: "slide_1",
+          afterSlideId: "slide_2",
+          metricDefinitionVersion: 2
+        }
+      ]
+    });
+
+    expect(report.metrics.charactersPerMinute).toBe(318);
+    expect(report.metrics.measurements.pauseV2.metricDefinitionVersion).toBe(2);
+    expect(report.pauseV2Details[0]?.positionSource).toBe("slide-timeline");
+  });
+
+  it("rejects CPM values that contradict their measurement state", () => {
+    expect(
+      rehearsalReportSchema.safeParse({
+        ...rehearsalReportFixture(),
+        metrics: {
+          ...rehearsalReportFixture().metrics,
+          charactersPerMinute: 318
+        }
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects non-canonical public report metric versions", () => {
+    expect(
+      rehearsalReportSchema.safeParse({
+        ...rehearsalReportFixture(),
+        metrics: {
+          ...rehearsalReportFixture().metrics,
+          measurements: {
+            ...legacyReportMeasurements(),
+            pauseV2: speechMetricUnmeasured(
+              1,
+              "LEGACY_MEASUREMENT_STATE_UNKNOWN"
+            )
+          }
+        }
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects STT-dependent evidence when the quality gate failed", () => {
+    const failedMeasurements = {
+      ...legacyReportMeasurements(),
+      duration: {
+        measurementState: "measured" as const,
+        metricDefinitionVersion: 1,
+        reasonCode: null
+      },
+      charactersPerMinute: speechMetricUnmeasured(1, "LOW_TRANSCRIPTION_CONFIDENCE"),
+      wordsPerMinute: speechMetricUnmeasured(1, "LOW_TRANSCRIPTION_CONFIDENCE"),
+      fillerWordCount: speechMetricUnmeasured(1, "LOW_TRANSCRIPTION_CONFIDENCE"),
+      pauseV1: speechMetricUnmeasured(1, "LOW_TRANSCRIPTION_CONFIDENCE"),
+      pauseV2: speechMetricUnmeasured(2, "LOW_TRANSCRIPTION_CONFIDENCE"),
+      keywordCoverage: speechMetricUnmeasured(1, "LOW_TRANSCRIPTION_CONFIDENCE")
+    };
+    const failedGateReport = {
+      ...rehearsalReportFixture(),
+      metrics: {
+        ...rehearsalReportFixture().metrics,
+        measurements: failedMeasurements,
+        keywordCoverageMeasurement: {
+          state: "unmeasured" as const,
+          reason: "low-transcription-confidence" as const
+        },
+        sttQualityGate: {
+          version: 1 as const,
+          state: "failed" as const,
+          reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE" as const,
+          confidence: 0.4,
+          threshold: 0.8,
+          policyId: "quality-policy-ko-1"
+        }
+      }
+    };
+
+    expect(rehearsalReportSchema.safeParse(failedGateReport).success).toBe(true);
+    expect(
+      rehearsalReportSchema.safeParse({
+        ...failedGateReport,
+        metrics: {
+          ...failedGateReport.metrics,
+          measurements: {
+            ...failedMeasurements,
+            fillerWordCount: {
+              measurementState: "measured",
+              metricDefinitionVersion: 1,
+              reasonCode: null
+            }
+          }
+        }
+      }).success
+    ).toBe(false);
+    expect(
+      rehearsalReportSchema.safeParse({
+        ...failedGateReport,
+        fillerWordDetails: [{ word: "음", count: 1 }]
+      }).success
+    ).toBe(false);
   });
 
   it("accepts a canonical measured semantic cue outcome", () => {
@@ -546,6 +722,7 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     });
 
     expect(request.fileId).toBe("file_audio_1");
+    expect(request.recordingDurationSeconds).toBeNull();
   });
 });
 
@@ -559,6 +736,7 @@ describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
     });
 
     expect(manifest.chunkCount).toBe(3);
+    expect(manifest.recordingDurationSeconds).toBeNull();
   });
 
   it.each([
@@ -576,6 +754,62 @@ describe("completeRehearsalAudioChunkUploadRequestSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("rehearsalRecordingDurationSecondsSchema", () => {
+  it("preserves the same measured duration across complete requests and run meta", () => {
+    const recordingDurationSeconds = 90.25;
+    const legacyComplete = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1",
+      recordingDurationSeconds
+    });
+    const chunkComplete = completeRehearsalAudioChunkUploadRequestSchema.parse({
+      chunkCount: 3,
+      totalDurationMs: 90000,
+      totalSizeBytes: 1024,
+      sha256: "a".repeat(64),
+      recordingDurationSeconds
+    });
+    const runMeta = rehearsalRunMetaSchema.parse({ recordingDurationSeconds });
+
+    expect([
+      legacyComplete.recordingDurationSeconds,
+      chunkComplete.recordingDurationSeconds,
+      runMeta.recordingDurationSeconds
+    ]).toEqual([recordingDurationSeconds, recordingDurationSeconds, recordingDurationSeconds]);
+  });
+
+  it("defaults missing recording duration to null for legacy payloads", () => {
+    expect(rehearsalRecordingDurationSecondsSchema.parse(undefined)).toBeNull();
+    expect(rehearsalRunMetaSchema.parse({}).recordingDurationSeconds).toBeNull();
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -1],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY]
+  ])("rejects %s recording duration across every transport", (_label, value) => {
+    expect(rehearsalRecordingDurationSecondsSchema.safeParse(value).success).toBe(false);
+    expect(
+      completeRehearsalAudioUploadRequestSchema.safeParse({
+        fileId: "file_audio_1",
+        recordingDurationSeconds: value
+      }).success
+    ).toBe(false);
+    expect(
+      completeRehearsalAudioChunkUploadRequestSchema.safeParse({
+        chunkCount: 3,
+        totalDurationMs: 90000,
+        totalSizeBytes: 1024,
+        sha256: "a".repeat(64),
+        recordingDurationSeconds: value
+      }).success
+    ).toBe(false);
+    expect(
+      rehearsalRunMetaSchema.safeParse({ recordingDurationSeconds: value }).success
+    ).toBe(false);
   });
 });
 
@@ -669,6 +903,7 @@ describe("rehearsalRunMetaSchema", () => {
     expect(meta.utteranceOutcomes).toEqual([]);
     expect(meta.semanticCueDecisions).toEqual([]);
     expect(meta.semanticCapabilityEvents).toEqual([]);
+    expect(meta.recordingDurationSeconds).toBeNull();
   });
 
   it("deduplicates bounded capability cue IDs without accepting sensitive fields", () => {
@@ -818,6 +1053,74 @@ function rehearsalReportFixture() {
       message: ""
     },
     generatedAt: "2026-06-29T00:00:10.000Z"
+  };
+}
+
+function speechMetricUnmeasured(
+  metricDefinitionVersion: number,
+  reasonCode:
+    | "LEGACY_MEASUREMENT_STATE_UNKNOWN"
+    | "LOW_TRANSCRIPTION_CONFIDENCE"
+) {
+  return {
+    measurementState: "unmeasured" as const,
+    metricDefinitionVersion,
+    reasonCode
+  };
+}
+
+function legacyReportMeasurements() {
+  return {
+    duration: speechMetricUnmeasured(1, "LEGACY_MEASUREMENT_STATE_UNKNOWN"),
+    charactersPerMinute: speechMetricUnmeasured(
+      1,
+      "LEGACY_MEASUREMENT_STATE_UNKNOWN"
+    ),
+    wordsPerMinute: speechMetricUnmeasured(1, "LEGACY_MEASUREMENT_STATE_UNKNOWN"),
+    fillerWordCount: speechMetricUnmeasured(1, "LEGACY_MEASUREMENT_STATE_UNKNOWN"),
+    pauseV1: speechMetricUnmeasured(1, "LEGACY_MEASUREMENT_STATE_UNKNOWN"),
+    pauseV2: speechMetricUnmeasured(2, "LEGACY_MEASUREMENT_STATE_UNKNOWN"),
+    keywordCoverage: speechMetricUnmeasured(1, "LEGACY_MEASUREMENT_STATE_UNKNOWN")
+  };
+}
+
+function measuredReportMeasurements() {
+  return {
+    duration: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    },
+    charactersPerMinute: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    },
+    wordsPerMinute: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    },
+    fillerWordCount: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    },
+    pauseV1: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    },
+    pauseV2: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 2,
+      reasonCode: null
+    },
+    keywordCoverage: {
+      measurementState: "measured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: null
+    }
   };
 }
 

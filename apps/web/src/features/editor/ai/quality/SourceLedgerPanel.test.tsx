@@ -56,4 +56,45 @@ describe("SourceLedgerPanel", () => {
     expect(html).toContain('href="https://example.com/release"');
     expect(html).not.toContain("Official release duplicate");
   });
+
+  it("shows image provider, usage basis, and separate source URLs", () => {
+    const slide = {
+      slideId: "slide_1",
+      order: 1,
+      title: "Official visual",
+      thumbnailUrl: "",
+      style: {},
+      speakerNotes: "notes",
+      elements: [],
+      keywords: [],
+      semanticCues: [],
+      animations: [],
+      actions: [],
+      aiNotes: {
+        emphasisPoints: [],
+        sourceEvidence: [],
+        visualPlan: {
+          visualType: "official-key-art",
+          imageNeeded: true,
+          imageSourcePolicy: "official-assets",
+          reason: "Show official product art",
+          asset: {
+            fileId: "file_visual",
+            provider: "official-web",
+            sourceUrl: "https://official.example/product",
+            sourceAssetUrl: "https://official.example/product.png",
+            sourceAuthority: "official",
+            usageBasis: "official-reference"
+          }
+        }
+      }
+    } satisfies Slide;
+
+    const html = renderToString(<SourceLedgerPanel slide={slide} />);
+
+    expect(html).toContain("공식 이미지");
+    expect(html).toContain("공식 참조");
+    expect(html).toContain('href="https://official.example/product"');
+    expect(html).toContain('href="https://official.example/product.png"');
+  });
 });

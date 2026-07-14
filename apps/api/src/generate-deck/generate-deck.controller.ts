@@ -23,6 +23,6 @@ export class GenerateDeckController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.generateDeckService.createJob(projectId, body);
+    return this.generateDeckService.createJob(projectId, body, user.userId);
   }
 }

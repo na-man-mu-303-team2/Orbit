@@ -8,41 +8,51 @@ import type {
   PptAdvisorHistoryItem,
   PptAdvisorResponse,
   PptAdvisorSuggestion,
-  ReferenceExtractionResult
+  ReferenceExtractionResult,
+  SavedDesignPack
 } from "@orbit/shared";
 import type { EvaluatorLensRef, FrozenBriefRef } from "@orbit/shared";
 import {
+  generateDeckValidationSchema,
   pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
   referenceExtractionResultSchema,
   referenceExtractionStartResponseSchema
 } from "@orbit/shared";
 import {
+  Copy,
+  Image as ImageIcon,
+  Pencil,
+  Play,
+  Save,
+  Star,
+  Trash2
+} from "lucide-react";
+import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconDownload,
   IconFileText,
+  IconInfoCircle,
   IconPalette,
   IconPaperclip,
   IconPlayerPlay,
-  IconSparkles,
-  IconStack3
+  IconTrash,
+  IconUpload,
+  IconSparkles
 } from "@tabler/icons-react";
-import type { ChangeEvent, ReactNode } from "react";
+import type { ChangeEvent, DragEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  createProject,
-  uploadProjectAsset
-} from "../projects/ProjectAssetWorkspace";
+import { OrbitIconButton } from "../../design-system";
+import { createProject, deleteProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
 import { putPresentationBrief } from "../coaching/presentationBriefApi";
 import "./ai-ppt-mockup.css";
 
-type StepId = "brief" | "style" | "color" | "references" | "review" | "preview";
+type StepId = "brief" | "style" | "color" | "references" | "preview";
 type ReferencePolicy = GenerateDeckReferencePolicy;
 type MediaPolicy = GenerateDeckMediaPolicy;
 type Tone = "professional" | "friendly" | "confident" | "concise";
-
 type PaletteOverride = NonNullable<GenerateDeckRequest["design"]["paletteOverride"]>;
 type ColorIntent = NonNullable<GenerateDeckRequest["design"]["colorIntent"]>;
 type DesignConstraints = NonNullable<GenerateDeckRequest["design"]["constraints"]>;
@@ -78,6 +88,76 @@ type ReferenceGrounding = Pick<
   "referenceContext" | "referenceKeywords"
 >;
 
+type AiPptQualityFailure = {
+  issues: Array<{ code: string; message: string; slide?: number }>;
+  remainingCount: number;
+};
+
+type PolicyChoiceOption<T extends string> = {
+  description: string;
+  label: string;
+  value: T;
+};
+
+export const referencePolicyOptions = [
+  {
+    value: "user-input-only",
+    label: "사용자 입력만",
+    description:
+      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다."
+  },
+  {
+    value: "references-first",
+    label: "참고자료 우선",
+    description:
+      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다."
+  },
+  {
+    value: "references-only",
+    label: "참고자료만 사용",
+    description:
+      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다."
+  },
+  {
+    value: "research-first",
+    label: "웹 리서치 구조",
+    description:
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 서로 다른 관련 출처 2개 이상을 확보하지 못하면 생성이 중단됩니다."
+  }
+] satisfies readonly PolicyChoiceOption<ReferencePolicy>[];
+
+export const mediaPolicyOptions = [
+  {
+    value: "minimal",
+    label: "이미지 최소화",
+    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다."
+  },
+  {
+    value: "provided-only",
+    label: "첨부 이미지만",
+    description:
+      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다."
+  },
+  {
+    value: "public-assets",
+    label: "공개 이미지 구조",
+    description:
+      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다."
+  },
+  {
+    value: "ai-generated",
+    label: "AI 이미지 구조",
+    description:
+      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다."
+  },
+  {
+    value: "hybrid",
+    label: "공식 + AI 이미지",
+    description:
+      "공식 이미지를 근거 자료로 우선 사용하고, 분위기 연출이 필요한 장면만 AI 이미지 구조로 보완합니다."
+  }
+] satisfies readonly PolicyChoiceOption<MediaPolicy>[];
+
 const stylePackId = "brandlogy-modern";
 
 const steps: Array<{ id: StepId; label: string }> = [
@@ -85,7 +165,6 @@ const steps: Array<{ id: StepId; label: string }> = [
   { id: "style", label: "Style" },
   { id: "color", label: "Color" },
   { id: "references", label: "References" },
-  { id: "review", label: "Review" },
   { id: "preview", label: "Deck" }
 ];
 
@@ -137,7 +216,7 @@ const fallbackPaletteOptions: PaletteOption[] = [
   }
 ];
 
-const initialState: AiPptWizardState = {
+export const briefFieldPlaceholders = {
   topic: "Design Pack 기반 AI PPT 생성 구조 제안",
   purpose: "템플릿 덮어쓰기에서 벗어나 Deck JSON 기반 생성 MVP를 설명",
   context: "제품/개발 리드 대상 15분 의사결정 회의",
@@ -145,6 +224,17 @@ const initialState: AiPptWizardState = {
   presentationType: "기획 발표",
   successCriteria: "1차 구현 범위와 다음 스프린트 우선순위 합의",
   duration: "15",
+  slides: "15"
+} as const;
+
+export const initialAiPptWizardState: AiPptWizardState = {
+  topic: "",
+  purpose: "",
+  context: "",
+  audience: "",
+  presentationType: "",
+  successCriteria: "",
+  duration: "",
   slides: "",
   tone: "professional",
   colorMood: "ORBIT Lilac 포인트와 Ink 대비, 차분하고 명확한 색감",
@@ -154,12 +244,13 @@ const initialState: AiPptWizardState = {
 };
 
 const generationStages = [
-  "Brief 설문 정리",
-  "색상 후보 3개 선택",
-  "Session Design Pack 구성",
-  "Deck JSON 생성",
-  "에디터 렌더링",
-  "PPTX export 준비"
+  "내용 구성",
+  "디자인 방향 설정",
+  "슬라이드 구성",
+  "이미지 준비",
+  "시각 품질 검토",
+  "시각 품질 보정",
+  "최종 발행"
 ];
 
 export function buildAiPptGenerateDeckPayload(
@@ -171,9 +262,11 @@ export function buildAiPptGenerateDeckPayload(
     referenceContext: [],
     referenceKeywords: []
   },
+  savedDesignPack?: Pick<SavedDesignPack, "id" | "version">,
+  officialAssetFileIds: string[] = [],
   coachingContext?: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef }
 ): GenerateDeckRequest {
-  const durationMinutes = parsePositiveInteger(state.duration, 10);
+  const durationMinutes = parsePositiveInteger(state.duration, 0);
   const slideCountRange = resolveSlideCountRange(state);
   const colorIntent = resolveColorIntent(state);
   const constraints = resolveDesignConstraints(state);
@@ -216,6 +309,7 @@ export function buildAiPptGenerateDeckPayload(
     },
     design: {
       stylePackId,
+      engineVersion: "program-v2",
       visualRhythm: "clean",
       densityTarget: "medium",
       mediaPolicy: state.mediaPolicy,
@@ -226,11 +320,20 @@ export function buildAiPptGenerateDeckPayload(
       fontOverride,
       referencePolicy: state.referencePolicy
     },
+    ...(savedDesignPack
+      ? {
+          savedDesignPack: {
+            id: savedDesignPack.id,
+            version: savedDesignPack.version
+          }
+        }
+      : {}),
     visualPlanPolicy: {
       mediaPolicy: state.mediaPolicy
     },
     referencePolicy: state.referencePolicy,
     referenceFileIds,
+    officialAssetFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     designReferences: [],
     referenceKeywords: referenceGrounding.referenceKeywords,
@@ -244,6 +347,11 @@ export function getAiPptWizardValidationMessage(
   referenceFiles: File[] = []
 ) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
+  if (!state.purpose.trim()) return "발표 목적을 입력하세요.";
+  if (!state.context.trim()) return "발표 맥락을 입력하세요.";
+  if (!state.audience.trim()) return "청중을 입력하세요.";
+  if (!state.presentationType.trim()) return "발표 유형을 입력하세요.";
+  if (!state.successCriteria.trim()) return "성공 기준을 입력하세요.";
   if (parsePositiveInteger(state.duration, 0) < 1) {
     return "발표 시간은 1분 이상이어야 합니다.";
   }
@@ -300,21 +408,26 @@ export function buildAiPptAdvisorSuggestions(
 
 export function AiPptMockupPage() {
   const [currentStep, setCurrentStep] = useState<StepId>("brief");
-  const [form, setForm] = useState(initialState);
+  const [form, setForm] = useState(initialAiPptWizardState);
   const [briefMode, setBriefMode] = useState<"custom" | "generic">("custom");
   const [paletteOptions, setPaletteOptions] = useState(fallbackPaletteOptions);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     fallbackPaletteOptions[0].optionId
   );
   const [selectedFontId, setSelectedFontId] = useState(
-    recommendGenerateDeckFonts(initialState.fontMood)[0].fontId
+    recommendGenerateDeckFonts(initialAiPptWizardState.fontMood)[0].fontId
   );
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [officialAssetFiles, setOfficialAssetFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [designPacks, setDesignPacks] = useState<SavedDesignPack[]>([]);
+  const [selectedDesignPackId, setSelectedDesignPackId] = useState("");
+  const [isSavingDesignPack, setIsSavingDesignPack] = useState(false);
   const colorRequestKey = [
     form.topic,
     form.purpose,
@@ -336,9 +449,27 @@ export function AiPptMockupPage() {
   const selectedFont =
     fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
   const payloadPreview = useMemo(
-    () => buildAiPptGenerateDeckPayload(form, selectedPalette, [], selectedFont),
-    [form, selectedPalette, selectedFont]
+    () =>
+      buildAiPptGenerateDeckPayload(
+        form,
+        selectedPalette,
+        [],
+        selectedFont,
+        undefined,
+        designPacks.find((pack) => pack.id === selectedDesignPackId)
+      ),
+    [
+      designPacks,
+      form,
+      selectedDesignPackId,
+      selectedFont,
+      selectedPalette
+    ]
   );
+
+  useEffect(() => {
+    void loadDesignPacks();
+  }, []);
 
   useEffect(() => {
     if (fontOptions.some((font) => font.fontId === selectedFontId)) return;
@@ -364,17 +495,127 @@ export function AiPptMockupPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  async function loadDesignPacks(preferredId?: string) {
+    try {
+      const packs = await fetchSavedDesignPacks();
+      setDesignPacks(packs);
+      const nextId =
+        preferredId ||
+        (packs.some((pack) => pack.id === selectedDesignPackId)
+          ? selectedDesignPackId
+          : packs.find((pack) => pack.isDefault)?.id) ||
+        "";
+      setSelectedDesignPackId(nextId);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Saved Design Pack 목록을 불러오지 못했습니다."
+      );
+    }
+  }
+
+  function applyDesignPack(packId: string) {
+    setSelectedDesignPackId(packId);
+    const pack = designPacks.find((candidate) => candidate.id === packId);
+    if (!pack) return;
+
+    setForm((current) => ({
+      ...current,
+      tone: pack.preferences.tone,
+      mediaPolicy: pack.preferences.mediaPolicy,
+      referencePolicy: pack.preferences.referencePolicy
+    }));
+    const palette = completeSavedPalette(pack, selectedPalette.palette);
+    const optionId = `saved-${pack.id}`;
+    setPaletteOptions((current) => [
+      {
+        optionId,
+        name: pack.name,
+        rationale: "Saved Design Pack palette",
+        palette
+      },
+      ...current.filter((option) => option.optionId !== optionId)
+    ]);
+    setSelectedPaletteId(optionId);
+    const savedFont = fontOptions.find(
+      (font) =>
+        font.headingFontFamily === pack.preferences.typography.headingFontFamily
+    );
+    if (savedFont) setSelectedFontId(savedFont.fontId);
+  }
+
+  async function saveCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    const canUpdate = selected?.ownerType === "user";
+    const requestedName = window.prompt(
+      canUpdate ? "Design Pack 이름" : "새 Design Pack 이름",
+      canUpdate ? selected.name : `${form.topic.trim() || "My"} Design Pack`
+    );
+    if (!requestedName?.trim()) return;
+
+    setIsSavingDesignPack(true);
+    setError("");
+    try {
+      const body = buildSavedDesignPackInput(
+        requestedName,
+        form,
+        selectedPalette,
+        selectedFont,
+        selected?.isDefault ?? false
+      );
+      const saved = canUpdate
+        ? await updateSavedDesignPack(selected.id, body)
+        : await createSavedDesignPack(body);
+      await loadDesignPacks(saved.id);
+      setStatus("Saved Design Pack이 저장되었습니다.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Saved Design Pack을 저장하지 못했습니다."
+      );
+    } finally {
+      setIsSavingDesignPack(false);
+    }
+  }
+
+  async function duplicateCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected) return;
+    const name = window.prompt("복제할 Design Pack 이름", `${selected.name} Copy`);
+    if (!name?.trim()) return;
+    const duplicated = await duplicateSavedDesignPack(selected.id, name);
+    await loadDesignPacks(duplicated.id);
+  }
+
+  async function deleteCurrentDesignPack() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    if (!window.confirm(`'${selected.name}' Design Pack을 삭제할까요?`)) return;
+    await deleteSavedDesignPack(selected.id);
+    setSelectedDesignPackId("");
+    await loadDesignPacks();
+  }
+
+  async function setCurrentDesignPackDefault() {
+    const selected = designPacks.find((pack) => pack.id === selectedDesignPackId);
+    if (!selected || selected.ownerType !== "user") return;
+    const saved = await setDefaultSavedDesignPack(selected.id);
+    await loadDesignPacks(saved.id);
+  }
+
   function goToStep(step: StepId) {
     setCurrentStep(step);
     setError("");
   }
 
   function goNext() {
-    if (currentStep === "review") {
+    if (currentStep === "references") {
       void submitGeneration();
       return;
     }
-    if (currentStep === "brief" || currentStep === "references") {
+    if (currentStep === "brief") {
       const validationMessage = getAiPptWizardValidationMessage(form, referenceFiles);
       if (validationMessage) {
         setError(validationMessage);
@@ -419,11 +660,15 @@ export function AiPptMockupPage() {
 
     setIsGenerating(true);
     setError("");
+    setQualityFailure(null);
     setStatus("프로젝트 생성 중...");
     setJob(null);
 
+    let createdProjectId: string | null = null;
+    let generationStarted = false;
     try {
       const project = await createProject(getProjectTitle(form.topic));
+      createdProjectId = project.projectId;
       const referenceFileIds: string[] = [];
       for (const file of referenceFiles) {
         setStatus(`${file.name} 업로드 중...`);
@@ -434,19 +679,30 @@ export function AiPptMockupPage() {
         );
         referenceFileIds.push(uploaded.fileId);
       }
+      const officialAssetFileIds: string[] = [];
+      for (const file of officialAssetFiles) {
+        setStatus(`${file.name} 공식 이미지 업로드 중...`);
+        const uploaded = await uploadProjectAsset(
+          project.projectId,
+          file,
+          "reference-material"
+        );
+        officialAssetFileIds.push(uploaded.fileId);
+      }
+      const groundingFileIds = [...referenceFileIds, ...officialAssetFileIds];
 
       let referenceGrounding: ReferenceGrounding = {
         referenceContext: [],
         referenceKeywords: []
       };
       if (
-        referenceFileIds.length > 0 &&
+        groundingFileIds.length > 0 &&
         !["topic-only", "user-input-only"].includes(form.referencePolicy)
       ) {
         setStatus("참고자료 추출 job 시작 중...");
         const extractionJob = await startReferenceExtraction(
           project.projectId,
-          referenceFileIds
+          groundingFileIds
         );
         setJob(extractionJob);
         setStatus("참고자료 분석 중...");
@@ -465,7 +721,7 @@ export function AiPptMockupPage() {
           );
           const referenceError = getReferenceExtractionValidationMessage(
             form.referencePolicy,
-            referenceFileIds,
+            groundingFileIds,
             extractionResult
           );
           if (referenceError) throw new Error(referenceError);
@@ -473,7 +729,10 @@ export function AiPptMockupPage() {
         }
       }
 
-      let coachingContext: { briefRef: FrozenBriefRef; evaluatorLensRef: EvaluatorLensRef };
+      let coachingContext: {
+        briefRef: FrozenBriefRef;
+        evaluatorLensRef: EvaluatorLensRef;
+      };
       if (briefMode === "custom") {
         setStatus("맞춤 Brief 저장 중...");
         const presentationBrief = await putPresentationBrief(project.projectId, {
@@ -488,7 +747,10 @@ export function AiPptMockupPage() {
             : [],
           terminology: [],
           challengeTopics: [],
-          approvedReferenceFileIds: referenceFileIds
+          approvedReferenceFileIds: getApprovedBriefReferenceFileIds(
+            form.referencePolicy,
+            referenceFileIds
+          )
         });
         coachingContext = {
           briefRef: {
@@ -505,7 +767,7 @@ export function AiPptMockupPage() {
         };
       }
 
-      setStatus("Deck JSON 생성 job 시작 중...");
+      setStatus(`1/${generationStages.length} ${generationStages[0]}`);
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
         {
@@ -519,6 +781,8 @@ export function AiPptMockupPage() {
               referenceFileIds,
               selectedFont,
               referenceGrounding,
+              designPacks.find((pack) => pack.id === selectedDesignPackId),
+              officialAssetFileIds,
               coachingContext
             )
           )
@@ -529,17 +793,30 @@ export function AiPptMockupPage() {
       }
 
       const data = (await response.json()) as { job: Job };
+      generationStarted = true;
       setJob(data.job);
-      setStatus("Deck JSON 생성 중...");
-      const completed = await pollJob(data.job.jobId);
+      setStatus(getAiPptGenerationStatus(data.job));
+      const completed = await pollJob(data.job.jobId, (current) => {
+        setJob(current);
+        setStatus(getAiPptGenerationStatus(current));
+      });
       setJob(completed);
       if (completed.status === "failed") {
+        const qualityGateFailure = getAiPptQualityFailure(completed);
+        if (qualityGateFailure) {
+          setQualityFailure(qualityGateFailure);
+          setStatus("");
+          return;
+        }
         throw new Error(completed.error?.message || completed.message);
       }
 
       setStatus("에디터로 이동 중...");
       navigateToProject(project.projectId);
     } catch (submitError) {
+      if (createdProjectId && !generationStarted) {
+        await deleteProject(createdProjectId).catch(() => undefined);
+      }
       setError(
         toAiPptUserErrorMessage(
           submitError instanceof Error ? submitError.message : "",
@@ -600,10 +877,18 @@ export function AiPptMockupPage() {
             ) : null}
             {currentStep === "style" ? (
               <StyleStep
+                designPacks={designPacks}
                 fontOptions={fontOptions}
                 form={form}
+                isSavingDesignPack={isSavingDesignPack}
+                onApplyDesignPack={applyDesignPack}
                 onChange={updateForm}
+                onDeleteDesignPack={() => void deleteCurrentDesignPack()}
+                onDuplicateDesignPack={() => void duplicateCurrentDesignPack()}
                 onFontSelect={setSelectedFontId}
+                onSaveDesignPack={() => void saveCurrentDesignPack()}
+                onSetDefaultDesignPack={() => void setCurrentDesignPackDefault()}
+                selectedDesignPackId={selectedDesignPackId}
                 selectedFontId={selectedFont.fontId}
               />
             ) : null}
@@ -620,17 +905,11 @@ export function AiPptMockupPage() {
             {currentStep === "references" ? (
               <ReferencesStep
                 files={referenceFiles}
+                officialAssetFiles={officialAssetFiles}
                 form={form}
                 onChange={updateForm}
                 onFilesChange={setReferenceFiles}
-              />
-            ) : null}
-            {currentStep === "review" ? (
-              <ReviewStep
-                payload={payloadPreview}
-                referenceFiles={referenceFiles}
-                selectedFont={selectedFont}
-                selectedPalette={selectedPalette}
+                onOfficialAssetFilesChange={setOfficialAssetFiles}
               />
             ) : null}
             {currentStep === "preview" ? (
@@ -642,6 +921,13 @@ export function AiPptMockupPage() {
               />
             ) : null}
             {error ? <p className="ai-ppt-error">{error}</p> : null}
+            {qualityFailure ? (
+              <QualityFailurePanel
+                failure={qualityFailure}
+                isGenerating={isGenerating}
+                onRetry={() => void submitGeneration()}
+              />
+            ) : null}
             {status ? <p className="ai-ppt-status">{status}</p> : null}
           </section>
 
@@ -668,7 +954,11 @@ export function AiPptMockupPage() {
         </button>
         <button
           className="ai-ppt-primary"
-          disabled={currentStep === "preview" || isGenerating}
+          disabled={
+            currentStep === "preview" ||
+            isGenerating ||
+            (currentStep === "brief" && Boolean(getAiPptWizardValidationMessage(form)))
+          }
           type="button"
           onClick={goNext}
         >
@@ -677,7 +967,7 @@ export function AiPptMockupPage() {
               <IconPlayerPlay size={17} />
               생성 중
             </>
-          ) : currentStep === "review" ? (
+          ) : currentStep === "references" ? (
             <>
               <IconPlayerPlay size={17} />
               Deck JSON 생성
@@ -694,57 +984,168 @@ export function AiPptMockupPage() {
   );
 }
 
+export function getApprovedBriefReferenceFileIds(
+  referencePolicy: ReferencePolicy,
+  referenceFileIds: string[]
+) {
+  return ["topic-only", "user-input-only"].includes(referencePolicy) ? [] : referenceFileIds;
+}
+
+function QualityFailurePanel(props: {
+  failure: AiPptQualityFailure;
+  isGenerating: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="ai-ppt-quality-failure" role="alert">
+      <strong>품질 검증 결과가 발행 조건을 충족하지 못했습니다.</strong>
+      <ul>
+        {props.failure.issues.map((issue, index) => (
+          <li key={`${issue.code}-${issue.slide ?? 0}-${index}`}>
+            <b>{issue.code}</b>
+            {issue.slide ? ` · ${issue.slide}번 슬라이드` : ""}: {issue.message}
+          </li>
+        ))}
+      </ul>
+      {props.failure.remainingCount > 0 ? (
+        <p>그 외 {props.failure.remainingCount}개 이슈가 있습니다.</p>
+      ) : null}
+      <button
+        className="ai-ppt-secondary"
+        disabled={props.isGenerating}
+        type="button"
+        onClick={props.onRetry}
+      >
+        <Play size={16} />
+        동일 조건으로 다시 생성
+      </button>
+    </section>
+  );
+}
+
 function BriefStep(props: {
   briefMode: "custom" | "generic";
   form: AiPptWizardState;
   onBriefModeChange: (value: "custom" | "generic") => void;
-  onChange: <K extends keyof AiPptWizardState>(
-    key: K,
-    value: AiPptWizardState[K]
-  ) => void;
+  onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
 }) {
   return (
     <>
-      <PanelHeading
-        kicker="1. Brief"
-        title="발표 상황과 청중을 먼저 고정"
-      />
+      <PanelHeading kicker="1. Brief" title="발표 상황과 청중을 먼저 고정" />
       <div className="ai-ppt-tone-grid" aria-label="Brief 모드">
-        <button className={props.briefMode === "custom" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("custom")}>맞춤 Brief</button>
-        <button className={props.briefMode === "generic" ? "selected" : ""} type="button" onClick={() => props.onBriefModeChange("generic")}>일반 모드</button>
+        <button
+          className={props.briefMode === "custom" ? "selected" : ""}
+          type="button"
+          onClick={() => props.onBriefModeChange("custom")}
+        >
+          맞춤 Brief
+        </button>
+        <button
+          className={props.briefMode === "generic" ? "selected" : ""}
+          type="button"
+          onClick={() => props.onBriefModeChange("generic")}
+        >
+          일반 모드
+        </button>
       </div>
-      {props.briefMode === "generic" ? <p className="ai-ppt-status">일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.</p> : null}
+      {props.briefMode === "generic" ? (
+        <p className="ai-ppt-status">
+          일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.
+        </p>
+      ) : null}
       <div className="ai-ppt-field-grid">
-        <TextField label="발표 주제" value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
-        <TextField label="발표 목적" value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
-        <TextField label="발표 맥락" value={props.form.context} onChange={(value) => props.onChange("context", value)} />
-        <TextField label="청중" value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
-        <TextField label="발표 유형" value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
-        <TextField label="성공 기준" value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
-        <TextField label="발표 시간" value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-        <TextField label="슬라이드 수" value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+        <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+        <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
+        <TextField label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
+        <TextField label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
+        <TextField label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
+        <TextField label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
+        <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+        <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
       </div>
     </>
   );
 }
 
 function StyleStep(props: {
+  designPacks: SavedDesignPack[];
   fontOptions: GenerateDeckFontOption[];
   form: AiPptWizardState;
+  isSavingDesignPack: boolean;
+  onApplyDesignPack: (packId: string) => void;
   onChange: <K extends keyof AiPptWizardState>(
     key: K,
     value: AiPptWizardState[K]
   ) => void;
+  onDeleteDesignPack: () => void;
+  onDuplicateDesignPack: () => void;
   onFontSelect: (fontId: string) => void;
+  onSaveDesignPack: () => void;
+  onSetDefaultDesignPack: () => void;
+  selectedDesignPackId: string;
   selectedFontId: string;
 }) {
   const tones: Tone[] = ["professional", "friendly", "confident", "concise"];
+  const selectedPack = props.designPacks.find(
+    (pack) => pack.id === props.selectedDesignPackId
+  );
   return (
     <>
       <PanelHeading
         kicker="2. Style"
         title="ORBIT Design Pack에 얹을 톤 선택"
       />
+      <div className="ai-ppt-pack-manager">
+        <label>
+          <span>Saved Design Pack</span>
+          <select
+            value={props.selectedDesignPackId}
+            onChange={(event) => props.onApplyDesignPack(event.target.value)}
+          >
+            <option value="">현재 세션 설정</option>
+            {props.designPacks.map((pack) => (
+              <option key={pack.id} value={pack.id}>
+                {pack.isDefault ? "★ " : ""}{pack.name}
+                {pack.ownerType === "system" ? " (Preset)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <button
+            type="button"
+            title={selectedPack?.ownerType === "user" ? "Design Pack 수정 저장" : "새 Design Pack 저장"}
+            disabled={props.isSavingDesignPack}
+            onClick={props.onSaveDesignPack}
+          >
+            {selectedPack?.ownerType === "user" ? <Pencil size={16} /> : <Save size={16} />}
+          </button>
+          <button
+            type="button"
+            title="Design Pack 복제"
+            disabled={!selectedPack}
+            onClick={props.onDuplicateDesignPack}
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            type="button"
+            title="기본 Design Pack 지정"
+            disabled={selectedPack?.ownerType !== "user" || selectedPack.isDefault}
+            onClick={props.onSetDefaultDesignPack}
+          >
+            <Star size={16} />
+          </button>
+          <button
+            type="button"
+            title="Design Pack 삭제"
+            disabled={selectedPack?.ownerType !== "user"}
+            onClick={props.onDeleteDesignPack}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
       <div className="ai-ppt-tone-grid">
         {tones.map((tone) => (
           <button
@@ -836,106 +1237,219 @@ function ColorStep(props: {
 
 function ReferencesStep(props: {
   files: File[];
+  officialAssetFiles: File[];
   form: AiPptWizardState;
-  onChange: <K extends keyof AiPptWizardState>(
-    key: K,
-    value: AiPptWizardState[K]
-  ) => void;
+  onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
   onFilesChange: (files: File[]) => void;
+  onOfficialAssetFilesChange: (files: File[]) => void;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  function handleDragEnter(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLLabelElement>) {
+    if (
+      event.currentTarget.contains(event.relatedTarget as Node | null)
+    ) {
+      return;
+    }
+    setIsDragging(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setIsDragging(false);
+    const droppedFiles = filesFromDataTransfer(event.dataTransfer);
+    if (droppedFiles.length > 0) {
+      props.onFilesChange(mergeReferenceFiles(props.files, droppedFiles));
+    }
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = filesFromEvent(event);
+    if (selectedFiles.length > 0) {
+      props.onFilesChange(mergeReferenceFiles(props.files, selectedFiles));
+    }
+    event.currentTarget.value = "";
+  }
+
+  function removeFile(fileIndex: number) {
+    props.onFilesChange(removeReferenceFileAt(props.files, fileIndex));
+  }
+
   return (
     <>
-      <PanelHeading
-        kicker="4. References"
-        title="참고자료 사용 정책 선택"
-      />
-      <label className="ai-ppt-reference-drop">
-        <IconPaperclip size={28} />
+      <PanelHeading kicker="4. References" title="참고자료와 활용 방식" />
+      <p className="ai-ppt-reference-intro">
+        발표 생성에 참고할 자료를 추가하고, 내용과 이미지의 반영 기준을 선택하세요.
+      </p>
+      <label
+        className={[
+          "ai-ppt-reference-drop",
+          isDragging ? "is-dragging" : "",
+          props.files.length > 0 ? "has-files" : ""
+        ].join(" ")}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        <span className="ai-ppt-reference-icon" aria-hidden="true">
+          <IconUpload size={23} />
+        </span>
         <strong>
-          {props.files.length
-            ? `${props.files.length}개 파일 선택됨`
-            : "PDF, PPTX, DOCX, 이미지 파일 첨부"}
+          {isDragging
+            ? "여기에 놓아 추가하세요"
+            : props.files.length
+              ? "파일을 더 추가하세요"
+              : "파일을 드래그해서 추가하세요"}
         </strong>
-        <span>1차에서는 참고자료 파일 ID를 생성 요청에 연결합니다.</span>
+        <span>PDF, PPTX, DOCX, 이미지 · 파일당 최대 50MB · 여러 파일 선택 가능</span>
+        <span className="ai-ppt-reference-action">
+          <IconPaperclip size={16} />
+          {props.files.length ? "파일 추가" : "파일 선택"}
+        </span>
         <input
+          accept=".pdf,.ppt,.pptx,.doc,.docx,image/*,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          aria-label="참고자료 파일 선택"
+          className="ai-ppt-reference-input"
           multiple
           type="file"
-          onChange={(event) => props.onFilesChange(filesFromEvent(event))}
+          onChange={handleFileInputChange}
         />
       </label>
-      <div className="ai-ppt-choice-list">
-        {[
-          ["minimal", "이미지 최소화"],
-          ["provided-only", "첨부 이미지만"],
-          ["public-assets", "공개 이미지 구조"],
-          ["ai-generated", "AI 이미지 구조"]
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            className={props.form.mediaPolicy === value ? "selected" : ""}
-            type="button"
-            onClick={() => props.onChange("mediaPolicy", value as MediaPolicy)}
-          >
-            {label}
-          </button>
-        ))}
+      {props.files.length > 0 ? (
+        <section className="ai-ppt-reference-files" aria-labelledby="ai-ppt-reference-files-title">
+          <header>
+            <div>
+              <h3 id="ai-ppt-reference-files-title">첨부 파일</h3>
+              <span className="ai-ppt-reference-count">{props.files.length}개</span>
+            </div>
+            <button
+              className="ai-ppt-reference-clear"
+              onClick={() => props.onFilesChange([])}
+              type="button"
+            >
+              전체 삭제
+            </button>
+          </header>
+          <ul>
+            {props.files.map((file, index) => (
+              <li key={referenceFileKey(file)}>
+                <span className="ai-ppt-reference-file-icon" aria-hidden="true">
+                  <IconFileText size={20} stroke={1.8} />
+                </span>
+                <div>
+                  <strong title={file.name}>{file.name}</strong>
+                  <small>{referenceFileMeta(file)}</small>
+                </div>
+                <OrbitIconButton
+                  aria-label={`${file.name} 삭제`}
+                  className="ai-ppt-reference-remove"
+                  onClick={() => removeFile(index)}
+                  variant="plain"
+                >
+                  <IconTrash aria-hidden="true" size={18} stroke={1.8} />
+                </OrbitIconButton>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <div className="ai-ppt-reference-policy-grid">
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>참고자료 활용 기준</legend>
+          <p>발표 내용에서 참고자료가 차지할 우선순위를 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {referencePolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.referencePolicy === option.value}
+                tooltipId={`reference-policy-${option.value}`}
+                onSelect={(value) => props.onChange("referencePolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>이미지 구성</legend>
+          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {mediaPolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.mediaPolicy === option.value}
+                tooltipId={`media-policy-${option.value}`}
+                onSelect={(value) => props.onChange("mediaPolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
       </div>
-      <div className="ai-ppt-choice-list">
-        {[
-          ["user-input-only", "사용자 입력만"],
-          ["references-first", "참고자료 우선"],
-          ["references-only", "참고자료만 사용"],
-          ["research-first", "웹 리서치 구조"]
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            className={props.form.referencePolicy === value ? "selected" : ""}
-            type="button"
-            onClick={() =>
-              props.onChange("referencePolicy", value as ReferencePolicy)
+      {props.form.mediaPolicy === "hybrid" ? (
+        <label className="ai-ppt-reference-drop ai-ppt-official-asset-drop">
+          <ImageIcon size={28} />
+          <strong>
+            {props.officialAssetFiles.length
+              ? `공식 이미지 ${props.officialAssetFiles.length}개 선택됨`
+              : "공식 이미지 업로드 (권장)"}
+          </strong>
+          <span>
+            제품 화면, 공식 발표 그래프, 보도용 이미지를 올리세요.
+          </span>
+          <input
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            type="file"
+            onChange={(event) =>
+              props.onOfficialAssetFilesChange(filesFromEvent(event))
             }
-          >
-            {label}
-          </button>
-        ))}
+          />
+        </label>
+      ) : null}
+      <div className="ai-ppt-media-policy-help">
+        <strong>공식 이미지</strong>
+        <span>회사·기관이 직접 제공한 제품 화면, 공식 그래프, 보도용 이미지</span>
+        <strong>공개 이미지</strong>
+        <span>Openverse 등에서 검색한 제3자 라이선스 이미지</span>
       </div>
     </>
   );
 }
 
-function ReviewStep(props: {
-  payload: GenerateDeckRequest;
-  referenceFiles: File[];
-  selectedFont: GenerateDeckFontOption;
-  selectedPalette: PaletteOption;
+function PolicyChoiceButton<T extends string>(props: {
+  onSelect: (value: T) => void;
+  option: PolicyChoiceOption<T>;
+  selected: boolean;
+  tooltipId: string;
 }) {
   return (
-    <>
-      <PanelHeading
-        kicker="5. Review"
-        title="설문 결과가 생성 payload로 컴파일된 모습"
-      />
-      <div className="ai-ppt-review-grid">
-        <SummaryCard icon={<IconFileText size={18} />} title="Brief">
-          <p>{props.payload.topic}</p>
-          <span>{props.payload.brief?.audienceText}</span>
-        </SummaryCard>
-        <SummaryCard icon={<IconPalette size={18} />} title="Session Design Pack">
-          <p>ORBIT Design Pack · {props.selectedPalette.name}</p>
-          <span>{props.selectedFont.name}</span>
-          <span>{props.payload.designPrompt}</span>
-        </SummaryCard>
-        <SummaryCard icon={<IconStack3 size={18} />} title="References">
-          <p>{props.payload.brief?.referencePolicy}</p>
-          <span>{props.payload.design.mediaPolicy}</span>
-          <span>{props.referenceFiles.length} files selected</span>
-        </SummaryCard>
-      </div>
-      <details>
-        <summary>고급 설정 JSON 보기</summary>
-        <pre className="ai-ppt-payload">{JSON.stringify(props.payload, null, 2)}</pre>
-      </details>
-    </>
+    <span className="ai-ppt-policy-option">
+      <button
+        aria-describedby={props.tooltipId}
+        aria-pressed={props.selected}
+        className={props.selected ? "selected" : ""}
+        onClick={() => props.onSelect(props.option.value)}
+        type="button"
+      >
+        {props.option.label}
+        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
+      </button>
+      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
+        {props.option.description}
+      </span>
+    </span>
   );
 }
 
@@ -1210,23 +1724,10 @@ function PanelHeading(props: { kicker: string; title: string }) {
   );
 }
 
-function SummaryCard(props: {
-  children: ReactNode;
-  icon: ReactNode;
-  title: string;
-}) {
-  return (
-    <article className="ai-ppt-summary-card">
-      <div>{props.icon}</div>
-      <strong>{props.title}</strong>
-      {props.children}
-    </article>
-  );
-}
-
 function TextField(props: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   suffix?: string;
   value: string;
 }) {
@@ -1234,11 +1735,145 @@ function TextField(props: {
     <label className="ai-ppt-field">
       <span>{props.label}</span>
       <div>
-        <input value={props.value} onChange={(event) => props.onChange(event.target.value)} />
+        <input
+          placeholder={props.placeholder}
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
         {props.suffix ? <em>{props.suffix}</em> : null}
       </div>
     </label>
   );
+}
+
+type SavedDesignPackInput = {
+  name: string;
+  description: string;
+  baseStylePackId: string;
+  preferences: SavedDesignPack["preferences"];
+  isDefault: boolean;
+};
+
+export function buildSavedDesignPackInput(
+  name: string,
+  form: AiPptWizardState,
+  palette: PaletteOption,
+  font: GenerateDeckFontOption,
+  isDefault = false
+): SavedDesignPackInput {
+  return {
+    name: name.trim(),
+    description: `${form.presentationType.trim()} / ${form.audience.trim()}`,
+    baseStylePackId: stylePackId,
+    preferences: {
+      palette: palette.palette,
+      typography: {
+        headingFontFamily: font.headingFontFamily,
+        bodyFontFamily: font.bodyFontFamily,
+        fallbackFamily: font.fallbackFamily,
+        titleSizeScale: font.recommendedTitleSize / 48,
+        bodySizeScale: font.recommendedBodySize / 22,
+        lineHeight: Math.max(1.2, font.lineHeight)
+      },
+      tone: form.tone,
+      density: "medium",
+      titleStyle: "action",
+      layoutPreference: "varied",
+      imageDensity:
+        form.mediaPolicy === "minimal"
+          ? "none"
+          : ["ai-generated", "public-assets", "hybrid"].includes(
+                form.mediaPolicy
+              )
+            ? "medium"
+            : "low",
+      mediaPolicy: form.mediaPolicy,
+      referencePolicy: form.referencePolicy,
+      qaStrictness: "standard"
+    },
+    isDefault
+  };
+}
+
+function completeSavedPalette(
+  pack: SavedDesignPack,
+  fallback: Required<PaletteOverride>
+): Required<PaletteOverride> {
+  return { ...fallback, ...pack.preferences.palette };
+}
+
+export async function fetchSavedDesignPacks(): Promise<SavedDesignPack[]> {
+  const response = await fetch("/api/v1/design-packs", {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 목록을 불러오지 못했습니다."));
+  }
+  const payload = (await response.json()) as { packs: SavedDesignPack[] };
+  return payload.packs;
+}
+
+async function createSavedDesignPack(
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack("/api/v1/design-packs", "POST", input);
+}
+
+async function updateSavedDesignPack(
+  packId: string,
+  input: SavedDesignPackInput
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    "PATCH",
+    input
+  );
+}
+
+async function duplicateSavedDesignPack(
+  packId: string,
+  name: string
+): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/duplicate`,
+    "POST",
+    { name }
+  );
+}
+
+async function setDefaultSavedDesignPack(packId: string): Promise<SavedDesignPack> {
+  return writeSavedDesignPack(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}/default`,
+    "POST",
+    {}
+  );
+}
+
+async function deleteSavedDesignPack(packId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/design-packs/${encodeURIComponent(packId)}`,
+    { method: "DELETE", credentials: "include" }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack을 삭제하지 못했습니다."));
+  }
+}
+
+async function writeSavedDesignPack(
+  url: string,
+  method: "POST" | "PATCH",
+  body: unknown
+): Promise<SavedDesignPack> {
+  const response = await fetch(url, {
+    method,
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "Saved Design Pack 작업을 완료하지 못했습니다."));
+  }
+  return (await response.json()) as SavedDesignPack;
 }
 
 async function fetchDeckColorOptions(input: {
@@ -1331,9 +1966,12 @@ export function getReferenceExtractionValidationMessage(
   return "";
 }
 
-export async function pollJob(jobId: string): Promise<Job> {
+export async function pollJob(
+  jobId: string,
+  onUpdate?: (job: Job) => void
+): Promise<Job> {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 300_000) {
+  while (Date.now() - startedAt < 900_000) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include"
     });
@@ -1342,6 +1980,7 @@ export async function pollJob(jobId: string): Promise<Job> {
     }
     const payload = (await response.json()) as { job: Job } | Job;
     const job = "job" in payload ? payload.job : payload;
+    onUpdate?.(job);
     if (job.status === "succeeded" || job.status === "failed") {
       return job;
     }
@@ -1350,8 +1989,119 @@ export async function pollJob(jobId: string): Promise<Job> {
   throw new Error("AI PPT 생성 시간이 초과되었습니다.");
 }
 
+export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
+  const qualityFailureCodes = new Set([
+    "GENERATE_DECK_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
+    "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+  ]);
+  if (
+    job.status !== "failed" ||
+    !job.error?.code ||
+    !qualityFailureCodes.has(job.error.code)
+  ) {
+    return null;
+  }
+  const validation = generateDeckValidationSchema.safeParse(
+    job.result && typeof job.result === "object" && "validation" in job.result
+      ? job.result.validation
+      : null
+  );
+  if (!validation.success) {
+    return {
+      issues: [
+        {
+          code: job.error.code,
+          message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+        }
+      ],
+      remainingCount: 0
+    };
+  }
+  const issues = [
+    ...validation.data.layoutIssues,
+    ...validation.data.contentIssues,
+    ...validation.data.designIssues,
+    ...validation.data.presentationIssues
+  ].map((issue) => {
+    const match = issue.path.match(/^slides\.(\d+)/);
+    return {
+      code: issue.code,
+      message: issue.message,
+      ...(match ? { slide: Number(match[1]) + 1 } : {})
+    };
+  });
+  const visibleIssues =
+    issues.length > 0
+      ? issues
+      : [
+          {
+            code: job.error.code,
+            message: job.error.message || "시각 품질 검증을 완료하지 못했습니다."
+          }
+        ];
+  return {
+    issues: visibleIssues.slice(0, 5),
+    remainingCount: Math.max(0, visibleIssues.length - 5)
+  };
+}
+
+export function getAiPptGenerationStatus(job: Job) {
+  const progress = Math.max(0, Math.min(100, job.progress));
+  const stageIndex =
+    progress >= 95
+      ? 6
+      : progress >= 80
+        ? 5
+        : progress >= 70
+          ? 4
+          : progress >= 60
+            ? 3
+            : progress >= 40
+              ? 2
+              : progress >= 25
+                ? 1
+                : 0;
+  return `${stageIndex + 1}/${generationStages.length} ${generationStages[stageIndex]}`;
+}
+
 function filesFromEvent(event: ChangeEvent<HTMLInputElement>) {
-  return Array.from(event.target.files ?? []);
+  return filesFromFileList(event.target.files);
+}
+
+export function filesFromDataTransfer(dataTransfer: DataTransfer) {
+  return filesFromFileList(dataTransfer.files);
+}
+
+export function filesFromFileList(fileList: FileList | null) {
+  return Array.from(fileList ?? []);
+}
+
+export function mergeReferenceFiles(currentFiles: File[], incomingFiles: File[]) {
+  const filesByKey = new Map(currentFiles.map((file) => [referenceFileKey(file), file]));
+  for (const file of incomingFiles) {
+    filesByKey.set(referenceFileKey(file), file);
+  }
+  return Array.from(filesByKey.values());
+}
+
+export function removeReferenceFileAt(files: File[], fileIndex: number) {
+  return files.filter((_, index) => index !== fileIndex);
+}
+
+function referenceFileKey(file: File) {
+  return [file.name, file.size, file.type, file.lastModified].join(":");
+}
+
+function referenceFileMeta(file: File) {
+  const extension = file.name.includes(".") ? file.name.split(".").pop()?.toUpperCase() : "FILE";
+  return `${extension || "FILE"} · ${formatFileSize(file.size)}`;
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function parsePositiveInteger(value: string, fallback: number) {
@@ -1418,7 +2168,15 @@ function presentationSlideRatioFor(state: AiPptWizardState) {
 function resolveDesignConstraints(state: AiPptWizardState): DesignConstraints {
   const source = colorSource(state);
   return {
-    canvasBackground: hasAny(source, ["white", "흰", "화이트", "백색"])
+    canvasBackground: hasAny(source, [
+      "white background",
+      "background white",
+      "흰색 배경",
+      "흰 색 배경",
+      "흰 배경",
+      "화이트 배경",
+      "백색 배경"
+    ])
       ? "white"
       : "auto",
     forbiddenStyles: resolveForbiddenStyles(source)
@@ -1445,9 +2203,20 @@ function resolveColorIntent(state: AiPptWizardState): ColorIntent {
         ? "casual"
         : "professional",
     preferredHue: resolvePreferredHue(source),
-    backgroundPreference: constraints.canvasBackground === "white" ? "white" : "auto",
+    backgroundPreference: resolveBackgroundPreference(source, constraints),
     forbiddenStyles: constraints.forbiddenStyles
   };
+}
+
+function resolveBackgroundPreference(
+  source: string,
+  constraints: DesignConstraints
+): ColorIntent["backgroundPreference"] {
+  if (constraints.canvasBackground === "white") return "white";
+  if (hasAny(source, ["black", "dark", "검은", "검정", "블랙", "어두운", "다크"])) {
+    return "dark";
+  }
+  return "auto";
 }
 
 function resolveMood(source: string): ColorIntent["mood"] {
@@ -1485,7 +2254,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "no gradient",
       "without gradient",
       "그라데이션 금지",
-      "그라데이션 제외"
+      "그라데이션 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("gradient");
@@ -1496,7 +2267,9 @@ function resolveForbiddenStyles(source: string): ForbiddenStyle[] {
       "without pastel",
       "파스텔 금지",
       "파스텔톤 금지",
-      "파스텔 제외"
+      "파스텔 제외",
+      "그라데이션과 파스텔톤은 사용하지",
+      "그라데이션과 파스텔은 사용하지"
     ])
   ) {
     styles.push("pastel");
@@ -1596,7 +2369,7 @@ function advisorResponse(question: string, state: AiPptWizardState) {
     return `${state.fontMood || "전문적인 한글 고딕"} 기준으로 후보 3개를 다시 추천합니다. 마음에 드는 카드를 선택하면 payload에 반영됩니다.`;
   }
   if (hasAny(question.toLocaleLowerCase("ko-KR"), ["image", "이미지", "사진"])) {
-    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. ai-generated를 선택하면 2차에서는 실제 이미지 파일을 만들지 않고 Deck JSON에 이미지 계획, placeholder, 교체 근거를 남깁니다.`;
+    return `현재 이미지 정책은 ${state.mediaPolicy}입니다. hybrid는 공식 근거 이미지를 우선 사용하고 분위기 연출이 필요한 장면만 AI 이미지로 생성합니다.`;
   }
   return "발표 시간, 청중, 참고자료 정책을 기준으로 적용 가능한 제안을 아래에 표시했습니다.";
 }
@@ -1633,7 +2406,10 @@ export function toAiPptUserErrorMessage(message: string, fallback = "AI PPT 생�
   let detail = message.trim();
   if (detail.startsWith("{")) {
     try {
-      const parsed = JSON.parse(detail) as { detail?: unknown; message?: unknown };
+      const parsed = JSON.parse(detail) as {
+        detail?: unknown;
+        message?: unknown;
+      };
       const candidate = parsed.detail ?? parsed.message;
       if (typeof candidate === "string") detail = candidate.trim();
     } catch {

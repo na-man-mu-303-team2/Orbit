@@ -6,18 +6,29 @@ import type {
   Slide
 } from "@orbit/shared";
 import { ArrowUp } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
+import {
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type SetStateAction
+} from "react";
 import {
   applyDesignAgentProposal,
   createDesignAgentMessage
 } from "../../design-agent/designAgentApi";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
-type ChatMessage = {
+export type AiChatMessage = {
   id: string;
   role: "assistant" | "user";
   content: string;
   tone?: "error";
+};
+
+export type AiChatState = {
+  messages: AiChatMessage[];
+  projectId: string;
+  sessionId: string | null;
 };
 
 type PendingPreview = {
@@ -30,31 +41,47 @@ type AiChatPanelProps = {
   deck: Deck;
   currentSlide: Slide | null;
   selectedElementIds: string[];
+  chatState: AiChatState;
+  onChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
 };
 
-const initialMessages: ChatMessage[] = [
-  {
-    id: "assistant-welcome",
-    role: "assistant",
-    content: "현재 슬라이드에서 바꾸고 싶은 디자인을 말씀해 주세요."
-  }
-];
+export function createInitialAiChatState(projectId: string): AiChatState {
+  return {
+    messages: [
+      {
+        id: "assistant-welcome",
+        role: "assistant",
+        content: "현재 슬라이드에서 바꾸고 싶은 디자인을 말씀해 주세요."
+      }
+    ],
+    projectId,
+    sessionId: null
+  };
+}
 
 export function AiChatPanel(props: AiChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
+
+  function updateMessages(
+    updater: (current: AiChatMessage[]) => AiChatMessage[]
+  ) {
+    props.onChatStateChange((current) =>
+      current.projectId === props.projectId
+        ? { ...current, messages: updater(current.messages) }
+        : current
+    );
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
     if (!content || !props.currentSlide || isSending) return;
 
-    setMessages((current) => [
+    updateMessages((current) => [
       ...current,
       { id: `user-${crypto.randomUUID()}`, role: "user", content }
     ]);
@@ -63,7 +90,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
     try {
       const result = await createDesignAgentMessage(props.projectId, {
-        ...(sessionIdRef.current ? { sessionId: sessionIdRef.current } : {}),
+        ...(props.chatState.sessionId
+          ? { sessionId: props.chatState.sessionId }
+          : {}),
         content,
         context: {
           deckId: props.deck.deckId,
@@ -74,7 +103,11 @@ export function AiChatPanel(props: AiChatPanelProps) {
           theme: props.deck.theme
         }
       });
-      sessionIdRef.current = result.sessionId;
+      props.onChatStateChange((current) =>
+        current.projectId === props.projectId
+          ? { ...current, sessionId: result.sessionId }
+          : current
+      );
 
       if (result.proposal) {
         const previewResult = applyDeckPatch(props.deck, {
@@ -95,7 +128,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       const warningText = result.proposal?.warnings.length
         ? `\n\n주의: ${result.proposal.warnings.join(" ")}`
         : "";
-      setMessages((current) => [
+      updateMessages((current) => [
         ...current,
         {
           id: result.responseMessage.messageId,
@@ -122,7 +155,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       );
       props.onProposalApplied(applied);
       setPendingPreview(null);
-      setMessages((current) => [
+      updateMessages((current) => [
         ...current,
         {
           id: `applied-${applied.proposal.proposalId}`,
@@ -138,7 +171,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
   }
 
   function appendErrorMessage(error: unknown) {
-    setMessages((current) => [
+    updateMessages((current) => [
       ...current,
       {
         id: `error-${crypto.randomUUID()}`,
@@ -157,7 +190,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
   return (
     <section className="ai-chat-panel" aria-label="AI 채팅">
       <div className="ai-chat-history" aria-live="polite">
-        {messages.map((message) => (
+        {props.chatState.messages.map((message) => (
           <div className={`ai-chat-message ${message.role}`} key={message.id}>
             {message.role === "assistant" ? (
               <span className="ai-chat-avatar" aria-hidden="true">AI</span>

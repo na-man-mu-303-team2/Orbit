@@ -218,7 +218,7 @@ describe("GenerateDeckService", () => {
     );
   });
 
-  it("keeps design-pack generation mode in the queued worker payload", async () => {
+  it("keeps the program-v2 design-pack contract in the DB and worker payloads", async () => {
     const job: Job = {
       jobId: "job-design-pack",
       projectId: "project_generated_1",
@@ -257,6 +257,7 @@ describe("GenerateDeckService", () => {
       slideCountRange: { min: 4, max: 4 },
       metadata: {},
       design: {
+        engineVersion: "program-v2",
         stylePackId: "brandlogy-modern"
       }
     });
@@ -265,7 +266,10 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         payload: {
           request: expect.objectContaining({
-            generationMode: "design-pack"
+            generationMode: "design-pack",
+            design: expect.objectContaining({
+              engineVersion: "program-v2"
+            })
           })
         }
       })
@@ -274,13 +278,16 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         request: expect.objectContaining({
           generationMode: "design-pack",
-          slideCountRange: { min: 4, max: 4 }
+          slideCountRange: { min: 4, max: 4 },
+          design: expect.objectContaining({
+            engineVersion: "program-v2"
+          })
         })
       })
     );
   });
 
-  it("rejects non-PPTX design references", async () => {
+  it("rejects invalid design references and official assets", async () => {
     const jobsService = {
       create: vi.fn(),
       update: vi.fn()
@@ -302,17 +309,24 @@ describe("GenerateDeckService", () => {
       }))
     } as unknown as FilesService;
 
+    const service = new GenerateDeckService(
+      jobsService,
+      projectsService,
+      vi.fn(async () => undefined),
+      filesService
+    );
     await expect(
-      new GenerateDeckService(
-        jobsService,
-        projectsService,
-        vi.fn(async () => undefined),
-        filesService
-      ).createJob("project_generated_1", {
+      service.createJob("project_generated_1", {
         topic: "AI deck",
         designReferences: [{ fileId: "file_pdf" }]
       })
     ).rejects.toThrow("Design references must be uploaded PPTX files.");
+    await expect(
+      service.createJob("project_generated_1", {
+        topic: "AI deck",
+        officialAssetFileIds: ["file_pdf"]
+      })
+    ).rejects.toThrow("Official assets must be uploaded image files.");
     expect(jobsService.create).not.toHaveBeenCalled();
   });
 

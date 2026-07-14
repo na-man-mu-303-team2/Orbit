@@ -28,4 +28,24 @@ describe("presentation Brief API", () => {
       approvedReferenceFileIds: [],
     }, fetcher)).rejects.toBeInstanceOf(PresentationBriefConflictError);
   });
+
+  it("preserves source-not-ready guidance instead of reporting a revision conflict", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: "SOURCE_NOT_READY",
+      message: "참고자료 추출이 아직 완료되지 않았습니다.",
+    }), { status: 409 }));
+
+    await expect(putPresentationBrief("project-a", {
+      expectedRevision: 0,
+      audience: "decision-maker",
+      purpose: "persuade",
+      evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+      targetDurationMinutes: 10,
+      desiredOutcome: "승인",
+      requirements: [],
+      terminology: [],
+      challengeTopics: [],
+      approvedReferenceFileIds: ["file-reference"],
+    }, fetcher)).rejects.toThrow("참고자료 추출이 아직 완료되지 않았습니다.");
+  });
 });

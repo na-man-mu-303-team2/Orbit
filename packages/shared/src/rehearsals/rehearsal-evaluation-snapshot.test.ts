@@ -69,6 +69,26 @@ describe("createRehearsalEvaluationSnapshot", () => {
     expect(snapshot.slides[0]?.title).toBe("슬라이드 1");
   });
 
+  it("freezes run-scoped thumbnail URLs without copying Deck thumbnail state", () => {
+    const deck = deckSchema.parse(deckFixture());
+    deck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
+
+    const snapshot = createRehearsalEvaluationSnapshot(
+      deck,
+      "2026-07-10T08:00:00.000Z",
+      {
+        slideThumbnailUrls: new Map([
+          ["slide_1", "/api/v1/projects/project-a/assets/file-1/content"]
+        ])
+      }
+    );
+
+    expect(snapshot.slides[0]?.thumbnailUrl).toBe(
+      "/api/v1/projects/project-a/assets/file-1/content"
+    );
+    expect(JSON.stringify(snapshot)).not.toContain("stale-deck-thumbnail");
+  });
+
   it("freezes the focus profile revision and items at run creation", () => {
     const snapshot = createRehearsalEvaluationSnapshot(
       deckSchema.parse(deckFixture()),

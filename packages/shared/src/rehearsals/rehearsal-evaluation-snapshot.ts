@@ -13,6 +13,7 @@ export function createRehearsalEvaluationSnapshot(
     deckContentHash?: string | null;
     evaluationPlan?: RehearsalEvaluationPlan | null;
     focusProfileSnapshot?: RehearsalFocusProfileSnapshot | null;
+    slideThumbnailUrls?: ReadonlyMap<string, string>;
   } = {}
 ): RehearsalEvaluationSnapshot {
   const fallbackEstimatedSeconds = Math.max(
@@ -32,6 +33,7 @@ export function createRehearsalEvaluationSnapshot(
       order: slide.order,
       title: slide.title.trim() || `슬라이드 ${slide.order}`,
       estimatedSeconds: slide.estimatedSeconds ?? fallbackEstimatedSeconds,
+      thumbnailUrl: options.slideThumbnailUrls?.get(slide.slideId) ?? "",
       keywords: slide.keywords.map((keyword) => ({
         keywordId: keyword.keywordId,
         text: keyword.text,

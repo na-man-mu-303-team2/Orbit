@@ -3,6 +3,7 @@
   allowedAssetMimeTypes,
   deckSchema,
   demoIds,
+  legacyRehearsalReportMetricsDefaults,
   maxAssetUploadSizeBytes,
   type AiTemplateDeckGenerationJobResult,
   type Deck,
@@ -233,6 +234,7 @@ export type Route =
       presenterInitialStepIndex?: number;
       presenterSessionId?: string;
       presenterWindow?: boolean;
+      snapshotPreparationId?: string;
       sourceFullRunId?: string;
       sourceGoalSetId?: string;
       projectId: string;
@@ -340,6 +342,7 @@ const reportMockupReport: RehearsalReport = {
   transcriptRetained: false,
   transcript: null,
   metrics: {
+    ...legacyRehearsalReportMetricsDefaults,
     durationSeconds: 286,
     wordsPerMinute: 128,
     fillerWordCount: 3,
@@ -354,6 +357,7 @@ const reportMockupReport: RehearsalReport = {
   ],
   fillerWordDetails: [{ word: "음", count: 3 }],
   pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
+  pauseV2Details: [],
   missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
   utteranceOutcomes: [],
   semanticCueDecisions: [],
@@ -589,6 +593,7 @@ export function getRoute(
       presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
       presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
       presenterWindow: searchParams.get("presenterWindow") === "1",
+      snapshotPreparationId: searchParams.get("snapshotPreparationId") ?? undefined,
       sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
       sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
       projectId: decodeURIComponent(rehearsalMatch[1])
@@ -751,6 +756,7 @@ function renderRoute(route: Route, user?: AuthUser) {
         presenterInitialStepIndex={route.presenterInitialStepIndex}
         presenterSessionId={route.presenterSessionId}
         presenterWindow={route.presenterWindow}
+        snapshotPreparationId={route.snapshotPreparationId}
         sourceFullRunId={route.sourceFullRunId}
         sourceGoalSetId={route.sourceGoalSetId}
         fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}

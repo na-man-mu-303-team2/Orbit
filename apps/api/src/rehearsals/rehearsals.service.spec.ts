@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
 import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
+import type { ProjectAssetEntity } from "../files/project-asset.entity";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
 import type { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
@@ -188,6 +189,34 @@ describe("RehearsalsService", () => {
     const result = await service.createRun("project-a", { deckId: "deck-a" });
 
     expect(result.run.evaluationSnapshot?.slides[0]?.title).toBe("슬라이드 1");
+  });
+
+  it("binds uploaded slide snapshot assets to the immutable run snapshot", async () => {
+    const getUploadedAsset = vi.fn(
+      async () =>
+        ({
+          fileId: "file-slide-1",
+          projectId: "project-a",
+          purpose: "rehearsal-slide-snapshot",
+          status: "uploaded",
+          mimeType: "image/png"
+        }) as ProjectAssetEntity
+    );
+    const service = createService({ filesServicePatch: { getUploadedAsset } });
+
+    const result = await service.createRun("project-a", {
+      deckId: "deck-a",
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }]
+    });
+
+    expect(getUploadedAsset).toHaveBeenCalledWith(
+      "project-a",
+      "file-slide-1",
+      "rehearsal-slide-snapshot"
+    );
+    expect(result.run.evaluationSnapshot?.slides[0]?.thumbnailUrl).toBe(
+      "/api/v1/projects/project-a/assets/file-slide-1/content"
+    );
   });
 
   it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
@@ -451,6 +480,7 @@ describe("RehearsalsService", () => {
     expect(result.run.runId).toBe(run.runId);
     expect((await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson)
       .toEqual({
+        recordingDurationSeconds: null,
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
         adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
@@ -458,6 +488,20 @@ describe("RehearsalsService", () => {
         semanticCueDecisions: [],
         semanticCapabilityEvents: []
       });
+  });
+
+  it("preserves measured recording duration in rehearsal run meta", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    await service.updateRunMeta(run.runId, {
+      recordingDurationSeconds: 90.25
+    });
+
+    expect(
+      (await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson
+        ?.recordingDurationSeconds
+    ).toBe(90.25);
   });
 
   it("cancels an unprocessed run and excludes it from default run lists", async () => {

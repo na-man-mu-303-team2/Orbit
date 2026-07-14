@@ -12,7 +12,14 @@ import {
   coachingActionSchema,
   practiceGoalSchema,
 } from "./practice-goal.schema";
-import { rehearsalAnalyzeRequestSchema } from "./rehearsal-analyze.schema";
+import {
+  rehearsalAnalyzeRequestSchema,
+  rehearsalAnalyzeRequestV1Schema,
+  rehearsalAnalyzeRequestV2Schema,
+  rehearsalAnalyzePauseV2DetailSchema,
+  rehearsalAnalyzeResponseV2Schema,
+  rehearsalAnalyzeSttQualityGateSchema,
+} from "./rehearsal-analyze.schema";
 import {
   putRehearsalFocusProfileRequestSchema,
   rehearsalFocusProfileSchema,
@@ -138,17 +145,380 @@ describe("P0 Practice Goal Target handoff fixtures", () => {
 });
 
 describe("P0 speech evidence contracts", () => {
-  it("shares the exact strict TypeScript-to-Python analyze DTO", () => {
-    const parsed = rehearsalAnalyzeRequestSchema.parse(
+  it("shares the exact strict TypeScript-to-Python analyze request v2 DTO", () => {
+    const parsed = rehearsalAnalyzeRequestV2Schema.parse(
       fixtures.rehearsalAnalyzeRequest,
     );
-    expect(parsed.deckKeywords[0]?.required).toBe(true);
+    expect(parsed.contractVersion).toBe(2);
+    expect(parsed.recordingDurationSeconds).toBe(12.5);
     expect(
-      rehearsalAnalyzeRequestSchema.safeParse({
+      rehearsalAnalyzeRequestV2Schema.safeParse({
         ...fixtures.rehearsalAnalyzeRequest,
         providerPayload: "must-be-rejected",
       }).success,
     ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        segments: [
+          {
+            ...fixtures.rehearsalAnalyzeRequest.segments[0],
+            providerPayload: "must-be-rejected",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        deckKeywords: [
+          {
+            ...fixtures.rehearsalAnalyzeRequest.deckKeywords[0],
+            required: true,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        slideTimeline: [
+          {
+            ...fixtures.rehearsalAnalyzeRequest.slideTimeline[0],
+            providerPayload: "must-be-rejected",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects invalid duration, segment, timeline, and confidence evidence", () => {
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        contractVersion: 1,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        runId: "x".repeat(129),
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        recordingDurationSeconds: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        providerDurationSeconds: Number.POSITIVE_INFINITY,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        segments: [
+          {
+            ...fixtures.rehearsalAnalyzeRequest.segments[0],
+            endSeconds: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        segments: [
+          fixtures.rehearsalAnalyzeRequest.segments[0],
+          {
+            ...fixtures.rehearsalAnalyzeRequest.segments[1],
+            startSeconds: 0.1,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        slideTimeline: [
+          {
+            ...fixtures.rehearsalAnalyzeRequest.slideTimeline[0],
+            enteredSecond: 2,
+          },
+          {
+            ...fixtures.rehearsalAnalyzeRequest.slideTimeline[1],
+            enteredSecond: 1,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeRequest,
+        sttConfidence: {
+          value: 0.9,
+          source: "provider-overall",
+          normalizationProfileId: "unknown-profile",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps v1 as a temporary dual-read compatibility surface", () => {
+    const legacyRequest = fixtures.rehearsalAnalyzeRequestV1;
+    expect(
+      rehearsalAnalyzeRequestV1Schema.safeParse(legacyRequest).success,
+    ).toBe(true);
+    expect(rehearsalAnalyzeRequestSchema.safeParse(legacyRequest).success).toBe(
+      true,
+    );
+    expect(
+      rehearsalAnalyzeRequestV2Schema.safeParse(legacyRequest).success,
+    ).toBe(false);
+  });
+
+  it("shares the strict Python-to-TypeScript analyze response v2 DTO", () => {
+    const parsed = rehearsalAnalyzeResponseV2Schema.parse(
+      fixtures.rehearsalAnalyzeResponse,
+    );
+    expect(parsed.contractVersion).toBe(2);
+    expect(parsed.sttQualityGate.state).toBe("unavailable");
+    expect(parsed.measurements.pauseV2.metricDefinitionVersion).toBe(2);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        providerPayload: "must-be-rejected",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        measurements: {
+          ...fixtures.rehearsalAnalyzeResponse.measurements,
+          duration: {
+            ...fixtures.rehearsalAnalyzeResponse.measurements.duration,
+            providerPayload: "must-be-rejected",
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the canonical CPM fixture aligned with the Unicode calculation", () => {
+    const normalizedTranscript =
+      fixtures.rehearsalAnalyzeRequest.transcript.normalize("NFKC");
+    const characterCount = Array.from(normalizedTranscript).filter(
+      (character) => /[\p{L}\p{N}]/u.test(character),
+    ).length;
+    const expectedCharactersPerMinute =
+      (characterCount * 60) /
+      fixtures.rehearsalAnalyzeRequest.recordingDurationSeconds;
+
+    expect(characterCount).toBe(21);
+    expect(expectedCharactersPerMinute).toBe(100.8);
+    expect(fixtures.rehearsalAnalyzeResponse.charactersPerMinute).toBe(
+      expectedCharactersPerMinute,
+    );
+  });
+
+  it("enforces response measurement, count, and quality gate invariants", () => {
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        charactersPerMinute: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        fillerWordCount: 2,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        pauseV2Details: [
+          {
+            ...fixtures.rehearsalAnalyzeResponse.pauseV2Details[0],
+            intent: "hesitation",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fixtures.rehearsalAnalyzeResponse,
+        sttQualityGate: {
+          version: 1,
+          state: "failed",
+          reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
+          confidence: 0.4,
+          threshold: 0.7,
+          policyId: "quality-policy-1",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeSttQualityGateSchema.safeParse({
+        version: 1,
+        state: "passed",
+        reasonCode: "CONFIDENCE_ACCEPTED",
+        confidence: 0.69,
+        threshold: 0.7,
+        policyId: "quality-policy-1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects slide insights when filler or pause v1 is unmeasured", () => {
+    const fillerUnmeasured = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      fillerWordCount: null,
+      fillerWordDetails: [],
+      measurements: {
+        ...fixtures.rehearsalAnalyzeResponse.measurements,
+        fillerWordCount: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 1,
+          reasonCode: "EMPTY_TRANSCRIPT",
+        },
+      },
+    };
+    const pauseV1Unmeasured = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      pauseCount: null,
+      pauseDetails: [],
+      measurements: {
+        ...fixtures.rehearsalAnalyzeResponse.measurements,
+        pauseV1: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 1,
+          reasonCode: "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+        },
+      },
+    };
+
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(fillerUnmeasured).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...fillerUnmeasured,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(pauseV1Unmeasured).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...pauseV1Unmeasured,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects slide insights when the STT quality gate fails", () => {
+    const lowConfidenceMeasurementV1 = {
+      measurementState: "unmeasured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE" as const,
+    };
+    const failedQualityGateResponse = {
+      ...fixtures.rehearsalAnalyzeResponse,
+      charactersPerMinute: null,
+      wordsPerMinute: null,
+      fillerWordCount: null,
+      pauseCount: null,
+      keywordCoverage: null,
+      sttQualityGate: {
+        version: 1,
+        state: "failed",
+        reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
+        confidence: 0.4,
+        threshold: 0.7,
+        policyId: "quality-policy-1",
+      },
+      measurements: {
+        duration: fixtures.rehearsalAnalyzeResponse.measurements.duration,
+        charactersPerMinute: lowConfidenceMeasurementV1,
+        wordsPerMinute: lowConfidenceMeasurementV1,
+        fillerWordCount: lowConfidenceMeasurementV1,
+        pauseV1: lowConfidenceMeasurementV1,
+        pauseV2: {
+          measurementState: "unmeasured",
+          metricDefinitionVersion: 2,
+          reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
+        },
+        keywordCoverage: lowConfidenceMeasurementV1,
+      },
+      speedSamples: [],
+      fillerWordDetails: [],
+      pauseDetails: [],
+      pauseV2Details: [],
+      missedKeywords: [],
+    };
+
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse(failedQualityGateResponse)
+        .success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzeResponseV2Schema.safeParse({
+        ...failedQualityGateResponse,
+        slideInsights: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires pause v2 position values to match their evidence source", () => {
+    const pause = fixtures.rehearsalAnalyzeResponse.pauseV2Details[0];
+
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "none",
+        position: "slide-transition",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "slide-timeline",
+        position: "within-sentence",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "slide-transition",
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "none",
+        position: "unknown",
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "between-sentences",
+      }).success,
+    ).toBe(true);
+    expect(
+      rehearsalAnalyzePauseV2DetailSchema.safeParse({
+        ...pause,
+        positionSource: "provider",
+        position: "within-sentence",
+      }).success,
+    ).toBe(true);
   });
 
   it("uses CPM v1 as canonical and keeps WPM as a compatibility value", () => {
@@ -191,8 +561,8 @@ describe("P0 speech evidence contracts", () => {
         metric: "characters-per-minute",
         metricDefinitionVersion: 1,
         unit: "characters-per-minute",
-        direction: "target-range",
-        targetRange: { minimum: 250, maximum: 350 },
+        direction: "neutral",
+        targetRange: null,
         points: [
           {
             runId: "run-1",
@@ -206,6 +576,19 @@ describe("P0 speech evidence contracts", () => {
         calculatedAt: "2026-07-13T00:10:00.000Z",
       }).success,
     ).toBe(true);
+    expect(
+      trendSeriesSchema.safeParse({
+        seriesId: "trend-cpm-target-1",
+        projectId: "project-1",
+        metric: "characters-per-minute",
+        metricDefinitionVersion: 1,
+        unit: "characters-per-minute",
+        direction: "target-range",
+        targetRange: { minimum: 250, maximum: 350 },
+        points: [],
+        calculatedAt: "2026-07-13T00:10:00.000Z",
+      }).success,
+    ).toBe(false);
   });
 
   it("does not invent confidence for providers that do not supply it", () => {

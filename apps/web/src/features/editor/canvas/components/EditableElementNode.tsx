@@ -127,10 +127,6 @@ export function EditableElementNode(props: {
   }, [element.height, element.rotation, element.width, element.x, element.y]);
 
   function handlePointerSelect(append: boolean) {
-    if (element.locked) {
-      return;
-    }
-
     if (
       !append &&
       element.type === "text" &&
@@ -147,7 +143,7 @@ export function EditableElementNode(props: {
   return (
     <Group
       draggable={
-        !disablePointerEvents && !element.locked && !customShapeEditDraft
+        !disablePointerEvents && !customShapeEditDraft
       }
       listening={!disablePointerEvents}
       opacity={
@@ -165,10 +161,6 @@ export function EditableElementNode(props: {
         handlePointerSelect(Boolean(event.evt.shiftKey))
       }
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
-        if (element.locked) {
-          return;
-        }
-
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
         if (
@@ -186,7 +178,7 @@ export function EditableElementNode(props: {
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
       onDblClick={() => {
-        if (!element.locked && element.type === "text") {
+        if (element.type === "text") {
           onDoubleClick();
         }
       }}
@@ -300,17 +292,6 @@ export function EditableElementNode(props: {
             width={canvasIdBadgeWidth}
           />
         </Group>
-      ) : null}
-      {element.locked ? (
-        <Text
-          fill="#b91c1c"
-          fontSize={12}
-          fontStyle="bold"
-          listening={false}
-          text="LOCKED"
-          x={frame.width - 54}
-          y={8}
-        />
       ) : null}
     </Group>
   );

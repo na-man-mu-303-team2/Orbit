@@ -150,7 +150,7 @@ export function PresenterStageSection(props: {
         {props.renderStage ? (
           <>
             <span className="rehearsal-stage-label">현재</span>
-            {props.renderStage}
+            <div className="rehearsal-stage-surface">{props.renderStage}</div>
             {props.stageIndexLabel ? (
               <span className="rehearsal-stage-index">{props.stageIndexLabel}</span>
             ) : null}

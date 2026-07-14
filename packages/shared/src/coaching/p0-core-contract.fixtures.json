@@ -178,32 +178,48 @@
     "clipId": "clip-1"
   },
   "rehearsalAnalyzeRequest": {
-    "runId": "run-1",
-    "projectId": "project-1",
-    "deckId": "deck-1",
-    "transcript": "ORBIT의 핵심 문제와 해결 방법을 설명합니다.",
-    "durationSeconds": 30,
+    "contractVersion": 2,
+    "runId": "run_fixture_1",
+    "projectId": "project_demo_1",
+    "deckId": "deck_demo_1",
+    "transcript": "안녕하세요. 음 오늘은 Orbit 2를 소개합니다.",
+    "language": "ko-KR",
+    "provider": "openai",
+    "model": "whisper-1",
+    "sttConfidence": null,
+    "recordingDurationSeconds": 12.5,
+    "providerDurationSeconds": 12.4,
     "segments": [
       {
-        "text": "ORBIT의 핵심 문제와 해결 방법을 설명합니다.",
-        "startSeconds": 0,
-        "endSeconds": 3
+        "text": "안녕하세요.",
+        "startSeconds": 0.2,
+        "endSeconds": 1.4,
+        "confidence": null
+      },
+      {
+        "text": "음 오늘은 Orbit 2를 소개합니다.",
+        "startSeconds": 2.7,
+        "endSeconds": 6.8,
+        "confidence": null
       }
     ],
     "deckKeywords": [
       {
-        "keywordId": "keyword-1",
-        "slideId": "slide-1",
-        "text": "해결 방법",
-        "synonyms": ["솔루션"],
-        "abbreviations": [],
-        "required": true
+        "keywordId": "keyword_orbit",
+        "slideId": "slide_1",
+        "text": "Orbit",
+        "synonyms": [],
+        "abbreviations": []
       }
     ],
     "slideTimeline": [
       {
-        "slideId": "slide-1",
+        "slideId": "slide_1",
         "enteredSecond": 0
+      },
+      {
+        "slideId": "slide_2",
+        "enteredSecond": 2
       }
     ]
   },
@@ -701,6 +717,141 @@
       }
     ],
     "emptyTopActions": []
+  },
+  "rehearsalAnalyzeResponse": {
+    "contractVersion": 2,
+    "runId": "run_fixture_1",
+    "durationSeconds": 12.5,
+    "durationSource": "recording",
+    "charactersPerMinute": 100.8,
+    "wordsPerMinute": 28.8,
+    "fillerWordCount": 1,
+    "pauseCount": 1,
+    "sttQualityGate": {
+      "version": 1,
+      "state": "unavailable",
+      "reasonCode": "CONFIDENCE_NOT_PROVIDED",
+      "confidence": null,
+      "threshold": null,
+      "policyId": null
+    },
+    "measurements": {
+      "duration": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      },
+      "charactersPerMinute": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      },
+      "wordsPerMinute": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      },
+      "fillerWordCount": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      },
+      "pauseV1": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      },
+      "pauseV2": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 2,
+        "reasonCode": null
+      },
+      "keywordCoverage": {
+        "measurementState": "measured",
+        "metricDefinitionVersion": 1,
+        "reasonCode": null
+      }
+    },
+    "capabilities": {
+      "recordingDuration": { "state": "available", "source": "recording" },
+      "providerDuration": { "state": "available", "source": "provider" },
+      "segmentTimestamps": { "state": "available", "source": "segment" },
+      "sttConfidence": { "state": "unavailable", "source": "none" },
+      "sentenceBoundaries": { "state": "unavailable", "source": "none" },
+      "pauseIntentClassification": {
+        "state": "unavailable",
+        "source": "none"
+      }
+    },
+    "speedSamples": [
+      {
+        "startSecond": 0.2,
+        "endSecond": 6.8,
+        "wordsPerMinute": 36.36
+      }
+    ],
+    "fillerWordDetails": [
+      {
+        "word": "음",
+        "count": 1,
+        "occurrences": [
+          {
+            "segmentIndex": 1,
+            "startMs": 2700,
+            "endMs": 6800,
+            "precision": "segment",
+            "slideId": "slide_2"
+          }
+        ]
+      }
+    ],
+    "pauseDetails": [
+      {
+        "startSecond": 1.4,
+        "endSecond": 2.7,
+        "durationSeconds": 1.3
+      }
+    ],
+    "pauseV2Details": [
+      {
+        "pauseId": "pause_fixture_1",
+        "startMs": 1400,
+        "endMs": 2700,
+        "durationMs": 1300,
+        "position": "slide-transition",
+        "intent": "unknown",
+        "positionSource": "slide-timeline",
+        "intentSource": "none",
+        "beforeSlideId": "slide_1",
+        "afterSlideId": "slide_2",
+        "metricDefinitionVersion": 2
+      }
+    ],
+    "keywordCoverage": 1,
+    "missedKeywords": [],
+    "slideInsights": [
+      { "slideId": "slide_1", "fillerWordCount": 0, "pauseCount": 0 },
+      { "slideId": "slide_2", "fillerWordCount": 1, "pauseCount": 1 }
+    ]
+  },
+  "rehearsalAnalyzeRequestV1": {
+    "runId": "run_legacy_fixture_1",
+    "projectId": "project_demo_1",
+    "deckId": "deck_demo_1",
+    "transcript": "합성된 구형 분석 요청입니다.",
+    "durationSeconds": 0,
+    "segments": [],
+    "deckKeywords": [
+      {
+        "keywordId": "keyword_legacy_1",
+        "slideId": "slide_1",
+        "text": "합성 키워드",
+        "synonyms": [],
+        "abbreviations": [],
+        "required": true
+      }
+    ],
+    "slideTimeline": []
   },
   "presenterAid": {
     "runId": "run-1",

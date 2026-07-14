@@ -6,7 +6,9 @@
 .rehearsal-timer-pill { background: var(--orbit-ds-ink); border: 0; border-radius: var(--orbit-ds-radius-pill); color: white; }
 .rehearsal-presenter-layout { gap: 18px; grid-template-columns: minmax(0,1fr) 360px; margin: 0 auto; max-width: 1500px; padding: 20px; }
 .rehearsal-presenter-main, .rehearsal-presenter-side > section, .rehearsal-assist-card { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 14px; box-shadow: none; }
-.rehearsal-stage-wrap { background: #e9e9e7; border-radius: 12px; }
+.rehearsal-presenter-shell .rehearsal-stage-wrap { background: transparent; border: 0; box-shadow: none; }
+.rehearsal-stage-surface { background: #e9e9e7; border: 1px solid var(--orbit-ds-border); border-radius: 12px; box-shadow: 0 16px 42px rgba(9,9,9,.12); overflow: hidden; }
+.rehearsal-stage-surface .slideshow-renderer { border-radius: inherit; overflow: hidden; }
 .rehearsal-stage-label, .rehearsal-stage-index { background: var(--orbit-ds-ink); border-radius: var(--orbit-ds-radius-pill); color: white; }
 .rehearsal-presenter-shell .rehearsal-slide-controls button { background: white; border-color: var(--orbit-ds-border-strong); color: var(--orbit-ds-ink); }
 .rehearsal-side-timer-card { overflow: hidden; }

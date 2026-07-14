@@ -2,6 +2,11 @@ import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import { coachingIdSchema } from "./coaching-common.schema";
+import {
+  analysisCapabilitySchema,
+  metricMeasurementSchema,
+  rehearsalAnalyzeSttQualityGateSchema,
+} from "./rehearsal-analyze.schema";
 
 export const speechRateMeasurementSchema = z
   .object({
@@ -125,6 +130,66 @@ export const sttQualityGateSchema = z
       }
     }
   });
+
+const legacyReportSttQualityGateSchema = z
+  .object({
+    version: z.literal(1),
+    state: z.literal("unavailable"),
+    reasonCode: z.literal("LEGACY_QUALITY_GATE_UNKNOWN"),
+    confidence: z.null(),
+    threshold: z.null(),
+    policyId: z.null(),
+  })
+  .strict();
+
+export const rehearsalReportSttQualityGateSchema = z.union([
+  rehearsalAnalyzeSttQualityGateSchema,
+  legacyReportSttQualityGateSchema,
+]);
+
+export const rehearsalReportMeasurementsSchema = z
+  .object({
+    duration: metricMeasurementSchema,
+    charactersPerMinute: metricMeasurementSchema,
+    wordsPerMinute: metricMeasurementSchema,
+    fillerWordCount: metricMeasurementSchema,
+    pauseV1: metricMeasurementSchema,
+    pauseV2: metricMeasurementSchema,
+    keywordCoverage: metricMeasurementSchema,
+  })
+  .strict()
+  .superRefine((measurements, context) => {
+    const canonicalVersions = [
+      ["duration", 1],
+      ["charactersPerMinute", 1],
+      ["wordsPerMinute", 1],
+      ["fillerWordCount", 1],
+      ["pauseV1", 1],
+      ["pauseV2", 2],
+      ["keywordCoverage", 1],
+    ] as const;
+
+    canonicalVersions.forEach(([metric, version]) => {
+      if (measurements[metric].metricDefinitionVersion !== version) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "report measurement must use its canonical metric version.",
+          path: [metric, "metricDefinitionVersion"],
+        });
+      }
+    });
+  });
+
+export const rehearsalReportAnalysisCapabilitiesSchema = z
+  .object({
+    recordingDuration: analysisCapabilitySchema,
+    providerDuration: analysisCapabilitySchema,
+    segmentTimestamps: analysisCapabilitySchema,
+    sttConfidence: analysisCapabilitySchema,
+    sentenceBoundaries: analysisCapabilitySchema,
+    pauseIntentClassification: analysisCapabilitySchema,
+  })
+  .strict();
 
 export const pauseV2DetailSchema = z
   .object({
@@ -257,6 +322,15 @@ export const evidenceClipPlaybackResponseSchema = z.discriminatedUnion(
 
 export type SpeechRateMeasurement = z.infer<typeof speechRateMeasurementSchema>;
 export type SttQualityGate = z.infer<typeof sttQualityGateSchema>;
+export type RehearsalReportSttQualityGate = z.infer<
+  typeof rehearsalReportSttQualityGateSchema
+>;
+export type RehearsalReportMeasurements = z.infer<
+  typeof rehearsalReportMeasurementsSchema
+>;
+export type RehearsalReportAnalysisCapabilities = z.infer<
+  typeof rehearsalReportAnalysisCapabilitiesSchema
+>;
 export type PauseV2Detail = z.infer<typeof pauseV2DetailSchema>;
 export type EvidenceClip = z.infer<typeof evidenceClipSchema>;
 export type EvidenceClipPlaybackResponse = z.infer<

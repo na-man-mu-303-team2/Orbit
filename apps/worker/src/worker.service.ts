@@ -25,6 +25,7 @@ import type { DataSource } from "typeorm";
 import { processAiTemplateDeckGenerationJob } from "./ai-template-deck-generation.processor";
 import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
+import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
 import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
@@ -146,6 +147,12 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           storage,
           this.config.PYTHON_WORKER_URL,
           job.data,
+          createImageAssetRuntime(this.config),
+          (event, fields) =>
+            this.logger.info(
+              { event, ...fields },
+              "AI PPT generation event.",
+            ),
         ),
       ),
       this.createWorker(deckExportQueueName, (job) =>
@@ -389,6 +396,16 @@ function jobDiagnosticFields(result: unknown) {
       diagnostics,
       "validationIssueCount",
     ),
+    visualQaStatus: readString(diagnostics, "visualQaStatus"),
+    visualReviewAttempts: readNonNegativeNumber(
+      diagnostics,
+      "visualReviewAttempts",
+    ),
+    visualRepairAttempts: readNonNegativeNumber(
+      diagnostics,
+      "visualRepairAttempts",
+    ),
+    visualIssueCodes: readStringArray(diagnostics, "visualIssueCodes"),
   };
 }
 
@@ -400,6 +417,14 @@ function readNonNegativeNumber(value: Record<string, unknown>, key: string) {
 function readString(value: Record<string, unknown>, key: string) {
   const raw = value[key];
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+}
+
+function readStringArray(value: Record<string, unknown>, key: string) {
+  const raw = value[key];
+  if (!Array.isArray(raw) || !raw.every((item) => typeof item === "string")) {
+    return undefined;
+  }
+  return raw;
 }
 
 function readNumber(value: Record<string, unknown>, key: string) {

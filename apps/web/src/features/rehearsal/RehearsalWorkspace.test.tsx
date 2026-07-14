@@ -4,6 +4,7 @@ import { createDemoDeck } from "@orbit/editor-core";
 import {
   createKeywordOccurrenceId,
   createRehearsalEvaluationSnapshot,
+  legacyRehearsalReportMetricsDefaults,
   type Job,
   type RehearsalReport,
   type RehearsalRun,
@@ -858,6 +859,25 @@ describe("RehearsalWorkspace", () => {
     expect(stopRecordingBody).toContain("setP3RunMeta(meta)");
   });
 
+  it("reuses prepared slide snapshots when practicing again", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const prepareStart = source.indexOf(
+      "async function prepareEvaluationSnapshot",
+    );
+    const prepareEnd = source.indexOf(
+      "function cancelPendingEvaluationRun",
+      prepareStart,
+    );
+    const prepareBody = source.slice(prepareStart, prepareEnd);
+
+    expect(prepareBody).toContain(
+      "preparedSlideSnapshotsRef.current ??\n      readPreparedRehearsalSlideSnapshots",
+    );
+    expect(prepareBody).toContain(
+      "preparedSlideSnapshotsRef.current = slideSnapshots",
+    );
+  });
+
   it("continues report upload when optional P3 run meta fails", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const stopStart = source.indexOf("function stopRecording");
@@ -1177,6 +1197,7 @@ describe("RehearsalWorkspace", () => {
         prevReports={[
           reportFixture({
             metrics: {
+              ...legacyRehearsalReportMetricsDefaults,
               durationSeconds: 90,
               wordsPerMinute: 120,
               fillerWordCount: 0,
@@ -1189,6 +1210,7 @@ describe("RehearsalWorkspace", () => {
         projectId="project-a"
         report={reportFixture({
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 18,
@@ -1361,6 +1383,7 @@ describe("RehearsalWorkspace", () => {
         initialRun={runFixture("succeeded")}
         initialReport={reportFixture({
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 0,
             wordsPerMinute: 3600,
             fillerWordCount: 0,
@@ -1387,6 +1410,7 @@ describe("RehearsalWorkspace", () => {
         initialReport={reportFixture({
           missedKeywords: [],
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 0,
@@ -2395,6 +2419,26 @@ describe("rehearsal evaluation run lifecycle", () => {
     );
   });
 
+  it("passes prepared slide snapshot file IDs to run creation", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ run: runFixture("created") }),
+    );
+
+    await createRehearsalRun("project-a", "deck-a", fetcher, {
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }],
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project-a/rehearsals",
+      expect.objectContaining({
+        body: JSON.stringify({
+          deckId: "deck-a",
+          slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }],
+        }),
+      }),
+    );
+  });
+
   it("cancels a run that exits before upload processing", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ run: runFixture("cancelled") }),
@@ -2778,6 +2822,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     transcriptRetained: false,
     transcript: null,
     metrics: {
+      ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 90,
       wordsPerMinute: 120,
       fillerWordCount: 2,
@@ -2788,6 +2833,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
+    pauseV2Details: [],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     utteranceOutcomes: [],
     semanticCueDecisions: [],

@@ -48,6 +48,15 @@ from app.ai.pptx_ooxml_generation import (
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
+from app.ai.visual_qa import (
+    VisualQaRequest,
+    VisualQaResponse,
+    VisualQaUnavailableError,
+    VisualRepairRequest,
+    VisualRepairResponse,
+    repair_deck_visuals,
+    review_deck_visuals,
+)
 from app.ai.semantic_cues import (
     SemanticCueExtractionError,
     SemanticCueExtractionRequest,
@@ -634,6 +643,27 @@ def propose_slide_design(
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
 def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
     return export_deck_pptx(payload)
+
+
+@app.post("/ai/review-deck-visuals", response_model=VisualQaResponse)
+def review_ai_deck_visuals(
+    payload: VisualQaRequest,
+    request: Request,
+) -> VisualQaResponse:
+    config = _config(request)
+    try:
+        return review_deck_visuals(
+            payload,
+            model=config.ai_ppt_visual_qa_model or config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except VisualQaUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/repair-deck-visuals", response_model=VisualRepairResponse)
+def repair_ai_deck_visuals(payload: VisualRepairRequest) -> VisualRepairResponse:
+    return repair_deck_visuals(payload)
 
 
 @app.post("/ai/extract-semantic-cues", response_model=SemanticCueExtractionResponse)
