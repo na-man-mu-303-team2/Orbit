@@ -29,7 +29,7 @@ describe("processPptxImportJob", () => {
     vi.clearAllMocks();
   });
 
-  it("imports PPTX assets, saves deck and template sidecar, and stores job result", async () => {
+  it("imports PPTX assets and preserves success when Brief extraction falls back", async () => {
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
         return [
@@ -57,6 +57,7 @@ describe("processPptxImportJob", () => {
       }
       return [];
     });
+    let briefUnavailable = false;
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url === "http://storage.local/template.pptx") {
@@ -145,6 +146,26 @@ describe("processPptxImportJob", () => {
           })
         );
       }
+      if (url.endsWith("/ai/extract-presentation-brief")) {
+        if (briefUnavailable) {
+          return new Response("unavailable", { status: 503 });
+        }
+        return new Response(
+          JSON.stringify({
+            briefDraft: {
+              audience: "decision-maker",
+              purpose: "report",
+              evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+              targetDurationMinutes: 12,
+              desiredOutcome: "가져온 자료의 핵심 결정을 검토한다.",
+              requirements: [],
+              terminology: [],
+              challengeTopics: []
+            },
+            briefExtraction: { status: "ai", warnings: [] }
+          })
+        );
+      }
 
       return new Response("unexpected", { status: 500 });
     });
@@ -173,7 +194,33 @@ describe("processPptxImportJob", () => {
     expect(job.result).toMatchObject({
       deckId: "deck_import_file_template",
       templateId: "template_file_template",
+      briefDraft: {
+        audience: "decision-maker",
+        purpose: "report"
+      },
+      briefExtraction: { status: "ai", warnings: [] },
       warnings: ["pixel renderer unavailable"]
+    });
+
+    briefUnavailable = true;
+    const fallbackJob = await processPptxImportJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(fallbackJob.status).toBe("succeeded");
+    expect(fallbackJob.result).toMatchObject({
+      briefDraft: {
+        audience: "novice",
+        purpose: "inform",
+        targetDurationMinutes: 5
+      },
+      briefExtraction: {
+        status: "fallback",
+        warnings: ["brief-extraction-unavailable"]
+      }
     });
   });
 

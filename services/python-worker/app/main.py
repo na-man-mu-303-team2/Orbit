@@ -48,6 +48,11 @@ from app.ai.pptx_ooxml_generation import (
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
+from app.ai.presentation_brief import (
+    PresentationBriefExtractRequest,
+    PresentationBriefExtractResponse,
+    extract_presentation_brief,
+)
 from app.ai.visual_qa import (
     VisualQaRequest,
     VisualQaResponse,
@@ -614,6 +619,22 @@ def generate_ai_deck_color_options(
 ) -> DeckColorOptionsResponse:
     config = _config(request)
     return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post(
+    "/ai/extract-presentation-brief",
+    response_model=PresentationBriefExtractResponse,
+)
+def extract_ai_presentation_brief(
+    payload: PresentationBriefExtractRequest,
+    request: Request,
+) -> PresentationBriefExtractResponse:
+    config = _config(request)
+    return extract_presentation_brief(
         payload,
         model=config.openai_model,
         api_key=config.openai_api_key,

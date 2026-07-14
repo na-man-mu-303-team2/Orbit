@@ -1,10 +1,12 @@
 import {
   deckSchema,
+  presentationBriefDraftSchema,
   pptxImportJobResultSchema,
   qualityReportSchema,
   templateBlueprintSchema,
   type Deck,
   type Job,
+  type PresentationBriefDraft,
   type QualityReport,
   type TemplateBlueprint
 } from "@orbit/shared";
@@ -33,6 +35,18 @@ const pptxImportWorkerResponseSchema = z.object({
   assets: z.array(importedDesignAssetSchema).default([]),
   warnings: z.array(z.string()).default([])
 });
+
+const presentationBriefExtractionResponseSchema = z
+  .object({
+    briefDraft: presentationBriefDraftSchema,
+    briefExtraction: z
+      .object({
+        status: z.enum(["ai", "fallback"]),
+        warnings: z.array(z.string()).default([])
+      })
+      .strict()
+  })
+  .strict();
 
 type PptxImportWorkerResponse = z.infer<typeof pptxImportWorkerResponseSchema>;
 
@@ -133,6 +147,10 @@ export async function processPptxImportJob(
       asset,
       replaceImportedAssetRefs(imported.blueprint, assetUrlMap)
     );
+    const brief = await extractPresentationBriefWithFallback(
+      pythonWorkerUrl,
+      deck
+    );
 
     await saveDeck(dataSource, deck);
     await saveTemplateBlueprint(
@@ -147,6 +165,8 @@ export async function processPptxImportJob(
       deckId: deck.deckId,
       templateId: imported.templateBlueprint.templateId,
       qualityReport: imported.qualityReport,
+      briefDraft: brief.briefDraft,
+      briefExtraction: brief.briefExtraction,
       warnings: imported.warnings
     });
 
@@ -166,6 +186,90 @@ export async function processPptxImportJob(
       error instanceof Error ? error.message : "PPTX import save failed."
     );
   }
+}
+
+async function extractPresentationBriefWithFallback(
+  pythonWorkerUrl: string,
+  deck: Deck
+): Promise<z.infer<typeof presentationBriefExtractionResponseSchema>> {
+  try {
+    const response = await fetch(
+      workerUrl(pythonWorkerUrl, "/ai/extract-presentation-brief"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deckId: deck.deckId,
+          title: deck.title,
+          slides: deck.slides.map((slide) => ({
+            slideId: slide.slideId,
+            title: slide.title,
+            texts: slide.elements
+              .map((element) => textFromElement(element))
+              .filter((text): text is string => Boolean(text))
+              .slice(0, 20)
+          }))
+        }),
+        signal: AbortSignal.timeout(45_000)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Presentation brief extraction failed.");
+    }
+
+    return presentationBriefExtractionResponseSchema.parse(
+      await response.json()
+    );
+  } catch {
+    return {
+      briefDraft: fallbackPresentationBriefDraft(deck),
+      briefExtraction: {
+        status: "fallback",
+        warnings: ["brief-extraction-unavailable"]
+      }
+    };
+  }
+}
+
+function fallbackPresentationBriefDraft(deck: Deck): PresentationBriefDraft {
+  const titles = Array.from(
+    new Map(
+      deck.slides
+        .map((slide) => slide.title.trim())
+        .filter(Boolean)
+        .map((title) => [title.toLocaleLowerCase(), title] as const)
+    ).values()
+  ).slice(0, 3);
+
+  return presentationBriefDraftSchema.parse({
+    audience: "novice",
+    purpose: "inform",
+    evaluatorLensRef: { lensId: "general-novice", revision: 1 },
+    targetDurationMinutes: Math.min(120, Math.max(5, deck.slides.length)),
+    desiredOutcome: `${deck.title.slice(0, 210)}의 핵심 내용을 이해한다.`,
+    requirements: titles.map((title) => ({
+      kind: "must-cover",
+      text: title,
+      reviewStatus: "approved"
+    })),
+    terminology: [],
+    challengeTopics: []
+  });
+}
+
+function textFromElement(element: unknown): string | null {
+  if (
+    !isRecord(element) ||
+    element.type !== "text" ||
+    !isRecord(element.props) ||
+    typeof element.props.text !== "string"
+  ) {
+    return null;
+  }
+
+  const text = element.props.text.trim();
+  return text ? text.slice(0, 2_000) : null;
 }
 
 async function loadPptxAsset(
