@@ -4425,6 +4425,78 @@ def deduplicate_speaker_note_text(
     return " ".join(selected)
 
 
+def speaker_note_sentence_is_duplicate(
+    sentence: str,
+    selected_sentences: Sequence[str],
+    seen_sentence_keys: set[str],
+) -> bool:
+    key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
+    if len(key) >= 20 and key in seen_sentence_keys:
+        return True
+    if (
+        selected_sentences
+        and speaker_note_token_overlap(selected_sentences[-1], sentence) >= 0.8
+    ):
+        return True
+    return speaker_note_repeats_prior(sentence, list(selected_sentences))
+
+
+def register_speaker_note_sentence(
+    sentence: str,
+    seen_sentence_keys: set[str],
+) -> None:
+    key = re.sub(r"[^0-9A-Za-z가-힣]+", "", sentence).casefold()
+    if len(key) >= 20:
+        seen_sentence_keys.add(key)
+
+
+def final_speaker_note_fallback_candidates(
+    slide_plan: SlidePlan,
+) -> list[str]:
+    title = opening_scope_label(slide_plan.title, "핵심 내용")
+    message = opening_scope_label(slide_plan.message, "")
+    candidates = [speaker_note_sentence(message)] if message else []
+    candidates.extend(
+        [
+            f"{title}에서 청중이 기억할 핵심 판단 기준을 정리합니다.",
+            (
+                f"발표의 {slide_plan.order}번째 핵심으로 "
+                f"{title}의 적용 기준을 확인합니다."
+            ),
+        ]
+    )
+    return unique_non_empty(candidates)
+
+
+def deduplicate_final_speaker_notes(
+    slide_plan: SlidePlan,
+    seen_sentence_keys: set[str],
+) -> str:
+    selected_sentences: list[str] = []
+    for sentence in speaker_note_fragments(slide_plan.speaker_notes):
+        if speaker_note_sentence_is_duplicate(
+            sentence,
+            selected_sentences,
+            seen_sentence_keys,
+        ):
+            continue
+        selected_sentences.append(sentence)
+        register_speaker_note_sentence(sentence, seen_sentence_keys)
+    if selected_sentences:
+        return " ".join(selected_sentences)
+
+    for candidate in final_speaker_note_fallback_candidates(slide_plan):
+        if speaker_note_sentence_is_duplicate(
+            candidate,
+            (),
+            seen_sentence_keys,
+        ):
+            continue
+        register_speaker_note_sentence(candidate, seen_sentence_keys)
+        return candidate
+    return ""
+
+
 @dataclass(frozen=True)
 class SpeakerNoteQualityProblem:
     slide_order: int
@@ -5547,6 +5619,7 @@ def enforce_speaker_note_constraints(
 ) -> dict[str, Any]:
     plans_by_order = {slide.order: slide for slide in slide_plans}
     notes_by_order: list[tuple[int, str]] = []
+    seen_sentence_keys: set[str] = set()
     for slide in deck.get("slides", []):
         order = int(slide.get("order") or 0)
         slide_plan = plans_by_order.get(order)
@@ -5555,6 +5628,12 @@ def enforce_speaker_note_constraints(
                 f"SPEAKER_NOTES_QUALITY: missing slide plan for order {order}"
             )
         speaker_notes = " ".join(slide_plan.speaker_notes.split())
+        if slide_plan.speaker_note_units_structured:
+            slide_plan.speaker_notes = speaker_notes
+            speaker_notes = deduplicate_final_speaker_notes(
+                slide_plan,
+                seen_sentence_keys,
+            )
         fragments = speaker_note_fragments(speaker_notes)
         if (
             not speaker_notes
@@ -5568,6 +5647,7 @@ def enforce_speaker_note_constraints(
             raise DeckContentGenerationError(
                 f"SPEAKER_NOTES_QUALITY: slide {order} has an incomplete script"
             )
+        slide_plan.speaker_notes = speaker_notes
         slide["speakerNotes"] = speaker_notes
         if slide_plan.speaker_note_units_structured:
             notes_by_order.append((order, speaker_notes))
@@ -5583,7 +5663,8 @@ def enforce_speaker_note_constraints(
     repeated_order = repeated_speaker_notes_slide_order(notes_by_order)
     if repeated_order is not None:
         raise DeckContentGenerationError(
-            f"SPEAKER_NOTES_REPEATED: slide {repeated_order} repeats prior content"
+            "SPEAKER_NOTES_QUALITY: deterministic duplicate recovery failed for "
+            f"slide {repeated_order}"
         )
     return deck
 

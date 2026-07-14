@@ -1775,6 +1775,102 @@ def test_final_deck_speaker_notes_reject_ellipsis() -> None:
         )
 
 
+def test_final_deck_removes_repeated_sentence_and_keeps_unique_content() -> None:
+    repeated = (
+        "트리는 모든 정점이 연결되어 있고 사이클이 없는 그래프입니다."
+    )
+    unique = "DFS에서는 부모 노드를 제외해 역방향 재방문을 막습니다."
+    slide_plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="트리 판별",
+            message="트리의 구조를 판별합니다.",
+            speaker_notes=repeated,
+            keywords=[],
+            evidence=[],
+            speaker_note_units_structured=True,
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="data",
+            title="DFS 재귀",
+            message="DFS 재귀에서 부모 노드를 제외합니다.",
+            speaker_notes=f"{unique} {repeated}",
+            keywords=[],
+            evidence=[],
+            speaker_note_units_structured=True,
+        ),
+    ]
+    deck = {
+        "slides": [
+            {"order": order, "aiNotes": {"timingPlan": {}}}
+            for order in (1, 2)
+        ]
+    }
+
+    enforced = enforce_speaker_note_constraints(deck, slide_plans)
+
+    assert enforced["slides"][0]["speakerNotes"] == repeated
+    assert enforced["slides"][1]["speakerNotes"] == unique
+    assert repeated_speaker_notes_slide_order(
+        [
+            (slide["order"], slide["speakerNotes"])
+            for slide in enforced["slides"]
+        ]
+    ) is None
+
+
+def test_final_deck_replaces_empty_duplicate_script_with_slide_message() -> None:
+    repeated = (
+        "트리는 모든 정점이 연결되어 있고 사이클이 없는 그래프입니다."
+    )
+    fallback_message = "문제 요구에 맞는 탐색 방법을 선택합니다."
+    slide_plans = [
+        SlidePlan(
+            order=1,
+            slide_type="cover",
+            title="트리 판별",
+            message="트리의 구조를 판별합니다.",
+            speaker_notes=repeated,
+            keywords=[],
+            evidence=[],
+            speaker_note_units_structured=True,
+        ),
+        SlidePlan(
+            order=2,
+            slide_type="summary",
+            title="탐색 선택",
+            message=fallback_message,
+            speaker_notes=repeated,
+            keywords=[],
+            evidence=[],
+            speaker_note_units_structured=True,
+        ),
+    ]
+    timing_plan: dict[str, Any] = {}
+    deck = {
+        "slides": [
+            {"order": 1, "aiNotes": {"timingPlan": {}}},
+            {"order": 2, "aiNotes": {"timingPlan": timing_plan}},
+        ]
+    }
+
+    enforced = enforce_speaker_note_constraints(deck, slide_plans)
+
+    assert enforced["slides"][1]["speakerNotes"] == fallback_message
+    assert slide_plans[1].speaker_notes == fallback_message
+    assert timing_plan["actualSpeakerNotesChars"] == len(
+        "".join(fallback_message.split())
+    )
+    assert repeated_speaker_notes_slide_order(
+        [
+            (slide["order"], slide["speakerNotes"])
+            for slide in enforced["slides"]
+        ]
+    ) is None
+
+
 def test_design_pack_finalization_keeps_notes_and_adds_profile_action() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
