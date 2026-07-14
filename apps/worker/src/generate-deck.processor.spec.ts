@@ -287,28 +287,99 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("publishes a program-v2 deck only after rendered visual QA passes", async () => {
-    const deck = programV2Deck();
-    const query = dynamicJobQuery();
-    const events: string[] = [];
+    const deck = programV2DeckWithOptionalMedia();
+    const trace: string[] = [];
+    let generatedAsset:
+      | { file_id: string; storage_key: string; mime_type: string }
+      | undefined;
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("UPDATE jobs")) {
+        trace.push(`job:${String(params[1])}:${String(params[2])}`);
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("count(*) FILTER")) {
+        return [{ user_count: "0" }];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        generatedAsset = {
+          file_id: String(params[0]),
+          storage_key: String(params[2]),
+          mime_type: String(params[4])
+        };
+        trace.push("image.persist");
+        return [];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return generatedAsset ? [generatedAsset] : [];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        trace.push("deck.insert");
+      }
+      return [];
+    });
+    const image = pngHeader(1280, 720);
     const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.endsWith("/ai/generate-deck")) {
+        trace.push("python.generate");
         return generateDeckResponse(deck);
       }
+      if (url === "http://storage.local/generated.png") {
+        return new Response(image);
+      }
       if (url.endsWith("/ai/review-deck-visuals")) {
+        trace.push("visual.review");
         return visualPassResponse();
       }
       throw new Error(`Unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
+    const tracedStorage = {
+      getSignedReadUrl: vi.fn(async () => "http://storage.local/generated.png"),
+      putObject: vi.fn(async (input: { key: string; contentType: string }) => {
+        trace.push("image.store");
+        return {
+          key: input.key,
+          url: "http://storage.local/generated.png",
+          contentType: input.contentType,
+          purpose: "design-asset" as const,
+          size: image.byteLength
+        };
+      })
+    };
+    const generate = vi.fn(async () => {
+      trace.push("image.generate");
+      return {
+        body: image,
+        mimeType: "image/png" as const,
+        fileName: "generated.png",
+        provider: "openai",
+        checkedAt: "2026-07-14T00:00:00.000Z",
+        generationPrompt: "Editorial product visual"
+      };
+    });
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
-      storage,
+      tracedStorage,
       "http://localhost:8000",
-      programV2Payload(),
-      undefined,
-      (event) => events.push(event)
+      {
+        ...programV2Payload(),
+        imageAssetScope: { userId: "user-1" }
+      },
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 20
+      },
+      (event) => trace.push(`event:${event}`)
     );
 
     expect(job.status).toBe("succeeded");
@@ -328,16 +399,25 @@ describe("processGenerateDeckJob", () => {
         (slide) => slide.aiNotes?.compositionPlan?.backgroundMode
       )
     );
-    expect(events).toEqual(
-      expect.arrayContaining([
-        "ai-ppt.design-program.created",
-        "ai-ppt.composition.completed",
-        "ai-ppt.asset.resolved",
-        "ai-ppt.visual-review.completed",
-        "ai-ppt.deck.published"
-      ])
-    );
-    expect(events.filter((event) => event === "ai-ppt.deck.published")).toHaveLength(1);
+    expect(trace).toEqual([
+      "job:running:15",
+      "python.generate",
+      "event:ai-ppt.design-program.created",
+      "event:ai-ppt.composition.completed",
+      "job:running:45",
+      "image.generate",
+      "image.store",
+      "image.persist",
+      "event:ai-ppt.asset.resolved",
+      "job:running:65",
+      "job:running:75",
+      "visual.review",
+      "event:ai-ppt.visual-review.completed",
+      "job:running:95",
+      "deck.insert",
+      "event:ai-ppt.deck.published",
+      "job:succeeded:100"
+    ]);
   });
 
   it("embeds stored image assets only in the visual review request", async () => {
@@ -2105,4 +2185,13 @@ function jobRow(
     created_at: "2026-06-27T00:00:00.000Z",
     updated_at: "2026-06-27T00:00:01.000Z"
   };
+}
+
+function pngHeader(width: number, height: number) {
+  const bytes = new Uint8Array(24);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
 }

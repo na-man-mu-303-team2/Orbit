@@ -182,6 +182,22 @@ class FakeResponses:
         return SimpleNamespace(output_text=output_text)
 
 
+class PipelineFakeResponses:
+    def __init__(self, payloads: dict[str, dict[str, Any]]) -> None:
+        self.payloads = payloads
+        self.requests: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        response_format_name = kwargs["text"]["format"]["name"]
+        return SimpleNamespace(
+            output_text=json.dumps(
+                self.payloads[response_format_name],
+                ensure_ascii=False,
+            )
+        )
+
+
 def test_art_director_prompt_uses_only_compact_slide_summaries() -> None:
     prompt = art_director_prompt(context(), slides())
 
@@ -651,6 +667,106 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
     assert all(slide["animations"] == [] for slide in deck["slides"])
 
 
+def test_program_v2_golden_pipeline_contract() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "splatoon_product_launch_golden_request.json"
+    )
+    request = GenerateDeckRequest.model_validate_json(fixture_path.read_text("utf-8"))
+    request.reference_policy = "user-input-only"
+    request.brief.reference_policy = "user-input-only"
+    request.design.reference_policy = "user-input-only"
+    responses = PipelineFakeResponses(
+        {
+            "design_pack_content_plan": golden_content_plan(),
+            "deck_design_program": golden_design_program(),
+        }
+    )
+    orchestrator = DeckGenerationOrchestrator(
+        request,
+        client=SimpleNamespace(responses=responses),
+    )
+
+    response = orchestrator.run()
+
+    assert list(orchestrator.agent_outputs) == [
+        "BriefAgent",
+        "SourceGroundingAgent",
+        "NarrativeAgent",
+        "DesignDirectorAgent",
+        "LayoutAgent",
+        "ChartDataAgent",
+        "MediaAgent",
+        "QualityReviewerAgent",
+        "RefinerAgent",
+    ]
+    assert [
+        request_payload["text"]["format"]["name"]
+        for request_payload in responses.requests
+    ] == [
+        "design_pack_content_plan",
+        "design_pack_content_plan",
+        "deck_design_program",
+    ]
+
+    deck = response.deck
+    assert [slide["order"] for slide in deck["slides"]] == list(range(1, 11))
+    assert [slide["slideId"] for slide in deck["slides"]] == [
+        f"slide_{order}" for order in range(1, 11)
+    ]
+    assert [
+        [element["elementId"] for element in slide["elements"]]
+        for slide in deck["slides"]
+    ] == golden_element_ids()
+    title_element = next(
+        element
+        for element in deck["slides"][0]["elements"]
+        if element["elementId"] == "el_1_program_v2_title"
+    )
+    assert {
+        key: title_element[key]
+        for key in ("elementId", "type", "role", "x", "y", "width", "height")
+    } == {
+        "elementId": "el_1_program_v2_title",
+        "type": "text",
+        "role": "title",
+        "x": 120,
+        "y": 304,
+        "width": 1254,
+        "height": 256,
+    }
+    assert title_element["props"]["text"] == "미지의 군도로"
+    assert all(slide["animations"] == [] for slide in deck["slides"])
+
+    assert response.validation.model_dump(by_alias=True) == {
+        "passed": True,
+        "layoutIssues": [],
+        "contentIssues": [],
+        "designIssues": [],
+        "presentationIssues": [],
+    }
+    assert response.warnings == [
+        "참고자료 없이 topic-only generation으로 생성했습니다."
+    ]
+    assert response.diagnostics.model_dump(by_alias=True) == {
+        "referencePolicy": "user-input-only",
+        "uploadedSourceCount": 0,
+        "webSourceCount": 0,
+        "researchAttempts": 0,
+        "relevantWebSourceCount": 0,
+        "officialWebSourceCount": 0,
+        "repairAttempted": True,
+        "repairReasons": ["CONTENT_DUPLICATED", "SPEAKER_NOTES_SHORT"],
+        "uniqueCoreLayoutCount": 6,
+        "validationIssueCount": 0,
+        "visualQaStatus": "not-run",
+        "visualReviewAttempts": 0,
+        "visualRepairAttempts": 0,
+        "visualIssueCodes": [],
+    }
+
+
 def test_splatoon_product_launch_golden_composition_contract() -> None:
     fixture_path = (
         Path(__file__).parent
@@ -739,8 +855,8 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
     ]
 
 
-def golden_slide_plans() -> list[SlidePlan]:
-    definitions = [
+def golden_slide_definitions() -> list[tuple[str, str, str, list[str]]]:
+    return [
         ("cover", "미지의 군도로", "레이더스는 탐험 중심의 새 경험을 연다", ["공식 공개", "새로운 무대"]),
         ("solution", "혼자 떠나는 탐사", "익숙한 잉크 액션이 단독 탐험으로 확장된다", ["단독 플레이", "탐사 루프", "잉크 이동"]),
         ("feature-grid", "발견이 플레이가 된다", "섬의 발견과 수집이 진행 동기를 만든다", ["탐색", "수집", "성장"]),
@@ -752,8 +868,14 @@ def golden_slide_plans() -> list[SlidePlan]:
         ("solution", "팬이 기대할 이유", "익숙함과 새로움이 동시에 진입 동기를 만든다", ["세계관", "조작감", "새 목표"]),
         ("summary", "다음 공개를 확인하세요", "공식 채널에서 출시 정보를 이어서 확인한다", ["공식 사이트", "공식 채널"]),
     ]
+
+
+def golden_slide_plans() -> list[SlidePlan]:
     plans: list[SlidePlan] = []
-    for order, (slide_type, title, message, items) in enumerate(definitions, start=1):
+    for order, (slide_type, title, message, items) in enumerate(
+        golden_slide_definitions(),
+        start=1,
+    ):
         media = None
         if order in {1, 2, 8, 10}:
             media = MediaIntent(
@@ -783,6 +905,209 @@ def golden_slide_plans() -> list[SlidePlan]:
             )
         )
     return plans
+
+
+def golden_content_plan() -> dict[str, Any]:
+    speaker_note_lengths = [143, 221, 221, 254, 254, 254, 254, 254, 220, 165]
+    visual_intent = {
+        "emphasis": "",
+        "mood": "",
+        "structure": "",
+        "paletteHint": "",
+        "emphasisStyle": "",
+        "composition": "",
+        "decorationDensity": "",
+        "mediaStyle": "",
+        "metricCardCaption": "",
+    }
+    slides: list[dict[str, Any]] = []
+    for order, (definition, target) in enumerate(
+        zip(
+            golden_slide_definitions(),
+            speaker_note_lengths,
+            strict=True,
+        ),
+        start=1,
+    ):
+        slide_type, title, message, items = definition
+        note_seed = "".join([title, message, *items])
+        media_intent = {
+            "kind": "none",
+            "prompt": "",
+            "alt": "",
+            "caption": "",
+            "rationale": "",
+            "required": False,
+            "placement": "auto",
+            "src": "",
+        }
+        if order in {1, 2, 8, 10}:
+            media_intent.update(
+                {
+                    "kind": "generate",
+                    "prompt": f"Splatoon Raiders official visual for {title}",
+                    "alt": title,
+                    "required": order in {1, 8},
+                }
+            )
+        slides.append(
+            {
+                "title": title,
+                "message": message,
+                "speakerNotes": (note_seed * (target // len(note_seed) + 1))[
+                    :target
+                ],
+                "keywords": [title],
+                "slideType": slide_type,
+                "visualIntent": visual_intent.copy(),
+                "mediaIntent": media_intent,
+                "contentItems": [
+                    {
+                        "contentItemId": f"item-{order}-{index}",
+                        "text": item,
+                    }
+                    for index, item in enumerate(items, start=1)
+                ],
+                "sourceRefs": ["topic:brief"],
+            }
+        )
+    return {"title": "스플래툰 레이더스", "slides": slides}
+
+
+def golden_element_ids() -> list[list[str]]:
+    return [
+        [
+            "el_1_program_v2_media_placeholder",
+            "el_1_program_v2_image_overlay",
+            "el_1_program_v2_eyebrow",
+            "el_1_program_v2_title",
+            "el_1_program_v2_message",
+        ],
+        [
+            "el_2_program_v2_title",
+            "el_2_program_v2_hub_field",
+            "el_2_program_v2_hub",
+            "el_2_program_v2_connector_left",
+            "el_2_program_v2_connector_right",
+            "el_2_program_v2_connector_bottom",
+            "el_2_program_v2_node_1_field",
+            "el_2_program_v2_node_1_index",
+            "el_2_program_v2_node_1",
+            "el_2_program_v2_node_2_field",
+            "el_2_program_v2_node_2_index",
+            "el_2_program_v2_node_2",
+            "el_2_program_v2_node_3_field",
+            "el_2_program_v2_node_3_index",
+            "el_2_program_v2_node_3",
+        ],
+        [
+            "el_3_program_v2_title",
+            "el_3_program_v2_comparison_1_field",
+            "el_3_program_v2_comparison_1_index",
+            "el_3_program_v2_comparison_1",
+            "el_3_program_v2_comparison_2_field",
+            "el_3_program_v2_comparison_2_index",
+            "el_3_program_v2_comparison_2",
+            "el_3_program_v2_comparison_3_field",
+            "el_3_program_v2_comparison_3_index",
+            "el_3_program_v2_comparison_3",
+        ],
+        [
+            "el_4_program_v2_title",
+            "el_4_program_v2_item_1_field",
+            "el_4_program_v2_item_1_index",
+            "el_4_program_v2_item_1",
+            "el_4_program_v2_item_2_field",
+            "el_4_program_v2_item_2_index",
+            "el_4_program_v2_item_2",
+        ],
+        [
+            "el_5_program_v2_title",
+            "el_5_program_v2_step_1_field",
+            "el_5_program_v2_step_number_1",
+            "el_5_program_v2_step_1",
+            "el_5_program_v2_step_connector_1",
+            "el_5_program_v2_step_2_field",
+            "el_5_program_v2_step_number_2",
+            "el_5_program_v2_step_2",
+            "el_5_program_v2_step_connector_2",
+            "el_5_program_v2_step_3_field",
+            "el_5_program_v2_step_number_3",
+            "el_5_program_v2_step_3",
+            "el_5_program_v2_step_connector_3",
+            "el_5_program_v2_step_4_field",
+            "el_5_program_v2_step_number_4",
+            "el_5_program_v2_step_4",
+        ],
+        [
+            "el_6_program_v2_title",
+            "el_6_program_v2_item_1_field",
+            "el_6_program_v2_item_1_index",
+            "el_6_program_v2_item_1",
+            "el_6_program_v2_item_2_index",
+            "el_6_program_v2_item_2",
+            "el_6_program_v2_item_2_divider",
+            "el_6_program_v2_item_3_index",
+            "el_6_program_v2_item_3",
+        ],
+        [
+            "el_7_program_v2_title",
+            "el_7_program_v2_timeline_line",
+            "el_7_program_v2_timeline_1_index",
+            "el_7_program_v2_timeline_1",
+            "el_7_program_v2_timeline_stem_1",
+            "el_7_program_v2_timeline_marker_1",
+            "el_7_program_v2_timeline_marker_label_1",
+            "el_7_program_v2_timeline_2_index",
+            "el_7_program_v2_timeline_2",
+            "el_7_program_v2_timeline_stem_2",
+            "el_7_program_v2_timeline_marker_2",
+            "el_7_program_v2_timeline_marker_label_2",
+            "el_7_program_v2_timeline_3_index",
+            "el_7_program_v2_timeline_3",
+            "el_7_program_v2_timeline_stem_3",
+            "el_7_program_v2_timeline_marker_3",
+            "el_7_program_v2_timeline_marker_label_3",
+            "el_7_program_v2_timeline_4_index",
+            "el_7_program_v2_timeline_4",
+            "el_7_program_v2_timeline_stem_4",
+            "el_7_program_v2_timeline_marker_4",
+            "el_7_program_v2_timeline_marker_label_4",
+        ],
+        [
+            "el_8_program_v2_title",
+            "el_8_program_v2_item_1_field",
+            "el_8_program_v2_item_1_index",
+            "el_8_program_v2_item_1",
+            "el_8_program_v2_item_2_field",
+            "el_8_program_v2_item_2_index",
+            "el_8_program_v2_item_2",
+        ],
+        [
+            "el_9_program_v2_title",
+            "el_9_program_v2_hub_field",
+            "el_9_program_v2_hub",
+            "el_9_program_v2_connector_left",
+            "el_9_program_v2_connector_right",
+            "el_9_program_v2_connector_bottom",
+            "el_9_program_v2_node_1_field",
+            "el_9_program_v2_node_1_index",
+            "el_9_program_v2_node_1",
+            "el_9_program_v2_node_2_field",
+            "el_9_program_v2_node_2_index",
+            "el_9_program_v2_node_2",
+            "el_9_program_v2_node_3_field",
+            "el_9_program_v2_node_3_index",
+            "el_9_program_v2_node_3",
+        ],
+        [
+            "el_10_program_v2_closing_mark",
+            "el_10_program_v2_title",
+            "el_10_program_v2_message",
+            "el_10_program_v2_media_placeholder",
+            "el_10_program_v2_media_caption",
+        ],
+    ]
 
 
 def golden_design_program() -> dict[str, Any]:

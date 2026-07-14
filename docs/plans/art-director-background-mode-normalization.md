@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · 실행 중
+**상태**: 완료
 
 **실행 이슈**: [#341 Art Director 배경 모드 불일치로 Design Pack Deck 생성 실패](https://github.com/na-man-mu-303-team2/Orbit/issues/341)
 
