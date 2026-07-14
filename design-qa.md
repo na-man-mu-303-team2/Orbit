@@ -1,5 +1,32 @@
 # ORBIT mockup-to-production design QA
 
+## Rehearsal Script and Decorative Gauge Visibility (2026-07-15)
+
+- Source visual truth: `/tmp/orbit-rehearsal-script-timer-before.jpg`, captured from the annotated `localhost:5175` rehearsal route.
+- Implementation screenshot: `/tmp/orbit-rehearsal-script-timer-after.jpg`.
+- Combined comparison: `/tmp/orbit-rehearsal-script-timer-comparison.jpg`.
+- Viewport/state: `2207x1164`, live rehearsal without microphone input, slide 1 of 8.
+
+### Findings and comparison history
+
+- The side-panel `발표 대본` section and the timer card's decorative audio gauge are hidden only in the rehearsal presenter shell. Both elements remain mounted and report `display: none`; their React rendering and state code was not removed.
+- The selected timer region was confirmed as an `aria-hidden` visual gauge. The two meaningful timing progress rows, stopwatch controls, current-slide summary, keyword checklist, and bottom lyric teleprompter remain visible and accessible.
+- The side panel closes the vacated script space without leaving an empty grid row. No typography, color, border, radius, slide imagery, or copy outside the requested regions changed.
+- At `1120x720`, the requested elements remain hidden, the bottom teleprompter remains present, and the document reports no horizontal overflow.
+
+### Verification
+
+- Next-slide navigation moved to `2 / 8`; previous-slide navigation returned to `1 / 8`.
+- DOM/computed style: both hidden elements remain present with `display: none`; both timing progress rows and the teleprompter remain present.
+- Web suite: 141 files, 993 tests passed.
+- Web lint/typecheck: passed.
+- Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
+- `git diff --check`: passed.
+
+final result: passed
+
+---
+
 ## Rehearsal Presenter Chrome Visibility (2026-07-15)
 
 - Source visual truth: `/tmp/orbit-rehearsal-ui-hide-before.jpg`, captured from the annotated `localhost:5173` rehearsal route.
