@@ -269,6 +269,7 @@ describe("RehearsalsService", () => {
       briefId: "brief_1",
       projectId: "project-a",
       revision: 1,
+      origin: "manual",
       audience: "decision-maker",
       purpose: "persuade",
       evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
