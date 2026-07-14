@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   completeFocusedPracticeAudioRequestSchema,
+  focusedPracticeAttemptSummarySchema,
   focusedPracticeAttemptSchema,
 } from "./focused-practice.schema";
 
@@ -50,3 +51,15 @@ describe("focusedPracticeAttemptSchema", () => {
   });
 });
 
+describe("focusedPracticeAttemptSummarySchema", () => {
+  it("exposes only passed counts", () => {
+    expect(focusedPracticeAttemptSummarySchema.parse({
+      sourceFullRunId: "run-a",
+      goals: [{ goalId: "goal-a", passedCount: 2 }],
+    }).goals).toEqual([{ goalId: "goal-a", passedCount: 2 }]);
+    expect(focusedPracticeAttemptSummarySchema.safeParse({
+      sourceFullRunId: "run-a",
+      goals: [{ goalId: "goal-a", passedCount: 2, unexpectedCount: 3 }],
+    }).success).toBe(false);
+  });
+});

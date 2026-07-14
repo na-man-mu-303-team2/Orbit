@@ -2,9 +2,16 @@ import type { PracticePlanResponse } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { PracticeGoalSummary } from "./PracticeGoalSummary";
+import { PracticeGoalSummary, PracticePassMarks } from "./PracticeGoalSummary";
 
 describe("PracticeGoalSummary", () => {
+  it("shows only three visible success marks when passed count is higher", () => {
+    const html = renderToStaticMarkup(<PracticePassMarks passedCount={4} />);
+
+    expect(html).toContain('aria-label="4회 통과"');
+    expect((html.match(/is-passed/g) ?? []).length).toBe(3);
+  });
+
   it("keeps the practice plan entry visible while goal derivation is processing", () => {
     const html = render({ status: "processing", sourceFullRunId: "run-a" });
 
