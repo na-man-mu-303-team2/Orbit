@@ -55,17 +55,25 @@
 }
 
 .rehearsal-presenter-shell .rehearsal-presenter-layout {
+  /* Match the desktop two-row grid at the stacked-layout breakpoint. */
+  --rehearsal-stage-block-size: clamp(
+    268px,
+    min(calc(100dvh - 328px), calc(78.125dvh - 150.875px)),
+    760px
+  );
   gap: 20px 24px;
   grid-template-columns: minmax(0, 1fr) 360px;
   margin: 0 auto;
   max-width: 1500px;
   padding: 24px;
+  width: 100%;
 }
 
 .rehearsal-presenter-shell .rehearsal-presenter-main {
   background: transparent;
   border: 0;
   box-shadow: none;
+  grid-template-rows: minmax(0, 1fr) 42px;
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap {
@@ -95,6 +103,7 @@
   background: var(--orbit-ds-ink);
   border-radius: var(--orbit-ds-radius-pill);
   color: var(--orbit-ds-canvas);
+  display: none;
   padding: 5px 9px;
 }
 
@@ -132,6 +141,11 @@
   border: 1px solid var(--orbit-ds-border);
   border-radius: var(--orbit-ds-radius-panel);
   box-shadow: none;
+  display: none;
+}
+
+.rehearsal-presenter-shell .rehearsal-teleprompter-progress {
+  display: none;
 }
 
 .rehearsal-presenter-shell .rehearsal-next-slide-frame {
@@ -385,6 +399,22 @@
   box-shadow: none;
 }
 
+.rehearsal-presenter-shell .rehearsal-panel-live-slot {
+  display: none;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-panel-top-grid:has(.rehearsal-panel-live-slot) {
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-panel-top-grid:has(.rehearsal-panel-live-slot)
+  > .rehearsal-panel-section {
+  padding-right: 0;
+}
+
 .rehearsal-presenter-shell .rehearsal-panel-section-heading span,
 .rehearsal-presenter-shell .rehearsal-panel-live-slot .rehearsal-assist-card header span {
   color: var(--orbit-ds-text-muted);
@@ -490,7 +520,7 @@
   }
 
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: clamp(420px, calc(56.25vw + 13px), 760px) 44px 112px;
+    grid-template-rows: var(--rehearsal-stage-block-size) 44px;
   }
 
   .rehearsal-presenter-shell .rehearsal-teleprompter-band {
@@ -510,7 +540,7 @@
 }
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: 420px 44px auto;
+    grid-template-rows: var(--rehearsal-stage-block-size) 44px;
   }
 
   .rehearsal-completion-screen { padding: 28px 18px 54px; }
