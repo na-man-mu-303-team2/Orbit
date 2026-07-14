@@ -2655,36 +2655,37 @@
 .script-copy {
   margin: 0;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: keep-all;
 }
 
-.script-notes-editor {
+.orbit-shell .script-notes-editor {
   width: 100%;
   min-height: 132px;
   resize: vertical;
   border: 1px solid #bfdbfe;
   border-radius: 8px;
   color: #334155;
-  font: inherit;
+  font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
   padding: 10px 12px;
 }
 
-.script-notes-editor:focus {
+.orbit-shell .script-notes-editor:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
   outline: none;
 }
 
 .keyword-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: inline;
   min-height: 0;
-  margin: 0 1px;
-  padding: 1px 4px;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
   background: transparent;
   color: var(--slate);
   vertical-align: baseline;
@@ -2702,7 +2703,7 @@
 
 .keyword-mark.selected {
   background: #dbeafe;
-  border-color: #93c5fd;
+  box-shadow: 0 0 0 1px #93c5fd;
   color: var(--blue-strong);
 }
 
@@ -2713,25 +2714,26 @@
 
 .keyword-mark .id-badge {
   min-height: 18px;
+  margin-left: 5px;
   padding: 0 6px;
   font-size: var(--orbit-ds-type-caption);
+  vertical-align: middle;
 }
 
 .keyword-note-token {
-  display: inline-flex;
-  align-items: center;
+  display: inline;
   min-height: 0;
-  margin: 0 1px;
-  padding: 1px 4px;
+  margin: 0;
+  padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 3px;
   background: transparent;
-  color: #475569;
+  color: inherit;
   vertical-align: baseline;
 }
 
 .keyword-note-token strong {
-  font-weight: 700;
+  font-weight: inherit;
 }
 
 .keyword-note-token:hover,

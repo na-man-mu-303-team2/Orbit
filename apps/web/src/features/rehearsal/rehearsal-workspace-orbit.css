@@ -171,6 +171,11 @@
   overflow: hidden;
 }
 
+.rehearsal-presenter-shell .rehearsal-side-audio-gauge,
+.rehearsal-presenter-shell .rehearsal-panel-script {
+  display: none;
+}
+
 .rehearsal-presenter-shell .rehearsal-side-timer-hero {
   background: var(--orbit-ds-lilac);
   border-bottom: 1px solid color-mix(in srgb, var(--orbit-ds-lilac-strong) 18%, transparent);
