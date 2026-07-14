@@ -30,7 +30,10 @@ export const historicalJobTypeSchema = z.enum([
 ]);
 
 export const jobTypeSchema = historicalJobTypeSchema;
-export const activeJobTypeSchema = historicalJobTypeSchema;
+export const activeJobTypeSchema = historicalJobTypeSchema.exclude([
+  "pptx-import",
+  "ai-template-deck-generation",
+]);
 
 export const internalCoachingJobTypeSchema = z.enum([
   "focused-practice-analysis",

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
-  aiTemplateDeckGenerationQueueName,
   enqueueSemanticCueExtractionJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
@@ -14,8 +13,7 @@ import {
   semanticCueExtractionJobName,
   semanticCueExtractionQueueName,
   workerHealthCheckJobName,
-  workerHealthCheckQueueName,
-  pptxImportQueueName
+  workerHealthCheckQueueName
 } from "./index";
 
 const queueMock = vi.hoisted(() => ({
@@ -149,13 +147,14 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
   });
 });
 
-describe("legacy queue drain contracts", () => {
-  it("keeps legacy queue names without exposing enqueue helpers", async () => {
-    expect(aiTemplateDeckGenerationQueueName).toBe("ai-template-deck-generation");
-    expect(pptxImportQueueName).toBe("pptx-import");
-
+describe("legacy queue contracts", () => {
+  it("does not expose legacy queue constants or enqueue helpers", async () => {
     const queueModule = await import("./index");
+    expect(queueModule).not.toHaveProperty("aiTemplateDeckGenerationQueueName");
+    expect(queueModule).not.toHaveProperty("aiTemplateDeckGenerationJobName");
     expect(queueModule).not.toHaveProperty("enqueueAiTemplateDeckGenerationJob");
+    expect(queueModule).not.toHaveProperty("pptxImportQueueName");
+    expect(queueModule).not.toHaveProperty("pptxImportJobName");
     expect(queueModule).not.toHaveProperty("enqueuePptxImportJob");
   });
 });
