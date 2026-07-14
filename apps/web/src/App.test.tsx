@@ -255,6 +255,7 @@ describe("App shell routing", () => {
   });
 
   it("parses project brief and version history production routes", () => {
+    expect(getRoute("/importdeck")).toEqual({ name: "import-deck" });
     expect(getRoute("/project/project_demo_1/brief")).toEqual({
       name: "project-brief",
       projectId: "project_demo_1"

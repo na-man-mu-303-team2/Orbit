@@ -60,6 +60,7 @@ import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { AiPptCreationPage } from "./features/ai-ppt/AiPptCreationPage";
+import { PptxImportPage } from "./features/pptx-import/PptxImportPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
@@ -219,6 +220,7 @@ export type Route =
   | { name: "signup" }
   | { name: "home"; templateStyleId?: HomeTemplateStyleId }
   | { name: "create-deck" }
+  | { name: "import-deck" }
   | { name: "project-list"; intent?: "rehearsal" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
@@ -494,6 +496,7 @@ export function getRoute(
   if (normalized === "/mockup/version-history") return { name: "mockup", screen: "version-history" };
   if (normalized === "/mockup/ai-ppt") return { name: "mockup", screen: "ai-ppt" };
   if (normalized === "/createdeck") return { name: "create-deck" };
+  if (normalized === "/importdeck") return { name: "import-deck" };
   if (normalized === "/project") {
     return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
       ? { name: "project-list", intent: "rehearsal" }
@@ -707,6 +710,7 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
   }
   if (route.name === "create-deck") return <AiPptCreationPage />;
+  if (route.name === "import-deck") return <PptxImportPage />;
   if (route.name === "project-list") {
     return <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />;
   }

@@ -838,10 +838,13 @@ export function AiPptCreationPage() {
             ORBIT Design Pack 기반 Deck JSON을 생성합니다.
           </p>
         </div>
-        <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
-          <IconSparkles size={17} />
-          처음부터 입력
-        </button>
+        <div className="ai-ppt-header-actions">
+          <a className="ai-ppt-import-link" href="/importdeck">기존 PPTX 가져오기</a>
+          <button className="ai-ppt-primary" type="button" onClick={() => goToStep("brief")}>
+            <IconSparkles size={17} />
+            처음부터 입력
+          </button>
+        </div>
       </header>
 
       <div className="ai-ppt-layout">

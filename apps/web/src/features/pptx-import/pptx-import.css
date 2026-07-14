@@ -1,0 +1,71 @@
+.pptx-import-page { background: var(--orbit-ds-surface); min-height: calc(100vh - 76px); }
+.pptx-import-hero { background: var(--orbit-ds-cream); min-height: 300px; padding: 24px clamp(24px, 5vw, 76px) 44px; }
+.pptx-import-hero > div, .pptx-import-back, .pptx-import-workspace { margin-inline: auto; max-width: 1320px; }
+.pptx-import-back { align-items: center; background: transparent; border: 0; display: flex; font-size: 13px; font-weight: 700; gap: 4px; padding: 0; }
+.pptx-import-hero > div { margin-top: 36px; position: relative; }
+.pptx-import-hero-icon { align-items: center; background: white; border-radius: 14px; display: flex; height: 52px; justify-content: center; position: absolute; right: 0; top: 0; width: 52px; }
+.pptx-import-hero p { font-size: 13px; font-weight: 800; letter-spacing: .04em; margin: 0 0 10px; text-transform: uppercase; }
+.pptx-import-hero h1 { font-size: clamp(38px, 4.8vw, 64px); font-weight: 650; letter-spacing: -.055em; line-height: 1.04; margin: 0; }
+.pptx-import-hero > div > span:last-child { color: var(--orbit-ds-text-muted); display: block; font-size: 14px; margin-top: 18px; }
+.pptx-import-workspace { align-items: start; display: grid; gap: 26px; grid-template-columns: 210px minmax(0, 1fr); padding: 34px clamp(24px, 5vw, 76px) 80px; }
+.pptx-import-step-rail { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; position: sticky; top: 98px; }
+.pptx-import-step-rail li { align-items: center; border-radius: 12px; color: var(--orbit-ds-text-muted); display: grid; gap: 10px; grid-template-columns: 32px 1fr; padding: 11px; }
+.pptx-import-step-rail li > span { align-items: center; border: 1px solid var(--orbit-ds-border-strong); border-radius: 50%; display: flex; font-size: 12px; height: 30px; justify-content: center; width: 30px; }
+.pptx-import-step-rail div { display: grid; gap: 2px; }
+.pptx-import-step-rail strong { color: inherit; font-size: 13px; }
+.pptx-import-step-rail small { font-size: 11px; }
+.pptx-import-step-rail li.active { background: white; color: var(--orbit-ds-ink); }
+.pptx-import-step-rail li.active > span { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); color: white; }
+.pptx-import-step-rail li.complete > span { background: var(--orbit-ds-lilac); border-color: transparent; color: var(--orbit-ds-ink); }
+.pptx-import-main-panel { background: white; border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); min-height: 560px; overflow: hidden; }
+.pptx-import-select-view { margin: auto; max-width: 650px; padding: 58px 42px; text-align: center; }
+.pptx-import-select-view header p, .pptx-import-brief-form header p { color: var(--orbit-ds-lilac-strong); font-size: 12px; font-weight: 800; margin: 0 0 8px; }
+.pptx-import-select-view h2, .pptx-import-brief-form h2, .pptx-import-progress h2 { font-size: 27px; letter-spacing: -.035em; margin: 0; }
+.pptx-import-select-view header > span, .pptx-import-brief-form header > span { color: var(--orbit-ds-text-muted); display: block; font-size: 13px; margin-top: 10px; }
+.pptx-import-dropzone { align-items: center; background: var(--orbit-ds-surface-raised); border: 1.5px dashed var(--orbit-ds-border-strong); border-radius: 15px; display: flex; flex-direction: column; gap: 8px; margin: 30px 0 16px; min-height: 210px; padding: 28px; width: 100%; }
+.pptx-import-dropzone:hover, .pptx-import-dropzone.has-file { background: var(--orbit-ds-lilac-soft); border-color: var(--orbit-ds-lilac-strong); }
+.pptx-import-dropzone > span { align-items: center; background: white; border-radius: 13px; display: flex; height: 48px; justify-content: center; margin-bottom: 4px; width: 48px; }
+.pptx-import-dropzone strong { font-size: 14px; }
+.pptx-import-dropzone small { color: var(--orbit-ds-text-muted); }
+.pptx-import-primary { align-items: center; background: var(--orbit-ds-ink); border: 1px solid var(--orbit-ds-ink); border-radius: 9px; color: white; display: inline-flex; font-size: 13px; font-weight: 750; justify-content: center; min-height: 44px; padding: 0 20px; }
+.pptx-import-primary:disabled { cursor: not-allowed; opacity: .45; }
+.pptx-import-select-view > .pptx-import-primary { margin-top: 8px; min-width: 210px; }
+.pptx-import-error { align-items: flex-start; background: var(--orbit-ds-danger-soft); border-radius: 9px; color: var(--orbit-ds-danger); display: flex; font-size: 12px; gap: 7px; line-height: 1.45; margin: 10px 0; padding: 10px; text-align: left; }
+.pptx-import-error svg { flex: 0 0 auto; }
+.pptx-import-progress { align-items: center; display: flex; flex-direction: column; justify-content: center; min-height: 560px; padding: 50px; text-align: center; }
+.pptx-import-progress-mark { align-items: center; background: var(--orbit-ds-lilac); border-radius: 18px; display: flex; height: 64px; justify-content: center; margin-bottom: 22px; width: 64px; }
+.pptx-import-progress p { color: var(--orbit-ds-lilac-strong); font-size: 12px; font-weight: 800; margin: 0 0 9px; }
+.pptx-import-progress > div { background: var(--orbit-ds-surface); border-radius: 999px; height: 7px; margin: 30px 0 12px; overflow: hidden; width: min(360px, 80vw); }
+.pptx-import-progress > div span { animation: pptx-import-progress 1.6s ease-in-out infinite; background: var(--orbit-ds-lilac-strong); border-radius: inherit; display: block; height: 100%; width: 40%; }
+.pptx-import-progress small { color: var(--orbit-ds-text-muted); }
+@keyframes pptx-import-progress { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+.pptx-import-review { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); min-height: 620px; }
+.pptx-import-brief-form { display: grid; gap: 19px; padding: 34px; }
+.pptx-import-brief-form > label, .pptx-import-form-row label { display: grid; gap: 7px; }
+.pptx-import-brief-form label > span { font-size: 12px; font-weight: 750; }
+.pptx-import-brief-form input, .pptx-import-brief-form select, .pptx-import-brief-form textarea { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 9px; color: var(--orbit-ds-ink); font: inherit; font-size: 13px; outline: none; padding: 10px 11px; resize: vertical; width: 100%; }
+.pptx-import-brief-form input:focus, .pptx-import-brief-form select:focus, .pptx-import-brief-form textarea:focus { border-color: var(--orbit-ds-lilac-strong); box-shadow: var(--orbit-ds-focus); }
+.pptx-import-brief-form label > small { color: var(--orbit-ds-text-muted); font-size: 11px; }
+.pptx-import-form-row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+.pptx-import-form-row.narrow-first { grid-template-columns: 130px 1fr; }
+.pptx-import-duration { align-items: center; display: flex; position: relative; }
+.pptx-import-duration small { color: var(--orbit-ds-text-muted); position: absolute; right: 12px; }
+.pptx-import-duration input { padding-right: 32px; }
+.pptx-import-preview-panel { align-content: start; background: var(--orbit-ds-surface-raised); border-left: 1px solid var(--orbit-ds-border); display: grid; gap: 16px; padding: 24px; }
+.pptx-import-preview-panel > header { align-items: center; display: flex; justify-content: space-between; }
+.pptx-import-preview-panel > header span { color: var(--orbit-ds-text-muted); font-size: 12px; font-weight: 700; }
+.pptx-import-preview-panel > header strong { font-size: 12px; }
+.pptx-import-slide-preview { align-items: center; background: #d9d9d7; border-radius: 10px; display: flex; justify-content: center; min-height: 220px; overflow: hidden; padding: 12px; }
+.pptx-import-slide-preview .orbit-read-only-slide-viewport { box-shadow: 0 12px 30px rgb(15 23 42 / .14); max-width: 100%; }
+.pptx-import-slide-dots { display: flex; flex-wrap: wrap; gap: 6px; }
+.pptx-import-slide-dots button { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 6px; font-size: 11px; height: 28px; width: 28px; }
+.pptx-import-slide-dots button[aria-pressed="true"] { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); color: white; }
+.pptx-import-impact { align-items: flex-start; background: var(--orbit-ds-cream); border-radius: 12px; display: flex; gap: 9px; padding: 13px; }
+.pptx-import-impact span { display: grid; font-size: 11px; gap: 2px; line-height: 1.45; }
+.pptx-import-impact strong { font-size: 12px; }
+.pptx-import-preview-panel details { color: var(--orbit-ds-text-muted); font-size: 11px; }
+.pptx-import-preview-panel details ul { line-height: 1.45; padding-left: 18px; }
+.pptx-import-preview-panel > .pptx-import-primary { width: 100%; }
+@media (max-width: 980px) { .pptx-import-workspace { grid-template-columns: 1fr; } .pptx-import-step-rail { grid-template-columns: repeat(3, 1fr); position: static; } .pptx-import-step-rail li { grid-template-columns: 28px 1fr; } .pptx-import-step-rail li > span { height: 26px; width: 26px; } .pptx-import-review { grid-template-columns: 1fr; } .pptx-import-preview-panel { border-left: 0; border-top: 1px solid var(--orbit-ds-border); } }
+@media (max-width: 680px) { .pptx-import-page { min-height: 100vh; } .pptx-import-hero { min-height: 270px; padding: 20px 18px 34px; } .pptx-import-hero > div { margin-top: 28px; } .pptx-import-hero h1 { font-size: 38px; } .pptx-import-hero-icon { display: none; } .pptx-import-workspace { gap: 14px; padding: 18px 14px 50px; } .pptx-import-step-rail small { display: none; } .pptx-import-step-rail li { gap: 6px; padding: 8px 5px; } .pptx-import-step-rail strong { font-size: 11px; } .pptx-import-main-panel { min-height: 510px; } .pptx-import-select-view { padding: 42px 20px; } .pptx-import-dropzone { min-height: 190px; } .pptx-import-brief-form { padding: 26px 20px; } .pptx-import-form-row, .pptx-import-form-row.narrow-first { grid-template-columns: 1fr; } .pptx-import-preview-panel { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .pptx-import-progress > div span { animation: none; width: 70%; } }

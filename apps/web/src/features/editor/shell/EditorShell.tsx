@@ -3473,15 +3473,6 @@ export function EditorShell(props: { initialBriefOpen?: boolean; projectId?: str
     imageFileInputRef.current?.click();
   }
 
-  function openPptxFilePicker() {
-    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
-      return;
-    }
-
-    setActiveTopMenu(null);
-    pptxFileInputRef.current?.click();
-  }
-
   function rememberUploadProject(projectId: string) {
     resolvedUploadProjectIdRef.current = projectId;
   }
@@ -4919,7 +4910,12 @@ export function EditorShell(props: { initialBriefOpen?: boolean; projectId?: str
                       type="button"
                       onClick={() => {
                         if (action === "import") {
-                          openPptxFilePicker();
+                          window.history.pushState(
+                            {},
+                            "",
+                            `/importdeck?returnTo=${encodeURIComponent(`/project/${projectId}`)}`
+                          );
+                          window.dispatchEvent(new PopStateEvent("popstate"));
                           return;
                         }
 
