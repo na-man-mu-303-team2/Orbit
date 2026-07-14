@@ -18,6 +18,10 @@
 .focused-practice-controls { align-content: start; align-self: stretch; border-left: 1px solid var(--orbit-ds-border); display: grid; gap: 12px; padding: 6px 0 6px 24px; }
 .focused-practice-controls small { color: var(--orbit-ds-lilac-strong); font-weight: 750; }
 .focused-practice-controls strong { font-size: 20px; line-height: 1.45; }
+.focused-practice-duration-guidance { background: var(--orbit-ds-lilac-soft); border-radius: 12px; display: grid; gap: 4px; margin-top: 8px; padding: 14px 16px; }
+.focused-practice-duration-guidance span { color: var(--orbit-ds-lilac-strong); font-size: var(--orbit-ds-type-caption); font-weight: 750; }
+.focused-practice-duration-guidance strong { font-family: var(--orbit-ds-font-mono); font-size: 26px; font-variant-numeric: tabular-nums; }
+.focused-practice-controls .focused-practice-duration-guidance p { margin: 0; }
 .focused-practice-timer-label { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); margin-top: 10px; }
 .focused-practice-timer { font-family: var(--orbit-ds-font-mono); font-size: 42px; font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -.04em; line-height: 1; }
 .focused-practice-controls p { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); line-height: 1.55; margin: 4px 0 8px; }

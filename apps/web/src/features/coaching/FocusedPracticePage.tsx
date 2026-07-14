@@ -13,6 +13,7 @@ import { fetchPracticePlan } from "./practicePlanApi";
 import { completeFocusedSession, createFocusedSession, getFocusedSession, submitFocusedAudio } from "./focusedPracticeApi";
 import {
   buildFocusedPracticeTimeline,
+  resolveFocusedPracticeDurationGuidance,
   resolveFocusedPracticeSentence,
   resolveFocusedPracticeSlideIds,
   type FocusedPracticeRangeTransition,
@@ -81,6 +82,9 @@ export function FocusedPracticePage(props: {
       : activeSlide.speakerNotes.trim()
     : null;
   const processing = attempts.some((attempt) => ["uploading", "queued", "processing"].includes(attempt.status));
+  const durationGuidance = deck && targetScope
+    ? resolveFocusedPracticeDurationGuidance(deck, targetScope)
+    : null;
 
   async function submitCapture(capture: FocusedPracticeCapture) {
     setElapsedSeconds(Math.max(0, Math.round(capture.durationMs / 1000)));
@@ -196,6 +200,11 @@ export function FocusedPracticePage(props: {
           <aside className="focused-practice-controls" aria-label="연습 제어">
             <small>이번 연습</small>
             <strong>{goal?.successCondition ?? "성공 기준을 불러오는 중입니다."}</strong>
+            {durationGuidance ? <div className="focused-practice-duration-guidance">
+              <span>권장 연습 시간 · {durationGuidance.targetLabel}</span>
+              <strong>{durationGuidance.seconds}초</strong>
+              <p>30~60초 안에서 짧게 반복하세요.</p>
+            </div> : null}
             <span className="focused-practice-timer-label">진행 시간</span>
             <time className="focused-practice-timer">{formatPracticeTimer(elapsedSeconds)}</time>
             <p>{isRecording ? "자막을 끝까지 읽은 뒤 녹음을 끝내 주세요." : "현재 장표와 아래 자막을 보며 연습합니다."}</p>

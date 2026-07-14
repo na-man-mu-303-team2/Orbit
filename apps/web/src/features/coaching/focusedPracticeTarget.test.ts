@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFocusedPracticeTimeline,
+  resolveFocusedPracticeDurationGuidance,
   resolveFocusedPracticeSentence,
   resolveFocusedPracticeSlideIds,
 } from "./focusedPracticeTarget";
@@ -43,5 +44,53 @@ describe("focused-practice target UI helpers", () => {
       { slideId: "slide_a", enteredAtMs: 0, exitedAtMs: 5_000 },
       { slideId: "slide_b", enteredAtMs: 5_000, exitedAtMs: 12_000 },
     ]);
+  });
+
+  it.each([
+    {
+      name: "sentence",
+      target: { type: "sentence" as const, scopeId: "sentence", slideId: "slide_a", sentenceIndex: 0, textSnapshotHash: "a".repeat(64) },
+      expected: { seconds: 30, targetLabel: "문장 기준" },
+    },
+    {
+      name: "slide",
+      target: { type: "slide" as const, scopeId: "slide", slideId: "slide_b" },
+      expected: { seconds: 36, targetLabel: "장표 기준" },
+    },
+    {
+      name: "slide-range",
+      target: { type: "slide-range" as const, scopeId: "range", startSlideId: "slide_a", endSlideId: "slide_b" },
+      expected: { seconds: 60, targetLabel: "연속 장표 기준" },
+    },
+    {
+      name: "opening",
+      target: { type: "opening" as const, scopeId: "opening" },
+      expected: { seconds: 45, targetLabel: "도입부 기준" },
+    },
+    {
+      name: "closing",
+      target: { type: "closing" as const, scopeId: "closing" },
+      expected: { seconds: 30, targetLabel: "마무리 기준" },
+    },
+  ])("fixes the $name target duration guidance in the 30-60 second range", ({ target, expected }) => {
+    const durationDeck = deckSchema.parse({
+      ...deck,
+      slides: deck.slides.map((slide, index) => ({
+        ...slide,
+        estimatedSeconds: index === 0 ? 45 : undefined,
+        speakerNotes: index === 1 ? "가".repeat(126) : slide.speakerNotes,
+        aiNotes: index === 0 ? {
+          timingPlan: {
+            targetSecondsPerSlide: 60,
+            targetSeconds: 50,
+            targetSpokenSeconds: 45,
+            targetSpeakerNotesChars: 0,
+            actualSpeakerNotesChars: 0,
+          },
+        } : undefined,
+      })),
+    });
+
+    expect(resolveFocusedPracticeDurationGuidance(durationDeck, target)).toEqual(expected);
   });
 });
