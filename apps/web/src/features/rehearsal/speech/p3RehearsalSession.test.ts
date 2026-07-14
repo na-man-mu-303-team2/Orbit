@@ -432,6 +432,8 @@ describe("p3RehearsalSession", () => {
     });
     expect(session.getState().status).toBe("running");
     expect(port.start).toHaveBeenCalledTimes(2);
+    expect(port.onResult).toHaveBeenCalledTimes(2);
+    expect(port.onError).toHaveBeenCalledTimes(2);
 
     port.emit({
       text: "마지막으로 개인정보를 보호합니다.",

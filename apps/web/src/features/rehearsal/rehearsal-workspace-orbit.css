@@ -14,6 +14,16 @@
 .rehearsal-side-timer-card { overflow: hidden; }
 .rehearsal-side-timer-hero { background: var(--orbit-ds-lilac-soft); }
 .rehearsal-side-timer-actions button:first-child { background: var(--orbit-ds-ink); color: white; }
+.rehearsal-side-timer-time { cursor: default; }
+.rehearsal-side-timing-progress-list { display: grid; gap: 10px; }
+.rehearsal-side-timing-progress { display: grid; gap: 6px; }
+.rehearsal-side-timing-progress-meta { align-items: center; display: flex; justify-content: space-between; }
+.rehearsal-side-timing-progress-meta strong { color: inherit; font-size: .74rem; }
+.rehearsal-side-timing-progress-meta span { color: inherit; font-size: .72rem; opacity: .82; }
+.rehearsal-side-timing-progress-track { background: color-mix(in srgb, currentColor 24%, transparent); border-radius: var(--orbit-ds-radius-pill); display: block; height: 7px; overflow: hidden; }
+.rehearsal-side-timing-progress-track > span { background: currentColor; border-radius: inherit; display: block; height: 100%; min-width: 3px; transition: background-color 180ms ease, width 180ms ease; }
+.rehearsal-side-timing-progress-warning { color: var(--orbit-ds-warning, #9a5d13); }
+.rehearsal-side-timing-progress-danger { color: var(--orbit-ds-danger, #b8443c); }
 .rehearsal-panel-keyword-hit { background: var(--orbit-ds-success-soft); }
 .rehearsal-live-audio-meter-track > span { background: var(--orbit-ds-lilac-strong); }
 .rehearsal-teleprompter-band { background: var(--orbit-ds-ink); color: white; }

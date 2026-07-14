@@ -92,6 +92,39 @@ final result: passed
 
 ---
 
+## Rehearsal Stopwatch and Lyric Prompter Annotations (2026-07-14)
+
+- Source visual truth: `/tmp/orbit-rehearsal-before.png` and Browser Comments 1-2 at the rehearsal route.
+- Implementation evidence: `/tmp/orbit-rehearsal-branch-lyrics.png`, `/tmp/orbit-rehearsal-lyrics-scrolled.png`, and `/tmp/orbit-rehearsal-lyrics-returned.png`.
+- Viewport/state: `2207x1164`, slide 1 of 8, rehearsal running; source used the existing countdown card and static three-line script, implementation used the current branch on `http://localhost:5174`.
+
+### Full-view and focused comparison
+
+The presenter stage, side-panel width, controls, typography, borders, and current ORBIT blue timing card remain aligned with the supplied screen. The countdown input is replaced by a read-only stopwatch beginning at `00:00`. Total-presentation and current-slide expected-time rows sit directly below it and fill independently. Their warning contract is default before the five-second target window, orange from target minus five seconds through target plus five seconds, and red after that tolerance.
+
+The lower script surface keeps the existing footprint while becoming a vertically scrollable, dark lyric view. All script sentences remain available, the active sentence uses the strongest white weight, and surrounding lines recede without disappearing. Keyboard/manual scrolling moved the viewport independently; pausing and resuming triggered the same auto-follow key used by incoming speech and returned the active line to the centered reading position.
+
+### Interaction and lifecycle verification
+
+- Stopwatch start, pause, resume, and reset controls remained reachable in the in-app browser.
+- A P3 session regression test proves pause unsubscribes from STT results/errors and resume subscribes again before restarting the port, while preserving monotonic transcript timestamps and covered sentences.
+- Workspace resume now rejects a non-running STT state and reacquires a dead live-demo microphone stream instead of reporting a silent successful resume.
+- Incoming non-empty STT results increment the lyric auto-follow key, so speech returns a manually scrolled script to the current sentence.
+- The current branch's fresh `localhost:5174` origin reached the Web Speech language-pack install guard (`SpeechRecognition.install` requires a user gesture after async preparation), so end-to-end spoken-audio recognition could not be completed in that temporary QA origin. This is an environment-specific residual check; lifecycle behavior is covered by the port/session tests.
+
+### Findings and verification
+
+- P0/P1 visual mismatch: none.
+- P2: none after moving the lyric overrides to the shared stylesheet with sufficient specificity; the first pass rendered white lyric text on the later white global surface.
+- Accessibility: the stopwatch is an `output`, both progress rows expose current/expected labels, the lyric viewport is keyboard focusable, and the active sentence exposes `aria-current` with polite live updates.
+- Web typecheck: passed.
+- Web suite: 141 files, 962 tests passed.
+- `git diff --check`: passed.
+
+final result: passed with the noted temporary-origin spoken-audio verification gap
+
+---
+
 ## Compact Editor Annotations (2026-07-14)
 
 - Source visual truth: `/tmp/orbit-editor-720-before-responsive-fix-ready.png` and the current task's Browser Comments for the element quickbar scrollbar and the header-to-slide-strip gap.

@@ -49,6 +49,7 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
+  getRehearsalTimingProgress,
   getRemainingTriggerStepsForSlide,
   normalizeRecordingMimeType,
   prepareRehearsalEvaluationRun,
@@ -1590,6 +1591,25 @@ describe("RehearsalWorkspace", () => {
     expect(setIsTimerRunning).toHaveBeenCalledWith(false);
   });
 
+  it("fills expected-time progress and applies the five-second warning window", () => {
+    expect(getRehearsalTimingProgress(44, 50)).toEqual({
+      percent: 88,
+      tone: "default",
+    });
+    expect(getRehearsalTimingProgress(45, 50)).toEqual({
+      percent: 90,
+      tone: "warning",
+    });
+    expect(getRehearsalTimingProgress(55, 50)).toEqual({
+      percent: 100,
+      tone: "warning",
+    });
+    expect(getRehearsalTimingProgress(56, 50)).toEqual({
+      percent: 100,
+      tone: "danger",
+    });
+  });
+
   it("matches live STT keywords with normalized Korean aliases", () => {
     const slide = {
       ...createDemoDeck().slides[0]!,
@@ -2006,6 +2026,17 @@ describe("RehearsalWorkspace", () => {
       previous: "",
       current: "첫 문장입니다.",
       next: "두 번째 문장입니다.",
+      focusSentenceId: "sentence_1",
+      items: [
+        expect.objectContaining({
+          sentenceId: "sentence_1",
+          status: "current",
+        }),
+        expect.objectContaining({
+          sentenceId: "sentence_2",
+          status: "next",
+        }),
+      ],
     });
   });
 

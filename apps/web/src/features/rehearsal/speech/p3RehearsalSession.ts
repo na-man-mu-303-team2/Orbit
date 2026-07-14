@@ -156,6 +156,29 @@ export function createP3RehearsalSession(
   let resultTimestampOffsetMs = 0;
   let lastAcceptedResultEndMs = 0;
 
+  function subscribeToPort() {
+    cleanupSubscriptions?.();
+    const unsubscribeResult = input.port.onResult(acceptResult);
+    const unsubscribeError = input.port.onError((error) => {
+      transitionCapability({
+        capability: "stt",
+        toState: "unavailable",
+        reason: error.code === "permission_denied" ? "permission_denied" : "stt_unavailable",
+        measurementMode: "none",
+        retryable: error.code !== "permission_denied",
+        slideId: getSlide(slideIndex).slideId,
+        cueIds: (getSlide(slideIndex).semanticCues ?? []).map((cue) => cue.cueId)
+      });
+      status = "failed";
+      cleanupSubscriptions?.();
+    });
+    cleanupSubscriptions = () => {
+      unsubscribeResult();
+      unsubscribeError();
+      cleanupSubscriptions = null;
+    };
+  }
+
   async function start(options: {
     audioSource: MediaStream;
     slideIndex?: number;
@@ -180,26 +203,7 @@ export function createP3RehearsalSession(
     });
 
     try {
-      cleanupSubscriptions?.();
-      const unsubscribeResult = input.port.onResult(acceptResult);
-      const unsubscribeError = input.port.onError((error) => {
-        transitionCapability({
-          capability: "stt",
-          toState: "unavailable",
-          reason: error.code === "permission_denied" ? "permission_denied" : "stt_unavailable",
-          measurementMode: "none",
-          retryable: error.code !== "permission_denied",
-          slideId: slide.slideId,
-          cueIds: (slide.semanticCues ?? []).map((cue) => cue.cueId)
-        });
-        status = "failed";
-        cleanupSubscriptions?.();
-      });
-      cleanupSubscriptions = () => {
-        unsubscribeResult();
-        unsubscribeError();
-        cleanupSubscriptions = null;
-      };
+      subscribeToPort();
 
       await input.port.start({
         language: "ko",
@@ -251,6 +255,7 @@ export function createP3RehearsalSession(
 
     semanticGeneration += 1;
     await input.port.stop();
+    cleanupSubscriptions?.();
     status = "paused";
     emitSnapshot();
     return getState();
@@ -267,6 +272,7 @@ export function createP3RehearsalSession(
     resultTimestampOffsetMs = lastAcceptedResultEndMs;
     status = "starting";
     try {
+      subscribeToPort();
       await input.port.start({
         language: "ko",
         audioSource: options.audioSource,
