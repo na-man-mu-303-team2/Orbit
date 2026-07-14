@@ -2901,6 +2901,13 @@ button:disabled {
 
 .rehearsal-presenter-shell
   .rehearsal-teleprompter-lyrics
+  .rehearsal-teleprompter-line-next {
+  color: rgba(255, 255, 255, 0.68);
+  font-weight: 700;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-teleprompter-lyrics
   .rehearsal-teleprompter-current {
   color: white;
   font-size: 1.55rem;
@@ -3578,14 +3585,14 @@ button:disabled {
 }
 
 .presenter-script-row--current {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #020617;
+  background: var(--surface-card);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
 
 .presenter-script-row--current > span {
-  background: #111827;
-  color: #ffffff;
+  background: var(--text-primary);
+  color: var(--text-inverse);
 }
 
 .presenter-script-row--current p {
@@ -3595,7 +3602,7 @@ button:disabled {
 }
 
 .presenter-script-row--next {
-  color: #111827;
+  color: var(--text-secondary);
 }
 
 .presenter-script-row--covered {
@@ -3627,11 +3634,11 @@ button:disabled {
 }
 
 .presenter-script-row[data-script-row-status="pending"] {
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .presenter-script-row--unmatchable {
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .presenter-script-list-empty {
