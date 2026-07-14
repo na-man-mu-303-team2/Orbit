@@ -133,76 +133,46 @@ PresentationBrief와 RehearsalFocusProfile Snapshot
 - 사용자 목표와 연결된 실패·부분 전달 후보를 먼저 고려한다.
 - 사용자 목표가 통과한 Criterion을 실패 문제로 바꾸지는 않는다.
 
-정렬 기준은 다음 순서를 사용한다.
+첫 기준선과 재리허설은 같은 정렬표를 사용하지 않는다. `PracticeGoalRankingContext.mode`에 따라 다음 tier를 먼저 적용한다.
 
-1. 사용자 목표 연결 여부와 우선순위
-2. Brief 영향도
-3. Lens 우선순위
-4. 문제 심각도
-5. 근거 신뢰도
-6. 비교 가능한 회차의 반복 여부
-7. 집중 연습 가능성
-8. 슬라이드 순서
-9. Criterion·범위 기반 마지막 결정적 기준
+| mode | tier 순서 |
+| --- | --- |
+| `baseline` | core semantic → opening/closing → timing → delivery → 기타 문제 |
+| `rerun` | 반복 core semantic → 신규 core semantic → 반복 timing → 반복 delivery → opening/closing → 기타 반복 문제 → 기타 신규 문제 |
 
-마지막 기준까지 고정해 입력 배열 순서가 달라도 같은 결과를 만든다.
+core semantic은 Brief의 semantic must-cover Criterion과 실행 Snapshot에서 `importance="core"`로 고정된 deck cue Criterion이다. `focusPriority`는 이 tier를 바꾸지 않고 같은 tier 안에서만 우선순위를 높인다. 따라서 Focus delivery가 baseline의 core semantic을 추월하지 않는다.
 
-#### 구현에서 추가로 구체화한 정렬 결정
+같은 tier 안에서는 다음 tie-break를 순서대로 적용한다.
 
-위 정렬 기준은 업무분담 문서의 정책을 구현 가능한 비교 규칙으로 구체화한 것이다.
-아래 세부 규칙은 `deriveProblemCandidates()`의 `compareCandidates()`에 고정한다.
+1. `focusPriority` 오름차순. 연결된 Focus Item이 없으면 `99`로 취급한다.
+2. evaluator Lens의 category 순서.
+3. `failed` 우선, 그다음 `partial`.
+4. severity 내림차순.
+5. bounded evidence가 있는 후보 우선.
+6. `targetScope`가 있어 집중 연습 가능한 후보 우선.
+7. 슬라이드 순서. `opening=0`, `closing=998`, 알 수 없는 범위와 run scope는 `999`다.
+8. `criterionId`, revision, scope, `observationIds`를 canonical JSON으로 만든 stable key.
 
-1. `focusPriority`를 가장 먼저 비교한다.
-   - `RehearsalFocusProfileSnapshot`에서 Criterion과 일치하는 Focus Item을 찾는다.
-   - Focus Item의 `priority`가 낮을수록 먼저 정렬한다.
-   - Focus Item이 없는 후보는 `99`로 취급해 사용자 지정 목표보다 뒤에 둔다.
-   - 이 값은 최종 `PracticeGoal.priority`가 아니다. 정렬에 사용하는 사용자 목표의 우선순위다.
-2. Brief Criterion을 system Criterion보다 먼저 둔다.
-   - 현재 구현에서는 영향도 점수를 별도로 계산하지 않고 `criterion.source === "brief"` 여부를 비교한다.
-   - Brief에서 승인된 필수 내용·시작·마무리에서 파생된 문제를 먼저 고려한다.
-3. evaluator Lens별 category 순서를 고정한다.
+Lens별 category 순서는 다음과 같다.
 
-   | evaluator Lens | category 우선순위 |
-   | --- | --- |
-   | `decision-maker` | `semantic` → `structure` → `timing` → `delivery` |
-   | `strict-reviewer` | `semantic` → `delivery` → `structure` → `timing` |
-   | `general-novice` | `structure` → `semantic` → `timing` → `delivery` |
+| evaluator Lens | category 우선순위 |
+| --- | --- |
+| `decision-maker` | `semantic` → `structure` → `timing` → `delivery` |
+| `strict-reviewer` | `semantic` → `delivery` → `structure` → `timing` |
+| `general-novice` | `structure` → `semantic` → `timing` → `delivery` |
 
-   category 순서는 `lensOrder()`에서 index로 변환하고, index가 낮은 후보를 먼저 둔다.
-4. 같은 조건에서는 `failed`를 `partial`보다 먼저 둔다.
-   - 둘 다 measured 문제 후보지만, 완전 실패를 부분 전달보다 먼저 노출한다.
-   - 업무분담 문서의 고수준 기준을 구현 단계에서 추가로 세분화한 tie-break다.
-5. `severity`를 관측값 종류별로 수치화한다.
-   - `partial`은 `1`로 둔다.
-   - semantic `contradicted`는 `3`, 그 외 semantic 실패는 `2`로 둔다.
-   - 최대 허용 시간 criterion은 `관측 시간 / 허용 시간`으로 계산한다.
-   - 최대 횟수 criterion은 `1 + (관측 횟수 - 허용 횟수) / (허용 횟수 + 1)`로 계산한다.
-   - 같은 값이면 다음 정렬 기준으로 넘어가며, severity가 큰 후보를 먼저 둔다.
-6. 근거 신뢰도는 bounded evidence의 존재 여부로 구체화한다.
-   - `observation.evidenceRefs.length > 0`이면 `hasBoundedEvidence=true`다.
-   - 근거의 개수나 종류별 가중치는 별도로 계산하지 않는다.
-   - 근거가 있는 후보를 근거가 없는 후보보다 먼저 둔다.
-7. 반복 여부는 `patternKey`로 판정한다.
-   - `patternKey`는 category, `criterionId`, revision, scope를 hash한 값이다.
-   - 이 값이 `repeatedPatternKeys`에 있으면 반복 문제로 처리한다.
-   - 반복 여부는 비교 가능한 전체 발표에서 계산된 입력만 사용하며, Top 3 도출기에서 새로 추정하지 않는다.
-8. 집중 연습 가능 여부는 `targetScope`의 존재 여부로 비교한다.
-   - `targetScope !== null`이면 focused practice가 가능한 후보로 보고 먼저 둔다.
-   - `targetScope === null`이면 full rehearsal 대상이므로 뒤에 둔다.
-9. 슬라이드 순서를 deterministic 값으로 변환한다.
-   - `opening`은 `0`, `closing`은 `998`을 사용한다.
-   - 슬라이드 또는 슬라이드 범위는 실제 slide order를 사용하며, 범위는 시작 슬라이드 순서를 사용한다.
-   - order를 찾지 못한 범위와 run scope는 `999`로 둔다.
-10. 마지막 tie-break는 `stableCandidateKey`로 고정한다.
-    - key에는 `criterionId`, revision, scope, `observationIds`를 포함한다.
-    - canonical JSON으로 직렬화한 뒤 사전순 비교한다.
-    - 따라서 입력 배열 순서가 달라도 같은 후보 순서를 만든다.
+severity는 `partial=1`, semantic `contradicted=3`, 그 외 semantic 실패 `=2`로 둔다. 시간은 `관측 시간 / 허용 시간`, 횟수는 `1 + (관측 횟수 - 허용 횟수) / (허용 횟수 + 1)`로 계산한다. 근거 신뢰도는 가중치를 추정하지 않고 `observation.evidenceRefs`에 bounded evidence가 있는지만 사용한다.
 
-후보는 같은 `criterionId`, revision, scope를 가진 문제를 하나로 병합한다.
-병합 시 `evidenceRefs`와 `observationIds`를 합치고, 중복을 제거한 뒤 안정적으로 정렬한다.
-병합이 끝난 후보를 다시 `compareCandidates()`로 정렬하고 최대 3개를 선택한다.
-최종 `PracticeGoal.priority`는 이 선택 결과의 배열 index에 `1`을 더해 부여한다.
-따라서 `focusPriority`나 severity가 최종 goal의 priority 값으로 직접 복사되는 것은 아니다.
+반복 정보는 `PracticeGoalRankingContext.patternHistory`로 전달한다. pattern별로 다음 값을 보관한다.
+
+- `previousCompatibleRunCount`: 이전 compatible measured full run 수
+- `previousIssueCount`: 해당 run들에서 실제 문제가 발생한 횟수
+- `issueInLatestCompatibleRun`: 직전 compatible run의 문제 여부
+- `lastOccurredAt`: 가장 최근 문제 발생 시각
+
+현재 run을 포함한 compatible measured run이 3회 미만이면 직전 compatible run에서도 같은 문제가 발생한 경우만 반복으로 본다. 3회 이상이면 이전 compatible run 중 한 번 이상 같은 문제가 발생한 현재 문제를 반복으로 본다. 이전 compatible measured run이 하나라도 있으면 `rerun`, 없으면 `baseline`이다.
+
+후보는 같은 `criterionId`, revision, scope를 가진 문제를 하나로 병합한다. 대표 후보는 같은 comparator로 명시적으로 선택하고, 병합 결과는 `failed` 상태와 최대 severity를 보존한다. `evidenceRefs`와 `observationIds`는 중복 제거 후 안정적으로 정렬하고 각각 최대 20개로 제한한다. 병합이 끝난 후보를 다시 정렬해 최대 3개를 선택하며, 최종 `PracticeGoal.priority`는 배열 index에 `1`을 더해 부여한다.
 
 ### 5. CoachingAction
 
@@ -217,6 +187,8 @@ PresentationBrief와 RehearsalFocusProfile Snapshot
 - 공통 계약의 CTA Target
 
 화면 주소, 음성 주소, 전체 transcript는 넣지 않는다. 임재환의 Projector는 이 값을 다시 계산하지 않고 조립·검증만 한다.
+
+`deriveCoachingActions()`는 최영빈 담당의 순수 도출 산출물로 유지한다. 실제 `CoachingReportView.topActions` 조립·저장은 임재환의 Projector 통합 단계에서 연결한다.
 
 ### 6. 분석 Revision 저장
 
@@ -233,7 +205,15 @@ PresentationBrief와 RehearsalFocusProfile Snapshot
 - 집중 연습과 질문·답변 결과를 전체 발표 추세에 섞지 않는다.
 - `recent-twice`는 비교 가능한 최근 전체 발표 두 번에서 같은 문제가 이어진 경우만 사용한다.
 - 문제 → 정상 → 문제는 연속 두 번 문제로 표시하지 않는다.
-- `persistent`는 여러 비교 가능한 전체 발표에서 실제로 반복된 문제에만 사용한다.
+- 현재를 포함한 compatible measured run이 3회 이상이고 이전에 한 번 이상 같은 문제가 있었다면 `persistent`로 표시한다.
+- 과거 `practice_goals.pattern_key` 존재 여부가 아니라 각 run의 report를 공식 Criterion 규칙으로 재평가해 occurrence를 계산한다.
+- semantic cue, timing, filler, pause만 현재 report 계약에서 측정 가능한 범위로 집계하고 Brief 결과가 없으면 `unmeasured`로 제외한다.
+
+### 후속 계약 경계
+
+- Brief must-cover/opening/closing의 실제 측정은 김동현 담당 semantic endpoint가 run/time-window Criterion에 대응하는 검증된 `ReportObservation`을 제공한 뒤 연결한다. 그 전까지 Worker는 이 항목을 `NO_MEASUREMENT`로 유지하며 transcript나 deck cue로 결과를 추정하지 않는다.
+- `CoachingReportView.topActions`의 실제 조립·저장은 임재환 Projector 통합 단계의 후속 작업이다.
+- 위 두 작업은 shared Schema, Python DTO, DB Migration 합의가 필요한 별도 계약 작업이며 현재 브랜치에서는 변경하지 않는다.
 
 ## 커밋 단위와 commit body
 
@@ -316,18 +296,19 @@ refactor: 실제 평가 결과와 사용자 목표로 Top 3를 도출
 
 구현 순서 대응:
 - 7. 실패·부분 전달만 후보로 만들고 후보가 없으면 빈 결과를 반환한다.
-- 8. Brief·Lens·심각도·근거·반복·집중 연습·슬라이드 순서로 정렬한다.
+- 8. baseline/rerun tier와 결정적 tie-break로 정렬한다.
 - 9. 사용자 목표와 연결된 실패·부분 전달 후보를 먼저 고려한다.
 - 10. 같은 Criterion과 범위의 중복을 합치고 fallbackCandidates를 문제 후보에서 제거한다.
 - 11. 마지막 tie-break까지 고정해 같은 입력에 같은 결과를 만든다.
 
 주요 구현:
 - 공통 평가 결과 기반 후보 생성과 중복 제거를 추가한다.
-- 사용자 목표와 비교 가능한 반복 정보를 ranking context로 받는다.
+- 비교 가능한 반복 정보를 `PracticeGoalRankingContext`로 받는다.
+- Focus는 같은 tier 안에서만 boost하고 중복 병합 시 `failed`와 최대 severity를 보존한다.
 - 가짜 문제 Top 3 생성을 제거한다.
 
 검증:
-- 사용자 목표 우선순위 테스트
+- baseline/rerun tier와 Focus tier 경계 테스트
 - 중복 제거·정렬·tie-break 테스트
 - 통과 항목만 있을 때 빈 Top 3 테스트
 ```

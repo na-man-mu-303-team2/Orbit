@@ -68,6 +68,67 @@ describe("practice goal derivation", () => {
     expect(set?.goals).toEqual([]);
   });
 
+  it("keeps Brief must-cover, opening, and closing unmeasured without observations", () => {
+    const sourceSnapshot = snapshotWithBriefCriteria();
+    const sourceReport = report(false);
+    const briefCriterionIds = new Set([
+      "criterion_brief_must_cover",
+      "criterion_brief_opening",
+      "criterion_brief_closing"
+    ]);
+
+    const evaluation = evaluateFullRunCriteria({
+      sourceFullRunId: "run-a",
+      snapshot: sourceSnapshot,
+      report: sourceReport
+    });
+    const set = derivePracticeGoalSet({
+      projectId: "project-a",
+      sourceFullRunId: "run-a",
+      sourceAnalysisRevision: 1,
+      snapshot: sourceSnapshot,
+      report: sourceReport
+    });
+
+    expect(
+      evaluation.results.filter((result) =>
+        briefCriterionIds.has(result.criterionRef.criterionId)
+      )
+    ).toEqual([
+      expect.objectContaining({
+        criterionRef: { criterionId: "criterion_brief_must_cover", revision: 1 },
+        measurementState: "unmeasured",
+        evaluationStatus: "not-evaluated",
+        observationId: null,
+        reasonCode: "NO_MEASUREMENT"
+      }),
+      expect.objectContaining({
+        criterionRef: { criterionId: "criterion_brief_opening", revision: 1 },
+        measurementState: "unmeasured",
+        evaluationStatus: "not-evaluated",
+        observationId: null,
+        reasonCode: "NO_MEASUREMENT"
+      }),
+      expect.objectContaining({
+        criterionRef: { criterionId: "criterion_brief_closing", revision: 1 },
+        measurementState: "unmeasured",
+        evaluationStatus: "not-evaluated",
+        observationId: null,
+        reasonCode: "NO_MEASUREMENT"
+      })
+    ]);
+    expect(
+      evaluation.observations.some((observation) =>
+        briefCriterionIds.has(observation.criterionRef.criterionId)
+      )
+    ).toBe(false);
+    expect(
+      set?.goals.some((goal) =>
+        briefCriterionIds.has(goal.criterionRef.criterionId)
+      )
+    ).toBe(false);
+  });
+
   it("keeps core semantic ahead of focused delivery and excludes passed focus items", () => {
     const focusedSnapshot = rehearsalEvaluationSnapshotSchema.parse({
       ...snapshot(),
@@ -822,6 +883,57 @@ function snapshot(sourceGoalSetId: string | null = null) {
         ]
       }
     ]
+  });
+}
+
+function snapshotWithBriefCriteria() {
+  const base = snapshot();
+  const plan = base.evaluationPlan;
+  if (!plan) throw new Error("Expected an evaluation plan fixture.");
+  return rehearsalEvaluationSnapshotSchema.parse({
+    ...base,
+    evaluationPlan: {
+      ...plan,
+      criteria: [
+        ...plan.criteria,
+        {
+          criterionId: "criterion_brief_must_cover",
+          revision: 1,
+          category: "semantic",
+          source: "brief",
+          scope: { type: "run" },
+          label: "필수 내용 전달",
+          measurement: {
+            type: "semantic-coverage",
+            expectedConceptIds: ["brief_concept_must_cover"]
+          }
+        },
+        {
+          criterionId: "criterion_brief_opening",
+          revision: 1,
+          category: "structure",
+          source: "brief",
+          scope: { type: "time-window", window: "opening" },
+          label: "도입부 목표 전달",
+          measurement: {
+            type: "semantic-coverage",
+            expectedConceptIds: ["brief_concept_opening"]
+          }
+        },
+        {
+          criterionId: "criterion_brief_closing",
+          revision: 1,
+          category: "structure",
+          source: "brief",
+          scope: { type: "time-window", window: "closing" },
+          label: "마무리 목표 전달",
+          measurement: {
+            type: "semantic-coverage",
+            expectedConceptIds: ["brief_concept_closing"]
+          }
+        }
+      ]
+    }
   });
 }
 

@@ -78,7 +78,7 @@ export class PracticeGoalsService {
       `WITH current_run AS (
          SELECT created_at, run_id
          FROM rehearsal_runs
-         WHERE project_id = $1 AND run_id = $3
+         WHERE project_id = $1 AND run_id = $2
        ), recent_full_runs AS (
          SELECT runs.run_id, runs.created_at, runs.evaluation_snapshot_json,
                 runs.report_json AS rehearsal_report_json
@@ -94,22 +94,10 @@ export class PracticeGoalsService {
          LIMIT 5
        )
        SELECT runs.run_id, runs.created_at AS run_created_at,
-              runs.evaluation_snapshot_json, runs.rehearsal_report_json,
-              goals.pattern_key
+              runs.evaluation_snapshot_json, runs.rehearsal_report_json
        FROM recent_full_runs runs
-       LEFT JOIN practice_goal_heads heads
-         ON heads.project_id = $1
-        AND heads.source_full_run_id = runs.run_id
-       LEFT JOIN practice_goal_sets sets
-         ON sets.project_id = heads.project_id
-        AND sets.goal_set_id = heads.current_goal_set_id
-        AND sets.analysis_state = 'final'
-       LEFT JOIN practice_goals goals
-         ON goals.project_id = sets.project_id
-        AND goals.goal_set_id = sets.goal_set_id
-        AND goals.pattern_key = ANY($2::text[])
-       ORDER BY runs.created_at DESC, runs.run_id DESC, goals.priority ASC`,
-      [projectId, goals.map((goal) => goal.patternKey), sourceFullRunId],
+       ORDER BY runs.created_at DESC, runs.run_id DESC`,
+      [projectId, sourceFullRunId],
     );
     const history = historyByComparableRuns(
       goals,
@@ -173,28 +161,41 @@ function historyByComparableRuns(goals: PracticeGoal[], rows: unknown[]) {
       return [goal.patternKey, defaultHistory(goal)] as const;
     }
 
-    const comparableRuns = runs.filter((run) => {
+    const comparableRuns = runs.flatMap((run) => {
       const criterion = criterionForGoal(run.snapshot, goal);
-      return (
-        criterion !== null &&
-        comparableCriterionSources(
+      if (
+        criterion === null ||
+        !comparableCriterionSources(
           currentRun.snapshot,
           currentCriterion,
           run.snapshot,
           criterion,
-        ) &&
-        criterionWasMeasured(run.report, criterion)
-      );
+        )
+      ) {
+        return [];
+      }
+      const state = criterionProblemState(run.report, criterion);
+      return state === "unmeasured" ? [] : [{ ...run, state }];
     });
-    const occurrenceCount = comparableRuns.filter((run) =>
-      run.patternKeys.has(goal.patternKey),
+    const currentState = comparableRuns.find(
+      (run) => run.runId === goal.originFullRunId,
+    )?.state;
+    if (currentState !== "problem") {
+      return [goal.patternKey, defaultHistory(goal)] as const;
+    }
+
+    const occurrenceCount = comparableRuns.filter(
+      (run) => run.state === "problem",
     ).length;
     const previousComparableRuns = comparableRuns.filter(
       (run) => run.runId !== goal.originFullRunId,
     );
     const previousRun = previousComparableRuns[0];
-    const isRecentTwice = previousRun?.patternKeys.has(goal.patternKey) ?? false;
-    const label = comparableRuns.length >= 3 && occurrenceCount >= 2
+    const isRecentTwice = previousRun?.state === "problem";
+    const hasPreviousOccurrence = previousComparableRuns.some(
+      (run) => run.state === "problem",
+    );
+    const label = comparableRuns.length >= 3 && hasPreviousOccurrence
       ? "persistent"
       : isRecentTwice
         ? "recent-twice"
@@ -202,7 +203,7 @@ function historyByComparableRuns(goals: PracticeGoal[], rows: unknown[]) {
 
     return [goal.patternKey, {
       label,
-      occurrenceCount: Math.max(1, occurrenceCount),
+      occurrenceCount,
       comparableRunCount: previousComparableRuns.length,
       lastSeenAt: goal.createdAt,
     }] as const;
@@ -215,7 +216,6 @@ type ComparableRun = {
   createdAt: string;
   snapshot: RehearsalEvaluationSnapshot;
   report: RehearsalReport;
-  patternKeys: Set<string>;
 };
 
 function groupHistoryRuns(rows: unknown[]): ComparableRun[] {
@@ -234,11 +234,7 @@ function groupHistoryRuns(rows: unknown[]): ComparableRun[] {
       createdAt: toIso(row.run_created_at),
       snapshot: snapshot.data,
       report: report.data,
-      patternKeys: new Set<string>(),
     };
-    if (typeof row.pattern_key === "string") {
-      current.patternKeys.add(row.pattern_key);
-    }
     grouped.set(row.run_id, current);
   }
   return [...grouped.values()]
@@ -297,31 +293,73 @@ function metricDefinitionVersion(
     : versions.pause;
 }
 
-function criterionWasMeasured(
+type CriterionProblemState = "problem" | "passed" | "unmeasured";
+
+function criterionProblemState(
   report: RehearsalReport,
   criterion: EvaluationCriterion,
-) {
+): CriterionProblemState {
   if (criterion.measurement.type === "semantic-coverage") {
-    return report.semanticCueOutcomes.some(
+    const outcome = report.semanticCueOutcomes.find(
       (outcome) =>
         criterion.source === "deck-cue" &&
         criterion.scope.type === "slide" &&
         criterion.scope.slideId === outcome.slideId &&
         criterion.criterionId ===
-          `criterion_cue_${outcome.cueId}_r${outcome.cueRevision}`.slice(0, 128) &&
-        outcome.status !== "unmeasured" &&
-        outcome.status !== "excluded",
+          `criterion_cue_${outcome.cueId}_r${outcome.cueRevision}`.slice(0, 128),
     );
+    if (!outcome || outcome.status === "unmeasured" || outcome.status === "excluded") {
+      return "unmeasured";
+    }
+    const contradicted = report.semanticCueDecisions.some(
+      (decision) =>
+        decision.slideId === outcome.slideId &&
+        decision.cueId === outcome.cueId &&
+        decision.label === "contradicted",
+    );
+    return contradicted || outcome.status !== "covered" ? "problem" : "passed";
   }
   if (criterion.measurement.type === "max-duration-seconds") {
-    if (criterion.scope.type !== "slide") return false;
+    if (criterion.scope.type !== "slide") return "unmeasured";
     const slideId = criterion.scope.slideId;
-    return report.slideTimings.some((timing) => timing.slideId === slideId);
+    const timing = report.slideTimings.find((item) => item.slideId === slideId);
+    if (!timing) return "unmeasured";
+    return timing.actualSeconds > criterion.measurement.maximum
+      ? "problem"
+      : "passed";
   }
-  if (criterion.scope.type === "run") return true;
-  if (criterion.scope.type !== "slide") return false;
-  const slideId = criterion.scope.slideId;
-  return report.slideInsights.some((insight) => insight.slideId === slideId);
+  const value = countMeasurementValue(
+    report,
+    criterion.scope,
+    criterion.measurement,
+  );
+  if (value === null) return "unmeasured";
+  return value > criterion.measurement.maximum ? "problem" : "passed";
+}
+
+function countMeasurementValue(
+  report: RehearsalReport,
+  scope: EvaluationCriterion["scope"],
+  measurement: Extract<
+    EvaluationCriterion["measurement"],
+    { type: "max-count" }
+  >,
+) {
+  const metric = measurement.metric;
+  if (scope.type === "run") {
+    return metric === "filler-word-count"
+      ? report.metrics.fillerWordCount
+      : report.metrics.pauseCount;
+  }
+  if (scope.type !== "slide") return null;
+  const slideId = scope.slideId;
+  const insight = report.slideInsights.find(
+    (item) => item.slideId === slideId,
+  );
+  if (!insight) return null;
+  return metric === "filler-word-count"
+    ? insight.fillerWordCount
+    : insight.pauseCount;
 }
 
 function defaultHistory(goal: PracticeGoal) {
