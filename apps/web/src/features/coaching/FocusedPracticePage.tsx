@@ -127,7 +127,7 @@ export function FocusedPracticePage(props: {
         setStatus("다시 연습 가능");
         return;
       }
-      if (!audio.recording) { prepareRecordingTarget(); await audio.start(); setStatus("녹음 중"); return; }
+      if (!audio.recording) { await audio.start(); prepareRecordingTarget(); setStatus("녹음 중"); return; }
       const capture = await audio.stop();
       await submitCapture(capture);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "녹음을 처리하지 못했습니다."); setStatus("다시 시도"); }
