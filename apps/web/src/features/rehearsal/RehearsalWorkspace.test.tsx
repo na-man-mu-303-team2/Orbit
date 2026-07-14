@@ -122,6 +122,24 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("measures the presenter stage before painting the slide at an incorrect scale", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const hookStart = source.indexOf("function usePresenterStageScale");
+    const hookEnd = source.indexOf(
+      "function getRehearsalPaceSummaryLabel",
+      hookStart,
+    );
+    const hookBody = source.slice(hookStart, hookEnd);
+    const stageRenderStart = source.indexOf("renderStage={");
+    const stageRenderEnd = source.indexOf("stageIndexLabel=", stageRenderStart);
+    const stageRenderBody = source.slice(stageRenderStart, stageRenderEnd);
+
+    expect(hookBody).toContain("useState<number | null>(null)");
+    expect(hookBody).toContain("useLayoutEffect(() => {");
+    expect(hookBody).not.toContain("useState(0.44)");
+    expect(stageRenderBody).toContain("presenterScale !== null");
+  });
+
   it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
     const html = renderToStaticMarkup(
       <RehearsalFailureScreen
