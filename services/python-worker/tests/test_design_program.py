@@ -19,6 +19,19 @@ from app.ai.design_program import (
     create_design_program,
     design_program_response_format,
 )
+from app.ai.deck_generation.design_planning import (
+    apply_program_v2_design_tokens,
+    plan_design,
+    program_v2_slide_summary,
+)
+from app.ai.deck_generation.layout_compiler import (
+    compile_layout,
+    program_v2_visual_plan,
+)
+from app.ai.deck_generation.source_grounding import (
+    design_pack_source_ledgers,
+    initial_source_records,
+)
 from app.ai.generate_deck import (
     DeckGenerationOrchestrator,
     GenerateDeckRequest,
@@ -28,12 +41,7 @@ from app.ai.generate_deck import (
     SourceRecord,
     VisualIntent,
     analyze_input,
-    apply_program_v2_design_tokens,
-    design_pack_source_ledgers,
-    initial_source_records,
     is_expected_media_placeholder,
-    program_v2_visual_plan,
-    program_v2_slide_summary,
     validate_presentation,
 )
 
@@ -589,7 +597,7 @@ def test_create_design_program_keeps_irrecoverable_validation_errors(
     assert len(responses.requests) == 2
 
 
-def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
+def test_program_v2_design_and_layout_stages_compile_canonical_backgrounds() -> None:
     mismatched = {**valid_program(), "backgroundSequence": ["light", "light"]}
     responses = FakeResponses([mismatched])
     orchestrator = DeckGenerationOrchestrator(
@@ -643,23 +651,27 @@ def test_program_v2_orchestrator_compiles_design_program_deck() -> None:
         ),
     ]
 
-    slide_plans, theme = orchestrator.run_design_director_agent(
+    design_plan = plan_design(
         raw_input,
         slide_plans,
+        client=orchestrator.client,
     )
-    compiled_slides = orchestrator.run_layout_agent(
+    layout_result = compile_layout(
         raw_input,
-        slide_plans,
-        theme,
+        design_plan,
     )
     deck = orchestrator.build_deck(
         raw_input,
         type("Outline", (), {"title": "Splatoon Raiders"})(),
-        theme,
-        compiled_slides,
+        design_plan,
+        layout_result,
     )
 
     assert deck["metadata"]["designProgramSnapshot"]["version"] == "program-v2"
+    assert design_plan.design_program.background_sequence == [
+        direction.background_mode
+        for direction in design_plan.design_program.slides
+    ]
     assert deck["metadata"]["designProgramSnapshot"]["backgroundSequence"] == [
         slide["aiNotes"]["compositionPlan"]["backgroundMode"]
         for slide in deck["slides"]
@@ -817,20 +829,19 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
     for slide_order in (2, 8):
         slide_plans[slide_order - 1].source_refs = ["web:official"]
 
-    normalized_plans, theme = orchestrator.run_design_director_agent(
+    design_plan = orchestrator.run_design_director_agent(
         raw_input,
         slide_plans,
     )
-    compiled_slides = orchestrator.run_layout_agent(
+    layout_result = orchestrator.run_layout_agent(
         raw_input,
-        normalized_plans,
-        theme,
+        design_plan,
     )
     deck = orchestrator.build_deck(
         raw_input,
         type("Outline", (), {"title": "스플래툰 레이더스"})(),
-        theme,
-        compiled_slides,
+        design_plan,
+        layout_result,
     )
 
     composition_ids = [

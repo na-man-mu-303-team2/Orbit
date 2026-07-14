@@ -13,9 +13,10 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import app.main as api_module
-import app.ai.generate_deck as generate_deck_module
+import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
-from app.ai.design_program import DeckDesignProgram
+from app.ai.deck_generation.models import RawInput, StylePromptContext
+from app.ai.design_program import DeckDesignProgram, DesignProgramError
 from app.ai.generate_deck import (
     AgentOutput,
     DeckContentGenerationError,
@@ -87,6 +88,10 @@ from app.ai.generate_deck import (
     web_sources_from_response,
 )
 from tests.test_config import VALID_ENV
+
+
+def style_prompt_context(raw_input: RawInput) -> StylePromptContext:
+    return design_planning_module.resolve_style_prompt_context(raw_input)
 
 
 def test_program_v2_golden_request_contract() -> None:
@@ -391,7 +396,7 @@ def deterministic_art_director(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         )
 
-    monkeypatch.setattr(generate_deck_module, "create_design_program", create_program)
+    monkeypatch.setattr(design_planning_module, "create_design_program", create_program)
 
 
 def assert_validation_result_consistent(
@@ -674,7 +679,10 @@ def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
     assert rules[0] == "Presentation profile: product-launch"
     assert "release information" in rules[1]
     assert any("concrete next action" in rule for rule in rules)
-    assert "Presentation profile: product-launch" in deck_content_prompt(raw_input)
+    assert "Presentation profile: product-launch" in deck_content_prompt(
+        raw_input,
+        style_prompt_context(raw_input),
+    )
 
 
 def test_presentation_rule_prompt_controls_beat_scaling_and_agenda() -> None:
@@ -1717,12 +1725,17 @@ def test_content_prompt_separates_operational_and_grounded_numbers() -> None:
     )
 
     assert "Allowed factual numeric values from source records: (none)" in deck_content_prompt(
-        without_numbers
+        without_numbers,
+        style_prompt_context(without_numbers),
     )
     assert "Allowed factual numeric values from source records: 20" in deck_content_prompt(
-        with_numbers
+        with_numbers,
+        style_prompt_context(with_numbers),
     )
-    assert "operational instructions, not evidence" in deck_content_prompt(without_numbers)
+    assert "operational instructions, not evidence" in deck_content_prompt(
+        without_numbers,
+        style_prompt_context(without_numbers),
+    )
 
 
 def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
@@ -2684,6 +2697,7 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
 
     first = generate_content_plan_with_llm(
         raw_input,
+        style_prompt_context(raw_input),
         client=fake_client,
         model="gpt-test",
     )
@@ -2691,6 +2705,7 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
     first.slides[0].title = "Mutated title"
     second = generate_content_plan_with_llm(
         raw_input,
+        style_prompt_context(raw_input),
         client=fake_client,
         model="gpt-test",
     )
@@ -2739,6 +2754,7 @@ def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
         plan,
         [slide_plan],
         ["slide 1: speaker notes 4 chars below target 320"],
+        style_prompt_context(raw_input),
         client=fake_client,
     )
 
@@ -2784,7 +2800,11 @@ def test_research_first_content_plan_requires_verified_source_grounding() -> Non
     ]
     fake_client = FakeOpenAIClient(payload)
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     request = fake_client.requests[0]
@@ -3484,7 +3504,11 @@ def test_design_pack_repairs_exact_slide_count_once() -> None:
         )
     )
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     assert len(plan.slides) == 15
@@ -3529,6 +3553,7 @@ def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
     ):
         generate_content_plan_with_llm(
             raw_input,
+            style_prompt_context(raw_input),
             client=FakeOpenAIClient(payloads),
         )
 
@@ -3545,16 +3570,18 @@ def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
         ],
     }
     fresh_client = FakeOpenAIClient(exact_payload)
+    fresh_raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
     fresh_plan = generate_content_plan_with_llm(
-        analyze_input(
-            GenerateDeckRequest(
-                projectId="project_demo_1",
-                topic="ORBIT",
-                prompt="Create an exact deck.",
-                targetDurationMinutes=15,
-                slideCountRange={"min": 15, "max": 15},
-            )
-        ),
+        fresh_raw_input,
+        style_prompt_context(fresh_raw_input),
         client=fresh_client,
     )
 
@@ -3590,7 +3617,11 @@ def test_design_pack_repairs_exact_slide_count_overflow() -> None:
         )
     )
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     assert len(plan.slides) == 15
@@ -4334,7 +4365,7 @@ def test_no_template_narrative_prompt_compacts_design_details() -> None:
         )
     )
 
-    prompt = deck_content_prompt(raw_input)
+    prompt = deck_content_prompt(raw_input, style_prompt_context(raw_input))
     design_line = next(line for line in prompt.splitlines() if line.startswith("Design prompt: "))
     compacted = design_line.removeprefix("Design prompt: ")
 
@@ -4420,7 +4451,7 @@ def test_generate_deck_includes_brandlogy_design_pack_prompt_and_brief() -> None
         )
     )
 
-    prompt = deck_content_prompt(raw_input)
+    prompt = deck_content_prompt(raw_input, style_prompt_context(raw_input))
 
     assert "Style pack override: brandlogy-modern" in prompt
     assert "Brandlogy Modern Design Pack" in prompt
@@ -5593,6 +5624,31 @@ def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
 
     assert response.status_code == 503
     assert "OPENAI_API_KEY" in response.json()["detail"]
+
+
+def test_generate_deck_endpoint_maps_design_provider_error_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_design_program(*_args: Any, **_kwargs: Any) -> DeckDesignProgram:
+        raise DesignProgramError("Art Director provider unavailable")
+
+    monkeypatch.setattr(
+        design_planning_module,
+        "create_design_program",
+        fail_design_program,
+    )
+
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "Design provider failure",
+            "slideCountRange": {"min": 1, "max": 1},
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Art Director provider unavailable"
 
 
 def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:

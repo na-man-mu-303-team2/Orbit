@@ -20,13 +20,13 @@ from app.ai.composition_library import (
 )
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.design_program import CompositionId, DeckDesignProgram
+from app.ai.deck_generation.layout_compiler import without_canvas_background_elements
 from app.ai.generate_deck import (
     ValidationResult,
     validate_content,
     validate_design,
     validate_layout,
     validate_presentation,
-    without_canvas_background_elements,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.ai.pptx_ooxml_generation import CanvasSpec, render_pptx_to_png_assets

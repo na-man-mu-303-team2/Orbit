@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.ai.design_program import DeckDesignProgram
+
 
 Audience = Literal["general", "executive", "technical", "sales"]
 Purpose = Literal["inform", "persuade", "teach", "report"]
@@ -499,6 +501,14 @@ class RawInput(BaseModel):
     )
 
 
+class StylePromptContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    preset_style_prompt: str = ""
+    document_mode: Literal["auto", "presentation", "report/submission"] = "auto"
+    use_full_design_context: bool = False
+
+
 class DeckOutline(BaseModel):
     title: str
     slide_titles: list[str]
@@ -598,6 +608,18 @@ class SlidePlan(BaseModel):
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+
+
+class DesignPlan(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    slide_plans: list[SlidePlan] = Field(alias="slidePlans")
+    theme: dict[str, Any]
+    design_program: DeckDesignProgram = Field(alias="designProgram")
+
+
+class LayoutCompileResult(BaseModel):
+    slides: list[dict[str, Any]]
 
 
 class ValidationIssue(BaseModel):
