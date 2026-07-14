@@ -62,6 +62,7 @@ import {
   resetRehearsalTimerState,
   resolveRehearsalReportLoadState,
   retryRehearsalSemanticEvaluation,
+  runRehearsalPauseSequence,
   runRehearsalUploadFlow,
   selectRecordingMimeType,
   setMediaStreamTracksEnabled,
@@ -794,7 +795,9 @@ describe("RehearsalWorkspace", () => {
     expect(pauseBody.indexOf("await sessionRef.current?.pause()"))
       .toBeLessThan(pauseBody.indexOf("await p3Session.pause()"));
     expect(pauseBody.indexOf("await p3Session.pause()"))
-      .toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled(streamRef.current, false)"));
+      .toBeLessThan(pauseBody.indexOf('if (pauseResult.status === "paused")'));
+    expect(pauseBody.indexOf('if (pauseResult.status === "paused")'))
+      .toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled("));
     expect(resumeBody.indexOf("setMediaStreamTracksEnabled(stream, true)"))
       .toBeLessThan(resumeBody.indexOf("await sessionRef.current?.resume()"));
     expect(resumeBody.indexOf("await sessionRef.current?.resume()"))
@@ -2456,6 +2459,62 @@ describe("RehearsalWorkspace", () => {
       "rehearsal-2026-06-29T00-00-00-000Z.webm",
     );
     expect(stoppedFiles[0]?.type).toBe("audio/webm");
+  });
+
+  it("pauses recording before speech and settles in paused state", async () => {
+    const order: string[] = [];
+
+    const result = await runRehearsalPauseSequence({
+      pauseRecording: async () => {
+        order.push("recording");
+      },
+      pauseSpeech: async () => {
+        order.push("speech");
+      },
+    });
+
+    expect(order).toEqual(["recording", "speech"]);
+    expect(result).toEqual({ error: null, status: "paused" });
+  });
+
+  it("restores running state when recorder pause fails", async () => {
+    const pauseSpeech = vi.fn(async () => undefined);
+    const failure = new Error("recorder pause failed");
+
+    const result = await runRehearsalPauseSequence({
+      pauseRecording: async () => {
+        throw failure;
+      },
+      pauseSpeech,
+    });
+
+    expect(pauseSpeech).not.toHaveBeenCalled();
+    expect(result).toEqual({ error: failure, status: "running" });
+  });
+
+  it("keeps paused state when speech stop fails after recording pause", async () => {
+    const failure = new Error("speech stop failed");
+
+    const result = await runRehearsalPauseSequence({
+      pauseRecording: async () => undefined,
+      pauseSpeech: async () => {
+        throw failure;
+      },
+    });
+
+    expect(result).toEqual({ error: failure, status: "paused" });
+  });
+
+  it("keeps live rehearsal paused when speech stop fails", async () => {
+    const failure = new Error("speech stop failed");
+
+    const result = await runRehearsalPauseSequence({
+      pauseSpeech: async () => {
+        throw failure;
+      },
+    });
+
+    expect(result).toEqual({ error: failure, status: "paused" });
   });
 
   it("비활성화한 live 오디오 트랙을 재사용하고 다시 활성화한다", () => {
