@@ -666,7 +666,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 구현 위치:
 
 - `packages/shared/src/deck/generate-deck.schema.ts`
-- `services/python-worker/app/ai/generate_deck.py`
+- `services/python-worker/app/ai/generate_deck.py`: 공개 request/response import와 얇은 façade
+- `services/python-worker/app/ai/deck_generation/`: Pydantic stage DTO, 동기식 `pipeline.py`, source/content/design/layout/visual requirements/quality/diagnostics 구현
 - `apps/api/src/generate-deck`
 - `apps/worker/src/generate-deck.processor.ts`
 
