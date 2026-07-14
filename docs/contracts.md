@@ -750,14 +750,16 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 
 PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 `TemplateBlueprint`를 분리한다. `Deck`/`DeckElement` schema는 변경하지 않고, 템플릿 의미 판단은 `packages/shared/src/deck/template-blueprint.schema.ts`의 sidecar를 원본으로 둔다.
 
-`/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 1부터 에디터는 `/pptx-ooxml-generations`만 호출하며, 아래 API·queue·consumer·result schema는 rollback과 이미 enqueue된 Job의 drain을 위해 임시 유지한다. 신규 producer 중단은 #339 PR 3, drain 확인 후 실행 코드 제거는 PR 4에서 수행한다.
+`/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 3부터 API module이 앱에서 해제되어 신규 요청과 Job 생성이 불가능하다. queue name, consumer, processor, result schema와 historical Job type은 이미 enqueue된 Job의 drain 및 이력 조회를 위해 PR 4까지 유지한다.
 
-Legacy API:
+비활성 Legacy API 경로:
 
 - `POST /api/v1/projects/:projectId/pptx-imports`
 - request: `{ "fileId": "file_1" }`
 - response: `{ "job": "{ JobSchema }" }`
 - Job type: `pptx-import`
+
+이 경로는 앱에 등록되지 않으므로 `404`이며, `enqueuePptxImportJob` export도 존재하지 않는다. 활성 대체 경로는 `POST /api/v1/projects/:projectId/pptx-ooxml-generations`다.
 
 Legacy PPTX import job result:
 
@@ -842,7 +844,7 @@ TemplateBlueprint:
 
 - `packages/shared/src/deck/template-blueprint.schema.ts`
 - `services/python-worker/app/ai/pptx_design_importer.py`
-- `apps/api/src/pptx-imports`
+- `apps/api/src/pptx-imports` (PR 4 삭제 전 비활성 tombstone)
 - `apps/worker/src/pptx-import.processor.ts`
 
 ## PPTX OOXML generation contract
@@ -898,18 +900,17 @@ TemplateBlueprint optional OOXML tracking fields:
 - `apps/worker/src/pptx-ooxml-generation.processor.ts`
 - `services/python-worker/app/ai/pptx_ooxml_generation.py`
 
-## AI template deck generation contract
+## AI template deck generation historical contract
 
-Home screen AI generation uses one master job to combine content references
-with a PPTX design template. The worker runs content extraction and PPTX OOXML
-template conversion in parallel, then generates a deck, applies generated text
-back into the PPTX package, and saves the final deck for the editor.
+#339 PR 3부터 Home의 구형 생성 UI와 API module이 제거되어 신규 `ai-template-deck-generation` Job을 만들 수 없다. 아래 request/result와 queue consumer는 이미 queued/active인 Job의 drain 및 historical row parsing을 위해 PR 4까지 유지한다. 신규 AI PPT 생성은 `/createdeck`의 `generate-deck` `program-v2` 경로를 사용한다.
 
-API:
+비활성 API 경로:
 
 - `POST /api/v1/projects/:projectId/jobs/ai-template-deck-generation`
 - Job type: `ai-template-deck-generation`
 - Queue name: `ai-template-deck-generation`
+
+이 경로는 앱에 등록되지 않으므로 `404`이며, `enqueueAiTemplateDeckGenerationJob` export도 존재하지 않는다.
 
 Request:
 
@@ -1476,7 +1477,7 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 - `succeeded`
 - `failed`
 
-`type` 값:
+historical `type` 값:
 
 - `pptx-import`
 - `deck-export`
@@ -1494,6 +1495,9 @@ PPTX import/export, 참고자료 추출, AI 생성, 리허설 STT, 최종 보고
 결정 사항:
 
 - 오래 걸리는 작업은 전부 Job으로 처리한다.
+- `historicalJobTypeSchema`와 `jobSchema`는 `pptx-import`, `ai-template-deck-generation` 과거 row를 계속 읽는다.
+- PR 3의 `activeJobTypeSchema`는 drain 중인 두 type을 유지하지만 `publicCreatableJobTypeSchema`는 두 type을 거부한다. 두 type의 active schema·consumer·queue 제거는 drain 확인 후 PR 4에서 수행한다.
+- `packages/job-queue`는 두 legacy queue name을 consumer용으로 유지하되 신규 enqueue helper를 export하지 않는다.
 - 프론트는 `jobId`로 진행률을 조회한다.
 - Job 조회 API는 `GET /jobs/:jobId`를 기본 경로로 사용하고, 기존/캐시된 web client 호환을 위해 `GET /api/v1/jobs/:jobId`도 같은 응답을 반환한다.
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.
@@ -1764,7 +1768,7 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 - `rehearsal-audio`, `focused-practice-audio`, `qna-answer-audio`는 private purpose다.
 - generic file upload/list/get/content는 private purpose를 생성하거나 반환하지 않는다.
 - `focused-practice-analysis`, `challenge-qna-generation`, `challenge-qna-answer-analysis`, `private-audio-cleanup`은 internal Job type이다.
-- public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job을 거부한다.
+- public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job과 drain-only `pptx-import`, `ai-template-deck-generation`을 거부한다.
 - Job payload/result에는 canonical ID와 bounded result만 넣고 audio key/URL/bytes, transcript, typed answer, Question/AnswerGuide 원문, reference chunk 원문, speaker notes, provider raw error를 넣지 않는다.
 - Worker는 Job 완료 결과를 generic `z.record(z.unknown())`에 직접 저장하지 않고 해당 Job type의 shared result schema로 검증한 값만 저장한다.
 - Question과 AnswerGuide 원문은 project-private canonical table에만 저장한다.

@@ -82,26 +82,24 @@ flowchart LR
 
 Worker와 Python은 이 값을 기준으로 구형 recipe와 imported PPTX design/template 재사용 분기를 수행한다. 제품 UI가 더 이상 호출하지 않더라도 코드와 계약에 남아 있기 때문에 #338의 stage 입력을 설계할 때 잘못된 필수 요구사항으로 굳어질 위험이 있다.
 
-### 2.3 현재 PPTX import 경로와 계약 불일치
+### 2.3 PPTX import baseline과 현행 상태
 
-에디터의 PPTX import UI는 현재 순수 OOXML 경로가 아니라 구형 `/pptx-imports` 경로에 연결되어 있다.
+아래 불일치는 계획 작성 당시 baseline이며 #339 PR 1~PR 3에서 해소되었다. 현재 에디터는 `{ fileId }`만 `POST /pptx-ooxml-generations`에 전달하고, 구형 `/pptx-imports` API module과 신규 enqueue helper는 해제되어 있다. 구형 queue consumer는 이미 queued/active인 Job drain을 위해 PR 4까지 유지한다.
 
 ```mermaid
 flowchart TD
-    UI["EditorShell PPTX import"] --> OLD_API["POST /pptx-imports"]
-    OLD_API --> OLD_Q["pptx-import queue"]
-    OLD_Q --> OLD_P["pptx-import.processor.ts"]
-    OLD_P --> OLD_PY["/design/import-pptx"]
-
-    UI -. "전환 필요" .-> NEW_API["POST /pptx-ooxml-generations"]
+    UI["EditorShell PPTX import"] --> NEW_API["POST /pptx-ooxml-generations<br/>{ fileId }"]
     NEW_API --> NEW_Q["pptx-ooxml-generation queue"]
     NEW_Q --> NEW_P["pptx-ooxml-generation.processor.ts"]
     NEW_P --> NEW_PY["/ai/pptx-ooxml-generation"]
+
+    OLD_Q["pptx-import queue"] --> OLD_P["pptx-import.processor.ts<br/>drain only"]
+    OLD_P --> OLD_PY["/design/import-pptx"]
 ```
 
-`pptx-ooxml-generation`은 이미 순수 변환 경로를 갖고 있지만, request의 `topic`, `prompt`가 존재하면 `wants_ai` 분기로 들어가 `generate_content_slot_texts()`를 호출하고 원본 content slot을 AI 문구로 교체한다. 이 부분은 PPTX import의 목표와 충돌한다.
+`PptxOoxmlGenerationRequest`의 legacy optional AI 입력 축소는 PR 5에서 수행한다. 다만 활성 Editor click path는 이미 `{ fileId }`만 보내므로 import 중 AI 문구 교체를 요청하지 않는다.
 
-또한 현재 `deck-export.processor.ts`는 모든 Deck을 `/ai/export-deck-pptx`로 보내 새 PPTX를 재구성한다. 가져온 PPTX에 대해 저장된 `TemplateBlueprint.currentPackageFileId`를 사용하지 않으므로, OOXML sync가 만든 최신 package를 그대로 내보내는 round-trip 경로가 완성되어 있지 않다.
+PR 2부터 imported Deck export는 저장 version과 `ooxmlSyncedDeckVersion`이 일치하는 최신 `TemplateBlueprint.currentPackageFileId`를 별도 export asset으로 복사한다. 일반 Deck만 기존 `/ai/export-deck-pptx` 재구성 경로를 사용한다.
 
 ### 2.4 #338이 해결할 동시 처리·부분 재시도 문제와의 관계
 
