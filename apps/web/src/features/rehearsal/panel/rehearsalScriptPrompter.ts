@@ -1,4 +1,5 @@
 import type { ExtractedSentence } from "../speech/speechTrackingEvents";
+import type { PrompterProgressSnapshot } from "../speech/prompterProgressTracker";
 
 export type RehearsalScriptPrompterRowStatus =
   | "covered"
@@ -11,6 +12,7 @@ export type RehearsalScriptPrompterRowStatus =
 export type RehearsalScriptPrompterRow = {
   sentence: ExtractedSentence;
   status: RehearsalScriptPrompterRowStatus;
+  coverageStatus: "covered" | "paraphrased" | null;
   isFocusTarget: boolean;
 };
 
@@ -18,54 +20,53 @@ export function createRehearsalScriptPrompterRows(input: {
   sentences: readonly ExtractedSentence[];
   coveredSentenceIds: ReadonlySet<string> | readonly string[];
   coveredSentenceMatchKinds?: Readonly<Record<string, "covered" | "paraphrased">>;
+  prompterProgress?: PrompterProgressSnapshot;
 }): RehearsalScriptPrompterRow[] {
   const coveredSentenceIds =
     input.coveredSentenceIds instanceof Set
       ? input.coveredSentenceIds
       : new Set(input.coveredSentenceIds);
   const matchableSentences = input.sentences.filter((sentence) => sentence.matchable);
-  const currentSentence =
-    matchableSentences.find(
-      (sentence) => !coveredSentenceIds.has(sentence.sentenceId)
-    ) ?? null;
-  const lastCoveredSentence = findLastCoveredMatchableSentence(
+  const currentSentence = findCurrentMatchableSentence(
     matchableSentences,
-    coveredSentenceIds
+    input.prompterProgress
   );
-  const focusSentence = currentSentence ?? lastCoveredSentence;
+  const finalFocusSentence =
+    !currentSentence && input.prompterProgress?.finalSentenceCommitted
+      ? (matchableSentences.at(-1) ?? null)
+      : null;
+  const focusSentence = currentSentence ?? finalFocusSentence;
   const nextSentence = currentSentence
     ? findNextMatchableSentence(
         matchableSentences,
-        currentSentence.sentenceId,
-        coveredSentenceIds
+        currentSentence.sentenceId
       )
     : null;
 
   return input.sentences.map((sentence) => {
     const covered = coveredSentenceIds.has(sentence.sentenceId);
     const matchKind = input.coveredSentenceMatchKinds?.[sentence.sentenceId];
+    const coverageStatus = covered
+      ? matchKind === "paraphrased"
+        ? "paraphrased"
+        : "covered"
+      : null;
 
     if (!sentence.matchable) {
       return {
         sentence,
         status: "unmatchable",
+        coverageStatus,
         isFocusTarget: sentence.sentenceId === focusSentence?.sentenceId
       };
     }
 
-    if (sentence.sentenceId === currentSentence?.sentenceId) {
+    if (sentence.sentenceId === focusSentence?.sentenceId) {
       return {
         sentence,
         status: "current",
+        coverageStatus,
         isFocusTarget: true
-      };
-    }
-
-    if (covered) {
-      return {
-        sentence,
-        status: matchKind === "paraphrased" ? "paraphrased" : "covered",
-        isFocusTarget: sentence.sentenceId === focusSentence?.sentenceId
       };
     }
 
@@ -73,6 +74,16 @@ export function createRehearsalScriptPrompterRows(input: {
       return {
         sentence,
         status: "next",
+        coverageStatus,
+        isFocusTarget: false
+      };
+    }
+
+    if (coverageStatus) {
+      return {
+        sentence,
+        status: coverageStatus,
+        coverageStatus,
         isFocusTarget: false
       };
     }
@@ -80,6 +91,7 @@ export function createRehearsalScriptPrompterRows(input: {
     return {
       sentence,
       status: "pending",
+      coverageStatus,
       isFocusTarget: false
     };
   });
@@ -87,34 +99,44 @@ export function createRehearsalScriptPrompterRows(input: {
 
 export function getRehearsalScriptFocusSentenceId(
   sentences: readonly ExtractedSentence[],
-  coveredSentenceIds: ReadonlySet<string> | readonly string[]
+  prompterProgress?: PrompterProgressSnapshot
 ) {
   return (
     createRehearsalScriptPrompterRows({
       sentences,
-      coveredSentenceIds
+      coveredSentenceIds: [],
+      prompterProgress
     }).find((row) => row.isFocusTarget)?.sentence.sentenceId ?? null
   );
 }
 
-function findLastCoveredMatchableSentence(
+function findCurrentMatchableSentence(
   sentences: readonly ExtractedSentence[],
-  coveredSentenceIds: ReadonlySet<string>
+  prompterProgress?: PrompterProgressSnapshot
 ) {
-  for (let index = sentences.length - 1; index >= 0; index -= 1) {
-    const sentence = sentences[index];
-    if (sentence && coveredSentenceIds.has(sentence.sentenceId)) {
-      return sentence;
-    }
+  if (!prompterProgress) {
+    return sentences[0] ?? null;
   }
 
-  return null;
+  if (prompterProgress.currentSentenceId) {
+    return (
+      sentences.find(
+        (sentence) =>
+          sentence.sentenceId === prompterProgress.currentSentenceId
+      ) ??
+      sentences[0] ??
+      null
+    );
+  }
+
+  return prompterProgress.finalSentenceCommitted
+    ? null
+    : (sentences[0] ?? null);
 }
 
 function findNextMatchableSentence(
   sentences: readonly ExtractedSentence[],
-  currentSentenceId: string,
-  coveredSentenceIds: ReadonlySet<string>
+  currentSentenceId: string
 ) {
   const currentIndex = sentences.findIndex(
     (sentence) => sentence.sentenceId === currentSentenceId
@@ -124,9 +146,5 @@ function findNextMatchableSentence(
     return null;
   }
 
-  return (
-    sentences
-      .slice(currentIndex + 1)
-      .find((sentence) => !coveredSentenceIds.has(sentence.sentenceId)) ?? null
-  );
+  return sentences[currentIndex + 1] ?? null;
 }

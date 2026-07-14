@@ -254,6 +254,7 @@ import type {
   SpeechTrackerSnapshot,
   SpeechTrackingEvent,
 } from "./speech/speechTrackingEvents";
+import type { PrompterProgressSnapshot } from "./speech/prompterProgressTracker";
 import { PracticeGoalSummary } from "../coaching/PracticeGoalSummary";
 import { PracticeGoalReminder } from "../coaching/PracticeGoalReminder";
 import { fetchPresentationBrief } from "../coaching/presentationBriefApi";
@@ -4074,6 +4075,7 @@ export function RehearsalWorkspace(props: {
     p3Sentences,
     p3PanelSnapshot.coveredSentenceIds,
     currentSlide?.speakerNotes ?? "",
+    p3PanelSnapshot.prompterProgress,
   );
   const rehearsalTimingProgressItems: PresenterTimingProgressItem[] = [
     {
@@ -6077,6 +6079,7 @@ export function getRehearsalPrompterRows(
   sentences: readonly ExtractedSentence[],
   coveredSentenceIds: readonly string[],
   fallbackNotes: string,
+  prompterProgress?: PrompterProgressSnapshot,
 ): RehearsalPrompterRows {
   if (sentences.length === 0) {
     const fallback = fallbackNotes.trim() || "발표자 노트가 없습니다.";
@@ -6099,11 +6102,13 @@ export function getRehearsalPrompterRows(
   const rows = createRehearsalScriptPrompterRows({
     sentences,
     coveredSentenceIds,
+    prompterProgress,
   });
+  const focusIndex = rows.findIndex((row) => row.isFocusTarget);
   let previous = "";
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
+  for (let index = focusIndex - 1; index >= 0; index -= 1) {
     const row = rows[index];
-    if (row?.status === "covered" || row?.status === "paraphrased") {
+    if (row?.sentence.matchable) {
       previous = row.sentence.text;
       break;
     }
