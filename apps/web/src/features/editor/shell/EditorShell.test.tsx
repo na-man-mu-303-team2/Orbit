@@ -39,6 +39,7 @@ import {
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   resolveHistoryNavigation,
+  requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
@@ -582,14 +583,16 @@ describe("editor shell", () => {
     );
   });
 
-  it("uploads a PPTX file, creates an import job, and polls until completion", async () => {
+  it("uploads a PPTX file, creates an OOXML generation job, and polls until completion", async () => {
     const file = new File(["pptx"], "template.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
     const phases: string[] = [];
+    const requestedUrls: string[] = [];
     let jobPollCount = 0;
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      requestedUrls.push(url);
 
       if (url.endsWith("/assets/upload-url")) {
         expect(init?.method).toBe("POST");
@@ -636,22 +639,32 @@ describe("editor shell", () => {
         );
       }
 
-      if (url.endsWith("/pptx-imports")) {
+      if (url.endsWith("/pptx-ooxml-generations")) {
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_template" });
-        return new Response(JSON.stringify({ job: jobPayload("queued") }));
+        return new Response(
+          JSON.stringify({
+            job: jobPayload("queued", null, "pptx-ooxml-generation")
+          })
+        );
       }
 
       if (url.endsWith("/jobs/job-pptx")) {
         jobPollCount += 1;
         return new Response(
           JSON.stringify(
-            jobPayload(jobPollCount === 1 ? "running" : "succeeded", {
-              deckId: "deck_import_file_template",
-              templateId: "template_file_template",
-              qualityReport: qualityReport(),
-              warnings: ["pixel renderer unavailable"]
-            })
+            jobPayload(
+              jobPollCount === 1 ? "running" : "succeeded",
+              {
+                deckId: "deck_ooxml_file_template",
+                templateId: "template_file_template",
+                sourceFileId: "file_template",
+                currentPackageFileId: "file_current_package",
+                qualityReport: qualityReport(),
+                warnings: ["pixel renderer unavailable"]
+              },
+              "pptx-ooxml-generation"
+            )
           )
         );
       }
@@ -666,11 +679,38 @@ describe("editor shell", () => {
         pollIntervalMs: 0
       })
     ).resolves.toMatchObject({
-      deckId: "deck_import_file_template",
-      templateId: "template_file_template"
+      deckId: "deck_ooxml_file_template",
+      templateId: "template_file_template",
+      sourceFileId: "file_template",
+      currentPackageFileId: "file_current_package"
     });
     expect(phases).toEqual(["uploading", "importing"]);
     expect(jobPollCount).toBe(2);
+    expect(requestedUrls.some((url) => url.endsWith("/pptx-imports"))).toBe(false);
+  });
+
+  it("accepts only the refetched Deck identified by the OOXML generation result", () => {
+    const importedDeck = createDemoDeck();
+    importedDeck.deckId = "deck_ooxml_file_template";
+
+    expect(
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_ooxml_file_template" },
+        importedDeck
+      )
+    ).toBe(importedDeck);
+    expect(() =>
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_ooxml_file_template" },
+        undefined
+      )
+    ).toThrow("변환된 PPTX Deck을 불러오지 못했습니다.");
+    expect(() =>
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_other" },
+        importedDeck
+      )
+    ).toThrow("변환 결과와 불러온 PPTX Deck이 일치하지 않습니다.");
   });
 
   it("creates a PPTX export job and returns the exported asset result", async () => {
@@ -2258,7 +2298,7 @@ function editorTextElement(
 function jobPayload(
   status: "queued" | "running" | "succeeded",
   result: Record<string, unknown> | null = null,
-  type: "pptx-import" | "deck-export" = "pptx-import"
+  type: "pptx-import" | "pptx-ooxml-generation" | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",

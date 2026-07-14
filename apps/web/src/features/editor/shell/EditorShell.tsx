@@ -38,15 +38,13 @@ import {
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
   meResponseSchema,
+  pptxOoxmlGenerationJobResultSchema,
   putDeckResponseSchema,
-  type DeckExportJobResult
+  type DeckExportJobResult,
+  type PptxOoxmlGenerationJobResult,
+  type QualityReport
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
-import {
-  pptxImportJobResultSchema,
-  type PptxImportJobResult,
-  type QualityReport
-} from "../../../../../../packages/shared/src/deck/template-blueprint.schema";
 import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
 import {
   normalizeEditorAssetUrl,
@@ -1081,13 +1079,13 @@ async function fetchDeck(projectId: string): Promise<Deck> {
   return putProjectDeck(projectId, createSeedDeck(projectId));
 }
 
-export async function createPptxImportJob(
+export async function createPptxOoxmlGenerationJob(
   projectId: string,
   fileId: string,
   fetcher: typeof fetch = fetch
 ): Promise<Job> {
   const response = await fetcher(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-imports`,
+    `/api/v1/projects/${encodeURIComponent(projectId)}/pptx-ooxml-generations`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1096,7 +1094,9 @@ export async function createPptxImportJob(
   );
 
   if (!response.ok) {
-    throw new Error(await readPlainError(response, "PPTX import job creation failed"));
+    throw new Error(
+      await readPlainError(response, "PPTX OOXML generation job creation failed")
+    );
   }
 
   const payload = (await response.json()) as { job?: unknown };
@@ -1155,7 +1155,7 @@ export async function waitForSemanticCueExtractionJob(
   }
 }
 
-export async function waitForPptxImportJob(
+export async function waitForPptxOoxmlGenerationJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
   options: { pollIntervalMs?: number; timeoutMs?: number } = {}
@@ -1168,7 +1168,9 @@ export async function waitForPptxImportJob(
     const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
 
     if (!response.ok) {
-      throw new Error(await readPlainError(response, "PPTX import job fetch failed"));
+      throw new Error(
+        await readPlainError(response, "PPTX OOXML generation job fetch failed")
+      );
     }
 
     const job = jobSchema.parse(await response.json());
@@ -1177,7 +1179,7 @@ export async function waitForPptxImportJob(
     }
 
     if (Date.now() - startedAt > timeoutMs) {
-      throw new Error("PPTX import job timed out.");
+      throw new Error("PPTX OOXML generation job timed out.");
     }
 
     await delay(pollIntervalMs);
@@ -1255,7 +1257,7 @@ export async function uploadAndImportPptxTemplate(
     pollIntervalMs?: number;
     timeoutMs?: number;
   } = {}
-): Promise<PptxImportJobResult> {
+): Promise<PptxOoxmlGenerationJobResult> {
   const validationMessage = getPptxImportValidationMessage(file);
   if (validationMessage) {
     throw new Error(validationMessage);
@@ -1265,17 +1267,36 @@ export async function uploadAndImportPptxTemplate(
   options.onPhase?.("uploading");
   const uploaded = await uploadProjectAsset(projectId, file, "pptx-import", fetcher);
   options.onPhase?.("importing");
-  const queuedJob = await createPptxImportJob(projectId, uploaded.fileId, fetcher);
-  const job = await waitForPptxImportJob(queuedJob.jobId, fetcher, {
+  const queuedJob = await createPptxOoxmlGenerationJob(
+    projectId,
+    uploaded.fileId,
+    fetcher
+  );
+  const job = await waitForPptxOoxmlGenerationJob(queuedJob.jobId, fetcher, {
     pollIntervalMs: options.pollIntervalMs,
     timeoutMs: options.timeoutMs
   });
 
   if (job.status === "failed") {
-    throw new Error(job.error?.message ?? "PPTX import failed.");
+    throw new Error(job.error?.message ?? "PPTX OOXML generation failed.");
   }
 
-  return pptxImportJobResultSchema.parse(job.result);
+  return pptxOoxmlGenerationJobResultSchema.parse(job.result);
+}
+
+export function requireMatchingPptxImportedDeck(
+  importResult: Pick<PptxOoxmlGenerationJobResult, "deckId">,
+  importedDeck: Deck | undefined
+): Deck {
+  if (!importedDeck) {
+    throw new Error("변환된 PPTX Deck을 불러오지 못했습니다.");
+  }
+
+  if (importedDeck.deckId !== importResult.deckId) {
+    throw new Error("변환 결과와 불러온 PPTX Deck이 일치하지 않습니다.");
+  }
+
+  return importedDeck;
 }
 
 async function readPlainError(response: Response, fallbackMessage: string) {
@@ -3590,24 +3611,25 @@ export function EditorShell(props: { projectId?: string }) {
           })
       });
       const refetchResult = await deckQuery.refetch();
-      const importedDeck = refetchResult.data;
+      const importedDeck = requireMatchingPptxImportedDeck(
+        importResult,
+        refetchResult.data
+      );
 
-      if (importedDeck) {
-        queryClient.setQueryData(["deck", projectId], importedDeck);
-        markHydratedPersistedDeck(importedDeck, setDeck);
-        setCurrentSlideIndex(0);
-        resetSpeakerNotesEditState(importedDeck.slides[0]?.speakerNotes ?? "");
-        setUndoStack([]);
-        setRedoStack([]);
-        setSelectedElementIds([]);
-        clearSelectedKeyword();
-        setEditingElementId(null);
-        setCustomShapeEditElementId(null);
-        setElementContextMenu(null);
-        setLastPatchLabel(`PPTX 가져오기 · v${importedDeck.version}`);
-        setSaveState("manual-saved");
-        setSaveError(null, null);
-      }
+      queryClient.setQueryData(["deck", projectId], importedDeck);
+      markHydratedPersistedDeck(importedDeck, setDeck);
+      setCurrentSlideIndex(0);
+      resetSpeakerNotesEditState(importedDeck.slides[0]?.speakerNotes ?? "");
+      setUndoStack([]);
+      setRedoStack([]);
+      setSelectedElementIds([]);
+      clearSelectedKeyword();
+      setEditingElementId(null);
+      setCustomShapeEditElementId(null);
+      setElementContextMenu(null);
+      setLastPatchLabel(`PPTX 가져오기 · v${importedDeck.version}`);
+      setSaveState("manual-saved");
+      setSaveError(null, null);
 
       setPptxImportState({
         status: "succeeded",
