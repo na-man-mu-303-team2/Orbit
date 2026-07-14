@@ -476,10 +476,37 @@ describe("p3RehearsalSession", () => {
       timestampMs: [0, 800]
     });
 
-    expect(session.acceptPrompterPauseBoundary(700)).toBe(true);
+    expect(session.acceptPrompterPauseBoundary(600)).toBe(true);
     expect(session.getState().snapshot?.prompterProgress).toMatchObject({
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"]
+    });
+  });
+
+  it("슬라이드 전환 후 도착한 이전 pause boundary를 새 슬라이드에 적용하지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "생성형 AI 초안을 안정적으로 추적합니다",
+      isFinal: false,
+      timestampMs: [0, 800]
+    });
+    session.enterSlide(1);
+
+    expect(session.acceptPrompterPauseBoundary(600)).toBe(false);
+    expect(session.getState().snapshot).toMatchObject({
+      slideId: "slide_2",
+      prompterProgress: {
+        revision: 1,
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
     });
   });
 
@@ -638,6 +665,49 @@ describe("p3RehearsalSession", () => {
     expect(session.getState().snapshot).toMatchObject({
       sentenceCoverage: 0.5,
       finalSentenceSpoken: false
+    });
+  });
+
+  it("슬라이드 전환 후 완료된 이전 의미 판정을 새 슬라이드에 적용하지 않는다", async () => {
+    const port = createMockLiveSttPort();
+    const semanticMatcher = createMockSemanticMatcher({
+      accepted: true,
+      topMatches: [semanticMatch({ rank: 1, sentenceId: "sentence_1" })]
+    });
+    const originalMatchFinalTranscript = semanticMatcher.matchFinalTranscript;
+    let releaseMatch!: () => void;
+    semanticMatcher.matchFinalTranscript = vi.fn(async (input) => {
+      await new Promise<void>((resolve) => {
+        releaseMatch = resolve;
+      });
+      return originalMatchFinalTranscript(input);
+    });
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      semanticMatcher,
+      isSemanticMatchingEnabled: () => true,
+      now: () => 80_000
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit({
+      text: "semantic final text",
+      isFinal: true,
+      timestampMs: [500, 1_000]
+    });
+    await vi.waitFor(() => expect(releaseMatch).toBeTypeOf("function"));
+    session.enterSlide(1);
+    releaseMatch();
+    await flushSemanticQueue();
+
+    expect(session.getState().snapshot).toMatchObject({
+      slideId: "slide_2",
+      sentenceCoverage: 0,
+      prompterProgress: {
+        currentSentenceId: "sentence_1",
+        committedSentenceIds: []
+      }
     });
   });
 

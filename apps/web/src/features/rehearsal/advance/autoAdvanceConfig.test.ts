@@ -15,7 +15,7 @@ describe("autoAdvanceConfig", () => {
     expect(defaultAutoAdvancePolicy).toEqual({
       countdownMs: 2000,
       live: false,
-      pauseMs: 700,
+      pauseMs: 600,
       rehearsal: true,
       semanticMatching: true,
       threshold: 0.7

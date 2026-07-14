@@ -582,6 +582,37 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("이전 prompter revision의 E5 결과는 현재 문장을 commit하지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "오르빗 리허설은 발표자의 실제 전달 흐름과 핵심 메시지를 안정적으로 점검합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "오르빗 리허설",
+      isFinal: false,
+      timestampMs: [0, 500]
+    });
+    tracker.acceptSemanticSentenceMatch({
+      sentenceId: "sentence_1",
+      transcript: "오르빗 리허설을 통해 핵심 전달을 점검했습니다",
+      similarity: 0.94,
+      lexicalOverlap: 0.25,
+      matchKind: "paraphrased",
+      expectedPrompterRevision: 1,
+      atMs: 500
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      committedSentenceIds: [],
+      finalSentenceCommitted: false
+    });
+  });
+
   it("semantic coverage event는 transcript, speakerNotes, similarity 원문을 노출하지 않는다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

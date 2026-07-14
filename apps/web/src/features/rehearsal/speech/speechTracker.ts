@@ -53,6 +53,7 @@ export type SpeechTracker = {
     similarity: number;
     matchKind?: "covered" | "paraphrased";
     lexicalOverlap?: number;
+    expectedPrompterRevision?: number;
     atMs: number;
   }) => SpeechTrackingEvent[];
   acceptPrompterBoundary: (boundary: PrompterBoundary) => boolean;
@@ -239,6 +240,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     similarity: number;
     matchKind?: "covered" | "paraphrased";
     lexicalOverlap?: number;
+    expectedPrompterRevision?: number;
     atMs: number;
   }): SpeechTrackingEvent[] {
     const sentence = sentences.find(
@@ -249,7 +251,14 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       return [];
     }
 
-    acceptSemanticPrompterAssistance(sentence.sentenceId, options.atMs);
+    const currentPrompterRevision =
+      prompterProgressTracker.snapshot().revision;
+    if (
+      options.expectedPrompterRevision === undefined ||
+      options.expectedPrompterRevision === currentPrompterRevision
+    ) {
+      acceptSemanticPrompterAssistance(sentence.sentenceId, options.atMs);
+    }
     if (visit.coveredSentenceIds.has(sentence.sentenceId)) {
       return [];
     }

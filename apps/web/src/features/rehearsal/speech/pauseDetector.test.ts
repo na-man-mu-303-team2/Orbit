@@ -7,15 +7,15 @@ describe("pauseDetector", () => {
   it("starts pause after RMS silence and transcript inactivity", () => {
     const detector = createPauseDetector({
       config: defaultPauseDetectorConfig,
-      pauseMs: 700
+      pauseMs: 600
     });
 
     expect(detector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 })).toEqual(
       []
     );
-    expect(detector.accept({ type: "tick", atMs: 699 })).toEqual([]);
-    expect(detector.accept({ type: "tick", atMs: 700 })).toEqual([
-      { type: "pause-started", atMs: 700, silenceDurationMs: 700 }
+    expect(detector.accept({ type: "tick", atMs: 599 })).toEqual([]);
+    expect(detector.accept({ type: "tick", atMs: 600 })).toEqual([
+      { type: "pause-started", atMs: 600, silenceDurationMs: 600 }
     ]);
     expect(detector.accept({ type: "tick", atMs: 900 })).toEqual([]);
   });
@@ -23,7 +23,7 @@ describe("pauseDetector", () => {
   it("uses partial transcript activity to reset the pause window", () => {
     const detector = createPauseDetector({
       config: defaultPauseDetectorConfig,
-      pauseMs: 700
+      pauseMs: 600
     });
 
     detector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
@@ -33,39 +33,39 @@ describe("pauseDetector", () => {
       isPaused: false,
       silenceDurationMs: 350
     });
-    expect(detector.accept({ type: "tick", atMs: 1349 })).toEqual([]);
-    expect(detector.accept({ type: "tick", atMs: 1350 })).toEqual([
-      { type: "pause-started", atMs: 1350, silenceDurationMs: 700 }
+    expect(detector.accept({ type: "tick", atMs: 1249 })).toEqual([]);
+    expect(detector.accept({ type: "tick", atMs: 1250 })).toEqual([
+      { type: "pause-started", atMs: 1250, silenceDurationMs: 600 }
     ]);
   });
 
   it("emits speech resume once when audio or transcript activity resumes", () => {
     const detector = createPauseDetector({
       config: defaultPauseDetectorConfig,
-      pauseMs: 700
+      pauseMs: 600
     });
 
     detector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
-    detector.accept({ type: "tick", atMs: 700 });
+    detector.accept({ type: "tick", atMs: 600 });
 
     expect(detector.accept({ type: "transcript-activity", atMs: 900, isFinal: true }))
       .toEqual([{ type: "speech-resumed", atMs: 900 }]);
     expect(detector.accept({ type: "transcript-activity", atMs: 920, isFinal: false }))
       .toEqual([]);
 
-    detector.accept({ type: "tick", atMs: 1620 });
-    expect(detector.accept({ type: "audio-level", atMs: 1700, rmsDb: -20 }))
-      .toEqual([{ type: "speech-resumed", atMs: 1700 }]);
+    detector.accept({ type: "tick", atMs: 1520 });
+    expect(detector.accept({ type: "audio-level", atMs: 1600, rmsDb: -20 }))
+      .toEqual([{ type: "speech-resumed", atMs: 1600 }]);
   });
 
   it("resets pause and silence state", () => {
     const detector = createPauseDetector({
       config: defaultPauseDetectorConfig,
-      pauseMs: 700
+      pauseMs: 600
     });
 
     detector.accept({ type: "audio-level", atMs: 0, rmsDb: -60 });
-    detector.accept({ type: "tick", atMs: 700 });
+    detector.accept({ type: "tick", atMs: 600 });
     detector.accept({ type: "reset", atMs: 800 });
 
     expect(detector.snapshot(900)).toEqual({

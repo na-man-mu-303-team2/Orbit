@@ -377,6 +377,8 @@ export function createP3RehearsalSession(
         },
         resultSlideIndex: slideIndex,
         tracker: currentTracker,
+        prompterRevision:
+          currentTracker.snapshot().prompterProgress?.revision ?? 0,
         generation: semanticGeneration,
         phraseMatched: events.some((event) => event.type === "sentence-covered"),
         keywordCoverage: calculateKeywordCoverage(currentTracker.snapshot(), getSlide(slideIndex))
@@ -670,6 +672,7 @@ export function createP3RehearsalSession(
     result: LiveSttResult;
     resultSlideIndex: number;
     tracker: SpeechTracker;
+    prompterRevision: number;
     generation: number;
     phraseMatched: boolean;
     keywordCoverage: number;
@@ -687,6 +690,7 @@ export function createP3RehearsalSession(
     result: LiveSttResult;
     resultSlideIndex: number;
     tracker: SpeechTracker;
+    prompterRevision: number;
     generation: number;
     phraseMatched: boolean;
     keywordCoverage: number;
@@ -799,6 +803,7 @@ export function createP3RehearsalSession(
             similarity: decision.acceptedMatch.similarity,
             matchKind: decision.outcome,
             lexicalOverlap: decision.lexicalOverlap,
+            expectedPrompterRevision: options.prompterRevision,
             atMs: options.result.timestampMs[1]
           })
         );
