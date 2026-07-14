@@ -501,8 +501,8 @@ describe("P0 speech evidence contracts", () => {
         metric: "characters-per-minute",
         metricDefinitionVersion: 1,
         unit: "characters-per-minute",
-        direction: "target-range",
-        targetRange: { minimum: 250, maximum: 350 },
+        direction: "neutral",
+        targetRange: null,
         points: [
           {
             runId: "run-1",
@@ -516,6 +516,19 @@ describe("P0 speech evidence contracts", () => {
         calculatedAt: "2026-07-13T00:10:00.000Z",
       }).success,
     ).toBe(true);
+    expect(
+      trendSeriesSchema.safeParse({
+        seriesId: "trend-cpm-target-1",
+        projectId: "project-1",
+        metric: "characters-per-minute",
+        metricDefinitionVersion: 1,
+        unit: "characters-per-minute",
+        direction: "target-range",
+        targetRange: { minimum: 250, maximum: 350 },
+        points: [],
+        calculatedAt: "2026-07-13T00:10:00.000Z",
+      }).success,
+    ).toBe(false);
   });
 
   it("does not invent confidence for providers that do not supply it", () => {

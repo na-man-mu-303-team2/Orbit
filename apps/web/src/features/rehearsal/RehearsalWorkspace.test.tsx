@@ -4,6 +4,7 @@ import { createDemoDeck } from "@orbit/editor-core";
 import {
   createKeywordOccurrenceId,
   createRehearsalEvaluationSnapshot,
+  legacyRehearsalReportMetricsDefaults,
   type Job,
   type RehearsalReport,
   type RehearsalRun,
@@ -1196,6 +1197,7 @@ describe("RehearsalWorkspace", () => {
         prevReports={[
           reportFixture({
             metrics: {
+              ...legacyRehearsalReportMetricsDefaults,
               durationSeconds: 90,
               wordsPerMinute: 120,
               fillerWordCount: 0,
@@ -1208,6 +1210,7 @@ describe("RehearsalWorkspace", () => {
         projectId="project-a"
         report={reportFixture({
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 18,
@@ -1380,6 +1383,7 @@ describe("RehearsalWorkspace", () => {
         initialRun={runFixture("succeeded")}
         initialReport={reportFixture({
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 0,
             wordsPerMinute: 3600,
             fillerWordCount: 0,
@@ -1406,6 +1410,7 @@ describe("RehearsalWorkspace", () => {
         initialReport={reportFixture({
           missedKeywords: [],
           metrics: {
+            ...legacyRehearsalReportMetricsDefaults,
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 0,
@@ -2817,6 +2822,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     transcriptRetained: false,
     transcript: null,
     metrics: {
+      ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 90,
       wordsPerMinute: 120,
       fillerWordCount: 2,
@@ -2827,6 +2833,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
     pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
+    pauseV2Details: [],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     utteranceOutcomes: [],
     semanticCueDecisions: [],

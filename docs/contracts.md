@@ -1230,10 +1230,36 @@ Report 응답 구조:
   "transcript": null,
   "metrics": {
     "durationSeconds": 90,
+    "charactersPerMinute": 318,
     "wordsPerMinute": 120,
     "fillerWordCount": 2,
     "pauseCount": 1,
     "keywordCoverage": 0.75,
+    "measurements": {
+      "duration": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null },
+      "charactersPerMinute": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null },
+      "wordsPerMinute": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null },
+      "fillerWordCount": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null },
+      "pauseV1": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null },
+      "pauseV2": { "measurementState": "measured", "metricDefinitionVersion": 2, "reasonCode": null },
+      "keywordCoverage": { "measurementState": "measured", "metricDefinitionVersion": 1, "reasonCode": null }
+    },
+    "sttQualityGate": {
+      "version": 1,
+      "state": "passed",
+      "reasonCode": "CONFIDENCE_ACCEPTED",
+      "confidence": 0.91,
+      "threshold": 0.8,
+      "policyId": "stt_quality_v1"
+    },
+    "analysisCapabilities": {
+      "recordingDuration": { "state": "available", "source": "recording" },
+      "providerDuration": { "state": "available", "source": "provider" },
+      "segmentTimestamps": { "state": "available", "source": "provider" },
+      "sttConfidence": { "state": "available", "source": "provider" },
+      "sentenceBoundaries": { "state": "available", "source": "provider" },
+      "pauseIntentClassification": { "state": "available", "source": "provider" }
+    },
     "keywordCoverageMeasurement": {
       "state": "measured"
     }
@@ -1258,6 +1284,7 @@ Report 응답 구조:
       "durationSeconds": 1.5
     }
   ],
+  "pauseV2Details": [],
   "missedKeywords": [
     {
       "slideId": "slide_1",
@@ -1316,6 +1343,10 @@ Report 응답 구조:
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 - `score`, `deliveryScore`, `speedScore`처럼 산식이 확정되지 않은 점수 필드는 `RehearsalReport`에 저장하지 않는다.
+- public report는 기존 `durationSeconds`, `wordsPerMinute`, `fillerWordCount`, `pauseCount`, `keywordCoverage` 숫자 필드를 유지하고 `charactersPerMinute`, `measurements`, `sttQualityGate`, `analysisCapabilities`, `pauseV2Details`를 additive field로 제공한다.
+- legacy report에는 additive field가 없어도 schema default를 적용한다. `charactersPerMinute=null`, `pauseV2Details=[]`, Gate는 `unavailable/LEGACY_QUALITY_GATE_UNKNOWN`, capability는 모두 `unavailable/none`, measurement는 canonical version과 `unmeasured/LEGACY_MEASUREMENT_STATE_UNKNOWN`으로 읽는다. 기존 숫자만으로 measured 상태를 추정하지 않는다.
+- measurement version은 duration·CPM·WPM·filler·pause v1·keyword coverage가 1, pause v2가 2다. `charactersPerMinute`는 `measurements.charactersPerMinute`이 `measured`일 때만 non-null이며, 나머지 legacy 숫자는 compatibility placeholder일 수 있으므로 소비자는 measurement metadata가 `measured`일 때만 사용한다.
+- `sttQualityGate.state=failed`이면 CPM·WPM·filler·pause v1·pause v2·keyword coverage는 모두 `unmeasured/LOW_TRANSCRIPTION_CONFIDENCE`이고 `speedSamples`, `fillerWordDetails`, `pauseDetails`, `pauseV2Details`, `missedKeywords`, `slideInsights`는 비어 있어야 한다. `keywordCoverageMeasurement`는 `unmeasured/low-transcription-confidence`를 사용한다.
 - 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.
 - 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
@@ -1660,10 +1691,11 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 
 #### `TrendSeries`
 
-- metric은 filler count, duration seconds, words per minute, timing balance, semantic coverage, volume consistency, pronunciation confidence를 허용한다.
+- metric은 filler count, duration seconds, characters per minute, words per minute, timing balance, semantic coverage, volume consistency, pronunciation confidence를 허용한다.
 - 모든 series는 양의 `metricDefinitionVersion`을 가진다.
-- metric별 단위와 방향은 고정한다. filler는 `count/lower-is-better`, duration과 WPM은 각 단위의 `target-range`, 나머지 ratio metric은 `ratio/higher-is-better`다.
+- metric별 단위와 방향은 고정한다. filler는 `count/lower-is-better`, duration과 WPM은 각 단위의 `target-range`, CPM은 `characters-per-minute/neutral`, 나머지 ratio metric은 `ratio/higher-is-better`다.
 - `target-range` metric은 `{ minimum, maximum }`을 필수로 가지며 다른 metric은 target range를 갖지 않는다.
+- CPM trend는 `targetRange=null`인 설명형 series이며 WPM과 같은 series에 섞거나 pass/fail·적정 범위를 파생하지 않는다.
 - point는 `runId`, `createdAt`, `measurementState`, `comparability`, nullable value, nullable `reasonCode`를 가진다.
 - measured point만 numeric value를 가질 수 있다. unmeasured point의 value는 `null`이다.
 - 한 series 안에서 `runId`는 중복될 수 없으며 최근 최대 5개 point만 포함한다.
