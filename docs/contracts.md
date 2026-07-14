@@ -858,13 +858,13 @@ PPTX OOXML generation은 에디터의 활성 PPTX import 경로다. 에디터는
 API:
 
 - `POST /api/v1/projects/:projectId/pptx-ooxml-generations`
-- active Editor request: `{ "fileId": "file_1" }`
-- temporary compatibility request: `{ "fileId": "file_1", "topic": "optional", "prompt": "optional" }`
+- strict request: `{ "fileId": "file_1" }`
+- `topic`, `prompt`를 포함한 모든 unknown field는 `400 Bad Request`로 거부한다.
 - response: `{ "job": "{ JobSchema }" }`
 - Job type: `pptx-ooxml-generation`
 - Queue name: `pptx-ooxml-generation`
 
-`topic`과 `prompt`는 #339 PR 5에서 제거하기 전까지만 API 호환 입력으로 허용한다. 에디터는 두 필드를 보내지 않으며, strict `{ fileId }` 계약과 AI slot overwrite 제거도 PR 5에서 함께 확정한다.
+Worker는 Python `/ai/pptx-ooxml-generation`에 multipart `file_id`, `file`만 전달한다. 이 경로는 OpenAI client나 다른 LLM provider를 호출하지 않고 업로드된 PPTX의 package bytes와 원본 문구를 보존한 채 visual tree와 mapping을 추출한다. `/ai/pptx-ooxml-apply-slot-texts`는 등록하지 않는다. TemplateBlueprint의 slot metadata는 OOXML source mapping과 후속 sync를 위한 정보이며 AI 문구 생성 입력이 아니다.
 
 Job result:
 

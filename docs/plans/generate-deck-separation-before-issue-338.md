@@ -98,7 +98,7 @@ flowchart TD
 
 `TemplateBlueprint`, `purpose: "pptx-import"`, Python `/design/import-pptx`와 `pptx_design_importer.py`는 활성 OOXML 및 `generate-deck` 경로가 재사용하므로 제거하지 않는다.
 
-`PptxOoxmlGenerationRequest`의 legacy optional AI 입력 축소는 PR 5에서 수행한다. 다만 활성 Editor click path는 이미 `{ fileId }`만 보내므로 import 중 AI 문구 교체를 요청하지 않는다.
+PR 5부터 `PptxOoxmlGenerationRequest`는 strict `{ fileId }`만 허용하고 OOXML import call graph의 AI 문구 생성과 apply-slot-text 경로는 제거된다. TemplateBlueprint의 slot/source mapping은 후속 OOXML sync를 위해 유지한다.
 
 PR 2부터 imported Deck export는 저장 version과 `ooxmlSyncedDeckVersion`이 일치하는 최신 `TemplateBlueprint.currentPackageFileId`를 별도 export asset으로 복사한다. 일반 Deck만 기존 `/ai/export-deck-pptx` 재구성 경로를 사용한다.
 

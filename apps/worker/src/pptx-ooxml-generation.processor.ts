@@ -11,7 +11,6 @@ import {
   type Deck,
   type DeckCanvas,
   type Job,
-  type PptxOoxmlGenerationRequest,
   type QualityReport,
   type TemplateBlueprint,
 } from "@orbit/shared";
@@ -146,9 +145,7 @@ export async function processPptxOoxmlGenerationJob(
     generated = await generatePptxOoxmlWithPython(
       storage,
       pythonWorkerUrl,
-      payload.projectId,
       asset,
-      payload.request,
     );
   } catch (error) {
     return failJob(
@@ -261,9 +258,7 @@ async function loadPptxAsset(
 async function generatePptxOoxmlWithPython(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   pythonWorkerUrl: string,
-  projectId: string,
   asset: ProjectAssetRow,
-  request: PptxOoxmlGenerationRequest,
 ): Promise<PptxOoxmlGenerationWorkerResponse> {
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -272,10 +267,7 @@ async function generatePptxOoxmlWithPython(
   }
 
   const form = new FormData();
-  form.append("project_id", projectId);
   form.append("file_id", asset.file_id);
-  if (request.topic) form.append("topic", request.topic);
-  if (request.prompt) form.append("prompt", request.prompt);
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {

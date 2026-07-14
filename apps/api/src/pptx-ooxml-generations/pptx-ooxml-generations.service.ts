@@ -9,6 +9,7 @@ import {
 import { loadOrbitConfig } from "@orbit/config";
 import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import { z } from "zod";
+import { parseRequest } from "../common/zod-request";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -44,7 +45,7 @@ export class PptxOoxmlGenerationsService {
   ): Promise<CreatePptxOoxmlGenerationResponse> {
     await this.projectsService.getAccessibleProject(projectId);
 
-    const request = pptxOoxmlGenerationRequestSchema.parse(body);
+    const request = parseRequest(pptxOoxmlGenerationRequestSchema, body);
     const asset = await this.filesService.getUploadedAsset(
       projectId,
       request.fileId,
