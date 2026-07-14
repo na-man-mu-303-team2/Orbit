@@ -92,6 +92,42 @@ final result: passed
 
 ---
 
+## Rehearsal Stage Breakpoint Stability (2026-07-15)
+
+- Source visual truth: `/tmp/orbit-rehearsal-stage-before-1120.png` from the annotated rehearsal route before the fix.
+- Implementation evidence: `/tmp/orbit-rehearsal-stage-after-1120.png` and `/tmp/orbit-rehearsal-stage-after-1121.png`.
+- Combined comparison: `/tmp/orbit-rehearsal-stage-comparison-1120-2.jpg`.
+- Viewports/state: `1121x720`, `1120x720`, and `1119x720`; live rehearsal, slide 1 of 4. The microphone capability state differs between the source server and the local worktree, so it was excluded from the selected-stage fidelity judgment.
+- Route: `http://localhost:5175/rehearsal/project_d55ec91a-3c5c-4b0c-b57a-ce3c28a18fcb?snapshotPreparationId=0c2e2297-4133-44ae-8ff7-dc460bbf1722`.
+
+### Full-view and focused comparison
+
+The source and implementation were placed side by side at the same `1120x720` viewport and slide state. The source breakpoint changes the presenter row from a height-constrained desktop slot to `calc(56.25vw + 13px)`, expanding the stage wrapper from `689x268px` at `1121px` to `1072x643px` at `1120px`. The implementation uses one viewport-height-based stage block-size contract on both sides of the breakpoint and caps the single-column presenter main at `760px`.
+
+The focused presenter surface now measures `407.328x230px` at `1121px`, `1120px`, and `1119px`. Twenty consecutive samples at both `1121px` and `1120px` reported identical dimensions, so no resize oscillation or visible stage-scale churn remained. The surrounding toolbar, slide badge, navigation row, next-slide preview, typography, tokens, and slide artwork preserve the source hierarchy.
+
+### Required fidelity surfaces
+
+- Layout and responsiveness: passed. The stage height stays `268px` across the breakpoint; only the single-column wrapper width changes from `689px` to a bounded `760px`.
+- Typography, color, borders, radii, icons, and imagery: passed. Existing ORBIT tokens, controls, and deck assets are unchanged.
+- First paint: passed. The presenter renderer waits for the first measured scale and measures in `useLayoutEffect`, removing the hard-coded `0.44` correction after paint.
+- States and interactions: passed. Next-slide navigation advanced to `2 / 4`, previous-slide navigation returned to `1 / 4`, and accessible control labels remained available.
+- Accessibility: passed. No semantic controls or focus behavior changed; responsive content remains in document flow.
+- Browser console: no errors or warnings.
+
+### Verification
+
+- Web suite: 141 files, 991 tests passed.
+- Focused rehearsal/presenter suite: 2 files, 109 tests passed.
+- Web lint/typecheck: passed after building the existing `@orbit/editor-core` workspace dependency.
+- Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
+- `git diff --check`: passed.
+- Findings after the final comparison: no actionable P0/P1/P2/P3 issue.
+
+final result: passed
+
+---
+
 ## Rehearsal Stopwatch and Lyric Prompter Annotations (2026-07-14)
 
 - Source visual truth: `/tmp/orbit-rehearsal-before.png` and Browser Comments 1-2 at the rehearsal route.

@@ -95,6 +95,9 @@ const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
   new URL("./RehearsalWorkspace.tsx", import.meta.url),
 );
+const rehearsalWorkspaceCssPath = fileURLToPath(
+  new URL("./rehearsal-workspace-orbit.css", import.meta.url),
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -122,6 +125,26 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("keeps the presenter stage sizing contract continuous across responsive layouts", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(source).toContain(
+      "const [presenterScale, setPresenterScale] = useState<number | null>(null)",
+    );
+    expect(source).toContain("useLayoutEffect(() => {");
+    expect(source).toContain("presenterScale !== null");
+    expect(css).toContain("--rehearsal-stage-block-size: clamp(");
+    expect(css).toContain(
+      "grid-template-rows: var(--rehearsal-stage-block-size) 42px 112px",
+    );
+    expect(css).toContain(
+      "grid-template-rows: var(--rehearsal-stage-block-size) 44px 112px",
+    );
+    expect(css).toContain("width: min(100%, 760px)");
+    expect(css).not.toContain("calc(56.25vw + 13px)");
+  });
+
   it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
     const html = renderToStaticMarkup(
       <RehearsalFailureScreen

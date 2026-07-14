@@ -53,6 +53,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -4815,7 +4816,7 @@ export function RehearsalWorkspace(props: {
           onPrevious={goPrevious}
           previousDisabled={currentSlideIndex === 0}
           renderStage={
-            deck && currentSlide ? (
+            deck && currentSlide && presenterScale !== null ? (
               <SlideshowRenderer
                 deck={deck}
                 scale={presenterScale}
@@ -6827,12 +6828,12 @@ function formatClock(totalSeconds: number) {
 function usePresenterStageScale(deck: Deck | null) {
   const [presenterStageElement, setPresenterStageElement] =
     useState<HTMLDivElement | null>(null);
-  const [presenterScale, setPresenterScale] = useState(0.44);
+  const [presenterScale, setPresenterScale] = useState<number | null>(null);
   const presenterStageRef = useCallback((node: HTMLDivElement | null) => {
     setPresenterStageElement(node);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stage = presenterStageElement;
     if (!stage || !deck) {
       return;
@@ -6855,7 +6856,9 @@ function usePresenterStageScale(deck: Deck | null) {
       );
       if (Number.isFinite(nextScale) && nextScale > 0) {
         setPresenterScale((current) =>
-          Math.abs(current - nextScale) > 0.001 ? nextScale : current,
+          current === null || Math.abs(current - nextScale) > 0.001
+            ? nextScale
+            : current,
         );
       }
     };

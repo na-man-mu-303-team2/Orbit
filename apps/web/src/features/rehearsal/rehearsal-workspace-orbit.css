@@ -1,4 +1,9 @@
 .rehearsal-presenter-shell {
+  --rehearsal-stage-block-size: clamp(
+    268px,
+    calc(100dvh - clamp(452px, 45.5dvh, 530px)),
+    760px
+  );
   background: var(--orbit-ds-surface);
   color: var(--orbit-ds-ink);
   font-family: var(--orbit-ds-font-sans);
@@ -66,6 +71,7 @@
   background: transparent;
   border: 0;
   box-shadow: none;
+  grid-template-rows: var(--rehearsal-stage-block-size) 42px 112px;
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap {
@@ -490,7 +496,9 @@
   }
 
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: clamp(420px, calc(56.25vw + 13px), 760px) 44px 112px;
+    grid-template-rows: var(--rehearsal-stage-block-size) 44px 112px;
+    margin-inline: auto;
+    width: min(100%, 760px);
   }
 
   .rehearsal-presenter-shell .rehearsal-teleprompter-band {
@@ -510,7 +518,7 @@
 }
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: 420px 44px auto;
+    grid-template-rows: var(--rehearsal-stage-block-size) 44px auto;
   }
 
   .rehearsal-completion-screen { padding: 28px 18px 54px; }
