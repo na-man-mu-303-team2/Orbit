@@ -42,6 +42,25 @@ function currentDeck(secondSentence = "두 번째 문장") {
   });
 }
 
+function deckWithSlideIds(slideIds: string[]) {
+  const deck = currentDeck();
+  return deckSchema.parse({
+    ...deck,
+    slides: slideIds.map((slideId, index) => {
+      const existing = deck.slides.find((slide) => slide.slideId === slideId);
+      return existing
+        ? { ...existing, order: index + 1 }
+        : {
+          slideId,
+          order: index + 1,
+          title: "New slide",
+          style: {},
+          speakerNotes: "New slide",
+        };
+    }),
+  });
+}
+
 describe("focused-practice target resolution", () => {
   it.each([
     { type: "slide", scopeId: "scope-slide", slideId: "slide_b" } as const,
@@ -66,6 +85,48 @@ describe("focused-practice target resolution", () => {
       .toMatchObject({ compatibilityState: "current", resolvedSlideIds: ["slide_a"] });
     expect(resolveFocusedPracticeTarget({ currentDeck: currentDeck("수정된 문장"), sourceSnapshot, targetScope }))
       .toMatchObject({ compatibilityState: "stale", staleReason: "SENTENCE_CHANGED" });
+  });
+
+  it.each([
+    {
+      name: "slide",
+      targetScope: { type: "slide", scopeId: "scope-slide", slideId: "slide_b" } as const,
+      slideIds: ["slide_a", "slide_c", "slide_d"],
+    },
+    {
+      name: "slide-range",
+      targetScope: {
+        type: "slide-range",
+        scopeId: "scope-range",
+        startSlideId: "slide_b",
+        endSlideId: "slide_c",
+      } as const,
+      slideIds: ["slide_a", "slide_c", "slide_b", "slide_d"],
+    },
+    {
+      name: "opening",
+      targetScope: { type: "opening", scopeId: "scope-opening" } as const,
+      slideIds: ["slide_new", "slide_a", "slide_b", "slide_c", "slide_d"],
+    },
+    {
+      name: "closing",
+      targetScope: { type: "closing", scopeId: "scope-closing" } as const,
+      slideIds: ["slide_a", "slide_b", "slide_c", "slide_d", "slide_new"],
+    },
+  ])("marks a $name target stale when its current slide scope no longer matches", ({ targetScope, slideIds }) => {
+    expect(resolveFocusedPracticeTarget({
+      currentDeck: deckWithSlideIds(slideIds),
+      sourceSnapshot,
+      targetScope,
+    })).toMatchObject({ compatibilityState: "stale", staleReason: "SLIDE_CHANGED" });
+  });
+
+  it("marks a target stale when the current deck is unavailable", () => {
+    expect(resolveFocusedPracticeTarget({
+      currentDeck: null,
+      sourceSnapshot,
+      targetScope: { type: "slide", scopeId: "scope-slide", slideId: "slide_b" },
+    })).toMatchObject({ compatibilityState: "stale", staleReason: "DECK_UNAVAILABLE" });
   });
 
   it("rejects a source slide range longer than the P0 two-to-three-slide limit", () => {

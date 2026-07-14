@@ -71,14 +71,16 @@ export class FocusedPracticeService {
       const rows = await manager.query(
         `
           SELECT runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state,
-                 sets.goal_set_id, json_agg(goals ORDER BY goals.priority) AS goals
+                 sets.goal_set_id, sets.revision AS goal_set_revision,
+                 json_agg(goals ORDER BY goals.priority) AS goals
           FROM rehearsal_runs runs
           JOIN practice_goal_sets sets ON sets.project_id = runs.project_id
             AND sets.goal_set_id = $3 AND sets.source_full_run_id = runs.run_id
           JOIN practice_goals goals ON goals.project_id = sets.project_id
             AND goals.goal_set_id = sets.goal_set_id AND goals.goal_id = ANY($4::text[])
           WHERE runs.project_id = $1 AND runs.run_id = $2 AND runs.status = 'succeeded'
-          GROUP BY runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state, sets.goal_set_id
+          GROUP BY runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state,
+                   sets.goal_set_id, sets.revision
         `,
         [projectId, request.sourceFullRunId, request.sourceGoalSetId, request.goalIds],
       );
@@ -139,6 +141,10 @@ export class FocusedPracticeService {
         targetScope: request.targetScope,
         snapshot: {
           deckVersion: snapshot.deckVersion,
+          goalSetRef: {
+            goalSetId: source.goal_set_id,
+            revision: source.goal_set_revision,
+          },
           briefRef: plan.briefRef,
           evaluatorLensRef: plan.evaluatorLensRef,
           criterionRefs: goals.map((goal) => goal.criterion_ref_json),
