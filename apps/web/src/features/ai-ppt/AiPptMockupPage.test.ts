@@ -842,7 +842,7 @@ describe("AI PPT wizard payload", () => {
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
   });
 
-  it("navigates to the generated project only after successful job polling", () => {
+  it("submits the compiled request and navigates only after successful polling", () => {
     const source = fs.readFileSync(
       new URL("./AiPptMockupPage.tsx", import.meta.url),
       "utf8"
@@ -850,6 +850,13 @@ describe("AI PPT wizard payload", () => {
     const submitStart = source.indexOf("async function submitGeneration(");
     const submitEnd = source.indexOf("\n  return (", submitStart);
     const submitGeneration = source.slice(submitStart, submitEnd);
+    const endpointIndex = submitGeneration.indexOf(
+      "/jobs/generate-deck`"
+    );
+    const payloadBuilderIndex = submitGeneration.indexOf(
+      "buildAiPptGenerateDeckPayload(",
+      endpointIndex
+    );
     const pollIndex = submitGeneration.indexOf("const completed = await pollJob(");
     const failureIndex = submitGeneration.indexOf(
       'if (completed.status === "failed")'
@@ -860,7 +867,9 @@ describe("AI PPT wizard payload", () => {
 
     expect(submitStart).toBeGreaterThanOrEqual(0);
     expect(submitEnd).toBeGreaterThan(submitStart);
-    expect(pollIndex).toBeGreaterThanOrEqual(0);
+    expect(endpointIndex).toBeGreaterThanOrEqual(0);
+    expect(payloadBuilderIndex).toBeGreaterThan(endpointIndex);
+    expect(pollIndex).toBeGreaterThan(payloadBuilderIndex);
     expect(failureIndex).toBeGreaterThan(pollIndex);
     expect(navigateIndex).toBeGreaterThan(failureIndex);
   });

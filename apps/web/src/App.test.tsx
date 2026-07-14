@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  App,
   buildAiTemplateDeckGenerationPayload,
   buildDesignReferences,
   buildGenerateDeckPayload,
@@ -57,6 +58,7 @@ import {
   OrbitPublicLandingPage,
   submitOrbitAuth
 } from "./features/auth/OrbitAuthPage";
+import { authMeQueryKey } from "./features/auth/auth-session";
 import {
   OrbitProjectExplorer,
   OrbitWorkspaceHome
@@ -220,8 +222,30 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
-  it("routes the production AI PPT entry to the create-deck wizard", () => {
-    expect(getRoute("/createdeck")).toEqual({ name: "create-deck" });
+  it("renders the production AI PPT wizard from the createdeck route", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(authMeQueryKey, {
+      userId: "user_demo_1",
+      email: "demo@orbit.test"
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/createdeck", search: "" }
+    });
+
+    try {
+      expect(getRoute()).toEqual({ name: "create-deck" });
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      );
+
+      expect(html).toContain("AI PPT Wizard");
+      expect(html).toContain("Design Pack으로 시작하는 새 발표 생성");
+    } finally {
+      vi.unstubAllGlobals();
+      queryClient.clear();
+    }
   });
 
   it("parses project brief and version history production routes", () => {
