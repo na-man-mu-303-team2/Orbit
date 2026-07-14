@@ -476,7 +476,7 @@ describe("p3RehearsalSession", () => {
       timestampMs: [0, 800]
     });
 
-    expect(session.acceptPrompterPauseBoundary(700)).toBe(true);
+    expect(session.acceptPrompterPauseBoundary(600)).toBe(true);
     expect(session.getState().snapshot?.prompterProgress).toMatchObject({
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"]
