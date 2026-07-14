@@ -5668,17 +5668,33 @@ export function EditorShell(props: { projectId?: string }) {
               <EmptyCanvasState canvas={deck.canvas} />
             )}
 
-            <section className="script-panel">
+            <section
+              aria-labelledby="speaker-notes-title"
+              className={`script-panel ${isSpeakerNotesEditing ? "editing" : ""}`}
+            >
               <div className="script-panel-header">
-                <div>
-                  <strong>발표 메모</strong>
-                  <span>
-                    {currentSlide && showIds ? (
-                      <IdBadge id={currentSlide.slideId} />
-                    ) : (
-                      currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                    )}
+                <div className="script-panel-heading">
+                  <span aria-hidden="true" className="script-panel-icon">
+                    <FileText size={18} />
                   </span>
+                  <div>
+                    <div className="script-panel-title-row">
+                      <strong id="speaker-notes-title">발표 메모</strong>
+                      {isSpeakerNotesEditing ? (
+                        <span className="script-panel-status">편집 중</span>
+                      ) : null}
+                    </div>
+                    <span className="script-panel-context">
+                      현재 슬라이드 · {currentSlide && showIds ? (
+                        <IdBadge id={currentSlide.slideId} />
+                      ) : (
+                        currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
+                      )}
+                    </span>
+                    <p className="script-panel-description">
+                      발표할 때 참고할 내용을 슬라이드별로 정리하세요.
+                    </p>
+                  </div>
                 </div>
                 {isSpeakerNotesEditing ? (
                   <div className="script-panel-actions">
@@ -5703,36 +5719,63 @@ export function EditorShell(props: { projectId?: string }) {
                     type="button"
                     onClick={handleStartSpeakerNotesEdit}
                   >
-                    수정
+                    <PenLine aria-hidden="true" size={14} />
+                    메모 편집
                   </button>
                 )}
               </div>
               {isSpeakerNotesEditing ? (
-                <textarea
-                  className="script-notes-editor"
-                  aria-label="발표 메모 수정"
-                  value={speakerNotesDraft}
-                  onChange={(event) => setSpeakerNotesDraft(event.target.value)}
-                />
+                <div className="script-panel-body">
+                  <textarea
+                    aria-describedby="speaker-notes-edit-help"
+                    aria-label="발표 메모 수정"
+                    autoFocus
+                    className="script-notes-editor"
+                    placeholder={
+                      "슬라이드에서 말할 내용을 입력하세요.\n문단을 나누면 발표할 때도 그대로 표시됩니다."
+                    }
+                    value={speakerNotesDraft}
+                    onChange={(event) => setSpeakerNotesDraft(event.target.value)}
+                  />
+                  <div className="script-panel-meta" id="speaker-notes-edit-help">
+                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                    <span>{speakerNotesDraft.length.toLocaleString()}자</span>
+                  </div>
+                </div>
               ) : (
-                <>
-                  <KeywordHighlightedNotes
-                    keywords={currentSlide?.keywords ?? []}
-                    notes={currentSlide?.speakerNotes ?? ""}
-                    selectedKeywordId={selectedKeywordId}
-                    selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
-                    showIds={showIds}
-                    slideId={currentSlide?.slideId ?? ""}
-                    onSelectKeyword={handleSelectKeyword}
-                    onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-                  />
-                  <KeywordList
-                    keywords={currentSlide?.keywords ?? []}
-                    selectedKeywordId={selectedKeywordId}
-                    showIds={showIds}
-                    usageByKeywordId={currentSlideKeywordUsage}
-                    onSelectKeyword={handleSelectKeyword}
-                  />
+                <div className="script-panel-body">
+                  <div className="script-notes-surface">
+                    <KeywordHighlightedNotes
+                      keywords={currentSlide?.keywords ?? []}
+                      notes={currentSlide?.speakerNotes ?? ""}
+                      selectedKeywordId={selectedKeywordId}
+                      selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
+                      showIds={showIds}
+                      slideId={currentSlide?.slideId ?? ""}
+                      onSelectKeyword={handleSelectKeyword}
+                      onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                    />
+                  </div>
+                  <div className="script-panel-meta">
+                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                    <span>{(currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
+                  </div>
+                  <section
+                    aria-labelledby="speaker-notes-keywords-title"
+                    className="script-keyword-section"
+                  >
+                    <div className="script-keyword-heading">
+                      <strong id="speaker-notes-keywords-title">발표 체크포인트</strong>
+                      <span>필수 발화와 화면 전환에 연결된 키워드입니다.</span>
+                    </div>
+                    <KeywordList
+                      keywords={currentSlide?.keywords ?? []}
+                      selectedKeywordId={selectedKeywordId}
+                      showIds={showIds}
+                      usageByKeywordId={currentSlideKeywordUsage}
+                      onSelectKeyword={handleSelectKeyword}
+                    />
+                  </section>
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
@@ -5776,7 +5819,7 @@ export function EditorShell(props: { projectId?: string }) {
                       }}
                     />
                   ) : null}
-                </>
+                </div>
               )}
             </section>
           </div>
