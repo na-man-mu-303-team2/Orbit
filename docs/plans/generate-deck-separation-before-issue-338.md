@@ -84,7 +84,9 @@ Worker와 Python은 이 값을 기준으로 구형 recipe와 imported PPTX desig
 
 ### 2.3 PPTX import baseline과 현행 상태
 
-아래 불일치는 계획 작성 당시 baseline이며 #339 PR 1~PR 3에서 해소되었다. 현재 에디터는 `{ fileId }`만 `POST /pptx-ooxml-generations`에 전달하고, 구형 `/pptx-imports` API module과 신규 enqueue helper는 해제되어 있다. 구형 queue consumer는 이미 queued/active인 Job drain을 위해 PR 4까지 유지한다.
+아래 불일치는 계획 작성 당시 baseline이며 #339 PR 1~PR 4에서 해소한다. PR 4 코드 기준으로 에디터는 `{ fileId }`만 `POST /pptx-ooxml-generations`에 전달하고, 구형 `/pptx-imports` API, queue/job constant, enqueue helper, consumer, processor는 제거된다. `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`와 `pptxImportJobResultSchema`만 과거 row/result 조회 호환을 유지한다.
+
+PR 4 merge 전에는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 레거시 queue의 queued/active 및 예약·repeat 잔여 Job이 없다는 운영 증거를 확인한다. 로컬 drain 결과는 이 merge hard gate를 대신하지 않는다.
 
 ```mermaid
 flowchart TD
@@ -92,10 +94,9 @@ flowchart TD
     NEW_API --> NEW_Q["pptx-ooxml-generation queue"]
     NEW_Q --> NEW_P["pptx-ooxml-generation.processor.ts"]
     NEW_P --> NEW_PY["/ai/pptx-ooxml-generation"]
-
-    OLD_Q["pptx-import queue"] --> OLD_P["pptx-import.processor.ts<br/>drain only"]
-    OLD_P --> OLD_PY["/design/import-pptx"]
 ```
+
+`TemplateBlueprint`, `purpose: "pptx-import"`, Python `/design/import-pptx`와 `pptx_design_importer.py`는 활성 OOXML 및 `generate-deck` 경로가 재사용하므로 제거하지 않는다.
 
 `PptxOoxmlGenerationRequest`의 legacy optional AI 입력 축소는 PR 5에서 수행한다. 다만 활성 Editor click path는 이미 `{ fileId }`만 보내므로 import 중 AI 문구 교체를 요청하지 않는다.
 
@@ -356,7 +357,7 @@ flowchart TD
     P7B --> P8["PR 8\n#338 착수 준비 검증"]
 ```
 
-PR은 위 순서대로 선형 진행한다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지하며, PR 4는 두 레거시 queue의 queued/active가 모두 0인 증거를 확인한 뒤 제거한다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행한다.
+PR은 위 순서대로 선형 진행한다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지하며, PR 4는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 레거시 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0인 증거를 확인한 뒤 제거한다. 로컬 drain 결과만으로 merge/deploy하지 않는다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행한다.
 
 각 PR은 최신 `develop`에서 `refactor/ai-ppt-pre-338-*` 형식의 독립 브랜치로 시작하고 GitHub Flow로 병합한다. 이미 push된 공유 브랜치에는 rebase 또는 force push를 하지 않는다. 선행 PR이 병합된 뒤 다음 PR 브랜치를 최신 `develop`에서 새로 만들면 선형 review 단위와 rollback 경계가 분명해진다.
 
@@ -545,7 +546,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **의존성**: PR 3
 
-**목표**: `pptx-import`와 `ai-template-deck-generation` queue가 모두 drain된 뒤 API 잔여 코드, consumer, queue 등록과 active schema를 제거한다.
+**목표**: 배포 환경의 `pptx-import`와 `ai-template-deck-generation` queue가 완전히 drain된 뒤 API 잔여 코드, consumer, queue 등록과 active schema를 제거한다. 코드와 CI는 draft PR에서 준비할 수 있지만 배포 환경 증거 없이는 merge/deploy하지 않는다.
 
 **주요 파일**
 
@@ -561,7 +562,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. 두 queue의 queued/active가 모두 0이고 PR 3 이후 신규 enqueue가 없다는 운영 증거를 확인한다.
+1. 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0이라는 운영 증거를 확인한다. 로컬 queue/DB 결과는 이 merge hard gate를 대신하지 않는다.
 2. 두 레거시 controller, service, module, processor와 queue 등록을 제거한다.
 3. active/create schema와 runtime dispatch에서 두 Job type을 제거한다.
 4. `historicalJobTypeSchema`와 DB read 경로에는 두 type을 유지한다.
@@ -578,7 +579,7 @@ uv run pytest tests/test_generate_deck_contract.py
 **완료 기준**
 
 - 코드 검색에서 두 레거시 endpoint·queue·processor의 실행 참조가 없다.
-- 두 queue의 drain 증거와 historical Job 처리 방침이 PR 본문에 기록된다.
+- 배포 환경의 전체 대기 상태·active·repeat 및 DB queued/running이 0이라는 drain 증거와 historical Job 처리 방침이 PR 본문에 기록된다.
 
 ### PR 5. PPTX OOXML의 AI slot 생성 제거와 request 축소
 
@@ -843,10 +844,11 @@ uv run pytest
 
 이 계획에서는 다음 정책을 확정한다.
 
-- `historicalJobTypeSchema`는 DB에 존재할 수 있는 과거 type인 `pptx-import`, `ai-template-deck-generation`을 계속 허용한다.
-- `publicCreatableJobTypeSchema`와 queue enqueue 함수에서는 두 type을 제거한다.
-- `jobSchema`의 DB read 경로는 historical schema를 사용하고, 신규 Job 생성 경로는 active/create schema를 사용한다.
+- `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 DB에 존재할 수 있는 과거 type인 `pptx-import`, `ai-template-deck-generation`을 계속 허용한다.
+- `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 두 type을 거부한다.
+- `packages/job-queue`의 두 legacy queue/job constant와 enqueue helper, Worker consumer/processor/runtime dispatch는 제거한다.
 - queue drain은 queued/active job을 끝내는 배포 절차이며, 이미 완료된 DB 이력의 parsing 호환성을 대신하지 않는다.
+- PR 4 merge 전 배포 환경의 drain 증거를 확인하며 로컬 queue/DB 결과만으로 통과 처리하지 않는다.
 - 이력 보존 기간이 끝난 뒤의 archive와 enum 축소는 별도 TypeORM migration 및 운영 계획으로 수행한다.
 
 적용 순서는 다음과 같다.
@@ -860,11 +862,12 @@ sequenceDiagram
     participant DB
 
     UI->>API: 새 OOXML import만 요청
-    API->>Queue: legacy enqueue 중단
-    Queue->>Worker: 기존 active/queued job drain
-    Worker->>DB: 최종 상태 저장
+    API->>Queue: PR 3에서 legacy enqueue 중단
+    Queue->>Worker: 배포 환경의 기존 Job drain
+    Worker->>DB: legacy Job 최종 상태 저장
+    Note over Queue,Worker: drain 증거가 PR 4 merge hard gate
+    Note over API,Worker: PR 4에서 legacy runtime 제거
     API->>DB: historical type read compatibility 유지
-    Note over API,Worker: 다음 배포에서 legacy processor 제거
     Note over API,DB: 보존 기간 후 archive/migration 검토
 ```
 
@@ -890,6 +893,7 @@ sequenceDiagram
 - [ ] TemplateBlueprint와 source/current package mapping이 유지된다.
 - [ ] imported Deck의 edit → sync → export round-trip이 검증됐다.
 - [ ] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
+- [ ] 배포 환경 drain 확인 후 구형 API, queue/job constant, consumer, processor가 제거됐다.
 - [ ] historical Job row를 안전하게 읽을 수 있다.
 - [ ] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [ ] Python의 source, content, design, layout, visual requirements, quality 단계가 명시적 DTO로 단독 테스트 가능하다.
