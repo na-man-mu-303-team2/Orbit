@@ -40,6 +40,30 @@ import {
 
 const fixtures = p0CoreContractFixtures;
 
+describe("P0 focused-practice duration guidance fixture", () => {
+  it("fixes the target policy and 30-60 second examples", () => {
+    expect(fixtures.focusedPracticeDurationGuidance).toEqual({
+      minimumSeconds: 30,
+      maximumSeconds: 60,
+      sentenceCharactersPerSecond: 4,
+      slideCharactersPerSecond: 3.5,
+      storedTimingPriority: [
+        "targetSpokenSeconds",
+        "targetSeconds",
+        "estimatedSeconds",
+        "targetSecondsPerSlide",
+      ],
+      targetRecommendations: [
+        { targetType: "sentence", expectedSeconds: 30 },
+        { targetType: "slide", expectedSeconds: 36 },
+        { targetType: "slide-range", expectedSeconds: 60 },
+        { targetType: "opening", expectedSeconds: 45 },
+        { targetType: "closing", expectedSeconds: 30 },
+      ],
+    });
+  });
+});
+
 describe("P0 rehearsal focus contracts", () => {
   it("parses a CAS profile and freezes its revision with inline items", () => {
     expect(
