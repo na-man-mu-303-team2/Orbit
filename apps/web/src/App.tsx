@@ -59,7 +59,6 @@ import {
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
-import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
 import { AiPptCreationPage } from "./features/ai-ppt/AiPptCreationPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
@@ -686,6 +685,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "design-system" &&
     route.name !== "mockup" &&
     route.name !== "project-editor" &&
+    route.name !== "project-brief" &&
     route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
@@ -722,7 +722,9 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "project-brief") {
     return (
       <ProjectAccessGate projectId={route.projectId}>
-        <PresentationBriefPage projectId={route.projectId} />
+        <Suspense fallback={<EditorLoadingFallback />}>
+          <EditorShell initialBriefOpen projectId={route.projectId} />
+        </Suspense>
       </ProjectAccessGate>
     );
   }

@@ -729,43 +729,41 @@ export function AiPptCreationPage() {
         }
       }
 
-      let coachingContext: {
+      setStatus(briefMode === "custom" ? "맞춤 Brief 저장 중..." : "기본 Brief 저장 중...");
+      const isGenericBrief = briefMode === "generic";
+      const presentationBrief = await putPresentationBrief(project.projectId, {
+        expectedRevision: 0,
+        origin: "ai-generation",
+        audience: isGenericBrief ? "novice" : "decision-maker",
+        purpose: isGenericBrief ? "inform" : "persuade",
+        evaluatorLensRef: isGenericBrief
+          ? { lensId: "general-novice", revision: 1 }
+          : { lensId: "decision-maker", revision: 1 },
+        targetDurationMinutes: parsePositiveInteger(form.duration, 10),
+        desiredOutcome: isGenericBrief
+          ? `${form.topic.trim()}의 핵심 내용을 이해한다.`
+          : form.successCriteria.trim() || form.purpose.trim(),
+        requirements: !isGenericBrief && form.successCriteria.trim()
+          ? [{ kind: "must-cover", text: form.successCriteria.trim(), reviewStatus: "approved" }]
+          : [],
+        terminology: [],
+        challengeTopics: [],
+        approvedReferenceFileIds: getApprovedBriefReferenceFileIds(
+          form.referencePolicy,
+          referenceFileIds
+        )
+      });
+      const coachingContext: {
         briefRef: FrozenBriefRef;
         evaluatorLensRef: EvaluatorLensRef;
+      } = {
+        briefRef: {
+          mode: "briefed",
+          briefId: presentationBrief.briefId,
+          revision: presentationBrief.revision
+        },
+        evaluatorLensRef: presentationBrief.evaluatorLensRef
       };
-      if (briefMode === "custom") {
-        setStatus("맞춤 Brief 저장 중...");
-        const presentationBrief = await putPresentationBrief(project.projectId, {
-          expectedRevision: 0,
-          audience: "decision-maker",
-          purpose: "persuade",
-          evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
-          targetDurationMinutes: parsePositiveInteger(form.duration, 10),
-          desiredOutcome: form.successCriteria.trim() || form.purpose.trim(),
-          requirements: form.successCriteria.trim()
-            ? [{ kind: "must-cover", text: form.successCriteria.trim(), reviewStatus: "approved" }]
-            : [],
-          terminology: [],
-          challengeTopics: [],
-          approvedReferenceFileIds: getApprovedBriefReferenceFileIds(
-            form.referencePolicy,
-            referenceFileIds
-          )
-        });
-        coachingContext = {
-          briefRef: {
-            mode: "briefed",
-            briefId: presentationBrief.briefId,
-            revision: presentationBrief.revision
-          },
-          evaluatorLensRef: presentationBrief.evaluatorLensRef
-        };
-      } else {
-        coachingContext = {
-          briefRef: { mode: "generic" },
-          evaluatorLensRef: { lensId: "general-novice", revision: 1 }
-        };
-      }
 
       setStatus(`1/${generationStages.length} ${generationStages[0]}`);
       const response = await fetch(
@@ -1050,7 +1048,7 @@ function BriefStep(props: {
       </div>
       {props.briefMode === "generic" ? (
         <p className="ai-ppt-status">
-          일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.
+          일반 초보자 관점의 기본 Brief를 저장합니다. 에디터에서 언제든 확인하고 수정할 수 있어요.
         </p>
       ) : null}
       <div className="ai-ppt-field-grid">

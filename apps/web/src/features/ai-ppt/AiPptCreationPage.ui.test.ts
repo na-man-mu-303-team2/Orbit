@@ -24,4 +24,15 @@ describe("AI PPT creation UI", () => {
     expect(appSource).not.toMatch(/AiPptMockupPage|features\/mockups\/.*AiPpt/);
     expect(mockupSource).not.toMatch(/AiPptCreationPage|ProjectAssetWorkspace|presentationBriefApi/);
   });
+
+  it("persists both custom and general generation modes as production Briefs", () => {
+    const source = fs.readFileSync(
+      new URL("./AiPptCreationPage.tsx", import.meta.url),
+      "utf8"
+    );
+
+    expect(source).toContain('origin: "ai-generation"');
+    expect(source).toContain('briefRef: {\n          mode: "briefed"');
+    expect(source).not.toContain('briefRef: { mode: "generic" }');
+  });
 });

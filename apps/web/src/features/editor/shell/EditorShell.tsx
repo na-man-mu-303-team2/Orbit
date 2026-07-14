@@ -185,6 +185,7 @@ import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import orbitLogo from "../../../assets/orbit-logo.png";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
+import { PresentationBriefDrawer } from "../../coaching/PresentationBriefDrawer";
 import {
   ValidationPanel,
   type ValidationTextOverflowAction
@@ -1351,10 +1352,13 @@ async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugStat
   };
 }
 
-export function EditorShell(props: { projectId?: string }) {
+export function EditorShell(props: { initialBriefOpen?: boolean; projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [isBriefDrawerOpen, setIsBriefDrawerOpen] = useState(
+    props.initialBriefOpen ?? false
+  );
   const resetProjectUiState = useEditorShellUiStore(
     (state) => state.resetProjectUiState
   );
@@ -5060,7 +5064,11 @@ export function EditorShell(props: { projectId?: string }) {
           ) : null}
           <button
             className="editor-context-top-button"
-            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
+            aria-expanded={isBriefDrawerOpen}
+            onClick={() => {
+              setIsBriefDrawerOpen(true);
+              setActiveTopMenu(null);
+            }}
             type="button"
           >
             <FileText size={15} />
@@ -6079,6 +6087,21 @@ export function EditorShell(props: { projectId?: string }) {
           onChange={handlePptxFileInputChange}
         />
       </main>
+      {isBriefDrawerOpen ? (
+        <PresentationBriefDrawer
+          projectId={projectId}
+          onClose={() => {
+            setIsBriefDrawerOpen(false);
+            if (window.location.pathname.endsWith("/brief")) {
+              window.history.replaceState(
+                {},
+                "",
+                `/project/${encodeURIComponent(projectId)}`
+              );
+            }
+          }}
+        />
+      ) : null}
       {shapeMenuOverlay}
       {elementContextMenuOverlay}
     </>
