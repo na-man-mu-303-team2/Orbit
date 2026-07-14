@@ -1943,6 +1943,7 @@ export function RehearsalWorkspace(props: {
     createInitialAdvanceControllerState(),
   );
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
+  const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
@@ -3265,6 +3266,7 @@ export function RehearsalWorkspace(props: {
     setPauseDetectorSnapshot(null);
     setLastSentenceSpokenAtMs(null);
     lastSentenceSpokenAtMsRef.current = null;
+    finalSentenceCommittedAtMsRef.current = null;
     updateAdvanceControllerState(
       slideId
         ? resetAdvanceControllerForSlide(slideId)
@@ -3290,6 +3292,7 @@ export function RehearsalWorkspace(props: {
 
   function runAdvanceControllerEvaluation(input: {
     effectiveCoverage: number;
+    finalSentenceCommitted: boolean;
     finalSentenceSpoken: boolean;
     remainingTriggerSteps: number;
   }) {
@@ -3302,12 +3305,19 @@ export function RehearsalWorkspace(props: {
     }
 
     const nowMs = Date.now();
+    if (input.finalSentenceCommitted) {
+      finalSentenceCommittedAtMsRef.current ??= nowMs;
+    } else {
+      finalSentenceCommittedAtMsRef.current = null;
+    }
     const detector = ensurePauseDetector();
     const pause = pauseDetectorSnapshot ?? detector.snapshot(nowMs);
     const result = evaluateAdvanceController(
       advanceControllerStateRef.current,
       {
         effectiveCoverage: input.effectiveCoverage,
+        finalSentenceCommitted: input.finalSentenceCommitted,
+        finalSentenceCommittedAtMs: finalSentenceCommittedAtMsRef.current,
         finalSentenceSpoken: input.finalSentenceSpoken,
         finalSentenceSpokenAtMs: lastSentenceSpokenAtMsRef.current,
         isLastSlide: currentSlideIndex >= deck.slides.length - 1,
@@ -4220,6 +4230,7 @@ export function RehearsalWorkspace(props: {
 
     runAdvanceControllerEvaluation({
       effectiveCoverage: p3PanelSnapshot.effectiveCoverage,
+      finalSentenceCommitted: p3PanelSnapshot.finalSentenceCommitted === true,
       finalSentenceSpoken: p3PanelSnapshot.finalSentenceSpoken,
       remainingTriggerSteps,
     });
@@ -4232,6 +4243,7 @@ export function RehearsalWorkspace(props: {
     pauseDetectorSnapshot?.isPaused,
     pauseDetectorSnapshot?.silenceDurationMs,
     p3PanelSnapshot.effectiveCoverage,
+    p3PanelSnapshot.finalSentenceCommitted,
     p3PanelSnapshot.finalSentenceSpoken,
     presenterSettings.advancePolicy.countdownMs,
     presenterSettings.advancePolicy.live,

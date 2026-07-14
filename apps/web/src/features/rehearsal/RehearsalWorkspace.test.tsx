@@ -2095,10 +2095,34 @@ describe("RehearsalWorkspace", () => {
     pauseDetector.accept({ type: "tick", atMs: 700 });
     const pause = pauseDetector.snapshot(700);
 
+    const premature = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      {
+        effectiveCoverage: 1,
+        finalSentenceCommitted: false,
+        finalSentenceCommittedAtMs: null,
+        finalSentenceSpoken: true,
+        finalSentenceSpokenAtMs: 100,
+        isLastSlide: false,
+        mode: "rehearsal",
+        nowMs: 700,
+        pause,
+        policy: defaultAutoAdvancePolicy,
+        remainingTriggerSteps: 0,
+        slideId: slide.slideId,
+      },
+      defaultAutoAdvanceConfig,
+    );
+
+    expect(premature.commands).toEqual([]);
+    expect(premature.state.status).toBe("tracking");
+
     const blocked = evaluateAdvanceController(
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2137,6 +2161,8 @@ describe("RehearsalWorkspace", () => {
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2157,6 +2183,8 @@ describe("RehearsalWorkspace", () => {
       countdown.state,
       {
         effectiveCoverage: 0.7,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: false,
@@ -2179,6 +2207,8 @@ describe("RehearsalWorkspace", () => {
         countdown.state,
         {
           effectiveCoverage: 0.7,
+          finalSentenceCommitted: true,
+          finalSentenceCommittedAtMs: 100,
           finalSentenceSpoken: true,
           finalSentenceSpokenAtMs: 100,
           isLastSlide: false,
@@ -2201,6 +2231,8 @@ describe("RehearsalWorkspace", () => {
       createInitialAdvanceControllerState(),
       {
         effectiveCoverage: 1,
+        finalSentenceCommitted: true,
+        finalSentenceCommittedAtMs: 100,
         finalSentenceSpoken: true,
         finalSentenceSpokenAtMs: 100,
         isLastSlide: true,
