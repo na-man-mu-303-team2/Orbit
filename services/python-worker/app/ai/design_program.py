@@ -305,7 +305,6 @@ def create_design_program(
         api_client = OpenAI(api_key=api_key)
 
     prompt = art_director_prompt(context, slides)
-    last_error: Exception | None = None
     for _ in range(2):
         try:
             response = api_client.responses.create(
@@ -314,16 +313,24 @@ def create_design_program(
                 input=prompt,
                 text=design_program_response_format(len(slides)),
             )
-            program = DeckDesignProgram.model_validate_json(
-                str(getattr(response, "output_text", "")).strip()
-            )
+            payload = json.loads(str(getattr(response, "output_text", "")).strip())
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("slides"), list
+            ):
+                raise ValueError("Art Director returned an invalid response structure")
+            payload["backgroundSequence"] = [
+                slide["backgroundMode"] for slide in payload["slides"]
+            ]
+            program = DeckDesignProgram.model_validate(payload)
             if len(program.slides) != len(slides):
                 raise ValueError("Art Director returned the wrong slide count")
             return apply_art_director_context(program, context)
-        except Exception as error:
-            last_error = error
+        except Exception:
             prompt += "\nThe previous response violated the strict schema. Return a corrected plan."
-    raise DesignProgramError(f"Art Director response invalid: {last_error}")
+    raise DesignProgramError(
+        "Art Director could not create a valid design plan. "
+        "Please retry deck generation."
+    )
 
 
 def apply_art_director_context(
