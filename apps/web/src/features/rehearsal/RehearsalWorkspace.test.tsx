@@ -1969,7 +1969,7 @@ describe("RehearsalWorkspace", () => {
     expect(renderLiveTranscriptBuffer(buffer)).toBe("새 슬라이드");
   });
 
-  it("moves the prompter to the next uncovered sentence even when the covered sentence transcript is partial", () => {
+  it("keeps the current prompter sentence when coaching coverage comes from a partial transcript", () => {
     const rows = getRehearsalPrompterRows(
       [
         {
@@ -1991,10 +1991,63 @@ describe("RehearsalWorkspace", () => {
       ],
       ["sentence_1"],
       "",
+      {
+        slideId: "slide_1",
+        revision: 0,
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        candidateSentenceId: "sentence_1",
+        candidateSinceMs: 1_000,
+        committedSentenceIds: [],
+        lastCommittedSentenceId: null,
+        lastCommitSource: null,
+        finalSentenceCommitted: false,
+      },
+    );
+
+    expect(rows.current).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
+    expect(rows.previous).toBe("");
+    expect(rows.next).toBe("다음 문장입니다.");
+  });
+
+  it("moves the prompter after the current sentence is committed", () => {
+    const rows = getRehearsalPrompterRows(
+      [
+        {
+          sentenceId: "sentence_1",
+          text: "첫 문장입니다.",
+          index: 0,
+          isFinalTrigger: false,
+          matchable: true,
+          candidates: [],
+        },
+        {
+          sentenceId: "sentence_2",
+          text: "다음 문장입니다.",
+          index: 1,
+          isFinalTrigger: true,
+          matchable: true,
+          candidates: [],
+        },
+      ],
+      [],
+      "",
+      {
+        slideId: "slide_1",
+        revision: 1,
+        phase: "tracking",
+        currentSentenceId: "sentence_2",
+        candidateSentenceId: null,
+        candidateSinceMs: null,
+        committedSentenceIds: ["sentence_1"],
+        lastCommittedSentenceId: "sentence_1",
+        lastCommitSource: "lexical",
+        finalSentenceCommitted: false,
+      },
     );
 
     expect(rows.current).toBe("다음 문장입니다.");
-    expect(rows.previous).toBe("첫 문장은 아직 끝까지 읽지 않았습니다.");
+    expect(rows.previous).toBe("첫 문장입니다.");
     expect(rows.next).toBe("");
   });
 

@@ -7,13 +7,46 @@ import {
 } from "./rehearsalScriptPrompter";
 
 describe("createRehearsalScriptPrompterRows", () => {
-  it("marks covered, current, and next rows from line-level coverage", () => {
+  it("keeps a candidate sentence current when coaching coverage changes", () => {
+    const rows = createRehearsalScriptPrompterRows({
+      sentences,
+      coveredSentenceIds: ["sentence_1", "sentence_4"],
+      coveredSentenceMatchKinds: {
+        sentence_1: "covered",
+        sentence_4: "covered"
+      },
+      prompterProgress: progress({
+        phase: "candidate",
+        candidateSentenceId: "sentence_1",
+        candidateSinceMs: 1_000
+      })
+    });
+
+    expect(rows.map((row) => [row.sentence.sentenceId, row.status])).toEqual([
+      ["sentence_1", "current"],
+      ["sentence_2", "unmatchable"],
+      ["sentence_3", "next"],
+      ["sentence_4", "covered"],
+      ["sentence_5", "pending"]
+    ]);
+    expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
+      "sentence_1"
+    );
+    expect(rows[0]?.coverageStatus).toBe("covered");
+  });
+
+  it("moves current and next rows only after the prompter commits", () => {
     const rows = createRehearsalScriptPrompterRows({
       sentences,
       coveredSentenceIds: ["sentence_1"],
       coveredSentenceMatchKinds: {
         sentence_1: "covered"
-      }
+      },
+      prompterProgress: progress({
+        currentSentenceId: "sentence_3",
+        committedSentenceIds: ["sentence_1"],
+        lastCommittedSentenceId: "sentence_1"
+      })
     });
 
     expect(rows.map((row) => [row.sentence.sentenceId, row.status])).toEqual([
@@ -28,10 +61,21 @@ describe("createRehearsalScriptPrompterRows", () => {
     );
   });
 
-  it("keeps the final covered row focused when all matchable rows are covered", () => {
+  it("keeps the final committed row current when all matchable rows are committed", () => {
     const rows = createRehearsalScriptPrompterRows({
       sentences,
-      coveredSentenceIds: ["sentence_1", "sentence_3", "sentence_4", "sentence_5"]
+      coveredSentenceIds: ["sentence_1", "sentence_3", "sentence_4", "sentence_5"],
+      prompterProgress: progress({
+        currentSentenceId: null,
+        committedSentenceIds: [
+          "sentence_1",
+          "sentence_3",
+          "sentence_4",
+          "sentence_5"
+        ],
+        lastCommittedSentenceId: "sentence_5",
+        finalSentenceCommitted: true
+      })
     });
 
     expect(rows.map((row) => row.status)).toEqual([
@@ -39,29 +83,72 @@ describe("createRehearsalScriptPrompterRows", () => {
       "unmatchable",
       "covered",
       "covered",
-      "covered"
+      "current"
     ]);
     expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
       "sentence_5"
     );
+    expect(rows[4]?.coverageStatus).toBe("covered");
   });
 
-  it("preserves paraphrased covered rows", () => {
+  it("preserves a paraphrased badge on the current prompter sentence", () => {
     const rows = createRehearsalScriptPrompterRows({
       sentences,
       coveredSentenceIds: new Set(["sentence_1", "sentence_3"]),
       coveredSentenceMatchKinds: {
         sentence_3: "paraphrased"
-      }
+      },
+      prompterProgress: progress({ currentSentenceId: "sentence_3" })
     });
 
-    expect(rows[2]?.status).toBe("paraphrased");
-    expect(getRehearsalScriptFocusSentenceId(sentences, ["sentence_1"])).toBe(
+    expect(rows[2]?.status).toBe("current");
+    expect(rows[2]?.coverageStatus).toBe("paraphrased");
+    expect(getRehearsalScriptFocusSentenceId(sentences, progress({
+      currentSentenceId: "sentence_3"
+    }))).toBe(
       "sentence_3"
     );
-    expect(getRehearsalScriptFocusSentenceId([], [])).toBeNull();
+    expect(getRehearsalScriptFocusSentenceId([], undefined)).toBeNull();
+  });
+
+  it("keeps the first matchable sentence current in legacy renders", () => {
+    const rows = createRehearsalScriptPrompterRows({
+      sentences,
+      coveredSentenceIds: ["sentence_1", "sentence_3", "sentence_4"]
+    });
+
+    expect(rows[0]?.status).toBe("current");
+    expect(rows[0]?.coverageStatus).toBe("covered");
+    expect(rows[2]?.status).toBe("next");
+    expect(getRehearsalScriptFocusSentenceId(sentences, undefined)).toBe(
+      "sentence_1"
+    );
   });
 });
+
+function progress(
+  overrides: Partial<
+    NonNullable<
+      import("../speech/speechTrackingEvents").SpeechTrackerSnapshot["prompterProgress"]
+    >
+  > = {}
+): NonNullable<
+  import("../speech/speechTrackingEvents").SpeechTrackerSnapshot["prompterProgress"]
+> {
+  return {
+    slideId: "slide_1",
+    revision: 0,
+    phase: "tracking",
+    currentSentenceId: "sentence_1",
+    candidateSentenceId: null,
+    candidateSinceMs: null,
+    committedSentenceIds: [],
+    lastCommittedSentenceId: null,
+    lastCommitSource: null,
+    finalSentenceCommitted: false,
+    ...overrides
+  };
+}
 
 const sentences: ExtractedSentence[] = [
   {

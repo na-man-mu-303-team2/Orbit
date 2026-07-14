@@ -156,18 +156,43 @@ describe("RehearsalPanel", () => {
     expect(html).toContain("체크됨");
   });
 
+  it("keeps current emphasis and the coaching badge on the same sentence", () => {
+    const html = renderPanel({
+      snapshot: {
+        ...snapshot,
+        prompterProgress: progress({ currentSentenceId: "sentence_1" })
+      }
+    });
+    const currentRowStart = html.indexOf('aria-current="true"');
+    const currentRow = html.slice(
+      currentRowStart,
+      html.indexOf("</li>", currentRowStart)
+    );
+
+    expect(currentRow).toContain("presenter-script-row--current");
+    expect(currentRow).toContain("<strong>OpenAI</strong>");
+    expect(currentRow).toContain("helps presenters rehearse.");
+    expect(currentRow).toContain("체크됨");
+  });
+
   it("distinguishes semantic paraphrase coverage in the script rows", () => {
     const html = renderPanel({
       snapshot: {
         ...snapshot,
         coveredSentenceMatchKinds: {
           sentence_1: "paraphrased"
-        }
+        },
+        prompterProgress: progress({ currentSentenceId: "sentence_1" })
       }
     });
+    const currentRowStart = html.indexOf('aria-current="true"');
+    const currentRow = html.slice(
+      currentRowStart,
+      html.indexOf("</li>", currentRowStart)
+    );
 
-    expect(html).toContain("presenter-script-row--paraphrased");
-    expect(html).toContain("의미 전달");
+    expect(currentRow).toContain("presenter-script-row--current");
+    expect(currentRow).toContain("의미 전달");
   });
 
   it("highlights direct keywords and aliases inside script sentences", () => {
@@ -246,20 +271,60 @@ describe("RehearsalPanel", () => {
     expect(html).toContain('data-occurrence-id="kwo_slide_1_kw_keyword_21_28"');
   });
 
-  it("selects the next matchable script sentence as the auto-scroll focus", () => {
+  it("selects the prompter progress sentence as the auto-scroll focus", () => {
     expect(
-      getRehearsalScriptFocusSentenceId(sentences, new Set(["sentence_1"]))
+      getRehearsalScriptFocusSentenceId(
+        sentences,
+        progress({ currentSentenceId: "sentence_3" })
+      )
     ).toBe("sentence_3");
     expect(
-      getRehearsalScriptFocusSentenceId(sentences, [
-        "sentence_1",
-        "sentence_3"
-      ])
+      getRehearsalScriptFocusSentenceId(
+        sentences,
+        progress({ currentSentenceId: "sentence_4" })
+      )
     ).toBe("sentence_4");
-    expect(getRehearsalScriptFocusSentenceId(sentences, [])).toBe(
+    expect(getRehearsalScriptFocusSentenceId(sentences, undefined)).toBe(
       "sentence_1"
     );
-    expect(getRehearsalScriptFocusSentenceId([], [])).toBeNull();
+    expect(
+      getRehearsalScriptFocusSentenceId(
+        sentences,
+        progress({
+          currentSentenceId: null,
+          finalSentenceCommitted: true
+        })
+      )
+    ).toBe("sentence_4");
+    expect(getRehearsalScriptFocusSentenceId([], undefined)).toBeNull();
+  });
+
+  it("keeps the final committed sentence visually current", () => {
+    const html = renderPanel({
+      snapshot: {
+        ...snapshot,
+        coveredSentenceIds: ["sentence_1", "sentence_3", "sentence_4"],
+        coveredSentenceMatchKinds: {
+          sentence_1: "covered",
+          sentence_3: "covered",
+          sentence_4: "covered"
+        },
+        prompterProgress: progress({
+          currentSentenceId: null,
+          committedSentenceIds: ["sentence_1", "sentence_3", "sentence_4"],
+          lastCommittedSentenceId: "sentence_4",
+          finalSentenceCommitted: true
+        })
+      }
+    });
+    const currentRowStart = html.indexOf('aria-current="true"');
+    const currentRow = html.slice(
+      currentRowStart,
+      html.indexOf("</li>", currentRowStart)
+    );
+
+    expect(currentRow).toContain("Final line summarizes the next action.");
+    expect(currentRow).toContain("체크됨");
   });
 });
 
@@ -380,5 +445,28 @@ const snapshot: SpeechTrackerSnapshot = {
   effectiveCoverage: 0.49,
   finalSentenceSpoken: false,
   hitKeywordIds: ["kw_ai"],
-  provisionalMissingKeywordIds: ["kw_privacy"]
+  provisionalMissingKeywordIds: ["kw_privacy"],
+  prompterProgress: progress({
+    currentSentenceId: "sentence_3",
+    committedSentenceIds: ["sentence_1"],
+    lastCommittedSentenceId: "sentence_1"
+  })
 };
+
+function progress(
+  overrides: Partial<NonNullable<SpeechTrackerSnapshot["prompterProgress"]>> = {}
+): NonNullable<SpeechTrackerSnapshot["prompterProgress"]> {
+  return {
+    slideId: "slide_1",
+    revision: 0,
+    phase: "tracking",
+    currentSentenceId: "sentence_1",
+    candidateSentenceId: null,
+    candidateSinceMs: null,
+    committedSentenceIds: [],
+    lastCommittedSentenceId: null,
+    lastCommitSource: null,
+    finalSentenceCommitted: false,
+    ...overrides
+  };
+}

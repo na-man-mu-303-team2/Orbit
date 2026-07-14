@@ -83,18 +83,24 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
     () =>
       getRehearsalScriptFocusSentenceId(
         props.sentences,
-        props.snapshot.coveredSentenceIds
+        props.snapshot.prompterProgress
       ),
-    [props.sentences, props.snapshot.coveredSentenceIds]
+    [props.sentences, props.snapshot.prompterProgress]
   );
   const prompterRows = useMemo(
     () =>
       createRehearsalScriptPrompterRows({
         sentences: props.sentences,
         coveredSentenceIds,
-        coveredSentenceMatchKinds: props.snapshot.coveredSentenceMatchKinds
+        coveredSentenceMatchKinds: props.snapshot.coveredSentenceMatchKinds,
+        prompterProgress: props.snapshot.prompterProgress
       }),
-    [coveredSentenceIds, props.sentences, props.snapshot.coveredSentenceMatchKinds]
+    [
+      coveredSentenceIds,
+      props.sentences,
+      props.snapshot.coveredSentenceMatchKinds,
+      props.snapshot.prompterProgress
+    ]
   );
   const showAdvice = props.mode === "rehearsal" && props.showAdvicePanel !== false;
   const semanticCoveragePercent = Math.round(
@@ -290,8 +296,6 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
               }}
               rows={prompterRows.map((row): PresenterScriptListRow => {
                 const { sentence } = row;
-                const matchKind =
-                  props.snapshot.coveredSentenceMatchKinds?.[sentence.sentenceId];
                 return {
                   content: (
                     <KeywordHighlightedText
@@ -303,9 +307,9 @@ export function RehearsalPanel(props: RehearsalPanelProps) {
                   ),
                   id: sentence.sentenceId,
                   label:
-                    matchKind === "paraphrased"
+                    row.coverageStatus === "paraphrased"
                       ? "의미 전달"
-                      : row.status === "covered"
+                      : row.coverageStatus === "covered"
                         ? "체크됨"
                         : undefined,
                   status: row.status
