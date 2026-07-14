@@ -318,9 +318,16 @@ describe("processGenerateDeckJob", () => {
       visualRepairAttempts: 0,
       visualIssueCodes: []
     });
-    expect(
-      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(true);
+    const deckInsertCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
+    );
+    expect(deckInsertCalls).toHaveLength(1);
+    const savedDeck = deckInsertCalls[0]?.[1]?.[2] as Deck;
+    expect(savedDeck.metadata.designProgramSnapshot?.backgroundSequence).toEqual(
+      savedDeck.slides.map(
+        (slide) => slide.aiNotes?.compositionPlan?.backgroundMode
+      )
+    );
     expect(events).toEqual(
       expect.arrayContaining([
         "ai-ppt.design-program.created",
@@ -330,6 +337,7 @@ describe("processGenerateDeckJob", () => {
         "ai-ppt.deck.published"
       ])
     );
+    expect(events.filter((event) => event === "ai-ppt.deck.published")).toHaveLength(1);
   });
 
   it("embeds stored image assets only in the visual review request", async () => {
@@ -1167,18 +1175,21 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
+    const safeMessage =
+      "Art Director could not create a valid design plan. Please retry deck generation.";
+    const responseBody = JSON.stringify({ detail: safeMessage });
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 15, null, null)])
       .mockResolvedValueOnce([
         jobRow("failed", 15, null, {
           code: "PYTHON_WORKER_GENERATE_DECK_FAILED",
-          message: "bad generation"
+          message: responseBody
         })
       ]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("bad generation", { status: 500 }))
+      vi.fn(async () => new Response(responseBody, { status: 503 }))
     );
 
     const job = await processGenerateDeckJob(
@@ -1189,7 +1200,14 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("failed");
-    expect(job.error?.message).toBe("bad generation");
+    expect(job.error?.message).toBe(responseBody);
+    expect(job.error?.message).toContain(safeMessage);
+    expect(job.error?.message).not.toContain("validation error");
+    expect(job.error?.message).not.toContain("input_value");
+    expect(query.mock.calls[1]?.[1]?.[5]).toEqual({
+      code: "PYTHON_WORKER_GENERATE_DECK_FAILED",
+      message: responseBody
+    });
     expect(query).toHaveBeenCalledTimes(2);
   });
 
