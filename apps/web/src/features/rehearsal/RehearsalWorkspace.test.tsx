@@ -49,6 +49,7 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   getPreflightMicrophonePermissionHint,
   getRehearsalPrompterRows,
+  getRehearsalTeleprompterScrollBehavior,
   getRehearsalTimingProgress,
   isReusableRehearsalMediaStream,
   getRemainingTriggerStepsForSlide,
@@ -2069,6 +2070,27 @@ describe("RehearsalWorkspace", () => {
     expect(rows.current).toBe("다음 문장입니다.");
     expect(rows.previous).toBe("첫 문장입니다.");
     expect(rows.next).toBe("");
+  });
+
+  it("recenters the lower prompter only when its focused sentence changes", () => {
+    expect(
+      getRehearsalTeleprompterScrollBehavior(undefined, "sentence_1"),
+    ).toBe("auto");
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_1", "sentence_1"),
+    ).toBeNull();
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_1", "sentence_2"),
+    ).toBe("smooth");
+    expect(
+      getRehearsalTeleprompterScrollBehavior(
+        "slide_1:sentence_1",
+        "slide_2:sentence_1",
+      ),
+    ).toBe("smooth");
+    expect(
+      getRehearsalTeleprompterScrollBehavior("sentence_2", null),
+    ).toBeNull();
   });
 
   it("returns current prompter sentence as a single sentence block", () => {

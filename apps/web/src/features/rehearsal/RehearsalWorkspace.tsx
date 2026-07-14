@@ -5008,8 +5008,8 @@ export function RehearsalWorkspace(props: {
         </aside>
 
         <RehearsalTeleprompter
-          autoFollowKey={scriptAutoFollowKey}
           countdownMs={presenterSettings.advancePolicy.countdownMs}
+          focusScopeId={currentSlide?.slideId ?? "fallback"}
           nowMs={autoAdvanceNowMs}
           onCancel={cancelAutoAdvanceForManualCommand}
           rows={prompterRows}
@@ -5761,9 +5761,20 @@ export function RehearsalCompletionScreen(props: {
   );
 }
 
+export function getRehearsalTeleprompterScrollBehavior(
+  previousFocusSentenceId: string | null | undefined,
+  nextFocusSentenceId: string | null,
+): ScrollBehavior | null {
+  if (!nextFocusSentenceId || previousFocusSentenceId === nextFocusSentenceId) {
+    return null;
+  }
+
+  return previousFocusSentenceId === undefined ? "auto" : "smooth";
+}
+
 function RehearsalTeleprompter(props: {
-  autoFollowKey: number;
   countdownMs: number;
+  focusScopeId: string;
   nowMs: number;
   onCancel: () => void;
   rows: RehearsalPrompterRows;
@@ -5772,13 +5783,28 @@ function RehearsalTeleprompter(props: {
 }) {
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const focusRowRef = useRef<HTMLParagraphElement | null>(null);
+  const previousFocusSentenceIdRef = useRef<string | null | undefined>(
+    undefined,
+  );
   const countdownSeconds = getAutoAdvanceCountdownSeconds(
     props.state,
     props.countdownMs,
     props.nowMs,
   );
+  const focusKey = props.rows.focusSentenceId
+    ? `${props.focusScopeId}:${props.rows.focusSentenceId}`
+    : null;
 
   useEffect(() => {
+    const scrollBehavior = getRehearsalTeleprompterScrollBehavior(
+      previousFocusSentenceIdRef.current,
+      focusKey,
+    );
+    previousFocusSentenceIdRef.current = focusKey;
+    if (!scrollBehavior) {
+      return;
+    }
+
     const viewport = scrollViewportRef.current;
     const focusRow = focusRowRef.current;
     if (!viewport || !focusRow) {
@@ -5790,10 +5816,10 @@ function RehearsalTeleprompter(props: {
       focusRow.offsetTop - (viewport.clientHeight - focusRow.clientHeight) / 2,
     );
     viewport.scrollTo({
-      behavior: props.autoFollowKey > 0 ? "smooth" : "auto",
+      behavior: scrollBehavior,
       top: centeredTop,
     });
-  }, [props.autoFollowKey, props.rows.focusSentenceId]);
+  }, [focusKey]);
 
   return (
     <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
