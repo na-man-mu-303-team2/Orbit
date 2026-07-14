@@ -5996,8 +5996,12 @@ export function getRehearsalPrompterRows(
     sentences,
     coveredSentenceIds,
   });
+  const currentRow =
+    rows.find((row) => row.status === "current") ??
+    rows.find((row) => row.isFocusTarget);
+  const currentRowIndex = currentRow ? rows.indexOf(currentRow) : -1;
   let previous = "";
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
+  for (let index = currentRowIndex - 1; index >= 0; index -= 1) {
     const row = rows[index];
     if (row?.status === "covered" || row?.status === "paraphrased") {
       previous = row.sentence.text;
@@ -6005,8 +6009,7 @@ export function getRehearsalPrompterRows(
     }
   }
   const current =
-    rows.find((row) => row.status === "current")?.sentence.text ??
-    rows.find((row) => row.isFocusTarget)?.sentence.text ??
+    currentRow?.sentence.text ??
     sentences[0]?.text ??
     "";
   const next = rows.find((row) => row.status === "next")?.sentence.text ?? "";
