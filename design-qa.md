@@ -1,5 +1,39 @@
 # ORBIT mockup-to-production design QA
 
+## Rehearsal Presenter Chrome Visibility (2026-07-15)
+
+- Source visual truth: `/tmp/orbit-rehearsal-ui-hide-before.jpg`, captured from the annotated `localhost:5173` rehearsal route.
+- Implementation screenshot: `/tmp/orbit-rehearsal-ui-hide-after.jpg`, captured from the worktree `localhost:5175` route.
+- Combined comparison: `/tmp/orbit-rehearsal-ui-hide-comparison.jpg`.
+- Viewport/state: `2207x1164`, live rehearsal without microphone input, slide 9 of 29.
+
+### Full-view and focused comparison evidence
+
+The source and implementation were placed side by side at the same viewport, project, and slide. The implementation removes the five annotated visual surfaces: the Live STT/auto-advance card, teleprompter progress badge, next-slide preview, current-stage label, and in-stage slide index. The slide renderer, navigation, timer, system status, keyword/script content, teleprompter, typography, colors, borders, radii, icons, and deck imagery remain unchanged.
+
+The selected regions are readable in the full comparison, so a separate crop was not necessary. DOM and computed-style inspection provides focused evidence that all five elements remain mounted while each reports `display: none`. The former next-slide grid row and Live STT column collapse instead of leaving blank internal gaps; the presenter main reports two rows and the keyword section occupies the full `334px` panel width.
+
+### Findings and comparison history
+
+- No actionable P0/P1/P2/P3 mismatch remains.
+- The requested change is CSS-only. Rehearsal assistance, auto-advance settings, teleprompter progress, preview, and stage-label rendering code remains present and continues to execute.
+- At `1120x720`, all five targets remain hidden, the presenter main has two grid rows, and there is no horizontal overflow.
+- Fonts/typography, spacing rhythm outside the intentionally removed regions, ORBIT color tokens, image quality, icons, and remaining app copy passed visual review.
+
+### Verification
+
+- Previous-slide navigation moved to `8 / 29`; next-slide navigation returned to `9 / 29`.
+- Browser console: no errors or warnings.
+- Web suite: 141 files, 993 tests passed.
+- Focused rehearsal/presenter suite: 2 files, 111 tests passed.
+- Web lint/typecheck: passed.
+- Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
+- `git diff --check`: passed.
+
+final result: passed
+
+---
+
 ## Source visual truth
 
 - Presentation brief: `/tmp/orbit-production-design/brief-reference.png`

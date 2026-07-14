@@ -95,6 +95,9 @@ const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
   new URL("./RehearsalWorkspace.tsx", import.meta.url),
 );
+const rehearsalWorkspaceCssPath = fileURLToPath(
+  new URL("./rehearsal-workspace-orbit.css", import.meta.url),
+);
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -136,8 +139,34 @@ describe("RehearsalWorkspace", () => {
 
     expect(hookBody).toContain("useState<number | null>(null)");
     expect(hookBody).toContain("useLayoutEffect(() => {");
+    expect(hookBody).toContain("const observer = new ResizeObserver(updateScale)");
+    expect(hookBody).toContain('window.addEventListener("resize", updateScale)');
+    expect(hookBody).not.toContain("scheduleScaleUpdate");
     expect(hookBody).not.toContain("useState(0.44)");
     expect(stageRenderBody).toContain("presenterScale !== null");
+  });
+
+  it("keeps the presenter layout width and responsive stage height stable", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: 100%;/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\) 44px;/,
+    );
+  });
+
+  it("keeps rehearsal assistance mounted while hiding the annotated presenter chrome", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(source).toContain('className="rehearsal-assist-card checklist-card"');
+    expect(source).toContain('className="rehearsal-teleprompter-progress"');
+    expect(css).toMatch(/\.rehearsal-stage-label,[^{]+\{[^}]*display: none;/s);
+    expect(css).toMatch(/\.rehearsal-next-slide-preview \{[^}]*display: none;/s);
+    expect(css).toMatch(/\.rehearsal-teleprompter-progress \{[^}]*display: none;/s);
+    expect(css).toMatch(/\.rehearsal-panel-live-slot \{[^}]*display: none;/s);
   });
 
   it("녹음 시작 실패를 숨기지 않고 재시도와 대체 경로를 제공한다", () => {
