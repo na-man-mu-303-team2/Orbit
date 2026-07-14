@@ -28,14 +28,18 @@ import {
   normalizeElementFrameDraft
 } from "../../../../../../packages/editor-core/src/patches/elementFrame";
 import {
+  appendDeckPatchAckResponseSchema,
+  appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   createKeywordOccurrenceId,
   deckApiErrorSchema,
+  deckExportJobResultSchema,
   demoIds,
   getDeckResponseSchema,
   maxAssetUploadSizeBytes,
   meResponseSchema,
-  putDeckResponseSchema
+  putDeckResponseSchema,
+  type DeckExportJobResult
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import {
@@ -87,6 +91,7 @@ import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
 import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
+import { AiChatPanel } from "./components/AiChatPanel";
 import {
   SelectionQuickBar,
   createExpandTextWidthToFitFrame,
@@ -118,7 +123,8 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
-  ApplyAiSuggestionResponse,
+  ApplyDesignAgentProposalResponse,
+  AppendDeckPatchAckResponse,
   CustomShapeElementProps,
   CustomShapeNode,
   Deck,
@@ -130,6 +136,7 @@ import type {
   DeckPatch,
   GroupElementProps,
   ImageElementProps,
+  SemanticCue,
   ShapeElementProps,
   Slide,
   DeckApiErrorCode
@@ -162,7 +169,12 @@ import {
   Wand2,
   Home,
 } from "lucide-react";
-import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { io } from "socket.io-client";
@@ -174,7 +186,12 @@ import {
 } from "../ai/quality/ValidationPanel";
 import type { EditorValidationItem } from "../ai/quality/editorValidation";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
-import { SuggestionPanel } from "../suggestions/components/SuggestionPanel";
+import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
+import {
+  SemanticCueReviewPanel,
+  type SemanticCueExtractionUiState
+} from "../semantic-cues/SemanticCueReviewPanel";
+import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
 import {
   buildSlideThumbnailPatch,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -744,6 +761,11 @@ function navigateToRehearsal(projectId: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToPresentation(projectId: string) {
+  window.history.pushState({}, "", `/presentation/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToHome() {
   window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -917,6 +939,57 @@ async function appendProjectDeckPatch(
   return payload.deck;
 }
 
+export function applyDeckPatchAcknowledgement(
+  baseDeck: Deck,
+  patch: DeckPatch,
+  acknowledgement: AppendDeckPatchAckResponse
+): Deck {
+  const matchesRequest =
+    acknowledgement.deckId === patch.deckId &&
+    acknowledgement.changeRecord.deckId === patch.deckId &&
+    acknowledgement.changeRecord.beforeVersion === patch.baseVersion &&
+    acknowledgement.changeRecord.source === patch.source &&
+    JSON.stringify(acknowledgement.changeRecord.operations) ===
+      JSON.stringify(patch.operations);
+
+  if (!matchesRequest) {
+    throw new Error("Deck patch acknowledgement does not match the request");
+  }
+
+  const result = applyDeckPatch(baseDeck, patch, {
+    createdAt: acknowledgement.changeRecord.createdAt
+  });
+
+  if (!result.ok || result.deck.version !== acknowledgement.version) {
+    throw new Error("Deck patch acknowledgement version does not match the local result");
+  }
+
+  return result.deck;
+}
+
+async function appendProjectDeckPatchAck(
+  projectId: string,
+  baseDeck: Deck,
+  patch: DeckPatch
+): Promise<Deck> {
+  const request = appendDeckPatchRequestSchema.parse({ patch, responseMode: "ack" });
+  const response = await fetch(`/api/v1/projects/${projectId}/deck/patches`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(request)
+  });
+
+  if (!response.ok) {
+    throw await readResponseError(response, "Deck save failed");
+  }
+
+  const acknowledgement = appendDeckPatchAckResponseSchema.parse(await response.json());
+  emitOoxmlSyncJob(acknowledgement.ooxmlSyncJob);
+  return applyDeckPatchAcknowledgement(baseDeck, request.patch, acknowledgement);
+}
+
 function emitOoxmlSyncJob(job: Job | undefined) {
   if (!job || typeof window === "undefined") {
     return;
@@ -957,6 +1030,58 @@ export async function createPptxImportJob(
   return jobSchema.parse(payload.job);
 }
 
+export async function createSemanticCueExtractionJob(
+  projectId: string,
+  force: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/semantic-cues`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ force })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readPlainError(response, "Semantic Cue extraction job creation failed")
+    );
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForSemanticCueExtractionJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (!response.ok) {
+      throw new Error(
+        await readPlainError(response, "Semantic Cue extraction job fetch failed")
+      );
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Semantic Cue extraction job timed out.");
+    }
+    await delay(pollIntervalMs);
+  }
+}
+
 export async function waitForPptxImportJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
@@ -984,6 +1109,68 @@ export async function waitForPptxImportJob(
 
     await delay(pollIntervalMs);
   }
+}
+
+export async function createDeckExportJob(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<Job> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/exports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ format: "pptx" })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readPlainError(response, "Deck export job creation failed"));
+  }
+
+  const payload = (await response.json()) as { job?: unknown };
+  return jobSchema.parse(payload.job);
+}
+
+export async function waitForDeckExportJob(
+  jobId: string,
+  fetcher: typeof fetch = fetch,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+): Promise<Job> {
+  const pollIntervalMs = options.pollIntervalMs ?? 1200;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const startedAt = Date.now();
+
+  for (;;) {
+    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
+
+    if (!response.ok) {
+      throw new Error(await readPlainError(response, "Deck export job fetch failed"));
+    }
+
+    const job = jobSchema.parse(await response.json());
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Deck export job timed out.");
+    }
+
+    await delay(pollIntervalMs);
+  }
+}
+
+export async function exportDeckToPptx(
+  projectId: string,
+  fetcher: typeof fetch = fetch
+): Promise<DeckExportJobResult> {
+  const queuedJob = await createDeckExportJob(projectId, fetcher);
+  const job = await waitForDeckExportJob(queuedJob.jobId, fetcher);
+  if (job.status === "failed") {
+    throw new Error(job.error?.message ?? "Deck export failed.");
+  }
+  return deckExportJobResultSchema.parse(job.result);
 }
 
 export async function uploadAndImportPptxTemplate(
@@ -1065,6 +1252,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const [rightPanelView, setRightPanelView] = useState<
+    "ai-chat" | "ai-tools" | "semantic-cues"
+  >("ai-chat");
   const isSlidesPaneCollapsed = useEditorShellUiStore(
     (state) => state.isSlidesPaneCollapsed
   );
@@ -1175,7 +1365,11 @@ export function EditorShell(props: { projectId?: string }) {
     qualityReport: null,
     message: ""
   });
-  const [isRehearsalPreparing, setIsRehearsalPreparing] = useState(false);
+  const [semanticCueExtractionState, setSemanticCueExtractionState] =
+    useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [activePresentationAction, setActivePresentationAction] = useState<
+    "presentation" | "rehearsal" | null
+  >(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
@@ -1204,6 +1398,8 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
+    setRightPanelView("ai-chat");
+    setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -1361,6 +1557,9 @@ export function EditorShell(props: { projectId?: string }) {
     setSaveState,
     workingDeckRef
   } = useEditorPersistenceState(loadedDeck);
+  const [isPptxExporting, setIsPptxExporting] = useState(false);
+  const [pptxExportStatus, setPptxExportStatus] = useState("");
+  const [pptxExportError, setPptxExportError] = useState("");
   const {
     canManageShare,
     handleShareInvite,
@@ -1393,11 +1592,11 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartRehearsal =
+  const canStartPresentation =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
     !isDeckError &&
-    !isRehearsalPreparing;
+    !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const saveStatusLabel = getEditorStatusLabel({
@@ -1610,6 +1809,22 @@ export function EditorShell(props: { projectId?: string }) {
     { icon: Download, label: "PNG 내보내기" },
     { icon: Download, label: "JSON 백업 내보내기" }
   ];
+  const resolvedExportMenuItems = exportMenuItems.map((item, index) =>
+    index === 0
+      ? {
+          ...item,
+          action: "pptx" as const,
+          disabled: isPptxExporting,
+          label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+          meta: pptxExportError || pptxExportStatus
+        }
+      : {
+          ...item,
+          action: "pending" as const,
+          disabled: true,
+          meta: "준비 중"
+        }
+  );
   const resizeMenuItems = [
     {
       label: "와이드 16:9",
@@ -1792,7 +2007,9 @@ export function EditorShell(props: { projectId?: string }) {
     resolvedUploadProjectIdRef.current = deckQuery.data.projectId;
   }, [deckQuery.data]);
 
-  function handleAiSuggestionApplied(response: ApplyAiSuggestionResponse) {
+  function handleDesignAgentProposalApplied(
+    response: ApplyDesignAgentProposalResponse
+  ) {
     queryClient.setQueryData(["deck", projectId], response.deck);
     markHydratedPersistedDeck(response.deck, setDeck);
     setLastSavedAt(response.changeRecord.createdAt);
@@ -1802,9 +2019,7 @@ export function EditorShell(props: { projectId?: string }) {
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setElementContextMenu(null);
-    setLastPatchLabel(
-      `${response.changeRecord.operations[0]?.type ?? "ai suggestion"} · v${response.deck.version}`
-    );
+    setLastPatchLabel(`AI design · v${response.deck.version}`);
     setSaveState("auto-saved");
     setSaveError(null, null);
   }
@@ -1989,16 +2204,60 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleStartRehearsal() {
+  async function handleExportPptx() {
+    if (isPptxExporting) return;
+
+    const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
+    if (!activeProjectId) {
+      setPptxExportError("내보낼 프로젝트를 찾지 못했습니다.");
+      return;
+    }
+
+    setIsPptxExporting(true);
+    setPptxExportError("");
+    setPptxExportStatus("저장 중...");
+
+    try {
+      const saved = await handleSaveDeck();
+      if (!saved) {
+        throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
+      }
+
+      setPptxExportStatus("PPTX 내보내기 중...");
+      const result = await exportDeckToPptx(activeProjectId);
+      setPptxExportStatus(
+        result.warnings.length
+          ? `PPTX 생성 완료, ${result.warnings.length}개 경고`
+          : "PPTX 생성 완료"
+      );
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setPptxExportStatus("");
+      setPptxExportError(
+        error instanceof Error ? error.message : "PPTX 내보내기에 실패했습니다."
+      );
+    } finally {
+      setIsPptxExporting(false);
+    }
+  }
+
+  async function handleStartPresentationAction(
+    destination: "presentation" | "rehearsal"
+  ) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError("rehearsal-blocked", "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다.");
+      setSaveError(
+        "rehearsal-blocked",
+        destination === "presentation"
+          ? "발표 자료를 불러온 뒤 발표를 시작할 수 있습니다."
+          : "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다."
+      );
       return;
     }
 
-    if (isRehearsalPreparing) {
+    if (activePresentationAction) {
       return;
     }
 
@@ -2012,7 +2271,7 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    setIsRehearsalPreparing(true);
+    setActivePresentationAction(destination);
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -2028,6 +2287,15 @@ export function EditorShell(props: { projectId?: string }) {
         );
       }
 
+      if (
+        !shouldApplyManualSaveResult({
+          snapshotDeck: persistedDeck,
+          currentDeck: workingDeckRef.current
+        })
+      ) {
+        throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
+      }
+
       const renderResult = await syncSlideRenderAssets(activeProjectId, persistedDeck);
       setLastSavedAt(new Date().toISOString());
 
@@ -2037,7 +2305,11 @@ export function EditorShell(props: { projectId?: string }) {
           currentDeck: workingDeckRef.current
         })
       ) {
-        throw new Error("리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요.");
+        throw new Error(
+          destination === "presentation"
+            ? "발표 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+            : "리허설 준비 중 편집 내용이 변경되었습니다. 다시 시작해 주세요."
+        );
       }
 
       const thumbnailPatch = buildSlideThumbnailPatch(persistedDeck, renderResult.deck);
@@ -2047,19 +2319,37 @@ export function EditorShell(props: { projectId?: string }) {
 
       applyPersistedDeck(finalDeck);
       setLastSavedAt(new Date().toISOString());
-      setLastPatchLabel(`리허설 준비 완료 · v${finalDeck.version}`);
+      setLastPatchLabel(
+        `${
+          destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
+        } · v${finalDeck.version}`
+      );
       setSaveState("manual-saved");
       setSaveError(null, null);
-      navigateToRehearsal(activeProjectId);
+      if (destination === "presentation") {
+        navigateToPresentation(activeProjectId);
+      } else {
+        navigateToRehearsal(activeProjectId);
+      }
     } catch (error) {
       const message = toEditorErrorMessage(error);
 
-      setLastPatchLabel(`리허설 준비 실패 · ${message}`);
+      setLastPatchLabel(
+        `${destination === "presentation" ? "발표 준비 실패" : "리허설 준비 실패"} · ${message}`
+      );
       setSaveState("error");
       setSaveError("rehearsal-save-failed", message);
     } finally {
-      setIsRehearsalPreparing(false);
+      setActivePresentationAction(null);
     }
+  }
+
+  async function handleStartPresentation() {
+    await handleStartPresentationAction("presentation");
+  }
+
+  async function handleStartRehearsal() {
+    await handleStartPresentationAction("rehearsal");
   }
 
   async function flushPendingSavesBeforeManualAction() {
@@ -2104,7 +2394,11 @@ export function EditorShell(props: { projectId?: string }) {
       let persistedDeck: Deck;
 
       try {
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          basePersistedDeck,
+          buildResult.patch
+        );
       } catch (error) {
         if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) {
           throw error;
@@ -2119,7 +2413,11 @@ export function EditorShell(props: { projectId?: string }) {
         recoveredConflict = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
-        persistedDeck = await appendProjectDeckPatch(activeProjectId, buildResult.patch);
+        persistedDeck = await appendProjectDeckPatchAck(
+          activeProjectId,
+          latestDeck,
+          buildResult.patch
+        );
       }
 
       let finalPersistedDeck = persistedDeck;
@@ -2154,8 +2452,9 @@ export function EditorShell(props: { projectId?: string }) {
               currentDeck: workingDeckRef.current
             })
           ) {
-            finalPersistedDeck = await appendProjectDeckPatch(
+            finalPersistedDeck = await appendProjectDeckPatchAck(
               activeProjectId,
+              persistedDeck,
               thumbnailPatch
             );
           }
@@ -2363,6 +2662,98 @@ export function EditorShell(props: { projectId?: string }) {
       });
   }
 
+  function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
+    if (!currentSlide) {
+      return;
+    }
+    const slideId = currentSlide.slideId;
+    commitPatch((currentDeck) =>
+      createSemanticCueReviewPatch(currentDeck, slideId, semanticCues)
+    );
+  }
+
+  async function handleSemanticCueExtraction(force: boolean) {
+    if (semanticCueExtractionState.status === "running") {
+      return;
+    }
+
+    setSemanticCueExtractionState({
+      status: "running",
+      message: "슬라이드와 발표 대본의 의미를 분석하는 중입니다."
+    });
+
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current
+      });
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const queuedJob = await createSemanticCueExtractionJob(
+        activeProjectId,
+        force
+      );
+      const completedJob = await waitForSemanticCueExtractionJob(queuedJob.jobId);
+      if (completedJob.status === "failed") {
+        throw new Error(
+          completedJob.error?.message ?? "Semantic Cue extraction failed."
+        );
+      }
+
+      const selectedSlideId = currentSlide?.slideId;
+      const refetchResult = await deckQuery.refetch();
+      const extractedDeck = refetchResult.data;
+      if (extractedDeck) {
+        queryClient.setQueryData(["deck", projectId], extractedDeck);
+        markHydratedPersistedDeck(extractedDeck, setDeck);
+        const nextSlideIndex = selectedSlideId
+          ? extractedDeck.slides.findIndex(
+              (slide) => slide.slideId === selectedSlideId
+            )
+          : -1;
+        if (nextSlideIndex >= 0) {
+          setCurrentSlideIndex(nextSlideIndex);
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+        setLastPatchLabel(`발표 메시지 AI 분석 · v${extractedDeck.version}`);
+        setSaveState("auto-saved");
+        setSaveError(null, null);
+      }
+
+      setSemanticCueExtractionState({
+        status: "succeeded",
+        message: "AI 분석이 완료되었습니다. 제안된 메시지를 검토해 주세요."
+      });
+    } catch (error) {
+      setSemanticCueExtractionState({
+        status: "error",
+        message: toEditorErrorMessage(error)
+      });
+    }
+  }
+
+  function handleRightPanelTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const views = ["ai-chat", "ai-tools", "semantic-cues"] as const;
+    const currentIndex = views.indexOf(rightPanelView);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextView = views[(currentIndex + direction + views.length) % views.length];
+    setRightPanelView(nextView);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`editor-${nextView === "semantic-cues" ? "semantic-cue" : nextView}-tab`)
+        ?.focus();
+    });
+  }
+
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
     setElementContextMenu(null);
     setCustomShapeEditElementId((current) =>
@@ -2501,7 +2892,11 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     if (action === "singleLineTextBox") {
-      const fit = createSingleLineTextFit(element, textFitContext);
+      const fit = createSingleLineTextFit(element, textFitContext, {
+        maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
+        minFontSize: getSingleLineTextMinimumFontSize(element)
+      });
+      const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
 
       commitPatch((currentDeck) => ({
         deckId: currentDeck.deckId,
@@ -2518,9 +2913,7 @@ export function EditorShell(props: { projectId?: string }) {
             type: "update_element_frame",
             slideId: currentSlide.slideId,
             elementId: element.elementId,
-            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
-              width: fit.width
-            })
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, frame)
           }
         ]
       }));
@@ -2548,37 +2941,88 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    const overflowElementIds = new Set(
-      editorValidationItems
-        .filter((item) => item.issue === "textOverflow" && item.elementId)
-        .map((item) => item.elementId)
-    );
-    const operations = currentSlide.elements
+    const autoFitIssuesByElementId = new Map<string, Set<EditorValidationItem["issue"]>>();
+    for (const item of editorValidationItems) {
+      if (!item.elementId || !isAutoFitTextValidationIssue(item)) continue;
+
+      const issues = autoFitIssuesByElementId.get(item.elementId) ?? new Set();
+      issues.add(item.issue);
+      autoFitIssuesByElementId.set(item.elementId, issues);
+    }
+    const fittedElements = currentSlide.elements
       .filter(
         (element): element is Extract<DeckElement, { type: "text" }> =>
-          element.type === "text" && overflowElementIds.has(element.elementId)
-      )
-      .map((element) => {
-        const textFitContext = {
-          fontFamily:
-            element.props.fontFamily ??
-            currentSlide.style.fontFamily ??
-            deck.theme.typography.bodyFontFamily
-        };
+          element.type === "text" && autoFitIssuesByElementId.has(element.elementId)
+      );
+    const operations: DeckPatch["operations"] = [];
 
-        return {
-          type: "update_element_props" as const,
-          slideId: currentSlide.slideId,
-          elementId: element.elementId,
-          props: createShrinkToFitTextProps(element, textFitContext)
-        };
-      });
+    for (const element of fittedElements) {
+      const issues = autoFitIssuesByElementId.get(element.elementId);
+      const textFitContext = {
+        fontFamily:
+          element.props.fontFamily ??
+          currentSlide.style.fontFamily ??
+          deck.theme.typography.bodyFontFamily
+      };
+
+      if (
+        issues?.has("titleWrap") ||
+        issues?.has("labelWrap")
+      ) {
+        const fit = createSingleLineTextFit(element, textFitContext, {
+          maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
+          minFontSize: getSingleLineTextMinimumFontSize(element)
+        });
+        const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
+
+        if (!fit.fits && (issues?.has("labelWrap") || issues?.has("textOverflow"))) {
+          const props = createShrinkToFitTextProps(element, textFitContext);
+          if (hasTextPropsChange(element, props)) {
+            operations.push({
+              type: "update_element_props",
+              slideId: currentSlide.slideId,
+              elementId: element.elementId,
+              props
+            });
+          }
+          continue;
+        }
+
+        if (hasTextPropsChange(element, fit.props)) {
+          operations.push({
+            type: "update_element_props",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            props: fit.props
+          });
+        }
+
+        if (frame.x !== element.x || frame.width !== element.width) {
+          operations.push({
+            type: "update_element_frame",
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            frame: normalizeElementFrameDraft(deck.canvas, element, frame)
+          });
+        }
+      } else {
+        const props = createShrinkToFitTextProps(element, textFitContext);
+        if (hasTextPropsChange(element, props)) {
+          operations.push({
+            type: "update_element_props" as const,
+            slideId: currentSlide.slideId,
+            elementId: element.elementId,
+            props
+          });
+        }
+      }
+    }
 
     if (operations.length === 0) {
       return;
     }
 
-    setSelectedElementIds(operations.map((operation) => operation.elementId));
+    setSelectedElementIds(fittedElements.map((element) => element.elementId));
     commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
       baseVersion: currentDeck.version,
@@ -3397,6 +3841,7 @@ export function EditorShell(props: { projectId?: string }) {
         },
         speakerNotes: "",
         keywords: [],
+        semanticCues: [],
         elements: [
           {
             elementId: createElementId(deck),
@@ -4436,11 +4881,25 @@ export function EditorShell(props: { projectId?: string }) {
                     </button>
                   ))}
                   <span className="menu-section-label">내보내기</span>
-                  {exportMenuItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
+                  {resolvedExportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
+                    <button
+                      className="file-menu-item"
+                      disabled={disabled}
+                      key={label}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        if (action === "pptx") {
+                          void handleExportPptx();
+                        }
+                      }}
+                    >
                       <span className="file-menu-label">
                         <Icon size={16} />
                         {label}
+                      </span>
+                      <span className="file-menu-meta">
+                        {meta ? <small>{meta}</small> : null}
                       </span>
                     </button>
                   ))}
@@ -4551,13 +5010,14 @@ export function EditorShell(props: { projectId?: string }) {
             </span>
           ) : null}
           <PresentationMenu
-            canStartRehearsal={canStartRehearsal}
+            activeStartAction={activePresentationAction}
+            canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
-            isRehearsalPreparing={isRehearsalPreparing}
             onOpenAudienceLink={() => {
               setIsAudienceLinkModalOpen(true);
               setActiveTopMenu(null);
             }}
+            onStartPresentation={() => void handleStartPresentation()}
             onStartRehearsal={() => void handleStartRehearsal()}
             onToggle={() =>
               setActiveTopMenu((current) =>
@@ -5248,7 +5708,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>AI</h2>
+                <h2>도구</h2>
                 <div>
                   <button
                     className="collapse-right-pane-button"
@@ -5260,20 +5720,100 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 </div>
               </div>
+              <div
+                aria-label="오른쪽 패널 보기"
+                className="right-panel-tabs"
+                role="tablist"
+              >
+                <button
+                  aria-controls="editor-ai-chat-panel"
+                  aria-selected={rightPanelView === "ai-chat"}
+                  className={rightPanelView === "ai-chat" ? "active" : ""}
+                  id="editor-ai-chat-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-chat" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-chat")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 채팅
+                </button>
+                <button
+                  aria-controls="editor-ai-tools-panel"
+                  aria-selected={rightPanelView === "ai-tools"}
+                  className={rightPanelView === "ai-tools" ? "active" : ""}
+                  id="editor-ai-tools-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "ai-tools" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("ai-tools")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  AI 도구
+                </button>
+                <button
+                  aria-controls="editor-semantic-cue-panel"
+                  aria-selected={rightPanelView === "semantic-cues"}
+                  className={rightPanelView === "semantic-cues" ? "active" : ""}
+                  id="editor-semantic-cue-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("semantic-cues")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  발표 메시지
+                  {currentSlide?.semanticCues.length
+                    ? ` ${currentSlide.semanticCues.length}`
+                    : ""}
+                </button>
+              </div>
               <div className="assistant-panel-slot">
-                <PptxImportQualityPanel state={pptxImportState} />
-                <ValidationPanel
-                  items={editorValidationItems}
-                  onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                  onHighlightElementIds={setValidationHighlightElementIds}
-                  onTextOverflowAction={handleValidationTextOverflowAction}
-                />
-                <SuggestionPanel
-                  deck={deck}
-                  projectId={projectId}
-                  slideId={currentSlide?.slideId ?? null}
-                  onApplySuccess={handleAiSuggestionApplied}
-                />
+                <div
+                  aria-labelledby="editor-ai-chat-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-chat"}
+                  id="editor-ai-chat-panel"
+                  role="tabpanel"
+                >
+                  <AiChatPanel
+                    projectId={projectId}
+                    deck={deck}
+                    currentSlide={currentSlide}
+                    selectedElementIds={selectedElementIds}
+                    onProposalApplied={handleDesignAgentProposalApplied}
+                  />
+                </div>
+                <div
+                  aria-labelledby="editor-ai-tools-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "ai-tools"}
+                  id="editor-ai-tools-panel"
+                  role="tabpanel"
+                >
+                  <PptxImportQualityPanel state={pptxImportState} />
+                  <ValidationPanel
+                    items={editorValidationItems}
+                    onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                    onHighlightElementIds={setValidationHighlightElementIds}
+                    onTextOverflowAction={handleValidationTextOverflowAction}
+                  />
+                  <SourceLedgerPanel slide={currentSlide ?? null} />
+                </div>
+                <div
+                  aria-labelledby="editor-semantic-cue-tab"
+                  className="assistant-panel-view"
+                  hidden={rightPanelView !== "semantic-cues"}
+                  id="editor-semantic-cue-panel"
+                  role="tabpanel"
+                >
+                  <SemanticCueReviewPanel
+                    extractionState={semanticCueExtractionState}
+                    slide={currentSlide}
+                    onChange={handleSemanticCueReviewChange}
+                    onExtract={(force) => void handleSemanticCueExtraction(force)}
+                  />
+                </div>
               </div>
             </>
           ) : (
@@ -5286,7 +5826,7 @@ export function EditorShell(props: { projectId?: string }) {
               >
                 <PanelRightOpen size={16} />
               </button>
-              <span>AI</span>
+              <span>도구</span>
             </div>
           )}
         </aside>
@@ -5703,6 +6243,56 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     second: "2-digit",
     hour12: false
   }).format(date);
+}
+
+function isAutoFitTextValidationIssue(item: EditorValidationItem) {
+  return (
+    item.issue === "textOverflow" ||
+    item.issue === "titleWrap" ||
+    item.issue === "labelWrap"
+  );
+}
+
+function hasTextPropsChange(
+  element: Extract<DeckElement, { type: "text" }>,
+  props: Record<string, unknown>
+) {
+  return Object.entries(props).some(
+    ([key, value]) =>
+      element.props[key as keyof typeof element.props] !== value
+  );
+}
+
+function getTextAutoFitMaxWidth(
+  canvas: DeckCanvas,
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  return Math.max(element.width, canvas.width - 96);
+}
+
+function getCenteredTextAutoFitFrame(
+  canvas: DeckCanvas,
+  element: Extract<DeckElement, { type: "text" }>,
+  width: number
+) {
+  const maxWidth = getTextAutoFitMaxWidth(canvas, element);
+  const nextWidth = Math.min(Math.max(element.width, width), maxWidth);
+  const centerX = element.x + element.width / 2;
+  const minX = 48;
+  const maxX = Math.max(minX, canvas.width - minX - nextWidth);
+
+  return {
+    x: Math.min(maxX, Math.max(minX, centerX - nextWidth / 2)),
+    width: nextWidth
+  };
+}
+
+function getSingleLineTextMinimumFontSize(
+  element: Extract<DeckElement, { type: "text" }>
+) {
+  if (element.role === "title") return 32;
+  if (element.role === "subtitle") return 24;
+  return 20;
 }
 
 function getNextElementZIndex(elements: DeckElement[]) {

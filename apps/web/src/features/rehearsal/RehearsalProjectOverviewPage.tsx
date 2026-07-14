@@ -1,13 +1,23 @@
 import { ArrowLeft, FileText, Loader2, Mic, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Project, RehearsalProjectSummary, RehearsalRun } from "@orbit/shared";
+import type {
+  Deck,
+  Project,
+  RehearsalProjectSummary,
+  RehearsalRun,
+  RehearsalRunComparison,
+} from "@orbit/shared";
 import {
   fetchReportProjects,
   fetchProjectRehearsalReportRuns,
   fetchProjectRehearsalSummary,
+  fetchRehearsalRunComparison,
 } from "./reportApi";
+import { fetchProjectDeck } from "./keywords/keywordEditorApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
+import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
 import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
+import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
 import {
   navigateTo,
   formatRunDate,
@@ -22,6 +32,9 @@ export function RehearsalProjectOverviewPage({
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<RehearsalRun[]>([]);
   const [summary, setSummary] = useState<RehearsalProjectSummary | null>(null);
+  const [deck, setDeck] = useState<Deck | null>(null);
+  const [comparison, setComparison] =
+    useState<RehearsalRunComparison | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,27 +42,45 @@ export function RehearsalProjectOverviewPage({
     setProject(null);
     setRuns([]);
     setSummary(null);
+    setDeck(null);
+    setComparison(null);
     setLoading(true);
 
-    void Promise.all([
-      fetchReportProjects(),
-      fetchProjectRehearsalReportRuns(projectId),
-      fetchProjectRehearsalSummary(projectId),
-    ])
-      .then(([projects, { runs: succeededRuns }, projectSummary]) => {
+    void (async () => {
+      try {
+        const [projects, { runs: succeededRuns }, projectSummary, deckPayload] =
+          await Promise.all([
+            fetchReportProjects(),
+            fetchProjectRehearsalReportRuns(projectId),
+            fetchProjectRehearsalSummary(projectId),
+            fetchProjectDeck(projectId).catch(() => null),
+          ]);
+        if (!isMounted) return;
+        const sortedRuns = sortRehearsalRunsByCreatedAt(succeededRuns);
+        const latestSucceededRun = sortedRuns[sortedRuns.length - 1] ?? null;
+        const latestComparison = latestSucceededRun
+          ? await fetchRehearsalRunComparison(
+              projectId,
+              latestSucceededRun.runId,
+            ).catch(() => null)
+          : null;
         if (!isMounted) return;
         setProject(projects.find((p) => p.projectId === projectId) ?? null);
-        setRuns(sortRehearsalRunsByCreatedAt(succeededRuns));
+        setRuns(sortedRuns);
         setSummary(projectSummary);
+        setDeck(deckPayload?.deck ?? null);
+        setComparison(latestComparison);
         setLoading(false);
-      })
-      .catch(() => {
+      } catch {
         if (!isMounted) return;
         setProject(null);
         setRuns([]);
         setSummary(null);
+        setDeck(null);
+        setComparison(null);
         setLoading(false);
-      });
+      }
+    })();
     return () => {
       isMounted = false;
     };
@@ -57,6 +88,9 @@ export function RehearsalProjectOverviewPage({
 
   const latestRun = runs[runs.length - 1] ?? null;
   const showSummary = runs.length >= 2;
+  const comparisonModel = comparison
+    ? buildRehearsalRunComparisonViewModel(comparison, deck, projectId)
+    : null;
 
   const durationSeries = (summary?.runDurationSeries ?? []).map((p, i) => ({
     label: `${i + 1}회차`,
@@ -129,6 +163,10 @@ export function RehearsalProjectOverviewPage({
                   <strong className="report-date-value report-date-empty">—</strong>
                 </div>
               </div>
+
+              {comparisonModel ? (
+                <RehearsalRunComparisonOverview model={comparisonModel} />
+              ) : null}
 
               {showSummary && (
                 <div className="report-project-summary-section">

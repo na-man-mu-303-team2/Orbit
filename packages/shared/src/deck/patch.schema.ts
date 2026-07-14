@@ -22,6 +22,7 @@ import {
   deckIdSchema,
   deckSlideIdSchema
 } from "./id.schema";
+import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionPatchSchema, slideActionSchema } from "./slide-action.schema";
 import {
   deckElementCoordinateSchema,
@@ -52,6 +53,7 @@ export const deckPatchOperationTypeSchema = z.enum([
   "delete_element",
   "update_speaker_notes",
   "replace_keywords",
+  "replace_semantic_cues",
   "add_animation",
   "update_animation",
   "delete_animation",
@@ -231,6 +233,12 @@ export const replaceKeywordsOperationSchema = z.object({
   keywords: slideKeywordsSchema
 });
 
+export const replaceSemanticCuesOperationSchema = z.object({
+  type: z.literal("replace_semantic_cues"),
+  slideId: deckSlideIdSchema,
+  semanticCues: z.array(semanticCueSchema)
+});
+
 export const addAnimationOperationSchema = z.object({
   type: z.literal("add_animation"),
   slideId: deckSlideIdSchema,
@@ -283,6 +291,7 @@ export const deckPatchOperationSchema = z.discriminatedUnion("type", [
   deleteElementOperationSchema,
   updateSpeakerNotesOperationSchema,
   replaceKeywordsOperationSchema,
+  replaceSemanticCuesOperationSchema,
   addAnimationOperationSchema,
   updateAnimationOperationSchema,
   deleteAnimationOperationSchema,

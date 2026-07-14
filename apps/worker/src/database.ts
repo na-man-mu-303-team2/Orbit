@@ -1,6 +1,8 @@
 import { loadOrbitConfig } from "@orbit/config";
 import type { TypeOrmModuleOptions } from "@nestjs/typeorm";
 
+export const workerDatabaseLogging: TypeOrmModuleOptions["logging"] = false;
+
 export function workerDatabaseOptions(): TypeOrmModuleOptions {
   const config = loadOrbitConfig(process.env, { service: "worker" });
 
@@ -9,6 +11,6 @@ export function workerDatabaseOptions(): TypeOrmModuleOptions {
     url: config.DATABASE_URL,
     entities: [],
     synchronize: false,
-    logging: config.NODE_ENV === "development"
+    logging: workerDatabaseLogging
   };
 }

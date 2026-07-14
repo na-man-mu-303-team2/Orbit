@@ -1,5 +1,10 @@
-import type { AssetUploadUrlResponse, Job } from "@orbit/shared";
-import { BadRequestException } from "@nestjs/common";
+import {
+  deckSchema,
+  type AssetUploadUrlResponse,
+  type Deck,
+  type Job
+} from "@orbit/shared";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
@@ -13,7 +18,11 @@ import type {
   RehearsalTranscriptCache,
   RedisRehearsalTranscriptCache
 } from "./rehearsal-transcript-cache";
-import { RehearsalsService, type RehearsalSttEnqueueJob } from "./rehearsals.service";
+import {
+  RehearsalsService,
+  type RehearsalSemanticEvaluationEnqueueJob,
+  type RehearsalSttEnqueueJob
+} from "./rehearsals.service";
 
 const validEnv = {
   NODE_ENV: "test",
@@ -76,6 +85,12 @@ const job: Job = {
   updatedAt: createdAt.toISOString()
 };
 
+const semanticRetryJob: Job = {
+  ...job,
+  jobId: "job-semantic-retry",
+  type: "rehearsal-semantic-evaluation"
+};
+
 const upload: AssetUploadUrlResponse = {
   fileId: "file-audio",
   projectId: "project-a",
@@ -127,9 +142,83 @@ describe("RehearsalsService", () => {
       deckId: "deck-a",
       audioFileId: null,
       jobId: null,
-      status: "created"
+      status: "created",
+      deckVersion: 3,
+      semanticEvaluationMode: "full"
     });
     expect(result.run.runId).toMatch(/^run_/);
+    expect(result.run.evaluationSnapshot).toMatchObject({
+      deckId: "deck-a",
+      deckVersion: 3,
+      slides: [
+        {
+          slideId: "slide_1",
+          semanticCues: [
+            { cueId: "scue_approved", reviewStatus: "approved", revision: 2 },
+            { cueId: "scue_excluded", reviewStatus: "excluded", revision: 1 }
+          ]
+        }
+      ]
+    });
+    expect(JSON.stringify(result.run.evaluationSnapshot)).not.toContain(
+      "민감한 발표자 노트"
+    );
+    expect(service.testLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "rehearsal.evaluation_snapshot.created",
+        projectId: "project-a",
+        deckId: "deck-a",
+        deckVersion: 3,
+        slideCount: 1,
+        cueCount: 2
+      }),
+      "Rehearsal evaluation snapshot created."
+    );
+  });
+
+  it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
+    const mutableDeck = createDeck();
+    const service = createService({ deck: mutableDeck });
+    const created = await service.createRun("project-a", {
+      deckId: "deck-a",
+      expectedDeckVersion: 3
+    });
+
+    mutableDeck.version = 4;
+    mutableDeck.slides[0]!.semanticCues[0]!.meaning = "편집 후 의미";
+
+    const stored = await service.getRun(created.run.runId);
+    expect(stored.run.deckVersion).toBe(3);
+    expect(stored.run.evaluationSnapshot?.slides[0]?.semanticCues[0]?.meaning).toBe(
+      "승인된 원래 의미"
+    );
+  });
+
+  it("rejects a full run when the expected deck version is stale", async () => {
+    const service = createService();
+
+    await expect(
+      service.createRun("project-a", {
+        deckId: "deck-a",
+        expectedDeckVersion: 2
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("creates a delivery-only run without a semantic snapshot", async () => {
+    const service = createService();
+
+    const result = await service.createRun("project-a", {
+      deckId: "deck-a",
+      expectedDeckVersion: 2,
+      semanticEvaluationMode: "delivery-only"
+    });
+
+    expect(result.run).toMatchObject({
+      deckVersion: null,
+      evaluationSnapshot: null,
+      semanticEvaluationMode: "delivery-only"
+    });
   });
 
   it("rejects run creation when the deckId does not match the project deck", async () => {
@@ -274,8 +363,40 @@ describe("RehearsalsService", () => {
       .toEqual({
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
-        adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
+        adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
+        utteranceOutcomes: [],
+        semanticCueDecisions: [],
+        semanticCapabilityEvents: []
       });
+  });
+
+  it("cancels an unprocessed run and excludes it from default run lists", async () => {
+    const service = createService();
+    const first = await createRun(service);
+    const second = await createRun(service);
+
+    const cancelled = await service.cancelRun(first.runId);
+    const listed = await service.listRuns("project-a");
+
+    expect(cancelled.run.status).toBe("cancelled");
+    expect(listed.runs.map((run: { runId: string }) => run.runId)).toEqual([
+      second.runId
+    ]);
+  });
+
+  it("rejects cancellation after audio processing starts", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    await service.createAudioUploadUrl(run.runId, {
+      originalName: "rehearsal.webm",
+      mimeType: "audio/webm",
+      size: 1024
+    });
+    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+
+    await expect(service.cancelRun(run.runId)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
   });
 
   it("rejects rehearsal run meta updates after processing starts", async () => {
@@ -463,10 +584,54 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("compares a succeeded run with the previous succeeded run", async () => {
+    const service = createService();
+    const previous = await createRun(service);
+    await saveRunPatch(service, previous.runId, {
+      createdAt: new Date("2026-07-10T00:00:00.000Z"),
+      status: "succeeded",
+      rehearsalReport: comparisonReport(previous.runId, "missed")
+    });
+    const cancelled = await createRun(service);
+    await saveRunPatch(service, cancelled.runId, {
+      createdAt: new Date("2026-07-10T00:05:00.000Z"),
+      status: "cancelled"
+    });
+    const current = await createRun(service);
+    await saveRunPatch(service, current.runId, {
+      createdAt: new Date("2026-07-10T00:10:00.000Z"),
+      status: "succeeded",
+      rehearsalReport: comparisonReport(current.runId, "covered")
+    });
+
+    const comparison = await service.getComparison("project-a", current.runId);
+
+    expect(comparison.currentRunId).toBe(current.runId);
+    expect(comparison.previousRunId).toBe(previous.runId);
+    expect(comparison.improved).toMatchObject([
+      { category: "semantic-cue", cueId: "scue_compare", cueRevision: 2 }
+    ]);
+    expect(comparison.repeated).toEqual([]);
+  });
+
+  it("does not return a comparison for a run outside the requested project", async () => {
+    const service = createService();
+    const current = await createRun(service);
+    await saveRunPatch(service, current.runId, {
+      status: "succeeded",
+      rehearsalReport: comparisonReport(current.runId, "covered")
+    });
+
+    await expect(
+      service.getComparison("project-other", current.runId)
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
   it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
     const service = createService({
       transcriptCache: {
-        get: vi.fn(async () => "발표 전사본")
+        get: vi.fn(async () => "발표 전사본"),
+        hasSemanticEvidence: vi.fn(async () => false)
       }
     });
     const run = await createRun(service);
@@ -485,10 +650,205 @@ describe("RehearsalsService", () => {
     });
     expect(service.testTranscriptCache.get).toHaveBeenCalledWith(run.runId);
   });
+
+  it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
+    const enqueueSemanticEvaluationJob = vi.fn(async () => undefined);
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      enqueueSemanticEvaluationJob,
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: {
+        ...rehearsalReport,
+        semanticEvaluation: {
+          state: "partial",
+          measurementMode: "none",
+          reasons: ["timeout"],
+          retryable: true
+        },
+        semanticCueOutcomes: []
+      }
+    });
+
+    const result = await service.retrySemanticEvaluation(run.runId);
+
+    expect(result.job).toEqual(semanticRetryJob);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project-a",
+      type: "rehearsal-semantic-evaluation",
+      payload: { runId: run.runId }
+    });
+    expect(enqueueSemanticEvaluationJob).toHaveBeenCalledWith({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-semantic-retry",
+      projectId: "project-a",
+      runId: run.runId
+    });
+    expect(JSON.stringify(enqueueSemanticEvaluationJob.mock.calls)).not.toContain(
+      "transcript"
+    );
+  });
+
+  it("returns non-retryable evidence expired conflict without creating a job", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({ jobsService });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: retryableReport()
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+      response: {
+        code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+        retryable: false
+      }
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a delivery-only run without an evaluation snapshot", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = (
+      await service.createRun("project-a", {
+        deckId: "deck-a",
+        semanticEvaluationMode: "delivery-only"
+      })
+    ).run;
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+      response: {
+        code: "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY",
+        retryable: false
+      }
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("marks the retry job failed and logs a safe event when enqueue fails", async () => {
+    const jobsService = {
+      create: vi.fn(async () => semanticRetryJob),
+      update: vi.fn(async () => ({ ...semanticRetryJob, status: "failed" }))
+    } as unknown as JobsService;
+    const service = createService({
+      jobsService,
+      enqueueSemanticEvaluationJob: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+      transcriptCache: {
+        get: vi.fn(async () => null),
+        hasSemanticEvidence: vi.fn(async () => true)
+      }
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport: retryableReport()
+    });
+
+    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toThrow(
+      "redis down"
+    );
+
+    expect(jobsService.update).toHaveBeenCalledWith("job-semantic-retry", {
+      status: "failed",
+      progress: 0,
+      message: "Rehearsal semantic evaluation retry enqueue failed.",
+      error: {
+        code: "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_FAILED",
+        message: "redis down"
+      }
+    });
+    expect(service.testLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "rehearsal.semantic_evaluation.retry_failed",
+        projectId: "project-a",
+        runId: run.runId,
+        jobId: "job-semantic-retry",
+        reason: "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_FAILED"
+      }),
+      "Rehearsal semantic evaluation retry enqueue failed."
+    );
+    expect(JSON.stringify(vi.mocked(service.testLogger.error).mock.calls)).not.toContain(
+      "민감한"
+    );
+  });
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
   return (await service.createRun("project-a", { deckId: "deck-a" })).run;
+}
+
+function retryableReport() {
+  return {
+    ...rehearsalReport,
+    semanticEvaluation: {
+      state: "partial",
+      measurementMode: "none",
+      reasons: ["timeout"],
+      retryable: true
+    },
+    semanticCueOutcomes: []
+  };
+}
+
+function comparisonReport(
+  runId: string,
+  status: "covered" | "partial" | "missed"
+) {
+  return {
+    ...rehearsalReport,
+    runId,
+    semanticEvaluation: {
+      state: "succeeded",
+      measurementMode: "full",
+      reasons: [],
+      retryable: false
+    },
+    semanticCueOutcomes: [
+      {
+        slideId: "slide_1",
+        cueId: "scue_compare",
+        cueRevision: 2,
+        cueMeaningSnapshot: "고객이 얻는 가치를 설명한다.",
+        reportLabelSnapshot: "고객 가치",
+        importance: "core",
+        status,
+        measurementMode: "full",
+        fallbackUsed: false,
+        coveredConcepts: status === "covered" ? ["고객 가치"] : [],
+        missingConcepts: status === "covered" ? [] : ["고객 가치"]
+      }
+    ]
+  };
 }
 
 async function saveRunPatch(
@@ -507,15 +867,18 @@ async function saveRunPatch(
 function createService(
   options: {
     enqueueJob?: RehearsalSttEnqueueJob;
+    enqueueSemanticEvaluationJob?: RehearsalSemanticEvaluationEnqueueJob;
     jobsService?: JobsService;
     filesServicePatch?: Partial<FilesService>;
     transcriptCache?: RehearsalTranscriptCache;
+    deck?: Deck;
   } = {}
 ) {
   const logger = createLogger();
   const repository = createRunRepository();
   const transcriptCache = options.transcriptCache ?? {
-    get: vi.fn(async () => null)
+    get: vi.fn(async () => null),
+    hasSemanticEvidence: vi.fn(async () => false)
   };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
@@ -547,13 +910,14 @@ function createService(
       createdAt: createdAt.toISOString()
     }))
   } as unknown as ProjectsService;
+  const deck = options.deck ?? createDeck();
   const service = new RehearsalsService(
     repository,
     { findOne: vi.fn(async () => null) } as unknown as Repository<ProjectEntity>,
     {
       getDeck: vi.fn(async () => ({
         projectId: "project-a",
-        deck: { deckId: "deck-a" },
+        deck,
         updatedAt: createdAt.toISOString()
       }))
     } as unknown as DecksService,
@@ -565,6 +929,7 @@ function createService(
         update: vi.fn()
       } as unknown as JobsService),
     options.enqueueJob ?? vi.fn(async () => undefined),
+    options.enqueueSemanticEvaluationJob ?? vi.fn(async () => undefined),
     transcriptCache as unknown as RedisRehearsalTranscriptCache,
     logger
   );
@@ -592,8 +957,40 @@ function createRunRepository() {
       runs.set(run.runId, { ...run });
       return runs.get(run.runId) as RehearsalRunEntity;
     },
-    async findOne(options: { where: { runId: string } }) {
-      return runs.get(options.where.runId) ?? null;
+    async findOne(options: {
+      where: {
+        runId?: string;
+        projectId?: string;
+        status?: string;
+        createdAt?: { _type?: string; _value?: Date };
+      };
+      order?: { createdAt?: "ASC" | "DESC" };
+    }) {
+      if (options.where.runId) {
+        return runs.get(options.where.runId) ?? null;
+      }
+
+      const matching = [...runs.values()]
+        .filter(
+          (run) =>
+            !options.where.projectId || run.projectId === options.where.projectId
+        )
+        .filter(
+          (run) => !options.where.status || run.status === options.where.status
+        )
+        .filter((run) => {
+          const createdAt = options.where.createdAt;
+          return createdAt?._type === "lessThan" && createdAt._value
+            ? run.createdAt < createdAt._value
+            : true;
+        })
+        .sort((left, right) =>
+          options.order?.createdAt === "ASC"
+            ? left.createdAt.getTime() - right.createdAt.getTime()
+            : right.createdAt.getTime() - left.createdAt.getTime()
+        );
+
+      return matching[0] ?? null;
     },
     async update(criteria: Partial<RehearsalRunEntity>, patch: Partial<RehearsalRunEntity>) {
       const run = [...runs.values()].find((candidate) =>
@@ -609,8 +1006,100 @@ function createRunRepository() {
       Object.assign(run, patch);
       runs.set(run.runId, { ...run });
       return { affected: 1 };
+    },
+    async findAndCount(options: {
+      where: { projectId: string; status?: unknown };
+      take: number;
+      skip: number;
+    }) {
+      const status = options.where.status as
+        | string
+        | { _type?: string; _value?: string }
+        | undefined;
+      const matching = [...runs.values()]
+        .filter((run) => run.projectId === options.where.projectId)
+        .filter((run) => {
+          if (typeof status === "string") {
+            return run.status === status;
+          }
+          if (status?._type === "not") {
+            return run.status !== status._value;
+          }
+          return true;
+        })
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+
+      return [matching.slice(options.skip, options.skip + options.take), matching.length];
     }
   } as unknown as Repository<RehearsalRunEntity>;
+}
+
+function createDeck(): Deck {
+  const deck = deckSchema.parse({
+    deckId: "deck_a",
+    projectId: "project-a",
+    title: "Rehearsal deck",
+    version: 3,
+    targetDurationMinutes: 10,
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9"
+    },
+    slides: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "Opening",
+        speakerNotes: "민감한 발표자 노트",
+        keywords: [
+          {
+            keywordId: "kw_1",
+            text: "ORBIT",
+            synonyms: ["발표 도우미"],
+            abbreviations: [],
+            required: true
+          }
+        ],
+        elements: [],
+        semanticCues: [
+          semanticCue("scue_approved", "approved", 2, "승인된 원래 의미"),
+          semanticCue("scue_excluded", "excluded", 1, "제외된 의미"),
+          semanticCue("scue_suggested", "suggested", 1, "검토 전 의미")
+        ]
+      }
+    ]
+  });
+  deck.deckId = "deck-a";
+  return deck;
+}
+
+function semanticCue(
+  cueId: string,
+  reviewStatus: "suggested" | "approved" | "excluded",
+  revision: number,
+  meaning: string
+) {
+  return {
+    cueId,
+    slideId: "slide_1",
+    meaning,
+    importance: "core",
+    reviewStatus,
+    freshness: "current",
+    origin: "ai",
+    revision,
+    required: true,
+    priority: 1,
+    candidateKeywords: ["ORBIT"],
+    aliases: {},
+    requiredConcepts: ["발표 도우미"],
+    nliHypotheses: ["발표자는 ORBIT이 발표를 돕는다고 설명했다"],
+    negativeHints: [],
+    targetElementIds: [],
+    triggerActionIds: []
+  };
 }
 
 function createLogger() {

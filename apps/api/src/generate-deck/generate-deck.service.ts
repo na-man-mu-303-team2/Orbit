@@ -2,9 +2,21 @@ import {
   enqueueGenerateDeckJob,
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
-import { generateDeckRequestSchema, jobSchema } from "@orbit/shared";
+import {
+  deckColorOptionRequestSchema,
+  deckColorOptionsResponseSchema,
+  generateDeckRequestSchema,
+  jobSchema,
+  type DeckColorOptionsResponse
+} from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, Injectable, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Optional,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
@@ -74,6 +86,45 @@ export class GenerateDeckService {
     return generateDeckJobResponseSchema.parse({ job: queuedJob });
   }
 
+  async createColorOptions(body: unknown): Promise<DeckColorOptionsResponse> {
+    const request = deckColorOptionRequestSchema.parse(body);
+    let response: Response;
+
+    try {
+      response = await fetch(
+        workerUrl(this.config.PYTHON_WORKER_URL, "/ai/deck-color-options"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(30_000)
+        }
+      );
+    } catch (error) {
+      throw new ServiceUnavailableException(
+        error instanceof Error
+          ? error.message
+          : "Python worker color option generation unavailable."
+      );
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        (await response.text()) || "Python worker color option generation failed."
+      );
+    }
+
+    try {
+      return deckColorOptionsResponseSchema.parse(await response.json());
+    } catch (error) {
+      throw new InternalServerErrorException(
+        error instanceof Error
+          ? error.message
+          : "Python worker returned invalid color options."
+      );
+    }
+  }
+
   private async assertDesignReferences(
     projectId: string,
     designReferences: Array<{ fileId: string }>
@@ -94,4 +145,11 @@ export class GenerateDeckService {
       }
     }
   }
+}
+
+function workerUrl(baseUrl: string, path: string): string {
+  return new URL(
+    path,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+  ).toString();
 }

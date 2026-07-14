@@ -19,9 +19,17 @@ export type ExtractedSentence = {
   candidates: PhraseCandidate[];
 };
 
+export type ScriptProgressSnapshot = {
+  charOffset: number;
+  totalChars: number;
+  ratio: number;
+  confidence: "none" | "candidate" | "confirmed";
+};
+
 export type SpeechTrackerSnapshot = {
   slideId: string;
   coveredSentenceIds: string[];
+  coveredSentenceMatchKinds: Record<string, "covered" | "paraphrased">;
   matchableSentenceCount: number;
   sentenceCoverage: number;
   wordCoverage: number;
@@ -29,12 +37,16 @@ export type SpeechTrackerSnapshot = {
   finalSentenceSpoken: boolean;
   hitKeywordIds: string[];
   provisionalMissingKeywordIds: string[];
+  scriptProgress?: ScriptProgressSnapshot;
 };
 
 export type SentenceCoveredEvent = {
   type: "sentence-covered";
   slideId: string;
   sentenceId: string;
+  matchKind: "covered" | "paraphrased";
+  similarity?: number;
+  lexicalOverlap?: number;
   atMs: number;
 };
 
@@ -76,10 +88,28 @@ export type AdviceEvent = {
   atMs: number;
 };
 
+export type AdLibDetectedEvent = {
+  type: "ad-lib-detected";
+  slideId: string;
+  text: string;
+  nearestSentenceId: string | null;
+  similarity: number | null;
+  atMs: number;
+};
+
+export type SentenceMissedEvent = {
+  type: "sentence-missed";
+  slideId: string;
+  sentenceId: string;
+  atMs: number;
+};
+
 export type SpeechTrackingEvent =
   | SentenceCoveredEvent
   | CoverageUpdatedEvent
   | LastSentenceSpokenEvent
   | KeywordHitEvent
   | KeywordMissingEvent
-  | AdviceEvent;
+  | AdviceEvent
+  | AdLibDetectedEvent
+  | SentenceMissedEvent;

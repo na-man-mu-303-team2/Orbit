@@ -72,6 +72,7 @@ class ReferenceRepository(Protocol):
         query_embedding: list[float],
         *,
         limit: int = 6,
+        file_ids: list[str] | None = None,
     ) -> list[ReferenceSearchResult]:
         ...
 
@@ -122,25 +123,37 @@ class PostgresReferenceRepository:
         query_embedding: list[float],
         *,
         limit: int = 6,
+        file_ids: list[str] | None = None,
     ) -> list[ReferenceSearchResult]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT id, project_id, file_id, chunk_index, content,
-                           metadata_json, 1 - (embedding <=> %s::vector) AS score
-                    FROM reference_chunks
-                    WHERE project_id = %s
-                    ORDER BY embedding <=> %s::vector
-                    LIMIT %s
-                    """,
-                    (
-                        _vector_literal(query_embedding),
-                        project_id,
-                        _vector_literal(query_embedding),
-                        max(1, min(limit, 20)),
-                    ),
-                )
+                vector = _vector_literal(query_embedding)
+                bounded_limit = max(1, min(limit, 20))
+                if file_ids:
+                    cursor.execute(
+                        """
+                        SELECT id, project_id, file_id, chunk_index, content,
+                               metadata_json, 1 - (embedding <=> %s::vector) AS score
+                        FROM reference_chunks
+                        WHERE project_id = %s
+                          AND file_id = ANY(%s)
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s
+                        """,
+                        (vector, project_id, file_ids, vector, bounded_limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id, project_id, file_id, chunk_index, content,
+                               metadata_json, 1 - (embedding <=> %s::vector) AS score
+                        FROM reference_chunks
+                        WHERE project_id = %s
+                        ORDER BY embedding <=> %s::vector
+                        LIMIT %s
+                        """,
+                        (vector, project_id, vector, bounded_limit),
+                    )
                 rows = cursor.fetchall()
 
         return [
@@ -362,6 +375,7 @@ def search_reference_chunks(
     project_id: str,
     query: str,
     limit: int = 6,
+    file_ids: list[str] | None = None,
     embedding_client: EmbeddingClient | None = None,
     model: str = DEFAULT_EMBEDDING_MODEL,
     api_key: str | None = None,
@@ -387,6 +401,7 @@ def search_reference_chunks(
             project_id,
             embedding_result.embeddings[0],
             limit=limit,
+            file_ids=file_ids,
         ),
         embedding_result,
     )

@@ -7,6 +7,7 @@ export type AutoAdvancePolicy = {
   live: boolean;
   pauseMs: number;
   rehearsal: boolean;
+  semanticMatching: boolean;
   threshold: number;
 };
 
@@ -33,9 +34,10 @@ export const defaultAutoAdvanceConfig: AutoAdvanceConfig = Object.freeze({
 
 export const defaultAutoAdvancePolicy: AutoAdvancePolicy = Object.freeze({
   countdownMs: 2000,
-  live: true,
+  live: false,
   pauseMs: 700,
   rehearsal: true,
+  semanticMatching: true,
   threshold: 0.7
 });
 

@@ -28,6 +28,7 @@ export type PresenterAdvancePolicySettings = {
   rehearsal: boolean;
   live: boolean;
   pauseMs: number;
+  semanticMatching: boolean;
   threshold: number;
 };
 
@@ -221,6 +222,10 @@ function normalizePresenterSettings(
         advancePolicy.pauseMs,
         fallback.advancePolicy.pauseMs,
         1
+      ),
+      semanticMatching: booleanOrFallback(
+        advancePolicy.semanticMatching,
+        fallback.advancePolicy.semanticMatching
       ),
       threshold: normalizeAutoAdvanceThreshold(
         numberOrFallback(advancePolicy.threshold, fallback.advancePolicy.threshold)

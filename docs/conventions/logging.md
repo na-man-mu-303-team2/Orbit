@@ -14,6 +14,9 @@ LOG_PRETTY=false | true
 - `LOG_PRETTY=true`는 `NODE_ENV=development`에서만 허용한다.
 - staging/production은 `LOG_PRETTY=false`를 유지한다.
 - 로컬 개발 기본값은 `LOG_LEVEL=debug`, staging/production 기본값은 `LOG_LEVEL=info`다.
+- 애플리케이션 런타임의 TypeORM query logging은 모든 환경에서 비활성화한다.
+  SQL parameter에는 Deck JSON, 참고자료 추출 결과, 발표자 script처럼 로그 금지
+  데이터가 포함될 수 있다.
 
 ## 공통 필드
 

@@ -4,7 +4,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { Params } from "nestjs-pino";
 import type { Options as PinoHttpOptions } from "pino-http";
 
-const redactedPaths = [
+export const redactedPaths = [
   "req.headers.authorization",
   "req.headers.cookie",
   "res.headers.set-cookie",
@@ -17,7 +17,19 @@ const redactedPaths = [
   "audioBase64",
   "rawAudio",
   "script",
-  "transcript"
+  "transcript",
+  "speakerNotes",
+  "premise",
+  "hypothesis",
+  "semanticCueDecisions",
+  "*.speakerNotes",
+  "*.premise",
+  "*.hypothesis",
+  "*.semanticCueDecisions",
+  "body.deck.slides.*.speakerNotes",
+  "payload.deck.slides.*.speakerNotes",
+  "payload.semanticCueDecisions",
+  "result.semanticCueDecisions"
 ];
 
 export function createApiLoggerParams(

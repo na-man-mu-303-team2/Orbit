@@ -22,6 +22,27 @@ describe("ReferencesController", () => {
       projectsService.assertCanReadProject.mock.invocationCallOrder[0],
     ).toBeLessThan(service.search.mock.invocationCallOrder[0]);
   });
+
+  it("requires project write permission before extracting uploaded references", async () => {
+    const { controller, projectsService, service } = createController();
+
+    await controller.extractReferences(
+      "project-a",
+      { fileIds: ["file-1"] },
+      signedRequest()
+    );
+
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1"
+    );
+    expect(service.extract).toHaveBeenCalledWith("project-a", {
+      fileIds: ["file-1"]
+    });
+    expect(
+      projectsService.assertCanWriteProject.mock.invocationCallOrder[0]
+    ).toBeLessThan(service.extract.mock.invocationCallOrder[0]);
+  });
 });
 
 function createController() {
@@ -32,9 +53,11 @@ function createController() {
   } as unknown as AuthService;
   const projectsService = {
     assertCanReadProject: vi.fn(async () => ({ projectId: "project-a" })),
+    assertCanWriteProject: vi.fn(async () => ({ projectId: "project-a" }))
   };
   const service = {
     search: vi.fn(async () => ({ matches: [] })),
+    extract: vi.fn(async () => ({ fileIds: ["file-1"], job: {} }))
   };
 
   return {

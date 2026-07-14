@@ -20,6 +20,8 @@ export type LiveSttBiasPhraseSource =
   | "keyword"
   | "synonym"
   | "abbreviation"
+  | "semantic-cue-term"
+  | "semantic-cue-alias"
   | "representative-phrase"
   | "legacy"
   | "title"
@@ -58,6 +60,7 @@ export type LiveSttErrorCode =
   | "unsupported_runtime"
   | "model_unavailable"
   | "consent_required"
+  | "permission_denied"
   | "start_failed"
   | "runtime_error";
 

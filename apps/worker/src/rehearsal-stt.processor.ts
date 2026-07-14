@@ -3,12 +3,19 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  rehearsalEvaluationSnapshotSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
+  rehearsalSemanticCueOutcomeSchema,
+  rehearsalSemanticEvaluationSchema,
   type Job,
+  type RehearsalEvaluationSnapshot,
   type RehearsalReport,
   type RehearsalReportSlideTiming,
-  type RehearsalRunMeta
+  type RehearsalRunMeta,
+  type RehearsalSemanticEvidenceSegment,
+  type RehearsalSemanticCueOutcome,
+  type SemanticFallbackReason
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
@@ -44,9 +51,20 @@ const deckPatchRowSchema = z.object({
   operations: z.array(z.record(z.unknown()))
 });
 
-const rehearsalRunMetaRowSchema = z.object({
-  meta_json: z.record(z.unknown()).nullable().optional()
+const rehearsalRunInputRowSchema = z.object({
+  run_id: z.string().min(1),
+  meta_json: z.record(z.unknown()).nullable().optional(),
+  evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
+  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full")
 });
+
+const transcribeSegmentSchema = z
+  .object({
+    text: z.string(),
+    startSeconds: z.number().finite().nonnegative().nullable().optional(),
+    endSeconds: z.number().finite().nonnegative().nullable().optional()
+  })
+  .strict();
 
 const transcribeResponseSchema = z.object({
   runId: z.string().min(1),
@@ -57,7 +75,7 @@ const transcribeResponseSchema = z.object({
   provider: z.string(),
   model: z.string(),
   durationSeconds: z.number().nullable().optional(),
-  segments: z.array(z.record(z.unknown()))
+  segments: z.array(transcribeSegmentSchema)
 });
 
 const analyzeSpeedSampleSchema = z
@@ -121,15 +139,51 @@ const analyzeResponseSchema = z.object({
   coaching: z.record(z.unknown()).optional()
 });
 
+const analyzeSemanticResponseSchema = z
+  .object({
+    semanticEvaluation: rehearsalSemanticEvaluationSchema,
+    semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema)
+  })
+  .strict();
+
 type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
 type AudioAssetRow = z.infer<typeof audioAssetRowSchema>;
+export type SemanticAnalysisResult = z.infer<typeof analyzeSemanticResponseSchema>;
+
+const transcriptBlockingReasons = new Set<SemanticFallbackReason>([
+  "user_disabled",
+  "permission_denied",
+  "stt_unavailable",
+  "transcript_incomplete",
+  "no_transcript",
+  "queue_dropped"
+]);
+
+export type RehearsalSemanticEvaluationBusinessEvent = {
+  event:
+    | "rehearsal.semantic_evaluation.started"
+    | "rehearsal.semantic_evaluation.partial"
+    | "rehearsal.semantic_evaluation.succeeded";
+  projectId: string;
+  deckId: string;
+  deckVersion: number;
+  runId: string;
+  jobId: string;
+  cueCount: number;
+  slideCount: number;
+  latencyMs?: number;
+  reasons?: SemanticFallbackReason[];
+};
 
 export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
-  transcriptCache?: RehearsalTranscriptCache
+  transcriptCache?: RehearsalTranscriptCache,
+  onSemanticEvaluationEvent?: (
+    event: RehearsalSemanticEvaluationBusinessEvent
+  ) => void
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -163,8 +217,9 @@ export async function processRehearsalSttJob(
     error: null
   });
 
+  let runInput: z.infer<typeof rehearsalRunInputRowSchema>;
   try {
-    await updateRun(dataSource, payload, {
+    runInput = await updateRun(dataSource, payload, {
       status: "processing",
       error: null,
       jobId: payload.jobId
@@ -185,8 +240,18 @@ export async function processRehearsalSttJob(
   let storageUrl: string;
   try {
     asset = await loadAudioAsset(dataSource, payload);
-    deckContext = await loadDeckAnalysisContext(dataSource, payload.projectId, payload.deckId);
-    runMeta = await loadRehearsalRunMeta(dataSource, payload);
+    deckContext = runInput.evaluation_snapshot_json
+      ? buildSnapshotAnalysisContext(
+          runInput.evaluation_snapshot_json,
+          runInput.semantic_evaluation_mode
+        )
+      : await loadDeckAnalysisContext(
+          dataSource,
+          payload.projectId,
+          payload.deckId,
+          runInput.semantic_evaluation_mode
+        );
+    runMeta = rehearsalRunMetaSchema.parse(runInput.meta_json ?? {});
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
   } catch (error) {
     return failJobAndRun(
@@ -265,6 +330,15 @@ export async function processRehearsalSttJob(
     );
   }
 
+  const semanticResult = await analyzeSemanticCuesForReport(
+    pythonWorkerUrl,
+    payload,
+    deckContext,
+    transcribePayload,
+    runMeta,
+    onSemanticEvaluationEvent
+  );
+
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
   let rawAudioDeletedAt: string;
@@ -288,7 +362,8 @@ export async function processRehearsalSttJob(
       analysis,
       rawAudioDeletedAt,
       deckContext,
-      runMeta
+      runMeta,
+      semanticResult
     );
   } catch (error) {
     return failJobAndRun(
@@ -305,6 +380,14 @@ export async function processRehearsalSttJob(
     await transcriptCache?.set(payload.runId, transcribePayload.transcript);
   } catch {
     // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
+  }
+
+  try {
+    await transcriptCache?.setSemanticEvidence(payload.runId, {
+      segments: buildSemanticSegments(transcribePayload.segments)
+    });
+  } catch {
+    // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
   }
 
   await updateRun(dataSource, payload, {
@@ -336,7 +419,8 @@ function buildRehearsalReport(
   analysis: z.infer<typeof analyzeResponseSchema>,
   generatedAt: string,
   deckContext: DeckAnalysisContext,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
+  semanticResult: SemanticAnalysisResult
 ): RehearsalReport {
   return rehearsalReportSchema.parse({
     reportId: `report_${payload.runId}`,
@@ -350,13 +434,21 @@ function buildRehearsalReport(
       wordsPerMinute: analysis.wordsPerMinute,
       fillerWordCount: analysis.fillerWordCount,
       pauseCount: analysis.pauseCount,
-      keywordCoverage: analysis.keywordCoverage
+      keywordCoverage: analysis.keywordCoverage,
+      keywordCoverageMeasurement:
+        deckContext.deckKeywords.length === 0
+          ? { state: "unmeasured", reason: "no-keywords" }
+          : { state: "measured" }
     },
     speedSamples: analysis.speedSamples,
     fillerWordDetails: analysis.fillerWordDetails,
     pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
-    slideTimings: buildSlideTimings(deckContext.deck, runMeta),
+    utteranceOutcomes: runMeta.utteranceOutcomes,
+    semanticCueDecisions: runMeta.semanticCueDecisions,
+    semanticEvaluation: semanticResult.semanticEvaluation,
+    semanticCueOutcomes: semanticResult.semanticCueOutcomes,
+    slideTimings: buildSlideTimings(deckContext, runMeta),
     slideInsights: analysis.slideInsights,
     qnaSummary: {
       questionCount: 0,
@@ -412,7 +504,7 @@ async function analyzeTranscript(
       durationSeconds: transcription.durationSeconds ?? 0,
       segments: transcription.segments,
       deckKeywords: deckContext.deckKeywords,
-      slideTimeline: buildAnalyzeSlideTimeline(deckContext.deck, runMeta)
+      slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
     }),
     signal: AbortSignal.timeout(120_000)
   });
@@ -422,6 +514,390 @@ async function analyzeTranscript(
   }
 
   return analyzeResponseSchema.parse(await response.json());
+}
+
+async function analyzeSemanticCuesForReport(
+  pythonWorkerUrl: string,
+  payload: RehearsalSttPayload,
+  deckContext: DeckAnalysisContext,
+  transcription: z.infer<typeof transcribeResponseSchema>,
+  runMeta: RehearsalRunMeta,
+  onEvent?: (event: RehearsalSemanticEvaluationBusinessEvent) => void
+): Promise<SemanticAnalysisResult> {
+  const snapshot = deckContext.evaluationSnapshot;
+  if (deckContext.semanticEvaluationMode === "delivery-only") {
+    return unavailableSemanticResult("evaluation_snapshot_mismatch");
+  }
+  if (!snapshot) {
+    return unavailableSemanticResult("evaluation_not_run");
+  }
+
+  const cueCount = snapshot.slides.reduce(
+    (count, slide) => count + slide.semanticCues.length,
+    0
+  );
+  const baseEvent = {
+    projectId: payload.projectId,
+    deckId: snapshot.deckId,
+    deckVersion: snapshot.deckVersion,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    cueCount,
+    slideCount: snapshot.slides.length
+  };
+  emitSemanticEvaluationEvent(onEvent, {
+    event: "rehearsal.semantic_evaluation.started",
+    ...baseEvent
+  });
+
+  if (cueCount === 0) {
+    const emptyResult: SemanticAnalysisResult = {
+      semanticEvaluation: {
+        state: "succeeded",
+        measurementMode: "none",
+        reasons: [],
+        retryable: false
+      },
+      semanticCueOutcomes: []
+    };
+    emitSemanticEvaluationEvent(onEvent, {
+      event: "rehearsal.semantic_evaluation.succeeded",
+      ...baseEvent,
+      latencyMs: 0,
+      reasons: []
+    });
+    return emptyResult;
+  }
+
+  const semanticRequest = buildSemanticAnalysisRequest(
+    payload.runId,
+    snapshot,
+    buildSemanticSegments(transcription.segments),
+    runMeta
+  );
+  const startedAt = Date.now();
+  try {
+    const result = await requestSemanticAnalysis(
+      pythonWorkerUrl,
+      snapshot,
+      semanticRequest
+    );
+    const event =
+      result.semanticEvaluation.state === "succeeded"
+        ? "rehearsal.semantic_evaluation.succeeded"
+        : "rehearsal.semantic_evaluation.partial";
+    emitSemanticEvaluationEvent(onEvent, {
+      event,
+      ...baseEvent,
+      latencyMs: Date.now() - startedAt,
+      reasons: result.semanticEvaluation.reasons
+    });
+    return result;
+  } catch (error) {
+    const reason = semanticEndpointFailureReason(error);
+    const result = buildSemanticFailureResult(snapshot, semanticRequest, reason);
+    emitSemanticEvaluationEvent(onEvent, {
+      event: "rehearsal.semantic_evaluation.partial",
+      ...baseEvent,
+      latencyMs: Date.now() - startedAt,
+      reasons: result.semanticEvaluation.reasons
+    });
+    return result;
+  }
+}
+
+class SemanticEndpointError extends Error {
+  constructor(readonly reason: SemanticFallbackReason) {
+    super(reason);
+  }
+}
+
+export function semanticEndpointFailureReason(
+  error: unknown
+): SemanticFallbackReason {
+  if (error instanceof SemanticEndpointError) {
+    return error.reason;
+  }
+  if (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  ) {
+    return "timeout";
+  }
+  return "server_evaluation_failed";
+}
+
+function unavailableSemanticResult(
+  reason: "evaluation_not_run" | "evaluation_snapshot_mismatch"
+): SemanticAnalysisResult {
+  return {
+    semanticEvaluation: {
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: [reason],
+      retryable: false
+    },
+    semanticCueOutcomes: []
+  };
+}
+
+export function buildSemanticAnalysisRequest(
+  runId: string,
+  snapshot: RehearsalEvaluationSnapshot,
+  segments: RehearsalSemanticEvidenceSegment[],
+  runMeta: RehearsalRunMeta
+) {
+  return {
+    runId,
+    evaluationSnapshot: snapshot,
+    segments,
+    slideTimeline: buildSemanticSlideTimeline(snapshot, runMeta),
+    provisionalDecisions: runMeta.semanticCueDecisions,
+    capabilityEvents: runMeta.semanticCapabilityEvents
+  };
+}
+
+export async function requestSemanticAnalysis(
+  pythonWorkerUrl: string,
+  snapshot: RehearsalEvaluationSnapshot,
+  request: ReturnType<typeof buildSemanticAnalysisRequest>
+): Promise<SemanticAnalysisResult> {
+  const response = await fetch(
+    workerUrl(pythonWorkerUrl, "/rehearsal/analyze-semantic-cues"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(120_000)
+    }
+  );
+  if (!response.ok) {
+    throw new SemanticEndpointError(
+      response.status === 504 ? "timeout" : "server_evaluation_failed"
+    );
+  }
+
+  const result = analyzeSemanticResponseSchema.parse(await response.json());
+  validateSemanticOutcomeCoverage(snapshot, result.semanticCueOutcomes);
+  return result;
+}
+
+function buildSemanticSegments(
+  segments: z.infer<typeof transcribeSegmentSchema>[]
+) {
+  return segments.flatMap((segment) => {
+    if (
+      segment.startSeconds == null ||
+      segment.endSeconds == null ||
+      segment.endSeconds < segment.startSeconds ||
+      !segment.text.trim()
+    ) {
+      return [];
+    }
+    return [
+      {
+        startMs: Math.round(segment.startSeconds * 1000),
+        endMs: Math.round(segment.endSeconds * 1000),
+        text: segment.text
+      }
+    ];
+  });
+}
+
+function buildSemanticSlideTimeline(
+  snapshot: RehearsalEvaluationSnapshot,
+  runMeta: RehearsalRunMeta
+) {
+  const slideIds = new Set(snapshot.slides.map((slide) => slide.slideId));
+  const entries = runMeta.slideTimeline.flatMap((entry) => {
+    const enteredAt = Date.parse(entry.enteredAt);
+    return slideIds.has(entry.slideId) && !Number.isNaN(enteredAt)
+      ? [{ slideId: entry.slideId, enteredAt }]
+      : [];
+  });
+  const firstEnteredAt = entries[0]?.enteredAt;
+  if (firstEnteredAt === undefined) {
+    return [];
+  }
+
+  return entries.map((entry, index) => {
+    const nextEntry = entries[index + 1];
+    const enteredAtMs = Math.max(0, entry.enteredAt - firstEnteredAt);
+    return {
+      slideId: entry.slideId,
+      enteredAtMs,
+      ...(nextEntry && nextEntry.enteredAt > entry.enteredAt
+        ? { exitedAtMs: nextEntry.enteredAt - firstEnteredAt }
+        : {})
+    };
+  });
+}
+
+function validateSemanticOutcomeCoverage(
+  snapshot: RehearsalEvaluationSnapshot,
+  outcomes: RehearsalSemanticCueOutcome[]
+) {
+  const expected = new Map(
+    snapshot.slides.flatMap((slide) =>
+      slide.semanticCues.map((cue) => [
+        `${slide.slideId}:${cue.cueId}`,
+        {
+          cue,
+          reportLabel: normalizeSemanticReportLabel(
+            cue.reportLabel ?? cue.presenterTag ?? cue.meaning
+          )
+        }
+      ] as const)
+    )
+  );
+  const actual = new Map<string, RehearsalSemanticCueOutcome>();
+  for (const outcome of outcomes) {
+    const key = `${outcome.slideId}:${outcome.cueId}`;
+    if (actual.has(key)) {
+      throw new Error("Semantic evaluator returned duplicate outcomes.");
+    }
+    actual.set(key, outcome);
+  }
+  if (actual.size !== expected.size) {
+    throw new Error("Semantic evaluator returned an incomplete cue denominator.");
+  }
+  for (const [key, expectedOutcome] of expected) {
+    const outcome = actual.get(key);
+    if (
+      !outcome ||
+      outcome.cueRevision !== expectedOutcome.cue.revision ||
+      outcome.cueMeaningSnapshot !== expectedOutcome.cue.meaning ||
+      outcome.reportLabelSnapshot !== expectedOutcome.reportLabel ||
+      outcome.importance !== expectedOutcome.cue.importance
+    ) {
+      throw new Error("Semantic evaluator changed immutable cue identity.");
+    }
+  }
+}
+
+function normalizeSemanticReportLabel(value: string) {
+  return value.normalize("NFC").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function buildSemanticFailureResult(
+  snapshot: RehearsalEvaluationSnapshot,
+  request: ReturnType<typeof buildSemanticAnalysisRequest>,
+  providerReason: SemanticFallbackReason
+): SemanticAnalysisResult {
+  const visitedSlides = new Set(request.slideTimeline.map((entry) => entry.slideId));
+  const outcomes = snapshot.slides.flatMap((slide) =>
+    slide.semanticCues.map((cue): RehearsalSemanticCueOutcome => {
+      const base = {
+        slideId: slide.slideId,
+        cueId: cue.cueId,
+        cueRevision: cue.revision,
+        cueMeaningSnapshot: cue.meaning,
+        reportLabelSnapshot: normalizeSemanticReportLabel(
+          cue.reportLabel ?? cue.presenterTag ?? cue.meaning
+        ),
+        importance: cue.importance,
+        coveredConcepts: [],
+        missingConcepts: cue.requiredConcepts
+      };
+      if (cue.reviewStatus === "excluded") {
+        return {
+          ...base,
+          status: "excluded",
+          measurementMode: "none",
+          fallbackUsed: false
+        };
+      }
+
+      const reason =
+        cue.freshness === "stale"
+          ? "stale_cue"
+          : !visitedSlides.has(slide.slideId)
+            ? "slide_not_visited"
+            : transcriptCapabilityReason(slide.slideId, cue.cueId, request) ??
+                (!hasSemanticTranscriptForSlide(slide.slideId, request)
+                  ? "no_transcript"
+                  : providerReason);
+      const providerFallback = reason === providerReason;
+      return {
+        ...base,
+        status: "unmeasured",
+        measurementMode: "none",
+        fallbackUsed: providerFallback,
+        ...(providerFallback ? { fallbackReason: providerReason } : {}),
+        unmeasuredReason: reason
+      };
+    })
+  );
+  const reasons = Array.from(
+    new Set(
+      outcomes.flatMap((outcome) =>
+        outcome.status === "unmeasured" && outcome.unmeasuredReason
+          ? [outcome.unmeasuredReason]
+          : []
+      )
+    )
+  );
+  const retryable = reasons.some((reason) => reason === providerReason);
+  const hasUnmeasured = outcomes.some((outcome) => outcome.status === "unmeasured");
+  return analyzeSemanticResponseSchema.parse({
+    semanticEvaluation: {
+      state: hasUnmeasured ? "unavailable" : "succeeded",
+      measurementMode: "none",
+      reasons,
+      retryable
+    },
+    semanticCueOutcomes: outcomes
+  });
+}
+
+function transcriptCapabilityReason(
+  slideId: string,
+  cueId: string,
+  request: ReturnType<typeof buildSemanticAnalysisRequest>
+): SemanticFallbackReason | undefined {
+  for (const event of [...request.capabilityEvents].reverse()) {
+    if (
+      (event.capability !== "stt" && event.capability !== "transcript_evidence") ||
+      event.toState === "available" ||
+      event.reason === undefined ||
+      !transcriptBlockingReasons.has(event.reason) ||
+      (event.slideId !== undefined && event.slideId !== slideId) ||
+      (event.cueIds.length > 0 && !event.cueIds.includes(cueId))
+    ) {
+      continue;
+    }
+    return event.reason;
+  }
+  return undefined;
+}
+
+function hasSemanticTranscriptForSlide(
+  slideId: string,
+  request: ReturnType<typeof buildSemanticAnalysisRequest>
+) {
+  const timeline = request.slideTimeline;
+  return request.segments.some((segment) => {
+    const midpoint = (segment.startMs + segment.endMs) / 2;
+    return timeline.some((entry, index) => {
+      if (entry.slideId !== slideId || midpoint < entry.enteredAtMs) {
+        return false;
+      }
+      const nextEntry = timeline[index + 1];
+      const exitedAtMs = entry.exitedAtMs ?? nextEntry?.enteredAtMs ?? Number.POSITIVE_INFINITY;
+      return midpoint < exitedAtMs;
+    });
+  });
+}
+
+function emitSemanticEvaluationEvent(
+  callback: ((event: RehearsalSemanticEvaluationBusinessEvent) => void) | undefined,
+  event: RehearsalSemanticEvaluationBusinessEvent
+) {
+  try {
+    callback?.(event);
+  } catch {
+    // 업무 이벤트 로깅 실패는 리포트 생성을 막지 않는다.
+  }
 }
 
 async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPayload) {
@@ -445,7 +921,8 @@ async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPaylo
 async function loadDeckAnalysisContext(
   dataSource: DataSource,
   projectId: string,
-  deckId: string
+  deckId: string,
+  semanticEvaluationMode: "full" | "delivery-only"
 ) {
   const rows = await dataSource.query(
     `SELECT deck_json, version FROM decks WHERE project_id = $1 AND deck_id = $2`,
@@ -504,10 +981,32 @@ async function loadDeckAnalysisContext(
   }
 
   return {
-    deck: workingDeck,
+    slides: workingDeck.slides.map((slide) => ({
+      slideId: slide.slideId,
+      targetSeconds: getSlideTargetSeconds(workingDeck, slide)
+    })),
     deckKeywords: workingDeck.slides.flatMap((slide) =>
       slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
-    )
+    ),
+    evaluationSnapshot: null,
+    semanticEvaluationMode
+  };
+}
+
+function buildSnapshotAnalysisContext(
+  snapshot: z.infer<typeof rehearsalEvaluationSnapshotSchema>,
+  semanticEvaluationMode: "full" | "delivery-only"
+): DeckAnalysisContext {
+  return {
+    slides: snapshot.slides.map((slide) => ({
+      slideId: slide.slideId,
+      targetSeconds: slide.estimatedSeconds
+    })),
+    deckKeywords: snapshot.slides.flatMap((slide) =>
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+    ),
+    evaluationSnapshot: snapshot,
+    semanticEvaluationMode
   };
 }
 
@@ -595,25 +1094,6 @@ function applyReportDeckMetadataPatch(
   return nextMetadata;
 }
 
-async function loadRehearsalRunMeta(dataSource: DataSource, payload: RehearsalSttPayload) {
-  const rows = await dataSource.query(
-    `
-      SELECT meta_json
-      FROM rehearsal_runs
-      WHERE run_id = $1 AND project_id = $2
-    `,
-    [payload.runId, payload.projectId]
-  );
-
-  const row = readFirstQueryRow<unknown>(rows);
-  if (!row) {
-    throw new Error(`Rehearsal run not found: ${payload.runId}`);
-  }
-
-  const parsedRow = rehearsalRunMetaRowSchema.parse(row);
-  return rehearsalRunMetaSchema.parse(parsedRow.meta_json ?? {});
-}
-
 function buildReportMissedKeywords(
   analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[]
 ) {
@@ -627,10 +1107,10 @@ function buildReportMissedKeywords(
 }
 
 function buildSlideTimings(
-  deck: Deck,
+  deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta
 ): RehearsalReportSlideTiming[] {
-  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
 
@@ -655,14 +1135,16 @@ function buildSlideTimings(
       continue;
     }
 
-    const slide = deck.slides.find((candidate) => candidate.slideId === entry.slideId);
+    const slide = deckContext.slides.find(
+      (candidate) => candidate.slideId === entry.slideId
+    );
     if (!slide) {
       continue;
     }
 
     timings.push({
       slideId: entry.slideId,
-      targetSeconds: getSlideTargetSeconds(deck, slide),
+      targetSeconds: slide.targetSeconds,
       actualSeconds: Math.round((exitedAt - enteredAt) / 1000)
     });
   }
@@ -671,10 +1153,10 @@ function buildSlideTimings(
 }
 
 function buildAnalyzeSlideTimeline(
-  deck: Deck,
+  deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta
 ) {
-  const slideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const firstValidEnteredAt = timeline
     .map((entry) => Date.parse(entry.enteredAt))
@@ -805,7 +1287,7 @@ async function updateRun(
     rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
   }
-): Promise<void> {
+): Promise<z.infer<typeof rehearsalRunInputRowSchema>> {
   const rows = await dataSource.query(
     `
       UPDATE rehearsal_runs
@@ -817,7 +1299,7 @@ async function updateRun(
           transcript_retained = COALESCE($7::boolean, transcript_retained),
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id
+      RETURNING run_id, meta_json, evaluation_snapshot_json, semantic_evaluation_mode
     `,
     [
       payload.runId,
@@ -831,9 +1313,12 @@ async function updateRun(
     ]
   );
 
-  if (!readFirstQueryRow(rows)) {
+  const row = readFirstQueryRow<unknown>(rows);
+  if (!row) {
     throw new Error(`Rehearsal run not found: ${payload.runId}`);
   }
+
+  return rehearsalRunInputRowSchema.parse(row);
 }
 
 async function progressJob(
@@ -961,8 +1446,10 @@ type DeckKeywordPayload = {
 };
 
 type DeckAnalysisContext = {
-  deck: Deck;
+  slides: { slideId: string; targetSeconds: number }[];
   deckKeywords: DeckKeywordPayload[];
+  evaluationSnapshot: z.infer<typeof rehearsalEvaluationSnapshotSchema> | null;
+  semanticEvaluationMode: "full" | "delivery-only";
 };
 
 function workerUrl(baseUrl: string, path: string): string {

@@ -7,11 +7,10 @@ import {
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds } from "@orbit/shared";
 import type {
-  AiSuggestion,
   Deck,
   DeckPatch,
   DeckElement,
-  ListAiSuggestionsResponse,
+  SemanticCue,
   TableElementProps
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,10 +21,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  applyDeckPatchAcknowledgement,
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  createSemanticCueExtractionJob,
   createDistributeSelectionPatch,
+  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
   getImportedSlideThumbnailRefreshSlideIds,
@@ -48,8 +50,8 @@ import {
   tableDataDraft
 } from "./components/SelectionQuickBar";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
-import { aiSuggestionsQueryKey } from "../suggestions/api/suggestionApi";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -204,11 +206,47 @@ describe("editor shell", () => {
   });
 
   it("resolves undo redo history navigation without state updater side effects", () => {
-    const previousDeck = { ...createDemoDeck(), title: "Previous deck" };
+    const cue = {
+      cueId: "scue_history_1",
+      slideId: "slide_demo_1",
+      meaning: "발표자는 이전 핵심 메시지를 설명한다",
+      importance: "core",
+      reviewStatus: "approved",
+      freshness: "current",
+      origin: "manual",
+      revision: 1,
+      sourceRefs: [],
+      qualityWarnings: [],
+      required: true,
+      priority: 1,
+      candidateKeywords: [],
+      aliases: {},
+      requiredConcepts: ["핵심 메시지"],
+      nliHypotheses: ["발표자는 이전 핵심 메시지를 설명했다"],
+      negativeHints: [],
+      targetElementIds: [],
+      triggerActionIds: []
+    } satisfies SemanticCue;
+    const previousBase = createDemoDeck();
+    const previousDeck = {
+      ...previousBase,
+      title: "Previous deck",
+      slides: previousBase.slides.map((slide, index) =>
+        index === 0 ? { ...slide, semanticCues: [cue] } : slide
+      )
+    };
     const currentDeck = {
-      ...createDemoDeck(),
+      ...previousDeck,
       title: "Current deck",
-      version: previousDeck.version + 1
+      version: previousDeck.version + 1,
+      slides: previousDeck.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              semanticCues: [{ ...cue, freshness: "stale" as const }]
+            }
+          : slide
+      )
     };
 
     const transition = resolveHistoryNavigation({
@@ -223,6 +261,12 @@ describe("editor shell", () => {
       targetEntry: { deck: previousDeck },
       targetSlideIndex: previousDeck.slides.length - 1
     });
+    expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "current"
+    );
+    expect(transition?.currentEntry.deck.slides[0].semanticCues[0].freshness).toBe(
+      "stale"
+    );
     expect(
       resolveHistoryNavigation({
         currentDeck,
@@ -397,14 +441,66 @@ describe("editor shell", () => {
     expect(html).toContain("발표 메모");
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
-    expect(html).toContain("AI 제안 검토");
+    expect(html).toContain("AI 채팅");
+    expect(html).toContain("AI 도구");
+    expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
   });
 
+  it("integrates imported Semantic Cue review into the right panel", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0].semanticCues = [
+      {
+        cueId: "scue_imported_review",
+        slideId: deck.slides[0].slideId,
+        meaning: "발표자는 도입 효과를 설명한다",
+        reportLabel: "도입 효과",
+        presenterTag: "효과",
+        cueType: "result",
+        importance: "supporting",
+        reviewStatus: "suggested",
+        freshness: "current",
+        origin: "ai",
+        revision: 1,
+        sourceRefs: [
+          {
+            kind: "slide-title",
+            refId: deck.slides[0].slideId,
+            sourceHash: "a".repeat(64)
+          }
+        ],
+        qualityWarnings: [],
+        required: false,
+        priority: 2,
+        candidateKeywords: ["도입 효과"],
+        aliases: {},
+        requiredConcepts: ["도입 효과"],
+        nliHypotheses: ["발표자는 도입 효과를 설명했다"],
+        negativeHints: [],
+        targetElementIds: [],
+        triggerActionIds: []
+      }
+    ];
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('id="editor-semantic-cue-tab"');
+    expect(html).toContain('id="editor-semantic-cue-panel"');
+    expect(html).toContain("발표 메시지");
+    expect(html).toContain("AI로 전체 덱 다시 분석");
+    expect(html).toContain("도입 효과");
+    expect(html).toContain("슬라이드 제목");
+  });
+
   it("returns a warning for unreadable text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 150, 120, "본문 B")
@@ -422,6 +518,7 @@ describe("editor shell", () => {
 
   it("does not warn for small decorative text overlap", () => {
     const deck = createDemoDeck();
+    deck.slides[0].style.backgroundImage = undefined;
     deck.slides[0].elements = [
       editorTextElement("text_a", 100, 100, "본문 A"),
       editorTextElement("text_b", 370, 100, "본문 B")
@@ -446,63 +543,6 @@ describe("editor shell", () => {
         severity: "warning"
       })
     );
-  });
-
-  it("loads AI suggestions with the route project id", () => {
-    const queryClient = createTestQueryClient();
-    const projectId = "project_real_1";
-    const deck = {
-      ...createDemoDeck(),
-      projectId
-    } as Deck;
-    const slideId = deck.slides[0].slideId;
-    const suggestion = {
-      suggestionId: "suggestion_real_project",
-      projectId,
-      deckId: deck.deckId,
-      slideId,
-      baseVersion: deck.version,
-      title: "실제 프로젝트 제안",
-      summary: "라우트 projectId로 조회한 제안입니다.",
-      patch: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        source: "ai",
-        operations: [
-          {
-            type: "update_speaker_notes",
-            slideId,
-            speakerNotes: "현재 프로젝트의 발표 메모를 개선합니다."
-          }
-        ]
-      },
-      status: "pending",
-      createdAt: "2026-06-29T00:00:00.000Z",
-      updatedAt: "2026-06-29T00:00:01.000Z"
-    } satisfies AiSuggestion;
-    const response = {
-      projectId,
-      suggestions: [suggestion]
-    } satisfies ListAiSuggestionsResponse;
-
-    queryClient.setQueryData(["deck", projectId], deck);
-    queryClient.setQueryData(["health"], {
-      app: "orbit-api",
-      demo: demoIds,
-      status: "ok"
-    });
-    queryClient.setQueryData(
-      aiSuggestionsQueryKey(projectId, {
-        deckId: deck.deckId,
-        slideId
-      }),
-      response
-    );
-
-    const html = renderApp(queryClient, projectId);
-
-    expect(html).toContain("실제 프로젝트 제안");
-    expect(html).not.toContain("현재 슬라이드에 검토할 AI 제안이 없습니다.");
   });
 
   it("uploads a PPTX file, creates an import job, and polls until completion", async () => {
@@ -594,6 +634,65 @@ describe("editor shell", () => {
     });
     expect(phases).toEqual(["uploading", "importing"]);
     expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a PPTX export job and returns the exported asset result", async () => {
+    let jobPollCount = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.endsWith("/deck/exports")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ format: "pptx" });
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+
+      if (url.endsWith("/api/jobs/job-pptx")) {
+        jobPollCount += 1;
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              jobPollCount === 1 ? "running" : "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_1",
+                url: "/api/v1/projects/project-a/assets/file_export_1/content",
+                format: "pptx",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      exportDeckToPptx("project-a", fetcher)
+    ).resolves.toMatchObject({
+      fileId: "file_export_1",
+      format: "pptx"
+    });
+    expect(jobPollCount).toBe(2);
+  });
+
+  it("creates a semantic cue extraction job with the requested regeneration policy", async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ force: true });
+      return new Response(JSON.stringify({ job: jobPayload("queued") }));
+    });
+
+    await expect(
+      createSemanticCueExtractionJob("project-a", true, fetcher)
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain(
+      "/api/v1/projects/project-a/deck/semantic-cues"
+    );
   });
 
   it("renders stored slide thumbnail images in the slide list", () => {
@@ -798,6 +897,20 @@ describe("editor shell", () => {
         snapshotDeck: deck,
         currentDeck: {
           ...deck,
+          slides: deck.slides.map((slide, index) =>
+            index === 0
+              ? { ...slide, thumbnailUrl: "https://example.com/latest-thumbnail.png" }
+              : slide
+          )
+        }
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldApplyManualSaveResult({
+        snapshotDeck: deck,
+        currentDeck: {
+          ...deck,
           projectId: "project_other"
         }
       }),
@@ -856,6 +969,41 @@ describe("editor shell", () => {
         expect.objectContaining({ slideId: remoteSlide.slideId })
       ])
     );
+  });
+
+  it("rebuilds the persisted deck from a lightweight patch acknowledgement", () => {
+    const deck = createDemoDeck();
+    const patch: DeckPatch = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [{ type: "update_deck", title: "Ack title" }]
+    };
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: "2026-07-10T00:00:00.000Z"
+    });
+
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) {
+      return;
+    }
+
+    const acknowledgement = {
+      deckId: deck.deckId,
+      version: applied.deck.version,
+      changeRecord: applied.changeRecord,
+      updatedAt: applied.changeRecord.createdAt
+    };
+
+    expect(applyDeckPatchAcknowledgement(deck, patch, acknowledgement)).toEqual(
+      applied.deck
+    );
+    expect(() =>
+      applyDeckPatchAcknowledgement(deck, patch, {
+        ...acknowledgement,
+        version: acknowledgement.version + 1
+      })
+    ).toThrow("acknowledgement version");
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
@@ -1188,7 +1336,12 @@ describe("editor shell", () => {
         issue: "textOverflow"
       })
     );
-    expect(messages).toContain("텍스트와 배경 대비가 낮습니다.");
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        issue: "contrastUnverifiable",
+        severity: "risk"
+      })
+    );
     expect(riskElementIds).not.toContain("el_1_imported_icon_customShape");
     expect(riskElementIds).toContain("el_manual_customShape");
   });
@@ -1208,6 +1361,226 @@ describe("editor shell", () => {
     );
 
     expect(html).toContain("모두 반영하기");
+  });
+
+  it("keeps a warning when title text still wraps", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const titleElement = editorTextElement(
+      "el_wrapped_title",
+      100,
+      100,
+      "발표 준비, AI로 1시간에서 3분으로 단축"
+    );
+    const bodyElement = editorTextElement(
+      "el_wrapped_body",
+      100,
+      500,
+      "본문은 여러 줄이어도 제목 경고가 아닙니다."
+    );
+
+    slide.elements = [
+      {
+        ...titleElement,
+        role: "title",
+        width: 180,
+        height: 300,
+        props: {
+          ...titleElement.props,
+          fontSize: 48
+        }
+      },
+      {
+        ...bodyElement,
+        width: 180,
+        height: 300,
+        props: {
+          ...bodyElement.props,
+          fontSize: 48
+        }
+      }
+    ];
+
+    const titleWrapItems = getEditorValidationItems(deck, slide).filter(
+      (item) => item.issue === "titleWrap"
+    );
+
+    expect(titleWrapItems).toContainEqual(
+      expect.objectContaining({ elementId: "el_wrapped_title" })
+    );
+    expect(titleWrapItems).not.toContainEqual(
+      expect.objectContaining({ elementId: "el_wrapped_body" })
+    );
+  });
+
+  it("reports wrapped short labels separately from title wraps", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const labelElement = editorTextElement("el_wrapped_label", 100, 420, "PitchDeck");
+    const bodyElement = editorTextElement("el_body", 100, 520, "Short body");
+
+    slide.elements = [
+      {
+        ...labelElement,
+        role: undefined,
+        width: 40,
+        height: 80,
+        props: {
+          ...labelElement.props,
+          fontSize: 24
+        }
+      },
+      {
+        ...bodyElement,
+        width: 40,
+        height: 80,
+        props: {
+          ...bodyElement.props,
+          fontSize: 24
+        }
+      }
+    ];
+
+    const validationItems = getEditorValidationItems(deck, slide);
+
+    expect(validationItems).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_wrapped_label",
+        issue: "labelWrap"
+      })
+    );
+    expect(validationItems).not.toContainEqual(
+      expect.objectContaining({
+        elementId: "el_wrapped_label",
+        issue: "titleWrap"
+      })
+    );
+    expect(validationItems).not.toContainEqual(
+      expect.objectContaining({
+        elementId: "el_body",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("reports short captions that are too narrow for a single line", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const captionElement = editorTextElement("el_narrow_caption", 100, 420, "PitchDeck");
+
+    slide.elements = [
+      {
+        ...captionElement,
+        role: "caption",
+        width: 42,
+        height: 80,
+        props: {
+          ...captionElement.props,
+          fontSize: 24
+        }
+      }
+    ];
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_narrow_caption",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("uses imported run font size when validating short captions", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const captionElement = editorTextElement("el_imported_caption", 100, 420, "PitchDeck");
+
+    slide.elements = [
+      {
+        ...captionElement,
+        role: "caption",
+        width: 138,
+        height: 27,
+        props: {
+          ...captionElement.props,
+          fontSize: 16,
+          paragraphs: [
+            {
+              text: "PitchDeck",
+              runs: [
+                {
+                  text: "PitchDeck",
+                  baseline: "normal",
+                  fontFamily: "Arial",
+                  fontSize: 42,
+                  fontWeight: "bold",
+                  color: "#111827"
+                }
+              ],
+              align: "left",
+              lineHeight: 1.15,
+              spaceBefore: 0,
+              spaceAfter: 0,
+              indent: 0
+            }
+          ]
+        }
+      }
+    ];
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        elementId: "el_imported_caption",
+        issue: "labelWrap"
+      })
+    );
+  });
+
+  it("renders a bulk apply button for title wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        items={[
+          {
+            elementId: "el_wrapped_title",
+            issue: "titleWrap",
+            message: "제목이 여러 줄로 줄바꿈되었습니다.",
+            severity: "warning"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("모두 반영하기");
+  });
+
+  it("renders a bulk apply button for label wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        items={[
+          {
+            elementId: "el_wrapped_label",
+            issue: "labelWrap",
+            message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+            severity: "warning"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("모두 반영하기");
+  });
+
+  it("measures wrapped text line count", () => {
+    const metrics = measureTextContentBounds({
+      align: "left",
+      fontFamily: "Arial",
+      fontSize: 24,
+      fontStyle: "normal",
+      lineHeight: 1.2,
+      text: "wrapped text should take more than one line",
+      width: 80
+    });
+
+    expect(metrics.lineCount).toBeGreaterThan(1);
   });
 
   it("shrinks overflowing text to fit the element frame", () => {
@@ -1239,6 +1612,61 @@ describe("editor shell", () => {
 
     expect(props.fontSize).toBeLessThan(32);
     expect(props.lineHeight).toBeLessThanOrEqual(1.15);
+  });
+
+  it("shrinks imported rich text using the primary run font size", () => {
+    const element = {
+      elementId: "el_imported_overflow",
+      type: "text",
+      role: "caption",
+      x: 0,
+      y: 0,
+      width: 138,
+      height: 27,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "PitchDeck",
+        paragraphs: [
+          {
+            text: "PitchDeck",
+            runs: [
+              {
+                text: "PitchDeck",
+                baseline: "normal",
+                fontFamily: "Arial",
+                fontSize: 42,
+                fontWeight: "bold",
+                color: "#111827"
+              }
+            ],
+            align: "left",
+            lineHeight: 1.15,
+            spaceBefore: 0,
+            spaceAfter: 0,
+            indent: 0
+          }
+        ],
+        fontSize: 16,
+        fontWeight: "normal",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.15
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const props = createShrinkToFitTextProps(element);
+    const plainProps = props as Record<string, unknown>;
+
+    expect(props.fontSize as number).toBeLessThan(42);
+    expect(plainProps.paragraphs).toBeNull();
+    expect(plainProps.runs).toBeNull();
+    expect(plainProps.fontFamily).toBe("Arial");
+    expect(plainProps.fontWeight).toBe("bold");
   });
 
   it("expands text width only when width can resolve overflow", () => {
@@ -1311,6 +1739,68 @@ describe("editor shell", () => {
 
     expect(fit.text).toBe("좋은 PR 작성법 - 작업 내용 요약 - 확인 방법 제시");
     expect(fit.width).toBeGreaterThan(element.width);
+  });
+
+  it("keeps one-line text fit within the provided max width", () => {
+    const element = {
+      elementId: "el_title",
+      type: "text",
+      role: "title",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 72,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "AI가 바꾸는 발표 준비의 혁신",
+        fontSize: 42,
+        fontWeight: "bold",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const fit = createSingleLineTextFit(element, {}, { maxWidth: 260, minFontSize: 20 });
+
+    expect(fit.fits).toBe(true);
+    expect(fit.width).toBeLessThanOrEqual(260);
+    expect(fit.props.fontSize as number).toBeLessThanOrEqual(42);
+  });
+
+  it("reports when one-line text fit cannot satisfy the frame", () => {
+    const element = {
+      elementId: "el_label",
+      type: "text",
+      role: "caption",
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 24,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        text: "Presentation",
+        fontSize: 24,
+        fontWeight: "bold",
+        color: "#111827",
+        align: "left",
+        verticalAlign: "top",
+        lineHeight: 1.2
+      }
+    } as Extract<Deck["slides"][number]["elements"][number], { type: "text" }>;
+
+    const fit = createSingleLineTextFit(element, {}, { maxWidth: 60, minFontSize: 20 });
+
+    expect(fit.fits).toBe(false);
   });
 
   it("builds a patch that distributes selected elements evenly", () => {
@@ -1645,7 +2135,7 @@ function editorTextElement(
   x: number,
   y: number,
   text: string
-): DeckElement {
+): Extract<DeckElement, { type: "text" }> {
   return {
     elementId,
     type: "text",
@@ -1674,12 +2164,13 @@ function editorTextElement(
 
 function jobPayload(
   status: "queued" | "running" | "succeeded",
-  result: Record<string, unknown> | null = null
+  result: Record<string, unknown> | null = null,
+  type: "pptx-import" | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",
     projectId: "project-a",
-    type: "pptx-import",
+    type,
     status,
     progress: status === "succeeded" ? 100 : 10,
     message: status,

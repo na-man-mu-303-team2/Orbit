@@ -8,8 +8,8 @@ const payload = {
   files: [
     {
       fileId: "file-1",
-      originalName: "sample.txt",
-      mimeType: "text/plain",
+      originalName: "sample.pdf",
+      mimeType: "application/pdf",
       contentBase64: Buffer.from("hello").toString("base64")
     }
   ]
@@ -44,6 +44,48 @@ describe("processReferenceExtractJob", () => {
       expect.objectContaining({ method: "POST" })
     );
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps direct extraction text usable when indexing is unavailable", async () => {
+    const extracted = {
+      projectId: "project-a",
+      referenceDocumentId: "file-1",
+      fileName: "sample.pdf",
+      kind: "pdf",
+      status: "succeeded",
+      rawText: "direct extraction text",
+      cleanedText: "",
+      indexingStatus: "unavailable"
+    };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow("succeeded", 100, params[4] as Record<string, unknown>, null)
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ files: [extracted] }))
+      )
+    );
+
+    const job = await processReferenceExtractJob(
+      { query } as unknown as DataSource,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.result).toEqual({
+      files: [
+        expect.objectContaining({
+          fileId: "file-1",
+          mimeType: "application/pdf",
+          usable: true,
+          indexingStatus: "unavailable"
+        })
+      ]
+    });
   });
 
   it("marks the DB job failed when documents parse fails", async () => {

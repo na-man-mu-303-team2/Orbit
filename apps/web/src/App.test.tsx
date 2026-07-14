@@ -83,6 +83,12 @@ describe("App shell routing", () => {
     ).toBe(false);
     expect(
       shouldRenderAppFrame({
+        name: "presentation",
+        projectId: "project_demo_1"
+      })
+    ).toBe(false);
+    expect(
+      shouldRenderAppFrame({
         name: "rehearsal",
         projectId: "project_demo_1"
       })
@@ -114,6 +120,13 @@ describe("App shell routing", () => {
       name: "present",
       deckId: "deck_demo_1",
       sessionId: undefined
+    });
+  });
+
+  it("parses presentation workspace routes", () => {
+    expect(getRoute("/presentation/project_demo_1")).toEqual({
+      name: "presentation",
+      projectId: "project_demo_1"
     });
   });
 

@@ -23,6 +23,7 @@ import {
 } from "../../canvas/custom-shape/geometry";
 import {
   getKonvaFontStyle,
+  getPrimaryTextRun,
   getTextElementText,
   measureTextContentBounds
 } from "../../canvas/text/textLayout";
@@ -632,9 +633,10 @@ export function createShrinkToFitTextProps(
   const lineHeight = Math.min(element.props.lineHeight, 1.15);
   const minFontSize = 8;
   const text = getTextElementText(element.props as TextElementProps);
+  const baseProps = createPlainTextFitProps(element, text);
 
   for (
-    let fontSize = Math.floor(element.props.fontSize);
+    let fontSize = Math.floor(getTextFitFontSize(element));
     fontSize >= minFontSize;
     fontSize -= 1
   ) {
@@ -647,11 +649,11 @@ export function createShrinkToFitTextProps(
         width: element.width
       }) <= Math.max(1, element.height - 8)
     ) {
-      return { fontSize, lineHeight };
+      return { ...baseProps, fontSize, lineHeight };
     }
   }
 
-  return { fontSize: minFontSize, lineHeight: 1.05 };
+  return { ...baseProps, fontSize: minFontSize, lineHeight: 1.05 };
 }
 
 export function createExpandTextWidthToFitFrame(
@@ -683,25 +685,62 @@ export function createExpandTextWidthToFitFrame(
 
 export function createSingleLineTextFit(
   element: Extract<DeckElement, { type: "text" }>,
-  context: TextFitContext = {}
+  context: TextFitContext = {},
+  options: { maxWidth?: number; minFontSize?: number } = {}
 ) {
   const text = getTextElementText(element.props as TextElementProps).replace(/\s*\n\s*/g, " ");
+  const maxWidth = options.maxWidth ?? 10000;
+  const effectiveFontSize = getTextFitFontSize(element);
+  const minFontSize = Math.min(
+    Math.floor(effectiveFontSize),
+    options.minFontSize ?? 8
+  );
+  const lineHeight = Math.min(element.props.lineHeight, 1.15);
   const measured = measureTextContentBounds({
     align: element.props.align,
     fontFamily: getTextFitFontFamily(element, context),
-    fontSize: element.props.fontSize,
-    fontStyle: getKonvaFontStyle(element.props.fontWeight),
+    fontSize: effectiveFontSize,
+    fontStyle: getTextFitFontStyle(element),
     lineHeight: element.props.lineHeight,
     text,
     width: 10000
   });
   const width = Math.max(
     Math.ceil(element.width),
-    Math.ceil(measured.width) + 8
+    Math.min(Math.ceil(maxWidth), Math.ceil(measured.width) + 8)
   );
+  const props = createPlainTextFitProps(element, text);
+  let fits = false;
+
+  for (
+    let fontSize = Math.floor(effectiveFontSize);
+    fontSize >= minFontSize;
+    fontSize -= 1
+  ) {
+    const metrics = measureTextContentBounds({
+      align: element.props.align,
+      fontFamily: getTextFitFontFamily(element, context),
+      fontSize,
+      fontStyle: getTextFitFontStyle(element),
+      lineHeight,
+      text,
+      width: Math.max(1, width - 8)
+    });
+
+    if (
+      metrics.lineCount <= 1 &&
+      metrics.height <= Math.max(1, element.height - 8)
+    ) {
+      props.fontSize = fontSize;
+      props.lineHeight = lineHeight;
+      fits = true;
+      break;
+    }
+  }
 
   return {
-    props: { paragraphs: null, runs: null, text },
+    fits,
+    props,
     text,
     width
   };
@@ -720,7 +759,7 @@ function measureTextHeight(
     align: element.props.align,
     fontFamily: getTextFitFontFamily(element, args),
     fontSize: args.fontSize,
-    fontStyle: getKonvaFontStyle(element.props.fontWeight),
+    fontStyle: getTextFitFontStyle(element),
     lineHeight: args.lineHeight,
     text: args.text,
     width: Math.max(1, args.width - 8)
@@ -731,7 +770,51 @@ function getTextFitFontFamily(
   element: Extract<DeckElement, { type: "text" }>,
   context: TextFitContext
 ) {
-  return context.fontFamily ?? element.props.fontFamily ?? "Arial";
+  return (
+    getPrimaryTextRun(element.props as TextElementProps)?.fontFamily ??
+    context.fontFamily ??
+    element.props.fontFamily ??
+    "Arial"
+  );
+}
+
+function getTextFitFontSize(element: Extract<DeckElement, { type: "text" }>) {
+  return getPrimaryTextRun(element.props as TextElementProps)?.fontSize ?? element.props.fontSize;
+}
+
+function getTextFitFontStyle(element: Extract<DeckElement, { type: "text" }>) {
+  return getKonvaFontStyle(
+    getPrimaryTextRun(element.props as TextElementProps)?.fontWeight ??
+    element.props.fontWeight
+  );
+}
+
+function createPlainTextFitProps(
+  element: Extract<DeckElement, { type: "text" }>,
+  text: string
+) {
+  const props: Record<string, unknown> = {};
+  const primaryRun = getPrimaryTextRun(element.props as TextElementProps);
+
+  if (
+    element.props.paragraphs?.length ||
+    element.props.runs?.length ||
+    element.props.text !== text
+  ) {
+    props.paragraphs = null;
+    props.runs = null;
+    props.text = text;
+  }
+
+  if (primaryRun?.fontFamily) {
+    props.fontFamily = primaryRun.fontFamily;
+  }
+
+  if (primaryRun?.fontWeight) {
+    props.fontWeight = primaryRun.fontWeight;
+  }
+
+  return props;
 }
 
 function clampUnit(value: number) {

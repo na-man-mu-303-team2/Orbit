@@ -7,7 +7,16 @@ function isSameDeckIdentity(left: Deck, right: Deck) {
 function isSameDeckContent(left: Deck, right: Deck) {
   const { version: _leftVersion, ...leftContent } = left;
   const { version: _rightVersion, ...rightContent } = right;
-  return JSON.stringify(leftContent) === JSON.stringify(rightContent);
+  const comparableLeftContent = {
+    ...leftContent,
+    slides: leftContent.slides.map(({ thumbnailUrl: _thumbnailUrl, ...slide }) => slide)
+  };
+  const comparableRightContent = {
+    ...rightContent,
+    slides: rightContent.slides.map(({ thumbnailUrl: _thumbnailUrl, ...slide }) => slide)
+  };
+
+  return JSON.stringify(comparableLeftContent) === JSON.stringify(comparableRightContent);
 }
 
 export function shouldApplyManualSaveResult(args: {

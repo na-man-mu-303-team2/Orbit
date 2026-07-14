@@ -1,4 +1,7 @@
-import { enqueueRehearsalSttJob } from "@orbit/job-queue";
+import {
+  enqueueRehearsalSemanticEvaluationJob,
+  enqueueRehearsalSttJob
+} from "@orbit/job-queue";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
@@ -10,7 +13,11 @@ import { ProjectEntity } from "../projects/project.entity";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { RehearsalsController } from "./rehearsals.controller";
-import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.service";
+import {
+  REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB,
+  REHEARSAL_STT_ENQUEUE_JOB,
+  RehearsalsService
+} from "./rehearsals.service";
 
 @Module({
   imports: [
@@ -28,6 +35,10 @@ import { REHEARSAL_STT_ENQUEUE_JOB, RehearsalsService } from "./rehearsals.servi
     {
       provide: REHEARSAL_STT_ENQUEUE_JOB,
       useValue: enqueueRehearsalSttJob
+    },
+    {
+      provide: REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB,
+      useValue: enqueueRehearsalSemanticEvaluationJob
     }
   ]
 })

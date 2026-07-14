@@ -10,6 +10,21 @@ const payload = {
   request: {
     topic: "AI 덱 생성",
     designPrompt: "retro pixel palette",
+    brief: {
+      presentationContext: "internal planning",
+      audienceText: "product team",
+      presentationType: "planning proposal",
+      durationMinutes: 12,
+      referencePolicy: "references-first"
+    },
+    design: {
+      stylePackId: "brandlogy-modern",
+      paletteOverride: {
+        primary: "#0EA5E9",
+        text: "#0F172A",
+        accentColor: "#0284C7"
+      }
+    },
     references: [{ fileId: "file_1" }],
     referenceKeywords: [{ text: "실시간 발표 피드백" }]
   }
@@ -33,6 +48,7 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("calls Python deck generation, saves the deck, and stores job results", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const deck = createDeck();
     const warnings = ["근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."];
     const deckValidation = validation({
@@ -73,7 +89,12 @@ describe("processGenerateDeckJob", () => {
     const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
       pythonRequestBody = String(init?.body ?? "");
       return new Response(
-        JSON.stringify({ deck, warnings, validation: deckValidation })
+        JSON.stringify({
+          deck,
+          warnings,
+          validation: deckValidation,
+          diagnostics: diagnostics({ validationIssueCount: 2 })
+        })
       );
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -90,9 +111,22 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
     );
+    expect(timeoutSpy).toHaveBeenCalledWith(120_000);
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         designPrompt: "retro pixel palette",
+        brief: expect.objectContaining({
+          presentationContext: "internal planning",
+          referencePolicy: "references-first"
+        }),
+        design: expect.objectContaining({
+          stylePackId: "brandlogy-modern",
+          paletteOverride: {
+            primary: "#0EA5E9",
+            text: "#0F172A",
+            accentColor: "#0284C7"
+          }
+        }),
         referenceKeywords: [{ text: "실시간 발표 피드백" }]
       })
     );
@@ -110,8 +144,68 @@ describe("processGenerateDeckJob", () => {
     expect(jobResult.deck.slides[0].thumbnailUrl).toBe(
       "asset:generated_slide_render_slide_1"
     );
+    expect(jobResult).toMatchObject({
+      diagnostics: {
+        referencePolicy: "references-first",
+        validationIssueCount: 2
+      }
+    });
     expect(job.result?.warnings).toEqual(warnings);
     expect(job.result).toMatchObject({ validation: { passed: false } });
+  });
+
+  it("fails before saving a deck when blocking validation issues remain", async () => {
+    const deck = createDeck();
+    const deckValidation = validation({
+      passed: false,
+      contentIssues: [
+        {
+          code: "CONTENT_REQUIRED",
+          scope: "slide",
+          severity: "error",
+          blocking: true,
+          path: "slides.0.title",
+          message: "Slide title is required."
+        }
+      ]
+    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          75,
+          params[4] as Record<string, unknown>,
+          params[5] as { code: string; message: string }
+        )
+      ]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ deck, warnings: [], validation: deckValidation })
+        )
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("GENERATE_DECK_VALIDATION_BLOCKING");
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+    expect(job.result).toMatchObject({
+      validation: { passed: false },
+      diagnostics: { referencePolicy: "topic-only" }
+    });
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
@@ -139,6 +233,91 @@ describe("processGenerateDeckJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.message).toBe("bad generation");
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes explicit design-pack generation mode to Python deck generation", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const deck = createDeck({
+      slides: [
+        {
+          slideId: "slide_1",
+          order: 1,
+          title: "Design Pack",
+          thumbnailUrl: "",
+          style: { backgroundColor: "#FFFFFF" },
+          speakerNotes: "",
+          elements: [
+            {
+              elementId: "el_1_design_pack_background",
+              type: "rect",
+              role: "background",
+              x: 0,
+              y: 0,
+              width: 1920,
+              height: 1080,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 0,
+              locked: true,
+              visible: true,
+              props: { fill: "#FFFFFF", stroke: "transparent" }
+            }
+          ]
+        }
+      ]
+    });
+    const deckValidation = validation();
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        jobRow(
+          "succeeded",
+          100,
+          {
+            deckId: deck.deckId,
+            deck,
+            warnings: [],
+            validation: deckValidation
+          },
+          null
+        )
+      ]);
+    let pythonRequestBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        pythonRequestBody = String(init?.body ?? "");
+        return new Response(
+          JSON.stringify({ deck, warnings: [], validation: deckValidation })
+        );
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          ...payload.request,
+          generationMode: "design-pack",
+          slideCountRange: { min: 4, max: 4 }
+        }
+      }
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(JSON.parse(pythonRequestBody)).toEqual(
+      expect.objectContaining({
+        projectId: "project-a",
+        generationMode: "design-pack",
+        slideCountRange: { min: 4, max: 4 }
+      })
+    );
+    expect(timeoutSpy).toHaveBeenCalledWith(300_000);
   });
 
   it("imports PPTX design references and stores derived images before generation", async () => {
@@ -511,6 +690,19 @@ function validation(
     contentIssues: [],
     designIssues: [],
     presentationIssues: [],
+    ...overrides
+  };
+}
+
+function diagnostics(overrides: Record<string, unknown> = {}) {
+  return {
+    referencePolicy: "references-first",
+    uploadedSourceCount: 1,
+    webSourceCount: 0,
+    repairAttempted: false,
+    repairReasons: [],
+    uniqueCoreLayoutCount: 1,
+    validationIssueCount: 0,
     ...overrides
   };
 }
