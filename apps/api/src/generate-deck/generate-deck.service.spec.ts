@@ -218,7 +218,7 @@ describe("GenerateDeckService", () => {
     );
   });
 
-  it("keeps design-pack generation mode in the queued worker payload", async () => {
+  it("keeps the program-v2 design-pack contract in the DB and worker payloads", async () => {
     const job: Job = {
       jobId: "job-design-pack",
       projectId: "project_generated_1",
@@ -257,6 +257,7 @@ describe("GenerateDeckService", () => {
       slideCountRange: { min: 4, max: 4 },
       metadata: {},
       design: {
+        engineVersion: "program-v2",
         stylePackId: "brandlogy-modern"
       }
     });
@@ -265,7 +266,10 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         payload: {
           request: expect.objectContaining({
-            generationMode: "design-pack"
+            generationMode: "design-pack",
+            design: expect.objectContaining({
+              engineVersion: "program-v2"
+            })
           })
         }
       })
@@ -274,7 +278,10 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         request: expect.objectContaining({
           generationMode: "design-pack",
-          slideCountRange: { min: 4, max: 4 }
+          slideCountRange: { min: 4, max: 4 },
+          design: expect.objectContaining({
+            engineVersion: "program-v2"
+          })
         })
       })
     );

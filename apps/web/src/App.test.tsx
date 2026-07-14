@@ -220,6 +220,10 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
+  it("routes the production AI PPT entry to the create-deck wizard", () => {
+    expect(getRoute("/createdeck")).toEqual({ name: "create-deck" });
+  });
+
   it("parses project brief and version history production routes", () => {
     expect(getRoute("/project/project_demo_1/brief")).toEqual({
       name: "project-brief",
