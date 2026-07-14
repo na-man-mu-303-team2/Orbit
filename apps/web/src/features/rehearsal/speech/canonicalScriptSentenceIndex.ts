@@ -23,7 +23,7 @@ export function createCanonicalScriptSentenceIndex(
 
   const sentences = sentenceTexts.map((text, index) => {
     const startOffset = nextOffset;
-    const endOffset = startOffset + text.length;
+    const endOffset = startOffset + countUnicodeCodePoints(text);
     nextOffset = endOffset + 1;
 
     return {
@@ -40,6 +40,10 @@ export function createCanonicalScriptSentenceIndex(
     sourceText,
     sentences
   };
+}
+
+function countUnicodeCodePoints(value: string): number {
+  return Array.from(value).length;
 }
 
 export function splitCanonicalScriptSentences(speakerNotes: string): string[] {
