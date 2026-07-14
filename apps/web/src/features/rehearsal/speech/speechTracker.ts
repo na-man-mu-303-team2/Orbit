@@ -1,13 +1,11 @@
 import type { LiveSttResult } from "../stt/liveSttPort";
-import {
-  createDefaultPhraseExtractor,
-  normalizeSpeechText
-} from "./phraseExtractor";
+import { createDefaultPhraseExtractor } from "./phraseExtractor";
 import {
   createPrompterLexicalEvidenceAccumulator,
   type PrompterLexicalEvidenceAccumulator,
   type PrompterLexicalEvidenceSnapshot
 } from "./prompterLexicalEvidence";
+import { createPrompterFinalDeduplicator } from "./prompterFinalDeduplicator";
 import {
   createPrompterProgressTracker,
   type PrompterBoundary
@@ -44,6 +42,7 @@ export type CreateSpeechTrackerInput = {
   controlPhrases?: readonly string[];
   threshold?: number;
   config?: SpeechTrackingConfigOverride;
+  now?: () => number;
 };
 
 export type SpeechTracker = {
@@ -88,18 +87,16 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     sentences
   });
   let prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
-  let lastPrompterFinalFingerprint: string | null = null;
+  const prompterFinalDeduplicator = createPrompterFinalDeduplicator({
+    now: input.now ?? (() => Date.now())
+  });
 
   function acceptResult(result: LiveSttResult): SpeechTrackingEvent[] {
     const scriptProgress = scriptProgressTracker.acceptResult(result);
     const atMs = result.timestampMs[1];
     const events: SpeechTrackingEvent[] = [];
-    const finalFingerprint = result.isFinal
-      ? createPrompterFinalFingerprint(result)
-      : null;
     const isDuplicatePrompterFinal =
-      finalFingerprint !== null &&
-      finalFingerprint === lastPrompterFinalFingerprint;
+      result.isFinal && !prompterFinalDeduplicator.acceptFinal(result);
 
     if (!isDuplicatePrompterFinal) {
       const prompterProgress = prompterProgressTracker.snapshot();
@@ -127,12 +124,11 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       }
 
       if (result.isFinal) {
-        acceptPrompterBoundary({ type: "stt-final", atMs });
+        const committed = acceptPrompterBoundary({ type: "stt-final", atMs });
+        if (committed) {
+          prompterFinalDeduplicator.markCommitted(result);
+        }
       }
-    }
-
-    if (finalFingerprint !== null) {
-      lastPrompterFinalFingerprint = finalFingerprint;
     }
 
     const finalWindow = createFinalSegmentWindow({
@@ -271,7 +267,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     scriptProgressTracker.reset();
     prompterProgressTracker.reset();
     prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
-    lastPrompterFinalFingerprint = null;
+    prompterFinalDeduplicator.reset();
   }
 
   function snapshot(): SpeechTrackerSnapshot {
@@ -378,14 +374,6 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       atMs
     };
   }
-}
-
-function createPrompterFinalFingerprint(result: LiveSttResult) {
-  return [
-    result.timestampMs[0],
-    result.timestampMs[1],
-    normalizeSpeechText(result.text)
-  ].join(":");
 }
 
 function isPrompterLexicalCommitEligible(

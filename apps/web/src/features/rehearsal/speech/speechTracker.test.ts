@@ -345,27 +345,97 @@ describe("SpeechTracker", () => {
     });
   });
 
-  it("동일한 final 결과를 중복 수신해도 다음 문장을 추가 commit하지 않는다", () => {
+  it("timestamp만 달라진 동일 final을 재수신해도 다음 문장을 commit하지 않는다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
       speakerNotes:
-        "첫 문장은 제품 맥락과 사용자 문제를 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
       keywords: []
     });
     const finalResult = {
-      text: "첫 문장은 제품 맥락과 사용자 문제를 설명합니다",
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
       isFinal: true,
       timestampMs: [0, 1_000] as [number, number]
     };
 
     tracker.acceptResult(finalResult);
     const firstSnapshot = tracker.snapshot().prompterProgress;
-    tracker.acceptResult(finalResult);
+    tracker.acceptResult({
+      ...finalResult,
+      timestampMs: [1_000, 1_200]
+    });
 
     expect(tracker.snapshot().prompterProgress).toEqual(firstSnapshot);
     expect(firstSnapshot).toMatchObject({
       currentSentenceId: "sentence_2",
       committedSentenceIds: ["sentence_1"]
+    });
+  });
+
+  it("commit된 utterance의 후속 revision은 막고 새 utterance는 허용한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
+      keywords: []
+    });
+
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000],
+      utteranceId: "utterance_1",
+      resultRevision: 1
+    });
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [1_000, 1_200],
+      utteranceId: "utterance_1",
+      resultRevision: 2
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"]
+    });
+
+    tracker.acceptResult({
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [1_200, 2_000],
+      utteranceId: "utterance_2",
+      resultRevision: 1
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"]
+    });
+  });
+
+  it("identity가 없는 동일 final은 dedupe window 이후 새 발화로 허용한다", () => {
+    let nowMs = 0;
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다. 둘째 발표는 동일한 핵심 내용을 자세히 설명합니다.",
+      keywords: [],
+      now: () => nowMs
+    });
+    const result = {
+      text: "첫째 발표는 동일한 핵심 내용을 자세히 설명합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(result);
+    nowMs = 2_001;
+    tracker.acceptResult({ ...result, timestampMs: [2_000, 3_000] });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: null,
+      committedSentenceIds: ["sentence_1", "sentence_2"]
     });
   });
 
