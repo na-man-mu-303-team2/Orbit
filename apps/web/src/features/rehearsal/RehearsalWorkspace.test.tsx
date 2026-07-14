@@ -134,7 +134,13 @@ describe("RehearsalWorkspace", () => {
     );
     expect(source).toContain("useLayoutEffect(() => {");
     expect(source).toContain("presenterScale !== null");
+    expect(source).toContain("const observer = new ResizeObserver(updateScale)");
+    expect(source).toContain('window.addEventListener("resize", updateScale)');
+    expect(source).not.toContain("scheduleScaleUpdate");
     expect(css).toContain("--rehearsal-stage-block-size: clamp(");
+    expect(css).toMatch(
+      /\.rehearsal-presenter-shell \.rehearsal-presenter-layout \{[^}]*width: 100%;/s,
+    );
     expect(css).toContain(
       "grid-template-rows: var(--rehearsal-stage-block-size) 42px 112px",
     );

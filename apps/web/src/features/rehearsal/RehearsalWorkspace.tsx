@@ -6839,8 +6839,6 @@ function usePresenterStageScale(deck: Deck | null) {
       return;
     }
 
-    let animationFrame: number | null = null;
-
     const updateScale = () => {
       const bounds = stage.getBoundingClientRect();
       const style = window.getComputedStyle(stage);
@@ -6862,35 +6860,21 @@ function usePresenterStageScale(deck: Deck | null) {
         );
       }
     };
-    const scheduleScaleUpdate = () => {
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      animationFrame = window.requestAnimationFrame(updateScale);
-    };
-
     updateScale();
-    scheduleScaleUpdate();
 
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", scheduleScaleUpdate);
+      window.addEventListener("resize", updateScale);
       return () => {
-        window.removeEventListener("resize", scheduleScaleUpdate);
-        if (animationFrame !== null) {
-          window.cancelAnimationFrame(animationFrame);
-        }
+        window.removeEventListener("resize", updateScale);
       };
     }
 
-    const observer = new ResizeObserver(scheduleScaleUpdate);
+    const observer = new ResizeObserver(updateScale);
     observer.observe(stage);
-    window.addEventListener("resize", scheduleScaleUpdate);
+    window.addEventListener("resize", updateScale);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", scheduleScaleUpdate);
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
+      window.removeEventListener("resize", updateScale);
     };
   }, [deck, presenterStageElement]);
 

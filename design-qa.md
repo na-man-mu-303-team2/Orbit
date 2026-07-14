@@ -1,5 +1,39 @@
 # ORBIT mockup-to-production design QA
 
+## Rehearsal Stage Resize Responsiveness (2026-07-15)
+
+- Source visual truth: `/tmp/orbit-rehearsal-resize-speed-before.jpg`, captured from the annotated `localhost:5173` rehearsal route.
+- Implementation screenshot: `/tmp/orbit-rehearsal-resize-speed-after.jpg`, captured from the worktree `localhost:5175` route.
+- Combined comparison: `/tmp/orbit-rehearsal-resize-speed-comparison.jpg`.
+- Viewport/state: `2207x1164`, live rehearsal without microphone input, slide 29 of 29.
+
+### Full-view and focused comparison evidence
+
+The source and implementation were compared side by side at the same viewport, project, and final-slide state. The presenter stage remains `1068x634.375px`, its slide surface remains `1030x580.25px`, and the toolbar, timer, coach column, navigation, next-slide card, and notes panel retain the existing ORBIT hierarchy and visual tokens.
+
+No separate crop was required because the selected stage and all adjacent layout boundaries are readable in the full-view comparison. Runtime measurements provide the focused evidence for the requested behavior: during a `1280x720` to `1600x900` resize, the implementation reached the final `1500px` layout, `1068x448px` stage slot, and `727.328x410px` slide surface in the first sample at approximately `14ms`.
+
+### Findings and comparison history
+
+1. P1 — the presenter layout was an auto-margin grid item without an explicit width, so its width shrink-wrapped to the scaled slide. The `ResizeObserver` then updated the slide scale from that width, creating a circular feedback loop that grew the layout by roughly `4px` per frame. Before the fix, the surface was still expanding after `1.1s`.
+2. Fix — the presenter layout now has an explicit `width: 100%` bounded by its existing `max-width: 1500px`, breaking the intrinsic-size feedback loop. Scale updates also run directly from resize notifications instead of canceling and rescheduling another animation frame.
+3. Post-fix evidence — the final size appears within one frame, with no visual drift in typography, spacing, colors, borders, radii, icons, imagery, or app copy.
+
+### Verification
+
+- Previous-slide navigation moved to `28 / 29`; next-slide navigation returned to `29 / 29`.
+- Browser console: no errors or warnings.
+- Web suite: 141 files, 991 tests passed.
+- Focused rehearsal/presenter suite: 2 files, 109 tests passed.
+- Web lint/typecheck: passed.
+- Web production build: passed; only the pre-existing Vite chunk-size advisory remained.
+- `git diff --check`: passed.
+- No actionable P0/P1/P2/P3 visual or interaction finding remains.
+
+final result: passed
+
+---
+
 ## Source visual truth
 
 - Presentation brief: `/tmp/orbit-production-design/brief-reference.png`
