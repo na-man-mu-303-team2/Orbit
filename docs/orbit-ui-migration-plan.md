@@ -5,6 +5,8 @@
 > 디자인 기준: `docs/orbit-design-system.md`, `/design-system`, `/mockup/*`  
 > 구현 기준: 실제 route, API hook, `packages/shared` schema, `docs/contracts.md`
 
+> #339 PR 3 현행화: 인증 후 `/`는 `OrbitWorkspaceHome`, `/createdeck`는 `AiPptMockupPage`가 canonical surface다. 구형 `HomePage`, `GenerateDeckView`, `/mockup/ai-ppt`는 제거되었다.
+
 ## 1. 목적
 
 현재 운영 코드의 기능과 데이터 계약을 유지하면서, 확정된 ORBIT 디자인 시스템과 목업 UX를 실제 화면에 단계적으로 적용한다.
@@ -91,9 +93,9 @@
 | `/` 인증 전 | 현재는 auth 실패 시 `/login` 이동 | `/mockup` | public landing을 실제 route에 추가한다. |
 | `/login` | `LoginPage` in `App.tsx` | `/mockup/login` | email/password 동작만 연결한다. |
 | `/signup` | 현재 별도 route 없음, login 내부 mode | `/mockup/signup` | 같은 auth API와 validation을 재사용한다. |
-| `/` 인증 후 | `HomePage` + `AppFrame` | `/mockup/home` | 최근 작업, primary CTA, project table, 빠른 시작을 적용한다. |
+| `/` 인증 후 | `OrbitWorkspaceHome` + `AppFrame` | `/mockup/home` | 최근 작업, primary CTA, project table, 빠른 시작을 제공한다. |
 | `/project` | `ProjectListPage` | `/mockup/home`의 table pattern | 전체 프로젝트 검색/필터와 빈 상태를 제공한다. |
-| `/createdeck` | `GenerateDeckView` | `/mockup/create` | 기존 upload, extract, job polling 계약을 유지한다. |
+| `/createdeck` | `AiPptMockupPage` | `/mockup/create` | `generate-deck` `program-v2` upload, extract, job polling 계약을 유지한다. |
 | `/project/:projectId/request` | `ProjectAccessRequestPage` | `/mockup/project-request` | 요청 전/대기/오류/승인 redirect를 모두 보존한다. |
 | `/project/:projectId` | `EditorShell` | `/mockup/editor` | Google Slides형 2단 chrome과 3영역 layout을 적용한다. |
 | editor 공유 dialog | `ShareAccessModal` | `/mockup/editor`의 공유 dialog | 실제 member/request API 범위만 제공한다. |
@@ -206,14 +208,15 @@ flowchart TD
 
 #### T5. AI 발표자료 생성 vertical slice — M
 
-- 설명: 기존 `GenerateDeckView`의 upload/extract/job 흐름을 목업의 `입력 → 구성 확인 → 생성` 구조로 재배치한다.
+- 상태: 후속 UI migration이 필요하다. #339 PR 3은 구형 `GenerateDeckView` 제거와 canonical surface 단일화만 완료했다.
+- 설명: 현재 `AiPptMockupPage`는 `Brief → Style → Color → References → Deck` 5단계이며 References에서 바로 생성을 시작한다. 이 작업은 별도 review 단계를 포함한 `입력 → 구성 확인 → 생성` UX로 재배치하되 기존 `generate-deck` `program-v2` 계약을 유지한다.
 - 완료 기준:
   1. 기존 payload, reference role, job polling, validation 동작이 바뀌지 않는다.
   2. 최종 primary action은 상태별로 하나만 존재한다.
   3. 실패·재시도·진행률·완료 후 editor 이동이 시각적으로 구분된다.
-- 검증: 기존 `App.test.tsx` generation test 전체, 생성 E2E smoke, desktop/mobile overflow 확인.
+- 검증: `AiPptMockupPage.test.ts`, `AiPptMockupPage.ui.test.ts`, 생성 E2E smoke, desktop/mobile overflow 확인.
 - 선행 조건: T1, T2.
-- 예상 파일: `apps/web/src/App.tsx`, 신규 `apps/web/src/features/projects/orbit-create-deck.css`, `apps/web/src/App.test.tsx`.
+- 예상 파일: `apps/web/src/features/ai-ppt/AiPptMockupPage.tsx`, `apps/web/src/features/ai-ppt/ai-ppt-mockup.css`, 해당 테스트.
 
 **Checkpoint B:** public → auth → home → create → editor 진입을 demo ID 기준 E2E로 통과시킨다.
 

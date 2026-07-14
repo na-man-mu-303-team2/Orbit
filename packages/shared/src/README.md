@@ -43,7 +43,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `deck/chart.schema.ts` | chart type, 타입별 chart datum, chart style, chart schema. chart object props 검증에 사용한다. |
 | `deck/theme.schema.ts` | deck theme schema. deck 전체 기본 디자인 토큰, palette, typography, effects 계약을 관리한다. |
 | `files/file.schema.ts` | 파일 업로드 결과, file purpose, rehearsal audio MIME schema와 runtime size limit 주입 helper. |
-| `jobs/job.schema.ts` | 비동기 Job 상태, type, 진행률, 결과/에러 schema. |
+| `jobs/job.schema.ts` | 비동기 Job 상태, 진행률, 결과/에러 schema. historical/active type은 drain과 이력 조회를 보존하고 public creatable type은 신규 생성 경계를 제한한다. |
 | `projects/project.schema.ts` | 프로젝트 생성/삭제 요청과 프로젝트 응답 schema. |
 | `rehearsals/live-stt.schema.ts` | 발표/리허설 중 온디바이스 Live STT가 내보내는 local transcript, keyword, cue, slide advance event 계약. |
 | `rehearsals/realtime-transcription.schema.ts` | 브라우저 Live STT가 OpenAI Realtime transcription에 연결할 때 API에서 받는 project-scoped client secret 응답 계약. |

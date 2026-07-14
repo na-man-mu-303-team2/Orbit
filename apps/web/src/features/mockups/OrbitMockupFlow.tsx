@@ -34,7 +34,6 @@ import { OrbitMicrophoneCheckMockup } from "./OrbitMicrophoneCheckMockup";
 import { OrbitProjectAccessMockup, OrbitProjectReportMockup } from "./OrbitProjectMockups";
 import { MockupHeader } from "./OrbitMockupHeader";
 import {
-  OrbitAiPptConnectedMockup,
   OrbitAudienceEntranceMockup,
   OrbitChallengeQnaMockup,
   OrbitFocusedPracticeMockup,
@@ -47,7 +46,7 @@ import rehearsalEditorialImage from "./assets/rehearsal-editorial.png";
 import "../../design-system/orbit-design-system.css";
 import "./orbit-mockup.css";
 
-export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history" | "ai-ppt";
+export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history";
 
 type OrbitMockupFlowProps = {
   onNavigate: (path: string) => void;
@@ -110,9 +109,6 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
   }
   if (props.screen === "version-history") {
     return <OrbitVersionHistoryMockup onNavigate={props.onNavigate} />;
-  }
-  if (props.screen === "ai-ppt") {
-    return <OrbitAiPptConnectedMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "public") {
     return <OrbitPublicMockup onNavigate={props.onNavigate} />;
