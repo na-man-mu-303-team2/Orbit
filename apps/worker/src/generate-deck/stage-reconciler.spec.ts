@@ -28,8 +28,9 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
         async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
           work({ query: transactionQuery }),
       );
-      const terminalJobs = status === "failed" ? [failedParentJob()] : [];
-      const recoverJoin = vi.fn(async () => terminalJobs[0]);
+      const recoveredParent = failedParentJob();
+      const terminalJobs = status === "failed" ? [recoveredParent] : [];
+      const recoverJoin = vi.fn(async () => recoveredParent);
       const dataSource = {
         query: outerQuery,
         transaction,

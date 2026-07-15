@@ -1,4 +1,4 @@
-import type { AiDeckGenerationStageMessage } from "@orbit/shared";
+import type { AiDeckGenerationStageMessage, Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 
 import { recoverAiDeckReferenceExtractionJoinInTransaction } from "./reference-extraction-join";
@@ -11,23 +11,29 @@ export interface AiDeckStageReconcilerOptions {
   recoverJoin?: (
     db: QueryExecutor,
     message: AiDeckGenerationStageMessage,
-  ) => Promise<unknown>;
+  ) => Promise<Job>;
   onError?: (error: unknown, message: AiDeckGenerationStageMessage) => void;
 }
 
 export async function reconcileExpiredAiDeckStageLeases(
   dataSource: DataSource,
   options: AiDeckStageReconcilerOptions = {},
-): Promise<{ scanned: number; requeued: number; failed: number }> {
+): Promise<{
+  scanned: number;
+  requeued: number;
+  failed: number;
+  terminalJobs: Job[];
+}> {
   const expired = await new AiDeckGenerationStageCheckpointRepository(
     dataSource,
   ).listExpiredLeases(options.limit ?? 100);
   let requeued = 0;
   let failed = 0;
+  const terminalJobs: Job[] = [];
 
   for (const candidate of expired) {
     try {
-      const status = await dataSource.transaction(async (manager) => {
+      const result = await dataSource.transaction(async (manager) => {
         const parentRows = await manager.query(
           `
             SELECT job_id
@@ -62,21 +68,28 @@ export async function reconcileExpiredAiDeckStageLeases(
         );
         if (!checkpoint) return null;
         if (checkpoint.status === "failed") {
-          await (
+          const parentJob = await (
             options.recoverJoin ??
             recoverAiDeckReferenceExtractionJoinInTransaction
           )(manager, candidate.message);
+          return { status: checkpoint.status, parentJob };
         }
-        return checkpoint.status;
+        return { status: checkpoint.status, parentJob: null };
       });
-      if (status === "queued") requeued += 1;
-      if (status === "failed") failed += 1;
+      if (result?.status === "queued") requeued += 1;
+      if (result?.status === "failed") failed += 1;
+      if (
+        result?.parentJob?.status === "failed" ||
+        result?.parentJob?.status === "succeeded"
+      ) {
+        terminalJobs.push(result.parentJob);
+      }
     } catch (error) {
       options.onError?.(error, candidate.message);
     }
   }
 
-  return { scanned: expired.length, requeued, failed };
+  return { scanned: expired.length, requeued, failed, terminalJobs };
 }
 
 function hasQueryRow(queryResult: unknown): boolean {

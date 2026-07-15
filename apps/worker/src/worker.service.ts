@@ -606,7 +606,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       );
     }
     try {
-      await reconcileExpiredAiDeckStageLeases(this.dataSource, {
+      const result = await reconcileExpiredAiDeckStageLeases(this.dataSource, {
         onError: (error, message) =>
           this.logger.error(
             {
@@ -620,6 +620,20 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             "AI deck stage reconciliation failed.",
           ),
       });
+      for (const job of result.terminalJobs) {
+        if (job.status !== "failed") continue;
+        this.logger.error(
+          {
+            event: "job.failed",
+            jobId: job.jobId,
+            jobType: job.type,
+            projectId: job.projectId,
+            status: job.status,
+            error: job.error ?? undefined,
+          },
+          "Job finished.",
+        );
+      }
     } catch (error) {
       this.logger.error(
         {
