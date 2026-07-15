@@ -173,6 +173,11 @@ export interface EnqueueAiDeckGenerationStageJobInput {
   message: AiDeckGenerationStageMessage;
 }
 
+export interface AiDeckGenerationStageEnqueueResult {
+  jobId: string;
+  state: string;
+}
+
 export interface DeckExportBullMqPayload {
   jobId: string;
   projectId: string;
@@ -358,7 +363,7 @@ export async function enqueueGenerateDeckJob(
 
 export async function enqueueAiDeckGenerationStageJob(
   input: EnqueueAiDeckGenerationStageJobInput,
-): Promise<void> {
+): Promise<AiDeckGenerationStageEnqueueResult> {
   if (input.driver === "sqs") {
     throw new Error("AI Deck SQS transport is not implemented yet.");
   }
@@ -368,11 +373,15 @@ export async function enqueueAiDeckGenerationStageJob(
   });
 
   try {
-    await queue.add(
+    const job = await queue.add(
       message.stage,
       message,
       aiDeckGenerationStageJobOptions(message),
     );
+    return {
+      jobId: String(job.id ?? aiDeckGenerationStageJobId(message)),
+      state: await job.getState(),
+    };
   } finally {
     await queue.close();
   }

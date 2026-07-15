@@ -85,4 +85,32 @@ describe("dispatchAiDeckGenerationStages", () => {
     expect(enqueue).not.toHaveBeenCalled();
     expect(repository.markDispatched).not.toHaveBeenCalled();
   });
+
+  it("leaves a failed send undispatched and continues with the next row", async () => {
+    const secondMessage = { ...referenceMessage, shardKey: "file-b" };
+    const repository = {
+      listUndispatched: vi.fn(async () => [
+        { message: referenceMessage, attempt: 0 },
+        { message: secondMessage, attempt: 1 },
+      ]),
+      markDispatched: vi.fn(async () => ({})),
+    };
+    const enqueue = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Redis unavailable"))
+      .mockResolvedValueOnce({
+        jobId: "job-ai-deck-1:reference-extract-file:file-b",
+        state: "waiting",
+      });
+
+    await expect(
+      dispatchAiDeckGenerationStages(repository, {
+        driver: "bullmq",
+        redisUrl: "redis://localhost:6379",
+        enqueue,
+      }),
+    ).resolves.toEqual({ scanned: 2, dispatched: 1 });
+    expect(repository.markDispatched).toHaveBeenCalledTimes(1);
+    expect(repository.markDispatched).toHaveBeenCalledWith(secondMessage, 1);
+  });
 });

@@ -67,10 +67,49 @@ describe("processAiDeckStagedCoordinatorJob", () => {
     });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(query).toHaveBeenCalledTimes(4);
+    expect(compactSql(query.mock.calls[0]?.[0])).toContain("FOR UPDATE");
     const insertCalls = query.mock.calls.slice(2);
     expect(insertCalls.map((call) => call[1]?.slice(0, 4))).toEqual([
       ["job-ai-deck-1", "project-a", "reference-extract-file", "file-a"],
       ["job-ai-deck-1", "project-a", "reference-extract-file", "file-b"],
+    ]);
+  });
+
+  it("creates source-grounding directly when every requested file is already covered", async () => {
+    const query = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        parentJobRow({
+          payload: {
+            request: generateDeckRequestSchema.parse({
+              topic: "reuse OCR",
+              referencePolicy: "references-first",
+              referenceFileIds: ["file-a"],
+              referenceContext: [
+                { fileId: "file-a", content: "existing extraction" },
+              ],
+            }),
+          },
+        }),
+      ])
+      .mockResolvedValueOnce([parentJobRow({ status: "running", progress: 10 })])
+      .mockResolvedValueOnce([
+        { ...checkpointRow(""), stage: "source-grounding", shard_key: "" },
+      ]);
+    const transaction = vi.fn(async (work: (manager: { query: QueryFunction }) => unknown) =>
+      work({ query }),
+    );
+
+    await processAiDeckStagedCoordinatorJob(
+      { transaction } as unknown as DataSource,
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+    );
+
+    expect(query.mock.calls[2]?.[1]?.slice(0, 4)).toEqual([
+      "job-ai-deck-1",
+      "project-a",
+      "source-grounding",
+      "",
     ]);
   });
 
@@ -137,4 +176,8 @@ function checkpointRow(fileId: string) {
     created_at: now,
     updated_at: now,
   };
+}
+
+function compactSql(value: unknown): string {
+  return String(value).replace(/\s+/g, " ").trim();
 }

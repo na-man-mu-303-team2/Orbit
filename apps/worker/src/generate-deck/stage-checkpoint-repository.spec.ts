@@ -81,6 +81,16 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
         provider_response: { output: "raw" },
       }),
     ).rejects.toThrow();
+    await expect(
+      write.repository.succeed(message, "worker-a:lease-token", 1, {
+        referenceExtractionArtifactId: "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      write.repository.ensureQueued(message, {
+        referenceExtractionArtifactId: "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+      }),
+    ).rejects.toThrow();
     expect(write.query).not.toHaveBeenCalled();
 
     const read = repositoryWithResponses([

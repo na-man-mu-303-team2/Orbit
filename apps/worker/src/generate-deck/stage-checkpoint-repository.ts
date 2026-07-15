@@ -1,6 +1,8 @@
 import {
-  aiDeckGenerationStageReferenceSchema,
+  aiDeckGenerationStageInputReferenceSchema,
   aiDeckGenerationStageMessageSchema,
+  aiDeckGenerationStageReferenceSchema,
+  aiDeckGenerationStageResultReferenceSchema,
   aiDeckGenerationStageSchema,
   aiDeckGenerationStageStatusSchema,
   jobErrorSchema,
@@ -30,6 +32,7 @@ const retryableErrorSchema = jobErrorSchema.extend({
   retryable: z.literal(true),
 });
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
+const dispatchLimitSchema = z.number().int().min(1).max(500);
 
 const checkpointRowSchema = z.object({
   pipeline_job_id: z.string().min(1),
@@ -45,6 +48,10 @@ const checkpointRowSchema = z.object({
   dispatched_at: timestampSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,
+});
+
+const dispatchableCheckpointRowSchema = checkpointRowSchema.extend({
+  project_id: z.string().min(1),
 });
 
 export interface AiDeckGenerationStageCheckpoint {
@@ -63,6 +70,11 @@ export interface AiDeckGenerationStageCheckpoint {
   updatedAt: string;
 }
 
+export interface DispatchableAiDeckGenerationStage {
+  message: AiDeckGenerationStageMessage;
+  attempt: number;
+}
+
 export class AiDeckGenerationStageCheckpointRepository {
   constructor(private readonly db: QueryExecutor) {}
 
@@ -71,7 +83,10 @@ export class AiDeckGenerationStageCheckpointRepository {
     rawInputRef: unknown = {},
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
-    const inputRef = aiDeckGenerationStageReferenceSchema.parse(rawInputRef);
+    const inputRef = aiDeckGenerationStageInputReferenceSchema.parse({
+      stage: message.stage,
+      reference: rawInputRef,
+    }).reference;
     const rows = await this.db.query(
       `
         INSERT INTO ai_deck_generation_stages (
@@ -188,7 +203,10 @@ export class AiDeckGenerationStageCheckpointRepository {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
     const attempt = claimedAttemptSchema.parse(rawAttempt);
-    const resultRef = aiDeckGenerationStageReferenceSchema.parse(rawResultRef);
+    const resultRef = aiDeckGenerationStageResultReferenceSchema.parse({
+      stage: message.stage,
+      reference: rawResultRef,
+    }).reference;
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
@@ -322,6 +340,40 @@ export class AiDeckGenerationStageCheckpointRepository {
     );
     return checkpointFromQuery(rows);
   }
+
+  async listUndispatched(
+    rawLimit = 100,
+  ): Promise<DispatchableAiDeckGenerationStage[]> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        SELECT stages.*, jobs.project_id
+        FROM ai_deck_generation_stages stages
+        JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+        WHERE jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.stage = 'reference-extract-file'
+          AND stages.status = 'queued'
+          AND stages.dispatched_at IS NULL
+        ORDER BY stages.created_at, stages.pipeline_job_id, stages.shard_key
+        LIMIT $1
+      `,
+      [limit],
+    );
+    if (!Array.isArray(rows)) return [];
+    return rows.map((rawRow) => {
+      const row = dispatchableCheckpointRowSchema.parse(rawRow);
+      return {
+        message: aiDeckGenerationStageMessageSchema.parse({
+          pipelineJobId: row.pipeline_job_id,
+          projectId: row.project_id,
+          stage: row.stage,
+          shardKey: row.shard_key,
+        }),
+        attempt: row.attempt,
+      };
+    });
+  }
 }
 
 function messageParameters(
@@ -343,6 +395,16 @@ function checkpointFromQuery(
   const rawRow = firstQueryRow(queryResult);
   if (!rawRow) return null;
   const row = checkpointRowSchema.parse(rawRow);
+  aiDeckGenerationStageInputReferenceSchema.parse({
+    stage: row.stage,
+    reference: row.input_ref_json,
+  });
+  if (row.result_ref_json !== null) {
+    aiDeckGenerationStageResultReferenceSchema.parse({
+      stage: row.stage,
+      reference: row.result_ref_json,
+    });
+  }
   return {
     pipelineJobId: row.pipeline_job_id,
     stage: row.stage,
