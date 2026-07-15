@@ -724,6 +724,11 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="발표 메모 펼치기"');
     expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
     expect(html).not.toContain("speaker-notes-restore-handle");
+    const toolbarStart = html.indexOf('class="stage-top-controls"');
+    const canvasStart = html.indexOf('class="canvas-scroll"');
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(canvasStart).toBeGreaterThan(toolbarStart);
+    expect(html.slice(toolbarStart, canvasStart)).not.toContain("selection-quickbar");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -2283,6 +2288,75 @@ describe("editor shell", () => {
     }
   });
 
+  it("moves grouped children when distributing a group selection", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const rect = (elementId: string, x: number, zIndex: number) => ({
+      elementId,
+      type: "rect" as const,
+      role: "highlight" as const,
+      x,
+      y: 100,
+      width: 100,
+      height: 80,
+      rotation: 0,
+      opacity: 1,
+      zIndex,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "#111827",
+        strokeWidth: 1,
+        borderRadius: 0
+      }
+    });
+    const child = rect("el_group_child", 420, 2);
+    const group = {
+      elementId: "el_group",
+      type: "group" as const,
+      role: "decoration" as const,
+      x: 400,
+      y: 80,
+      width: 100,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 3,
+      locked: false,
+      visible: true,
+      props: { childElementIds: [child.elementId] }
+    };
+    const first = rect("el_first", 100, 1);
+    const last = rect("el_last", 900, 4);
+    slide.elements = [first, child, group, last];
+
+    const patch = createDistributeSelectionPatch(
+      deck,
+      slide,
+      [first, group, last],
+      "x"
+    );
+    expect(patch).not.toBeNull();
+
+    const result = applyDeckPatch(deck, patch!);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === group.elementId
+      )?.x
+    ).toBe(500);
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === child.elementId
+      )?.x
+    ).toBe(520);
+  });
+
   it("stores new animation triggers on the selected speaker note occurrence", () => {
     const deck = createDemoDeck();
     const slide = {
@@ -2568,7 +2642,15 @@ describe("editor shell", () => {
     expect(html).toContain("보기 전용으로 열었습니다");
     expect(html).toContain("개인 리허설");
     expect(html).toContain("ORBIT 데모 흐름을 소개합니다");
-    expect(html).toContain('aria-readonly="true"');
+    expect(html).toContain('aria-label="현재 선택"');
+    expect(html).toContain("슬라이드의 정보를 보고 있습니다.");
+    expect(html).not.toContain('aria-readonly="true"');
+    const inspectorStart = html.indexOf('aria-label="현재 선택"');
+    const inspectorEnd = html.indexOf("</section>", inspectorStart);
+    const inspectorHtml = html.slice(inspectorStart, inspectorEnd);
+    expect(inspectorHtml).not.toContain("<input");
+    expect(inspectorHtml).not.toContain("<select");
+    expect(inspectorHtml).not.toContain("<textarea");
     expect(html).not.toContain("PPTX 가져오기");
     expect(html).not.toContain("PPTX 내보내기");
     expect(html).not.toContain("공유</button>");

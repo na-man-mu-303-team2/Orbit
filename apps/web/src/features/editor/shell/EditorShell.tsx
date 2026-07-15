@@ -109,6 +109,8 @@ import {
   createShrinkToFitTextProps,
   createSingleLineTextFit
 } from "./components/SelectionQuickBar";
+import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
+import { SelectionInspector } from "./components/SelectionInspector";
 import {
   useEditorPersistenceState,
   type PatchProducer,
@@ -123,7 +125,12 @@ import {
   resolveSelectedSlideIdAfterDelete,
 } from "./slideRailModel";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
+import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
+import {
+  createSelectionInspectorModel,
+  resolveSelectionInspectorCompactMode
+} from "./selectionInspectorModel";
 import { storePreparedRehearsalSlideSnapshots } from "../../rehearsal/rehearsalSlideSnapshots";
 export {
   EditorStateNotice
@@ -1658,6 +1665,8 @@ function EditorRuntime(props: {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const selectionInspectorRef = useRef<HTMLElement | null>(null);
   const [rightPanelView, setRightPanelView] = useState<"ai" | "design">("ai");
   const [aiPanelView, setAiPanelView] = useState<
     "chat" | "tools" | "semantic-cues"
@@ -2260,6 +2269,14 @@ function EditorRuntime(props: {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const isCompactEditorLayout =
+    resolveSelectionInspectorCompactMode(editorViewportWidth) === true;
+  const selectionInspectorModel = createSelectionInspectorModel({
+    compact: resolveSelectionInspectorCompactMode(editorViewportWidth),
+    currentSlideElementIds: visibleElements.map((element) => element.elementId),
+    origin: "programmatic",
+    selectedElementIds
+  });
   const selectedAnimationPanelElement =
     selectedElement ??
     (selectedElementIds.length === 1
@@ -3274,23 +3291,63 @@ function EditorRuntime(props: {
     });
   }
 
+  function focusSelectionInspector() {
+    requestAnimationFrame(() => selectionInspectorRef.current?.focus());
+  }
+
+  function focusCompactSelectionTrigger() {
+    requestAnimationFrame(() => compactSelectionTriggerRef.current?.focus());
+  }
+
+  function handleOpenCompactSelectionInspector() {
+    setRightPanelView("design");
+    setIsRightPanelOpen(true);
+    focusSelectionInspector();
+  }
+
+  function handleCloseRightPanel() {
+    setIsRightPanelOpen(false);
+    if (isCompactEditorLayout && selectionInspectorModel.selectedCount > 0) {
+      focusCompactSelectionTrigger();
+    }
+  }
+
+  function handleSelectionInspectorEscape() {
+    if (isCompactEditorLayout) {
+      handleCloseRightPanel();
+      return;
+    }
+
+    requestAnimationFrame(() => document.getElementById("editor-design-tab")?.focus());
+  }
+
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
     setElementContextMenu(null);
     setCustomShapeEditElementId((current) =>
       current === elementId && !options?.append ? current : null
     );
 
+    const nextSelectedElementIds = options?.append
+      ? selectedElementIds.includes(elementId)
+        ? selectedElementIds.filter((currentElementId) => currentElementId !== elementId)
+        : [...selectedElementIds, elementId]
+      : [elementId];
+
     if (options?.append) {
       setEditingElementId(null);
-      setSelectedElementIds((current) =>
-        current.includes(elementId)
-          ? current.filter((currentElementId) => currentElementId !== elementId)
-          : [...current, elementId]
-      );
-      return;
     }
 
-    setSelectedElementIds([elementId]);
+    setSelectedElementIds(nextSelectedElementIds);
+    const canvasSelectionModel = createSelectionInspectorModel({
+      compact: resolveSelectionInspectorCompactMode(editorViewportWidth),
+      currentSlideElementIds: visibleElements.map((element) => element.elementId),
+      origin: "canvas",
+      selectedElementIds: nextSelectedElementIds
+    });
+    if (canvasSelectionModel.shouldAutoOpenDesignInspector) {
+      setRightPanelView("design");
+      setIsRightPanelOpen(true);
+    }
   }
 
   function handleUndo() {
@@ -3386,6 +3443,29 @@ function EditorRuntime(props: {
     commitPatch((currentDeck) =>
       createUpdateElementPropsPatch(currentDeck, slideId, elementId, props)
     );
+  }
+
+  function handleDistributeSelection(axis: "x" | "y") {
+    if (!currentSlide) {
+      return;
+    }
+
+    const currentDeck = workingDeckRef.current;
+    const slide = currentDeck.slides.find(
+      (candidate) => candidate.slideId === currentSlide.slideId
+    );
+    if (!slide) {
+      return;
+    }
+
+    const selectedIdSet = new Set(selectionInspectorModel.selectedElementIds);
+    const elements = slide.elements.filter((element) =>
+      selectedIdSet.has(element.elementId)
+    );
+    const patch = createDistributeSelectionPatch(currentDeck, slide, elements, axis);
+    if (patch) {
+      commitPatch(() => patch);
+    }
   }
 
   function handleValidationTextOverflowAction(
@@ -5703,6 +5783,42 @@ function EditorRuntime(props: {
     );
   }
 
+  function renderCurrentSelectionInspector() {
+    const elementControls =
+      canMutateDeck && selectionInspectorModel.mode === "element"
+        ? renderSelectionProperties(selectedElement, currentSlide, "design-element-properties")
+        : undefined;
+    const slideControls =
+      canMutateDeck && selectionInspectorModel.mode === "slide"
+        ? renderSelectionProperties(null, currentSlide, "design-slide-properties")
+        : undefined;
+    const multiControls =
+      canMutateDeck && selectionInspectorModel.mode === "multi"
+        ? (
+            <MultiSelectionQuickBar
+              canDistribute={selectionInspectorModel.selectedCount >= 3}
+              selectedCount={selectionInspectorModel.selectedCount}
+              onDistributeX={() => handleDistributeSelection("x")}
+              onDistributeY={() => handleDistributeSelection("y")}
+            />
+          )
+        : undefined;
+
+    return (
+      <SelectionInspector
+        canEdit={canMutateDeck}
+        elementControls={elementControls}
+        elementLabel={selectedElement?.type}
+        focusRef={selectionInspectorRef}
+        model={selectionInspectorModel}
+        multiControls={multiControls}
+        slideControls={slideControls}
+        slideLabel={currentSlide?.title}
+        onEscape={handleSelectionInspectorEscape}
+      />
+    );
+  }
+
   function renderSpeakerNotesPanel() {
     const notesPreview = (currentSlide?.speakerNotes ?? "").trim();
 
@@ -6070,6 +6186,7 @@ function EditorRuntime(props: {
             </span>
           ) : null}
           <button
+            aria-label="프레젠테이션 브리프 열기"
             className="editor-context-top-button"
             onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
             type="button"
@@ -6078,6 +6195,7 @@ function EditorRuntime(props: {
             <span>브리프</span>
           </button>
           <button
+            aria-label="버전 기록 열기"
             className="editor-context-top-button"
             onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }}
             type="button"
@@ -6286,6 +6404,7 @@ function EditorRuntime(props: {
       >
         <aside
           className={`slides-pane ${isSlidesPaneCollapsed ? "collapsed" : ""}`}
+          data-testid="editor-slide-rail-pane"
         >
           <div className="slides-pane-header">
             {!isSlidesPaneCollapsed ? (
@@ -6429,6 +6548,23 @@ function EditorRuntime(props: {
         <section className="stage-pane">
           <div className="stage-top-controls">
             {canMutateDeck ? <div className="editor-toolbar">
+              {isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
+                <button
+                  aria-controls="editor-selection-inspector-pane"
+                  aria-describedby="compact-selection-count"
+                  aria-expanded={isRightPanelOpen && rightPanelView === "design"}
+                  aria-label="선택 항목 속성 열기"
+                  className="compact-selection-trigger"
+                  ref={compactSelectionTriggerRef}
+                  type="button"
+                  onClick={handleOpenCompactSelectionInspector}
+                >
+                  <span>속성</span>
+                  <span id="compact-selection-count">
+                    {selectionInspectorModel.selectedCount}개 선택됨
+                  </span>
+                </button>
+              ) : null}
               <div className="tool-group">
                 <button
                   aria-label="실행 취소"
@@ -6532,19 +6668,20 @@ function EditorRuntime(props: {
                   <span className="tool-button-label">애니메이션</span>
                 </button>
               </div>
-
             </div> : null}
-
-            {canMutateDeck && selectedElementIds.length <= 1
-              ? renderSelectionProperties(selectedElement, selectedElement ? currentSlide : null, "toolbar-properties")
-              : null}
           </div>
 
-          <div className="canvas-scroll" ref={editorCanvasViewportRef}>
+          <div
+            aria-label="슬라이드 캔버스 작업 영역"
+            className="canvas-scroll"
+            data-testid="editor-canvas-pane"
+            ref={editorCanvasViewportRef}
+            role="region"
+            tabIndex={0}
+          >
             {currentSlide ? (
               <div className="konva-wrap">
                 <div
-                  aria-readonly={!canMutateDeck}
                   className="konva-stage-shell orbit-stage-shell"
                   data-testid="editor-stage-shell"
                   style={{
@@ -6620,7 +6757,11 @@ function EditorRuntime(props: {
           {renderSpeakerNotesPanel()}
         </section>
 
-        {canMutateDeck ? <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
+        {canMutateDeck ? <aside
+          className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}
+          data-testid="editor-inspector-pane"
+          id="editor-selection-inspector-pane"
+        >
           {isRightPanelOpen ? (
             <>
               <button
@@ -6637,7 +6778,7 @@ function EditorRuntime(props: {
                     className="collapse-right-pane-button"
                     type="button"
                     title="오른쪽 패널 접기"
-                    onClick={() => setIsRightPanelOpen(false)}
+                    onClick={handleCloseRightPanel}
                   >
                     <PanelRightClose size={16} />
                   </button>
@@ -6762,10 +6903,7 @@ function EditorRuntime(props: {
                   id="editor-design-panel"
                   role="tabpanel"
                 >
-                  <span className="orbit-ds-eyebrow">SLIDE DESIGN</span>
-                  <h3>현재 슬라이드</h3>
-                  <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
-                  {renderSelectionProperties(null, currentSlide, "design-properties")}
+                  {renderCurrentSelectionInspector()}
                 </div>
               </div>
             </>
@@ -6783,7 +6921,48 @@ function EditorRuntime(props: {
               <span>도구</span>
             </div>
           )}
-        </aside> : null}
+        </aside> : (
+          <aside
+            className={`ai-pane viewer-selection-pane ${isRightPanelOpen ? "" : "collapsed"}`}
+            data-testid="editor-inspector-pane"
+            id="editor-selection-inspector-pane"
+          >
+            {isRightPanelOpen ? (
+              <>
+                <div className="ai-header">
+                  <h2>선택 정보</h2>
+                  <div>
+                    <button
+                      aria-label="오른쪽 패널 접기"
+                      className="collapse-right-pane-button"
+                      type="button"
+                      title="오른쪽 패널 접기"
+                      onClick={handleCloseRightPanel}
+                    >
+                      <PanelRightClose size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="viewer-selection-pane-content">
+                  {renderCurrentSelectionInspector()}
+                </div>
+              </>
+            ) : (
+              <div className="collapsed-right-rail">
+                <button
+                  aria-label="오른쪽 패널 펼치기"
+                  className="collapse-right-pane-button"
+                  type="button"
+                  title="오른쪽 패널 펼치기"
+                  onClick={() => setIsRightPanelOpen(true)}
+                >
+                  <PanelRightOpen size={16} />
+                </button>
+                <span>선택</span>
+              </div>
+            )}
+          </aside>
+        )}
       </section>
 
       <div data-testid="editor-elements-debug" hidden>

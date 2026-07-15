@@ -51,8 +51,6 @@
 .orbit-shell .refresh-top-button { border-radius: 50%; height: 36px; min-height: 36px; padding: 0; width: 36px; }
 .orbit-shell .editor-panel { padding-top: 48px; }
 .orbit-shell .stage-top-controls { background: #f3f6fb; border-bottom: 1px solid var(--orbit-ds-border); height: 48px; left: 0; padding: 5px 14px; position: fixed; right: 0; top: 78px; z-index: 18; }
-.orbit-shell .editor-panel:has(.selection-quickbar) { padding-top: 116px; }
-.orbit-shell .stage-top-controls:has(.selection-quickbar) { height: 116px; }
 .orbit-shell .editor-toolbar { background: transparent; border: 0; box-shadow: none; min-height: 38px; overflow: visible; padding: 0; width: 100%; }
 .orbit-shell .editor-toolbar .tool-group { gap: 4px; min-width: 0; }
 .orbit-shell .editor-toolbar .tool-group:first-child { flex: 1 1 auto; }
@@ -1473,10 +1471,6 @@
     var(--slides-pane-width, 176px)
     minmax(0, 1fr)
     var(--right-pane-collapsed-width, 52px);
-}
-
-.editor-panel.read-only {
-  grid-template-columns: var(--slides-pane-width) minmax(0, 1fr);
 }
 
 .editor-panel.animation-panel-open.right-panel-closed {
@@ -5568,11 +5562,6 @@
     padding-top: 0;
   }
 
-  .orbit-shell .editor-panel:has(.selection-quickbar),
-  .orbit-shell .editor-panel.right-panel-closed:has(.selection-quickbar) {
-    padding-top: 0;
-  }
-
   .orbit-shell .slides-pane {
     border-bottom: 1px solid var(--orbit-ds-border);
     border-right: 0;
@@ -5632,8 +5621,7 @@
     min-height: auto;
   }
 
-  .orbit-shell .stage-top-controls,
-  .orbit-shell .stage-top-controls:has(.selection-quickbar) {
+  .orbit-shell .stage-top-controls {
     height: auto;
     inset: auto;
     min-height: max-content;
@@ -5866,7 +5854,8 @@
 .orbit-shell .collapse-slides-button:focus-visible,
 .orbit-shell .add-slide-button:focus-visible,
 .orbit-shell .tool-button:focus-visible,
-.orbit-shell .icon-button:focus-visible {
+.orbit-shell .icon-button:focus-visible,
+.orbit-shell .compact-selection-trigger:focus-visible {
   box-shadow: var(--orbit-ds-focus);
   outline: none;
 }
@@ -5884,32 +5873,39 @@
   top: 80px;
 }
 
-.orbit-shell .editor-panel:has(.selection-quickbar) {
-  padding-top: 0;
-}
-
-.orbit-shell .stage-top-controls:has(.selection-quickbar) {
-  height: 120px;
-}
-
 .orbit-shell .slides-pane,
 .orbit-shell .ai-pane,
 .orbit-shell .animation-side-pane {
   margin-top: 66px;
 }
 
-.orbit-shell .editor-panel:has(.selection-quickbar) .slides-pane,
-.orbit-shell .editor-panel:has(.selection-quickbar) .ai-pane,
-.orbit-shell .editor-panel:has(.selection-quickbar) .animation-side-pane {
-  margin-top: 120px;
-}
-
 .orbit-shell .editor-toolbar {
   background: #f1f2f5;
   border: 1px solid #ececf0;
   border-radius: 14px;
+  max-height: 54px;
   min-height: 54px;
+  min-width: 0;
   padding: 0 10px;
+}
+
+.orbit-shell .compact-selection-trigger {
+  align-items: center;
+  background: var(--orbit-ds-lilac-soft);
+  border: 1px solid #ded3ff;
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-ink);
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.orbit-shell .compact-selection-trigger span:last-child {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-ui-small);
 }
 
 .orbit-shell .editor-toolbar .tool-button,
@@ -6115,6 +6111,48 @@
   padding: 8px 2px;
 }
 
+.orbit-shell .selection-inspector {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.orbit-shell .selection-inspector:focus-visible {
+  border-radius: var(--orbit-ds-radius-control);
+  box-shadow: var(--orbit-ds-focus);
+  outline: none;
+}
+
+.orbit-shell .selection-inspector-header {
+  display: grid;
+  gap: 3px;
+}
+
+.orbit-shell .selection-inspector-header span {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orbit-shell .selection-inspector-header strong {
+  color: var(--orbit-ds-ink);
+  font-size: 18px;
+}
+
+.orbit-shell .selection-inspector-read-only-summary {
+  color: var(--orbit-ds-text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.orbit-shell .viewer-selection-pane-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 2px;
+}
+
 .orbit-shell .editor-design-panel h3 {
   font-size: 18px;
   margin: 0;
@@ -6278,13 +6316,7 @@
     padding-top: 62px;
   }
 
-  .orbit-shell .editor-panel:has(.selection-quickbar),
-  .orbit-shell .editor-panel.right-panel-closed:has(.selection-quickbar) {
-    padding-top: 110px;
-  }
-
-  .orbit-shell .stage-top-controls,
-  .orbit-shell .stage-top-controls:has(.selection-quickbar) {
+  .orbit-shell .stage-top-controls {
     height: auto;
     left: 86px;
     min-height: 54px;
@@ -6375,10 +6407,7 @@
   }
 
   .orbit-shell .ai-pane,
-  .orbit-shell .animation-side-pane,
-  .orbit-shell .editor-panel:has(.selection-quickbar) .slides-pane,
-  .orbit-shell .editor-panel:has(.selection-quickbar) .ai-pane,
-  .orbit-shell .editor-panel:has(.selection-quickbar) .animation-side-pane {
+  .orbit-shell .animation-side-pane {
     margin-top: 0;
   }
 
@@ -6598,8 +6627,7 @@ body.is-resizing-speaker-notes {
  * Keep the document toolbar, slide rail, canvas, notes, and inspector on one
  * shared grid so every working region starts and ends on the same lines. */
 @media (min-width: 861px) {
-  .orbit-shell .editor-panel,
-  .orbit-shell .editor-panel:has(.selection-quickbar) {
+  .orbit-shell .editor-panel {
     grid-template-rows: 66px minmax(0, 1fr) auto;
     padding-top: 0;
   }
@@ -6608,8 +6636,7 @@ body.is-resizing-speaker-notes {
     display: contents;
   }
 
-  .orbit-shell .stage-top-controls,
-  .orbit-shell .stage-top-controls:has(.selection-quickbar) {
+  .orbit-shell .stage-top-controls {
     grid-column: 1 / -1;
     grid-row: 1;
     height: auto;
@@ -6619,19 +6646,9 @@ body.is-resizing-speaker-notes {
     position: static;
   }
 
-  .orbit-shell .stage-top-controls:has(> .selection-quickbar) {
-    min-height: 120px;
-  }
-
   .orbit-shell .slides-pane {
     grid-column: 1;
     grid-row: 2 / 4;
-    margin-top: 0;
-  }
-
-  .orbit-shell .editor-panel:has(.selection-quickbar) .slides-pane,
-  .orbit-shell .editor-panel:has(.selection-quickbar) .ai-pane,
-  .orbit-shell .editor-panel:has(.selection-quickbar) .animation-side-pane {
     margin-top: 0;
   }
 
@@ -6669,8 +6686,9 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .konva-wrap {
+    align-items: start;
+    justify-items: center;
     min-height: 100%;
-    place-items: center;
   }
 }
 
@@ -6733,15 +6751,8 @@ body.is-resizing-speaker-notes {
 
 @media (max-width: 860px) {
   .orbit-shell .editor-panel,
-  .orbit-shell .editor-panel.right-panel-closed,
-  .orbit-shell .editor-panel:has(.selection-quickbar),
-  .orbit-shell .editor-panel.right-panel-closed:has(.selection-quickbar) {
+  .orbit-shell .editor-panel.right-panel-closed {
     padding-top: 66px;
-  }
-
-  .orbit-shell .editor-panel:has(> .stage-pane > .stage-top-controls > .selection-quickbar),
-  .orbit-shell .editor-panel.right-panel-closed:has(> .stage-pane > .stage-top-controls > .selection-quickbar) {
-    padding-top: 120px;
   }
 
   .orbit-shell .stage-pane {
@@ -6750,6 +6761,16 @@ body.is-resizing-speaker-notes {
 
   .orbit-shell .canvas-scroll {
     padding: 18px 14px;
+  }
+
+  .orbit-shell .editor-toolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .orbit-shell .editor-toolbar .tool-group {
+    flex: 0 0 auto;
   }
 
   .orbit-shell .konva-wrap {
@@ -6825,6 +6846,13 @@ body.is-resizing-speaker-notes {
 
   .orbit-shell .ai-pane:not(.collapsed) .right-pane-resizer {
     display: none;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .orbit-shell .compact-selection-trigger {
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 

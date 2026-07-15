@@ -34,7 +34,7 @@ describe("SlideRail", () => {
     expect(html).toContain('aria-label="슬라이드 목록"');
     expect(html).toContain('data-slide-id="slide_1"');
     expect(html).toContain('aria-current="true"');
-    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('aria-pressed="true"');
     expect(html.match(/tabindex="0"/g)).toHaveLength(1);
     expect(selectionEnd).toBeLessThan(menuStart);
     expect(html).toContain('aria-label="시작 드래그하여 이동"');
