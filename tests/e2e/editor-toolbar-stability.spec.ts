@@ -95,11 +95,8 @@ async function selectCanvasElement(
   }
 
   const point = {
-    x:
-      stageBox.x + (frame.x + frame.width / 2) * (stageBox.width / canvasWidth),
-    y:
-      stageBox.y +
-      (frame.y + frame.height / 2) * (stageBox.height / canvasHeight),
+    x: stageBox.x + (frame.x + 18) * (stageBox.width / canvasWidth),
+    y: stageBox.y + (frame.y + 18) * (stageBox.height / canvasHeight),
   };
 
   if (pointer === "touch") {
@@ -199,18 +196,21 @@ async function expectNoCriticalOrSeriousAxeViolations(page: Page) {
 }
 
 async function closeRightPanel(page: Page) {
+  const expandButton = page.getByRole("button", {
+    name: "오른쪽 패널 펼치기",
+    exact: true,
+  });
+  if (await expandButton.isVisible()) {
+    return;
+  }
+
   const closeButton = page.getByRole("button", {
     name: "오른쪽 패널 접기",
     exact: true,
   });
   await expect(closeButton).toBeVisible();
   await closeButton.click();
-  await expect(
-    page.getByRole("button", {
-      name: "오른쪽 패널 펼치기",
-      exact: true,
-    }),
-  ).toBeVisible();
+  await expect(expandButton).toBeVisible();
   await settleEditorLayout(page);
 }
 
@@ -250,7 +250,7 @@ for (const viewport of desktopViewports) {
     await expectNoHorizontalDocumentOverflow(page);
     await expectNoCriticalOrSeriousAxeViolations(page);
 
-    await selectCanvasElement(page, "el_1");
+    await selectCanvasElement(page, "el_3");
 
     const designTab = page.getByRole("tab", { name: "디자인", exact: true });
     await expect(designTab).toHaveAttribute("aria-selected", "true");
@@ -292,7 +292,7 @@ for (const viewport of compactViewports) {
     await expectNoHorizontalDocumentOverflow(page);
     await expectNoCriticalOrSeriousAxeViolations(page);
 
-    await selectCanvasElement(page, "el_1");
+    await selectCanvasElement(page, "el_3");
 
     const expandButton = page.getByRole("button", {
       name: "오른쪽 패널 펼치기",
@@ -379,7 +379,7 @@ test.describe("compact coarse pointer target", () => {
       viewport: { width: 390, height: 844 },
     });
     await closeRightPanel(page);
-    await selectCanvasElement(page, "el_1", "touch");
+    await selectCanvasElement(page, "el_3");
 
     const compactTrigger = page.getByRole("button", {
       name: "선택 항목 속성 열기",

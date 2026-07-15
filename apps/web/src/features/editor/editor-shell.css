@@ -6686,8 +6686,9 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .konva-wrap {
+    align-items: start;
+    justify-items: center;
     min-height: 100%;
-    place-items: center;
   }
 }
 

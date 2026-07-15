@@ -261,7 +261,7 @@ test.describe("P0-3 slide rail persistence", () => {
     expect(operation.slide.title).toBe("Opening 복사본");
     await expectRailSlideOrder(page, expectedOrder);
     await expect(slideSelectionButton(page, duplicateId)).toHaveAttribute(
-      "aria-selected",
+      "aria-pressed",
       "true",
     );
     await expect(slideSelectionButton(page, duplicateId)).toHaveAttribute(
@@ -433,7 +433,7 @@ test.describe("P0-3 slide rail persistence", () => {
 
     const selectedSlide = slideSelectionButton(page, "slide_2");
     await selectedSlide.click();
-    await expect(selectedSlide).toHaveAttribute("aria-selected", "true");
+    await expect(selectedSlide).toHaveAttribute("aria-pressed", "true");
     const handle = page.getByRole("button", {
       name: "Data Contract 드래그하여 이동",
       exact: true,
@@ -472,7 +472,7 @@ test.describe("P0-3 slide rail persistence", () => {
     await expect(unexpectedReorderResponse).rejects.toThrow();
     expect(slideOperationCount(probe, "reorder_slides")).toBe(0);
     await expectRailSlideOrder(page, initialOrder);
-    await expect(selectedSlide).toHaveAttribute("aria-selected", "true");
+    await expect(selectedSlide).toHaveAttribute("aria-pressed", "true");
     await expectPersistedSlideOrder(page, project.projectId, initialOrder);
   });
 
@@ -557,7 +557,7 @@ test.describe("P0-3 slide rail persistence", () => {
       await first.focus();
       await first.press("ArrowDown");
       await expect(second).toBeFocused();
-      await expect(second).toHaveAttribute("aria-selected", "true");
+      await expect(second).toHaveAttribute("aria-pressed", "true");
 
       await expect(
         page.getByRole("button", { name: "슬라이드 추가", exact: true }),

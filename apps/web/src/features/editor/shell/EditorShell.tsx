@@ -6186,6 +6186,7 @@ function EditorRuntime(props: {
             </span>
           ) : null}
           <button
+            aria-label="프레젠테이션 브리프 열기"
             className="editor-context-top-button"
             onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
             type="button"
@@ -6194,6 +6195,7 @@ function EditorRuntime(props: {
             <span>브리프</span>
           </button>
           <button
+            aria-label="버전 기록 열기"
             className="editor-context-top-button"
             onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }}
             type="button"
@@ -6670,9 +6672,12 @@ function EditorRuntime(props: {
           </div>
 
           <div
+            aria-label="슬라이드 캔버스 작업 영역"
             className="canvas-scroll"
             data-testid="editor-canvas-pane"
             ref={editorCanvasViewportRef}
+            role="region"
+            tabIndex={0}
           >
             {currentSlide ? (
               <div className="konva-wrap">

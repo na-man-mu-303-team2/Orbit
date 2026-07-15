@@ -147,7 +147,7 @@ export function SlideRail(props: SlideRailProps) {
       <div
         aria-label="슬라이드 선택"
         className={`slides-list ${props.viewMode}-view`}
-        role="listbox"
+        role="list"
       >
         {props.items.map((item) => {
           const isMenuOpen = openMenuSlideId === item.slideId;
@@ -161,17 +161,16 @@ export function SlideRail(props: SlideRailProps) {
               className={`slide-rail-row ${item.isSelected ? "active" : ""}`}
               data-slide-rail-row-id={item.slideId}
               key={item.slideId}
-              role="presentation"
+              role="listitem"
             >
               {dropTarget?.edge === "before" ? <DropIndicator /> : null}
               <button
                 aria-current={item.isSelected ? "true" : undefined}
                 aria-label={`${item.index + 1}. ${item.title}`}
-                aria-selected={item.isSelected}
+                aria-pressed={item.isSelected}
                 className={`slide-item ${item.isSelected ? "active" : ""}`}
                 data-slide-id={item.slideId}
                 ref={(node) => setButtonRef(selectionButtonRefs.current, item.slideId, node)}
-                role="option"
                 tabIndex={item.isSelected ? 0 : -1}
                 type="button"
                 onClick={() => props.onSelect(item.slideId)}
