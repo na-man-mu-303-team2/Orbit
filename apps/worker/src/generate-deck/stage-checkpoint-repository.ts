@@ -344,6 +344,69 @@ export class AiDeckGenerationStageCheckpointRepository {
     return checkpointFromQuery(rows);
   }
 
+  async releaseDispatchedForTransportRetry(
+    rawMessage: unknown,
+  ): Promise<AiDeckGenerationStageCheckpoint | null> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const rows = await this.db.query(
+      `
+        UPDATE ai_deck_generation_stages stages
+        SET dispatched_at = NULL,
+            updated_at = now()
+        FROM jobs
+        WHERE jobs.job_id = stages.pipeline_job_id
+          AND jobs.project_id = $2
+          AND jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.pipeline_job_id = $1
+          AND stages.stage = $3
+          AND stages.shard_key = $4
+          AND stages.status = 'queued'
+          AND stages.dispatched_at IS NOT NULL
+        RETURNING stages.*
+      `,
+      messageParameters(message),
+    );
+    return checkpointFromQuery(rows);
+  }
+
+  async recoverStaleDispatches(rawLimit = 100): Promise<number> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        WITH stale AS (
+          SELECT stages.pipeline_job_id,
+                 stages.stage,
+                 stages.shard_key
+          FROM ai_deck_generation_stages stages
+          JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+          WHERE jobs.type = 'ai-deck-generation'
+            AND jobs.status IN ('queued','running')
+            AND stages.stage = 'reference-extract-file'
+            AND stages.status = 'queued'
+            AND stages.dispatched_at <= now() - interval '15 minutes'
+          ORDER BY stages.dispatched_at,
+                   stages.pipeline_job_id,
+                   stages.shard_key
+          LIMIT $1
+          FOR UPDATE OF stages SKIP LOCKED
+        )
+        UPDATE ai_deck_generation_stages stages
+        SET dispatched_at = NULL,
+            updated_at = now()
+        FROM stale
+        WHERE stages.pipeline_job_id = stale.pipeline_job_id
+          AND stages.stage = stale.stage
+          AND stages.shard_key = stale.shard_key
+        RETURNING stages.*
+      `,
+      [limit],
+    );
+    const recoveredRows = queryRows(rows);
+    for (const row of recoveredRows) checkpointRowSchema.parse(row);
+    return recoveredRows.length;
+  }
+
   async listUndispatched(
     rawLimit = 100,
   ): Promise<DispatchableAiDeckGenerationStage[]> {
@@ -517,6 +580,12 @@ function firstQueryRow(queryResult: unknown): unknown | null {
   const first = queryResult[0];
   if (Array.isArray(first)) return first[0] ?? null;
   return first ?? null;
+}
+
+function queryRows(queryResult: unknown): unknown[] {
+  if (!Array.isArray(queryResult)) return [];
+  const first = queryResult[0];
+  return Array.isArray(first) ? first : queryResult;
 }
 
 function optionalIso(value: Date | string | null): string | null {

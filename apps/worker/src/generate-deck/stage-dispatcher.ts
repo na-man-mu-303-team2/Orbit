@@ -10,6 +10,7 @@ import type {
 } from "./stage-checkpoint-repository";
 
 interface DispatchRepository {
+  recoverStaleDispatches(limit?: number): Promise<number>;
   listUndispatched(limit?: number): Promise<DispatchableAiDeckGenerationStage[]>;
   markDispatched(
     message: AiDeckGenerationStageMessage,
@@ -35,7 +36,9 @@ export async function dispatchAiDeckGenerationStages(
   repository: DispatchRepository,
   options: AiDeckStageDispatcherOptions,
 ): Promise<{ scanned: number; dispatched: number }> {
-  const pending = await repository.listUndispatched(options.limit ?? 100);
+  const limit = options.limit ?? 100;
+  await repository.recoverStaleDispatches(limit);
+  const pending = await repository.listUndispatched(limit);
   let dispatched = 0;
   for (const checkpoint of pending) {
     if (!isReferenceExtractionCheckpoint(checkpoint)) continue;

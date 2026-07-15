@@ -49,7 +49,7 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
   });
 
   it("releases a queued OCR dispatch marker after the final transport attempt", async () => {
-    const query = vi.fn(async (sql: string) => {
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
         return [{ job_id: "job-ai-deck-1", project_id: "project-a", status: "running" }];
