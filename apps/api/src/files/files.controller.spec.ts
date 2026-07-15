@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AuthService } from "../auth/auth.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -10,6 +10,7 @@ function createController(serviceOverrides: Partial<FilesService> = {}) {
     createUploadUrl: vi.fn(),
     completeUpload: vi.fn(),
     readUploadedAssetContent: vi.fn(),
+    storeUploadContent: vi.fn(),
     list: vi.fn(),
     ...serviceOverrides,
   } as unknown as FilesService;
@@ -101,7 +102,85 @@ describe("FilesController", () => {
         size: 1024,
         purpose: "reference-material",
       },
+      "user_1",
       "http://127.0.0.1:5173",
+    );
+  });
+
+  it("allows a Viewer to create only a creator-owned rehearsal slide snapshot", async () => {
+    const { controller, projectsService, service } = createController();
+
+    await controller.createUploadUrl(
+      "project_1",
+      {
+        originalName: "slide-1.png",
+        mimeType: "image/png",
+        size: 1024,
+        purpose: "rehearsal-slide-snapshot",
+      },
+      createRequest("http://127.0.0.1:5173"),
+    );
+
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(projectsService.assertCanWriteProject).not.toHaveBeenCalled();
+    expect(service.createUploadUrl).toHaveBeenCalledWith(
+      "project_1",
+      {
+        originalName: "slide-1.png",
+        mimeType: "image/png",
+        size: 1024,
+        purpose: "rehearsal-slide-snapshot",
+      },
+      "user_1",
+      "http://127.0.0.1:5173",
+    );
+  });
+
+  it("does not let a Viewer create a generic project asset", async () => {
+    const { controller, projectsService, service } = createController();
+    vi.mocked(projectsService.assertCanWriteProject).mockRejectedValueOnce(
+      new ForbiddenException("Project write access denied"),
+    );
+
+    await expect(
+      controller.createUploadUrl(
+        "project_1",
+        {
+          originalName: "sample.png",
+          mimeType: "image/png",
+          size: 1024,
+          purpose: "reference-material",
+        },
+        createRequest(),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(service.createUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("limits a Viewer's upload completion to a rehearsal slide snapshot", async () => {
+    const { controller, projectsService, service } = createController();
+    vi.mocked(projectsService.assertCanWriteProject).mockRejectedValueOnce(
+      new ForbiddenException("Project write access denied"),
+    );
+
+    await controller.completeUpload(
+      "project_1",
+      { fileId: "file_snapshot_1" },
+      createRequest(),
+    );
+
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project_1",
+      "user_1",
+    );
+    expect(service.completeUpload).toHaveBeenCalledWith(
+      "project_1",
+      { fileId: "file_snapshot_1" },
+      "user_1",
+      "rehearsal-slide-snapshot",
     );
   });
 
@@ -130,8 +209,13 @@ describe("FilesController", () => {
     expect(service.readUploadedAssetContent).toHaveBeenCalledWith(
       "project_1",
       "file_1",
+      undefined,
+      "user_1",
     );
-    expect(response.setHeader).toHaveBeenCalledWith("content-type", "image/png");
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "image/png",
+    );
     expect(file).toBeDefined();
   });
 });

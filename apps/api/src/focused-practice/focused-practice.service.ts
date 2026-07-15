@@ -254,7 +254,7 @@ export class FocusedPracticeService {
       mimeType: request.mimeType,
       size: request.size,
       purpose: "focused-practice-audio",
-    });
+    }, actorUserId);
     const now = new Date();
     const rows = await this.dataSource.query(
       `INSERT INTO focused_practice_attempts (
@@ -300,7 +300,7 @@ export class FocusedPracticeService {
       }
       throw error;
     }
-    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, "focused-practice-audio");
+    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, actorUserId, "focused-practice-audio");
     const job = await this.jobs.create({
       projectId: String(attempt.project_id),
       type: "focused-practice-analysis",

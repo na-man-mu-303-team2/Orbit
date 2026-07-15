@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
 import { Project, demoIds } from "@orbit/shared";
 import { StoragePort } from "@orbit/storage";
 import { Repository } from "typeorm";
@@ -125,25 +129,34 @@ describe("FilesService", () => {
       getAccessibleProject: vi.fn(async () => demoProject),
     });
 
-    const upload = await service.createUploadUrl(demoProject.projectId, {
-      originalName: "slides.pptx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      size: 1024,
-      purpose: "pptx-import",
-    });
+    const upload = await service.createUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "slides.pptx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        size: 1024,
+        purpose: "pptx-import",
+      },
+      demoIds.userId,
+    );
 
     expect(upload.fileId).toMatch(/^file_/);
     expect(upload.projectId).toBe(demoProject.projectId);
     expect(upload.method).toBe("PUT");
     expect(assets).toHaveLength(1);
     expect(assets[0].status).toBe("pending");
+    expect(assets[0].createdByUserId).toBe(demoIds.userId);
 
     await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
 
-    const completed = await service.completeUpload(demoProject.projectId, {
-      fileId: upload.fileId,
-    });
+    const completed = await service.completeUpload(
+      demoProject.projectId,
+      {
+        fileId: upload.fileId,
+      },
+      demoIds.userId,
+    );
 
     expect(completed).toMatchObject({
       fileId: upload.fileId,
@@ -155,6 +168,77 @@ describe("FilesService", () => {
     await expect(service.list(demoProject.projectId)).resolves.toEqual([
       completed,
     ]);
+  });
+
+  it("keeps rehearsal slide snapshots private to their creator", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer,
+    } as Response);
+    const { assets, service } = createService(
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      },
+      {
+        storagePatch: {
+          headObject: vi.fn(async () => ({
+            contentLength: 3,
+            contentType: "image/png",
+          })),
+        },
+      },
+    );
+    const upload = await service.createUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "slide-1.png",
+        mimeType: "image/png",
+        size: 3,
+        purpose: "rehearsal-slide-snapshot",
+      },
+      demoIds.userId,
+    );
+
+    await service.storeUploadContent(
+      demoProject.projectId,
+      upload.fileId,
+      Buffer.from("png"),
+      demoIds.userId,
+      "rehearsal-slide-snapshot",
+    );
+    await service.completeUpload(
+      demoProject.projectId,
+      { fileId: upload.fileId },
+      demoIds.userId,
+      "rehearsal-slide-snapshot",
+    );
+
+    expect(assets[0].createdByUserId).toBe(demoIds.userId);
+    await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        upload.fileId,
+        "rehearsal-slide-snapshot",
+        "user_other",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readUploadedAssetContent(
+        demoProject.projectId,
+        upload.fileId,
+        undefined,
+        "user_other",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readUploadedAssetContent(
+        demoProject.projectId,
+        upload.fileId,
+        undefined,
+        demoIds.userId,
+      ),
+    ).resolves.toMatchObject({ contentType: "image/png" });
   });
 
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {
@@ -187,7 +271,11 @@ describe("FilesService", () => {
       service.getUploadedAsset(demoProject.projectId, "file_private_1"),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
-      service.completeUpload(demoProject.projectId, { fileId: "file_private_1" }),
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_private_1" },
+        demoIds.userId,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
     await expect(
       service.readUploadedAssetContent(demoProject.projectId, "file_private_1"),
@@ -220,10 +308,13 @@ describe("FilesService", () => {
         size: 1024,
         purpose: "reference-material",
       },
+      demoIds.userId,
       "http://127.0.0.1:5173",
     );
 
-    expect(upload.uploadUrl).toContain("http://127.0.0.1:5173/api/v1/projects/");
+    expect(upload.uploadUrl).toContain(
+      "http://127.0.0.1:5173/api/v1/projects/",
+    );
   });
 
   it("falls back to the configured web origin when the request origin is absent", async () => {
@@ -236,14 +327,20 @@ describe("FilesService", () => {
       },
     );
 
-    const upload = await service.createUploadUrl(demoProject.projectId, {
-      originalName: "diagram.png",
-      mimeType: "image/png",
-      size: 1024,
-      purpose: "reference-material",
-    });
+    const upload = await service.createUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "diagram.png",
+        mimeType: "image/png",
+        size: 1024,
+        purpose: "reference-material",
+      },
+      demoIds.userId,
+    );
 
-    expect(upload.uploadUrl).toContain("http://localhost:5173/api/v1/projects/");
+    expect(upload.uploadUrl).toContain(
+      "http://localhost:5173/api/v1/projects/",
+    );
   });
 
   it("rejects complete requests for an asset outside the project boundary", async () => {
@@ -273,7 +370,7 @@ describe("FilesService", () => {
     );
 
     await expect(
-      service.completeUpload(projectId, { fileId: "file_1" }),
+      service.completeUpload(projectId, { fileId: "file_1" }, demoIds.userId),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -304,7 +401,11 @@ describe("FilesService", () => {
     );
 
     await expect(
-      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_1" },
+        demoIds.userId,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(assets[0].status).toBe("pending");
     expect(assets[0].uploadedAt).toBeNull();
@@ -340,7 +441,11 @@ describe("FilesService", () => {
     );
 
     await expect(
-      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_1" },
+        demoIds.userId,
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(assets[0].status).toBe("pending");
     expect(assets[0].uploadedAt).toBeNull();
@@ -376,7 +481,11 @@ describe("FilesService", () => {
     );
 
     await expect(
-      service.completeUpload(demoProject.projectId, { fileId: "file_1" }),
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_1" },
+        demoIds.userId,
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(assets[0].status).toBe("pending");
     expect(assets[0].uploadedAt).toBeNull();
@@ -411,6 +520,7 @@ describe("FilesService", () => {
       demoProject.projectId,
       "file_1",
       Buffer.from("%PDF"),
+      demoIds.userId,
     );
 
     expect(storage.putObject).toHaveBeenCalledWith({
@@ -454,6 +564,7 @@ describe("FilesService", () => {
         demoProject.projectId,
         "file_1",
         Buffer.from("%PDF"),
+        demoIds.userId,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(storage.putObject).not.toHaveBeenCalled();
@@ -489,6 +600,7 @@ describe("FilesService", () => {
         demoProject.projectId,
         "file_1",
         Buffer.from("too-large"),
+        demoIds.userId,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(storage.putObject).not.toHaveBeenCalled();
@@ -524,6 +636,7 @@ describe("FilesService", () => {
       demoProject.projectId,
       "file_1",
       Buffer.from("png"),
+      demoIds.userId,
     );
 
     expect(assets[0].url).toBe(
@@ -578,7 +691,9 @@ describe("FilesService", () => {
       {
         fileId: "file_audio_1",
         projectId: demoProject.projectId,
-        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        createdByUserId: demoIds.userId,
+        storageKey:
+          "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
@@ -611,7 +726,11 @@ describe("FilesService", () => {
     });
 
     await expect(
-      service.completeUpload(demoProject.projectId, { fileId: "file_missing" }),
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_missing" },
+        demoIds.userId,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -620,7 +739,9 @@ describe("FilesService", () => {
       {
         fileId: "file_audio_1",
         projectId: demoProject.projectId,
-        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        createdByUserId: demoIds.userId,
+        storageKey:
+          "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
@@ -644,6 +765,7 @@ describe("FilesService", () => {
         demoProject.projectId,
         "file_audio_1",
         "rehearsal-audio",
+        demoIds.userId,
       ),
     ).resolves.toMatchObject({
       fileId: "file_audio_1",
@@ -657,7 +779,9 @@ describe("FilesService", () => {
       {
         fileId: "file_audio_1",
         projectId: demoProject.projectId,
-        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        createdByUserId: demoIds.userId,
+        storageKey:
+          "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
@@ -682,6 +806,7 @@ describe("FilesService", () => {
       demoProject.projectId,
       "file_audio_1",
       "rehearsal-audio",
+      demoIds.userId,
     );
 
     expect(storage.removeObject).toHaveBeenCalledWith(
@@ -699,7 +824,9 @@ describe("FilesService", () => {
       {
         fileId: "file_audio_1",
         projectId: demoProject.projectId,
-        storageKey: "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+        createdByUserId: demoIds.userId,
+        storageKey:
+          "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
@@ -723,6 +850,7 @@ describe("FilesService", () => {
         demoProject.projectId,
         "file_audio_1",
         "rehearsal-audio",
+        demoIds.userId,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });

@@ -5,6 +5,7 @@ import {
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -53,10 +54,15 @@ export class FilesController {
   ) {
     const input = parseRequest(assetUploadUrlRequestSchema, body ?? {});
     const user = await this.getCurrentUser(request);
-    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    if (input.purpose === "rehearsal-slide-snapshot") {
+      await this.projectsService.assertCanReadProject(projectId, user.userId);
+    } else {
+      await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    }
     return this.filesService.createUploadUrl(
       projectId,
       input,
+      user.userId,
       normalizeHttpOrigin(request.get("origin")),
     );
   }
@@ -69,10 +75,15 @@ export class FilesController {
   ) {
     const input = parseRequest(completeAssetUploadRequestSchema, body ?? {});
     const user = await this.getCurrentUser(request);
-    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    const expectedPurpose = await this.resolveUploadPurposeForActor(
+      projectId,
+      user.userId,
+    );
     return this.filesService.completeUpload(
       projectId,
       input,
+      user.userId,
+      expectedPurpose,
     );
   }
 
@@ -88,6 +99,8 @@ export class FilesController {
     const asset = await this.filesService.readUploadedAssetContent(
       projectId,
       fileId,
+      undefined,
+      user.userId,
     );
 
     response.setHeader("content-type", asset.contentType);
@@ -103,12 +116,33 @@ export class FilesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await this.getCurrentUser(request);
-    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    const expectedPurpose = await this.resolveUploadPurposeForActor(
+      projectId,
+      user.userId,
+    );
     await this.filesService.storeUploadContent(
       projectId,
       fileId,
       await readRequestBody(request),
+      user.userId,
+      expectedPurpose,
     );
+  }
+
+  private async resolveUploadPurposeForActor(
+    projectId: string,
+    userId: string,
+  ): Promise<"rehearsal-slide-snapshot" | undefined> {
+    await this.projectsService.assertCanReadProject(projectId, userId);
+    try {
+      await this.projectsService.assertCanWriteProject(projectId, userId);
+      return undefined;
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        return "rehearsal-slide-snapshot";
+      }
+      throw error;
+    }
   }
 
   private async getCurrentUser(request: SignedCookieRequest) {

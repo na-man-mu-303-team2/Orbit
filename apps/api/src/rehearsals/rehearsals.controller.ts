@@ -22,8 +22,8 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.rehearsalsService.createRun(projectId, body);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.rehearsalsService.createRun(projectId, user.userId, body);
   }
 
   @Post("api/v1/rehearsals/:runId/audio/upload-url")
@@ -33,8 +33,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanWriteRun(runId, user.userId);
-    return this.rehearsalsService.createAudioUploadUrl(runId, body);
+    return this.rehearsalsService.createAudioUploadUrl(runId, user.userId, body);
   }
 
   @Post("api/v1/rehearsals/:runId/audio/complete")
@@ -44,8 +43,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanWriteRun(runId, user.userId);
-    return this.rehearsalsService.completeAudioUpload(runId, body);
+    return this.rehearsalsService.completeAudioUpload(runId, user.userId, body);
   }
 
   @Post("api/v1/rehearsals/:runId/cancel")
@@ -54,8 +52,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanWriteRun(runId, user.userId);
-    return this.rehearsalsService.cancelRun(runId);
+    return this.rehearsalsService.cancelRun(runId, user.userId);
   }
 
   @Post("api/v1/rehearsals/:runId/semantic-evaluation/retry")
@@ -64,8 +61,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanWriteRun(runId, user.userId);
-    return this.rehearsalsService.retrySemanticEvaluation(runId);
+    return this.rehearsalsService.retrySemanticEvaluation(runId, user.userId);
   }
 
   @Patch("api/v1/rehearsals/:runId/meta")
@@ -75,8 +71,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanWriteRun(runId, user.userId);
-    return this.rehearsalsService.updateRunMeta(runId, body);
+    return this.rehearsalsService.updateRunMeta(runId, user.userId, body);
   }
 
   @Get("api/v1/projects/:projectId/rehearsals")
@@ -87,7 +82,7 @@ export class RehearsalsController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
-    return this.rehearsalsService.listRuns(projectId, query);
+    return this.rehearsalsService.listRuns(projectId, user.userId, query);
   }
 
   @Get("api/v1/projects/:projectId/rehearsals/:runId/comparison")
@@ -98,7 +93,7 @@ export class RehearsalsController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
-    return this.rehearsalsService.getComparison(projectId, runId);
+    return this.rehearsalsService.getComparison(projectId, runId, user.userId);
   }
 
   @Get("api/v1/rehearsals/:runId")
@@ -107,8 +102,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanReadRun(runId, user.userId);
-    return this.rehearsalsService.getRun(runId);
+    return this.rehearsalsService.getRun(runId, user.userId);
   }
 
   @Get("api/v1/rehearsals/:runId/report")
@@ -117,8 +111,7 @@ export class RehearsalsController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
-    await this.assertCanReadRun(runId, user.userId);
-    return this.rehearsalsService.getReport(runId);
+    return this.rehearsalsService.getReport(runId, user.userId);
   }
 
   @Get("api/v1/projects/:projectId/rehearsal-summary")
@@ -128,16 +121,6 @@ export class RehearsalsController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
-    return this.rehearsalsService.getSummary(projectId);
-  }
-
-  private async assertCanReadRun(runId: string, userId: string) {
-    const projectId = await this.rehearsalsService.getRunProjectId(runId);
-    await this.projectsService.assertCanReadProject(projectId, userId);
-  }
-
-  private async assertCanWriteRun(runId: string, userId: string) {
-    const projectId = await this.rehearsalsService.getRunProjectId(runId);
-    await this.projectsService.assertCanWriteProject(projectId, userId);
+    return this.rehearsalsService.getSummary(projectId, user.userId);
   }
 }
