@@ -23,6 +23,10 @@ const failedCoordinatorScanCursorSchema = z
     pendingJobIds: z.array(z.string().min(1)),
   })
   .strict();
+const transportBoundaryFailureReasons = new Set([
+  "job stalled more than allowable limit",
+  "job started more than allowable limit",
+]);
 
 export interface FailedCoordinatorScanCursor {
   redisCursor: string;
@@ -34,6 +38,7 @@ export interface FailedAiDeckCoordinatorJob {
   name: string;
   data: unknown;
   attemptsMade: number;
+  failedReason?: string;
   opts: { attempts?: number };
   remove(): Promise<void>;
 }
@@ -189,6 +194,12 @@ function isStagedCoordinator(job: FailedAiDeckCoordinatorJob): boolean {
 function hasExhaustedConfiguredAttempts(
   job: FailedAiDeckCoordinatorJob,
 ): boolean {
+  if (
+    typeof job.failedReason === "string" &&
+    transportBoundaryFailureReasons.has(job.failedReason)
+  ) {
+    return false;
+  }
   const configuredAttempts =
     typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
   return job.attemptsMade >= Math.max(1, configuredAttempts);
