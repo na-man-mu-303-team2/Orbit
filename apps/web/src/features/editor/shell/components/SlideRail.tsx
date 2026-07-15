@@ -21,6 +21,7 @@ import {
   getSlideRailKeyboardTargetSlideId,
   type SlideRailItem,
 } from "../slideRailModel";
+import { IdBadge } from "./EditorIdBadge";
 
 export type SlideRailProps = {
   canMutate: boolean;
@@ -32,6 +33,7 @@ export type SlideRailProps = {
   onMove: (slideId: string, direction: "down" | "up") => void;
   onReorder: (orderedSlideIds: readonly string[]) => void;
   onSelect: (slideId: string) => void;
+  showIds?: boolean;
   thumbnailBackgrounds?: Readonly<Record<string, string>>;
   viewMode: "list" | "thumbnail";
 };
@@ -178,6 +180,7 @@ export function SlideRail(props: SlideRailProps) {
                 <span aria-hidden="true" className="slide-number">{item.index + 1}</span>
                 <span className="slide-title">
                   <span className="slide-title-text">{item.title}</span>
+                  {props.showIds ? <IdBadge id={item.slideId} /> : null}
                 </span>
                 {!props.collapsed ? (
                   <span
@@ -204,7 +207,7 @@ export function SlideRail(props: SlideRailProps) {
                   <button
                     aria-controls={menuId}
                     aria-expanded={isMenuOpen}
-                    aria-haspopup="menu"
+                    aria-haspopup="true"
                     aria-label={`${item.title} 메뉴`}
                     className="slide-rail-menu-button"
                     ref={(node) => setButtonRef(menuButtonRefs.current, item.slideId, node)}
