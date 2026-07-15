@@ -735,15 +735,13 @@ describe("processGenerateDeckJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error).toMatchObject({
-      code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+      code: "GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED",
       message: "optional no-media fallback unavailable"
     });
     expect(job.result).toMatchObject({
       deck: { deckId: deck.deckId },
       diagnostics: {
-        visualQaStatus: "failed",
-        visualReviewAttempts: 0,
-        visualRepairAttempts: 0
+        validationIssueCount: expect.any(Number)
       }
     });
     expect(
@@ -1095,7 +1093,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
+  it("publishes with a warning when rendered visual QA is unavailable", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     vi.stubGlobal(
@@ -1114,23 +1112,26 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
-    expect(job.progress).toBe(90);
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
+    expect(job.progress).toBe(100);
     expect(job.result).toMatchObject({
       deck: { deckId: deck.deckId },
       diagnostics: {
-        visualQaStatus: "failed",
+        warningCodes: expect.arrayContaining([
+          "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+        ]),
+        visualQaStatus: "unavailable",
         visualReviewAttempts: 1,
         visualRepairAttempts: 0
       }
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("retains the latest repaired candidate when a later visual review is unavailable", async () => {
+  it("publishes the latest repaired candidate when a later visual review is unavailable", async () => {
     const deck = programV2Deck();
     const repairedDeck = deckSchema.parse({
       ...deck,
@@ -1165,18 +1166,19 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
     expect(job.result).toMatchObject({
       deck: { title: "Latest repaired candidate" },
       diagnostics: {
+        visualQaStatus: "unavailable",
         visualReviewAttempts: 2,
         visualRepairAttempts: 1
       }
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("fails before saving a deck when blocking validation issues remain", async () => {

@@ -76,7 +76,14 @@ describe("image asset pipeline", () => {
       })
     );
     expect(putObject).toHaveBeenCalledOnce();
-    expect(query.mock.calls[1]?.[0]).toContain("INSERT INTO project_assets");
+    const insertSql = String(query.mock.calls[1]?.[0]);
+    expect(insertSql).toContain("INSERT INTO project_assets");
+    expect(insertSql.indexOf("VALUES")).toBeLessThan(
+      insertSql.indexOf("ON CONFLICT")
+    );
+    expect(insertSql).toContain(
+      "WHERE project_assets.project_id = EXCLUDED.project_id"
+    );
     expect(result.warnings).toEqual([]);
     const image = result.deck.slides[0].elements.find(
       (element) => element.type === "image"

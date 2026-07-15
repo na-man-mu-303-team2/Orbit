@@ -19,14 +19,21 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
             return [{ job_id: "job-ai-deck-1" }];
           }
           if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
-            return [checkpointRow(status, attempt, parameters?.[status === "queued" ? 5 : 6])];
+            return [
+              checkpointRow(
+                status,
+                attempt,
+                parameters?.[status === "queued" ? 5 : 6],
+              ),
+            ];
           }
           throw new Error(`Unexpected query: ${compact}`);
         },
       );
       const transaction = vi.fn(
-        async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
-          work({ query: transactionQuery }),
+        async (
+          work: (manager: { query: typeof transactionQuery }) => unknown,
+        ) => work({ query: transactionQuery }),
       );
       const recoveredParent = failedParentJob();
       const terminalJobs = status === "failed" ? [recoveredParent] : [];
@@ -60,13 +67,7 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
         }
         if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
           return [
-            checkpointRow(
-              "failed",
-              5,
-              parameters?.[6],
-              "source-grounding",
-              "",
-            ),
+            checkpointRow("failed", 5, parameters?.[6], "source-grounding", ""),
           ];
         }
         if (compact.startsWith("UPDATE jobs")) {
@@ -83,8 +84,9 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
     const dataSource = {
       query: outerQuery,
       transaction: vi.fn(
-        async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
-          work({ query: transactionQuery }),
+        async (
+          work: (manager: { query: typeof transactionQuery }) => unknown,
+        ) => work({ query: transactionQuery }),
       ),
     } as unknown as DataSource;
     const recoverJoin = vi.fn();
@@ -99,7 +101,7 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
       error: {
         code: "AI_DECK_PLANNING_LEASE_EXHAUSTED",
         failedStage: "source-grounding",
-        retryable: false,
+        retryable: true,
       },
     });
     expect(recoverJoin).not.toHaveBeenCalled();
@@ -156,8 +158,7 @@ function checkpointRow(
     result_ref_json: null,
     error_json: error,
     lease_owner: status === "running" ? "worker-a:lease" : null,
-    lease_expires_at:
-      status === "running" ? "2026-07-15T00:59:00.000Z" : null,
+    lease_expires_at: status === "running" ? "2026-07-15T00:59:00.000Z" : null,
     dispatched_at: null,
     created_at: "2026-07-15T00:00:00.000Z",
     updated_at: "2026-07-15T01:00:00.000Z",

@@ -158,6 +158,36 @@ export async function failGenerateDeckVisualQaUnavailable(
   );
 }
 
+export async function failGenerateDeckOptionalImageFallback(
+  dataSource: DataSource,
+  jobId: string,
+  workerPayload: GenerateDeckWorkerPayload,
+  deck: Deck,
+  validation: GenerateDeckValidation,
+  warnings: string[],
+  message: string,
+) {
+  const result = generateDeckJobResultSchema.parse({
+    deckId: deck.deckId,
+    ...workerPayload,
+    deck,
+    warnings,
+    validation,
+    diagnostics: {
+      ...workerPayload.diagnostics,
+      validationIssueCount: allValidationIssues(validation).length,
+    },
+  });
+  return failGenerateDeckJob(
+    dataSource,
+    jobId,
+    90,
+    "GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED",
+    message,
+    result,
+  );
+}
+
 export async function failGenerateDeckJob(
   dataSource: DataSource,
   jobId: string,
