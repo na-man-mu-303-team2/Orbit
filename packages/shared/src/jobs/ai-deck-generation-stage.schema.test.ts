@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aiDeckGenerationStageReferenceSchema,
   aiDeckGenerationStageMessageSchema,
   aiDeckGenerationStageSchema,
 } from "./ai-deck-generation-stage.schema";
@@ -20,6 +21,25 @@ const expectedStages = [
 describe("aiDeckGenerationStageSchema", () => {
   it("keeps the nine program-v2 pipeline stages exact", () => {
     expect(aiDeckGenerationStageSchema.options).toEqual(expectedStages);
+  });
+});
+
+describe("aiDeckGenerationStageReferenceSchema", () => {
+  it("keeps the 338-0 reference allowlist empty until a stage owns artifact persistence", () => {
+    expect(aiDeckGenerationStageReferenceSchema.parse({})).toEqual({});
+
+    for (const nonEmptyReference of [
+      { artifactKey: "ai-deck/job-1/content-plan.json" },
+      { content_base64: "ZmFrZQ==" },
+      { provider_response: { output: "raw" } },
+      { sourceText: "full user content" },
+      { blob: "ZmFrZQ==" },
+    ]) {
+      expect(
+        aiDeckGenerationStageReferenceSchema.safeParse(nonEmptyReference)
+          .success,
+      ).toBe(false);
+    }
   });
 });
 
@@ -111,9 +131,9 @@ describe("aiDeckGenerationStageMessageSchema", () => {
         shardKey: "",
       },
     ]) {
-      expect(aiDeckGenerationStageMessageSchema.safeParse(invalid).success).toBe(
-        false,
-      );
+      expect(
+        aiDeckGenerationStageMessageSchema.safeParse(invalid).success,
+      ).toBe(false);
     }
   });
 
