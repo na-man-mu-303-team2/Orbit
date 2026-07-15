@@ -27,6 +27,7 @@ import { randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
+import { reconcileFailedAiDeckCoordinatorJobs } from "./generate-deck/coordinator-failure-reconciler";
 import { processAiDeckReferenceExtractionStage } from "./generate-deck/reference-extract-stage";
 import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher";
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
@@ -539,6 +540,42 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     const repository = new AiDeckGenerationStageCheckpointRepository(
       this.dataSource,
     );
+    try {
+      const result = await reconcileFailedAiDeckCoordinatorJobs(
+        this.dataSource,
+        {
+          redisUrl: this.config.REDIS_URL,
+          onError: (error, job) =>
+            this.logger.error(
+              {
+                event: "ai_deck.coordinator.reconcile_failed",
+                bullJobId: job.id,
+                attemptsMade: job.attemptsMade,
+                ...jobPayloadFields(job.data),
+                error: serializeLogError(error),
+              },
+              "AI deck coordinator reconciliation failed.",
+            ),
+        },
+      );
+      if (result.recovered > 0 || result.removed > 0) {
+        this.logger.warn(
+          {
+            event: "ai_deck.coordinator.reconciled",
+            ...result,
+          },
+          "AI deck failed coordinators reconciled.",
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          event: "ai_deck.coordinator.reconcile_scan_failed",
+          error: serializeLogError(error),
+        },
+        "AI deck coordinator reconciliation scan failed.",
+      );
+    }
     try {
       await dispatchAiDeckGenerationStages(repository, {
         driver: "bullmq",
