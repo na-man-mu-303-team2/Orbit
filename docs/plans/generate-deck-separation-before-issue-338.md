@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · PR 8 코드 검증 완료 · 배포 환경 운영 증거 대기
+**상태**: 확정 · PR 8 코드·자동 배포 검증 완료 · 배포 후 서버 HEAD·queue/DB·smoke 증거 대기
 
 **기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
@@ -87,7 +87,7 @@ Worker와 Python은 이 값을 기준으로 구형 recipe와 imported PPTX desig
 
 아래 불일치는 계획 작성 당시 baseline이며 #339 PR 1~PR 4에서 해소한다. PR 4 코드 기준으로 에디터는 `{ fileId }`만 `POST /pptx-ooxml-generations`에 전달하고, 구형 `/pptx-imports` API, queue/job constant, enqueue helper, consumer, processor는 제거된다. `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`와 `pptxImportJobResultSchema`만 과거 row/result 조회 호환을 유지한다.
 
-PR 4 merge 전에는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 레거시 queue의 queued/active 및 예약·repeat 잔여 Job이 없다는 운영 증거를 확인한다. 로컬 drain 결과는 이 merge hard gate를 대신하지 않는다.
+PR 4의 runtime 제거는 이미 `develop`에 merge되어 personal staging에 자동 배포됐다. #339 종료 전에는 두 레거시 queue의 queued/active 및 예약·repeat 잔여 Job과 관련 DB queued/running Job이 0인지 배포 환경에서 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 로컬 결과는 이 종료 증거를 대신하지 않는다.
 
 ```mermaid
 flowchart TD
@@ -350,7 +350,7 @@ flowchart TD
     P0["PR 0\n활성 경로 characterization"] --> P1["PR 1\n에디터 OOXML import 전환"]
     P1 --> P2["PR 2\nOOXML sync·export round-trip 완성"]
     P2 --> P3["PR 3\n레거시 producer 중단"]
-    P3 --> P4["PR 4\ndrain 후 레거시 제거"]
+    P3 --> P4["PR 4\n레거시 제거·배포 후 잔여 확인"]
     P4 --> P5["PR 5\nPPTX AI slot 생성 제거"]
     P5 --> P6["PR 6\nGenerateDeck 계약 program-v2 전용화"]
     P6 --> P7A["PR 7A\nPython generation core 분리"]
@@ -358,7 +358,7 @@ flowchart TD
     P7B --> P8["PR 8\n#338 착수 준비 검증"]
 ```
 
-PR은 위 순서대로 선형 진행한다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지하며, PR 4는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 레거시 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0인 증거를 확인한 뒤 제거한다. 로컬 drain 결과만으로 merge/deploy하지 않는다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행한다.
+PR은 위 순서대로 선형 진행했다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지했으며, PR 4에서 두 legacy runtime을 제거한 뒤 personal staging 자동 배포가 성공했다. #339 종료 전에는 배포 환경의 두 레거시 queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 queued/running이 0인지 읽기 전용으로 확인한다. 로컬 결과는 이 종료 증거를 대신하지 않는다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행했다.
 
 각 PR은 최신 `develop`에서 `refactor/ai-ppt-pre-338-*` 형식의 독립 브랜치로 시작하고 GitHub Flow로 병합한다. 이미 push된 공유 브랜치에는 rebase 또는 force push를 하지 않는다. 선행 PR이 병합된 뒤 다음 PR 브랜치를 최신 `develop`에서 새로 만들면 선형 review 단위와 rollback 경계가 분명해진다.
 
@@ -543,11 +543,11 @@ uv run pytest tests/test_generate_deck_contract.py
 - 코드와 공개 route에서 두 레거시 Job의 신규 enqueue 경로가 없다.
 - 두 queue consumer는 기존 queued/active Job의 drain을 위해 유지된다.
 
-### PR 4. drain 후 레거시 제거
+### PR 4. 레거시 제거와 배포 후 잔여 확인
 
 **의존성**: PR 3
 
-**목표**: 배포 환경의 `pptx-import`와 `ai-template-deck-generation` queue가 완전히 drain된 뒤 API 잔여 코드, consumer, queue 등록과 active schema를 제거한다. 코드와 CI는 draft PR에서 준비할 수 있지만 배포 환경 증거 없이는 merge/deploy하지 않는다.
+**목표**: `pptx-import`와 `ai-template-deck-generation` API 잔여 코드, consumer, queue 등록과 active schema를 제거하고 personal staging 자동 배포 후 legacy queue/DB에 처리되지 않은 Job이 남지 않았는지 확인한다.
 
 **주요 파일**
 
@@ -563,7 +563,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이며 DB의 queued/running Job도 0이라는 운영 증거를 확인한다. 로컬 queue/DB 결과는 이 merge hard gate를 대신하지 않는다.
+1. PR 3 이후 신규 enqueue가 없는 상태에서 제거 코드를 merge하고 기존 personal staging workflow로 자동 배포한다. #339 종료 전 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0인지 배포 환경에서 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급 주장하지 않으며 로컬 queue/DB 결과는 이 종료 증거를 대신하지 않는다.
 2. 두 레거시 controller, service, module, processor와 queue 등록을 제거한다.
 3. active/create schema와 runtime dispatch에서 두 Job type을 제거한다.
 4. `historicalJobTypeSchema`와 DB read 경로에는 두 type을 유지한다.
@@ -580,7 +580,7 @@ uv run pytest tests/test_generate_deck_contract.py
 **완료 기준**
 
 - 코드 검색에서 두 레거시 endpoint·queue·processor의 실행 참조가 없다.
-- 배포 환경의 전체 대기 상태·active·repeat 및 DB queued/running이 0이라는 drain 증거와 historical Job 처리 방침이 PR 본문에 기록된다.
+- personal staging 자동 배포 성공, 실제 배포 서버 HEAD, 배포 환경의 전체 대기 상태·active·repeat 및 DB queued/running이 0이라는 현행 상태 증거, GenerateDeck smoke와 historical Job 처리 방침이 #339 종료 기록에 남는다.
 
 ### PR 5. PPTX OOXML의 AI slot 생성 제거와 request 축소
 
@@ -651,8 +651,8 @@ uv run pytest tests/test_generate_deck_contract.py
 7. DesignPack, palette/font override, style pack, composition, QA 관련 program-v2 코드는 유지한다.
 8. 공통 계약 변경이므로 `docs/contracts.md`에 GenerateDeck request 경계를 갱신하고, 이 목표 계약과 반대되는 V12의 legacy/template 유지 결정을 #339가 대체했음을 표시한다.
 9. TypeScript와 Python request schema를 strict하게 유지해 제거된 필드와 모든 extra field를 거부하며 호환 shim은 두지 않는다.
-10. 호환 shim이 없는 breaking cutover이므로 mixed-version rolling deployment를 금지한다. generate-deck ingress 중단, BullMQ `generate-deck` queue 전체 상태와 DB `type = ai-deck-generation`의 queued/running drain, Web/API/Worker/Python worker 동시 교체, Web cache 무효화를 배포 hard gate로 기록한다. 이 증거 없이 production 또는 `develop` 자동 personal staging에 배포하지 않는다.
-11. PR 6은 `personal-staging` required reviewer 활성화 또는 자동 deploy workflow 중단이 확인되고, cutover 담당자·시간·maintenance 전환 방법이 PR 본문에 기록될 때까지 Draft로 유지한다. 이 merge gate가 준비된 뒤에만 Ready for review 및 merge할 수 있으며, merge 뒤에도 queue/DB drain 증거를 확인하기 전에는 대기 중인 deploy workflow를 승인하지 않는다.
+10. `develop` merge는 기존 personal staging workflow를 그대로 실행한다. workflow는 run 실행 시점에 `git pull --ff-only origin develop`로 동기화한 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드한 뒤 migration과 최종 `docker compose up -d`로 application 서비스를 교체하고 API/root health check가 통과해야 성공한다.
+11. #339 때문에 자동 deploy workflow를 중단하거나 `personal-staging` required reviewer를 추가하지 않는다. #339 종료 전 해당 자동 배포 run 성공, 서버의 실제 `git rev-parse HEAD`, 배포 후 BullMQ `generate-deck` 전체 상태와 DB `type = ai-deck-generation`의 queued/running 0, GenerateDeck smoke 성공을 확인하고 workflow trigger SHA와 실제 서버 HEAD를 구분한다. production의 ingress 중단, drain, 동시 cutover와 cache 무효화는 별도 승인된 배포 계획에서 다룬다.
 
 **필수 테스트**
 
@@ -671,8 +671,8 @@ uv run pytest tests/test_generate_deck_contract.py
 - 일반 AI 생성 call graph가 PPTX import 모듈이나 TemplateBlueprint DB를 사용하지 않는다.
 - 활성 UI 요청에 deprecated field가 없다.
 - shared TypeScript schema와 Python Pydantic model의 허용 필드가 일치한다.
-- 배포 전 mixed-version 금지, queue/DB drain, 동시 cutover와 cache 무효화 hard gate가 운영 인계에 기록돼 있다.
-- Draft 유지 조건, Ready 전환 증거와 deploy workflow 승인 순서가 PR 본문과 운영 인계에 기록돼 있다.
+- personal staging 자동 배포 성공과 서버의 실제 `git rev-parse HEAD`가 운영 증거에 기록돼 있고 workflow trigger SHA와 구분돼 있다.
+- 자동 deploy workflow를 변경·중단하지 않았고, 배포 후 `generate-deck` queue/DB를 읽기 전용으로 확인한 stuck Job 0과 GenerateDeck smoke 성공 결과가 #339 종료 기록에 남아 있다.
 
 ### PR 7A. `generate_deck.py`의 Python generation core를 stage 경계로 분리
 
@@ -838,12 +838,25 @@ uv run pytest
 
 로컬에서는 `pnpm build` 10/10, `pnpm lint` 17/17, `pnpm test` 17/17 task, `check-env`, Docker Compose config, `uv sync --locked`, Ruff, mypy와 Python 480개 테스트가 통과했다. 기본 Worker test에서 skip되는 OOXML DB integration 4개는 owner 없는 skip이 아니라 required `db-integration` CI가 `pnpm test:coaching:integration`으로 실행하는 항목이다. PR 8의 required 자동 CI인 `typescript`, `python`, `unit-contracts`, `db-integration`, `e2e`도 모두 통과했다.
 
-**미확보 운영 hard gate**
+**personal staging 자동 배포 증거**
 
-- 339-4: 배포 환경의 `pptx-import`, `ai-template-deck-generation` queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 `queued`/`running`이 0이라는 drain 증거
-- 339-6: `personal-staging` required reviewer 또는 자동 배포 중단, cutover 담당자·시간·maintenance 방식, BullMQ `generate-deck` 전체 상태와 DB `ai-deck-generation`의 `queued`/`running` drain, Web/API/Worker/Python worker 동시 교체와 Web cache 무효화 증거
+| 범위 | trigger SHA | 자동 배포 run | 결과 |
+| --- | --- | --- | --- |
+| 339-4 legacy runtime 제거 | `0df9343d` | [29354750586](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29354750586) | workflow와 health check 통과, 실제 배포 서버 HEAD 미기록 |
+| 339-6 `program-v2` 계약 | `649fd565` | [29366409554](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29366409554) | Web/API/Worker/Python worker build·교체와 health check 통과, 실제 배포 서버 HEAD 미기록 |
+| 339-8 readiness | `3024bcb3` | [29388943867](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29388943867) | workflow와 health check 통과, 실제 배포 서버 HEAD 미기록 |
 
-두 운영 증거는 코드 테스트나 로컬 queue/DB 결과로 대체하지 않는다. 확보 전에는 PR 8을 Draft로 유지하고 #339를 종료하거나 #338 구현을 시작하지 않는다.
+표의 SHA는 workflow를 시작한 trigger SHA다. 배포 script는 run 실행 중 최신 `develop`을 pull할 수 있으므로 실제 배포 SHA로 간주하지 않으며, 실제 서버 HEAD는 서버에서 `git rev-parse HEAD`로 별도 기록한다.
+
+`develop` merge 자동 배포는 팀 규칙이며 위 workflow를 #339 때문에 변경·중단하거나 required reviewer로 대기시키지 않는다. 배포 script는 queue/DB count를 출력하지 않으므로 위 성공 run만으로 잔여 Job이 0이라고 주장하지 않는다.
+
+**미확보 배포 후 운영 증거**
+
+- personal staging 서버의 실제 `git rev-parse HEAD`와 workflow trigger SHA를 구분한 기록
+- 339-4: personal staging의 `pptx-import`, `ai-template-deck-generation` queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 `queued`/`running`이 0이라는 현행 상태 증거
+- 339-6: personal staging의 BullMQ `generate-deck` 전체 상태와 DB `ai-deck-generation`의 `queued`/`running`이 0이고 GenerateDeck smoke가 통과한다는 현행 상태 증거
+
+세 운영 증거는 코드 테스트, 성공한 배포 run 또는 로컬 queue/DB 결과로 대체하지 않는다. PR 8은 이미 merge됐으므로 Draft 조건을 소급 적용하지 않으며, 증거 확보 전에는 #339를 종료하거나 #338 구현을 시작하지 않는다.
 
 **전체 검증 명령**
 
@@ -884,8 +897,8 @@ uv run pytest
 - `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 DB에 존재할 수 있는 과거 type인 `pptx-import`, `ai-template-deck-generation`을 계속 허용한다.
 - `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 두 type을 거부한다.
 - `packages/job-queue`의 두 legacy queue/job constant와 enqueue helper, Worker consumer/processor/runtime dispatch는 제거한다.
-- queue drain은 queued/active job을 끝내는 배포 절차이며, 이미 완료된 DB 이력의 parsing 호환성을 대신하지 않는다.
-- PR 4 merge 전 배포 환경의 drain 증거를 확인하며 로컬 queue/DB 결과만으로 통과 처리하지 않는다.
+- 배포 후 queue/DB 잔여 확인은 runtime 제거 뒤 미처리 Job을 찾는 #339 종료 절차이며, 이미 완료된 DB 이력의 parsing 호환성을 대신하지 않는다.
+- PR 4 제거 코드는 personal staging에 자동 배포됐다. #339 종료 전 legacy queue/DB의 현행 상태가 0인지 읽기 전용으로 확인하며 로컬 결과만으로 통과 처리하지 않는다.
 - 이력 보존 기간이 끝난 뒤의 archive와 enum 축소는 별도 TypeORM migration 및 운영 계획으로 수행한다.
 
 적용 순서는 다음과 같다.
@@ -900,9 +913,9 @@ sequenceDiagram
 
     UI->>API: 새 OOXML import만 요청
     API->>Queue: PR 3에서 legacy enqueue 중단
-    Queue->>Worker: 배포 환경의 기존 Job drain
-    Worker->>DB: legacy Job 최종 상태 저장
-    Note over Queue,Worker: drain 증거가 PR 4 merge hard gate
+    API->>Queue: legacy runtime 제거가 personal staging에 자동 배포
+    Queue->>DB: 배포 후 legacy queue/DB 잔여 상태 읽기 전용 확인
+    Note over Queue,DB: 현행 상태 0이 #339 종료 증거
     Note over API,Worker: PR 4에서 legacy runtime 제거
     API->>DB: historical type read compatibility 유지
     Note over API,DB: 보존 기간 후 archive/migration 검토
@@ -930,8 +943,11 @@ sequenceDiagram
 - [x] TemplateBlueprint와 source/current package mapping이 유지된다.
 - [x] imported Deck의 edit → sync → export round-trip fixture가 required `db-integration` CI에 연결되어 있다.
 - [x] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
-- [ ] 배포 환경 drain 확인 후 구형 API, queue/job constant, consumer, processor가 제거됐다.
-- [ ] 339-6 breaking cutover의 배포 중단, 담당자·시간·maintenance, queue/DB drain, 동시 교체와 cache 무효화 증거가 있다.
+- [x] 구형 API, queue/job constant, consumer, processor 제거가 personal staging 자동 배포 run `29354750586`에서 성공했다.
+- [ ] personal staging 서버의 실제 `git rev-parse HEAD`를 기록했고 workflow trigger SHA와 구분돼 있다.
+- [ ] personal staging의 legacy queue 전체 상태와 관련 DB queued/running이 0이라는 배포 후 읽기 전용 증거가 있다.
+- [x] 339-6 `program-v2` 계약이 자동 배포 run `29366409554`에서 Web/API/Worker/Python worker build·교체와 health check를 통과했다.
+- [ ] personal staging의 `generate-deck` queue 전체 상태와 DB `ai-deck-generation` queued/running이 0이라는 배포 후 읽기 전용 증거와 GenerateDeck smoke 성공 증거가 있다.
 - [x] historical Job row를 안전하게 읽을 수 있다.
 - [x] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [x] Python의 source, content, design, layout, visual requirements, quality, diagnostics 단계가 명시적 DTO로 단독 테스트 가능하다.
@@ -962,13 +978,13 @@ flowchart LR
 | 파일 이동과 알고리즘 변경을 동시에 수행 | 생성 품질 회귀 원인 추적 불가 | PR 0 fixture, 이동 PR에서 의미 변경 금지 |
 | #341 이전 실패 동작을 기준선으로 고정 | 복구 가능한 Art Director 응답이 stage 분리 후 다시 전체 실패 | #341을 PR 0 선행 조건으로 두고 정규화 fixture를 이동 전후 재사용 |
 | TemplateBlueprint까지 레거시로 판단해 삭제 | PPTX sync와 원본 package export 손상 | AI template job과 OOXML mapping 계약을 별도 취급 |
-| 구형 Job type을 즉시 schema에서 삭제 | 과거 Job 목록 parsing 실패 | enqueue schema와 read schema 분리, drain 후 제거 |
+| 구형 Job type을 즉시 schema에서 삭제 | 과거 Job 목록 parsing 실패 | enqueue schema와 read schema를 분리하고 runtime 제거 후에도 historical read를 유지하며 배포 후 잔여 상태를 확인 |
 | editor import만 전환하고 export는 generic 유지 | 원본 OOXML round-trip 품질 상실 | PR 2에서 current package export를 선행 조건으로 구현 |
 | 모든 helper를 queue job 후보로 분리 | 과도한 queue, 직렬화 비용, 운영 복잡도 증가 | business checkpoint 단위 stage만 #338 job 후보로 사용 |
 | future stage message에 Deck/base64 전체 포함 | message 크기 초과와 중복 전송 비용 | `{ pipelineJobId, projectId, stage, shardKey }`만 전달하고 DB checkpoint와 Storage는 해당 키로 조회 |
 | stage module 간 순환 import | 분리 효과 상실, 테스트 곤란 | `models.py` 하향 의존과 `pipeline.py` 단방향 orchestration |
 | 호환 façade가 영구적인 두 번째 구현이 됨 | 중복 로직과 수정 누락 | façade에는 validation·delegation만 허용 |
-| selector 제거 버전이 Web/API/Worker/Python worker에 섞여 배포됨 | 구 payload 400/422, 새 payload의 구 recipe-v1 실행, queued Job 실패 | PR 6은 ingress 중단 → BullMQ `generate-deck` queue와 DB `ai-deck-generation` Job drain → 전 서비스 동시 cutover → Web cache 무효화를 배포 hard gate로 두고 일반 rolling deploy를 금지 |
+| selector 제거 버전이 Web/API/Worker/Python worker에 섞여 배포됨 | 구 payload 400/422, 새 payload의 구 recipe-v1 실행, queued Job 실패 | personal staging은 run 실행 시점에 동기화한 `develop` 서버 HEAD에서 네 이미지를 한 workflow run으로 build한 뒤 `docker compose up -d`로 교체하고 health check를 통과시킨다. 실제 서버 HEAD를 기록하고 배포 후 queue/DB stuck Job 0과 GenerateDeck smoke를 확인하며 production은 별도 승인된 cutover 계획을 사용한다. |
 | web research 실패를 전체 실패로 고정 | 기존 UX 문제 반복 | #338에서 정책별 degraded success와 retryable error를 구분 |
 | OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 staged BullMQ 파일별 Job과 checkpoint join을 먼저 도입하고 동일 계약을 SQS adapter로 연결 |
 
@@ -992,7 +1008,7 @@ flowchart LR
 2. 수정된 `program-v2` 결과를 characterization test로 고정한다.
 3. 에디터 PPTX import를 OOXML generation으로 전환한다.
 4. import → edit → sync → current package export를 완성한다.
-5. 구형 PPTX import와 AI template 생성 경로를 drain 후 제거한다.
+5. 구형 PPTX import와 AI template 생성 경로의 신규 enqueue를 중단하고 runtime을 제거한 뒤 배포 환경의 잔여 상태를 확인한다.
 6. PPTX OOXML의 AI slot 생성과 일반 생성기의 PPTX 디자인 재사용을 제거한다.
 7. `GenerateDeckRequest`를 `program-v2` 전용으로 축소한다.
 8. 남은 활성 Python 코드와 TypeScript Worker 후처리를 stage 경계로 분리하고 `/ai/generate-deck`를 façade로 유지한다.
