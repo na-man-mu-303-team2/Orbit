@@ -21,6 +21,14 @@ describe("AddRehearsalOwnership migration", () => {
     await migration.up(queryRunner);
 
     const sql = queries.join("\n");
+    expect(sql).toContain("INSERT INTO users");
+    expect(sql).toContain(
+      "encode(convert_to(projects.created_by, 'UTF8'), 'hex')"
+    );
+    expect(sql).toContain("disabled-legacy-project-owner-");
+    expect(sql).toContain("|| '@invalid'");
+    expect(sql).toContain("$argon2id$v=19$m=65536,t=3,p=4$");
+    expect(sql).not.toContain("!disabled-legacy-project-owner!");
     expect(sql).toContain("UPDATE rehearsal_runs runs");
     expect(sql).toContain("SET created_by_user_id = projects.created_by");
     expect(sql).toContain("ALTER COLUMN created_by_user_id SET NOT NULL");
@@ -29,6 +37,12 @@ describe("AddRehearsalOwnership migration", () => {
     expect(sql).toContain("ck_project_assets_private_rehearsal_creator");
     expect(sql).toContain("ON rehearsal_runs (project_id, created_by_user_id, created_at DESC)");
     expect(sql).toContain("ON project_assets (project_id, created_by_user_id, purpose, status)");
+    expect(sql.indexOf("INSERT INTO users")).toBeLessThan(
+      sql.indexOf("UPDATE rehearsal_runs runs")
+    );
+    expect(sql.indexOf("INSERT INTO users")).toBeLessThan(
+      sql.indexOf("ADD CONSTRAINT fk_rehearsal_runs_created_by_user")
+    );
     expect(sql.indexOf("UPDATE rehearsal_runs runs")).toBeLessThan(
       sql.indexOf("ALTER COLUMN created_by_user_id SET NOT NULL")
     );
@@ -51,5 +65,6 @@ describe("AddRehearsalOwnership migration", () => {
     expect(firstIndex).toBeLessThan(firstConstraint);
     expect(firstConstraint).toBeLessThan(firstColumn);
     expect(sql).toContain("DROP COLUMN IF EXISTS created_by_user_id");
+    expect(sql).not.toContain("DELETE FROM users");
   });
 });

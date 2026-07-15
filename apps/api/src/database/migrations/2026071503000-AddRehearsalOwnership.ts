@@ -12,6 +12,19 @@ export class AddRehearsalOwnership2026071503000 implements MigrationInterface {
       ALTER TABLE project_assets
       ADD COLUMN created_by_user_id text
     `);
+    // @invalid email과 폐기한 random preimage의 Argon2id hash로 로그인 불가능한 legacy principal만 보충한다.
+    await queryRunner.query(`
+      INSERT INTO users (user_id, email, password_hash, created_at, updated_at)
+      SELECT DISTINCT
+        projects.created_by,
+        'disabled-legacy-project-owner-' || encode(convert_to(projects.created_by, 'UTF8'), 'hex') || '@invalid',
+        '$argon2id$v=19$m=65536,t=3,p=4$YtoUpO2Cf/PrAjT2klJOAg$yedyPHXZhH9gwqcsCSXj1vwEXTefcHLn0NrDz0mN7KY',
+        now(),
+        now()
+      FROM projects
+      LEFT JOIN users ON users.user_id = projects.created_by
+      WHERE users.user_id IS NULL
+    `);
     await queryRunner.query(`
       UPDATE rehearsal_runs runs
       SET created_by_user_id = projects.created_by
