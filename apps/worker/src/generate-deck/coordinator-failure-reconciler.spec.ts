@@ -67,6 +67,28 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     expect(unrelated.remove).not.toHaveBeenCalled();
     expect(nonExhausted.remove).not.toHaveBeenCalled();
   });
+
+  it("continues past a full unrelated page to recover the next coordinator", async () => {
+    const unrelated = Array.from({ length: 100 }, (_, index) =>
+      failedCoordinatorJob({ id: `legacy-${index}`, name: "generate-deck" }),
+    );
+    const coordinator = failedCoordinatorJob();
+    const queue = failedQueue(...unrelated, coordinator);
+    const recover = vi.fn(async () => "coordinator-failed" as const);
+
+    await expect(
+      reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+        redisUrl: "redis://localhost:6379",
+        queueFactory: () => queue,
+        recover,
+      }),
+    ).resolves.toEqual({ scanned: 101, recovered: 1, removed: 1 });
+
+    expect(queue.getJobs).toHaveBeenNthCalledWith(1, ["failed"], 0, 99, true);
+    expect(queue.getJobs).toHaveBeenNthCalledWith(2, ["failed"], 100, 199, true);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(coordinator.remove).toHaveBeenCalledTimes(1);
+  });
 });
 
 function failedCoordinatorJob(overrides: Record<string, unknown> = {}) {
@@ -83,7 +105,10 @@ function failedCoordinatorJob(overrides: Record<string, unknown> = {}) {
 
 function failedQueue(...jobs: ReturnType<typeof failedCoordinatorJob>[]) {
   return {
-    getJobs: vi.fn(async () => jobs),
+    getJobs: vi.fn(
+      async (_types: ["failed"], start: number, end: number) =>
+        jobs.slice(start, end + 1),
+    ),
     close: vi.fn(async () => undefined),
   };
 }
