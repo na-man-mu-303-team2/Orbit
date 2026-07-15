@@ -336,7 +336,10 @@ export async function enqueueGenerateDeckJob(
           jobId: input.jobId,
           projectId: input.projectId,
         } satisfies AiDeckStagedCoordinatorBullMqPayload,
-        canonicalJobOptions(input.jobId),
+        {
+          ...canonicalJobOptions(input.jobId),
+          removeOnFail: false,
+        },
       );
       return;
     }
