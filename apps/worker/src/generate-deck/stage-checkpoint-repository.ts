@@ -8,6 +8,7 @@ import {
   type AiDeckGenerationStageStatus,
   type JobError,
 } from "@orbit/shared";
+import { randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
@@ -35,7 +36,15 @@ const forbiddenReferenceKeys = new Set([
 const referenceSchema = z.record(z.unknown()).superRefine((value, context) => {
   validateReferenceValue(value, context, [], 0);
 });
-const leaseOwnerSchema = z.string().trim().min(1);
+const workerIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .refine((value) => !value.includes(":"), {
+    message: "workerId cannot contain colons",
+  });
+const leaseOwnerSchema = z.string().trim().min(1).max(256);
 const checkpointAttemptSchema = z.number().int().min(0).max(5);
 const claimedAttemptSchema = checkpointAttemptSchema.min(1);
 const retryableErrorSchema = jobErrorSchema.extend({
@@ -128,10 +137,11 @@ export class AiDeckGenerationStageCheckpointRepository {
 
   async claim(
     rawMessage: unknown,
-    rawLeaseOwner: unknown,
+    rawWorkerId: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
-    const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
+    const workerId = workerIdSchema.parse(rawWorkerId);
+    const leaseOwner = `${workerId}:${randomUUID()}`;
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
