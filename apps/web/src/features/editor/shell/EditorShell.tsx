@@ -1822,11 +1822,12 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartPresentation =
+  const canOpenAudienceLink =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
-    !isDeckError &&
-    !activePresentationAction;
+    !isDeckError;
+  const canStartPresentation =
+    canOpenAudienceLink && !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const speakerNotesLengthGuidance = useMemo(
@@ -5788,6 +5789,7 @@ export function EditorShell(props: { projectId?: string }) {
           </button>
           <PresentationMenu
             activeStartAction={activePresentationAction}
+            canOpenAudienceLink={canOpenAudienceLink}
             canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
             onOpenAudienceLink={() => {

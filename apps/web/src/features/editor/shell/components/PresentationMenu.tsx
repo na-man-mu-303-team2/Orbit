@@ -7,6 +7,7 @@ import {
 
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
+  canOpenAudienceLink: boolean;
   canStartPresentation: boolean;
   isOpen: boolean;
   onOpenAudienceLink: () => void;
@@ -18,6 +19,7 @@ type PresentationMenuProps = {
 export function PresentationMenu(props: PresentationMenuProps) {
   const {
     activeStartAction = null,
+    canOpenAudienceLink,
     canStartPresentation,
     isOpen,
     onOpenAudienceLink,
@@ -53,7 +55,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
             aria-haspopup="menu"
             aria-label="발표 메뉴 열기"
             className="editor-present-menu-button"
-            disabled={!canStartPresentation}
+            disabled={!canOpenAudienceLink}
             type="button"
             onClick={onToggle}
           >
