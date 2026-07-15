@@ -46,6 +46,10 @@ const maintenance = vi.hoisted(() => ({
   reconcile: vi.fn(async () => ({ scanned: 0, requeued: 0, failed: 0 })),
 }));
 
+const transportRecovery = vi.hoisted(() => ({
+  recover: vi.fn(async () => "ignored" as const),
+}));
+
 vi.mock("bullmq", () => ({
   Worker: class {
     constructor(
@@ -86,6 +90,9 @@ vi.mock("./generate-deck/stage-dispatcher", () => ({
 }));
 vi.mock("./generate-deck/stage-reconciler", () => ({
   reconcileExpiredAiDeckStageLeases: maintenance.reconcile,
+}));
+vi.mock("./generate-deck/transport-failure-recovery", () => ({
+  recoverAiDeckBullMqFinalFailure: transportRecovery.recover,
 }));
 vi.mock("./image-providers", () => ({
   createImageAssetRuntime: vi.fn(() => undefined),
@@ -209,6 +216,115 @@ describe("WorkerService queue subscriptions", () => {
     await service.onModuleDestroy();
   });
 
+  it("awaits DB recovery for final coordinator and OCR transport attempts", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const { service } = createService();
+    service.onModuleInit();
+    const generateHandler = requiredHandler(generateDeckQueueName);
+    const referenceHandler = requiredHandler(referenceExtractQueueName);
+    processors.stagedCoordinator.mockRejectedValueOnce(
+      new Error("coordinator transport failure"),
+    );
+    processors.referenceExtractStage.mockRejectedValueOnce(
+      new Error("stage transport failure"),
+    );
+
+    await expect(
+      generateHandler(
+        bullJob(
+          generateDeckStagedCoordinatorJobName,
+          { jobId: "job-ai-deck-1", projectId: "project-a" },
+          4,
+        ),
+      ),
+    ).rejects.toThrow("coordinator transport failure");
+    await expect(
+      referenceHandler(
+        bullJob(
+          "reference-extract-file",
+          {
+            pipelineJobId: "job-ai-deck-1",
+            projectId: "project-a",
+            stage: "reference-extract-file",
+            shardKey: "file-a",
+          },
+          4,
+        ),
+      ),
+    ).rejects.toThrow("stage transport failure");
+
+    expect(transportRecovery.recover).toHaveBeenNthCalledWith(1, expect.anything(), {
+      queueName: generateDeckQueueName,
+      jobName: generateDeckStagedCoordinatorJobName,
+      data: { jobId: "job-ai-deck-1", projectId: "project-a" },
+    });
+    expect(transportRecovery.recover).toHaveBeenNthCalledWith(2, expect.anything(), {
+      queueName: referenceExtractQueueName,
+      jobName: "reference-extract-file",
+      data: {
+        pipelineJobId: "job-ai-deck-1",
+        projectId: "project-a",
+        stage: "reference-extract-file",
+        shardKey: "file-a",
+      },
+    });
+    await service.onModuleDestroy();
+  });
+
+  it("does not recover an intermediate BullMQ attempt", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const { service } = createService();
+    service.onModuleInit();
+    processors.stagedCoordinator.mockRejectedValueOnce(
+      new Error("retryable coordinator failure"),
+    );
+
+    await expect(
+      requiredHandler(generateDeckQueueName)(
+        bullJob(
+          generateDeckStagedCoordinatorJobName,
+          { jobId: "job-ai-deck-1", projectId: "project-a" },
+          3,
+        ),
+      ),
+    ).rejects.toThrow("retryable coordinator failure");
+
+    expect(transportRecovery.recover).not.toHaveBeenCalled();
+    await service.onModuleDestroy();
+  });
+
+  it("preserves the original failure when final DB recovery also fails", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const { service, logger } = createService();
+    service.onModuleInit();
+    const originalError = new Error("original stage failure");
+    processors.referenceExtractStage.mockRejectedValueOnce(originalError);
+    transportRecovery.recover.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(
+      requiredHandler(referenceExtractQueueName)(
+        bullJob(
+          "reference-extract-file",
+          {
+            pipelineJobId: "job-ai-deck-1",
+            projectId: "project-a",
+            stage: "reference-extract-file",
+            shardKey: "file-a",
+          },
+          4,
+        ),
+      ),
+    ).rejects.toBe(originalError);
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai_deck.transport_failure.recovery_failed",
+      }),
+      "AI deck transport failure recovery failed.",
+    );
+    await service.onModuleDestroy();
+  });
+
   it.each([
     ["sqs", "all"],
     ["bullmq", "research-content"],
@@ -237,10 +353,16 @@ interface FakeBullJob {
   name: string;
   data: unknown;
   attemptsMade: number;
+  opts: { attempts: number };
 }
 
-function bullJob(name: string, data: unknown): FakeBullJob {
-  return { id: `bull-${name}`, name, data, attemptsMade: 0 };
+function bullJob(
+  name: string,
+  data: unknown,
+  attemptsMade = 0,
+  attempts = 5,
+): FakeBullJob {
+  return { id: `bull-${name}`, name, data, attemptsMade, opts: { attempts } };
 }
 
 function requiredHandler(queueName: string) {
