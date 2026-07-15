@@ -37,7 +37,7 @@ LOG_PRETTY=false | true
 | `error` | `{ name, message, stack }` 또는 도메인 error object |
 
 이벤트 이름은 `영역.동작` 형식을 사용한다.
-예: `http.request.completed`, `job.enqueued`, `job.started`, `job.succeeded`, `job.failed`, `bullmq.job.failed`, `worker.ready`.
+예: `http.request.completed`, `job.enqueued`, `job.started`, `job.succeeded`, `job.failed`, `bullmq.job.failed`, `sqs.job.started`, `sqs.job.processed`, `sqs.job.failed`, `worker.ready`.
 
 ## 업무 이벤트 로그
 

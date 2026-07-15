@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #339 완료 · #338-0·338-1·338-2 완료·병합 · #338-3 구현·로컬 검증 중
+**상태**: 확정 · #339 완료 · #338-0·338-1·338-2·338-3 완료·병합 · #338-4 구현·로컬 검증 중
 
 **실행 이슈**: [#338 PPT 생성 - AI PPT stage Job·SQS 파이프라인 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -20,14 +20,14 @@
 
 이 문서는 #339 완료 후 AI PPT 생성의 각 stage를 독립 Job으로 실행하는 application pipeline과 transport 계약을 정의한다. staged BullMQ 경로를 먼저 완성하고 같은 stage message에 SQS transport adapter를 추가한다. 실제 AWS queue·DLQ·IAM·ECS·autoscaling·CloudWatch와 production cutover는 후속 인프라 이슈의 범위다.
 
-338-1은 staged coordinator와 파일별 OCR, 338-2는 네 planning stage 연결까지 활성화해 병합됐다. 현재 338-3은 image fan-out, semantic/rendered QA, publication과 명시적 retry를 구현·검증한다.
+338-1은 staged coordinator와 파일별 OCR, 338-2는 네 planning stage, 338-3은 image fan-out, semantic/rendered QA, publication과 명시적 retry까지 활성화해 병합됐다. 현재 338-4는 같은 stage message의 SQS transport를 구현·검증한다.
 
 - `monolith` 호환 모드는 기존 `generate-deck` Job 이름과 request·DesignPack snapshot·image asset scope를 포함한 full-deck payload를 338-5 제거 전까지 유지한다.
 - `bullmq` staged 모드는 `generate-deck-staged-coordinator`에 `{ jobId, projectId }`만 전달하고 부모 Job의 저장 payload에서 OCR 대상을 계산한다.
 - Worker는 `generate-deck` queue와 `reference-extract` queue에서 각각 기존 Job과 staged Job을 `job.name`으로 구분한다.
 - 338-3 dispatcher·consumer는 9개 stage를 모두 처리하며 `layout-compile` 이후 slide별 `image-slide`, `semantic-quality`, `rendered-visual-quality`, `publication`까지 완전한 Deck을 발행한다.
 - standalone reference extraction의 공개 API와 기존 `reference-extract` 다중 파일 Job은 그대로 유지한다. AI PPT staged 경로만 파일별 checkpoint와 artifact를 사용한다.
-- 부모 실패 Job의 명시적 retry API는 `failedStage`부터 실패 shard와 downstream만 재개한다. SQS queue URL과 transport는 338-4에서 추가한다.
+- 부모 실패 Job의 명시적 retry API는 `failedStage`부터 실패 shard와 downstream만 재개한다. 338-4는 ID-only coordinator를 BullMQ에 유지하고 9개 stage message만 다섯 SQS queue로 운반한다.
 - 로컬 기본값은 `bullmq`로 전환하지만 staging·production 예제의 명시적 `monolith`와 `develop` 자동 배포 규칙은 변경하지 않는다.
 
 #339에서 다음 작업은 이미 끝난 것으로 간주한다.
@@ -510,6 +510,16 @@ flowchart TB
 - [x] `failedStage` retry의 upstream·성공 shard 보존, downstream invalidation과 coordinator-only 재enqueue test
 - [x] 6개 Worker role, 9개 stage dispatcher·stale dispatch·lease·transport recovery test
 - [x] API·Worker 전체 회귀, shared/job-queue contract, Python 493 passed·1 skipped, Web 병렬 timeout 단독 재검증, API·Worker·Web 직접 build, env·Compose 검증
+- [x] PR required 자동 CI 성공과 사용자 병합
+
+### 338-4 PR 검증 체크리스트
+
+- [x] 다섯 queue URL의 `sqs` mode 전용 필수 검증과 env template·Compose key parity
+- [x] strict `{ pipelineJobId, projectId, stage, shardKey }` SQS send·receive·queue routing contract test
+- [x] 20초 long polling, 최대 1개 receive, 5분 visibility, 60초 연장과 성공 후 delete test
+- [x] handler 실패 시 미삭제와 duplicate delivery의 checkpoint-aware side effect 단일 실행 test
+- [x] `sqs` all·dedicated role이 기존 stage processor를 사용하고 dispatcher가 SQS transport를 선택하는 routing test
+- [x] API·Worker·job-queue 전체 회귀, build·lint·env·Compose 검증
 - [ ] PR required 자동 CI 성공과 사용자 병합
 
 ### #338 전체 완료 조건

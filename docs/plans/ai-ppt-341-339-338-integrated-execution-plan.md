@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1·338-2 완료·병합 · #338-3 구현·로컬 검증 중
+**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1·338-2·338-3 완료·병합 · #338-4 구현·로컬 검증 중
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -90,6 +90,13 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - `POST /api/v1/projects/:projectId/jobs/:jobId/retry`는 `retryable=true`와 `failedStage`가 있는 실패 Job만 재개한다. 성공한 upstream과 같은 OCR/image stage의 성공 shard를 보존하고 실패 shard와 downstream만 초기화하며 coordinator checkpoint가 없는 coordinator 실패만 ID-only coordinator를 다시 enqueue한다.
 - 로컬 기본값과 `.env.example`은 `bullmq`로 전환한다. staging·production 예제의 명시적 `monolith` 값과 `develop` merge 자동 배포 workflow는 변경하지 않는다.
 
+338-4의 현재 구현 경계는 다음과 같다.
+
+- `AI_DECK_EXECUTION_MODE=sqs`도 ID-only coordinator를 기존 BullMQ `generate-deck` queue에 보내고, dispatcher 이후 9개 stage message만 다섯 SQS queue로 전송한다. AI Deck 이외 Job과 전역 `JOB_QUEUE_DRIVER`는 계속 BullMQ를 사용한다.
+- 다섯 queue URL은 `sqs` mode에서만 모두 필수다. SQS consumer는 20초 long polling, 최대 1개 receive, 초기·연장 visibility 5분, 60초 heartbeat를 사용하고 handler 성공 뒤에만 delete한다.
+- SQS message도 strict `{ pipelineJobId, projectId, stage, shardKey }`만 사용하며 기존 stage processor와 checkpoint claim/fencing/retry를 그대로 호출한다. 중복 delivery는 checkpoint 전이와 결정적 persistence로 수렴한다.
+- staging·production 예제는 명시적 `monolith`를 유지하고 실제 AWS queue·DLQ·IAM·ECS·autoscaling·CloudWatch·production cutover는 후속 인프라 이슈로 남긴다. `develop` merge 자동 배포 workflow는 변경하지 않는다.
+
 ## 3. 확정 계약과 실패 정책
 
 ### Stage와 checkpoint
@@ -120,9 +127,9 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - `visualQaStatus`는 기존 optional 계약을 유지하면서 `not-run | passed | failed | unavailable`을 허용한다.
 - `Job.error`에는 optional `failedStage`와 `retryable`을 추가해 기존 Job row parsing을 깨뜨리지 않는다. `retryable`은 부모 Job의 명시적 retry API 허용 여부이며 자동 checkpoint 재시도는 `attempt < 5`로 별도 관리한다. shard 식별자는 Job error가 아니라 checkpoint key에 둔다.
 - 338-0은 위 신규 값을 parse/round-trip할 기반만 추가했다. `WEB_RESEARCH_QUALITY_FAILED` warning은 338-2, Visual QA unavailable warning은 338-3에서 실제로 emit한다.
-- AI PPT 전용 설정은 `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 338-3의 로컬 기본값은 `bullmq`이고 staging·production 예제는 명시적 `monolith`를 유지하며 `sqs`는 API·Worker startup에서 fail-fast한다.
+- AI PPT 전용 설정은 `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 로컬 기본값은 `bullmq`이고 staging·production 예제는 명시적 `monolith`를 유지한다. `sqs`는 다섯 queue URL이 모두 검증될 때만 시작한다.
 - `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용하고 338-3에서 모든 role을 실행 가능하게 한다.
-- 다섯 SQS queue URL key와 send/receive/delete/visibility transport는 338-4에서 함께 추가하고 그때 `sqs` mode에서만 필수 검증한다. 전역 `JOB_QUEUE_DRIVER`는 다른 Job을 위해 `bullmq`로 유지한다.
+- 다섯 SQS queue URL key와 send/receive/delete/visibility transport는 338-4에서 추가하며 `sqs` mode에서만 필수 검증한다. 전역 `JOB_QUEUE_DRIVER`는 다른 Job을 위해 `bullmq`로 유지한다.
 
 ### 최종 실패 정책
 
@@ -184,6 +191,16 @@ uv run pytest
 - [x] `failedStage` retry의 upstream·성공 shard 보존, downstream invalidation과 coordinator-only 재enqueue test
 - [x] 6개 Worker role, 9개 stage dispatcher·stale dispatch·lease·transport recovery test
 - [x] API·Worker 전체 회귀, shared/job-queue contract, Python 493 passed·1 skipped, Web 병렬 timeout 단독 재검증, API·Worker·Web 직접 build, env·Compose 검증
+- [x] PR required 자동 CI 성공과 사용자 병합
+
+### 338-4 PR 검증 체크리스트
+
+- [x] 다섯 queue URL의 `sqs` mode 전용 필수 검증과 env template·Compose key parity
+- [x] strict shared stage message의 SQS send·receive와 queue routing contract test
+- [x] 20초 long polling, 최대 1개 receive, 5분 visibility, 60초 연장과 성공 후 delete test
+- [x] handler 실패 시 미삭제와 duplicate delivery의 checkpoint-aware side effect 단일 실행 test
+- [x] `sqs` all·dedicated role이 기존 stage processor를 사용하고 dispatcher가 SQS transport를 선택하는 routing test
+- [x] API·Worker·job-queue 전체 회귀, build·lint·env·Compose 검증
 - [ ] PR required 자동 CI 성공과 사용자 병합
 
 추가 필수 시나리오:

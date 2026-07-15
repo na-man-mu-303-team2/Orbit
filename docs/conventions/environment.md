@@ -33,11 +33,11 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
-현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`는 AI Deck 이외의 Job도 제어하므로 #338 작업 중에도 `bullmq`로 유지한다. `JOB_QUEUE_DRIVER=sqs`는 adapter가 아직 없어 Worker startup이 실패한다.
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`는 AI Deck 이외의 Job도 제어하므로 #338 작업 중에도 `bullmq`로 유지한다. `JOB_QUEUE_DRIVER=sqs`는 전역 adapter가 아직 없어 Worker startup이 실패하며, AI Deck stage 전송만 `AI_DECK_EXECUTION_MODE=sqs`로 선택한다.
 
 `AI_DECK_EXECUTION_MODE`의 코드 기본값과 로컬 `.env.example`은 `bullmq`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. 로컬 `docker-compose.yml`의 API와 Worker는 두 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 로컬 기본값 변경이 배포 환경을 자동 전환하지 않는다.
 
-338-3에서 지원하는 조합은 다음과 같다.
+338-4에서 지원하는 조합은 다음과 같다.
 
 | `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                            |
 | ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -48,8 +48,22 @@ LLM_PROVIDER=openai
 | `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
 | `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
 | `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
+| `sqs`                    | `all`                  | ID-only coordinator와 비 AI Deck Job은 BullMQ로 소비하고 다섯 AI Deck stage queue는 SQS로 소비한다.                                  |
+| `sqs`                    | `reference-extract`    | BullMQ coordinator·standalone OCR queue와 `reference-extract` SQS queue를 함께 소비한다.                                             |
+| `sqs`                    | `research-content`     | `source-grounding`, `content-planning` SQS queue만 소비한다.                                                                         |
+| `sqs`                    | `design-layout`        | `design-planning`, `layout-compile` SQS queue만 소비한다.                                                                            |
+| `sqs`                    | `image`                | `image-slide` SQS queue만 소비한다.                                                                                                  |
+| `sqs`                    | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` SQS queue만 소비한다.                                                   |
 
-`AI_DECK_EXECUTION_MODE=sqs`는 schema에는 후속 adapter 계약을 위해 남아 있지만 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
+`AI_DECK_EXECUTION_MODE=sqs`에서는 다음 다섯 URL이 모두 필수다. 다른 실행 모드에서는 빈 값 또는 미설정이어도 된다. `.env.staging.example`과 `.env.production.example`은 URL key를 포함하지만 실행 모드는 계속 `monolith`이므로 실제 SQS 전환을 일으키지 않는다.
+
+```txt
+AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL
+AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL
+AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL
+AI_DECK_SQS_IMAGE_QUEUE_URL
+AI_DECK_SQS_QA_FINALIZE_QUEUE_URL
+```
 
 ## 서버 로그
 
