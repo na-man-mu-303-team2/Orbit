@@ -37,9 +37,16 @@ export class CreateAiDeckGenerationStages2026071502000 implements MigrationInter
         CONSTRAINT ck_ai_deck_generation_stages_error
           CHECK (error_json IS NULL OR jsonb_typeof(error_json) = 'object'),
         CONSTRAINT ck_ai_deck_generation_stages_job_id_delimiter
-          CHECK (position(':' in pipeline_job_id) = 0),
+          CHECK (
+            position(':' in pipeline_job_id) = 0
+            AND pipeline_job_id = btrim(pipeline_job_id)
+            AND char_length(pipeline_job_id) > 0
+          ),
         CONSTRAINT ck_ai_deck_generation_stages_shard_key_delimiter
-          CHECK (position(':' in shard_key) = 0),
+          CHECK (
+            position(':' in shard_key) = 0
+            AND shard_key = btrim(shard_key)
+          ),
         CONSTRAINT ck_ai_deck_generation_stages_shard_key CHECK (
           (stage IN ('reference-extract-file','image-slide')
             AND char_length(btrim(shard_key)) > 0)
