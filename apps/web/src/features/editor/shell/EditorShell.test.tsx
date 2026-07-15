@@ -40,6 +40,7 @@ import {
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
+  requireCompleteRehearsalSlideRender,
   resolveHistoryNavigation,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
@@ -150,6 +151,20 @@ describe("editor shell", () => {
       5,
     );
     expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
+  });
+
+  it("aborts rehearsal snapshot preparation when any slide render is missing", () => {
+    const deck = createDemoDeck();
+    const files = new Map<string, File>([
+      [
+        deck.slides[0]!.slideId,
+        new File(["png"], "slide-1.png", { type: "image/png" }),
+      ],
+    ]);
+
+    expect(() => requireCompleteRehearsalSlideRender(deck, files)).toThrow(
+      "모든 슬라이드 snapshot을 준비하지 못했습니다.",
+    );
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {

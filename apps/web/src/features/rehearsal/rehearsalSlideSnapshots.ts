@@ -11,6 +11,15 @@ type PreparedSlideSnapshots = {
 
 const storageKeyPrefix = "orbit.rehearsalSlideSnapshots.v1";
 
+export class PreparedRehearsalSlideSnapshotsError extends Error {
+  constructor() {
+    super(
+      "슬라이드 snapshot 준비 정보가 만료되었거나 올바르지 않습니다. 프로젝트에서 리허설을 다시 시작해 주세요.",
+    );
+    this.name = "PreparedRehearsalSlideSnapshotsError";
+  }
+}
+
 export function storePreparedRehearsalSlideSnapshots(input: PreparedSlideSnapshots) {
   const preparationId = crypto.randomUUID();
   sessionStorage.setItem(
@@ -33,28 +42,68 @@ export function readPreparedRehearsalSlideSnapshots(input: {
   const key = `${storageKeyPrefix}:${input.preparationId}`;
   const serialized = sessionStorage.getItem(key);
   if (!serialized) {
-    return undefined;
+    throw new PreparedRehearsalSlideSnapshotsError();
   }
 
   try {
-    const prepared = JSON.parse(serialized) as PreparedSlideSnapshots;
+    const prepared = JSON.parse(serialized) as unknown;
     if (
+      !isPreparedSlideSnapshots(prepared) ||
       prepared.projectId !== input.projectId ||
       prepared.deckId !== input.deckId ||
-      prepared.deckVersion !== input.deckVersion ||
-      !Array.isArray(prepared.snapshots)
+      prepared.deckVersion !== input.deckVersion
     ) {
-      return undefined;
+      throw new PreparedRehearsalSlideSnapshotsError();
     }
 
     return prepared.snapshots;
-  } catch {
+  } catch (cause) {
     sessionStorage.removeItem(key);
-    return undefined;
+    if (cause instanceof PreparedRehearsalSlideSnapshotsError) {
+      throw cause;
+    }
+    throw new PreparedRehearsalSlideSnapshotsError();
   }
 }
 
 export function clearPreparedRehearsalSlideSnapshots(preparationId?: string) {
   if (!preparationId) return;
   sessionStorage.removeItem(`${storageKeyPrefix}:${preparationId}`);
+}
+
+function isPreparedSlideSnapshots(value: unknown): value is PreparedSlideSnapshots {
+  if (!isRecord(value) || !Array.isArray(value.snapshots)) {
+    return false;
+  }
+
+  const seenSlideIds = new Set<string>();
+  const snapshotsAreValid = value.snapshots.every((snapshot) => {
+    if (
+      !isRecord(snapshot) ||
+      typeof snapshot.fileId !== "string" ||
+      snapshot.fileId.trim().length === 0 ||
+      typeof snapshot.slideId !== "string" ||
+      snapshot.slideId.trim().length === 0 ||
+      seenSlideIds.has(snapshot.slideId)
+    ) {
+      return false;
+    }
+    seenSlideIds.add(snapshot.slideId);
+    return true;
+  });
+
+  return (
+    snapshotsAreValid &&
+    typeof value.projectId === "string" &&
+    value.projectId.length > 0 &&
+    typeof value.deckId === "string" &&
+    value.deckId.length > 0 &&
+    typeof value.deckVersion === "number" &&
+    Number.isInteger(value.deckVersion) &&
+    value.deckVersion > 0
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

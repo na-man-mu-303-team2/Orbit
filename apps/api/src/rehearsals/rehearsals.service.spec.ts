@@ -6,7 +6,7 @@ import {
   type PresentationBrief,
   type RehearsalFocusProfile
 } from "@orbit/shared";
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
@@ -75,6 +75,7 @@ const validEnv = {
 
 const createdAt = new Date("2026-06-27T00:00:00.000Z");
 const rawAudioDeletedAt = "2026-06-27T00:00:05.000Z";
+const actorUserId = "user-a";
 
 const job: Job = {
   jobId: "job-1",
@@ -139,10 +140,11 @@ describe("RehearsalsService", () => {
   it("creates a rehearsal run for the project deck", async () => {
     const service = createService();
 
-    const result = await service.createRun("project-a", { deckId: "deck-a" });
+    const result = await service.createRun("project-a", actorUserId, { deckId: "deck-a" });
 
     expect(result.run).toMatchObject({
       projectId: "project-a",
+      createdByUserId: actorUserId,
       deckId: "deck-a",
       audioFileId: null,
       jobId: null,
@@ -186,7 +188,7 @@ describe("RehearsalsService", () => {
     deck.slides[0]!.speakerNotes = "";
     const service = createService({ deck });
 
-    const result = await service.createRun("project-a", { deckId: "deck-a" });
+    const result = await service.createRun("project-a", actorUserId, { deckId: "deck-a" });
 
     expect(result.run.evaluationSnapshot?.slides[0]?.title).toBe("슬라이드 1");
   });
@@ -204,7 +206,7 @@ describe("RehearsalsService", () => {
     );
     const service = createService({ filesServicePatch: { getUploadedAsset } });
 
-    const result = await service.createRun("project-a", {
+    const result = await service.createRun("project-a", actorUserId, {
       deckId: "deck-a",
       slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }]
     });
@@ -212,7 +214,8 @@ describe("RehearsalsService", () => {
     expect(getUploadedAsset).toHaveBeenCalledWith(
       "project-a",
       "file-slide-1",
-      "rehearsal-slide-snapshot"
+      "rehearsal-slide-snapshot",
+      actorUserId
     );
     expect(result.run.evaluationSnapshot?.slides[0]?.thumbnailUrl).toBe(
       "/api/v1/projects/project-a/assets/file-slide-1/content"
@@ -222,7 +225,7 @@ describe("RehearsalsService", () => {
   it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
     const mutableDeck = createDeck();
     const service = createService({ deck: mutableDeck });
-    const created = await service.createRun("project-a", {
+    const created = await service.createRun("project-a", actorUserId, {
       deckId: "deck-a",
       expectedDeckVersion: 3
     });
@@ -230,7 +233,7 @@ describe("RehearsalsService", () => {
     mutableDeck.version = 4;
     mutableDeck.slides[0]!.semanticCues[0]!.meaning = "편집 후 의미";
 
-    const stored = await service.getRun(created.run.runId);
+    const stored = await service.getRun(created.run.runId, actorUserId);
     expect(stored.run.deckVersion).toBe(3);
     expect(stored.run.evaluationSnapshot?.slides[0]?.semanticCues[0]?.meaning).toBe(
       "승인된 원래 의미"
@@ -241,7 +244,7 @@ describe("RehearsalsService", () => {
     const service = createService();
 
     await expect(
-      service.createRun("project-a", {
+      service.createRun("project-a", actorUserId, {
         deckId: "deck-a",
         expectedDeckVersion: 2
       })
@@ -251,7 +254,7 @@ describe("RehearsalsService", () => {
   it("creates a delivery-only run without a semantic snapshot", async () => {
     const service = createService();
 
-    const result = await service.createRun("project-a", {
+    const result = await service.createRun("project-a", actorUserId, {
       deckId: "deck-a",
       expectedDeckVersion: 2,
       semanticEvaluationMode: "delivery-only"
@@ -310,7 +313,7 @@ describe("RehearsalsService", () => {
       deck: currentDeck
     });
 
-    const response = await service.createRun("project-a", {
+    const response = await service.createRun("project-a", actorUserId, {
       deckId: currentDeck.deckId,
       expectedDeckVersion: currentDeck.version,
       briefRef: { mode: "briefed", briefId: brief.briefId, expectedRevision: 1 },
@@ -343,7 +346,7 @@ describe("RehearsalsService", () => {
   it("rejects run creation when the deckId does not match the project deck", async () => {
     const service = createService();
 
-    await expect(service.createRun("project-a", { deckId: "deck-other" })).rejects.toBeInstanceOf(
+    await expect(service.createRun("project-a", actorUserId, { deckId: "deck-other" })).rejects.toBeInstanceOf(
       BadRequestException
     );
   });
@@ -352,7 +355,7 @@ describe("RehearsalsService", () => {
     const service = createService();
     const run = await createRun(service);
 
-    const result = await service.createAudioUploadUrl(run.runId, {
+    const result = await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
@@ -371,7 +374,8 @@ describe("RehearsalsService", () => {
         mimeType: "audio/webm",
         size: 1024,
         purpose: "rehearsal-audio"
-      })
+      }),
+      actorUserId
     );
   });
 
@@ -384,7 +388,7 @@ describe("RehearsalsService", () => {
     const run = await createRun(service);
 
     await expect(
-      service.createAudioUploadUrl(run.runId, {
+      service.createAudioUploadUrl(run.runId, actorUserId, {
         originalName: "rehearsal.flac",
         mimeType: "audio/flac",
         size: 1025
@@ -407,13 +411,13 @@ describe("RehearsalsService", () => {
     const enqueueJob = vi.fn(async () => undefined);
     const service = createService({ enqueueJob });
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
 
-    const result = await service.completeAudioUpload(run.runId, {
+    const result = await service.completeAudioUpload(run.runId, actorUserId, {
       fileId: "file-audio"
     });
 
@@ -449,18 +453,18 @@ describe("RehearsalsService", () => {
       },
     });
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024,
     });
 
-    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+    await expect(service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" })).rejects.toThrow(
       "Asset size mismatch"
     );
 
     expect(jobsService.create).not.toHaveBeenCalled();
-    expect((await service.getRun(run.runId)).run).toMatchObject({
+    expect((await service.getRun(run.runId, actorUserId)).run).toMatchObject({
       status: "uploading",
       audioFileId: "file-audio",
       jobId: null,
@@ -471,7 +475,7 @@ describe("RehearsalsService", () => {
     const service = createService();
     const run = await createRun(service);
 
-    const result = await service.updateRunMeta(run.runId, {
+    const result = await service.updateRunMeta(run.runId, actorUserId, {
       slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
       missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
       adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }]
@@ -494,7 +498,7 @@ describe("RehearsalsService", () => {
     const service = createService();
     const run = await createRun(service);
 
-    await service.updateRunMeta(run.runId, {
+    await service.updateRunMeta(run.runId, actorUserId, {
       recordingDurationSeconds: 90.25
     });
 
@@ -509,8 +513,8 @@ describe("RehearsalsService", () => {
     const first = await createRun(service);
     const second = await createRun(service);
 
-    const cancelled = await service.cancelRun(first.runId);
-    const listed = await service.listRuns("project-a");
+    const cancelled = await service.cancelRun(first.runId, actorUserId);
+    const listed = await service.listRuns("project-a", actorUserId);
 
     expect(cancelled.run.status).toBe("cancelled");
     expect(listed.runs.map((run: { runId: string }) => run.runId)).toEqual([
@@ -518,17 +522,75 @@ describe("RehearsalsService", () => {
     ]);
   });
 
+  it("returns only the actor's rehearsal runs and summary", async () => {
+    const service = createService();
+    const ownRun = await createRun(service);
+    await saveRunPatch(service, ownRun.runId, {
+      status: "succeeded",
+      rehearsalReport
+    });
+    const foreignRun = (
+      await service.createRun("project-a", "user-b", { deckId: "deck-a" })
+    ).run;
+    await saveRunPatch(service, foreignRun.runId, {
+      status: "succeeded",
+      rehearsalReport
+    });
+
+    const listed = await service.listRuns("project-a", actorUserId);
+    const summary = await service.getSummary("project-a", actorUserId);
+
+    expect(listed.runs.map((run) => run.runId)).toEqual([ownRun.runId]);
+    expect(summary.summary).toMatchObject({
+      projectId: "project-a",
+      runCount: 1,
+      runDurationSeries: [{ runId: ownRun.runId }]
+    });
+  });
+
+  it("returns not found at every run-id boundary for a different creator", async () => {
+    const service = createService();
+    const run = await createRun(service);
+    const otherUserId = "user-b";
+    const operations = [
+      () => service.getRun(run.runId, otherUserId),
+      () => service.getReport(run.runId, otherUserId),
+      () => service.cancelRun(run.runId, otherUserId),
+      () =>
+        service.updateRunMeta(run.runId, otherUserId, {
+          slideTimeline: [],
+          missedKeywords: [],
+          adviceEvents: []
+        }),
+      () =>
+        service.createAudioUploadUrl(run.runId, otherUserId, {
+          originalName: "rehearsal.webm",
+          mimeType: "audio/webm",
+          size: 1024
+        }),
+      () =>
+        service.completeAudioUpload(run.runId, otherUserId, {
+          fileId: "file-audio"
+        }),
+      () => service.retrySemanticEvaluation(run.runId, otherUserId)
+    ];
+
+    for (const operation of operations) {
+      await expect(operation()).rejects.toBeInstanceOf(NotFoundException);
+    }
+  });
+
   it("rejects cancellation after audio processing starts", async () => {
     const service = createService();
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
-    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+    await service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" });
 
-    await expect(service.cancelRun(run.runId)).rejects.toBeInstanceOf(
+    await expect(service.cancelRun(run.runId, actorUserId)).rejects.toBeInstanceOf(
       BadRequestException
     );
   });
@@ -536,15 +598,15 @@ describe("RehearsalsService", () => {
   it("rejects rehearsal run meta updates after processing starts", async () => {
     const service = createService();
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
-    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+    await service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" });
 
     await expect(
-      service.updateRunMeta(run.runId, {
+      service.updateRunMeta(run.runId, actorUserId, {
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [],
         adviceEvents: []
@@ -557,7 +619,7 @@ describe("RehearsalsService", () => {
     const run = await createRun(service);
 
     await expect(
-      service.updateRunMeta(run.runId, {
+      service.updateRunMeta(run.runId, actorUserId, {
         slideTimeline: [],
         missedKeywords: [],
         adviceEvents: [],
@@ -580,17 +642,22 @@ describe("RehearsalsService", () => {
       filesServicePatch: { deleteUploadedAsset }
     });
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
 
-    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+    await expect(service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" })).rejects.toThrow(
       "redis down"
     );
 
-    expect(deleteUploadedAsset).toHaveBeenCalledWith("project-a", "file-audio", "rehearsal-audio");
+    expect(deleteUploadedAsset).toHaveBeenCalledWith(
+      "project-a",
+      "file-audio",
+      "rehearsal-audio",
+      actorUserId
+    );
     expect(jobsService.update).toHaveBeenCalledWith("job-1", {
       status: "failed",
       progress: 0,
@@ -600,7 +667,7 @@ describe("RehearsalsService", () => {
         message: "redis down"
       }
     });
-    expect((await service.getRun(run.runId)).run).toMatchObject({
+    expect((await service.getRun(run.runId, actorUserId)).run).toMatchObject({
       status: "failed",
       rawAudioDeletedAt,
       error: {
@@ -627,13 +694,13 @@ describe("RehearsalsService", () => {
       }
     });
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
 
-    await expect(service.completeAudioUpload(run.runId, { fileId: "file-audio" })).rejects.toThrow(
+    await expect(service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" })).rejects.toThrow(
       "redis down"
     );
 
@@ -646,7 +713,7 @@ describe("RehearsalsService", () => {
         message: "delete down"
       }
     });
-    expect((await service.getRun(run.runId)).run).toMatchObject({
+    expect((await service.getRun(run.runId, actorUserId)).run).toMatchObject({
       status: "failed",
       rawAudioDeletedAt: null,
       error: {
@@ -663,15 +730,15 @@ describe("RehearsalsService", () => {
     } as unknown as JobsService;
     const service = createService({ jobsService });
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
 
-    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+    await service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" });
     await expect(
-      service.completeAudioUpload(run.runId, { fileId: "file-audio" })
+      service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" })
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(jobsService.create).toHaveBeenCalledTimes(1);
@@ -680,18 +747,21 @@ describe("RehearsalsService", () => {
   it("returns a null report while the rehearsal is still processing", async () => {
     const service = createService();
     const run = await createRun(service);
-    await service.createAudioUploadUrl(run.runId, {
+    await service.createAudioUploadUrl(run.runId, actorUserId, {
       originalName: "rehearsal.webm",
       mimeType: "audio/webm",
       size: 1024
     });
-    await service.completeAudioUpload(run.runId, { fileId: "file-audio" });
+    await service.completeAudioUpload(run.runId, actorUserId, { fileId: "file-audio" });
 
-    const result = await service.getReport(run.runId);
+    const result = await service.getReport(run.runId, actorUserId);
 
     expect(result.run.status).toBe("processing");
     expect(result.report).toBeNull();
-    expect(service.testProjectsService.getAccessibleProject).toHaveBeenCalledWith("project-a");
+    expect(service.testProjectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-a",
+      actorUserId
+    );
   });
 
   it("returns the saved report JSON for a succeeded rehearsal", async () => {
@@ -704,7 +774,7 @@ describe("RehearsalsService", () => {
       rawAudioDeletedAt: new Date(rawAudioDeletedAt)
     });
 
-    const result = await service.getReport(run.runId);
+    const result = await service.getReport(run.runId, actorUserId);
 
     expect(result.run.status).toBe("succeeded");
     expect(result.report).toMatchObject({
@@ -731,6 +801,14 @@ describe("RehearsalsService", () => {
       createdAt: new Date("2026-07-10T00:05:00.000Z"),
       status: "cancelled"
     });
+    const foreign = (
+      await service.createRun("project-a", "user-b", { deckId: "deck-a" })
+    ).run;
+    await saveRunPatch(service, foreign.runId, {
+      createdAt: new Date("2026-07-10T00:07:00.000Z"),
+      status: "succeeded",
+      rehearsalReport: comparisonReport(foreign.runId, "missed")
+    });
     const current = await createRun(service);
     await saveRunPatch(service, current.runId, {
       createdAt: new Date("2026-07-10T00:10:00.000Z"),
@@ -738,7 +816,7 @@ describe("RehearsalsService", () => {
       rehearsalReport: comparisonReport(current.runId, "covered")
     });
 
-    const comparison = await service.getComparison("project-a", current.runId);
+    const comparison = await service.getComparison("project-a", current.runId, actorUserId);
 
     expect(comparison.currentRunId).toBe(current.runId);
     expect(comparison.previousRunId).toBe(previous.runId);
@@ -757,7 +835,7 @@ describe("RehearsalsService", () => {
     });
 
     await expect(
-      service.getComparison("project-other", current.runId)
+      service.getComparison("project-other", current.runId, actorUserId)
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -771,7 +849,7 @@ describe("RehearsalsService", () => {
       rawAudioDeletedAt: new Date(rawAudioDeletedAt)
     });
 
-    const result = await service.getReport(run.runId);
+    const result = await service.getReport(run.runId, actorUserId);
 
     expect(result.report).toMatchObject({
       transcriptRetained: false,
@@ -807,7 +885,7 @@ describe("RehearsalsService", () => {
       }
     });
 
-    const result = await service.retrySemanticEvaluation(run.runId);
+    const result = await service.retrySemanticEvaluation(run.runId, actorUserId);
 
     expect(result.job).toEqual(semanticRetryJob);
     expect(jobsService.create).toHaveBeenCalledWith({
@@ -839,7 +917,7 @@ describe("RehearsalsService", () => {
       rehearsalReport: retryableReport()
     });
 
-    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+    await expect(service.retrySemanticEvaluation(run.runId, actorUserId)).rejects.toMatchObject({
       response: {
         code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
         retryable: false
@@ -860,7 +938,7 @@ describe("RehearsalsService", () => {
       }
     });
     const run = (
-      await service.createRun("project-a", {
+      await service.createRun("project-a", actorUserId, {
         deckId: "deck-a",
         semanticEvaluationMode: "delivery-only"
       })
@@ -870,7 +948,7 @@ describe("RehearsalsService", () => {
       rehearsalReport
     });
 
-    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toMatchObject({
+    await expect(service.retrySemanticEvaluation(run.runId, actorUserId)).rejects.toMatchObject({
       response: {
         code: "REHEARSAL_SEMANTIC_EVALUATION_NOT_READY",
         retryable: false
@@ -899,7 +977,7 @@ describe("RehearsalsService", () => {
       rehearsalReport: retryableReport()
     });
 
-    await expect(service.retrySemanticEvaluation(run.runId)).rejects.toThrow(
+    await expect(service.retrySemanticEvaluation(run.runId, actorUserId)).rejects.toThrow(
       "redis down"
     );
 
@@ -929,7 +1007,7 @@ describe("RehearsalsService", () => {
 });
 
 async function createRun(service: ReturnType<typeof createService>) {
-  return (await service.createRun("project-a", { deckId: "deck-a" })).run;
+  return (await service.createRun("project-a", actorUserId, { deckId: "deck-a" })).run;
 }
 
 function retryableReport() {
@@ -1034,6 +1112,13 @@ function createService(
       title: "Project A",
       createdBy: "user-a",
       createdAt: createdAt.toISOString()
+    })),
+    assertCanReadProject: vi.fn(async (projectId: string, userId: string) => ({
+      projectId,
+      workspaceId: "workspace-a",
+      title: "Project A",
+      createdBy: userId,
+      createdAt: createdAt.toISOString()
     }))
   } as unknown as ProjectsService;
   const deck = options.deck ?? createDeck();
@@ -1066,6 +1151,7 @@ function createService(
     testRehearsalRuns: repository,
     testProjectsService: projectsService as ProjectsService & {
       getAccessibleProject: ReturnType<typeof vi.fn>;
+      assertCanReadProject: ReturnType<typeof vi.fn>;
     },
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
@@ -1090,19 +1176,30 @@ function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) 
       where: {
         runId?: string;
         projectId?: string;
+        createdByUserId?: string;
         status?: string;
         createdAt?: { _type?: string; _value?: Date };
       };
       order?: { createdAt?: "ASC" | "DESC" };
     }) {
       if (options.where.runId) {
-        return runs.get(options.where.runId) ?? null;
+        const run = runs.get(options.where.runId) ?? null;
+        return run &&
+          (!options.where.createdByUserId ||
+            run.createdByUserId === options.where.createdByUserId)
+          ? run
+          : null;
       }
 
       const matching = [...runs.values()]
         .filter(
           (run) =>
             !options.where.projectId || run.projectId === options.where.projectId
+        )
+        .filter(
+          (run) =>
+            !options.where.createdByUserId ||
+            run.createdByUserId === options.where.createdByUserId
         )
         .filter(
           (run) => !options.where.status || run.status === options.where.status
@@ -1137,7 +1234,7 @@ function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) 
       return { affected: 1 };
     },
     async findAndCount(options: {
-      where: { projectId: string; status?: unknown };
+      where: { projectId: string; createdByUserId?: string; status?: unknown };
       take: number;
       skip: number;
     }) {
@@ -1147,6 +1244,11 @@ function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) 
         | undefined;
       const matching = [...runs.values()]
         .filter((run) => run.projectId === options.where.projectId)
+        .filter(
+          (run) =>
+            !options.where.createdByUserId ||
+            run.createdByUserId === options.where.createdByUserId
+        )
         .filter((run) => {
           if (typeof status === "string") {
             return run.status === status;
@@ -1159,6 +1261,30 @@ function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) 
         .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 
       return [matching.slice(options.skip, options.skip + options.take), matching.length];
+    },
+    async find(options: {
+      where: {
+        projectId: string;
+        createdByUserId?: string;
+        status?: string;
+      };
+      order?: { createdAt?: "ASC" | "DESC" };
+    }) {
+      return [...runs.values()]
+        .filter((run) => run.projectId === options.where.projectId)
+        .filter(
+          (run) =>
+            !options.where.createdByUserId ||
+            run.createdByUserId === options.where.createdByUserId
+        )
+        .filter(
+          (run) => !options.where.status || run.status === options.where.status
+        )
+        .sort((left, right) =>
+          options.order?.createdAt === "DESC"
+            ? right.createdAt.getTime() - left.createdAt.getTime()
+            : left.createdAt.getTime() - right.createdAt.getTime()
+        );
     },
     async query(sql: string) {
       if (!sql.includes("FROM rehearsal_focus_profiles") || !focusProfile) {

@@ -8,6 +8,7 @@ const run = (runId: string, createdAt: string): RehearsalRun => ({
   analysisRevision: 1,
   audioFileId: null,
   createdAt,
+  createdByUserId: "user_1",
   deckId: "deck_1",
   deckVersion: null,
   error: null,

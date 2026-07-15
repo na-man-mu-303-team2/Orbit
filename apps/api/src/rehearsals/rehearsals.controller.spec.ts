@@ -7,37 +7,30 @@ import { RehearsalsController } from "./rehearsals.controller";
 import type { RehearsalsService } from "./rehearsals.service";
 
 describe("RehearsalsController", () => {
-  it("requires project write permission before creating a rehearsal run", async () => {
+  it("allows a project Viewer to create a personal rehearsal run", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
     await controller.createRun("project-a", { deckId: "deck-a" }, signedRequest());
 
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
-      "user-1",
-    );
-    expect(rehearsalsService.createRun).toHaveBeenCalledWith("project-a", {
-      deckId: "deck-a",
-    });
-    expect(
-      projectsService.assertCanWriteProject.mock.invocationCallOrder[0],
-    ).toBeLessThan(rehearsalsService.createRun.mock.invocationCallOrder[0]);
-  });
-
-  it("requires project read permission before returning a rehearsal report", async () => {
-    const { controller, projectsService, rehearsalsService } = createController();
-
-    await controller.getReport("run-1", signedRequest());
-
-    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
     expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
       "project-a",
       "user-1",
     );
-    expect(rehearsalsService.getReport).toHaveBeenCalledWith("run-1");
-    expect(
-      projectsService.assertCanReadProject.mock.invocationCallOrder[0],
-    ).toBeLessThan(rehearsalsService.getReport.mock.invocationCallOrder[0]);
+    expect(projectsService.assertCanWriteProject).not.toHaveBeenCalled();
+    expect(rehearsalsService.createRun).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+      { deckId: "deck-a" },
+    );
+  });
+
+  it("passes the authenticated actor to the canonical report ownership boundary", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.getReport("run-1", signedRequest());
+
+    expect(projectsService.assertCanReadProject).not.toHaveBeenCalled();
+    expect(rehearsalsService.getReport).toHaveBeenCalledWith("run-1", "user-1");
   });
 
   it("requires project read permission before returning a run comparison", async () => {
@@ -51,37 +44,33 @@ describe("RehearsalsController", () => {
     );
     expect(rehearsalsService.getComparison).toHaveBeenCalledWith(
       "project-a",
-      "run-1"
+      "run-1",
+      "user-1"
     );
     expect(
       projectsService.assertCanReadProject.mock.invocationCallOrder[0]
     ).toBeLessThan(rehearsalsService.getComparison.mock.invocationCallOrder[0]);
   });
 
-  it("requires project write permission before cancelling a rehearsal run", async () => {
+  it("passes the authenticated actor to the canonical cancel ownership boundary", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
     await controller.cancelRun("run-1", signedRequest());
 
-    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
-      "user-1"
-    );
-    expect(rehearsalsService.cancelRun).toHaveBeenCalledWith("run-1");
+    expect(projectsService.assertCanWriteProject).not.toHaveBeenCalled();
+    expect(rehearsalsService.cancelRun).toHaveBeenCalledWith("run-1", "user-1");
   });
 
-  it("requires project write permission before retrying semantic evaluation", async () => {
+  it("passes the authenticated actor to the canonical retry ownership boundary", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
     await controller.retrySemanticEvaluation("run-1", signedRequest());
 
-    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
+    expect(projectsService.assertCanWriteProject).not.toHaveBeenCalled();
+    expect(rehearsalsService.retrySemanticEvaluation).toHaveBeenCalledWith(
+      "run-1",
       "user-1"
     );
-    expect(rehearsalsService.retrySemanticEvaluation).toHaveBeenCalledWith("run-1");
   });
 
   it("does not call the rehearsal service without a signed session", async () => {
@@ -121,7 +110,6 @@ function createController() {
       briefing: []
     })),
     getReport: vi.fn(async () => ({ report: null })),
-    getRunProjectId: vi.fn(async () => "project-a"),
   };
 
   return {

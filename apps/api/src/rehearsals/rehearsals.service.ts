@@ -93,7 +93,7 @@ export class RehearsalsService {
     private readonly logger: PinoLogger
   ) {}
 
-  async createRun(projectId: string, body: unknown) {
+  async createRun(projectId: string, actorUserId: string, body: unknown) {
     const request = parseRequest(createRehearsalRunRequestSchema, body);
     const deckResponse = await this.decksService.getDeck(projectId);
     if (deckResponse.deck.deckId !== request.deckId) {
@@ -132,6 +132,7 @@ export class RehearsalsService {
       : null;
     const slideThumbnailUrls = await this.resolveSlideSnapshotUrls(
       projectId,
+      actorUserId,
       deckResponse.deck.slides.map((slide) => slide.slideId),
       request.slideSnapshots
     );
@@ -182,6 +183,7 @@ export class RehearsalsService {
       this.rehearsalRuns.create({
         runId: `run_${randomUUID()}`,
         projectId,
+        createdByUserId: actorUserId,
         deckId: request.deckId,
         audioFileId: null,
         jobId: null,
@@ -250,6 +252,7 @@ export class RehearsalsService {
 
   private async resolveSlideSnapshotUrls(
     projectId: string,
+    actorUserId: string,
     deckSlideIds: readonly string[],
     snapshots: readonly { slideId: string; fileId: string }[] | undefined
   ) {
@@ -269,7 +272,8 @@ export class RehearsalsService {
       const asset = await this.filesService.getUploadedAsset(
         projectId,
         snapshot.fileId,
-        "rehearsal-slide-snapshot"
+        "rehearsal-slide-snapshot",
+        actorUserId
       );
       if (!asset.mimeType.startsWith("image/")) {
         throw new BadRequestException("Rehearsal slide snapshots must be image assets.");
@@ -345,9 +349,9 @@ export class RehearsalsService {
     return { goalSetId: row.goal_set_id, revision: row.revision };
   }
 
-  async createAudioUploadUrl(runId: string, body: unknown) {
+  async createAudioUploadUrl(runId: string, actorUserId: string, body: unknown) {
     const request = parseRequest(createRehearsalAudioUploadUrlRequestSchema, body);
-    const run = await this.getRunEntity(runId);
+    const run = await this.getOwnedRun(runId, actorUserId);
 
     if (!["created", "uploading"].includes(run.status)) {
       throw new BadRequestException("Rehearsal run is not accepting uploads.");
@@ -358,7 +362,8 @@ export class RehearsalsService {
       parseRequest(this.rehearsalAudioUploadRequestSchema, {
         ...request,
         purpose: "rehearsal-audio"
-      })
+      }),
+      actorUserId
     );
 
     run.audioFileId = upload.fileId;
@@ -373,9 +378,9 @@ export class RehearsalsService {
     });
   }
 
-  async completeAudioUpload(runId: string, body: unknown) {
+  async completeAudioUpload(runId: string, actorUserId: string, body: unknown) {
     const request = parseRequest(completeRehearsalAudioUploadRequestSchema, body);
-    const run = await this.getRunEntity(runId);
+    const run = await this.getOwnedRun(runId, actorUserId);
 
     if (run.status !== "uploading") {
       throw new BadRequestException("Rehearsal run has no pending audio upload.");
@@ -385,12 +390,20 @@ export class RehearsalsService {
       throw new BadRequestException("fileId does not match the rehearsal run.");
     }
 
-    await this.filesService.completeUpload(run.projectId, {
-      fileId: request.fileId
-    }, "rehearsal-audio");
-    await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
+    await this.filesService.completeUpload(
+      run.projectId,
+      { fileId: request.fileId },
+      actorUserId,
+      "rehearsal-audio"
+    );
+    await this.filesService.getUploadedAsset(
+      run.projectId,
+      request.fileId,
+      "rehearsal-audio",
+      actorUserId
+    );
 
-    const claimedRun = await this.claimAudioUpload(run, request.fileId);
+    const claimedRun = await this.claimAudioUpload(run, request.fileId, actorUserId);
     if (!claimedRun) {
       throw new BadRequestException("Rehearsal run has no pending audio upload.");
     }
@@ -470,9 +483,9 @@ export class RehearsalsService {
     }
   }
 
-  async updateRunMeta(runId: string, body: unknown) {
+  async updateRunMeta(runId: string, actorUserId: string, body: unknown) {
     const request = parseRequest(updateRehearsalRunMetaRequestSchema, body);
-    const run = await this.getRunEntity(runId);
+    const run = await this.getOwnedRun(runId, actorUserId);
 
     if (!["created", "uploading"].includes(run.status)) {
       throw new BadRequestException("Rehearsal run is not accepting meta updates.");
@@ -485,8 +498,8 @@ export class RehearsalsService {
     return updateRehearsalRunMetaResponseSchema.parse({ run: toRehearsalRun(savedRun) });
   }
 
-  async cancelRun(runId: string) {
-    const run = await this.getRunEntity(runId);
+  async cancelRun(runId: string, actorUserId: string) {
+    const run = await this.getOwnedRun(runId, actorUserId);
     if (run.status === "cancelled") {
       return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
     }
@@ -516,15 +529,23 @@ export class RehearsalsService {
       );
     }
 
-    const cancelled = await this.getRunEntity(run.runId);
+    const cancelled = await this.getOwnedRun(run.runId, actorUserId);
     return cancelRehearsalRunResponseSchema.parse({ run: toRehearsalRun(cancelled) });
   }
 
-  async listRuns(projectId: string, query: Record<string, string> = {}) {
+  async listRuns(
+    projectId: string,
+    actorUserId: string,
+    query: Record<string, string> = {}
+  ) {
     await this.projectsService.getAccessibleProject(projectId);
     const pageSize = Math.min(Math.max(Number(query.pageSize) || 50, 1), 100);
     const page = Math.max(Number(query.page) || 1, 1);
-    const where: Record<string, unknown> = { projectId, status: Not("cancelled") };
+    const where: Record<string, unknown> = {
+      projectId,
+      createdByUserId: actorUserId,
+      status: Not("cancelled")
+    };
     if (query.status) {
       where["status"] = query.status;
     }
@@ -537,18 +558,13 @@ export class RehearsalsService {
     return { runs: runs.map(toRehearsalRun), total, page, pageSize };
   }
 
-  async getRun(runId: string) {
-    const run = await this.getRunEntity(runId);
+  async getRun(runId: string, actorUserId: string) {
+    const run = await this.getOwnedRun(runId, actorUserId);
     return getRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
 
-  async getRunProjectId(runId: string) {
-    const run = await this.getRunEntity(runId);
-    return run.projectId;
-  }
-
-  async getReport(runId: string) {
-    const run = await this.getRunEntity(runId);
+  async getReport(runId: string, actorUserId: string) {
+    const run = await this.getOwnedRun(runId, actorUserId);
     const report =
       run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
     const responseReport = report
@@ -565,9 +581,9 @@ export class RehearsalsService {
     });
   }
 
-  async getComparison(projectId: string, runId: string) {
+  async getComparison(projectId: string, runId: string, actorUserId: string) {
     await this.projectsService.getAccessibleProject(projectId);
-    const currentRun = await this.rehearsalRuns.findOne({ where: { runId } });
+    const currentRun = await this.getOwnedRun(runId, actorUserId);
     if (!currentRun || currentRun.projectId !== projectId) {
       throw new NotFoundException(`Rehearsal run not found: ${runId}`);
     }
@@ -591,6 +607,7 @@ export class RehearsalsService {
     const previousRun = await this.rehearsalRuns.findOne({
       where: {
         projectId,
+        createdByUserId: actorUserId,
         status: "succeeded",
         createdAt: LessThan(currentRun.createdAt)
       },
@@ -609,8 +626,8 @@ export class RehearsalsService {
     return getRehearsalRunComparisonResponseSchema.parse(comparison);
   }
 
-  async retrySemanticEvaluation(runId: string) {
-    const run = await this.getRunEntity(runId);
+  async retrySemanticEvaluation(runId: string, actorUserId: string) {
+    const run = await this.getOwnedRun(runId, actorUserId);
     if (
       run.status !== "succeeded" ||
       run.rehearsalReport === null ||
@@ -702,23 +719,25 @@ export class RehearsalsService {
     });
   }
 
-  private async getRunEntity(runId: string) {
-    const run = await this.rehearsalRuns.findOne({ where: { runId } });
+  private async getOwnedRun(runId: string, actorUserId: string) {
+    const run = await this.rehearsalRuns.findOne({
+      where: { runId, createdByUserId: actorUserId }
+    });
     if (!run) {
       throw new NotFoundException(`Rehearsal run not found: ${runId}`);
     }
 
-    await this.projectsService.getAccessibleProject(run.projectId);
+    await this.projectsService.assertCanReadProject(run.projectId, actorUserId);
 
     return run;
   }
 
-  async getSummary(projectId: string) {
+  async getSummary(projectId: string, actorUserId: string) {
     await this.projectsService.getAccessibleProject(projectId);
 
     const [runs, project] = await Promise.all([
       this.rehearsalRuns.find({
-        where: { projectId, status: "succeeded" },
+        where: { projectId, createdByUserId: actorUserId, status: "succeeded" },
         order: { createdAt: "ASC" }
       }),
       this.projects.findOne({ where: { projectId } })
@@ -760,7 +779,11 @@ export class RehearsalsService {
     });
   }
 
-  private async claimAudioUpload(run: RehearsalRunEntity, fileId: string) {
+  private async claimAudioUpload(
+    run: RehearsalRunEntity,
+    fileId: string,
+    actorUserId: string
+  ) {
     const result = await this.rehearsalRuns.update(
       {
         runId: run.runId,
@@ -779,7 +802,7 @@ export class RehearsalsService {
       return null;
     }
 
-    return this.getRunEntity(run.runId);
+    return this.getOwnedRun(run.runId, actorUserId);
   }
 
   private async cleanupAfterEnqueueFailure(
@@ -796,7 +819,8 @@ export class RehearsalsService {
       const rawAudioDeletedAt = await this.filesService.deleteUploadedAsset(
         run.projectId,
         fileId,
-        "rehearsal-audio"
+        "rehearsal-audio",
+        run.createdByUserId
       );
 
       return {
@@ -827,6 +851,7 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
   return {
     runId: run.runId,
     projectId: run.projectId,
+    createdByUserId: run.createdByUserId,
     deckId: run.deckId,
     audioFileId: run.audioFileId,
     jobId: run.jobId,

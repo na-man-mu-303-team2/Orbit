@@ -158,7 +158,7 @@ export class ChallengeQnaService {
     let upload: Awaited<ReturnType<FilesService["createUploadUrl"]>> | null = null;
     if (request.inputMode === "voice") upload = await this.files.createUploadUrl(String(session.project_id), {
       originalName: "challenge-qna-answer", mimeType: request.mimeType, size: request.size, purpose: "qna-answer-audio",
-    });
+    }, actorUserId);
     const status = request.inputMode === "voice" ? "uploading" : "created";
     const rows = await this.dataSource.query(`INSERT INTO challenge_qna_answer_attempts (
       answer_attempt_id,project_id,qna_session_id,question_id,question_revision,client_request_id,attempt_number,input_mode,
@@ -186,7 +186,7 @@ export class ChallengeQnaService {
     if (!row) throw new NotFoundException("Q&A answer attempt not found.");
     await this.projects.assertCanWriteProject(String(row.project_id), actorUserId);
     if (row.status !== "uploading" || row.audio_file_id !== request.fileId) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Audio attempt is not uploadable." });
-    await this.files.completeUpload(String(row.project_id), { fileId: request.fileId }, "qna-answer-audio");
+    await this.files.completeUpload(String(row.project_id), { fileId: request.fileId }, actorUserId, "qna-answer-audio");
     const rows = await this.dataSource.query(`UPDATE challenge_qna_answer_attempts SET duration_ms=$2 WHERE answer_attempt_id=$1 AND status='uploading' RETURNING *`, [attemptId, request.durationMs]);
     return { attempt: await this.queueAnswer(first(rows)!) };
   }

@@ -205,6 +205,21 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("/project/project%20retry");
   });
 
+  it("snapshot 또는 Run 준비 실패에는 마이크 없는 연습을 제안하지 않는다", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalFailureScreen
+        error="슬라이드 snapshot을 다시 준비해 주세요."
+        projectActionLabel="프로젝트에서 snapshot 다시 준비"
+        projectId="project-a"
+      />,
+    );
+
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain("다시 시도");
+    expect(html).toContain("프로젝트에서 snapshot 다시 준비");
+    expect(html).not.toContain("마이크 없이 연습");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -961,8 +976,8 @@ describe("RehearsalWorkspace", () => {
     );
     const prepareBody = source.slice(prepareStart, prepareEnd);
 
-    expect(prepareBody).toContain(
-      "preparedSlideSnapshotsRef.current ??\n      readPreparedRehearsalSlideSnapshots",
+    expect(prepareBody).toMatch(
+      /preparedSlideSnapshotsRef\.current \?\?\s+readPreparedRehearsalSlideSnapshots/,
     );
     expect(prepareBody).toContain(
       "preparedSlideSnapshotsRef.current = slideSnapshots",
@@ -2812,6 +2827,41 @@ describe("rehearsal evaluation run lifecycle", () => {
     });
   });
 
+  it("does not turn an HTTP snapshot ownership failure into local-only success", async () => {
+    const deck = createDemoDeck();
+
+    await expect(
+      prepareRehearsalEvaluationRun(
+        deck,
+        vi.fn(async () =>
+          new Response(JSON.stringify({ code: "ASSET_NOT_FOUND" }), {
+            status: 404,
+          }),
+        ),
+        undefined,
+        [{ slideId: deck.slides[0]!.slideId, fileId: "file-other-user" }],
+      ),
+    ).rejects.toMatchObject({
+      stage: "snapshot",
+      status: 404,
+      message:
+        "슬라이드 snapshot을 확인하지 못했습니다. 프로젝트에서 리허설을 다시 시작해 주세요.",
+    });
+  });
+
+  it("does not turn an unexpected client failure into local-only success", async () => {
+    const deck = createDemoDeck();
+
+    await expect(
+      prepareRehearsalEvaluationRun(
+        deck,
+        vi.fn(async () => {
+          throw new Error("invalid snapshot handoff");
+        }),
+      ),
+    ).rejects.toThrow("invalid snapshot handoff");
+  });
+
   it("builds P3 cue and keyword inputs from the immutable snapshot", () => {
     const deck = createDemoDeck();
     deck.slides[0]!.speakerNotes = "현재 로컬 발표자 노트";
@@ -3079,6 +3129,7 @@ function runFixture(
   return {
     runId: "run-1",
     projectId: "project-a",
+    createdByUserId: "user-a",
     deckId: "deck-a",
     audioFileId: null,
     jobId: null,

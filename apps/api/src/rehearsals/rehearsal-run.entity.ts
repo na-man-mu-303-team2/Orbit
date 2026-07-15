@@ -21,6 +21,9 @@ export class RehearsalRunEntity {
   @Column({ name: "project_id", type: "text" })
   projectId!: string;
 
+  @Column({ name: "created_by_user_id", type: "text" })
+  createdByUserId!: string;
+
   @Column({ name: "deck_id", type: "text" })
   deckId!: string;
 

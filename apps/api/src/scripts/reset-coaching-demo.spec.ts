@@ -1,6 +1,8 @@
 import { loadOrbitConfig } from "@orbit/config";
 import { createDemoDeck } from "@orbit/editor-core";
 import { rehearsalEvaluationSnapshotSchema, rehearsalReportSchema } from "@orbit/shared";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe,expect,it } from "vitest";
 import { buildRehearsalEvaluationPlan } from "../practice-goals/evaluation-plan";
 import {
@@ -36,6 +38,16 @@ describe("createDemoRunEvaluationSnapshot", () => {
     });
     expect(snapshot.slides).toHaveLength(deck.slides.length);
     expect(snapshot).not.toHaveProperty("snapshotVersion");
+  });
+});
+
+describe("resetCoachingDemo rehearsal ownership", () => {
+  it("keeps the demo run creator explicit in the reset statement", () => {
+    const source = readFileSync(resolve(__dirname, "reset-coaching-demo.ts"), "utf8");
+
+    expect(source).toContain("created_by_user_id");
+    expect(source).toContain("config.DEMO_USER_ID");
+    expect(source).toContain("created_by_user_id=EXCLUDED.created_by_user_id");
   });
 });
 

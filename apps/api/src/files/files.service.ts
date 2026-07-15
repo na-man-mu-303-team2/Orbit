@@ -36,8 +36,15 @@ const publicAssetContentPurposes = new Set<FilePurpose>([
   "reference-material",
   "export-result",
   "report-result",
-  "rehearsal-slide-snapshot",
   "design-asset",
+]);
+const creatorOwnedRehearsalPurposes = new Set<FilePurpose>([
+  "rehearsal-audio",
+  "rehearsal-slide-snapshot",
+]);
+const privateAssetPurposes = new Set<string>([
+  ...privateAudioPurposes,
+  ...creatorOwnedRehearsalPurposes,
 ]);
 
 @Injectable()
@@ -61,6 +68,7 @@ export class FilesService {
   async createUploadUrl(
     projectId: string,
     input: AssetUploadUrlRequest,
+    actorUserId: string,
     requestOrigin?: string | null,
   ): Promise<AssetUploadUrlResponse> {
     const project = await this.projectsService.getAccessibleProject(projectId);
@@ -82,6 +90,7 @@ export class FilesService {
     const asset = this.assetsRepository.create({
       fileId,
       projectId: project.projectId,
+      createdByUserId: actorUserId,
       storageKey,
       originalName: input.originalName,
       mimeType: input.mimeType,
@@ -113,6 +122,8 @@ export class FilesService {
     projectId: string,
     fileId: string,
     body: Uint8Array,
+    actorUserId: string,
+    expectedPurpose?: FilePurpose,
   ): Promise<void> {
     await this.projectsService.getAccessibleProject(projectId);
 
@@ -124,8 +135,10 @@ export class FilesService {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
-    if (asset.projectId !== projectId) {
-      throw new ForbiddenException("Project asset access denied");
+    this.assertAssetBoundary(asset, projectId, actorUserId);
+
+    if (expectedPurpose && asset.purpose !== expectedPurpose) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
     if (asset.status !== "pending") {
@@ -154,6 +167,7 @@ export class FilesService {
   async completeUpload(
     projectId: string,
     input: CompleteAssetUploadRequest,
+    actorUserId: string,
     expectedPurpose?: FilePurpose,
   ): Promise<UploadedFile> {
     await this.projectsService.getAccessibleProject(projectId);
@@ -166,13 +180,13 @@ export class FilesService {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
 
-    if (asset.projectId !== projectId) {
-      throw new ForbiddenException("Project asset access denied");
-    }
+    this.assertAssetBoundary(asset, projectId, actorUserId);
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+      (!expectedPurpose &&
+        privateAudioPurposes.has(asset.purpose) &&
+        !creatorOwnedRehearsalPurposes.has(asset.purpose as FilePurpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -196,6 +210,7 @@ export class FilesService {
     projectId: string,
     fileId: string,
     purpose?: FilePurpose,
+    actorUserId?: string,
   ): Promise<ProjectAssetEntity> {
     await this.projectsService.getAccessibleProject(projectId);
 
@@ -207,19 +222,24 @@ export class FilesService {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
-    if (asset.projectId !== projectId) {
-      throw new ForbiddenException("Project asset access denied");
-    }
+    this.assertAssetBoundary(asset, projectId, actorUserId);
 
     if (asset.status !== "uploaded") {
       throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
     }
 
     if (purpose && asset.purpose !== purpose) {
+      if (creatorOwnedRehearsalPurposes.has(purpose)) {
+        throw new NotFoundException(`Asset not found: ${fileId}`);
+      }
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
     }
 
-    if (!purpose && privateAudioPurposes.has(asset.purpose)) {
+    if (
+      !purpose &&
+      privateAudioPurposes.has(asset.purpose) &&
+      !creatorOwnedRehearsalPurposes.has(asset.purpose as FilePurpose)
+    ) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
@@ -230,7 +250,9 @@ export class FilesService {
     const head = await this.storage.headObject(asset.storageKey);
 
     if (!head) {
-      throw new NotFoundException(`Asset not found in storage: ${asset.fileId}`);
+      throw new NotFoundException(
+        `Asset not found in storage: ${asset.fileId}`,
+      );
     }
 
     if (head.contentLength !== asset.size) {
@@ -250,6 +272,7 @@ export class FilesService {
     projectId: string,
     fileId: string,
     purpose?: FilePurpose,
+    actorUserId?: string,
   ): Promise<string> {
     await this.projectsService.getAccessibleProject(projectId);
 
@@ -261,9 +284,7 @@ export class FilesService {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
-    if (asset.projectId !== projectId) {
-      throw new ForbiddenException("Project asset access denied");
-    }
+    this.assertAssetBoundary(asset, projectId, actorUserId);
 
     if (purpose && asset.purpose !== purpose) {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
@@ -271,7 +292,9 @@ export class FilesService {
 
     if (asset.status === "deleted") {
       if (!asset.deletedAt) {
-        throw new NotFoundException(`Asset is deleted without deletion time: ${fileId}`);
+        throw new NotFoundException(
+          `Asset is deleted without deletion time: ${fileId}`,
+        );
       }
 
       return asset.deletedAt.toISOString();
@@ -300,7 +323,9 @@ export class FilesService {
     });
 
     return assets
-      .filter((asset) => !privateAudioPurposes.has(asset.purpose))
+      .filter(
+        (asset) => !privateAssetPurposes.has(asset.purpose as FilePurpose),
+      )
       .map((asset) => this.toUploadedFile(asset));
   }
 
@@ -308,11 +333,20 @@ export class FilesService {
     projectId: string,
     fileId: string,
     purpose?: FilePurpose,
+    actorUserId?: string,
   ): Promise<{ body: Buffer; contentType: string }> {
-    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const asset = await this.getUploadedAsset(
+      projectId,
+      fileId,
+      purpose,
+      actorUserId,
+    );
     const assetPurpose = filePurposeSchema.parse(asset.purpose);
 
-    if (!publicAssetContentPurposes.has(assetPurpose)) {
+    if (
+      !publicAssetContentPurposes.has(assetPurpose) &&
+      !creatorOwnedRehearsalPurposes.has(assetPurpose)
+    ) {
       throw new NotFoundException(`Asset content unavailable: ${fileId}`);
     }
 
@@ -339,6 +373,27 @@ export class FilesService {
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
     return `projects/${projectId}/assets/${fileId}-${safeName}`;
+  }
+
+  private assertAssetBoundary(
+    asset: ProjectAssetEntity,
+    projectId: string,
+    actorUserId?: string,
+  ): void {
+    if (creatorOwnedRehearsalPurposes.has(asset.purpose as FilePurpose)) {
+      if (
+        asset.projectId !== projectId ||
+        !actorUserId ||
+        asset.createdByUserId !== actorUserId
+      ) {
+        throw new NotFoundException(`Asset not found: ${asset.fileId}`);
+      }
+      return;
+    }
+
+    if (asset.projectId !== projectId) {
+      throw new ForbiddenException("Project asset access denied");
+    }
   }
 
   // 환경에 따라 local API proxy URL 또는 S3 presigned URL을 선택한다.
@@ -377,7 +432,10 @@ export class FilesService {
     fileId: string,
     requestOrigin?: string | null,
   ): string {
-    const origin = (requestOrigin ?? this.uploadProxyOrigin ?? "").replace(/\/+$/, "");
+    const origin = (requestOrigin ?? this.uploadProxyOrigin ?? "").replace(
+      /\/+$/,
+      "",
+    );
     return `${origin}/api/v1/projects/${encodeURIComponent(
       projectId,
     )}/assets/${encodeURIComponent(fileId)}/content`;

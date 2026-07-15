@@ -202,9 +202,9 @@ export async function resetCoachingDemo() {
       const runId = "run_demo_coaching_baseline";
       const goalSetId = "goalset_demo_coaching_baseline";
       const rehearsalReport = createDemoRehearsalReport(deck, runId);
-      await manager.query(`INSERT INTO rehearsal_runs (run_id,project_id,deck_id,status,error,created_at,updated_at,transcript_retained,meta_json,deck_version,evaluation_snapshot_json,semantic_evaluation_mode,analysis_revision,analysis_finalized_at,report_json)
-        VALUES ($1,$2,$3,'succeeded',NULL,now(),now(),false,'{}'::jsonb,$4,$5,'full',1,now(),$6) ON CONFLICT (run_id) DO UPDATE SET status='succeeded',deck_version=EXCLUDED.deck_version,evaluation_snapshot_json=EXCLUDED.evaluation_snapshot_json,analysis_revision=1,analysis_finalized_at=now(),report_json=EXCLUDED.report_json,updated_at=now()`,
-        [runId,config.DEMO_PROJECT_ID,config.DEMO_DECK_ID,deck.version,evaluationSnapshot,rehearsalReport]);
+      await manager.query(`INSERT INTO rehearsal_runs (run_id,project_id,created_by_user_id,deck_id,status,error,created_at,updated_at,transcript_retained,meta_json,deck_version,evaluation_snapshot_json,semantic_evaluation_mode,analysis_revision,analysis_finalized_at,report_json)
+        VALUES ($1,$2,$3,$4,'succeeded',NULL,now(),now(),false,'{}'::jsonb,$5,$6,'full',1,now(),$7) ON CONFLICT (run_id) DO UPDATE SET created_by_user_id=EXCLUDED.created_by_user_id,status='succeeded',deck_version=EXCLUDED.deck_version,evaluation_snapshot_json=EXCLUDED.evaluation_snapshot_json,analysis_revision=1,analysis_finalized_at=now(),report_json=EXCLUDED.report_json,updated_at=now()`,
+        [runId,config.DEMO_PROJECT_ID,config.DEMO_USER_ID,config.DEMO_DECK_ID,deck.version,evaluationSnapshot,rehearsalReport]);
       await manager.query(`INSERT INTO practice_goal_sets (goal_set_id,project_id,source_full_run_id,revision,source_analysis_revision,derivation_version,analysis_state,data_origin,created_at) VALUES ($1,$2,$3,1,1,1,'final','fixture',now())`, [goalSetId,config.DEMO_PROJECT_ID,runId]);
       const slides = deck.slides.slice(0,3);
       for (let index=0;index<3;index+=1) {

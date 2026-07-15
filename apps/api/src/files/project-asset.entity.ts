@@ -17,6 +17,9 @@ export class ProjectAssetEntity {
   @Column({ name: "project_id", type: "text" })
   projectId!: string;
 
+  @Column({ name: "created_by_user_id", nullable: true, type: "text" })
+  createdByUserId!: string | null;
+
   @Column({ name: "storage_key", type: "text" })
   storageKey!: string;
 

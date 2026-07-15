@@ -50,4 +50,24 @@ describe("PresentationMenu", () => {
       "disabled",
     );
   });
+
+  it("리허설 준비 상태를 보조 기술에 알린다", () => {
+    const html = renderToStaticMarkup(
+      <PresentationMenu
+        activeStartAction="rehearsal"
+        canOpenAudienceLink
+        canStartPresentation={false}
+        isOpen={false}
+        onOpenAudienceLink={vi.fn()}
+        onStartPresentation={vi.fn()}
+        onStartRehearsal={vi.fn()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const button = getButtonTag(html, 'class="editor-rehearsal-button"');
+    expect(button).toContain('aria-busy="true"');
+    expect(button).toContain('aria-live="polite"');
+    expect(html).toContain("준비 중");
+  });
 });

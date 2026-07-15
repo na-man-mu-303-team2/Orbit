@@ -31,6 +31,8 @@ export function PresentationMenu(props: PresentationMenuProps) {
   return (
     <>
       <button
+        aria-busy={activeStartAction === "rehearsal"}
+        aria-live="polite"
         className="editor-rehearsal-button"
         disabled={!canStartPresentation}
         type="button"

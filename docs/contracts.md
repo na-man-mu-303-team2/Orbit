@@ -1083,6 +1083,15 @@ OpenAI Realtime client secret API:
 
 리포트용 리허설 녹음은 run 단위로 생성하고, 현재 구현된 upload-url 기반 `rehearsal-audio` 업로드가 완료된 뒤 `rehearsal-stt` Job을 시작한다. 이 계약은 실시간 발표 제어용 Live STT 계약이 아니다.
 
+개인 리허설 소유권 규칙:
+
+- accepted project Owner, Editor, Viewer는 개인 리허설 Run을 생성할 수 있다.
+- Run과 그 list, summary, report, comparison, meta 및 retry/cancel 같은 read/write 결과는 project 역할과 관계없이 `createdByUserId`가 현재 사용자와 같은 경우에만 접근할 수 있다.
+- `rehearsal-audio`와 `rehearsal-slide-snapshot`은 생성자 소유 private asset이다. 다른 사용자의 `runId` 또는 `fileId` 접근은 존재 여부를 숨기기 위해 HTTP 404로 응답한다.
+- 일반 project asset의 기존 read/write 권한은 완화하지 않는다. Viewer 예외는 본인이 생성한 개인 리허설 private asset 흐름에만 적용한다.
+- legacy Run과 기존 private rehearsal asset은 실제 생성자를 복원할 수 없으므로 해당 project의 `projects.created_by`를 생성자로 backfill한다.
+- 로그와 Job payload에는 raw audio, transcript 원문, 발표자 script, signed URL, storage key 또는 파일 bytes를 기록하지 않는다. 추적에는 `runId`, `fileId`, `projectId`, `userId` 같은 식별자만 사용한다.
+
 Run 상태:
 
 - `created`
@@ -1098,6 +1107,7 @@ Run 응답 구조:
 {
   "runId": "run_1",
   "projectId": "project_demo_1",
+  "createdByUserId": "user_demo_1",
   "deckId": "deck_demo_1",
   "audioFileId": "file_audio_1",
   "jobId": "job_1",
@@ -1295,14 +1305,14 @@ Report 응답 구조:
 - raw audio 삭제 성공은 `rawAudioDeletedAt`과 `project_assets.status=deleted`, `deleted_at`으로 남긴다.
 - 삭제 실패는 `RAW_AUDIO_DELETE_FAILED` error로 run/job 양쪽에 남긴다.
 - 공식 보고서 원본은 `jobs.result`가 아니라 `rehearsal_runs.report_json`이다.
-- `full` run은 생성 시점의 materialized deck으로 owner-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, run-scoped `thumbnailUrl`, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
+- `full` run은 생성 시점의 materialized deck으로 creator-only `evaluationSnapshot`을 저장한다. snapshot에는 slide identity/order/title/estimatedSeconds, run-scoped `thumbnailUrl`, keyword 요약, `approved/excluded` Semantic Cue만 포함하고 `speakerNotes`, elements, transcript, raw audio는 포함하지 않는다.
 - 에디터 썸네일은 현재 Deck JSON을 렌더링한 browser-memory Blob URL이며 Deck patch/version 또는 `project_assets`를 생성하지 않는다. 영속 이미지는 리허설 시작 준비 시에만 `rehearsal-slide-snapshot`으로 업로드하고 리포트는 현재 Deck의 `thumbnailUrl`보다 run snapshot URL을 우선한다.
 - `freshness=stale`인 reviewed cue도 snapshot에 유지해 최종 결과를 `unmeasured(stale_cue)`로 설명할 수 있게 한다.
 - snapshot은 생성 후 수정하지 않는다. `deckVersion`과 cue `revision`은 해당 run의 immutable 평가 기준이다.
 - `delivery-only`와 legacy run은 `deckVersion=null`, `evaluationSnapshot=null`이며 Semantic Cue 최종 평가는 각각 `evaluation_snapshot_mismatch`, `evaluation_not_run`으로 구분한다.
 - 기본 run 목록은 `cancelled`를 제외한다. processing이 시작된 run은 cancel할 수 없다.
 - `transcript_retained` 기본값은 `false`이며, `false`일 때 `report.transcript`는 반드시 `null`이다.
-- `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
+- `GET /api/v1/rehearsals/:runId/report` 접근은 accepted project membership과 Run creator ownership을 모두 검사한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 - `score`, `deliveryScore`, `speedScore`처럼 산식이 확정되지 않은 점수 필드는 `RehearsalReport`에 저장하지 않는다.
 - public report는 기존 `durationSeconds`, `wordsPerMinute`, `fillerWordCount`, `pauseCount`, `keywordCoverage` 숫자 필드를 유지하고 `charactersPerMinute`, `measurements`, `sttQualityGate`, `analysisCapabilities`, `pauseV2Details`를 additive field로 제공한다.
@@ -1315,7 +1325,7 @@ Report 응답 구조:
 
 ### 리허설 회차 비교와 브리핑 계약
 
-`RehearsalRunComparison`은 owner-only report 파생 응답이며 별도 DB 원본으로 저장하지 않는다.
+`RehearsalRunComparison`은 creator-only report 파생 응답이며 별도 DB 원본으로 저장하지 않는다. 비교 기준이 되는 직전 Run도 같은 `createdByUserId` 범위에서만 선택한다.
 
 ```json
 {
