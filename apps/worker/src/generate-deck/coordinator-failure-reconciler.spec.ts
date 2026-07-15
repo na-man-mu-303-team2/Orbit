@@ -20,6 +20,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 1,
       resumed: 0,
       removed: 1,
+      terminalJobs: [],
       nextCursor: emptyCursor(),
     });
 
@@ -54,6 +55,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 0,
       resumed: 0,
       removed: 0,
+      terminalJobs: [],
       nextCursor: emptyCursor(),
     });
 
@@ -78,6 +80,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 0,
       resumed: 0,
       removed: 0,
+      terminalJobs: [],
       nextCursor: emptyCursor(),
     });
 
@@ -103,12 +106,56 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 0,
       resumed: 1,
       removed: 1,
+      terminalJobs: [],
       nextCursor: emptyCursor(),
     });
 
     expect(resume).toHaveBeenCalledWith(expect.anything(), stalled.data);
     expect(recover).not.toHaveBeenCalled();
     expect(stalled.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a failed resumed parent even when failed-job cleanup is retried", async () => {
+    const cleanupError = new Error("redis cleanup unavailable");
+    const stalled = failedCoordinatorJob({ attemptsMade: 1 });
+    stalled.remove.mockRejectedValueOnce(cleanupError);
+    const queue = failedQueue(stalled);
+    const terminalJob = failedParentJob();
+    const onError = vi.fn();
+
+    await expect(
+      reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+        redisUrl: "redis://localhost:6379",
+        queueFactory: () => queue,
+        resume: vi.fn(async () => terminalJob),
+        onError,
+      }),
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 0,
+      resumed: 1,
+      removed: 0,
+      terminalJobs: [terminalJob],
+      nextCursor: emptyCursor(),
+    });
+
+    expect(onError).toHaveBeenCalledWith(cleanupError, stalled);
+  });
+
+  it("does not report a succeeded resumed parent as a terminal failure", async () => {
+    const stalled = failedCoordinatorJob({ attemptsMade: 1 });
+
+    await expect(
+      reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+        redisUrl: "redis://localhost:6379",
+        queueFactory: () => failedQueue(stalled),
+        resume: vi.fn(async () => succeededParentJob()),
+      }),
+    ).resolves.toMatchObject({
+      resumed: 1,
+      removed: 1,
+      terminalJobs: [],
+    });
   });
 
   it.each([
@@ -165,6 +212,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 0,
       resumed: 0,
       removed: 0,
+      terminalJobs: [],
       nextCursor: {
         redisCursor: "17",
         pendingJobIds: [coordinator.id],
@@ -184,6 +232,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 1,
       resumed: 0,
       removed: 1,
+      terminalJobs: [],
       nextCursor: { redisCursor: "17", pendingJobIds: [] },
     });
 
@@ -296,6 +345,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 1,
       resumed: 0,
       removed: 1,
+      terminalJobs: [],
       nextCursor: emptyCursor(),
     });
 
@@ -328,6 +378,29 @@ function runningParentJob() {
     error: null,
     createdAt: "2026-07-15T01:00:00.000Z",
     updatedAt: "2026-07-15T01:00:00.000Z",
+  };
+}
+
+function failedParentJob() {
+  return {
+    ...runningParentJob(),
+    status: "failed" as const,
+    message: "AI deck generation failed.",
+    error: {
+      code: "SOURCE_GROUNDING_REQUIRED",
+      message: "The selected reference policy requires usable grounding.",
+      failedStage: "reference-extract-file",
+      retryable: false,
+    },
+  };
+}
+
+function succeededParentJob() {
+  return {
+    ...runningParentJob(),
+    status: "succeeded" as const,
+    progress: 100,
+    message: "AI deck generation succeeded.",
   };
 }
 

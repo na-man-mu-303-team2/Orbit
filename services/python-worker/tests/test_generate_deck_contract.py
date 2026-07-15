@@ -258,6 +258,30 @@ def test_generate_deck_request_rejects_invalid_contract_fields(
         GenerateDeckRequest.model_validate(payload)
 
 
+def test_generate_deck_request_rejects_more_than_ten_reference_file_ids() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckRequest.model_validate(
+            {
+                "projectId": "project_reference_limit",
+                "topic": "Reference selector limit",
+                "referenceFileIds": [f"file_{index}" for index in range(11)],
+            }
+        )
+
+
+def test_generate_deck_request_rejects_more_than_ten_references() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckRequest.model_validate(
+            {
+                "projectId": "project_reference_limit",
+                "topic": "Reference selector limit",
+                "references": [
+                    {"fileId": f"file_{index}"} for index in range(11)
+                ],
+            }
+        )
+
+
 def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
     diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
 

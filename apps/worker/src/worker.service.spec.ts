@@ -47,6 +47,7 @@ const maintenance = vi.hoisted(() => ({
     recovered: 0,
     resumed: 0,
     removed: 0,
+    terminalJobs: [] as Job[],
     nextCursor: { redisCursor: "0", pendingJobIds: [] },
   })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
@@ -312,6 +313,65 @@ describe("WorkerService queue subscriptions", () => {
     ]);
   });
 
+  it("logs a failed stalled-coordinator resume only after it commits", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const terminalJob: Job = {
+      ...orbitJob("failed"),
+      result: { privateArtifact: "must-not-be-logged" },
+      error: {
+        code: "SOURCE_GROUNDING_REQUIRED",
+        message: "The selected reference policy requires usable grounding.",
+        failedStage: "reference-extract-file",
+        retryable: false,
+      },
+    };
+    let resolveReconciliation!: (result: {
+      scanned: number;
+      recovered: number;
+      resumed: number;
+      removed: number;
+      terminalJobs: Job[];
+      nextCursor: { redisCursor: string; pendingJobIds: string[] };
+    }) => void;
+    maintenance.coordinator.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReconciliation = resolve;
+        }),
+    );
+    const { service, logger } = createService();
+
+    service.onModuleInit();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(maintenance.coordinator).toHaveBeenCalledTimes(1);
+    expect(failedJobLogCalls(logger)).toEqual([]);
+
+    resolveReconciliation({
+      scanned: 1,
+      recovered: 0,
+      resumed: 1,
+      removed: 1,
+      terminalJobs: [terminalJob],
+      nextCursor: { redisCursor: "0", pendingJobIds: [] },
+    });
+    await service.onModuleDestroy();
+
+    expect(failedJobLogCalls(logger)).toEqual([
+      [
+        {
+          event: "job.failed",
+          jobId: terminalJob.jobId,
+          jobType: terminalJob.type,
+          projectId: terminalJob.projectId,
+          status: terminalJob.status,
+          error: terminalJob.error,
+        },
+        "Job finished.",
+      ],
+    ]);
+  });
+
   it("limits a dedicated reference worker to coordinator and OCR queues", async () => {
     configState.AI_DECK_EXECUTION_MODE = "bullmq";
     configState.AI_DECK_WORKER_QUEUE = "reference-extract";
@@ -495,6 +555,18 @@ function createService() {
       warn: ReturnType<typeof vi.fn>;
     },
   };
+}
+
+function failedJobLogCalls(logger: {
+  error: ReturnType<typeof vi.fn>;
+}) {
+  return logger.error.mock.calls.filter(
+    ([fields]) =>
+      typeof fields === "object" &&
+      fields !== null &&
+      "event" in fields &&
+      fields.event === "job.failed",
+  );
 }
 
 function orbitJob(
