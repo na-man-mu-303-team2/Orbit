@@ -69,6 +69,13 @@ export class CreateAiDeckReferenceExtractionArtifacts2026071503000
       DROP INDEX IF EXISTS idx_ai_deck_reference_artifacts_pipeline_usable
     `);
     await queryRunner.query(`
+      UPDATE ai_deck_generation_stages
+      SET result_ref_json = NULL,
+          updated_at = now()
+      WHERE stage = 'reference-extract-file'
+        AND result_ref_json ? 'referenceExtractionArtifactId'
+    `);
+    await queryRunner.query(`
       DROP TABLE IF EXISTS ai_deck_reference_extraction_artifacts
     `);
     await queryRunner.query(`
