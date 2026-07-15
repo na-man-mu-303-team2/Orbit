@@ -479,14 +479,14 @@ flowchart TB
 
 ### 338-1 병합 전 증거 체크리스트
 
-- [ ] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 staged enqueue만 ID-only coordinator payload를 사용하는 contract test
-- [ ] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
-- [ ] OCR skip, uncovered file dedupe, 파일별 fan-out, `research-first`·`references-first`·`references-only` policy join test
-- [ ] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
-- [ ] initial 포함 총 5 attempts, shard-only retry, heartbeat, lease fencing, expired-lease reconciler test
-- [ ] BullMQ `waiting`·`delayed`·`prioritized`만 `dispatched_at`을 기록하고 duplicate enqueue·crash 복구가 가능한 durable dispatch test
-- [ ] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
-- [ ] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
+- [x] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 staged enqueue만 ID-only coordinator payload를 사용하는 contract test
+- [x] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
+- [x] OCR skip, uncovered file dedupe, 파일별 fan-out, `research-first`·`references-first`·`references-only` policy join test
+- [x] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
+- [x] initial 포함 총 5 attempts, shard-only retry, heartbeat, lease fencing, expired-lease reconciler test
+- [x] BullMQ `waiting`·`delayed`·`prioritized`만 `dispatched_at`을 기록하고 duplicate enqueue·crash 복구가 가능한 durable dispatch test
+- [x] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
+- [x] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
 - [ ] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
 
 ### #338 전체 완료 조건
