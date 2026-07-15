@@ -1,5 +1,6 @@
 import {
   enqueueGenerateDeckJob,
+  retryAiDeckStagedCoordinatorJob,
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
 import {
@@ -161,6 +162,37 @@ export class GenerateDeckService {
           : "Python worker returned invalid color options."
       );
     }
+  }
+
+  async retryJob(projectId: string, jobId: string) {
+    if (this.config.AI_DECK_EXECUTION_MODE !== "bullmq") {
+      throw new ServiceUnavailableException(
+        "AI deck stage retry requires bullmq execution mode."
+      );
+    }
+    const retried = await this.jobsService.retryAiDeckGeneration(projectId, jobId);
+    if (retried.restartCoordinator) {
+      try {
+        await retryAiDeckStagedCoordinatorJob({
+          redisUrl: this.config.REDIS_URL,
+          jobId,
+          projectId
+        });
+      } catch (error) {
+        await this.jobsService.update(jobId, {
+          status: "failed",
+          message: "AI deck generation retry enqueue failed.",
+          error: {
+            code: "AI_DECK_COORDINATOR_RETRY_ENQUEUE_FAILED",
+            message: "AI deck staged coordinator retry could not be enqueued.",
+            failedStage: "reference-extract-file",
+            retryable: true
+          }
+        });
+        throw error;
+      }
+    }
+    return { job: retried.job };
   }
 
   private async assertOfficialAssets(

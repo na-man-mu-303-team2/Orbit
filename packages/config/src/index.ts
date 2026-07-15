@@ -235,7 +235,7 @@ export const orbitEnvSchema = z.object({
   S3_SECRET_ACCESS_KEY: optionalString,
   S3_FORCE_PATH_STYLE: booleanStringSchema.default(true),
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
-  AI_DECK_EXECUTION_MODE: aiDeckExecutionModeSchema.default("monolith"),
+  AI_DECK_EXECUTION_MODE: aiDeckExecutionModeSchema.default("bullmq"),
   AI_DECK_WORKER_QUEUE: aiDeckWorkerQueueSchema.default("all"),
   LIVE_STT_PROVIDER: liveSttProviderSchema,
   LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
