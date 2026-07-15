@@ -287,7 +287,8 @@ function createJob(
   type:
     | "pptx-ooxml-sync"
     | "deck-export"
-    | "semantic-cue-extraction" = "pptx-ooxml-sync",
+    | "semantic-cue-extraction"
+    | "speaker-notes-suggestion" = "pptx-ooxml-sync",
 ) {
   return jobSchema.parse({
     jobId,
@@ -1339,6 +1340,91 @@ describe("DecksService", () => {
       ),
     ).toBe(true);
     expect(enqueueSyncJob).not.toHaveBeenCalled();
+  });
+
+  it("creates a speaker notes suggestion job with IDs only", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const suggestionJob = createJob(
+      "job_speaker_notes_1",
+      "speaker-notes-suggestion",
+    );
+    const jobsService = {
+      create: vi.fn(async () => suggestionJob),
+      update: vi.fn(),
+    };
+    const enqueueSuggestion = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      undefined,
+      undefined,
+      undefined,
+      createLogger(),
+      enqueueSuggestion,
+    );
+
+    await service.putDeck(deck.projectId, { deck });
+    const response = await service.createSpeakerNotesSuggestionJob(
+      deck.projectId,
+      {
+        deckId: deck.deckId,
+        slideId: deck.slides[0]!.slideId,
+        baseVersion: deck.version,
+        mode: "draft",
+      },
+    );
+
+    expect(response.job.jobId).toBe(suggestionJob.jobId);
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "speaker-notes-suggestion",
+      payload: {
+        request: {
+          deckId: deck.deckId,
+          slideId: deck.slides[0]!.slideId,
+          baseVersion: deck.version,
+          mode: "draft",
+        },
+      },
+    });
+    expect(enqueueSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: suggestionJob.jobId,
+        projectId: deck.projectId,
+        request: {
+          deckId: deck.deckId,
+          slideId: deck.slides[0]!.slideId,
+          baseVersion: deck.version,
+          mode: "draft",
+        },
+      }),
+    );
+    expect(JSON.stringify(enqueueSuggestion.mock.calls)).not.toContain(
+      "speakerNotes",
+    );
+  });
+
+  it("rejects a refinement mode when speaker notes are empty", async () => {
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const jobsService = { create: vi.fn(), update: vi.fn() };
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    await expect(
+      service.createSpeakerNotesSuggestionJob(deck.projectId, {
+        deckId: deck.deckId,
+        slideId: deck.slides[0]!.slideId,
+        baseVersion: deck.version,
+        mode: "naturalize",
+      }),
+    ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+    expect(jobsService.create).not.toHaveBeenCalled();
   });
 
   it("restores a snapshot into the current deck", async () => {

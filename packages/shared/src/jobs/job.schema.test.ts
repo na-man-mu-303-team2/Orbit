@@ -54,6 +54,15 @@ describe("jobTypeSchema", () => {
     );
   });
 
+  it("accepts speaker notes suggestions without exposing generic creation", () => {
+    expect(activeJobTypeSchema.parse("speaker-notes-suggestion")).toBe(
+      "speaker-notes-suggestion"
+    );
+    expect(
+      publicCreatableJobTypeSchema.safeParse("speaker-notes-suggestion").success
+    ).toBe(false);
+  });
+
   it("accepts internal coaching jobs but never exposes them as public create types", () => {
     for (const type of internalCoachingJobTypeSchema.options) {
       expect(jobTypeSchema.parse(type)).toBe(type);

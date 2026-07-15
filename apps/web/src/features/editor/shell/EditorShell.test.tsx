@@ -465,21 +465,25 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(deck.title);
-    expect(html).toContain("Opening");
     expect(html).toContain("차트");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
-    expect(html).toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
-    expect(html).toContain("현재 슬라이드 · <!-- -->Opening");
+    expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
+    expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
     expect(html).toContain("메모 편집");
-    expect(html).toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
+    expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
-    expect(html).toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
+    expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
+    expect(html.indexOf("script-keyword-section")).toBeLessThan(
+      html.indexOf("speaker-notes-length-meter"),
+    );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 도구");
+    expect(html).not.toContain("ID 표시");
+    expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
@@ -2288,7 +2292,6 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("ORBIT Demo Deck");
-    expect(html).toContain("Opening");
     expect(html).toContain("불러오는 중");
     expect(html).not.toContain("덱을 불러오는 중");
   });

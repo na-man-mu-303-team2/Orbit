@@ -40,7 +40,7 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 
 ### Typography
 
-- Font family: `Pretendard`, `Inter`, system sans-serif 순서.
+- Font family: 앱에 번들된 `Pretendard` variable webfont(45–920). 플랫폼 설치 폰트는 사용하지 않는다.
 - Display: 86px, 650, line-height 0.98, letter-spacing -0.055em.
 - Title: 64px, 620, line-height 1.05, letter-spacing -0.045em.
 - Page title: 36–48px, 620, line-height 1.1, letter-spacing -0.04em.
