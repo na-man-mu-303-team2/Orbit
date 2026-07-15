@@ -168,6 +168,7 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
     layout = run_layout_compile_stage(
         LayoutCompileStageInput(
             rawInput=content.raw_input,
+            contentPlan=content.content_plan,
             designPlan=design.design_plan,
         )
     )
@@ -175,3 +176,5 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
     assert content.content_plan.slide_count == len(content.content_plan.slide_plans)
     assert len(design.design_plan.design_program.slides) == content.content_plan.slide_count
     assert len(layout.layout_result.slides) == content.content_plan.slide_count
+    assert len(layout.visual_requirements.items) == content.content_plan.slide_count
+    assert len(layout.worker_payload.deck["slides"]) == content.content_plan.slide_count

@@ -10,6 +10,7 @@ import {
   aiDeckResearchContentQueueName,
   enqueueAiDeckGenerationStageJob,
   enqueueGenerateDeckJob,
+  retryAiDeckStagedCoordinatorJob,
   enqueueSemanticCueExtractionJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
@@ -161,6 +162,27 @@ describe("AI Deck staged BullMQ transport", () => {
     );
   });
 
+  it("removes a failed coordinator entry before explicit retry", async () => {
+    const remove = vi.fn(async () => undefined);
+    queueMock.getJob.mockResolvedValueOnce({
+      getState: vi.fn(async () => "failed"),
+      remove
+    });
+
+    await retryAiDeckStagedCoordinatorJob({
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-ai-deck-1",
+      projectId: "project-a"
+    });
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(queueMock.add).toHaveBeenCalledWith(
+      "generate-deck-staged-coordinator",
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+      expect.objectContaining({ jobId: "job-ai-deck-1", removeOnFail: false })
+    );
+  });
+
   it("preserves the full monolith payload when executionMode is omitted", async () => {
     const request = generateDeckRequestSchema.parse({ topic: "monolith" });
 
@@ -199,6 +221,7 @@ describe("AI Deck staged BullMQ transport", () => {
 const queueMock = vi.hoisted(() => ({
   add: vi.fn(),
   close: vi.fn(),
+  getJob: vi.fn(),
   getState: vi.fn(),
   Queue: vi.fn()
 }));
@@ -210,6 +233,7 @@ vi.mock("bullmq", () => ({
 beforeEach(() => {
   queueMock.add.mockReset();
   queueMock.close.mockReset();
+  queueMock.getJob.mockReset();
   queueMock.getState.mockReset();
   queueMock.Queue.mockReset();
   queueMock.getState.mockResolvedValue("waiting");
@@ -220,7 +244,8 @@ beforeEach(() => {
   queueMock.close.mockResolvedValue(undefined);
   queueMock.Queue.mockImplementation(() => ({
     add: queueMock.add,
-    close: queueMock.close
+    close: queueMock.close,
+    getJob: queueMock.getJob
   }));
 });
 

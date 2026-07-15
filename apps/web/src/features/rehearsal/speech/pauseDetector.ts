@@ -30,6 +30,7 @@ export function createPauseDetector(options: {
   const pauseMs = Math.max(1, Math.trunc(options.pauseMs));
   let isPaused = false;
   let isSilent = false;
+  let hasAudioLevelEvidence = false;
   let lastTranscriptActivityAtMs: number | null = null;
   let silenceStartedAtMs: number | null = null;
 
@@ -58,6 +59,7 @@ export function createPauseDetector(options: {
   }
 
   function acceptAudioLevel(atMs: number, rmsDb: number): PauseDetectorOutput[] {
+    hasAudioLevelEvidence = true;
     if (rmsDb <= options.config.silenceThresholdDb) {
       if (!isSilent) {
         isSilent = true;
@@ -78,6 +80,11 @@ export function createPauseDetector(options: {
 
   function acceptTranscriptActivity(atMs: number): PauseDetectorOutput[] {
     lastTranscriptActivityAtMs = atMs;
+    // Web Speech처럼 RMS를 제공하지 않는 엔진은 전사 무갱신을 휴지 후보로 사용한다.
+    if (!hasAudioLevelEvidence) {
+      isSilent = true;
+      silenceStartedAtMs = atMs;
+    }
     if (!isPaused) {
       return [];
     }
@@ -112,6 +119,7 @@ export function createPauseDetector(options: {
   function reset() {
     isPaused = false;
     isSilent = false;
+    hasAudioLevelEvidence = false;
     lastTranscriptActivityAtMs = null;
     silenceStartedAtMs = null;
   }

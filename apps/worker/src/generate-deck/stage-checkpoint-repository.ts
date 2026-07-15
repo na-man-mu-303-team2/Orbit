@@ -384,7 +384,8 @@ export class AiDeckGenerationStageCheckpointRepository {
             AND jobs.status IN ('queued','running')
             AND stages.stage IN (
               'reference-extract-file','source-grounding','content-planning',
-              'design-planning','layout-compile'
+              'design-planning','layout-compile','image-slide',
+              'semantic-quality','rendered-visual-quality','publication'
             )
             AND stages.status = 'queued'
             AND stages.dispatched_at <= now() - interval '15 minutes'
@@ -423,7 +424,8 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile'
+            'design-planning','layout-compile','image-slide',
+            'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'queued'
           AND stages.dispatched_at IS NULL
@@ -460,7 +462,8 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile'
+            'design-planning','layout-compile','image-slide',
+            'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'running'
           AND stages.lease_expires_at <= now()
@@ -512,12 +515,7 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.lease_expires_at <= now()
         RETURNING stages.*
       `,
-      messageParameters(
-        message,
-        observedAttempt,
-        retryError,
-        exhaustedError,
-      ),
+      messageParameters(message, observedAttempt, retryError, exhaustedError),
     );
     return checkpointFromQuery(rows);
   }

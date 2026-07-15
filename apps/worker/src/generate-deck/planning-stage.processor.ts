@@ -19,6 +19,7 @@ import {
   contentPlanningArtifactPayloadSchema,
   designPlanningArtifactPayloadSchema,
   isAiDeckPlanningStage,
+  layoutCompileArtifactPayloadSchema,
   sourceGroundingArtifactPayloadSchema,
   type AiDeckPlanningArtifactPayload,
   type AiDeckPlanningStage,
@@ -59,7 +60,9 @@ const parentJobRowSchema = z.object({
   updated_at: timestampSchema,
 });
 
-const nextStageByStage: Partial<Record<AiDeckPlanningStage, AiDeckPlanningStage>> = {
+const nextStageByStage: Partial<
+  Record<AiDeckPlanningStage, AiDeckPlanningStage>
+> = {
   "source-grounding": "content-planning",
   "content-planning": "design-planning",
   "design-planning": "layout-compile",
@@ -71,8 +74,7 @@ const progressByStage: Record<AiDeckPlanningStage, number> = {
   "layout-compile": 60,
 };
 
-export interface AiDeckPlanningStageProcessorOptions
-  extends AiDeckPlanningStagePythonClientOptions {
+export interface AiDeckPlanningStageProcessorOptions extends AiDeckPlanningStagePythonClientOptions {
   heartbeatIntervalMs?: number;
 }
 
@@ -160,7 +162,7 @@ export async function processAiDeckPlanningStage(
       message,
       claimed.leaseOwner,
       claimed.attempt,
-      { ...normalized, retryable: false },
+      normalized,
     );
   } finally {
     clearInterval(heartbeat);
@@ -192,7 +194,11 @@ async function buildStageInput(
       );
     }
     case "design-planning": {
-      const artifact = await artifacts.get(message, inputRef, "content-planning");
+      const artifact = await artifacts.get(
+        message,
+        inputRef,
+        "content-planning",
+      );
       return designPlanningStageInput(
         contentPlanningArtifactPayloadSchema.parse(artifact.payload),
       );
@@ -200,9 +206,11 @@ async function buildStageInput(
     case "layout-compile": {
       const design = await artifacts.get(message, inputRef, "design-planning");
       const content = await artifacts.getByStage(message, "content-planning");
+      const source = await artifacts.getByStage(message, "source-grounding");
       return layoutCompileStageInput(
         contentPlanningArtifactPayloadSchema.parse(content.payload),
         designPlanningArtifactPayloadSchema.parse(design.payload),
+        sourceGroundingArtifactPayloadSchema.parse(source.payload).warnings,
       );
     }
   }
@@ -227,7 +235,11 @@ async function loadGroundingRequest(
     [message.pipelineJobId, message.projectId],
   );
   const rawParent = firstQueryRow(parentRows);
-  if (!rawParent || typeof rawParent !== "object" || !("payload" in rawParent)) {
+  if (
+    !rawParent ||
+    typeof rawParent !== "object" ||
+    !("payload" in rawParent)
+  ) {
     throw new Error("AI deck generation parent job not found.");
   }
   const storedPayload = storedPayloadSchema.parse(rawParent.payload);
@@ -302,10 +314,66 @@ async function completeStage(
         { ...message, stage: nextStage },
         resultRef,
       );
-      if (!next) throw new Error("Next AI deck planning checkpoint was not created.");
+      if (!next)
+        throw new Error("Next AI deck planning checkpoint was not created.");
+    } else {
+      await ensureImageOrSemanticCheckpoints(
+        checkpoints,
+        message,
+        payload,
+        resultRef,
+      );
     }
-    return updateParentProgress(manager, message, progressByStage[message.stage]);
+    return updateParentProgress(
+      manager,
+      message,
+      progressByStage[message.stage],
+    );
   });
+}
+
+async function ensureImageOrSemanticCheckpoints(
+  checkpoints: AiDeckGenerationStageCheckpointRepository,
+  message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
+  payload: AiDeckPlanningArtifactPayload,
+  layoutReference: Record<string, unknown>,
+): Promise<void> {
+  if (message.stage !== "layout-compile") return;
+  const layout = layoutCompileArtifactPayloadSchema.parse(payload);
+  const visualRequirements = z
+    .object({
+      items: z.array(
+        z.object({
+          slideId: z.string().min(1),
+          visualPlan: z
+            .object({ imageNeeded: z.boolean().optional() })
+            .passthrough(),
+        }),
+      ),
+    })
+    .parse(layout.visualRequirements);
+  const slideIds = visualRequirements.items
+    .filter((item) => item.visualPlan.imageNeeded === true)
+    .map((item) => item.slideId);
+  const nextMessages =
+    slideIds.length > 0
+      ? slideIds.map((slideId) => ({
+          ...message,
+          stage: "image-slide" as const,
+          shardKey: slideId,
+        }))
+      : [
+          {
+            ...message,
+            stage: "semantic-quality" as const,
+            shardKey: "",
+          },
+        ];
+  for (const nextMessage of nextMessages) {
+    const next = await checkpoints.ensureQueued(nextMessage, layoutReference);
+    if (!next)
+      throw new Error("Next AI deck execution checkpoint was not created.");
+  }
 }
 
 async function failStageAndParent(
@@ -437,5 +505,7 @@ function firstQueryRow(queryResult: unknown): unknown | null {
 }
 
 function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }

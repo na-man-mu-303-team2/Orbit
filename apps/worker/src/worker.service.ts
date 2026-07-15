@@ -18,6 +18,8 @@ import {
   challengeQnaAnswerAnalysisQueueName,
   aiDeckResearchContentQueueName,
   aiDeckDesignLayoutQueueName,
+  aiDeckImageQueueName,
+  aiDeckQaFinalizeQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -35,6 +37,7 @@ import {
 } from "./generate-deck/coordinator-failure-reconciler";
 import { processAiDeckReferenceExtractionStage } from "./generate-deck/reference-extract-stage";
 import { processAiDeckPlanningStage } from "./generate-deck/planning-stage.processor";
+import { processAiDeckExecutionStage } from "./generate-deck/execution-stage.processor";
 import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher";
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
 import { reconcileExpiredAiDeckStageLeases } from "./generate-deck/stage-reconciler";
@@ -77,6 +80,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     challengeQnaAnswerAnalysisQueueName,
     aiDeckResearchContentQueueName,
     aiDeckDesignLayoutQueueName,
+    aiDeckImageQueueName,
+    aiDeckQaFinalizeQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
   private queueNames: string[] = [];
@@ -110,10 +115,12 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         "reference-extract",
         "research-content",
         "design-layout",
+        "image",
+        "qa-finalize",
       ].includes(this.config.AI_DECK_WORKER_QUEUE)
     ) {
       throw new Error(
-        `AI Deck worker role ${this.config.AI_DECK_WORKER_QUEUE} is not implemented in 338-2.`,
+        `AI Deck worker role ${this.config.AI_DECK_WORKER_QUEUE} is not implemented.`,
       );
     }
     if (
@@ -127,6 +134,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
     this.queueNames = this.aiDeckQueueNames();
     const storage = workerStorage();
+    const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
       void reconcileStorageDeletionOutbox(this.dataSource, storage).catch(
         (error) => {
@@ -223,7 +231,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
               storage,
               this.config.PYTHON_WORKER_URL,
               job.data,
-              createImageAssetRuntime(this.config),
+              imageRuntime,
               (event, fields) =>
                 this.logger.info(
                   { event, ...fields },
@@ -240,7 +248,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       {
         queueName: aiDeckResearchContentQueueName,
         handler: (job) => {
-          if (job.name !== "source-grounding" && job.name !== "content-planning") {
+          if (
+            job.name !== "source-grounding" &&
+            job.name !== "content-planning"
+          ) {
             throw new Error(`Unsupported BullMQ job name: ${job.name}`);
           }
           return processAiDeckPlanningStage(
@@ -262,6 +273,56 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.config.PYTHON_WORKER_URL,
             this.workerId,
             job.data,
+          );
+        },
+      },
+      {
+        queueName: aiDeckImageQueueName,
+        handler: (job) => {
+          if (job.name !== "image-slide") {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processAiDeckExecutionStage(
+            this.dataSource,
+            storage,
+            this.config.PYTHON_WORKER_URL,
+            this.workerId,
+            job.data,
+            imageRuntime,
+            {
+              eventLogger: (event, fields) =>
+                this.logger.info(
+                  { event, ...fields },
+                  "AI PPT generation event.",
+                ),
+            },
+          );
+        },
+      },
+      {
+        queueName: aiDeckQaFinalizeQueueName,
+        handler: (job) => {
+          if (
+            job.name !== "semantic-quality" &&
+            job.name !== "rendered-visual-quality" &&
+            job.name !== "publication"
+          ) {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processAiDeckExecutionStage(
+            this.dataSource,
+            storage,
+            this.config.PYTHON_WORKER_URL,
+            this.workerId,
+            job.data,
+            imageRuntime,
+            {
+              eventLogger: (event, fields) =>
+                this.logger.info(
+                  { event, ...fields },
+                  "AI PPT generation event.",
+                ),
+            },
           );
         },
       },
@@ -540,9 +601,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         data: job.data,
       });
       if (result.outcome === "ignored") return;
-      this.logTerminalFailures(
-        result.terminalJob ? [result.terminalJob] : [],
-      );
+      this.logTerminalFailures(result.terminalJob ? [result.terminalJob] : []);
       this.logger.warn(
         {
           event: "ai_deck.transport_failure.recovered",
@@ -706,6 +765,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         return [aiDeckResearchContentQueueName];
       case "design-layout":
         return [aiDeckDesignLayoutQueueName];
+      case "image":
+        return [aiDeckImageQueueName];
+      case "qa-finalize":
+        return [aiDeckQaFinalizeQueueName];
       default:
         return this.allQueueNames;
     }

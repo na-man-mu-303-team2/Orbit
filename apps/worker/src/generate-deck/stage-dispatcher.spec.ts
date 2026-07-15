@@ -34,7 +34,10 @@ describe("dispatchAiDeckGenerationStages", () => {
         }),
       ).resolves.toEqual({ scanned: 1, dispatched: 1 });
       expect(repository.recoverStaleDispatches).toHaveBeenCalledWith(100);
-      expect(repository.markDispatched).toHaveBeenCalledWith(referenceMessage, 2);
+      expect(repository.markDispatched).toHaveBeenCalledWith(
+        referenceMessage,
+        2,
+      );
     },
   );
 
@@ -95,7 +98,7 @@ describe("dispatchAiDeckGenerationStages", () => {
     expect(repository.markDispatched).toHaveBeenCalledWith(sourceMessage, 0);
   });
 
-  it("keeps later 338-3 stages undispatched", async () => {
+  it("dispatches 338-3 image checkpoints", async () => {
     const imageMessage: AiDeckGenerationStageMessage = {
       pipelineJobId: "job-ai-deck-1",
       projectId: "project-a",
@@ -107,9 +110,12 @@ describe("dispatchAiDeckGenerationStages", () => {
       listUndispatched: vi.fn(async () => [
         { message: imageMessage, attempt: 0 },
       ]),
-      markDispatched: vi.fn(),
+      markDispatched: vi.fn(async () => ({ status: "queued" })),
     };
-    const enqueue = vi.fn();
+    const enqueue = vi.fn(async () => ({
+      jobId: "job-ai-deck-1:image-slide:slide-a",
+      state: "waiting" as const,
+    }));
 
     await expect(
       dispatchAiDeckGenerationStages(repository, {
@@ -117,8 +123,10 @@ describe("dispatchAiDeckGenerationStages", () => {
         redisUrl: "redis://localhost:6379",
         enqueue,
       }),
-    ).resolves.toEqual({ scanned: 1, dispatched: 0 });
-    expect(enqueue).not.toHaveBeenCalled();
+    ).resolves.toEqual({ scanned: 1, dispatched: 1 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ message: imageMessage }),
+    );
   });
 
   it("leaves a failed send undispatched and continues with the next row", async () => {

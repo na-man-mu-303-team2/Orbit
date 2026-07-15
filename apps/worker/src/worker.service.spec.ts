@@ -7,6 +7,8 @@ import {
   referenceExtractQueueName,
   aiDeckResearchContentQueueName,
   aiDeckDesignLayoutQueueName,
+  aiDeckImageQueueName,
+  aiDeckQaFinalizeQueueName,
 } from "@orbit/job-queue";
 import type { Job } from "@orbit/shared";
 import type { PinoLogger } from "nestjs-pino";
@@ -40,9 +42,14 @@ const configState = vi.hoisted(() => ({
 const processors = vi.hoisted(() => ({
   generateDeck: vi.fn(async () => orbitJob("succeeded")),
   stagedCoordinator: vi.fn(async () => orbitJob("running")),
-  referenceExtract: vi.fn(async () => orbitJob("succeeded", "reference-extract")),
-  referenceExtractStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
+  referenceExtract: vi.fn(async () =>
+    orbitJob("succeeded", "reference-extract"),
+  ),
+  referenceExtractStage: vi.fn<() => Promise<Job | void>>(
+    async () => undefined,
+  ),
   planningStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
+  executionStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
 }));
 
 const maintenance = vi.hoisted(() => ({
@@ -107,6 +114,9 @@ vi.mock("./generate-deck/reference-extract-stage", () => ({
 vi.mock("./generate-deck/planning-stage.processor", () => ({
   processAiDeckPlanningStage: processors.planningStage,
 }));
+vi.mock("./generate-deck/execution-stage.processor", () => ({
+  processAiDeckExecutionStage: processors.executionStage,
+}));
 vi.mock("./generate-deck/stage-dispatcher", () => ({
   dispatchAiDeckGenerationStages: maintenance.dispatch,
 }));
@@ -165,6 +175,8 @@ describe("WorkerService queue subscriptions", () => {
     expect(bullMq.queues).toContain(pptxOoxmlGenerationQueueName);
     expect(bullMq.queues).toContain(aiDeckResearchContentQueueName);
     expect(bullMq.queues).toContain(aiDeckDesignLayoutQueueName);
+    expect(bullMq.queues).toContain(aiDeckImageQueueName);
+    expect(bullMq.queues).toContain(aiDeckQaFinalizeQueueName);
     expect(bullMq.queues).not.toContain("pptx-import");
     expect(bullMq.queues).not.toContain("ai-template-deck-generation");
 
@@ -202,7 +214,9 @@ describe("WorkerService queue subscriptions", () => {
       }),
     );
     await generateHandler(bullJob(generateDeckJobName, { jobId: "legacy" }));
-    await referenceHandler(bullJob(referenceExtractJobName, { jobId: "legacy-ref" }));
+    await referenceHandler(
+      bullJob(referenceExtractJobName, { jobId: "legacy-ref" }),
+    );
 
     expect(processors.stagedCoordinator).toHaveBeenCalledTimes(1);
     expect(processors.referenceExtractStage).toHaveBeenCalledTimes(1);
@@ -422,6 +436,30 @@ describe("WorkerService queue subscriptions", () => {
     },
   );
 
+  it.each([
+    ["image", aiDeckImageQueueName, "image-slide", "slide-1"],
+    ["qa-finalize", aiDeckQaFinalizeQueueName, "semantic-quality", ""],
+  ] as const)(
+    "limits the %s role and routes its execution stages",
+    async (role, queueName, stage, shardKey) => {
+      configState.AI_DECK_EXECUTION_MODE = "bullmq";
+      configState.AI_DECK_WORKER_QUEUE = role;
+      const { service } = createService();
+      service.onModuleInit();
+      expect(bullMq.queues).toEqual([queueName]);
+      await requiredHandler(queueName)(
+        bullJob(stage, {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage,
+          shardKey,
+        }),
+      );
+      expect(processors.executionStage).toHaveBeenCalledTimes(1);
+      await service.onModuleDestroy();
+    },
+  );
+
   it("awaits DB recovery for final coordinator and OCR transport attempts", async () => {
     configState.AI_DECK_EXECUTION_MODE = "bullmq";
     const { service } = createService();
@@ -459,21 +497,29 @@ describe("WorkerService queue subscriptions", () => {
       ),
     ).rejects.toThrow("stage transport failure");
 
-    expect(transportRecovery.recover).toHaveBeenNthCalledWith(1, expect.anything(), {
-      queueName: generateDeckQueueName,
-      jobName: generateDeckStagedCoordinatorJobName,
-      data: { jobId: "job-ai-deck-1", projectId: "project-a" },
-    });
-    expect(transportRecovery.recover).toHaveBeenNthCalledWith(2, expect.anything(), {
-      queueName: referenceExtractQueueName,
-      jobName: "reference-extract-file",
-      data: {
-        pipelineJobId: "job-ai-deck-1",
-        projectId: "project-a",
-        stage: "reference-extract-file",
-        shardKey: "file-a",
+    expect(transportRecovery.recover).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      {
+        queueName: generateDeckQueueName,
+        jobName: generateDeckStagedCoordinatorJobName,
+        data: { jobId: "job-ai-deck-1", projectId: "project-a" },
       },
-    });
+    );
+    expect(transportRecovery.recover).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      {
+        queueName: referenceExtractQueueName,
+        jobName: "reference-extract-file",
+        data: {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage: "reference-extract-file",
+          shardKey: "file-a",
+        },
+      },
+    );
     await service.onModuleDestroy();
   });
 
@@ -566,7 +612,9 @@ describe("WorkerService queue subscriptions", () => {
     service.onModuleInit();
     const originalError = new Error("original stage failure");
     processors.referenceExtractStage.mockRejectedValueOnce(originalError);
-    transportRecovery.recover.mockRejectedValueOnce(new Error("database unavailable"));
+    transportRecovery.recover.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
 
     await expect(
       requiredHandler(referenceExtractQueueName)(
@@ -595,9 +643,8 @@ describe("WorkerService queue subscriptions", () => {
   it.each([
     ["sqs", "all"],
     ["monolith", "reference-extract"],
-    ["bullmq", "image"],
   ] as const)(
-    "fails startup for an unavailable 338-2 mode %s/%s",
+    "fails startup for an unavailable mode %s/%s",
     (executionMode, workerQueue) => {
       configState.AI_DECK_EXECUTION_MODE = executionMode;
       configState.AI_DECK_WORKER_QUEUE = workerQueue;
@@ -655,9 +702,7 @@ function createService() {
   };
 }
 
-function failedJobLogCalls(logger: {
-  error: ReturnType<typeof vi.fn>;
-}) {
+function failedJobLogCalls(logger: { error: ReturnType<typeof vi.fn> }) {
   return logger.error.mock.calls.filter(
     ([fields, message]) =>
       typeof fields === "object" &&

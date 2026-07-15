@@ -53,9 +53,9 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
-  it("keeps monolith execution as the default and validates staged selectors", () => {
+  it("uses staged BullMQ execution by default and validates staged selectors", () => {
     const defaults = loadOrbitConfig(validEnv, { service: "api" });
-    expect(defaults.AI_DECK_EXECUTION_MODE).toBe("monolith");
+    expect(defaults.AI_DECK_EXECUTION_MODE).toBe("bullmq");
     expect(defaults.AI_DECK_WORKER_QUEUE).toBe("all");
 
     expect(

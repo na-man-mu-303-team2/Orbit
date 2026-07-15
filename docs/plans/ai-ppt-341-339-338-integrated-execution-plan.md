@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1 완료·병합 · #338-2 구현·로컬 검증 중
+**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1·338-2 완료·병합 · #338-3 구현·로컬 검증 중
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -34,37 +34,37 @@ flowchart LR
 
 ### #341 — Art Director 정규화
 
-| PR | 작업 | 종료 조건 |
-| --- | --- | --- |
+| PR                                          | 작업                                                                                                                                                                                                                                                                                         | 종료 조건                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `fix/art-director-background-normalization` | provider JSON을 `json.loads()`로 파싱하고 `slides[].backgroundMode`에서 `backgroundSequence`를 덮어쓴 뒤 Pydantic 검증한다. 불일치는 재호출하지 않고 enum/count/order/JSON 오류만 1회 내부 재시도한다. 오류 원문은 안전한 메시지로 치환하고 `docs/contracts.md`에 canonical 규칙을 추가한다. | mismatch가 첫 호출에서 복구되고 Python·Worker·Web 회귀 테스트가 통과한다. |
 
 ### #339 — 활성 경로 정리와 모듈 분리
 
-| 순서 | PR 목표 | 핵심 결정 |
-| --- | --- | --- |
-| 339-0 | 현재 제품 경로 고정 | #341 수정 이후 `/createdeck → generate-deck → program-v2` 결과와 OCR·이미지·QA·publication 순서를 deterministic fixture로 고정한다. |
-| 339-1 | 에디터 PPTX import 전환 | `/pptx-imports` 대신 `/pptx-ooxml-generations`에 `{ fileId }`만 전달한다. 구형 consumer는 아직 유지한다. |
-| 339-2 | OOXML sync·export 완성 | imported Deck의 PUT과 patch 저장 모두 sync를 enqueue한다. `deckId` 기반 PostgreSQL advisory lock으로 sync를 직렬화하고 높은 `ooxmlSyncedDeckVersion`만 조건부 반영한다. export는 최신 sync가 아니면 retry하고, 최신 `currentPackageFileId`를 별도 export asset으로 복사한다. |
-| 339-3 | 레거시 producer 중단 | `/pptx-imports`, `/mockup/ai-ppt`, 구형 HomePage·`GenerateDeckView`, `ai-template-deck-generation` 신규 enqueue를 중단한다. 기존 consumer는 drain을 위해 유지한다. |
-| 339-4 | 레거시 제거와 배포 후 잔여 확인 | API·consumer·queue 등록·active schema 제거와 personal staging 자동 배포를 완료했다. 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7`에서 두 legacy queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0임을 읽기 전용으로 확인했다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
-| 339-5 | OOXML 순수 변환 계약 | `PptxOoxmlGenerationRequest`를 strict `{ fileId }`로 축소하고 AI slot 생성, OpenAI 입력, apply-slot-text route를 제거한다. TemplateBlueprint mapping은 유지한다. |
-| 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
-| 339-7A | Python generation core 분리 | `deck_generation/` 아래 `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. 하위 stage는 상세 계획의 순환 없는 upstream helper DAG와 `models.py` DTO를 따르며 동기식 `pipeline.py`만 stage entrypoint 순서를 조립한다. #341 정규화는 기존 `design_program.py` 구현을 재사용해 design stage가 보장하고 공개 `/ai/generate-deck` 계약과 실패 정책은 바꾸지 않는다. |
-| 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
-| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬과 personal staging 자동 배포를 통과했다. 실제 배포 서버 HEAD, 339-4 legacy queue/DB 및 339-6 `generate-deck` queue/DB의 smoke 전후 잔여 상태 0과 GenerateDeck smoke 성공을 기록해 #339를 완료했다. |
+| 순서   | PR 목표                          | 핵심 결정                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 339-0  | 현재 제품 경로 고정              | #341 수정 이후 `/createdeck → generate-deck → program-v2` 결과와 OCR·이미지·QA·publication 순서를 deterministic fixture로 고정한다.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 339-1  | 에디터 PPTX import 전환          | `/pptx-imports` 대신 `/pptx-ooxml-generations`에 `{ fileId }`만 전달한다. 구형 consumer는 아직 유지한다.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 339-2  | OOXML sync·export 완성           | imported Deck의 PUT과 patch 저장 모두 sync를 enqueue한다. `deckId` 기반 PostgreSQL advisory lock으로 sync를 직렬화하고 높은 `ooxmlSyncedDeckVersion`만 조건부 반영한다. export는 최신 sync가 아니면 retry하고, 최신 `currentPackageFileId`를 별도 export asset으로 복사한다.                                                                                                                                                                                                                                                                                   |
+| 339-3  | 레거시 producer 중단             | `/pptx-imports`, `/mockup/ai-ppt`, 구형 HomePage·`GenerateDeckView`, `ai-template-deck-generation` 신규 enqueue를 중단한다. 기존 consumer는 drain을 위해 유지한다.                                                                                                                                                                                                                                                                                                                                                                                             |
+| 339-4  | 레거시 제거와 배포 후 잔여 확인  | API·consumer·queue 등록·active schema 제거와 personal staging 자동 배포를 완료했다. 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7`에서 두 legacy queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0임을 읽기 전용으로 확인했다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다.                                                                                                                           |
+| 339-5  | OOXML 순수 변환 계약             | `PptxOoxmlGenerationRequest`를 strict `{ fileId }`로 축소하고 AI slot 생성, OpenAI 입력, apply-slot-text route를 제거한다. TemplateBlueprint mapping은 유지한다.                                                                                                                                                                                                                                                                                                                                                                                               |
+| 339-6  | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
+| 339-7A | Python generation core 분리      | `deck_generation/` 아래 `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. 하위 stage는 상세 계획의 순환 없는 upstream helper DAG와 `models.py` DTO를 따르며 동기식 `pipeline.py`만 stage entrypoint 순서를 조립한다. #341 정규화는 기존 `design_program.py` 구현을 재사용해 design stage가 보장하고 공개 `/ai/generate-deck` 계약과 실패 정책은 바꾸지 않는다.                                                                                 |
+| 339-7B | Worker 후처리 분리               | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다.                                                                                                                                                                                                                                                                                                                                                                       |
+| 339-8  | #338 readiness 검증              | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬과 personal staging 자동 배포를 통과했다. 실제 배포 서버 HEAD, 339-4 legacy queue/DB 및 339-6 `generate-deck` queue/DB의 smoke 전후 잔여 상태 0과 GenerateDeck smoke 성공을 기록해 #339를 완료했다.                                                                                                                                                                                                                                                                                     |
 
 PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증거는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 서버 HEAD 일치, smoke 전후 queue/DB 잔여 상태 0, 네 번째 GenerateDeck 성공을 모두 확인했다. 앞선 세 Job의 `PYTHON_WORKER_GENERATE_DECK_FAILED`는 #339의 기존 terminal baseline인 `WEB_RESEARCH_QUALITY_FAILED`로 분류됐으며 degraded success 전환 owner는 #338로 확정돼 있으므로 #338 구현을 시작할 수 있다.
 
 ### #338 — stage Job, checkpoint와 queue adapter
 
-| 순서 | PR 목표 | 핵심 결정 |
-| --- | --- | --- |
-| 338-0 | stage 계약과 persistence | shared stage/message schema, optional `Job.error.failedStage`, `retryable`, diagnostics warning code를 additive하게 추가한다. `ai_deck_generation_stages` migration과 checkpoint repository를 구현하되 staged dispatcher와 새 실패 정책은 아직 활성화하지 않는다. |
-| 338-1 | staged BullMQ coordinator와 OCR | 기존 monolith의 full-deck payload와 기본 실행을 유지한 채 staged BullMQ coordinator와 파일별 OCR만 활성화한다. OCR artifact, policy join, durable dispatch와 shard-only retry를 구현하고 `source-grounding` checkpoint는 만들되 338-2 전에는 dispatch하지 않는다. |
-| 338-2 | Python planning stage 연결 | `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 독립 실행한다. research 실패 정책은 새 계약으로 변경하고 #341의 Art Director 정규화·terminal 정책은 보존하며 `docs/contracts.md`와 shared contract test를 갱신한다. |
-| 338-3 | image·QA·publication 연결 | slide별 image fan-out, semantic quality, rendered visual quality, publication과 `failedStage` 기반 명시적 retry API를 연결한다. 로컬 기본 실행을 staged BullMQ로 전환하고 Visual QA unavailable 정책은 새 계약으로 변경하되, #339에서 고정한 optional image no-media fallback과 advisory Visual QA acceptance는 stage 경계에서도 보존한다. |
-| 338-4 | SQS transport adapter | 다섯 SQS queue URL key를 추가하고 `@aws-sdk/client-sqs`를 이용해 동일 stage message의 send/receive/delete/visibility 연장을 구현한다. 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. |
-| 338-5 | monolith 제거와 인계 | staged BullMQ 전체 회귀와 SQS adapter parity test를 통과한 뒤 Worker의 기존 장기 `generate-deck` handler와 `monolith` 실행 모드를 제거한다. 실제 AWS 리소스 전환은 후속 인프라 이슈로 인계한다. |
+| 순서  | PR 목표                         | 핵심 결정                                                                                                                                                                                                                                                                                                                                  |
+| ----- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 338-0 | stage 계약과 persistence        | shared stage/message schema, optional `Job.error.failedStage`, `retryable`, diagnostics warning code를 additive하게 추가한다. `ai_deck_generation_stages` migration과 checkpoint repository를 구현하되 staged dispatcher와 새 실패 정책은 아직 활성화하지 않는다.                                                                          |
+| 338-1 | staged BullMQ coordinator와 OCR | 기존 monolith의 full-deck payload와 기본 실행을 유지한 채 staged BullMQ coordinator와 파일별 OCR만 활성화한다. OCR artifact, policy join, durable dispatch와 shard-only retry를 구현하고 `source-grounding` checkpoint는 만들되 338-2 전에는 dispatch하지 않는다.                                                                          |
+| 338-2 | Python planning stage 연결      | `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 독립 실행한다. research 실패 정책은 새 계약으로 변경하고 #341의 Art Director 정규화·terminal 정책은 보존하며 `docs/contracts.md`와 shared contract test를 갱신한다.                                                                                          |
+| 338-3 | image·QA·publication 연결       | slide별 image fan-out, semantic quality, rendered visual quality, publication과 `failedStage` 기반 명시적 retry API를 연결한다. 로컬 기본 실행을 staged BullMQ로 전환하고 Visual QA unavailable 정책은 새 계약으로 변경하되, #339에서 고정한 optional image no-media fallback과 advisory Visual QA acceptance는 stage 경계에서도 보존한다. |
+| 338-4 | SQS transport adapter           | 다섯 SQS queue URL key를 추가하고 `@aws-sdk/client-sqs`를 이용해 동일 stage message의 send/receive/delete/visibility 연장을 구현한다. 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다.                                                                                                                                                |
+| 338-5 | monolith 제거와 인계            | staged BullMQ 전체 회귀와 SQS adapter parity test를 통과한 뒤 Worker의 기존 장기 `generate-deck` handler와 `monolith` 실행 모드를 제거한다. 실제 AWS 리소스 전환은 후속 인프라 이슈로 인계한다.                                                                                                                                            |
 
 338-1의 병합 기준 실행 경계는 다음과 같다.
 
@@ -75,12 +75,20 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - standalone reference extraction API와 기존 `reference-extract` 다중 파일 계약은 바꾸지 않는다. 파일별 OCR·artifact·checkpoint는 AI PPT staged 경로에만 적용한다.
 - 부모 실패 Job을 다시 시작하는 명시적 retry API는 338-1 범위가 아니며 338-3에서 `failedStage`와 shard invalidation 계약을 연결한다.
 
-338-2의 현재 구현 경계는 다음과 같다.
+338-2의 병합 기준 구현 경계는 다음과 같다.
 
 - `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 Python 내부 endpoint와 BullMQ stage consumer로 독립 실행한다.
 - 각 stage의 큰 결과는 `ai_deck_planning_artifacts`에 저장하고 checkpoint에는 strict `{ planningArtifactId: uuid }`만 전달한다. tenant·pipeline·upstream stage identity를 조회 시 다시 검증한다.
 - `research-content`, `design-layout` dedicated Worker role을 활성화하고 OCR과 네 planning stage만 dispatcher·stale dispatch·expired lease·final transport recovery 대상으로 확장한다. 338-3 stage는 아직 dispatch하지 않는다.
 - `layout-compile` 이후 부모 Job은 progress 60의 `running`으로 유지하며 image·QA·publication은 338-3이 이어받는다. production 기본값 `monolith`와 `develop` 자동 배포 규칙은 변경하지 않는다.
+
+338-3의 현재 구현 경계는 다음과 같다.
+
+- `layout-compile` artifact가 검증된 worker payload와 visual requirements를 함께 보존하고, 이미지가 필요한 slide만 `image-slide` checkpoint로 fan-out한다. 마지막 image child가 별도 join stage 없이 `semantic-quality`을 만들며 이미지가 없으면 직접 semantic stage로 진행한다.
+- `ai_deck_execution_artifacts`와 strict `{ executionArtifactId: uuid }` locator로 image·semantic·rendered·publication 결과를 보존한다. tenant·pipeline·stage·shard identity를 조회 시 다시 검증하며 queue message shape은 바꾸지 않는다.
+- `image`, `qa-finalize` dedicated Worker role과 9개 stage 전체 dispatcher·stale dispatch·expired lease·final transport recovery를 활성화한다. publication은 artifact, checkpoint, Deck upsert와 부모 Job 성공을 한 transaction으로 commit한다.
+- `POST /api/v1/projects/:projectId/jobs/:jobId/retry`는 `retryable=true`와 `failedStage`가 있는 실패 Job만 재개한다. 성공한 upstream과 같은 OCR/image stage의 성공 shard를 보존하고 실패 shard와 downstream만 초기화하며 coordinator checkpoint가 없는 coordinator 실패만 ID-only coordinator를 다시 enqueue한다.
+- 로컬 기본값과 `.env.example`은 `bullmq`로 전환한다. staging·production 예제의 명시적 `monolith` 값과 `develop` merge 자동 배포 workflow는 변경하지 않는다.
 
 ## 3. 확정 계약과 실패 정책
 
@@ -96,14 +104,14 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - 338-1 OCR join은 기존 `referenceContext`와 파일별 artifact의 `usable`을 함께 계산한다. `references-only`는 `selectedReferenceFileIds`가 하나 이상이고 선택한 모든 file이 기존 context로 covered됐거나 새 artifact에서 `usable=true`일 때만 계속한다. 선택되지 않은 context만으로 strict 조건을 대신할 수 없다. `references-first`는 usable source가 하나 이상일 때만 계속하고 `research-first`는 OCR 실패를 허용한다. 허용되지 않는 조합은 `SOURCE_GROUNDING_REQUIRED`, `retryable=false`로 부모 Job을 종료한다.
 - `PYTHON_WORKER_EXTRACT_INVALID_RESPONSE` 같은 non-retryable provider schema 오류는 해당 shard를 artifact 없는 `failed`/`usable=false`로 끝내고 부모를 즉시 실패시키지 않은 채 같은 reference policy join에 합류시킨다. project·asset identity 위반만 active sibling과 부모를 즉시 terminal 처리한다.
 - queued checkpoint 자체를 durable dispatch record로 사용한다. BullMQ enqueue 결과가 `waiting`, `delayed`, `prioritized`일 때만 같은 `attempt` generation의 `dispatched_at`을 기록한다. `active`, `completed`, `failed` 또는 알 수 없는 상태는 미전송 row로 남겨 dispatcher가 재확인한다.
-- dispatcher는 `dispatched_at`이 15분 이상 지난 active parent의 queued OCR row를 매 회차 최대 100개 복구하고, partial index `idx_ai_deck_generation_stages_stale_dispatch`로 이 scan을 지원한다.
+- dispatcher는 `dispatched_at`이 15분 이상 지난 active parent의 queued 9-stage row를 매 회차 최대 100개 복구하고, partial index `idx_ai_deck_generation_stages_stale_dispatch`로 이 scan을 지원한다.
 - BullMQ 최종 transport failure에서 OCR Job은 queued checkpoint의 `dispatched_at`만 복구하고 재시도 예산을 소진한 coordinator Job은 active checkpoint와 부모를 `AI_DECK_COORDINATOR_FAILED`, `retryable=true`로 atomic 종료한다. 단 `failedReason`이 BullMQ의 정확한 stall/started-limit transport reason이면 `attemptsMade`와 무관하게 coordinator transaction을 멱등 재실행하며, 그 외 예산을 소진한 entry만 terminal 복구한다. failed entry는 `removeOnFail=false`로 cap 없이 보존한다. maintenance는 opaque Redis `ZSCAN` cursor와 `pendingJobIds`로 회차당 기본 25개·최대 100개를 처리한다. resume 또는 terminal DB recovery가 failed parent를 반환하면 DB commit 이후에만 entry 제거를 시도하고 Worker가 표준 `job.failed`를 남기며, DB recovery 실패 entry는 full cursor cycle 뒤 재시도한다. BullMQ transport attempt와 DB checkpoint `attempt`는 서로 다른 재시도 층이다.
 - provider 호출은 crash 경계에서 재실행될 수 있으므로 exactly-once를 보장한다고 표현하지 않는다. 대신 checkpoint, 결정적 image object key와 publication 조건부 upsert로 중복 저장을 막는다.
 - claim 시 `attempt`를 증가시키며 initial attempt를 포함해 총 5회만 시도한다. 1~4번째 retryable 실패는 해당 shard를 다시 queued로 만들고 5번째 종료 시 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행해 계속 또는 terminal을 결정한다. DB lease는 10분, heartbeat는 60초이며 SQS visibility 연장은 338-4에서 5분 단위로 추가한다.
 - claim은 stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 매번 새로 발급하고 `attempt`를 lease generation fencing token으로 함께 사용한다. heartbeat·성공·실패·retry release는 claim이 반환한 `lease_owner`와 `attempt`가 모두 일치할 때만 허용하고, dispatcher도 조회 당시 `attempt`가 일치할 때만 `dispatched_at`을 기록한다.
 - retry release와 expired lease는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 되돌리고 기존 `attempt`는 유지한다. 338-1 reconciler가 이 전이를 실행한다. 5번째 attempt가 끝나면 OCR은 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행하고 다른 필수 stage는 checkpoint와 부모 Job을 함께 `failed`로 종료한다.
-- 338-0의 checkpoint reference allowlist는 비어 있었다. 338-1은 `ai_deck_reference_extraction_artifacts`에 파일별 정규화 OCR 결과와 `usable`을 저장하고 `reference-extract-file.result_ref_json`에는 strict `{ referenceExtractionArtifactId: uuid }` locator만 허용한다. 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않는다.
-- 실패 Job 재시도 API는 338-3에서 구현한다. 기록된 `failedStage`부터 시작하고 upstream 성공 checkpoint를 보존하며 OCR/image shard 실패는 해당 shard만 초기화하고 downstream checkpoint만 무효화하는 계약을 사용한다.
+- 338-0의 checkpoint reference allowlist는 비어 있었다. 338-1은 `ai_deck_reference_extraction_artifacts`와 strict `{ referenceExtractionArtifactId: uuid }`, 338-2는 `ai_deck_planning_artifacts`와 strict `{ planningArtifactId: uuid }`, 338-3은 `ai_deck_execution_artifacts`와 strict `{ executionArtifactId: uuid }` locator를 추가한다. 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않는다.
+- 실패 Job 재시도 API는 기록된 `failedStage`부터 시작하고 upstream 성공 checkpoint를 보존하며 OCR/image shard 실패는 실패 shard만 초기화하고 downstream checkpoint와 artifact만 무효화한다.
 
 ### 공개 및 shared 계약
 
@@ -111,9 +119,9 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - `generateDeckResponse.warnings: string[]`는 사용자 메시지로 유지하고 `diagnostics.warningCodes`를 `^[A-Z][A-Z0-9_]*$` machine-readable code 배열, 기본값 `[]`로 추가한다.
 - `visualQaStatus`는 기존 optional 계약을 유지하면서 `not-run | passed | failed | unavailable`을 허용한다.
 - `Job.error`에는 optional `failedStage`와 `retryable`을 추가해 기존 Job row parsing을 깨뜨리지 않는다. `retryable`은 부모 Job의 명시적 retry API 허용 여부이며 자동 checkpoint 재시도는 `attempt < 5`로 별도 관리한다. shard 식별자는 Job error가 아니라 checkpoint key에 둔다.
-- 338-0은 위 신규 값을 parse/round-trip할 기반만 추가한다. `WEB_RESEARCH_QUALITY_FAILED` warning은 338-2, Visual QA unavailable warning은 338-3에서 실제로 emit한다.
-- AI PPT 전용 설정은 `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 338-1에서 기본값은 `monolith`이며 `sqs`는 API·Worker startup에서 fail-fast한다.
-- `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용한다. 338-1은 `all`과 `reference-extract`만 실행 가능하고 나머지 stage role은 해당 owner PR 전까지 startup에서 거부한다.
+- 338-0은 위 신규 값을 parse/round-trip할 기반만 추가했다. `WEB_RESEARCH_QUALITY_FAILED` warning은 338-2, Visual QA unavailable warning은 338-3에서 실제로 emit한다.
+- AI PPT 전용 설정은 `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 338-3의 로컬 기본값은 `bullmq`이고 staging·production 예제는 명시적 `monolith`를 유지하며 `sqs`는 API·Worker startup에서 fail-fast한다.
+- `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용하고 338-3에서 모든 role을 실행 가능하게 한다.
 - 다섯 SQS queue URL key와 send/receive/delete/visibility transport는 338-4에서 함께 추가하고 그때 `sqs` mode에서만 필수 검증한다. 전역 `JOB_QUEUE_DRIVER`는 다른 Job을 위해 `bullmq`로 유지한다.
 
 ### 최종 실패 정책
@@ -154,7 +162,7 @@ uv run pytest
 ### 338-1 병합 전 증거 체크리스트
 
 - [x] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 BullMQ staged enqueue만 ID-only coordinator payload를 사용하는 contract test
-- [x] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
+- [x] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 338-1 당시 미지원 worker role·`sqs` startup fail-fast test
 - [x] shared Zod·Python façade의 `references`/`referenceFileIds` 각각 최대 10개, `references` 우선·fallback, `selectedReferenceFileIds`/`uncoveredReferenceFileIds`, context-only `references-only` 거부, 파일별 fan-out과 policy join test
 - [x] `PYTHON_WORKER_EXTRACT_INVALID_RESPONSE`가 부모를 즉시 실패시키지 않고 `research-first` policy join으로 진행하는 test
 - [x] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
@@ -165,6 +173,18 @@ uv run pytest
 - [x] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
 - [x] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
 - [x] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
+
+### 338-3 PR 검증 체크리스트
+
+- [x] execution artifact shared locator, DB constraint, repository identity와 migration 등록 test
+- [x] migration `run → revert → run` 실제 로컬 PostgreSQL 왕복과 최종 최신 상태 확인
+- [x] layout worker payload, slide별 image fan-out, image 없는 semantic 직행과 마지막 child join test
+- [x] deterministic image asset key/upsert, semantic·rendered·publication stage와 publication atomic/fencing test
+- [x] Visual QA unavailable degraded publication, 실제 blocking issue terminal, advisory acceptance와 optional no-media fallback terminal 분리 회귀 test
+- [x] `failedStage` retry의 upstream·성공 shard 보존, downstream invalidation과 coordinator-only 재enqueue test
+- [x] 6개 Worker role, 9개 stage dispatcher·stale dispatch·lease·transport recovery test
+- [x] API·Worker 전체 회귀, shared/job-queue contract, Python 493 passed·1 skipped, Web 병렬 timeout 단독 재검증, API·Worker·Web 직접 build, env·Compose 검증
+- [ ] PR required 자동 CI 성공과 사용자 병합
 
 추가 필수 시나리오:
 

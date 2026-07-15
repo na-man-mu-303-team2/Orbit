@@ -6,6 +6,7 @@ import {
   aiDeckGenerationStageResultReferenceSchema,
   aiDeckGenerationStageMessageSchema,
   aiDeckGenerationStageSchema,
+  aiDeckExecutionArtifactReferenceSchema,
 } from "./ai-deck-generation-stage.schema";
 
 const expectedStages = [
@@ -27,12 +28,15 @@ describe("aiDeckGenerationStageSchema", () => {
 });
 
 describe("aiDeckGenerationStageReferenceSchema", () => {
-  it("allows only the declared OCR and planning artifact locators", () => {
+  it("allows only the declared OCR, planning, and execution artifact locators", () => {
     const ocrLocator = {
       referenceExtractionArtifactId: "8fa123d8-2869-4ca0-b9b5-fbb365b57625",
     };
     const planningLocator = {
       planningArtifactId: "1d31f722-90b9-44c1-9697-8c26d91ef543",
+    };
+    const executionLocator = {
+      executionArtifactId: "2e42f833-a1ca-47d0-a410-d25ca9ba4d2e",
     };
 
     expect(aiDeckGenerationStageReferenceSchema.parse({})).toEqual({});
@@ -42,6 +46,9 @@ describe("aiDeckGenerationStageReferenceSchema", () => {
     expect(aiDeckGenerationStageReferenceSchema.parse(planningLocator)).toEqual(
       planningLocator,
     );
+    expect(
+      aiDeckExecutionArtifactReferenceSchema.parse(executionLocator),
+    ).toEqual(executionLocator);
     expect(
       aiDeckGenerationStageResultReferenceSchema.parse({
         stage: "reference-extract-file",
@@ -98,18 +105,47 @@ describe("aiDeckGenerationStageReferenceSchema", () => {
         reference: planningLocator,
       }).success,
     ).toBe(false);
+    for (const stage of [
+      "image-slide",
+      "semantic-quality",
+      "rendered-visual-quality",
+      "publication",
+    ] as const) {
+      expect(
+        aiDeckGenerationStageResultReferenceSchema.safeParse({
+          stage,
+          reference: executionLocator,
+        }).success,
+      ).toBe(true);
+    }
+    for (const stage of ["image-slide", "semantic-quality"] as const) {
+      expect(
+        aiDeckGenerationStageInputReferenceSchema.safeParse({
+          stage,
+          reference: planningLocator,
+        }).success,
+      ).toBe(true);
+    }
+    for (const stage of ["rendered-visual-quality", "publication"] as const) {
+      expect(
+        aiDeckGenerationStageInputReferenceSchema.safeParse({
+          stage,
+          reference: executionLocator,
+        }).success,
+      ).toBe(true);
+    }
 
     for (const nonEmptyReference of [
       { artifactKey: "ai-deck/job-1/content-plan.json" },
       { referenceExtractionArtifactId: "not-a-uuid" },
       { planningArtifactId: "not-a-uuid" },
+      { executionArtifactId: "not-a-uuid" },
       {
         planningArtifactId: "1d31f722-90b9-44c1-9697-8c26d91ef543",
         stage: "content-planning",
       },
       {
-        referenceExtractionArtifactId:
-          "8fa123d8-2869-4ca0-b9b5-fbb365b57625",
+        referenceExtractionArtifactId: "8fa123d8-2869-4ca0-b9b5-fbb365b57625",
         fileId: "file-1",
       },
       { content_base64: "ZmFrZQ==" },

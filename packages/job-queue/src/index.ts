@@ -364,6 +364,29 @@ export async function enqueueGenerateDeckJob(
   }
 }
 
+export async function retryAiDeckStagedCoordinatorJob(input: {
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+}): Promise<void> {
+  const queue = new Queue(generateDeckQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+  try {
+    const existing = await queue.getJob(input.jobId);
+    if (existing && (await existing.getState()) === "failed") {
+      await existing.remove();
+    }
+    await queue.add(
+      generateDeckStagedCoordinatorJobName,
+      { jobId: input.jobId, projectId: input.projectId },
+      { ...canonicalJobOptions(input.jobId), removeOnFail: false }
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
 export async function enqueueAiDeckGenerationStageJob(
   input: EnqueueAiDeckGenerationStageJobInput,
 ): Promise<AiDeckGenerationStageEnqueueResult> {

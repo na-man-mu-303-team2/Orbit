@@ -88,6 +88,10 @@ const implementedStageNames = new Set([
   "content-planning",
   "design-planning",
   "layout-compile",
+  "image-slide",
+  "semantic-quality",
+  "rendered-visual-quality",
+  "publication",
 ]);
 
 async function failCoordinatorParent(
@@ -154,10 +158,9 @@ async function releaseStageDispatch(
       message.projectId,
     );
     if (!parent) return { outcome: "ignored", terminalJob: null };
-    const checkpoint =
-      await new AiDeckGenerationStageCheckpointRepository(
-        manager,
-      ).releaseDispatchedForTransportRetry(message);
+    const checkpoint = await new AiDeckGenerationStageCheckpointRepository(
+      manager,
+    ).releaseDispatchedForTransportRetry(message);
     return checkpoint
       ? { outcome: "stage-dispatch-released", terminalJob: null }
       : { outcome: "ignored", terminalJob: null };
@@ -210,7 +213,9 @@ function failedParentJob(row: z.infer<typeof failedParentRowSchema>): Job {
 }
 
 function isoTimestamp(value: z.infer<typeof timestampSchema>): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function firstQueryRow(queryResult: unknown): unknown | null {
