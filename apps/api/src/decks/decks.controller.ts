@@ -80,6 +80,17 @@ export class DecksController {
     return this.decksService.createSemanticCueExtractionJob(projectId, body);
   }
 
+  @Post("deck/speaker-notes/suggestions")
+  async createSpeakerNotesSuggestionJob(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.createSpeakerNotesSuggestionJob(projectId, body);
+  }
+
   @Get("snapshots")
   async listSnapshots(
     @Param("projectId") projectId: string,

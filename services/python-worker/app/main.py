@@ -62,6 +62,12 @@ from app.ai.semantic_cues import (
     SemanticCueExtractionResponse,
     extract_semantic_cues,
 )
+from app.ai.speaker_notes import (
+    SpeakerNotesSuggestionError,
+    SpeakerNotesSuggestionRequest,
+    SpeakerNotesSuggestionResponse,
+    generate_speaker_notes_suggestion,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -637,6 +643,25 @@ def extract_semantic_cues_endpoint(
             api_key=config.openai_api_key,
         )
     except SemanticCueExtractionError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/ai/speaker-notes/suggest",
+    response_model=SpeakerNotesSuggestionResponse,
+)
+def suggest_speaker_notes(
+    payload: SpeakerNotesSuggestionRequest,
+    request: Request,
+) -> SpeakerNotesSuggestionResponse:
+    config = _config(request)
+    try:
+        return generate_speaker_notes_suggestion(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SpeakerNotesSuggestionError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 

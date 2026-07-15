@@ -10,9 +10,11 @@ import {
   enqueueDeckExportJob,
   enqueuePptxOoxmlSyncJob,
   enqueueSemanticCueExtractionJob,
+  enqueueSpeakerNotesSuggestionJob,
   type EnqueueDeckExportJobInput,
   type EnqueuePptxOoxmlSyncJobInput,
   type EnqueueSemanticCueExtractionJobInput,
+  type EnqueueSpeakerNotesSuggestionJobInput,
 } from "@orbit/job-queue";
 import {
   appendDeckPatchAckResponseSchema,
@@ -33,6 +35,9 @@ import {
   createSemanticCueExtractionJobResponseSchema,
   semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionRequestSchema,
+  createSpeakerNotesSuggestionJobResponseSchema,
+  speakerNotesSuggestionJobPayloadSchema,
+  speakerNotesSuggestionRequestSchema,
   templateBlueprintSchema,
 } from "@orbit/shared";
 import type {
@@ -55,6 +60,7 @@ import type {
   PutDeckResponse,
   RestoreDeckSnapshotResponse,
   CreateSemanticCueExtractionJobResponse,
+  CreateSpeakerNotesSuggestionJobResponse,
   TemplateBlueprint,
 } from "@orbit/shared";
 import {
@@ -129,6 +135,11 @@ export type SemanticCueExtractionEnqueueJob = (
 ) => Promise<void>;
 export const SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB =
   "SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB";
+export type SpeakerNotesSuggestionEnqueueJob = (
+  input: EnqueueSpeakerNotesSuggestionJobInput,
+) => Promise<void>;
+export const SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB =
+  "SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB";
 
 @Injectable()
 export class DecksService {
@@ -147,6 +158,9 @@ export class DecksService {
     @Optional()
     @InjectPinoLogger(DecksService.name)
     private readonly logger?: PinoLogger,
+    @Optional()
+    @Inject(SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB)
+    private readonly enqueueSpeakerNotesSuggestion: SpeakerNotesSuggestionEnqueueJob = enqueueSpeakerNotesSuggestionJob,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -594,6 +608,146 @@ export class DecksService {
     return createSemanticCueExtractionJobResponseSchema.parse({
       job: queuedJob,
     });
+  }
+
+  async createSpeakerNotesSuggestionJob(
+    projectId: string,
+    body: unknown,
+  ): Promise<CreateSpeakerNotesSuggestionJobResponse> {
+    const request = speakerNotesSuggestionRequestSchema.parse(body);
+
+    if (!this.jobsService) {
+      throwDeckApiException(
+        "DECK_VALIDATION_FAILED",
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "Jobs service is not available",
+      );
+    }
+
+    const preparedRequest = await this.dataSource.transaction(async (manager) => {
+      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+      if (!deckRow) {
+        throwDeckApiException(
+          "DECK_NOT_FOUND",
+          HttpStatus.NOT_FOUND,
+          `Deck not found for project: ${projectId}`,
+        );
+      }
+      if (request.deckId !== deckRow.deck_id) {
+        throwDeckApiException(
+          "DECK_MISMATCH",
+          HttpStatus.BAD_REQUEST,
+          "Requested deckId must match project deck",
+        );
+      }
+
+      const materializedState = await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckRow.deck_id,
+        toIso(deckRow.updated_at),
+        true,
+      );
+      if (materializedState.deck.version !== request.baseVersion) {
+        throwDeckApiException(
+          "STALE_BASE_VERSION",
+          HttpStatus.CONFLICT,
+          "Deck changed before the speaker notes suggestion started",
+        );
+      }
+      const slide = materializedState.deck.slides.find(
+        (candidate) => candidate.slideId === request.slideId,
+      );
+      if (!slide) {
+        throwDeckApiException(
+          "DECK_VALIDATION_FAILED",
+          HttpStatus.BAD_REQUEST,
+          "Requested slide does not exist in the deck",
+        );
+      }
+      const hasNotes = slide.speakerNotes.trim().length > 0;
+      if ((request.mode === "draft") === hasNotes) {
+        throwDeckApiException(
+          "DECK_VALIDATION_FAILED",
+          HttpStatus.BAD_REQUEST,
+          hasNotes
+            ? "Draft mode is only available when speaker notes are empty"
+            : "Refinement modes require existing speaker notes",
+        );
+      }
+
+      const deck = await this.writeDeckCheckpoint(
+        manager,
+        materializedState.deck,
+        nowIso(),
+      );
+      return speakerNotesSuggestionJobPayloadSchema.shape.request.parse({
+        ...request,
+        baseVersion: deck.version,
+      });
+    });
+
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "speaker-notes-suggestion",
+      payload: { request: preparedRequest },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueSpeakerNotesSuggestion({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        request: preparedRequest,
+      });
+      this.logger?.info(
+        {
+          event: "speaker_notes.suggestion.queued",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          slideId: preparedRequest.slideId,
+          deckVersion: preparedRequest.baseVersion,
+          mode: preparedRequest.mode,
+        },
+        "Speaker notes suggestion job enqueued.",
+      );
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Speaker notes suggestion enqueue failed.",
+        error: {
+          code: "SPEAKER_NOTES_SUGGESTION_ENQUEUE_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Speaker notes suggestion enqueue failed.",
+        },
+      });
+      this.logger?.error(
+        {
+          event: "speaker_notes.suggestion.failed",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          slideId: preparedRequest.slideId,
+          deckVersion: preparedRequest.baseVersion,
+          mode: preparedRequest.mode,
+          reason: "enqueue_failed",
+          error: serializeLogError(error),
+        },
+        "Speaker notes suggestion enqueue failed.",
+      );
+      throw error;
+    }
+
+    return createSpeakerNotesSuggestionJobResponseSchema.parse({ job: queuedJob });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {

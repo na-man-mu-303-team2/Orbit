@@ -7,6 +7,7 @@ import {
   generateDeckRequestSchema,
   jobSchema,
   semanticCueExtractionJobPayloadSchema,
+  speakerNotesSuggestionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
   focusedPracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
@@ -18,6 +19,7 @@ import {
   type GenerateDeckRequest,
   type SavedDesignPackSnapshot,
   type SemanticCueExtractionJobPayload,
+  type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
@@ -58,6 +60,8 @@ export const deckExportQueueName = "deck-export";
 export const deckExportJobName = "deck-export";
 export const semanticCueExtractionQueueName = "semantic-cue-extraction";
 export const semanticCueExtractionJobName = "semantic-cue-extraction";
+export const speakerNotesSuggestionQueueName = "speaker-notes-suggestion";
+export const speakerNotesSuggestionJobName = "speaker-notes-suggestion";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
 export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
@@ -159,6 +163,15 @@ export type EnqueueSemanticCueExtractionJobInput =
   driver: "bullmq" | "sqs";
   redisUrl: string;
 };
+
+export type SpeakerNotesSuggestionBullMqPayload =
+  SpeakerNotesSuggestionJobPayload;
+
+export type EnqueueSpeakerNotesSuggestionJobInput =
+  SpeakerNotesSuggestionBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export interface PptxOoxmlGenerationBullMqPayload {
   jobId: string;
@@ -375,6 +388,32 @@ export async function enqueueSemanticCueExtractionJob(
       projectId: input.projectId,
       request: input.request,
     }), canonicalJobOptions(input.jobId));
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueSpeakerNotesSuggestionJob(
+  input: EnqueueSpeakerNotesSuggestionJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(speakerNotesSuggestionQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      speakerNotesSuggestionJobName,
+      speakerNotesSuggestionJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: input.request,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }

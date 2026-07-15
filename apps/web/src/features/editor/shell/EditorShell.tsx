@@ -142,7 +142,9 @@ import type {
   SemanticCue,
   ShapeElementProps,
   Slide,
-  DeckApiErrorCode
+  DeckApiErrorCode,
+  SpeakerNotesSuggestionMode,
+  SpeakerNotesSuggestionResult
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
@@ -197,6 +199,16 @@ import {
   type SemanticCueExtractionUiState
 } from "../semantic-cues/SemanticCueReviewPanel";
 import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
+import {
+  SpeakerNotesAssistantDialog,
+  SpeakerNotesLengthMeter,
+  type SpeakerNotesAssistantStatus
+} from "./components/SpeakerNotesAssistantDialog";
+import {
+  createSpeakerNotesSuggestionJob,
+  getSpeakerNotesLengthGuidance,
+  waitForSpeakerNotesSuggestionJob
+} from "./speakerNotesAssistant";
 import {
   getDeckThumbnailRefreshSlideIds,
   mergeDeckIntoQueryCache,
@@ -1429,7 +1441,6 @@ export function EditorShell(props: { projectId?: string }) {
   const slidePanelView = useEditorShellUiStore((state) => state.slidePanelView);
   const setSlidePanelView = useEditorShellUiStore((state) => state.setSlidePanelView);
   const showIds = useEditorShellUiStore((state) => state.showIds);
-  const setShowIds = useEditorShellUiStore((state) => state.setShowIds);
   const selectedKeywordId = useEditorShellUiStore((state) => state.selectedKeywordId);
   const setSelectedKeywordId = useEditorShellUiStore(
     (state) => state.setSelectedKeywordId
@@ -1446,6 +1457,21 @@ export function EditorShell(props: { projectId?: string }) {
   const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
     string | null
   >(null);
+  const [isSpeakerNotesAssistantOpen, setIsSpeakerNotesAssistantOpen] =
+    useState(false);
+  const [speakerNotesAssistantMode, setSpeakerNotesAssistantMode] =
+    useState<SpeakerNotesSuggestionMode>("naturalize");
+  const [speakerNotesAssistantStatus, setSpeakerNotesAssistantStatus] =
+    useState<SpeakerNotesAssistantStatus>("idle");
+  const [speakerNotesAssistantResult, setSpeakerNotesAssistantResult] =
+    useState<SpeakerNotesSuggestionResult | null>(null);
+  const [speakerNotesAssistantError, setSpeakerNotesAssistantError] =
+    useState("");
+  const [speakerNotesAssistantSource, setSpeakerNotesAssistantSource] = useState<{
+    baseVersion: number;
+    notes: string;
+    slideId: string;
+  } | null>(null);
   const selectedElementIds = useEditorShellUiStore((state) => state.selectedElementIds);
   const setSelectedElementIds = useEditorShellUiStore(
     (state) => state.setSelectedElementIds
@@ -1526,6 +1552,11 @@ export function EditorShell(props: { projectId?: string }) {
     setRightPanelView("ai-chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
+    setIsSpeakerNotesAssistantOpen(false);
+    setSpeakerNotesAssistantStatus("idle");
+    setSpeakerNotesAssistantResult(null);
+    setSpeakerNotesAssistantError("");
+    setSpeakerNotesAssistantSource(null);
   }, [projectId, resetProjectUiState]);
 
   useEffect(() => {
@@ -1724,6 +1755,21 @@ export function EditorShell(props: { projectId?: string }) {
     !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const speakerNotesLengthGuidance = useMemo(
+    () =>
+      getSpeakerNotesLengthGuidance(
+        isSpeakerNotesEditing
+          ? speakerNotesDraft
+          : (currentSlide?.speakerNotes ?? ""),
+        currentSlide?.aiNotes?.timingPlan,
+      ),
+    [
+      currentSlide?.aiNotes?.timingPlan,
+      currentSlide?.speakerNotes,
+      isSpeakerNotesEditing,
+      speakerNotesDraft,
+    ],
+  );
   const saveStatusLabel = getEditorStatusLabel({
     isDeckError,
     isDeckLoading,
@@ -1773,6 +1819,18 @@ export function EditorShell(props: { projectId?: string }) {
     [currentSlide]
   );
   const currentSlideKeywordUsage = currentSlideKeywordActionUsage.byKeywordId;
+  const speakerNotesAssistantSlide = speakerNotesAssistantSource
+    ? deck.slides.find(
+        (slide) => slide.slideId === speakerNotesAssistantSource.slideId,
+      ) ?? null
+    : null;
+  const speakerNotesAssistantOccurrenceWarning =
+    speakerNotesAssistantSlide && speakerNotesAssistantResult
+      ? getSpeakerNotesDanglingOccurrenceSaveBlock(
+          speakerNotesAssistantSlide,
+          speakerNotesAssistantResult.suggestedNotes,
+        )?.message
+      : undefined;
   const animationPanelKeywordOptions = useMemo(
     () => toAnimationKeywordTriggerOptions(currentSlide?.keywords ?? []),
     [currentSlide?.keywords]
@@ -3153,6 +3211,7 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     resetSpeakerNotesEditState(deck.slides[index]?.speakerNotes ?? "");
+    setIsSpeakerNotesAssistantOpen(false);
     setCurrentSlideIndex(index);
   }
 
@@ -3163,6 +3222,124 @@ export function EditorShell(props: { projectId?: string }) {
     setSpeakerNotesDraftBase(currentNotes);
     setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
     setIsSpeakerNotesEditing(true);
+  }
+
+  function handleOpenSpeakerNotesAssistant() {
+    if (!currentSlide) return;
+    const isSameSource =
+      speakerNotesAssistantSource?.slideId === currentSlide.slideId &&
+      speakerNotesAssistantSource.baseVersion === deck.version &&
+      speakerNotesAssistantSource.notes === currentSlide.speakerNotes;
+    if (!isSameSource) {
+      setSpeakerNotesAssistantSource({
+        slideId: currentSlide.slideId,
+        baseVersion: deck.version,
+        notes: currentSlide.speakerNotes,
+      });
+      setSpeakerNotesAssistantMode(
+        currentSlide.speakerNotes.trim() ? "naturalize" : "draft",
+      );
+      setSpeakerNotesAssistantStatus("idle");
+      setSpeakerNotesAssistantResult(null);
+      setSpeakerNotesAssistantError("");
+    }
+    setIsSpeakerNotesAssistantOpen(true);
+  }
+
+  async function handleGenerateSpeakerNotesSuggestion() {
+    const requestedSlideId = speakerNotesAssistantSource?.slideId;
+    if (!requestedSlideId || speakerNotesAssistantStatus === "running") return;
+
+    setSpeakerNotesAssistantStatus("running");
+    setSpeakerNotesAssistantResult(null);
+    setSpeakerNotesAssistantError("");
+    try {
+      await flushEditorPersistenceBeforeManualAction({
+        flushPendingSaveBatch,
+        flushScheduledUndoRedoPersist,
+        hasPendingPatchInputs: () => pendingPatchInputsRef.current.length > 0,
+        waitForSaveQueue: () => saveQueueRef.current,
+      });
+
+      const requestDeck = workingDeckRef.current;
+      const requestSlide = requestDeck.slides.find(
+        (slide) => slide.slideId === requestedSlideId,
+      );
+      if (!requestSlide) {
+        throw new Error("현재 슬라이드를 찾을 수 없습니다.");
+      }
+      const requestMode = requestSlide.speakerNotes.trim()
+        ? speakerNotesAssistantMode === "draft"
+          ? "naturalize"
+          : speakerNotesAssistantMode
+        : "draft";
+      const source = {
+        slideId: requestSlide.slideId,
+        baseVersion: requestDeck.version,
+        notes: requestSlide.speakerNotes,
+      };
+      setSpeakerNotesAssistantSource(source);
+      setSpeakerNotesAssistantMode(requestMode);
+
+      const activeProjectId = deckQuery.data?.projectId ?? projectId;
+      const job = await createSpeakerNotesSuggestionJob(activeProjectId, {
+        deckId: requestDeck.deckId,
+        slideId: requestSlide.slideId,
+        baseVersion: requestDeck.version,
+        mode: requestMode,
+      });
+      const result = await waitForSpeakerNotesSuggestionJob(job.jobId);
+      if (
+        result.slideId !== source.slideId ||
+        result.baseVersion !== source.baseVersion
+      ) {
+        throw new Error("슬라이드가 변경되어 이 AI 제안을 사용할 수 없습니다.");
+      }
+      setSpeakerNotesAssistantResult(result);
+      setSpeakerNotesAssistantStatus("succeeded");
+    } catch (error) {
+      setSpeakerNotesAssistantStatus("failed");
+      setSpeakerNotesAssistantError(toEditorErrorMessage(error));
+    }
+  }
+
+  function handleApplySpeakerNotesSuggestion() {
+    const result = speakerNotesAssistantResult;
+    const source = speakerNotesAssistantSource;
+    if (!result || !source) return;
+    const currentDeck = workingDeckRef.current;
+    const targetSlide = currentDeck.slides.find(
+      (slide) => slide.slideId === source.slideId,
+    );
+    if (
+      !targetSlide ||
+      currentDeck.version !== result.baseVersion ||
+      targetSlide.speakerNotes !== source.notes
+    ) {
+      setSpeakerNotesAssistantStatus("failed");
+      setSpeakerNotesAssistantResult(null);
+      if (targetSlide) {
+        setSpeakerNotesAssistantSource({
+          slideId: targetSlide.slideId,
+          baseVersion: currentDeck.version,
+          notes: targetSlide.speakerNotes,
+        });
+        setSpeakerNotesAssistantMode(
+          targetSlide.speakerNotes.trim() ? "naturalize" : "draft",
+        );
+      }
+      setSpeakerNotesAssistantError(
+        "메모가 변경되어 이 제안을 적용할 수 없습니다. 새 제안을 만들어 주세요.",
+      );
+      return;
+    }
+
+    clearSelectedKeyword();
+    setSpeakerNotesDraft(result.suggestedNotes);
+    setSpeakerNotesDraftBase(source.notes);
+    setSpeakerNotesEditSlideId(source.slideId);
+    setIsSpeakerNotesEditing(true);
+    setIsSpeakerNotesAssistantOpen(false);
   }
 
   function handleCancelSpeakerNotesEdit() {
@@ -5516,18 +5693,6 @@ export function EditorShell(props: { projectId?: string }) {
                   <LayoutTemplate size={14} />
                   <span className="tool-button-label">템플릿</span>
                 </button>
-                <button
-                  aria-label="ID 표시"
-                  aria-pressed={showIds}
-                  className={`toolbar-toggle ${showIds ? "active" : ""}`}
-                  type="button"
-                  onClick={() => setShowIds((current) => !current)}
-                >
-                  <span className="toolbar-toggle-label">ID 표시</span>
-                  <span className="toolbar-toggle-track" aria-hidden="true">
-                    <span className="toolbar-toggle-thumb" />
-                  </span>
-                </button>
               </div>
             </div>
 
@@ -5684,16 +5849,6 @@ export function EditorShell(props: { projectId?: string }) {
                         <span className="script-panel-status">편집 중</span>
                       ) : null}
                     </div>
-                    <span className="script-panel-context">
-                      현재 슬라이드 · {currentSlide && showIds ? (
-                        <IdBadge id={currentSlide.slideId} />
-                      ) : (
-                        currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                      )}
-                    </span>
-                    <p className="script-panel-description">
-                      발표할 때 참고할 내용을 슬라이드별로 정리하세요.
-                    </p>
                   </div>
                 </div>
                 {isSpeakerNotesEditing ? (
@@ -5714,20 +5869,31 @@ export function EditorShell(props: { projectId?: string }) {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    className="script-panel-action"
-                    type="button"
-                    onClick={handleStartSpeakerNotesEdit}
-                  >
-                    <PenLine aria-hidden="true" size={14} />
-                    메모 편집
-                  </button>
+                  <div className="script-panel-actions">
+                    <button
+                      className="script-panel-action assistant"
+                      type="button"
+                      onClick={handleOpenSpeakerNotesAssistant}
+                    >
+                      <Sparkles aria-hidden="true" size={14} />
+                      {(currentSlide?.speakerNotes ?? "").trim()
+                        ? "AI로 다듬기"
+                        : "AI 초안 만들기"}
+                    </button>
+                    <button
+                      className="script-panel-action"
+                      type="button"
+                      onClick={handleStartSpeakerNotesEdit}
+                    >
+                      <PenLine aria-hidden="true" size={14} />
+                      메모 편집
+                    </button>
+                  </div>
                 )}
               </div>
               {isSpeakerNotesEditing ? (
                 <div className="script-panel-body">
                   <textarea
-                    aria-describedby="speaker-notes-edit-help"
                     aria-label="발표 메모 수정"
                     autoFocus
                     className="script-notes-editor"
@@ -5737,10 +5903,15 @@ export function EditorShell(props: { projectId?: string }) {
                     value={speakerNotesDraft}
                     onChange={(event) => setSpeakerNotesDraft(event.target.value)}
                   />
-                  <div className="script-panel-meta" id="speaker-notes-edit-help">
-                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                  <div
+                    aria-live="polite"
+                    className="script-panel-meta script-panel-character-count"
+                  >
                     <span>{speakerNotesDraft.length.toLocaleString()}자</span>
                   </div>
+                  <SpeakerNotesLengthMeter
+                    guidance={speakerNotesLengthGuidance}
+                  />
                 </div>
               ) : (
                 <div className="script-panel-body">
@@ -5756,8 +5927,7 @@ export function EditorShell(props: { projectId?: string }) {
                       onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                     />
                   </div>
-                  <div className="script-panel-meta">
-                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                  <div className="script-panel-meta script-panel-character-count">
                     <span>{(currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
                   </div>
                   <section
@@ -5766,7 +5936,6 @@ export function EditorShell(props: { projectId?: string }) {
                   >
                     <div className="script-keyword-heading">
                       <strong id="speaker-notes-keywords-title">발표 체크포인트</strong>
-                      <span>필수 발화와 화면 전환에 연결된 키워드입니다.</span>
                     </div>
                     <KeywordList
                       keywords={currentSlide?.keywords ?? []}
@@ -5776,6 +5945,9 @@ export function EditorShell(props: { projectId?: string }) {
                       onSelectKeyword={handleSelectKeyword}
                     />
                   </section>
+                  <SpeakerNotesLengthMeter
+                    guidance={speakerNotesLengthGuidance}
+                  />
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
@@ -5822,6 +5994,19 @@ export function EditorShell(props: { projectId?: string }) {
                 </div>
               )}
             </section>
+            <SpeakerNotesAssistantDialog
+              errorMessage={speakerNotesAssistantError}
+              mode={speakerNotesAssistantMode}
+              occurrenceWarning={speakerNotesAssistantOccurrenceWarning}
+              onApply={handleApplySpeakerNotesSuggestion}
+              onClose={() => setIsSpeakerNotesAssistantOpen(false)}
+              onGenerate={() => void handleGenerateSpeakerNotesSuggestion()}
+              onModeChange={setSpeakerNotesAssistantMode}
+              open={isSpeakerNotesAssistantOpen}
+              originalNotes={speakerNotesAssistantSource?.notes ?? ""}
+              result={speakerNotesAssistantResult}
+              status={speakerNotesAssistantStatus}
+            />
           </div>
         </section>
 
@@ -5990,17 +6175,6 @@ export function EditorShell(props: { projectId?: string }) {
       <div data-testid="editor-animations-debug" hidden>
         {JSON.stringify(currentSlide?.animations ?? [])}
       </div>
-
-      {isDev ? (
-        <button
-          className={`data-view-fab ${isDataViewOpen ? "active" : ""}`}
-          data-testid="editor-data-view-toggle"
-          type="button"
-          onClick={() => setIsDataViewOpen((current) => !current)}
-        >
-          Data View
-        </button>
-      ) : null}
 
       {isDev && isDataViewOpen ? (
         <section className="floating-dev-panel">

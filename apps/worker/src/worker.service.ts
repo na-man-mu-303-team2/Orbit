@@ -8,6 +8,7 @@ import {
   rehearsalSemanticEvaluationQueueName,
   rehearsalSttQueueName,
   semanticCueExtractionQueueName,
+  speakerNotesSuggestionQueueName,
   workerHealthCheckQueueName,
   focusedPracticeAnalysisQueueName,
   challengeQnaGenerationQueueName,
@@ -31,6 +32,7 @@ import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-evaluation.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
+import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.processor";
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
@@ -49,6 +51,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     generateDeckQueueName,
     deckExportQueueName,
     semanticCueExtractionQueueName,
+    speakerNotesSuggestionQueueName,
     pptxOoxmlGenerationQueueName,
     pptxOoxmlSyncQueueName,
     workerHealthCheckQueueName,
@@ -159,6 +162,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       ),
       this.createWorker(semanticCueExtractionQueueName, (job) =>
         processSemanticCueExtractionJob(
+          this.dataSource,
+          this.config.PYTHON_WORKER_URL,
+          job.data,
+        ),
+      ),
+      this.createWorker(speakerNotesSuggestionQueueName, (job) =>
+        processSpeakerNotesSuggestionJob(
           this.dataSource,
           this.config.PYTHON_WORKER_URL,
           job.data,
