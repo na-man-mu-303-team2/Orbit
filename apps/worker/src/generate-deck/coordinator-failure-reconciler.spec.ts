@@ -59,10 +59,9 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     expect(queue.close).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores unrelated or non-exhausted failed jobs", async () => {
+  it("ignores unrelated failed jobs", async () => {
     const unrelated = failedCoordinatorJob({ name: "generate-deck" });
-    const nonExhausted = failedCoordinatorJob({ attemptsMade: 4 });
-    const queue = failedQueue(unrelated, nonExhausted);
+    const queue = failedQueue(unrelated);
     const recover = vi.fn();
 
     await expect(
@@ -72,7 +71,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
         recover,
       }),
     ).resolves.toEqual({
-      scanned: 2,
+      scanned: 1,
       recovered: 0,
       removed: 0,
       nextStart: 0,
@@ -80,7 +79,28 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
 
     expect(recover).not.toHaveBeenCalled();
     expect(unrelated.remove).not.toHaveBeenCalled();
-    expect(nonExhausted.remove).not.toHaveBeenCalled();
+  });
+
+  it("recovers a stalled coordinator that BullMQ failed before attempts were exhausted", async () => {
+    const stalled = failedCoordinatorJob({ attemptsMade: 1 });
+    const queue = failedQueue(stalled);
+    const recover = vi.fn(async () => "coordinator-failed" as const);
+
+    await expect(
+      reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+        redisUrl: "redis://localhost:6379",
+        queueFactory: () => queue,
+        recover,
+      }),
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 1,
+      removed: 1,
+      nextStart: 0,
+    });
+
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(stalled.remove).toHaveBeenCalledTimes(1);
   });
 
   it("bounds each scan and resumes from a cursor on the next tick", async () => {
