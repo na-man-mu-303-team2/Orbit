@@ -43,6 +43,8 @@ export async function resolveGenerateDeckAssets(input: {
   imageRuntime?: ImageAssetRuntime;
   imageAssetScope?: { userId: string };
   officialAssetFileIds: readonly string[];
+  onlySlideIds?: ReadonlySet<string>;
+  deterministicIdentity?: string;
 }): Promise<{
   deck: Deck;
   validation: GenerateDeckValidation;
@@ -60,8 +62,9 @@ export async function resolveGenerateDeckAssets(input: {
         deck,
         input.imageRuntime,
         input.imageAssetScope,
-        undefined,
+        input.onlySlideIds,
         input.officialAssetFileIds,
+        input.deterministicIdentity,
       );
       deck = resolvedImages.deck;
       warnings.push(...resolvedImages.warnings);
@@ -74,7 +77,10 @@ export async function resolveGenerateDeckAssets(input: {
     }
   }
 
-  const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck);
+  const optionalSlideIds = unresolvedOptionalMediaSlideIds(deck).filter(
+    (slideId) =>
+      input.onlySlideIds === undefined || input.onlySlideIds.has(slideId),
+  );
   if (optionalSlideIds.length > 0) {
     try {
       const fallback = await requestVisualRepair(

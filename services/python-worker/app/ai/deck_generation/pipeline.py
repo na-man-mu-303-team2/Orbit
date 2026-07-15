@@ -349,44 +349,52 @@ class DeckGenerationOrchestrator:
         design_plan: DesignPlan,
         slides: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        metadata: dict[str, Any] = {
-            "language": "ko",
-            "locale": "ko-KR",
-            "sourceType": "ai",
-            "generatedBy": "ai",
-            "audience": raw_input.metadata.audience,
-            "purpose": raw_input.metadata.purpose,
-            "tone": raw_input.metadata.tone,
-            "createdFrom": {
-                "topic": raw_input.topic,
-                "references": [
-                    {"fileId": reference.file_id}
-                    for reference in raw_input.references
-                ],
-                "designReferences": [],
-            },
-        }
-        metadata["presentationProfile"] = raw_input.presentation_profile
-        metadata["designProgramSnapshot"] = design_program_snapshot(
-            design_plan.design_program
-        )
+        return build_deck_from_layout(raw_input, outline, design_plan, slides)
 
-        return {
-            "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
-            "projectId": raw_input.project_id,
-            "title": outline.title,
-            "version": 1,
-            "targetDurationMinutes": raw_input.target_duration_minutes,
-            "metadata": metadata,
-            "canvas": {
-                "preset": "wide-16-9",
-                "width": CANVAS.width,
-                "height": CANVAS.height,
-                "aspectRatio": "16:9",
-            },
-            "theme": design_plan.theme,
-            "slides": slides,
-        }
+
+def build_deck_from_layout(
+    raw_input: RawInput,
+    outline: DeckOutline,
+    design_plan: DesignPlan,
+    slides: list[dict[str, Any]],
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "language": "ko",
+        "locale": "ko-KR",
+        "sourceType": "ai",
+        "generatedBy": "ai",
+        "audience": raw_input.metadata.audience,
+        "purpose": raw_input.metadata.purpose,
+        "tone": raw_input.metadata.tone,
+        "createdFrom": {
+            "topic": raw_input.topic,
+            "references": [
+                {"fileId": reference.file_id} for reference in raw_input.references
+            ],
+            "designReferences": [],
+        },
+    }
+    metadata["presentationProfile"] = raw_input.presentation_profile
+    metadata["designProgramSnapshot"] = design_program_snapshot(
+        design_plan.design_program
+    )
+
+    return {
+        "deckId": f"deck_ai_{safe_token(raw_input.project_id)}",
+        "projectId": raw_input.project_id,
+        "title": outline.title,
+        "version": 1,
+        "targetDurationMinutes": raw_input.target_duration_minutes,
+        "metadata": metadata,
+        "canvas": {
+            "preset": "wide-16-9",
+            "width": CANVAS.width,
+            "height": CANVAS.height,
+            "aspectRatio": "16:9",
+        },
+        "theme": design_plan.theme,
+        "slides": slides,
+    }
 
 
 def generate_deck(

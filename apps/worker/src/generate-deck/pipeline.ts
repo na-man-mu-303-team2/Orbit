@@ -12,6 +12,7 @@ import type { DataSource } from "typeorm";
 import type { ImageAssetRuntime } from "../image-asset-pipeline";
 import {
   OptionalMediaFallbackUnavailableError,
+  hasMediaPlaceholder,
   resolvedVisualAssetCount,
   resolveGenerateDeckAssets,
   unresolvedOptionalMediaSlideIds,
@@ -20,6 +21,7 @@ import {
 import {
   failGenerateDeckJob,
   failGenerateDeckQualityGate,
+  failGenerateDeckOptionalImageFallback,
   failGenerateDeckVisualQaUnavailable,
   publishGenerateDeckResult,
   updateGenerateDeckJob,
@@ -151,7 +153,7 @@ export async function processGenerateDeckPipeline(input: {
         deckId: error.deck.deckId,
         stage: "optional-asset-fallback",
       });
-      return failGenerateDeckVisualQaUnavailable(
+      return failGenerateDeckOptionalImageFallback(
         input.dataSource,
         input.jobId,
         input.workerPayload,
@@ -159,7 +161,6 @@ export async function processGenerateDeckPipeline(input: {
         error.validation,
         [...input.workerPayload.warnings, ...error.warnings],
         error.message,
-        { visualReviewAttempts: 0, visualRepairAttempts: 0 },
       );
     }
     emitEvent("ai-ppt.asset.resolved", {
@@ -289,6 +290,21 @@ export async function processGenerateDeckPipeline(input: {
         emitEvent,
       });
     } catch (error) {
+      if (error instanceof OptionalMediaFallbackUnavailableError) {
+        return failGenerateDeckOptionalImageFallback(
+          input.dataSource,
+          input.jobId,
+          input.workerPayload,
+          error.deck,
+          error.validation,
+          [
+            ...input.workerPayload.warnings,
+            ...imageWarnings,
+            ...error.warnings,
+          ],
+          error.message,
+        );
+      }
       const unavailable =
         error instanceof RenderedVisualQualityUnavailableError
           ? error
@@ -299,23 +315,61 @@ export async function processGenerateDeckPipeline(input: {
         deckId: deck.deckId,
         stage: "visual-qa-unavailable",
       });
-      return failGenerateDeckVisualQaUnavailable(
-        input.dataSource,
-        input.jobId,
-        input.workerPayload,
-        unavailable?.deck ?? deck,
-        unavailable?.validation ?? validation,
-        [
+      const unavailableDeck = unavailable?.deck ?? deck;
+      const unavailableValidation = unavailable?.validation ?? validation;
+      if (
+        hasBlockingQualityGateIssues(unavailableValidation) ||
+        hasMediaPlaceholder(unavailableDeck)
+      ) {
+        return failGenerateDeckVisualQaUnavailable(
+          input.dataSource,
+          input.jobId,
+          input.workerPayload,
+          unavailableDeck,
+          unavailableValidation,
+          [
+            ...input.workerPayload.warnings,
+            ...imageWarnings,
+            ...(unavailable?.warnings ?? []),
+          ],
+          error instanceof Error ? error.message : "Vision QA unavailable.",
+          {
+            visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
+            visualRepairAttempts: unavailable?.repairAttempts ?? 0,
+          },
+        );
+      }
+      diagnostics = {
+        ...diagnostics,
+        warningCodes: [
+          ...new Set([
+            ...diagnostics.warningCodes,
+            "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+          ]),
+        ],
+        visualQaStatus: "unavailable",
+        visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
+        visualRepairAttempts: unavailable?.repairAttempts ?? 0,
+        visualIssueCodes: [],
+        validationIssueCount: allValidationIssues(unavailableValidation).length,
+      };
+      return publishGenerateDeckResult({
+        dataSource: input.dataSource,
+        jobId: input.jobId,
+        projectId: input.projectId,
+        workerPayload: input.workerPayload,
+        deck: unavailableDeck,
+        warnings: [
           ...input.workerPayload.warnings,
           ...imageWarnings,
           ...(unavailable?.warnings ?? []),
+          "Rendered Visual QA was unavailable; deterministic validation was used.",
         ],
-        error instanceof Error ? error.message : "Vision QA unavailable.",
-        {
-          visualReviewAttempts: unavailable?.reviewAttempts ?? 0,
-          visualRepairAttempts: unavailable?.repairAttempts ?? 0,
-        },
-      );
+        validation: unavailableValidation,
+        diagnostics,
+        coachingProvenance: input.request.coachingContext,
+        emitEvent,
+      });
     }
     deck = visualOutcome.deck;
     validation = visualOutcome.validation;
@@ -386,7 +440,7 @@ export async function processGenerateDeckPipeline(input: {
   }
 }
 
-function markDeckForInitialThumbnailRefresh(
+export function markDeckForInitialThumbnailRefresh(
   deck: Deck,
   designPackSnapshot?: SavedDesignPackSnapshot,
 ): Deck {

@@ -5,13 +5,13 @@ import {
 } from "@orbit/job-queue";
 import type { AiDeckGenerationStageMessage } from "@orbit/shared";
 
-import type {
-  DispatchableAiDeckGenerationStage,
-} from "./stage-checkpoint-repository";
+import type { DispatchableAiDeckGenerationStage } from "./stage-checkpoint-repository";
 
 interface DispatchRepository {
   recoverStaleDispatches(limit?: number): Promise<number>;
-  listUndispatched(limit?: number): Promise<DispatchableAiDeckGenerationStage[]>;
+  listUndispatched(
+    limit?: number,
+  ): Promise<DispatchableAiDeckGenerationStage[]>;
   markDispatched(
     message: AiDeckGenerationStageMessage,
     observedAttempt: number,
@@ -75,4 +75,8 @@ const implementedStages = new Set([
   "content-planning",
   "design-planning",
   "layout-compile",
+  "image-slide",
+  "semantic-quality",
+  "rendered-visual-quality",
+  "publication",
 ]);

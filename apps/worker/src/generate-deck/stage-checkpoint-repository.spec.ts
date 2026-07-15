@@ -262,10 +262,12 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
 
     const sql = compactSql(query.mock.calls[0]?.[0]);
     expect(sql).toContain(
-      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile' )",
+      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile','image-slide', 'semantic-quality','rendered-visual-quality','publication' )",
     );
     expect(sql).toContain("stages.status = 'queued'");
-    expect(sql).toContain("stages.dispatched_at <= now() - interval '15 minutes'");
+    expect(sql).toContain(
+      "stages.dispatched_at <= now() - interval '15 minutes'",
+    );
     expect(sql).toContain("FOR UPDATE OF stages SKIP LOCKED");
     expect(sql).toContain("LIMIT $1");
     expect(sql).toContain("dispatched_at = NULL");
@@ -298,7 +300,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("stages.status = 'queued'");
     expect(sql).toContain("stages.dispatched_at IS NULL");
     expect(sql).toContain(
-      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile' )",
+      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile','image-slide', 'semantic-quality','rendered-visual-quality','publication' )",
     );
     expect(sql).toContain("jobs.project_id");
     expect(sql).toContain("LIMIT $1");
@@ -332,7 +334,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("stages.status = 'running'");
     expect(sql).toContain("stages.lease_expires_at <= now()");
     expect(sql).toContain(
-      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile' )",
+      "stages.stage IN ( 'reference-extract-file','source-grounding','content-planning', 'design-planning','layout-compile','image-slide', 'semantic-quality','rendered-visual-quality','publication' )",
     );
     expect(sql).toContain("LIMIT $1");
   });

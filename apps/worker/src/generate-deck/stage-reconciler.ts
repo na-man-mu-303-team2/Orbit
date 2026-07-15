@@ -89,7 +89,10 @@ export async function reconcileExpiredAiDeckStageLeases(
               : await failPlanningParent(
                   manager,
                   candidate.message,
-                  errors.exhausted,
+                  jobErrorSchema.parse({
+                    ...errors.exhausted,
+                    retryable: true,
+                  }),
                 );
           return { status: checkpoint.status, parentJob };
         }
@@ -191,5 +194,7 @@ function firstQueryRow(queryResult: unknown): unknown | null {
 }
 
 function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }

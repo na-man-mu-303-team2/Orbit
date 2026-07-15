@@ -10,7 +10,7 @@ import {
   type Slide
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 
 export type ImageAssetRuntime = {
@@ -42,7 +42,8 @@ export async function resolveDeckImageAssets(
   runtime: ImageAssetRuntime,
   scope: ImageAssetScope,
   onlySlideIds?: ReadonlySet<string>,
-  officialAssetFileIds: readonly string[] = []
+  officialAssetFileIds: readonly string[] = [],
+  deterministicIdentity?: string
 ): Promise<{ deck: Deck; warnings: string[] }> {
   const warnings: string[] = [];
   const candidates = deck.slides.filter(
@@ -135,7 +136,10 @@ export async function resolveDeckImageAssets(
         storage,
         deck.projectId,
         asset,
-        scope
+        scope,
+        deterministicIdentity
+          ? `${deterministicIdentity}:${slide.slideId}`
+          : undefined
       );
       resolvedDeck = replaceSlideImagePlaceholder(
         resolvedDeck,
@@ -319,11 +323,19 @@ async function storeImageAsset(
   storage: Pick<StoragePort, "putObject">,
   projectId: string,
   asset: ImageAssetCandidate,
-  scope: ImageAssetScope
+  scope: ImageAssetScope,
+  deterministicIdentity?: string
 ) {
-  const fileId = `file_${randomUUID()}`;
+  const stableHash = deterministicIdentity
+    ? createHash("sha256").update(deterministicIdentity).digest("hex").slice(0, 32)
+    : undefined;
+  const fileId = stableHash
+    ? `file_aideck_${stableHash}`
+    : `file_${randomUUID()}`;
   const originalName = safeStorageName(asset.fileName);
-  const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
+  const storageKey = stableHash
+    ? `projects/${projectId}/ai-deck-assets/${stableHash}-${originalName}`
+    : `projects/${projectId}/assets/${fileId}-${originalName}`;
   const url = createAssetContentUrl(projectId, fileId);
   await storage.putObject({
     key: storageKey,
@@ -345,6 +357,23 @@ async function storeImageAsset(
         'design-asset', 'uploaded', now(), now(), null,
         $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
       )
+      ON CONFLICT (file_id) DO UPDATE
+      SET storage_key = EXCLUDED.storage_key,
+          original_name = EXCLUDED.original_name,
+          mime_type = EXCLUDED.mime_type,
+          size = EXCLUDED.size,
+          url = EXCLUDED.url,
+          source_url = EXCLUDED.source_url,
+          author = EXCLUDED.author,
+          license = EXCLUDED.license,
+          license_checked_at = EXCLUDED.license_checked_at,
+          asset_provider = EXCLUDED.asset_provider,
+          generation_prompt = EXCLUDED.generation_prompt,
+          generated_for_user_id = EXCLUDED.generated_for_user_id,
+          source_asset_url = EXCLUDED.source_asset_url,
+          source_authority = EXCLUDED.source_authority,
+          usage_basis = EXCLUDED.usage_basis
+      WHERE project_assets.project_id = EXCLUDED.project_id
     `,
     [
       fileId,

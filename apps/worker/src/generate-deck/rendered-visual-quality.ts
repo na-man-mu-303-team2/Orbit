@@ -12,6 +12,7 @@ import { z } from "zod";
 import { embedDeckImageAssets } from "../deck-export.processor";
 import type { ImageAssetRuntime } from "../image-asset-pipeline";
 import {
+  OptionalMediaFallbackUnavailableError,
   requestVisualRepair,
   resolveRepairedDeckAssets,
   unresolvedOptionalMediaSlideIds,
@@ -222,10 +223,8 @@ export async function runRenderedVisualQuality(input: {
           optionalSlideIds,
         );
       } catch (error) {
-        throw unavailableVisualQaError(
-          error,
-          reviewAttempts,
-          repairAttempts,
+        throw new OptionalMediaFallbackUnavailableError(
+          error instanceof Error ? error.message : "Visual repair unavailable.",
           deck,
           validation,
           warnings,
