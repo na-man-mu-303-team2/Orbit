@@ -199,9 +199,21 @@ if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
+if [[ "$DEPLOYMENT_MODE" == "full" ]]; then
+  exec /usr/bin/sudo -iu orbit \
+    /bin/bash /var/www/orbit/infra/scripts/deploy-personal-server.sh "$EXPECTED_SHA"
+fi
+
+if [[ -z "$EXPECTED_SHA" ]]; then
+  echo "Environment-only deployment requires an expected SHA."
+  exit 1
+fi
+
 exec /usr/bin/sudo -iu orbit \
   /bin/bash /var/www/orbit/infra/scripts/deploy-personal-server.sh "$DEPLOYMENT_MODE" "$EXPECTED_SHA"
 ```
+
+`full` mode는 PR merge 전에 wrapper를 먼저 갱신해도 기존 SHA-only deploy script와 호환되도록 SHA만 전달한다. `environment-only` mode는 새 deploy script가 `develop`에 반영된 뒤에만 사용한다.
 
 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. `develop` merge 후 완전 자동 배포가 팀의 고정 규칙이다.
 
