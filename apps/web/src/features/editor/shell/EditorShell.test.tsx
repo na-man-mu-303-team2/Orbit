@@ -469,6 +469,13 @@ describe("editor shell", () => {
     expect(html).toContain("차트");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
+    expect(html).toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
+    expect(html).toContain("현재 슬라이드 · <!-- -->Opening");
+    expect(html).toContain("메모 편집");
+    expect(html).toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
+    expect(html).toContain("발표 체크포인트");
+    expect(html).toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
+    expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
