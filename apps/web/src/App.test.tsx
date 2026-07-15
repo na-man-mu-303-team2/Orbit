@@ -166,6 +166,11 @@ describe("App shell routing", () => {
     expect(getRoute("/mockup/signup")).toEqual({ name: "mockup", screen: "signup" });
     expect(getRoute("/mockup/presenter")).toEqual({ name: "mockup", screen: "presenter" });
     expect(getRoute("/mockup/catalog")).toEqual({ name: "mockup", screen: "catalog" });
+    expect(getRoute("/mockup/journey")).toEqual({ name: "mockup", screen: "journey" });
+    expect(getRoute("/mockup/journey-complete")).toEqual({ name: "mockup", screen: "journey-complete" });
+    expect(getRoute("/mockup/safe-start")).toEqual({ name: "mockup", screen: "safe-start" });
+    expect(getRoute("/mockup/safe-practice")).toEqual({ name: "mockup", screen: "safe-practice" });
+    expect(getRoute("/mockup/safe-feedback")).toEqual({ name: "mockup", screen: "safe-feedback" });
     expect(getRoute("/mockup/brief")).toEqual({ name: "mockup", screen: "brief" });
     expect(getRoute("/mockup/practice-plan")).toEqual({ name: "mockup", screen: "practice-plan" });
     expect(getRoute("/mockup/focused-practice")).toEqual({ name: "mockup", screen: "focused-practice" });

@@ -12,12 +12,47 @@ describe("Orbit mockup flow", () => {
     expect(html).toContain("리허설");
   });
 
-  it("renders the authenticated project hub without the generation form", () => {
+  it("renders a next-action home for the connected journey", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="home" />);
-    expect(html).toContain("김지윤님, 다음 발표를 이어가세요.");
-    expect(html).toContain("AI 발표자료 만들기");
-    expect(html).toContain("2026 하반기 제품 전략");
-    expect(html).not.toContain("핵심 메시지");
+    expect(html).toContain("지금 할 일부터 이어가세요");
+    expect(html).toContain("이 발표 준비 시작");
+    expect(html).toContain("첫 업무 성과 보고");
+    expect(html).toContain("발표가 먼저 막막해요");
+    expect(html).toContain("전체 여정 1 / 6");
+  });
+
+  it("renders the full presentation journey map", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="journey" />);
+    expect(html).toContain("발표 준비부터 실전까지");
+    expect(html).toContain("홈에서 여정 시작");
+    expect(html).toContain("발표자료 만들기");
+    expect(html).toContain("다음 행동 선택");
+  });
+
+  it("renders the low-pressure practice setup", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="safe-start" />);
+    expect(html).toContain("오늘은 도입부만 연습해요");
+    expect(html).toContain("음성 분석 없이");
+    expect(html).toContain("60초 도입부 연습 시작");
+    expect(html).toContain("연습 결과는 나만 보기");
+  });
+
+  it("renders the low-pressure practice room", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="safe-practice" />);
+    expect(html).toContain("첫 문장은 결론부터");
+    expect(html).toContain("음성 분석 없음");
+    expect(html).toContain("연습 마치고 확인하기");
+  });
+
+  it("renders feedback without scores or ranking", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="safe-feedback" />);
+    expect(html).toContain("첫 연습을 마쳤어요");
+    expect(html).toContain("다음 행동 한 가지");
+    expect(html).toContain("나만 보관");
+    expect(html).toContain("오늘 연습 마치기");
+    expect(html).toContain("점수 대신");
+    expect(html).not.toContain("100점");
+    expect(html).not.toContain("순위");
   });
 
   it("renders the focused creation form", () => {
@@ -28,22 +63,20 @@ describe("Orbit mockup flow", () => {
     expect(html).toContain("PPTX를 첨부하면 기존 디자인을 참고할 수 있어요.");
   });
 
-  it("renders the editor mockup with the primary editing flow", () => {
+  it("renders the story review step before practice", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="editor" />);
-    expect(html).toContain("2026 하반기 제품 전략");
-    expect(html).toContain("슬라이드 추가");
-    expect(html).toContain("AI 코치");
-    expect(html).toContain("공유");
-    expect(html).toContain("발표하기");
-    expect(html).toContain("제안 적용");
+    expect(html).toContain("구조와 핵심 메시지만");
+    expect(html).toContain("발표 흐름");
+    expect(html).toContain("연습에 필요한 내용은 준비됐어요");
+    expect(html).toContain("60초 연습 준비");
   });
 
-  it("renders the rehearsal workspace with live coaching", () => {
+  it("renders a full rehearsal without new scoring", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="rehearsal" />);
-    expect(html).toContain("AI 리허설 코치");
-    expect(html).toContain("발표 스크립트");
-    expect(html).toContain("리허설 시작");
-    expect(html).toContain("화면 설정");
+    expect(html).toContain("처음부터 끝까지");
+    expect(html).toContain("시간과 핵심 메시지만 점검");
+    expect(html).toContain("전체 리허설 시작");
+    expect(html).toContain("리허설 마치고 다음 행동 보기");
   });
 
   it("renders the microphone permission check before rehearsal", () => {
@@ -85,11 +118,12 @@ describe("Orbit mockup flow", () => {
     expect(html).toContain("결론 CTA 명확히 말하기");
   });
 
-  it("renders the rehearsal report detail", () => {
+  it("renders the action-led full rehearsal result", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="report" />);
-    expect(html).toContain("4회차 리허설 리포트");
-    expect(html).toContain("AI 총평");
-    expect(html).toContain("다음에 개선할 점");
+    expect(html).toContain("전체 흐름을 확인했어요");
+    expect(html).toContain("발표 전 바꿀 행동 한 가지");
+    expect(html).toContain("발표 준비로 이동");
+    expect(html).not.toContain("100점");
   });
 
   it("renders the project-level rehearsal report", () => {
@@ -106,12 +140,20 @@ describe("Orbit mockup flow", () => {
     expect(html).toContain("발표자 모드");
   });
 
-  it("renders the live presenter controls", () => {
+  it("renders the final presentation readiness screen", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="live-presenter" />);
-    expect(html).toContain("현재 슬라이드");
-    expect(html).toContain("발표 메모");
-    expect(html).toContain("청중 연결");
-    expect(html).toContain("발표 종료");
+    expect(html).toContain("평가 없이 발표에만");
+    expect(html).toContain("실전 화면 점검");
+    expect(html).toContain("청중 입장 링크");
+    expect(html).toContain("발표 시작");
+  });
+
+  it("renders the private post-presentation reflection", () => {
+    const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="journey-complete" />);
+    expect(html).toContain("발표를 마쳤어요");
+    expect(html).toContain("오늘 해낸 것");
+    expect(html).toContain("오늘 발표는 어땠나요");
+    expect(html).toContain("홈으로 돌아가기");
   });
 
   it("renders the login mockup", () => {
@@ -135,11 +177,12 @@ describe("Orbit mockup flow", () => {
     expect(html).not.toContain("AI PPT 상세 위저드");
   });
 
-  it("renders the presentation brief and evaluator lens mockup", () => {
+  it("renders the purpose and source setup step", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="brief" />);
-    expect(html).toContain("누구에게, 무엇을 얻기 위해");
-    expect(html).toContain("평가 관점");
-    expect(html).toContain("브리프 저장하고 계속");
+    expect(html).toContain("누구에게 무엇을 남길지");
+    expect(html).toContain("발표 목적");
+    expect(html).toContain("시작 자료");
+    expect(html).toContain("발표 구조 확인하기");
   });
 
   it("renders the adaptive practice plan mockup", () => {

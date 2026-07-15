@@ -27,6 +27,56 @@ final result: passed
 
 ---
 
+# ORBIT 연결형 사용자 여정 Design QA
+
+## 범위와 비교 근거
+
+- 핵심 경로: `/mockup/home` → `/mockup/brief` → `/mockup/editor` → `/mockup/safe-start` → `/mockup/safe-practice` → `/mockup/safe-feedback` → `/mockup/rehearsal` → `/mockup/report` → `/mockup/live-presenter` → `/mockup/journey-complete`
+- 기존 홈 기준 캡처: `/tmp/orbit-current-home-before-flow-redesign.png`
+- 선택된 안심 연습 기준 시안: `/Users/donghyunkim/.codex/generated_images/019f65e1-9b4e-7c42-9443-be4b142007a3/exec-b86f7c45-de7a-494a-ae45-8a290c1ab5f4.png`
+- 최종 홈 캡처: `/tmp/orbit-connected-home-final.png`
+- 최종 안심 연습 캡처: `/tmp/orbit-connected-safe-start-final.png`
+- 주요 후속 화면 캡처: `/tmp/orbit-connected-rehearsal-desktop.png`, `/tmp/orbit-connected-report-desktop.png`, `/tmp/orbit-connected-live-desktop.png`, `/tmp/orbit-connected-complete-desktop.png`
+- 동일 입력 비교본: `/tmp/orbit-connected-home-comparison.png`, `/tmp/orbit-connected-safe-start-comparison.png`
+- 비교 뷰포트: 데스크톱 1440 × 1024, 모바일 390 × 844
+- 비교 상태: 홈 기본 상태, 분석 전 안심 연습 설정, 전체 핵심 경로
+
+기존 화면과 최종 화면을 같은 입력에 배치해 전체 레이아웃을 비교했다. 안심 연습은 2880 × 1024 원본 해상도 비교본에서 오른쪽 설정 패널의 문구·아이콘·간격까지 확인했다.
+
+## 디자인과 사용자 흐름 결과
+
+- 홈은 프로젝트 목록보다 사용자가 지금 해야 할 한 가지 행동을 먼저 보여준다. 이어서 목적·자료, 구조·편집, 작은 연습, 전체 확인, 발표, 회고의 6단계가 하나의 흐름으로 연결된다.
+- 각 화면은 공통 단계 레일과 이전·다음 행동을 사용해 현재 위치와 다음 행동을 예측할 수 있다. 헤더의 홈·프로젝트·리허설·리포트 이동도 연결했다.
+- 발표 목적과 자료 준비는 AI 초안, 파일 업로드, 기존 프로젝트의 세 가지 진입점을 제공하고 실제 파일 선택 상태를 표시한다.
+- 작은 연습과 전체 리허설은 점수나 순위를 만들지 않고, 비공개 상태와 한 가지 개선 행동을 중심으로 구성했다.
+- 발표 화면은 준비 상태에서 집중형 라이브 화면으로 전환되며 이전·다음 슬라이드와 발표 종료가 동작한다. 종료 후에는 비공개 자기 회고를 남기고 홈으로 돌아간다.
+- Pretendard, ORBIT 로고, Tabler 아이콘, Ink·Canvas·Lilac·Lime·Cream·Mint 토큰을 그대로 사용했다. 그라데이션, 과한 그림자, 임의 SVG·CSS 도형은 추가하지 않았다.
+
+## 발견 사항과 수정 이력
+
+1. P2 모바일 단계 레일: 현재 단계가 가로 스크롤 밖으로 밀릴 수 있었다. 여섯 단계 점을 한 화면에 맞추고 현재 단계 이름만 표시하도록 수정했다.
+2. P2 모바일 리허설: 시작 CTA가 첫 화면 아래에 있고 상태 문구가 잘릴 수 있었다. CTA를 진행 상태 바로 아래로 이동하고 확인 항목을 압축했으며 중복 상태 문구를 숨겼다.
+3. P2 모바일 홈: 강제 줄바꿈 때문에 제목이 세 줄이 되고 `전체 흐름 보기`가 좁아졌다. 모바일에서 강제 줄바꿈을 해제하고 헤더 행동을 세로로 배치했다.
+
+수정 후 데스크톱과 모바일 비교에서 남은 P0, P1, P2 겹침, 잘림, 핵심 CTA 누락은 없다.
+
+## 상호작용·접근성 확인
+
+- 전체 경로를 홈부터 회고 후 홈 복귀까지 브라우저에서 연속 실행했다.
+- 파일 선택, 연습 방식 선택, 타이머 진행, 전체 리허설 시작, 피드백 후 분기, 발표 시작, 슬라이드 이동, 발표 종료, 자기 회고 선택을 확인했다.
+- 단계에는 `aria-current`, 진행 상태에는 progress semantics, 선택 항목에는 radio semantics와 label, 이미지에는 대체 텍스트를 적용했다.
+- 모바일 390 × 844에서 가로 넘침과 핵심 행동의 접근성을 확인했다.
+- 브라우저 콘솔 경고·오류: 없음.
+
+## 자동 검증
+
+- `pnpm --filter @orbit/web test`: 147 files, 1015 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `git diff --check`: passed.
+
+final result: passed
+---
+
 # Presenter Notes Resize and Hide QA — 2026-07-15
 
 ## Scope
@@ -565,5 +615,48 @@ Post-fix comparisons found no remaining actionable P0, P1, or P2 layout, density
 - `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
 - `pnpm --filter @orbit/web typecheck`: passed.
 - `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
+
+final result: passed
+
+---
+
+# ORBIT 사용자 여정 목업 Design QA
+
+## 범위
+
+- 여정 지도: `/mockup/journey`
+- 안심 연습 설정: `/mockup/safe-start`
+- 60초 연습: `/mockup/safe-practice`
+- 점수 없는 피드백: `/mockup/safe-feedback`
+- 기준 시안: `/Users/donghyunkim/.codex/generated_images/019f65e1-9b4e-7c42-9443-be4b142007a3/exec-b86f7c45-de7a-494a-ae45-8a290c1ab5f4.png`
+- 최종 브라우저 캡처: `/tmp/orbit-safe-start-final.png`
+- 동일 입력 비교본: `/tmp/orbit-design-qa-final-comparison.png`
+- 비교 뷰포트: 1440 × 1024
+
+## 비교 결과
+
+### 핵심 디자인과 기능
+
+- 레이아웃: 기준 시안의 왼쪽 발표 미리보기와 오른쪽 라일락 설정 패널 구조를 유지했다. 설정 패널의 선택 항목, 토글, 주 행동, 보조 행동 순서가 기준 시안과 일치한다.
+- 타이포그래피: 프로젝트 표준인 Pretendard와 기존 디자인 시스템의 크기·굵기를 사용했다. 첫 비교에서 도입부 제목이 과도하게 커 보여 최대 크기를 58px에서 50px로 조정했다.
+- 간격과 표면: 카드마다 테두리를 늘리지 않고, 선택 항목과 기능적으로 구분이 필요한 영역에만 얇은 경계선을 사용했다. 과한 그림자와 그라데이션은 사용하지 않았다.
+- 색상: Ink, Canvas, Lilac, Lilac Soft, Mint 등 기존 ORBIT 토큰만 사용했다. 선택·성공·비공개 상태의 대비가 유지된다.
+- 이미지와 아이콘: 실제 ORBIT 로고 자산과 Tabler 아이콘을 사용했다. 기준 시안의 장식 그래픽을 CSS 도형으로 흉내 내지 않고, 실제 발표 내용 중심의 미리보기로 구성했다.
+- 문구: 발표가 부담스러운 사용자를 위해 “60초”, “완벽하지 않아도 괜찮아요”, “점수 대신 다음 행동 하나”처럼 행동 범위와 평가 부담을 명확히 줄였다.
+- 상태와 상호작용: 연습 방식 선택, 긴 멈춤 제외, 비공개 결과, 시작·일시 정지·초기화·완료, 공유 범위 선택, 삭제 확인 대화상자를 브라우저에서 검증했다.
+
+### 접근성과 반응형
+
+- 라디오 그룹, 토글의 `aria-pressed`, 결과 상태, 진행률, 대화상자 이름을 확인했다.
+- 390 × 844 모바일 뷰에서 설정 패널을 먼저 배치하고, 실제 연습 화면에서는 타이머와 시작 동작을 발표 미리보기보다 먼저 배치했다.
+- 모바일 피드백은 보관 설정보다 잘한 점과 다음 행동이 먼저 나타나도록 순서를 조정했다.
+- 44px 이상에 가까운 주요 터치 영역과 명확한 포커스·선택 테두리를 유지했다.
+- 데스크톱과 모바일에서 겹침, 잘림, 핵심 CTA 누락이 없음을 확인했다.
+
+### 브라우저 확인
+
+- 핵심 경로: 설정 → 60초 연습 → 피드백
+- 확인 상태: 타이머 진행, 완료 이동, 공유 범위 변경, 삭제 확인
+- 콘솔 경고·오류: 없음
 
 final result: passed

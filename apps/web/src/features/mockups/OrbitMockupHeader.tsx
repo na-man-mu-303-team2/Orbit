@@ -8,7 +8,9 @@ import { OrbitButton } from "../../design-system";
 import orbitLogo from "./assets/orbit-logo-selected.png";
 
 export function MockupHeader(props: {
+  activeAppItem?: "홈" | "프로젝트" | "리허설" | "리포트";
   mode: "public" | "app";
+  onAppNavigate?: (item: "홈" | "프로젝트" | "리허설" | "리포트") => void;
   onLoginClick?: () => void;
   onLogoClick: () => void;
   onPrimaryClick?: () => void;
@@ -23,7 +25,12 @@ export function MockupHeader(props: {
           ? ["제품", "활용 방법", "리허설", "템플릿"]
           : ["홈", "프로젝트", "리허설", "리포트"]
         ).map((item, index) => (
-          <button aria-current={index === 0 ? "page" : undefined} key={item} type="button">
+          <button
+            aria-current={props.mode === "app" ? item === (props.activeAppItem ?? "홈") ? "page" : undefined : index === 0 ? "page" : undefined}
+            key={item}
+            onClick={() => props.mode === "app" ? props.onAppNavigate?.(item as "홈" | "프로젝트" | "리허설" | "리포트") : undefined}
+            type="button"
+          >
             {item}
           </button>
         ))}

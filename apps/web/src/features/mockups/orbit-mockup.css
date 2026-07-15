@@ -136,12 +136,13 @@
 .mockup-row-actions button { align-items: center; background: white; border: 1px solid var(--orbit-ds-border); border-radius: 7px; display: inline-flex; height: 34px; justify-content: center; width: 34px; }
 .mockup-empty-state { align-items: center; color: var(--orbit-ds-text-muted); display: flex; flex-direction: column; gap: 10px; padding: 48px; }
 .mockup-empty-state button { background: transparent; border: 0; color: var(--orbit-ds-lilac-strong); font-weight: 650; }
-.mockup-home-start-grid { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin-top: 22px; }
-.mockup-start-block { align-items: center; border: 0; border-radius: 18px; color: var(--orbit-ds-ink); display: grid; grid-template-columns: auto 1fr auto; min-height: 142px; padding: 26px 34px; text-align: left; }
+.mockup-home-start-grid { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); margin-top: 22px; }
+.mockup-start-block { align-items: center; border: 0; border-radius: 18px; color: var(--orbit-ds-ink); display: grid; grid-template-columns: auto 1fr auto; min-height: 142px; padding: 24px; text-align: left; }
 .mockup-start-lime { background: var(--orbit-ds-lime); }
 .mockup-start-cream { background: var(--orbit-ds-cream); }
-.mockup-start-block span { display: grid; gap: 7px; margin-left: 28px; }
-.mockup-start-block strong { font-size: 24px; letter-spacing: -0.025em; }
+.mockup-start-lilac { background: var(--orbit-ds-lilac); }
+.mockup-start-block span { display: grid; gap: 7px; margin-left: 20px; }
+.mockup-start-block strong { font-size: 21px; letter-spacing: -0.025em; }
 .mockup-start-block small { font-size: 13px; }
 
 .mockup-create-breadcrumb { align-items: center; color: var(--orbit-ds-text-muted); display: flex; font-size: 13px; gap: 10px; }

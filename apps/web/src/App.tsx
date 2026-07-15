@@ -244,6 +244,11 @@ export function getRoute(
   if (normalized === "/mockup/login") return { name: "mockup", screen: "login" };
   if (normalized === "/mockup/signup") return { name: "mockup", screen: "signup" };
   if (normalized === "/mockup/catalog") return { name: "mockup", screen: "catalog" };
+  if (normalized === "/mockup/journey") return { name: "mockup", screen: "journey" };
+  if (normalized === "/mockup/journey-complete") return { name: "mockup", screen: "journey-complete" };
+  if (normalized === "/mockup/safe-start") return { name: "mockup", screen: "safe-start" };
+  if (normalized === "/mockup/safe-practice") return { name: "mockup", screen: "safe-practice" };
+  if (normalized === "/mockup/safe-feedback") return { name: "mockup", screen: "safe-feedback" };
   if (normalized === "/mockup/brief") return { name: "mockup", screen: "brief" };
   if (normalized === "/mockup/practice-plan") return { name: "mockup", screen: "practice-plan" };
   if (normalized === "/mockup/focused-practice") return { name: "mockup", screen: "focused-practice" };

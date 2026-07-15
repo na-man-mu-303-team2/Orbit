@@ -25,10 +25,9 @@ import {
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
 import { OrbitButton, OrbitStatus } from "../../design-system";
-import { OrbitEditorMockup } from "./OrbitEditorMockup";
-import { OrbitPresenterMockup, OrbitRehearsalMockup } from "./OrbitDeliveryMockups";
-import { OrbitRehearsalCompleteMockup, OrbitReportDetailMockup, OrbitReportListMockup } from "./OrbitReportMockups";
-import { OrbitLivePresentationMockup, OrbitLivePresenterMockup } from "./OrbitLiveMockups";
+import { OrbitPresenterMockup } from "./OrbitDeliveryMockups";
+import { OrbitRehearsalCompleteMockup, OrbitReportListMockup } from "./OrbitReportMockups";
+import { OrbitLivePresentationMockup } from "./OrbitLiveMockups";
 import { OrbitLoginMockup, OrbitSignupMockup } from "./OrbitAuthMockups";
 import { OrbitMicrophoneCheckMockup } from "./OrbitMicrophoneCheckMockup";
 import { OrbitProjectAccessMockup, OrbitProjectReportMockup } from "./OrbitProjectMockups";
@@ -39,14 +38,28 @@ import {
   OrbitFocusedPracticeMockup,
   OrbitMockupCatalog,
   OrbitPracticePlanMockup,
-  OrbitPresentationBriefMockup,
   OrbitVersionHistoryMockup
 } from "./OrbitGapMockups";
+import {
+  OrbitJourneyMapMockup,
+  OrbitSafeFeedbackMockup,
+  OrbitSafePracticeMockup,
+  OrbitSafeStartMockup
+} from "./OrbitJourneyMockups";
+import {
+  OrbitJourneyCompleteMockup,
+  OrbitJourneyHomeMockup,
+  OrbitJourneyPresenterMockup,
+  OrbitJourneyReportMockup,
+  OrbitJourneyRehearsalMockup,
+  OrbitJourneyReviewMockup,
+  OrbitJourneySetupMockup
+} from "./OrbitConnectedJourneyMockups";
 import rehearsalEditorialImage from "./assets/rehearsal-editorial.png";
 import "../../design-system/orbit-design-system.css";
 import "./orbit-mockup.css";
 
-export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history";
+export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "journey" | "journey-complete" | "safe-start" | "safe-practice" | "safe-feedback" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history";
 
 type OrbitMockupFlowProps = {
   onNavigate: (path: string) => void;
@@ -89,11 +102,26 @@ const mockProjects = [
 ];
 
 export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
+  if (props.screen === "journey") {
+    return <OrbitJourneyMapMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "journey-complete") {
+    return <OrbitJourneyCompleteMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "safe-start") {
+    return <OrbitSafeStartMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "safe-practice") {
+    return <OrbitSafePracticeMockup onNavigate={props.onNavigate} />;
+  }
+  if (props.screen === "safe-feedback") {
+    return <OrbitSafeFeedbackMockup onNavigate={props.onNavigate} />;
+  }
   if (props.screen === "catalog") {
     return <OrbitMockupCatalog onNavigate={props.onNavigate} />;
   }
   if (props.screen === "brief") {
-    return <OrbitPresentationBriefMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneySetupMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "practice-plan") {
     return <OrbitPracticePlanMockup onNavigate={props.onNavigate} />;
@@ -114,10 +142,10 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
     return <OrbitPublicMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "home") {
-    return <OrbitHomeMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneyHomeMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "editor") {
-    return <OrbitEditorMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneyReviewMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "microphone-check") {
     return <OrbitMicrophoneCheckMockup onNavigate={props.onNavigate} />;
@@ -126,7 +154,7 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
     return <OrbitProjectAccessMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "rehearsal") {
-    return <OrbitRehearsalMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneyRehearsalMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "presenter") {
     return <OrbitPresenterMockup onNavigate={props.onNavigate} />;
@@ -138,7 +166,7 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
     return <OrbitReportListMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "report") {
-    return <OrbitReportDetailMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneyReportMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "report-project") {
     return <OrbitProjectReportMockup onNavigate={props.onNavigate} />;
@@ -147,7 +175,7 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
     return <OrbitLivePresentationMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "live-presenter") {
-    return <OrbitLivePresenterMockup onNavigate={props.onNavigate} />;
+    return <OrbitJourneyPresenterMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "login") {
     return <OrbitLoginMockup onNavigate={props.onNavigate} />;
@@ -441,6 +469,14 @@ export function OrbitHomeMockup(props: Pick<OrbitMockupFlowProps, "onNavigate">)
             <span>
               <strong>PPTX 가져오기</strong>
               <small>기존 파일을 업로드해 AI로 개선하세요.</small>
+            </span>
+            <IconArrowRight size={23} />
+          </button>
+          <button className="mockup-start-block mockup-start-lilac" onClick={() => props.onNavigate("/mockup/safe-start")} type="button">
+            <IconMicrophone size={32} stroke={1.6} />
+            <span>
+              <strong>발표가 막막해요</strong>
+              <small>내 속도에 맞는 60초 연습부터 시작하세요.</small>
             </span>
             <IconArrowRight size={23} />
           </button>
