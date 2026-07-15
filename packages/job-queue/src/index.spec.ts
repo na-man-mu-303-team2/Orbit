@@ -148,7 +148,11 @@ describe("AI Deck staged BullMQ transport", () => {
     expect(queueMock.add).toHaveBeenCalledWith(
       "generate-deck-staged-coordinator",
       { jobId: "job-ai-deck-1", projectId: "project-a" },
-      expect.objectContaining({ jobId: "job-ai-deck-1", attempts: 5 }),
+      expect.objectContaining({
+        jobId: "job-ai-deck-1",
+        attempts: 5,
+        removeOnFail: false,
+      }),
     );
     expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain(
       "분산 파이프라인",
