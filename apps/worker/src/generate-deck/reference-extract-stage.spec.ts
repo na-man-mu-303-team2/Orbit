@@ -33,6 +33,58 @@ describe("processAiDeckReferenceExtractionStage", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("renews the lease and abandons persistence when heartbeat fencing is lost", async () => {
+    vi.useFakeTimers();
+    try {
+      const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+        const compact = compactSql(sql);
+        if (compact.includes("SET status = 'running'")) {
+          return [runningCheckpointRow()];
+        }
+        if (compact.includes("FROM project_assets assets")) return [assetRow()];
+        if (compact.includes("SET lease_expires_at")) return [];
+        throw new Error(`Unexpected query: ${compact}`);
+      });
+      const dataSource = {
+        query,
+        transaction: vi.fn(),
+      } as unknown as DataSource;
+      const downloadStarted = Promise.withResolvers<void>();
+      const fetchImpl = vi.fn(
+        async (_input: string | URL | Request, init?: RequestInit) => {
+          downloadStarted.resolve();
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        },
+      );
+
+      const processing = processAiDeckReferenceExtractionStage(
+        dataSource,
+        storageStub(),
+        "http://python-worker:8000",
+        "worker-a",
+        message,
+        { fetchImpl, heartbeatIntervalMs: 100 },
+      );
+      await downloadStarted.promise;
+      await vi.advanceTimersByTimeAsync(100);
+      await processing;
+
+      expect(
+        query.mock.calls.filter((call) =>
+          compactSql(call[0]).includes("SET lease_expires_at"),
+        ),
+      ).toHaveLength(1);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("downloads one asset and atomically saves its artifact, fenced checkpoint, and join", async () => {
     const outerQuery = vi.fn(async (sql: string, _parameters?: unknown[]) => {
       const compact = compactSql(sql);
