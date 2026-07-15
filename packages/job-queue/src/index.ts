@@ -1,6 +1,8 @@
 import {
   Job,
   type ActiveJobType,
+  type AiDeckExecutionMode,
+  type AiDeckGenerationStage,
   type AiDeckGenerationStageMessage,
   aiDeckGenerationStageMessageSchema,
   deckSchema,
@@ -58,6 +60,12 @@ export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysi
 export const challengeQnaAnswerAnalysisJobName = "challenge-qna-answer-analysis";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
+export const generateDeckStagedCoordinatorJobName =
+  "generate-deck-staged-coordinator";
+export const aiDeckResearchContentQueueName = "ai-deck-research-content";
+export const aiDeckDesignLayoutQueueName = "ai-deck-design-layout";
+export const aiDeckImageQueueName = "ai-deck-image";
+export const aiDeckQaFinalizeQueueName = "ai-deck-qa-finalize";
 export const deckExportQueueName = "deck-export";
 export const deckExportJobName = "deck-export";
 export const semanticCueExtractionQueueName = "semantic-cue-extraction";
@@ -150,7 +158,19 @@ export interface GenerateDeckBullMqPayload {
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
   driver: "bullmq" | "sqs";
+  executionMode?: AiDeckExecutionMode;
   redisUrl: string;
+}
+
+export interface AiDeckStagedCoordinatorBullMqPayload {
+  jobId: string;
+  projectId: string;
+}
+
+export interface EnqueueAiDeckGenerationStageJobInput {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  message: AiDeckGenerationStageMessage;
 }
 
 export interface DeckExportBullMqPayload {
@@ -294,21 +314,65 @@ export async function enqueueGenerateDeckJob(
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
+  const executionMode = input.executionMode ?? "monolith";
+  if (executionMode === "sqs") {
+    throw new Error("AI Deck SQS transport is not implemented yet.");
+  }
 
   const queue = new Queue(generateDeckQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
-    await queue.add(generateDeckJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: generateDeckRequestSchema.parse(input.request),
-      ...(input.designPackSnapshot
-        ? { designPackSnapshot: input.designPackSnapshot }
-        : {}),
-      ...(input.imageAssetScope ? { imageAssetScope: input.imageAssetScope } : {}),
-    } satisfies GenerateDeckBullMqPayload, canonicalJobOptions(input.jobId));
+    if (executionMode === "bullmq") {
+      await queue.add(
+        generateDeckStagedCoordinatorJobName,
+        {
+          jobId: input.jobId,
+          projectId: input.projectId,
+        } satisfies AiDeckStagedCoordinatorBullMqPayload,
+        canonicalJobOptions(input.jobId),
+      );
+      return;
+    }
+
+    await queue.add(
+      generateDeckJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: generateDeckRequestSchema.parse(input.request),
+        ...(input.designPackSnapshot
+          ? { designPackSnapshot: input.designPackSnapshot }
+          : {}),
+        ...(input.imageAssetScope
+          ? { imageAssetScope: input.imageAssetScope }
+          : {}),
+      } satisfies GenerateDeckBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueAiDeckGenerationStageJob(
+  input: EnqueueAiDeckGenerationStageJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("AI Deck SQS transport is not implemented yet.");
+  }
+  const message = aiDeckGenerationStageMessageSchema.parse(input.message);
+  const queue = new Queue(aiDeckGenerationStageQueueName(message.stage), {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      message.stage,
+      message,
+      aiDeckGenerationStageJobOptions(message),
+    );
   } finally {
     await queue.close();
   }
@@ -520,6 +584,39 @@ export function redisConnectionOptions(redisUrl: string) {
 
 function canonicalJobOptions(jobId: string) {
   return { jobId, attempts: 5, removeOnComplete: 1000, removeOnFail: 1000 };
+}
+
+export function aiDeckGenerationStageQueueName(
+  stage: AiDeckGenerationStage,
+): string {
+  switch (stage) {
+    case "reference-extract-file":
+      return referenceExtractQueueName;
+    case "source-grounding":
+    case "content-planning":
+      return aiDeckResearchContentQueueName;
+    case "design-planning":
+    case "layout-compile":
+      return aiDeckDesignLayoutQueueName;
+    case "image-slide":
+      return aiDeckImageQueueName;
+    case "semantic-quality":
+    case "rendered-visual-quality":
+    case "publication":
+      return aiDeckQaFinalizeQueueName;
+  }
+}
+
+function aiDeckGenerationStageJobOptions(
+  message: AiDeckGenerationStageMessage,
+) {
+  return {
+    jobId: aiDeckGenerationStageJobId(message),
+    attempts: 5,
+    backoff: { type: "exponential" as const, delay: 1_000 },
+    removeOnComplete: true,
+    removeOnFail: true,
+  };
 }
 
 export class InMemoryJobQueue implements JobQueuePort {

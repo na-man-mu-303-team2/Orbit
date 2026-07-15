@@ -86,6 +86,8 @@ services:
       API_BASE_URL: ${API_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
+      AI_DECK_EXECUTION_MODE: ${AI_DECK_EXECUTION_MODE:-monolith}
+      AI_DECK_WORKER_QUEUE: ${AI_DECK_WORKER_QUEUE:-all}
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -122,6 +124,8 @@ services:
       APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
       REDIS_URL: redis://redis:6379
+      AI_DECK_EXECUTION_MODE: ${AI_DECK_EXECUTION_MODE:-monolith}
+      AI_DECK_WORKER_QUEUE: ${AI_DECK_WORKER_QUEUE:-all}
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000

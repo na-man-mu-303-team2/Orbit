@@ -147,6 +147,7 @@ describe("GenerateDeckService", () => {
     });
     expect(enqueueJob).toHaveBeenCalledWith({
       driver: "bullmq",
+      executionMode: "monolith",
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project_generated_1",
@@ -400,6 +401,7 @@ describe("GenerateDeckService", () => {
     });
     expect(enqueueJob).toHaveBeenCalledWith({
       driver: "bullmq",
+      executionMode: "monolith",
       redisUrl: "redis://localhost:6379",
       jobId: job.jobId,
       projectId: "project_generated_1",

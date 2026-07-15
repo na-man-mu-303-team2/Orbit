@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateDeckRequestSchema } from "@orbit/shared";
 import {
   InMemoryJobQueue,
   aiDeckGenerationStageJobId,
@@ -119,7 +120,7 @@ describe("AI Deck staged BullMQ transport", () => {
       redisUrl: "redis://localhost:6379",
       jobId: "job-ai-deck-1",
       projectId: "project-a",
-      request: { topic: "분산 파이프라인" },
+      request: generateDeckRequestSchema.parse({ topic: "분산 파이프라인" }),
     });
 
     expect(queueMock.add).toHaveBeenCalledWith(

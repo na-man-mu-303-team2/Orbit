@@ -87,6 +87,7 @@ export class GenerateDeckService {
     try {
       await this.enqueueJob({
         driver: this.config.JOB_QUEUE_DRIVER,
+        executionMode: this.config.AI_DECK_EXECUTION_MODE,
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
