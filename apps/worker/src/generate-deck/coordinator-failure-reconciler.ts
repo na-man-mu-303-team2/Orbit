@@ -76,7 +76,7 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
     );
     const jobs = queueRows.filter(isFailedCoordinatorJob);
     scanned = jobs.length;
-    const candidates = jobs.filter(isExhaustedCoordinator);
+    const candidates = jobs.filter(isStagedCoordinator);
 
     for (const job of candidates) {
       try {
@@ -117,9 +117,6 @@ function createQueue(redisUrl: string): FailedCoordinatorQueue {
   }) as unknown as FailedCoordinatorQueue;
 }
 
-function isExhaustedCoordinator(job: FailedAiDeckCoordinatorJob): boolean {
-  if (job.name !== generateDeckStagedCoordinatorJobName) return false;
-  const configuredAttempts =
-    typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
-  return job.attemptsMade >= Math.max(1, configuredAttempts);
+function isStagedCoordinator(job: FailedAiDeckCoordinatorJob): boolean {
+  return job.name === generateDeckStagedCoordinatorJobName;
 }
