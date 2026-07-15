@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildInitialProjectDeck,
   buildAssetUploadRequest,
+  createInitialProjectDeck,
   createProject,
   deleteProject,
   getAssetValidationMessage,
@@ -95,6 +96,25 @@ describe("ORBIT-93 project asset upload helpers", () => {
         }),
       ],
     });
+  });
+
+  it("creates the first slide with exactly one Deck PUT", async () => {
+    const project = {
+      projectId: "project_new",
+      workspaceId: "workspace_demo_1",
+      title: "팀 발표",
+      createdBy: "user_owner",
+      createdAt: "2026-06-29T00:00:00.000Z",
+    };
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ ok: true })));
+
+    await createInitialProjectDeck(project, fetcher);
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/projects/project_new/deck",
+      expect.objectContaining({ method: "PUT" }),
+    );
   });
 
   it("deletes a project through the workspace project API", async () => {

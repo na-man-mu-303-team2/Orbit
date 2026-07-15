@@ -1,38 +1,88 @@
 import type { DeckCanvas } from "@orbit/shared";
+import { IconArrowLeft, IconFilePlus, IconRefresh } from "@tabler/icons-react";
 
-export function EditorStateNotice(props: {
-  isError: boolean;
-  isLoading: boolean;
-  isUsingFallback: boolean;
-}) {
-  if (props.isLoading) {
+import { OrbitButton, OrbitEmptyState } from "../../../../design-system";
+
+type EditorStateNoticeProps =
+  | { kind: "loading" }
+  | {
+      kind: "error";
+      message: string;
+      onRetry: () => void;
+    }
+  | {
+      canCreate: boolean;
+      createError?: string | null;
+      isCreating?: boolean;
+      kind: "missing";
+      onCreate?: () => void;
+    };
+
+export function EditorStateNotice(props: EditorStateNoticeProps) {
+  if (props.kind === "loading") {
     return (
-      <section className="editor-state-notice loading">
-        <strong>덱을 불러오는 중</strong>
-        <span>프로젝트 덱 응답을 기다리는 동안 데모 덱 미리보기를 유지합니다.</span>
+      <section
+        aria-busy="true"
+        aria-live="polite"
+        className="editor-state-notice loading"
+        role="status"
+      >
+        <span aria-hidden="true" className="editor-loading-spinner" />
+        <strong>발표 자료를 불러오는 중입니다</strong>
+        <span>프로젝트의 저장된 발표 자료를 확인하고 있습니다.</span>
       </section>
     );
   }
 
-  if (props.isError) {
+  if (props.kind === "error") {
     return (
-      <section className="editor-state-notice error">
-        <strong>덱을 불러올 수 없음</strong>
-        <span>403/404 또는 네트워크 오류일 수 있습니다. 현재 화면은 demo fallback 데이터입니다.</span>
-      </section>
+      <OrbitEmptyState
+        action={
+          <>
+            <OrbitButton icon={<IconRefresh aria-hidden="true" size={17} />} onClick={props.onRetry}>
+              다시 시도
+            </OrbitButton>
+            <a className="editor-state-back-link" href="/project">
+              <IconArrowLeft aria-hidden="true" size={17} /> 프로젝트로 돌아가기
+            </a>
+          </>
+        }
+        description={props.message}
+        icon={<IconRefresh aria-hidden="true" size={26} />}
+        title="발표 자료를 열지 못했습니다"
+      />
     );
   }
 
-  if (props.isUsingFallback) {
-    return (
-      <section className="editor-state-notice fallback">
-        <strong>Demo fallback</strong>
-        <span>API 덱이 아직 없어서 로컬 데모 DeckSchema 데이터를 표시합니다.</span>
-      </section>
-    );
-  }
+  const action = props.canCreate && props.onCreate ? (
+    <OrbitButton
+      disabled={props.isCreating}
+      icon={<IconFilePlus aria-hidden="true" size={18} />}
+      onClick={props.onCreate}
+    >
+      {props.isCreating ? "첫 슬라이드 만드는 중" : "첫 슬라이드 만들기"}
+    </OrbitButton>
+  ) : (
+    <a className="editor-state-back-link" href="/project">
+      <IconArrowLeft aria-hidden="true" size={17} /> 프로젝트로 돌아가기
+    </a>
+  );
 
-  return null;
+  return (
+    <div className="editor-missing-state">
+      <OrbitEmptyState
+        action={action}
+        description={
+          props.canCreate
+            ? "첫 슬라이드를 만들면 편집과 리허설을 시작할 수 있습니다."
+            : "아직 발표 자료가 없습니다. 소유자나 편집자가 첫 슬라이드를 만들면 이곳에서 확인할 수 있습니다."
+        }
+        icon={<IconFilePlus aria-hidden="true" size={26} />}
+        title={props.canCreate ? "아직 슬라이드가 없습니다" : "아직 발표 자료가 없습니다"}
+      />
+      {props.createError ? <p className="editor-state-create-error" role="alert">{props.createError}</p> : null}
+    </div>
+  );
 }
 
 export function EmptyPanel(props: { title: string; description: string }) {

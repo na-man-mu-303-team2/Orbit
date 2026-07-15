@@ -5,7 +5,6 @@ import {
   createAddSlidePatch,
   createKeyword,
   createDefaultAnimation,
-  createDemoDeck,
   createDeleteAnimationPatch,
   createElementId,
   createReplaceKeywordsPatch,
@@ -45,7 +44,16 @@ import {
   type QualityReport
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../packages/shared/src/jobs/job.schema";
-import { createProject, fetchProjects, uploadProjectAsset } from "../../projects/ProjectAssetWorkspace";
+import {
+  createInitialProjectDeck,
+  createProject,
+  fetchProjects,
+  uploadProjectAsset
+} from "../../projects/ProjectAssetWorkspace";
+import {
+  ProjectReadOnlyBanner,
+  useProjectAccess
+} from "../../projects/ProjectAccessContext";
 import {
   normalizeEditorAssetUrl,
   resolveEditorAssetUrl
@@ -69,7 +77,8 @@ import {
 } from "./components/animation";
 import {
   EmptyCanvasState,
-  EmptyPanel
+  EmptyPanel,
+  EditorStateNotice
 } from "./components/EditorStateNotice";
 import { IdBadge } from "./components/EditorIdBadge";
 import {
@@ -156,7 +165,6 @@ import {
   IconCloud as Cloud,
   IconDownload as Download,
   IconFileText as FileText,
-  IconFolderPlus as FolderPlus,
   IconGripHorizontal as GripHorizontal,
   IconHistory as History,
   IconHome as Home,
@@ -173,10 +181,8 @@ import {
   IconShape as Shapes,
   IconShare as Share2,
   IconSparkles as Sparkles,
-  IconTemplate as LayoutTemplate,
   IconTypography as Type,
-  IconUpload as Upload,
-  IconWand as Wand2
+  IconUpload as Upload
 } from "@tabler/icons-react";
 import type {
   ChangeEvent,
@@ -218,6 +224,7 @@ import {
   shouldApplyManualSaveResult,
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
+import type { EditorCapabilities } from "./editorCapabilities";
 import "../editor-shell.css";
 
 interface HealthResponse {
@@ -364,7 +371,6 @@ declare global {
   }
 }
 
-const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 0;
 const minSlidesPaneWidth = 132;
 
@@ -861,26 +867,74 @@ function createSlideScopedUploadFile(
   );
 }
 
-function createSeedDeck(projectId: string): Deck {
-  return {
-    ...createDemoDeck(),
-    projectId
-  };
+type EditorFetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Promise<Response>;
+
+export type ProjectDeckLoadResult =
+  | { kind: "ready"; deck: Deck }
+  | { kind: "missing" }
+  | { kind: "access-denied"; message: string; status: 401 | 403 }
+  | { kind: "server-error"; message: string; status: number }
+  | { kind: "network-error"; message: string };
+
+export async function loadProjectDeck(
+  projectId: string,
+  fetcher: EditorFetcher = fetch
+): Promise<ProjectDeckLoadResult> {
+  try {
+    const response = await fetcher(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/deck`,
+      { credentials: "include" }
+    );
+
+    if (response.status === 404) return { kind: "missing" };
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        kind: "access-denied",
+        message: (await response.text()) || "발표 자료를 볼 권한이 없습니다.",
+        status: response.status
+      };
+    }
+
+    if (!response.ok) {
+      return {
+        kind: "server-error",
+        message: (await response.text()) || "발표 자료를 불러오지 못했습니다.",
+        status: response.status
+      };
+    }
+
+    try {
+      const payload = getDeckResponseSchema.parse(await response.json());
+      return { kind: "ready", deck: payload.deck };
+    } catch {
+      return {
+        kind: "server-error",
+        message: "발표 자료 응답 형식이 올바르지 않습니다.",
+        status: response.status
+      };
+    }
+  } catch (error) {
+    return {
+      kind: "network-error",
+      message: error instanceof Error
+        ? error.message
+        : "네트워크 연결을 확인해 주세요."
+    };
+  }
 }
 
 async function fetchProjectDeck(projectId: string): Promise<Deck | null> {
-  const response = await fetch(`/api/v1/projects/${projectId}/deck`);
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw await readResponseError(response, "Deck fetch failed");
-  }
-
-  const payload = getDeckResponseSchema.parse(await response.json());
-  return payload.deck;
+  const result = await loadProjectDeck(projectId);
+  if (result.kind === "ready") return result.deck;
+  if (result.kind === "missing") return null;
+  throw new DeckRequestError(
+    result.message,
+    result.kind === "network-error" ? 0 : result.status
+  );
 }
 
 function navigateToRehearsal(projectId: string, snapshotPreparationId?: string) {
@@ -1137,12 +1191,8 @@ function emitOoxmlSyncJob(job: Job | undefined) {
 
 async function fetchDeck(projectId: string): Promise<Deck> {
   const storedDeck = await fetchProjectDeck(projectId);
-
-  if (storedDeck) {
-    return storedDeck;
-  }
-
-  return putProjectDeck(projectId, createSeedDeck(projectId));
+  if (storedDeck) return storedDeck;
+  throw new DeckRequestError("발표 자료가 아직 없습니다.", 404);
 }
 
 export async function createPptxOoxmlGenerationJob(
@@ -1416,8 +1466,91 @@ async function fetchEditorSessionDebug(): Promise<Exclude<EditorSessionDebugStat
   };
 }
 
-export function EditorShell(props: { projectId?: string }) {
-  const projectId = props.projectId ?? demoIds.projectId;
+export function EditorShell(props: { projectId: string }) {
+  const { capabilities, project } = useProjectAccess(props.projectId);
+  const queryClient = useQueryClient();
+  const createInFlightRef = useRef(false);
+  const [createError, setCreateError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const deckLoadQuery = useQuery({
+    queryKey: ["editor-deck-load", props.projectId],
+    queryFn: () => loadProjectDeck(props.projectId),
+    retry: false
+  });
+
+  async function handleCreateFirstSlide() {
+    if (!capabilities.canMutateDeck || createInFlightRef.current) return;
+
+    createInFlightRef.current = true;
+    setIsCreating(true);
+    setCreateError("");
+    try {
+      const deck = await createInitialProjectDeck(project);
+      queryClient.setQueryData(["deck", props.projectId], deck);
+      queryClient.setQueryData(["editor-deck-load", props.projectId], {
+        kind: "ready",
+        deck
+      } satisfies ProjectDeckLoadResult);
+    } catch (error) {
+      const refreshed = await deckLoadQuery.refetch();
+      if (refreshed.data?.kind !== "ready") {
+        setCreateError(
+          error instanceof Error
+            ? error.message
+            : "첫 슬라이드를 만들지 못했습니다. 다시 시도해 주세요."
+        );
+      }
+    } finally {
+      createInFlightRef.current = false;
+      setIsCreating(false);
+    }
+  }
+
+  if (deckLoadQuery.isPending) {
+    return <EditorStateNotice kind="loading" />;
+  }
+
+  const loadResult = deckLoadQuery.data;
+  if (!loadResult || loadResult.kind === "network-error" || loadResult.kind === "server-error" || loadResult.kind === "access-denied") {
+    return (
+      <EditorStateNotice
+        kind="error"
+        message={loadResult?.message ?? "발표 자료를 불러오지 못했습니다."}
+        onRetry={() => void deckLoadQuery.refetch()}
+      />
+    );
+  }
+
+  if (loadResult.kind === "missing") {
+    return (
+      <EditorStateNotice
+        canCreate={capabilities.canMutateDeck}
+        createError={createError}
+        isCreating={isCreating}
+        kind="missing"
+        onCreate={() => void handleCreateFirstSlide()}
+      />
+    );
+  }
+
+  return (
+    <EditorRuntime
+      capabilities={capabilities}
+      initialDeck={loadResult.deck}
+      projectId={props.projectId}
+    />
+  );
+}
+
+function EditorRuntime(props: {
+  capabilities: EditorCapabilities;
+  initialDeck: Deck;
+  projectId: string;
+}) {
+  const projectId = props.projectId;
+  const capabilities = props.capabilities;
+  const canMutateDeck = capabilities.canMutateDeck;
+  const isDev = import.meta.env.DEV;
   const queryClient = useQueryClient();
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const resetProjectUiState = useEditorShellUiStore(
@@ -1609,6 +1742,7 @@ export function EditorShell(props: { projectId?: string }) {
   const deckQuery = useQuery({
     queryKey: ["deck", projectId],
     queryFn: () => fetchDeck(projectId),
+    initialData: props.initialDeck,
     retry: false
   });
 
@@ -1780,7 +1914,7 @@ export function EditorShell(props: { projectId?: string }) {
     };
   }, [ooxmlSyncJob]);
 
-  const loadedDeck = deckQuery.data ?? fallbackDeck;
+  const loadedDeck = deckQuery.data ?? props.initialDeck;
   const [deck, setDeck] = useState<Deck>(loadedDeck);
   const {
     applyAckedPersistedDeck,
@@ -1834,7 +1968,7 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const imageUploadTargetRef = useRef<ImageUploadTarget | null>(null);
   const resolvedUploadProjectIdRef = useRef<string | null>(null);
-  const isUsingFallbackDeck = !deckQuery.data;
+  const isUsingFallbackDeck = false;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
   const canOpenAudienceLink =
@@ -2115,9 +2249,7 @@ export function EditorShell(props: { projectId?: string }) {
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
-  const isDev = import.meta.env.DEV;
   const fileMenuItems = [
-    { action: "new", icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
     {
       action: "import",
       icon: Upload,
@@ -2132,53 +2264,16 @@ export function EditorShell(props: { projectId?: string }) {
         ? getSaveErrorStatusLabel(saveErrorCode)
         : deckQuery.data
           ? saveStatusLabel
-          : "demo fallback"
+          : "저장 기록 없음"
     }
   ];
-  const exportMenuItems = [
-    { icon: Download, label: "PPTX 내보내기" },
-    { icon: Download, label: "PDF 내보내기" },
-    { icon: Download, label: "PNG 내보내기" },
-    { icon: Download, label: "JSON 백업 내보내기" }
-  ];
-  const resolvedExportMenuItems = exportMenuItems.map((item, index) =>
-    index === 0
-      ? {
-          ...item,
-          action: "pptx" as const,
-          disabled: isPptxExporting,
-          label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
-          meta: pptxExportError || pptxExportStatus
-        }
-      : {
-          ...item,
-          action: "pending" as const,
-          disabled: true,
-          meta: "준비 중"
-        }
-  );
-  const resizeMenuItems = [
-    {
-      label: "와이드 16:9",
-      meta: "1920 × 1080",
-      active: deck.canvas.preset === "wide-16-9"
-    },
-    {
-      label: "표준 4:3",
-      meta: "1024 × 768",
-      active: deck.canvas.preset === "standard-4-3"
-    }
-  ];
-  const editModeItems = [
-    { label: "편집 중", meta: "텍스트와 오브젝트 수정", active: true },
-    { label: "보기 전용", meta: "슬라이드 탐색만" },
-    { label: "검토", meta: "코멘트 중심" }
-  ];
-  const quickEditItems = [
-    { icon: PenLine, label: "슬라이드 제목 수정" },
-    { icon: FileText, label: "발표 메모 편집" },
-    { icon: Wand2, label: "선택 요소 속성" }
-  ];
+  const resolvedExportMenuItems = [{
+    action: "pptx" as const,
+    disabled: isPptxExporting,
+    icon: Download,
+    label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+    meta: pptxExportError || pptxExportStatus
+  }];
   useEffect(() => {
     const persistedDeck = deckQuery.data;
 
@@ -2244,6 +2339,7 @@ export function EditorShell(props: { projectId?: string }) {
   function handleDesignAgentProposalApplied(
     response: ApplyDesignAgentProposalResponse
   ) {
+    if (!capabilities.canUseAiMutations) return;
     const previousDeck = workingDeckRef.current;
 
     queryClient.setQueryData(["deck", projectId], response.deck);
@@ -2435,6 +2531,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleSaveDeck() {
+    if (!canMutateDeck) return false;
     const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
 
     if (!activeProjectId) {
@@ -2489,7 +2586,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleExportPptx() {
-    if (isPptxExporting) return;
+    if (!capabilities.canExportDeck || isPptxExporting) return;
 
     const activeProjectId = workingDeckRef.current.projectId || deckQuery.data?.projectId;
     if (!activeProjectId) {
@@ -2530,6 +2627,13 @@ export function EditorShell(props: { projectId?: string }) {
   ) {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
 
+    if (
+      (destination === "presentation" && !capabilities.canCreatePresentationSession) ||
+      (destination === "rehearsal" && !capabilities.canStartPersonalRehearsal)
+    ) {
+      return;
+    }
+
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
       setSaveError(
@@ -2551,7 +2655,31 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
 
-    if (!commitSpeakerNotesDraftIfDirty()) {
+    if (destination === "rehearsal" && !canMutateDeck) {
+      setActivePresentationAction(destination);
+      setSaveError(null, null);
+      try {
+        const snapshots = await uploadRehearsalSlideSnapshots(
+          activeProjectId,
+          deckQuery.data
+        );
+        const snapshotPreparationId = storePreparedRehearsalSlideSnapshots({
+          deckId: deckQuery.data.deckId,
+          deckVersion: deckQuery.data.version,
+          projectId: activeProjectId,
+          snapshots
+        });
+        navigateToRehearsal(activeProjectId, snapshotPreparationId);
+      } catch (error) {
+        setSaveState("error");
+        setSaveError("rehearsal-save-failed", toEditorErrorMessage(error));
+      } finally {
+        setActivePresentationAction(null);
+      }
+      return;
+    }
+
+    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) {
       return;
     }
 
@@ -2724,6 +2852,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function persistUndoRedoDeckSnapshot(label: string) {
+    if (!canMutateDeck) return;
     const activeProjectId = deckQuery.data?.projectId ?? workingDeckRef.current.projectId;
 
     if (!activeProjectId) {
@@ -2801,6 +2930,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function scheduleUndoRedoPersist(label: string) {
+    if (!canMutateDeck) return;
     consumeScheduledUndoRedoPersistLabel({
       clearTimer: clearTimeout,
       labelRef: undoRedoPersistLabelRef,
@@ -2837,6 +2967,7 @@ export function EditorShell(props: { projectId?: string }) {
     patchInput: DeckPatch | PatchProducer,
     baseDeck: Deck = workingDeckRef.current
   ) {
+    if (!canMutateDeck) return false;
     const patch = resolvePatchInput(baseDeck, patchInput);
     const result = applyDeckPatch(baseDeck, patch);
 
@@ -2905,7 +3036,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleSemanticCueExtraction(force: boolean) {
-    if (semanticCueExtractionState.status === "running") {
+    if (!capabilities.canUseAiMutations || semanticCueExtractionState.status === "running") {
       return;
     }
 
@@ -3022,7 +3153,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleUndo() {
-    if (undoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
+    if (!canMutateDeck || undoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
       return;
     }
 
@@ -3059,7 +3190,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleRedo() {
-    if (redoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
+    if (!canMutateDeck || redoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
       return;
     }
 
@@ -3373,6 +3504,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleStartSpeakerNotesEdit() {
+    if (!canMutateDeck) return;
     const currentNotes = currentSlide?.speakerNotes ?? "";
     clearSelectedKeyword();
     setIsSpeakerNotesPanelExpanded(true);
@@ -3383,7 +3515,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleOpenSpeakerNotesAssistant() {
-    if (!currentSlide) return;
+    if (!capabilities.canUseAiMutations || !currentSlide) return;
     const isSameSource =
       speakerNotesAssistantSource?.slideId === currentSlide.slideId &&
       speakerNotesAssistantSource.baseVersion === deck.version &&
@@ -3405,6 +3537,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   async function handleGenerateSpeakerNotesSuggestion() {
+    if (!capabilities.canUseAiMutations) return;
     const requestedSlideId = speakerNotesAssistantSource?.slideId;
     if (!requestedSlideId || speakerNotesAssistantStatus === "running") return;
 
@@ -3462,6 +3595,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleApplySpeakerNotesSuggestion() {
+    if (!capabilities.canUseAiMutations) return;
     const result = speakerNotesAssistantResult;
     const source = speakerNotesAssistantSource;
     if (!result || !source) return;
@@ -3616,7 +3750,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleSpeakerNotesKeywordSelection(rawValue: string, start: number) {
-    if (!currentSlide) {
+    if (!canMutateDeck || !currentSlide) {
       return;
     }
 
@@ -3795,7 +3929,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function openImageFilePicker(target: ImageUploadTarget) {
-    if (isImageUploadPending) {
+    if (!canMutateDeck || isImageUploadPending) {
       return;
     }
 
@@ -3805,7 +3939,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function openPptxFilePicker() {
-    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
+    if (!canMutateDeck || pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
       return;
     }
 
@@ -4008,6 +4142,10 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleImageFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    if (!canMutateDeck) {
+      event.target.value = "";
+      return;
+    }
     const [file] = Array.from(event.target.files ?? []);
     const target = imageUploadTargetRef.current;
 
@@ -4022,6 +4160,10 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handlePptxFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    if (!canMutateDeck) {
+      event.target.value = "";
+      return;
+    }
     const [file] = Array.from(event.target.files ?? []);
 
     event.target.value = "";
@@ -4034,7 +4176,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleAddTextElement() {
-    if (!currentSlide) {
+    if (!canMutateDeck || !currentSlide) {
       return;
     }
 
@@ -4072,7 +4214,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleAddChartElement() {
-    if (!currentSlide) {
+    if (!canMutateDeck || !currentSlide) {
       return;
     }
 
@@ -4123,7 +4265,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleInsertShapeElement(shapeType: ShapeInsertType) {
-    if (!currentSlide) {
+    if (!canMutateDeck || !currentSlide) {
       return;
     }
 
@@ -4192,7 +4334,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleAddSlide() {
-    if (!confirmDiscardSpeakerNotesDraft()) {
+    if (!canMutateDeck || !confirmDiscardSpeakerNotesDraft()) {
       return;
     }
 
@@ -4356,7 +4498,7 @@ export function EditorShell(props: { projectId?: string }) {
           height: number;
         }
   ) {
-    if (!currentSlide) {
+    if (!canMutateDeck || !currentSlide) {
       return;
     }
 
@@ -4424,7 +4566,7 @@ export function EditorShell(props: { projectId?: string }) {
     nodes: CustomShapeNode[],
     closed: boolean
   ) {
-    if (!currentSlide || nodes.length < 2) {
+    if (!canMutateDeck || !currentSlide || nodes.length < 2) {
       setInsertTool("select");
       return;
     }
@@ -4469,6 +4611,7 @@ export function EditorShell(props: { projectId?: string }) {
     nodes: CustomShapeNode[],
     closed: boolean
   ) {
+    if (!canMutateDeck) return;
     const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
     const element = slide?.elements.find(
       (candidate) => candidate.elementId === elementId
@@ -4512,6 +4655,7 @@ export function EditorShell(props: { projectId?: string }) {
     elementId: string,
     frame: ElementFrameChange
   ) {
+    if (!canMutateDeck) return;
     const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
     const element = slide?.elements.find(
       (candidate) => candidate.elementId === elementId
@@ -4969,7 +5113,7 @@ export function EditorShell(props: { projectId?: string }) {
   }, [currentSlideIndex, deck.slides.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || !canMutateDeck) {
       return;
     }
 
@@ -4996,9 +5140,11 @@ export function EditorShell(props: { projectId?: string }) {
     return () => {
       delete window.__ORBIT_EDITOR_TEST_API__;
     };
-  }, [currentSlide, selectedElement]);
+  }, [canMutateDeck, currentSlide, selectedElement]);
 
   useEffect(() => {
+    if (!canMutateDeck) return;
+
     function handleKeyDown(event: KeyboardEvent) {
       const isEditableTarget = isKeyboardEditableTarget(event.target);
 
@@ -5074,6 +5220,7 @@ export function EditorShell(props: { projectId?: string }) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    canMutateDeck,
     currentSlide,
     deck,
     editingElementId,
@@ -5102,7 +5249,7 @@ export function EditorShell(props: { projectId?: string }) {
   }, [elementContextMenu]);
 
   const shapeMenuOverlay =
-    typeof document !== "undefined" && isShapeMenuOpen && shapeMenuPosition
+    canMutateDeck && typeof document !== "undefined" && isShapeMenuOpen && shapeMenuPosition
       ? createPortal(
           <div
             className="shape-menu-overlay"
@@ -5194,7 +5341,7 @@ export function EditorShell(props: { projectId?: string }) {
       : null;
 
   const elementContextMenuOverlay =
-    typeof document !== "undefined" && elementContextMenu
+    canMutateDeck && typeof document !== "undefined" && elementContextMenu
       ? createPortal(
           <div
             className="element-context-menu-overlay"
@@ -5395,7 +5542,7 @@ export function EditorShell(props: { projectId?: string }) {
               size={16}
             />
           </button>
-          {isSpeakerNotesPanelExpanded && isSpeakerNotesEditing ? (
+          {canMutateDeck && isSpeakerNotesPanelExpanded && isSpeakerNotesEditing ? (
             <div className="script-panel-actions">
               <button
                 className="script-panel-action"
@@ -5412,7 +5559,7 @@ export function EditorShell(props: { projectId?: string }) {
                 저장
               </button>
             </div>
-          ) : isSpeakerNotesPanelExpanded ? (
+          ) : canMutateDeck && isSpeakerNotesPanelExpanded ? (
             <div className="script-panel-actions">
               <button
                 className="script-panel-action assistant"
@@ -5440,7 +5587,7 @@ export function EditorShell(props: { projectId?: string }) {
           hidden={!isSpeakerNotesPanelExpanded}
           ref={speakerNotesContentRef}
         >
-          {isSpeakerNotesEditing ? (
+          {canMutateDeck && isSpeakerNotesEditing ? (
             <div className="script-panel-body">
               <textarea
                 aria-label="발표 메모 수정"
@@ -5493,7 +5640,7 @@ export function EditorShell(props: { projectId?: string }) {
                 />
               </section>
               <SpeakerNotesLengthMeter guidance={speakerNotesLengthGuidance} />
-              {selectedKeyword ? (
+              {canMutateDeck && selectedKeyword ? (
                 <KeywordDetail
                   keyword={selectedKeyword}
                   requiredActive={selectedKeywordRequiredActive}
@@ -5564,58 +5711,22 @@ export function EditorShell(props: { projectId?: string }) {
               >
                 <Home size={15} />
               </button>
-              <button
-                aria-expanded={activeTopMenu === "file"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) => (current === "file" ? null : "file"))
-                }
-              >
-                파일 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "resize"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "resize" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) => (current === "resize" ? null : "resize"))
-                }
-              >
-                크기 조정 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "editMode"}
-                aria-haspopup="menu"
-                className={`top-menu-button ${activeTopMenu === "editMode" ? "active" : ""}`}
-                type="button"
-                onClick={() =>
-                  setActiveTopMenu((current) =>
-                    current === "editMode" ? null : "editMode"
-                  )
-                }
-              >
-                편집 중 <ChevronDown size={14} />
-              </button>
-              <button
-                aria-expanded={activeTopMenu === "quickEdit"}
-                aria-haspopup="menu"
-                className={`top-icon-button ${activeTopMenu === "quickEdit" ? "active" : ""}`}
-                type="button"
-                title="Quick edit"
-                onClick={() =>
-                  setActiveTopMenu((current) =>
-                    current === "quickEdit" ? null : "quickEdit"
-                  )
-                }
-              >
-                <PenLine size={15} />
-              </button>
+              {canMutateDeck ? (
+                <button
+                  aria-expanded={activeTopMenu === "file"}
+                  aria-haspopup="menu"
+                  className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
+                  type="button"
+                  onClick={() =>
+                    setActiveTopMenu((current) => (current === "file" ? null : "file"))
+                  }
+                >
+                  파일 <ChevronDown size={14} />
+                </button>
+              ) : null}
             </div>
 
-            {activeTopMenu === "file" ? (
+            {canMutateDeck && activeTopMenu === "file" ? (
               <div className="file-menu-popover" role="menu">
                 <div className="file-menu-header">
                   <div>
@@ -5624,14 +5735,6 @@ export function EditorShell(props: { projectId?: string }) {
                       프레젠테이션 · {deck.canvas.width} × {deck.canvas.height}px
                     </span>
                   </div>
-                  <button
-                    aria-label="문서 이름 변경"
-                    className="menu-ghost-button"
-                    type="button"
-                    title="Rename"
-                  >
-                    <PenLine size={15} />
-                  </button>
                 </div>
 
                 <div className="file-menu-list">
@@ -5688,65 +5791,11 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
             ) : null}
 
-            {activeTopMenu === "resize" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {resizeMenuItems.map((item) => (
-                    <button
-                      className={`file-menu-item ${item.active ? "selected" : ""}`}
-                      key={item.label}
-                      role="menuitemradio"
-                      type="button"
-                    >
-                      <span className="file-menu-label">{item.label}</span>
-                      <span className="file-menu-meta">
-                        <small>{item.meta}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {activeTopMenu === "editMode" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {editModeItems.map((item) => (
-                    <button
-                      className={`file-menu-item ${item.active ? "selected" : ""}`}
-                      key={item.label}
-                      role="menuitemradio"
-                      type="button"
-                    >
-                      <span className="file-menu-label">{item.label}</span>
-                      <span className="file-menu-meta">
-                        <small>{item.meta}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {activeTopMenu === "quickEdit" ? (
-              <div className="file-menu-popover compact-popover" role="menu">
-                <div className="file-menu-list">
-                  {quickEditItems.map(({ icon: Icon, label }) => (
-                    <button className="file-menu-item" key={label} role="menuitem" type="button">
-                      <span className="file-menu-label">
-                        <Icon size={16} />
-                        {label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
         </div>
 
         <div className="top-actions">
-          {projectPresenceUsers.length > 0 ? (
+          {isDev && projectPresenceUsers.length > 0 ? (
             <button
               className="presence-avatar-trigger"
               type="button"
@@ -5769,15 +5818,17 @@ export function EditorShell(props: { projectId?: string }) {
               ) : null}
             </button>
           ) : null}
-          <EditorSaveControl
-            disabled={isDeckLoading || isUsingFallbackDeck}
-            emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
-            isSaving={isSaveInFlight(saveState)}
-            lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
-            onSave={() => void handleSaveDeck()}
-            recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
-            statusLabel={saveStatusLabel}
-          />
+          {canMutateDeck ? (
+            <EditorSaveControl
+              disabled={isDeckLoading || isUsingFallbackDeck}
+              emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
+              isSaving={isSaveInFlight(saveState)}
+              lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
+              onSave={() => void handleSaveDeck()}
+              recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
+              statusLabel={saveStatusLabel}
+            />
+          ) : null}
           {ooxmlSyncStatus ? (
             <span
               className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
@@ -5802,7 +5853,7 @@ export function EditorShell(props: { projectId?: string }) {
             <History size={15} />
             <span>버전</span>
           </button>
-          <PresentationMenu
+          {capabilities.canCreatePresentationSession ? <PresentationMenu
             activeStartAction={activePresentationAction}
             canOpenAudienceLink={canOpenAudienceLink}
             canStartPresentation={canStartPresentation}
@@ -5818,18 +5869,22 @@ export function EditorShell(props: { projectId?: string }) {
                 current === "presentation" ? null : "presentation"
               )
             }
-          />
-          <button
+          /> : capabilities.canStartPersonalRehearsal ? (
+            <button
+              className="editor-rehearsal-button"
+              type="button"
+              onClick={() => void handleStartRehearsal()}
+            >
+              개인 리허설
+            </button>
+          ) : null}
+          {capabilities.canManageShare ? <button
             className="share-top-button"
             type="button"
             aria-expanded={isSharePanelOpen}
             aria-haspopup="dialog"
             disabled={!canManageShare || isSharePermissionLoading}
-            title={
-              canManageShare
-                ? "프로젝트 공유"
-                : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
-            }
+            title="프로젝트 공유"
             onClick={() => {
               if (!canManageShare) {
                 return;
@@ -5840,7 +5895,7 @@ export function EditorShell(props: { projectId?: string }) {
           >
             <Share2 size={15} />
             공유
-          </button>
+          </button> : null}
           <button
             aria-label="에디터 새로고침"
             className="refresh-top-button"
@@ -5854,7 +5909,8 @@ export function EditorShell(props: { projectId?: string }) {
           </button>
         </div>
       </header>
-      {isSharePanelOpen
+      {!canMutateDeck ? <ProjectReadOnlyBanner /> : null}
+      {capabilities.canManageShare && isSharePanelOpen
         ? createPortal(
             <ShareAccessModal
               activeTab={shareAccessTab}
@@ -5895,7 +5951,7 @@ export function EditorShell(props: { projectId?: string }) {
             document.body
           )
         : null}
-      {isPresenceDebugOpen
+      {isDev && isPresenceDebugOpen
         ? createPortal(
             <div
               className="presence-debug-backdrop"
@@ -5967,7 +6023,7 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
+        className={`editor-panel ${!canMutateDeck ? "read-only" : ""} ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
           isRightPanelOpen ? "" : "right-panel-closed"
         } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
         aria-label="Presentation editor"
@@ -6078,10 +6134,10 @@ export function EditorShell(props: { projectId?: string }) {
                   목록
                 </button>
               </div>
-              <button className="add-slide-button" type="button" onClick={handleAddSlide}>
+              {canMutateDeck ? <button className="add-slide-button" type="button" onClick={handleAddSlide}>
                 <Plus aria-hidden="true" size={17} />
                 슬라이드 추가
-              </button>
+              </button> : null}
             </div>
           ) : null}
 
@@ -6093,7 +6149,7 @@ export function EditorShell(props: { projectId?: string }) {
           />
         </aside>
 
-        {isAnimationPanelOpen ? (
+        {canMutateDeck && isAnimationPanelOpen ? (
           <AnimationSidePanel
             animations={selectedElementAnimations}
             canPlaySlideAnimations={canPlayCurrentSlideAnimations}
@@ -6151,7 +6207,7 @@ export function EditorShell(props: { projectId?: string }) {
 
         <section className="stage-pane">
           <div className="stage-top-controls">
-            <div className="editor-toolbar">
+            {canMutateDeck ? <div className="editor-toolbar">
               <div className="tool-group">
                 <button
                   aria-label="실행 취소"
@@ -6256,23 +6312,18 @@ export function EditorShell(props: { projectId?: string }) {
                 </button>
               </div>
 
-              <div className="tool-group">
-                <button aria-label="템플릿" className="tool-button" type="button">
-                  <LayoutTemplate size={14} />
-                  <span className="tool-button-label">템플릿</span>
-                </button>
-              </div>
-            </div>
+            </div> : null}
 
-            {selectedElementIds.length > 1
-              ? null
-              : renderSelectionProperties(selectedElement, selectedElement ? currentSlide : null, "toolbar-properties")}
+            {canMutateDeck && selectedElementIds.length <= 1
+              ? renderSelectionProperties(selectedElement, selectedElement ? currentSlide : null, "toolbar-properties")
+              : null}
           </div>
 
           <div className="canvas-scroll" ref={editorCanvasViewportRef}>
             {currentSlide ? (
               <div className="konva-wrap">
                 <div
+                  aria-readonly={!canMutateDeck}
                   className="konva-stage-shell orbit-stage-shell"
                   data-testid="editor-stage-shell"
                   style={{
@@ -6285,8 +6336,8 @@ export function EditorShell(props: { projectId?: string }) {
                   <EditableCanvas
                     customShapeEditElementId={customShapeEditElementId}
                     deck={deck}
-                    disableInteractions={isPlayingCurrentSlideAnimations}
-                    editingElementId={editingElementId}
+                    disableInteractions={!canMutateDeck || isPlayingCurrentSlideAnimations}
+                    editingElementId={canMutateDeck ? editingElementId : null}
                     elementStates={animationPreviewElementStates}
                     insertTool={insertTool}
                     selectedElementIds={selectedElementIds}
@@ -6348,7 +6399,7 @@ export function EditorShell(props: { projectId?: string }) {
           {renderSpeakerNotesPanel()}
         </section>
 
-        <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
+        {canMutateDeck ? <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
           {isRightPanelOpen ? (
             <>
               <button
@@ -6511,7 +6562,7 @@ export function EditorShell(props: { projectId?: string }) {
               <span>도구</span>
             </div>
           )}
-        </aside>
+        </aside> : null}
       </section>
 
       <div data-testid="editor-elements-debug" hidden>
@@ -6743,11 +6794,11 @@ function getEditorStatusLabel(props: {
   }
 
   if (props.isDeckError) {
-    return "오프라인 데모";
+    return "불러오기 실패";
   }
 
   if (props.isUsingFallbackDeck) {
-    return "로컬 데모";
+    return "저장되지 않은 자료";
   }
 
   if (props.saveState === "error") {
@@ -6755,15 +6806,15 @@ function getEditorStatusLabel(props: {
   }
 
   if (props.saveState === "manual-saving") {
-    return "수동 저장 중";
+    return "저장 중";
   }
 
   if (props.saveState === "manual-saved") {
-    return "수동 저장됨";
+    return "모두 저장됨";
   }
 
   if (props.saveState === "auto-saving") {
-    return "자동 저장 중";
+    return "저장 중";
   }
 
   if (props.saveState === "auto-pending") {
@@ -6774,7 +6825,7 @@ function getEditorStatusLabel(props: {
     return "충돌 복구 후 저장됨";
   }
 
-  return "저장됨";
+  return "모두 저장됨";
 }
 
 function getOoxmlSyncStatus(job: Job | null) {
