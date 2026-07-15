@@ -46,6 +46,9 @@ describe("CreateAiDeckGenerationStages migration", () => {
     await new CreateAiDeckGenerationStages2026071502000().down(queryRunner);
 
     const sql = queries.join("\n");
+    expect(sql).toContain("idx_ai_deck_generation_stages_undispatched");
+    expect(sql).toContain("idx_ai_deck_generation_stages_expired_lease");
+    expect(sql).toContain("DROP TABLE IF EXISTS ai_deck_generation_stages");
     expect(sql.indexOf("idx_ai_deck_generation_stages_undispatched")).toBeLessThan(
       sql.indexOf("DROP TABLE IF EXISTS ai_deck_generation_stages"),
     );

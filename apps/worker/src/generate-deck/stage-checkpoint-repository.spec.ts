@@ -73,19 +73,20 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       [],
     );
 
-    await expect(repository.renewLease(message, "worker-a")).resolves.toMatchObject({
-      status: "running",
-    });
     await expect(
-      repository.succeed(message, "worker-a", { deckRef: "deck-1" }),
+      repository.renewLease(message, "worker-a", 1),
+    ).resolves.toMatchObject({ status: "running" });
+    await expect(
+      repository.succeed(message, "worker-a", 1, { deckRef: "deck-1" }),
     ).resolves.toMatchObject({ status: "succeeded", leaseOwner: null });
     await expect(
-      repository.succeed(message, "stale-worker", { deckRef: "deck-1" }),
+      repository.succeed(message, "worker-a", 1, { deckRef: "deck-1" }),
     ).resolves.toBeNull();
 
     for (const callIndex of [0, 1, 2]) {
       const sql = compactSql(query.mock.calls[callIndex]?.[0]);
       expect(sql).toContain("stages.lease_owner = $5");
+      expect(sql).toContain("stages.attempt = $6");
       expect(sql).toContain("stages.lease_expires_at > now()");
     }
     const succeedSql = compactSql(query.mock.calls[1]?.[0]);
@@ -102,16 +103,18 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       retryable: false,
     };
 
-    await expect(repository.fail(message, "worker-a", safeError)).resolves.toMatchObject({
-      status: "failed",
-      error: safeError,
-    });
-    await expect(repository.fail(message, "stale-worker", safeError)).resolves.toBeNull();
+    await expect(
+      repository.fail(message, "worker-a", 1, safeError),
+    ).resolves.toMatchObject({ status: "failed", error: safeError });
+    await expect(
+      repository.fail(message, "worker-a", 1, safeError),
+    ).resolves.toBeNull();
 
     const sql = compactSql(query.mock.calls[0]?.[0]);
     expect(sql).toContain("status = 'failed'");
-    expect(sql).toContain("error_json = $6::jsonb");
+    expect(sql).toContain("error_json = $7::jsonb");
     expect(sql).toContain("stages.lease_owner = $5");
+    expect(sql).toContain("stages.attempt = $6");
     expect(sql).toContain("stages.lease_expires_at > now()");
     expect(sql).toContain("lease_owner = NULL");
     expect(sql).toContain("lease_expires_at = NULL");
@@ -121,7 +124,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     const { query, repository } = repositoryWithResponses([queuedRow({ attempt: 1 })]);
 
     await expect(
-      repository.releaseForRetry(message, "worker-a", {
+      repository.releaseForRetry(message, "worker-a", 1, {
         code: "WEB_RESEARCH_PROVIDER_FAILED",
         message: "Research provider unavailable.",
         failedStage: "content-planning",
@@ -135,22 +138,26 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("lease_owner = NULL");
     expect(sql).toContain("lease_expires_at = NULL");
     expect(sql).toContain("stages.attempt < 5");
+    expect(sql).toContain("stages.attempt = $6");
   });
 
   it("marks only queued, previously undispatched checkpoints", async () => {
     const dispatchedAt = "2026-07-15T01:05:00.000Z";
-    const { query, repository } = repositoryWithResponses([
-      queuedRow({ dispatched_at: dispatchedAt }),
-    ]);
+    const { query, repository } = repositoryWithResponses(
+      [queuedRow({ dispatched_at: dispatchedAt })],
+      [],
+    );
 
-    await expect(repository.markDispatched(message)).resolves.toMatchObject({
+    await expect(repository.markDispatched(message, 0)).resolves.toMatchObject({
       dispatchedAt,
     });
+    await expect(repository.markDispatched(message, 0)).resolves.toBeNull();
 
     const sql = compactSql(query.mock.calls[0]?.[0]);
     expect(sql).toContain("dispatched_at = now()");
     expect(sql).toContain("stages.status = 'queued'");
     expect(sql).toContain("stages.dispatched_at IS NULL");
+    expect(sql).toContain("stages.attempt = $5");
   });
 });
 
