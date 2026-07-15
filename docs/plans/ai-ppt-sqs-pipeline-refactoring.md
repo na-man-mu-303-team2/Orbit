@@ -190,7 +190,7 @@ UNIQUE (pipeline_job_id, stage, shard_key)
 6. 별도 join stage는 만들지 않는다. 마지막 OCR/image child가 종료될 때 expected shard 전체 상태를 트랜잭션으로 확인하고 다음 stage checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다. 338-1이 만든 `source-grounding` checkpoint는 338-2 전까지 dispatch 대상이 아니다.
 7. queued checkpoint 자체를 durable dispatch record로 사용한다. BullMQ enqueue 결과가 `waiting`, `delayed`, `prioritized`일 때만 조회 당시와 같은 `attempt` generation의 `dispatched_at`을 기록한다. `active`, `completed`, `failed` 또는 알 수 없는 상태는 미전송으로 남겨 dispatcher가 재확인한다.
 8. dispatcher는 active parent의 queued OCR checkpoint 중 `dispatched_at`이 15분 이상 지난 row를 매 회차 최대 100개씩 `FOR UPDATE ... SKIP LOCKED`로 복구한다. partial index `idx_ai_deck_generation_stages_stale_dispatch`가 이 scan을 지원한다.
-9. BullMQ 최종 transport attempt 실패는 원 오류를 재throw하기 전에 DB recovery를 await한다. OCR은 queued checkpoint의 `dispatched_at`만 복구하고 재시도 예산을 소진한 coordinator는 active checkpoint와 부모를 `AI_DECK_COORDINATOR_FAILED`, `retryable=true`로 atomic 종료한다. 단 BullMQ의 정확한 stall/started-limit `failedReason`이면 `attemptsMade`와 무관하게 coordinator transaction을 멱등 재실행하고, 그 외 예산을 소진한 entry만 terminal 복구한다. failed entry는 `removeOnFail=false`로 cap 없이 보존한다. maintenance는 opaque Redis `ZSCAN` cursor와 `pendingJobIds`로 기본 25개·최대 100개를 처리하고 resume 또는 terminal DB recovery가 성공한 entry만 제거하며, 실패 entry는 full cursor cycle 뒤 재시도한다. BullMQ transport attempt와 DB checkpoint `attempt`는 서로 다른 재시도 층이다.
+9. BullMQ 최종 transport attempt 실패는 원 오류를 재throw하기 전에 DB recovery를 await한다. OCR은 queued checkpoint의 `dispatched_at`만 복구하고 재시도 예산을 소진한 coordinator는 active checkpoint와 부모를 `AI_DECK_COORDINATOR_FAILED`, `retryable=true`로 atomic 종료한다. 단 BullMQ의 정확한 stall/started-limit `failedReason`이면 `attemptsMade`와 무관하게 coordinator transaction을 멱등 재실행하고, 그 외 예산을 소진한 entry만 terminal 복구한다. failed entry는 `removeOnFail=false`로 cap 없이 보존한다. maintenance는 opaque Redis `ZSCAN` cursor와 `pendingJobIds`로 기본 25개·최대 100개를 처리한다. resume 또는 terminal DB recovery가 failed parent를 반환하면 DB commit 이후에만 entry 제거를 시도하고 Worker가 표준 `job.failed`를 남기며, 실패 entry는 full cursor cycle 뒤 재시도한다. BullMQ transport attempt와 DB checkpoint `attempt`는 서로 다른 재시도 층이다.
 10. provider는 checkpoint 저장 전 crash 경계에서 재실행될 수 있으므로 exactly-once를 보장한다고 표현하지 않는다. checkpoint, 결정적 image object key와 publication 조건부 upsert로 중복 영속 결과를 막는다.
 11. 최종 Deck은 publication에서 기존 shared Deck schema로 검증해 저장한다.
 12. consumer/repository는 parent row의 `jobs.job_id`, `jobs.project_id`, `jobs.type="ai-deck-generation"`을 message와 대조한다.
@@ -486,12 +486,12 @@ flowchart TB
 
 - [x] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 staged enqueue만 ID-only coordinator payload를 사용하는 contract test
 - [x] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
-- [x] `references`/`referenceFileIds` 각각 최대 10개, `references` 우선·fallback, `selectedReferenceFileIds`/`uncoveredReferenceFileIds`, context-only `references-only` 거부, 파일별 fan-out과 policy join test
+- [x] shared Zod·Python façade의 `references`/`referenceFileIds` 각각 최대 10개, `references` 우선·fallback, `selectedReferenceFileIds`/`uncoveredReferenceFileIds`, context-only `references-only` 거부, 파일별 fan-out과 policy join test
 - [x] `PYTHON_WORKER_EXTRACT_INVALID_RESPONSE`가 부모를 즉시 실패시키지 않고 `research-first` policy join으로 진행하는 test
 - [x] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
 - [x] initial 포함 총 5 attempts, shard-only retry, heartbeat, lease fencing, expired-lease terminal parent의 표준 `job.failed` 로그 test
 - [x] BullMQ `waiting`·`delayed`·`prioritized`만 `dispatched_at`을 기록하고 duplicate enqueue·crash 복구가 가능한 durable dispatch test
-- [x] coordinator 재시도 소진의 atomic parent/checkpoint 종료, attempt 소진처럼 보이는 stall/started-limit `failedReason`의 멱등 resume, OCR 최종 transport failure의 `dispatched_at` 복구, retained coordinator opaque `ZSCAN` cursor reconciliation test
+- [x] coordinator 재시도 소진의 atomic parent/checkpoint 종료, attempt 소진처럼 보이는 stall/started-limit `failedReason`의 멱등 resume, 즉시·지연 terminal recovery의 표준 `job.failed`, OCR 최종 transport failure의 `dispatched_at` 복구, 실제 Redis retained coordinator opaque `ZSCAN` 순회 test
 - [x] 15분 stale queued dispatch의 bounded 복구와 `idx_ai_deck_generation_stages_stale_dispatch` migration·revert test
 - [x] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
 - [x] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
