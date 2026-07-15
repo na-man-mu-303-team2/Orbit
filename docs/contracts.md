@@ -669,7 +669,9 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - `services/python-worker/app/ai/generate_deck.py`: 공개 request/response import와 얇은 façade
 - `services/python-worker/app/ai/deck_generation/`: Pydantic stage DTO, 동기식 `pipeline.py`, source/content/design/layout/visual requirements/quality/diagnostics 구현
 - `apps/api/src/generate-deck`
-- `apps/worker/src/generate-deck.processor.ts`
+- `apps/worker/src/generate-deck.processor.ts`: payload 검증, Python 호출과 Job lifecycle adapter
+- `apps/worker/src/generate-deck/pipeline.ts`: asset, semantic quality, rendered visual quality, publication 동기 orchestration
+- `apps/worker/src/generate-deck/publication.ts`: 최종 Deck와 Job result 저장
 
 ### Saved Design Pack 계약
 
@@ -711,6 +713,7 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 구현 위치:
 
 - `packages/ai/src/image-providers.ts`
+- `apps/worker/src/generate-deck/asset-resolution.ts`
 - `apps/worker/src/image-asset-pipeline.ts`
 - `apps/worker/src/deck-export.processor.ts`
 - `apps/api/src/database/migrations/2026071103000-AddImageAssetProvenance.ts`
@@ -729,6 +732,11 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 - 최종 시각 issue가 남으면 `GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED`, 렌더 또는 Vision provider를 사용할 수 없으면 `GENERATE_DECK_VISUAL_QA_UNAVAILABLE`로 실패한다. 두 경우 모두 후보 Deck과 validation은 `jobs.result`에 보존하고 기존 project Deck은 변경하지 않는다.
 - `AI_PPT_VISUAL_QA_MODEL`이 비어 있으면 `OPENAI_MODEL`을 사용한다. Vision QA를 실행할 수 없으면 `program-v2`를 `recipe-v1`로 fallback하지 않는다.
 
+구현 위치:
+
+- `apps/worker/src/generate-deck/rendered-visual-quality.ts`
+- `services/python-worker/app/ai/visual_qa.py`
+
 ### AI PPT 기본 의미 기반 QA 계약
 
 `metadata.presentationProfile`이 있는 `design-pack` Deck은 Worker 저장 전과 Editor AI 검증에서 같은 shared semantic QA를 사용한다. legacy/import Deck에는 적용하지 않는다.
@@ -742,7 +750,7 @@ Saved Design Pack은 `/ai-ppt`의 Session Design Pack을 시스템 preset 또는
 구현 위치:
 
 - `packages/shared/src/deck/semantic-qa.ts`
-- `apps/worker/src/generate-deck.processor.ts`
+- `apps/worker/src/generate-deck/semantic-quality.ts`
 - `apps/web/src/features/editor/ai/quality/editorValidation.ts`
 
 ## PPTX import legacy, Template Blueprint, Quality Report 계약
