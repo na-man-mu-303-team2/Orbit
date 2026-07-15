@@ -38,6 +38,7 @@ export * from "./deck/semantic-cue.schema";
 export * from "./deck/semantic-cue-extraction.schema";
 export * from "./deck/slide-action.schema";
 export * from "./deck/slide-object.schema";
+export * from "./deck/speaker-notes-assistant.schema";
 export * from "./deck/template-blueprint.schema";
 export * from "./deck/theme.schema";
 export * from "./files/file.schema";
