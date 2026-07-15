@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 PR 8 코드·자동 배포 검증 완료 · 배포 후 서버 HEAD·queue/DB·smoke 증거 대기
+**상태**: 확정 · #341 완료 · #339 완료 · #338 착수 가능
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -47,14 +47,14 @@ flowchart LR
 | 339-1 | 에디터 PPTX import 전환 | `/pptx-imports` 대신 `/pptx-ooxml-generations`에 `{ fileId }`만 전달한다. 구형 consumer는 아직 유지한다. |
 | 339-2 | OOXML sync·export 완성 | imported Deck의 PUT과 patch 저장 모두 sync를 enqueue한다. `deckId` 기반 PostgreSQL advisory lock으로 sync를 직렬화하고 높은 `ooxmlSyncedDeckVersion`만 조건부 반영한다. export는 최신 sync가 아니면 retry하고, 최신 `currentPackageFileId`를 별도 export asset으로 복사한다. |
 | 339-3 | 레거시 producer 중단 | `/pptx-imports`, `/mockup/ai-ppt`, 구형 HomePage·`GenerateDeckView`, `ai-template-deck-generation` 신규 enqueue를 중단한다. 기존 consumer는 drain을 위해 유지한다. |
-| 339-4 | 레거시 제거와 배포 후 잔여 확인 | API·consumer·queue 등록·active schema 제거와 personal staging 자동 배포는 완료됐다. #339 종료 전 배포 환경의 두 legacy queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 queued/running이 0인지 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
+| 339-4 | 레거시 제거와 배포 후 잔여 확인 | API·consumer·queue 등록·active schema 제거와 personal staging 자동 배포를 완료했다. 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7`에서 두 legacy queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0임을 읽기 전용으로 확인했다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 `historicalJobTypeSchema`는 과거 row 조회를 위해 유지한다. |
 | 339-5 | OOXML 순수 변환 계약 | `PptxOoxmlGenerationRequest`를 strict `{ fileId }`로 축소하고 AI slot 생성, OpenAI 입력, apply-slot-text route를 제거한다. TemplateBlueprint mapping은 유지한다. |
 | 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
 | 339-7A | Python generation core 분리 | `deck_generation/` 아래 `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. 하위 stage는 상세 계획의 순환 없는 upstream helper DAG와 `models.py` DTO를 따르며 동기식 `pipeline.py`만 stage entrypoint 순서를 조립한다. #341 정규화는 기존 `design_program.py` 구현을 재사용해 design stage가 보장하고 공개 `/ai/generate-deck` 계약과 실패 정책은 바꾸지 않는다. |
 | 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
-| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬과 personal staging 자동 배포를 통과시키고, 실제 배포 서버 HEAD, 339-4 legacy queue/DB 및 339-6 `generate-deck` queue/DB의 배포 후 잔여 상태 0, GenerateDeck smoke 성공을 기록한 뒤 #339를 종료한다. |
+| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬과 personal staging 자동 배포를 통과했다. 실제 배포 서버 HEAD, 339-4 legacy queue/DB 및 339-6 `generate-deck` queue/DB의 smoke 전후 잔여 상태 0과 GenerateDeck smoke 성공을 기록해 #339를 완료했다. |
 
-PR 8의 로컬·required 자동 CI·personal staging 자동 배포 증거와 미확보된 실제 배포 서버 HEAD·배포 후 queue/DB·GenerateDeck smoke 증거는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 이 증거가 모두 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
+PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증거는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 서버 HEAD 일치, smoke 전후 queue/DB 잔여 상태 0, 네 번째 GenerateDeck 성공을 모두 확인했다. 앞선 세 Job의 `PYTHON_WORKER_GENERATE_DECK_FAILED`는 #339의 기존 terminal baseline인 `WEB_RESEARCH_QUALITY_FAILED`로 분류됐으며 degraded success 전환 owner는 #338로 확정돼 있으므로 #338 구현을 시작할 수 있다.
 
 ### #338 — stage Job, checkpoint와 queue adapter
 
@@ -130,8 +130,8 @@ uv run pytest
 
 - #341 mismatch fixture가 provider 한 번만 호출하고 최종 Deck snapshot까지 일치한다.
 - PPTX import → PUT/patch 편집 → sync → export → 재-import에서 최신 writable 요소가 유지된다.
-- 레거시 consumer 제거와 personal staging 자동 배포는 완료됐다. #339 종료 전 실제 배포 서버 HEAD와 배포 환경의 legacy queue/DB 잔여 상태를 읽기 전용으로 확인하고, 사전 drain을 수행했다고 소급 주장하지 않으며 과거 Job row는 계속 조회한다.
-- 339-6 계약은 `develop` merge 시 기존 personal staging workflow가 run 실행 시점의 최신 `develop` HEAD를 서버에 동기화한 뒤 그 HEAD에서 Web/API/Worker/Python worker 이미지를 빌드·교체하고 health check를 통과하는 방식으로 자동 배포한다. workflow trigger SHA와 서버의 실제 `git rev-parse HEAD`를 구분하고, workflow를 중단하거나 required reviewer를 추가하지 않으며, 배포 후 `generate-deck` queue/DB의 stuck Job이 0인지 확인한 다음 GenerateDeck smoke를 통과시킨다. production cutover는 별도 승인된 계획으로 다룬다.
+- 레거시 consumer 제거와 personal staging 자동 배포를 완료했다. 실제 배포 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7`에서 legacy queue/DB 잔여 상태 0을 읽기 전용으로 확인했으며, 사전 drain을 수행했다고 소급 주장하지 않고 과거 Job row는 계속 조회한다.
+- 339-6 계약은 `develop` merge 시 기존 personal staging workflow가 run 실행 시점의 최신 `develop` HEAD를 서버에 동기화한 뒤 그 HEAD에서 Web/API/Worker/Python worker 이미지를 빌드·교체하고 health check를 통과하는 방식으로 자동 배포됐다. workflow trigger SHA와 서버의 실제 `git rev-parse HEAD`가 일치했고, workflow를 중단하거나 required reviewer를 추가하지 않았다. smoke 전후 `generate-deck` queue/DB의 stuck Job이 0이고 네 번째 GenerateDeck 생성이 성공했다. 앞선 세 `WEB_RESEARCH_QUALITY_FAILED`는 #338의 degraded success 전환 대상으로 인계한다. production cutover는 별도 승인된 계획으로 다룬다.
 - duplicate stage message, enqueue 직후 crash, provider 완료 직후 crash, lease 만료를 각각 재현한다.
 - OCR 하나 또는 image 하나의 실패가 다른 shard와 이전 stage를 재실행하지 않는다.
 - queue message에 bytes/base64가 없고 결정적 asset key와 publication upsert가 중복 결과를 막는다.
@@ -145,5 +145,5 @@ uv run pytest
 - 실제 다섯 SQS/DLQ, IAM, ECS service, autoscaling, CloudWatch alarm과 production cutover는 별도 인프라 이슈로 분리한다. 이 범위 변경을 #338 계획과 GitHub 댓글에 함께 반영한다.
 - 후속 인프라 이슈가 완료되기 전 production의 `AI_DECK_EXECUTION_MODE=sqs`는 활성화하지 않는다.
 - 외부 AWS 리소스 생성·배포·GitHub 원격 변경은 별도 사용자 승인 후 수행한다.
-- `develop` merge의 personal staging 자동 배포는 팀의 고정 규칙이며 #339 때문에 workflow를 변경·중단하거나 required reviewer를 추가하지 않는다. #339 운영 증거는 자동 배포 성공, 서버의 실제 `git rev-parse HEAD`, 배포 후 읽기 전용 health·queue·DB 확인과 GenerateDeck smoke로 수집하고 workflow trigger SHA와 실제 서버 HEAD를 구분한다. production의 breaking cutover는 별도 승인된 배포 계획에서 ingress, drain, 동시 교체와 cache invalidation을 다룬다.
+- `develop` merge의 personal staging 자동 배포는 팀의 고정 규칙이며 #339 때문에 workflow를 변경·중단하거나 required reviewer를 추가하지 않았다. #339 운영 증거로 자동 배포 성공, 서버의 실제 `git rev-parse HEAD`, 배포 후 읽기 전용 health·queue·DB 확인과 GenerateDeck smoke를 수집했고 workflow trigger SHA와 실제 서버 HEAD를 구분했다. production의 breaking cutover는 별도 승인된 배포 계획에서 ingress, drain, 동시 교체와 cache invalidation을 다룬다.
 - #341 완료 전 #339 baseline을 만들지 않고, #339 readiness 완료 전 #338 persistence 작업을 병합하지 않는다.

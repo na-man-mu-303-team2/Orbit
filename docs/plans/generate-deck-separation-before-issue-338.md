@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · PR 8 코드·자동 배포 검증 완료 · 배포 후 서버 HEAD·queue/DB·smoke 증거 대기
+**상태**: 확정 · #339 완료 · #338 착수 가능
 
 **기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
@@ -87,7 +87,7 @@ Worker와 Python은 이 값을 기준으로 구형 recipe와 imported PPTX desig
 
 아래 불일치는 계획 작성 당시 baseline이며 #339 PR 1~PR 4에서 해소한다. PR 4 코드 기준으로 에디터는 `{ fileId }`만 `POST /pptx-ooxml-generations`에 전달하고, 구형 `/pptx-imports` API, queue/job constant, enqueue helper, consumer, processor는 제거된다. `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`와 `pptxImportJobResultSchema`만 과거 row/result 조회 호환을 유지한다.
 
-PR 4의 runtime 제거는 이미 `develop`에 merge되어 personal staging에 자동 배포됐다. #339 종료 전에는 두 레거시 queue의 queued/active 및 예약·repeat 잔여 Job과 관련 DB queued/running Job이 0인지 배포 환경에서 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 로컬 결과는 이 종료 증거를 대신하지 않는다.
+PR 4의 runtime 제거는 `develop`에 merge되어 personal staging에 자동 배포됐다. 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7`에서 두 레거시 queue의 queued/active 및 예약·repeat 잔여 Job과 관련 DB queued/running Job이 모두 0임을 읽기 전용으로 확인했다. 사전 drain을 수행했다고 소급해서 기록하지 않으며 로컬 결과가 아니라 배포 환경의 조회 결과를 종료 증거로 사용한다.
 
 ```mermaid
 flowchart TD
@@ -358,7 +358,7 @@ flowchart TD
     P7B --> P8["PR 8\n#338 착수 준비 검증"]
 ```
 
-PR은 위 순서대로 선형 진행했다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지했으며, PR 4에서 두 legacy runtime을 제거한 뒤 personal staging 자동 배포가 성공했다. #339 종료 전에는 배포 환경의 두 레거시 queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 queued/running이 0인지 읽기 전용으로 확인한다. 로컬 결과는 이 종료 증거를 대신하지 않는다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행했다.
+PR은 위 순서대로 선형 진행했다. PR 3에서는 신규 enqueue만 중단하고 consumer를 유지했으며, PR 4에서 두 legacy runtime을 제거한 뒤 personal staging 자동 배포가 성공했다. 배포 환경의 두 레거시 queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0임을 읽기 전용으로 확인했다. 로컬 결과는 이 종료 증거를 대신하지 않는다. `generate_deck.py`의 실제 대규모 이동은 모든 삭제와 계약 축소가 끝난 PR 7A에서만 수행했다.
 
 각 PR은 최신 `develop`에서 `refactor/ai-ppt-pre-338-*` 형식의 독립 브랜치로 시작하고 GitHub Flow로 병합한다. 이미 push된 공유 브랜치에는 rebase 또는 force push를 하지 않는다. 선행 PR이 병합된 뒤 다음 PR 브랜치를 최신 `develop`에서 새로 만들면 선형 review 단위와 rollback 경계가 분명해진다.
 
@@ -563,7 +563,7 @@ uv run pytest tests/test_generate_deck_contract.py
 
 **작업**
 
-1. PR 3 이후 신규 enqueue가 없는 상태에서 제거 코드를 merge하고 기존 personal staging workflow로 자동 배포한다. #339 종료 전 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0인지 배포 환경에서 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급 주장하지 않으며 로컬 queue/DB 결과는 이 종료 증거를 대신하지 않는다.
+1. PR 3 이후 신규 enqueue가 없는 상태에서 제거 코드를 merge하고 기존 personal staging workflow로 자동 배포했다. 두 queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 관련 DB Job의 queued/running이 모두 0임을 배포 환경에서 읽기 전용으로 확인했다. 사전 drain을 수행했다고 소급 주장하지 않으며 로컬 queue/DB 결과는 이 종료 증거를 대신하지 않는다.
 2. 두 레거시 controller, service, module, processor와 queue 등록을 제거한다.
 3. active/create schema와 runtime dispatch에서 두 Job type을 제거한다.
 4. `historicalJobTypeSchema`와 DB read 경로에는 두 type을 유지한다.
@@ -652,7 +652,7 @@ uv run pytest tests/test_generate_deck_contract.py
 8. 공통 계약 변경이므로 `docs/contracts.md`에 GenerateDeck request 경계를 갱신하고, 이 목표 계약과 반대되는 V12의 legacy/template 유지 결정을 #339가 대체했음을 표시한다.
 9. TypeScript와 Python request schema를 strict하게 유지해 제거된 필드와 모든 extra field를 거부하며 호환 shim은 두지 않는다.
 10. `develop` merge는 기존 personal staging workflow를 그대로 실행한다. workflow는 run 실행 시점에 `git pull --ff-only origin develop`로 동기화한 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드한 뒤 migration과 최종 `docker compose up -d`로 application 서비스를 교체하고 API/root health check가 통과해야 성공한다.
-11. #339 때문에 자동 deploy workflow를 중단하거나 `personal-staging` required reviewer를 추가하지 않는다. #339 종료 전 해당 자동 배포 run 성공, 서버의 실제 `git rev-parse HEAD`, 배포 후 BullMQ `generate-deck` 전체 상태와 DB `type = ai-deck-generation`의 queued/running 0, GenerateDeck smoke 성공을 확인하고 workflow trigger SHA와 실제 서버 HEAD를 구분한다. production의 ingress 중단, drain, 동시 cutover와 cache 무효화는 별도 승인된 배포 계획에서 다룬다.
+11. #339 때문에 자동 deploy workflow를 중단하거나 `personal-staging` required reviewer를 추가하지 않았다. 자동 배포 run 성공, 서버의 실제 `git rev-parse HEAD`, smoke 전후 BullMQ `generate-deck` 전체 상태와 DB `type = ai-deck-generation`의 queued/running 0, GenerateDeck smoke 성공을 확인하고 workflow trigger SHA와 실제 서버 HEAD를 구분했다. production의 ingress 중단, drain, 동시 cutover와 cache 무효화는 별도 승인된 배포 계획에서 다룬다.
 
 **필수 테스트**
 
@@ -845,18 +845,20 @@ uv run pytest
 | 339-4 legacy runtime 제거 | `0df9343d` | [29354750586](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29354750586) | workflow와 health check 통과, 실제 배포 서버 HEAD 미기록 |
 | 339-6 `program-v2` 계약 | `649fd565` | [29366409554](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29366409554) | Web/API/Worker/Python worker build·교체와 health check 통과, 실제 배포 서버 HEAD 미기록 |
 | 339-8 readiness | `3024bcb3` | [29388943867](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29388943867) | workflow와 health check 통과, 실제 배포 서버 HEAD 미기록 |
+| 339-8 최종 운영 증거 기준 | `462702d3` | [29392514752](https://github.com/na-man-mu-303-team2/Orbit/actions/runs/29392514752) | workflow·health check 통과, 실제 서버 HEAD `462702d39ec705453e11f4e12c6c3a7ead041ca7` 일치 |
 
 표의 SHA는 workflow를 시작한 trigger SHA다. 배포 script는 run 실행 중 최신 `develop`을 pull할 수 있으므로 실제 배포 SHA로 간주하지 않으며, 실제 서버 HEAD는 서버에서 `git rev-parse HEAD`로 별도 기록한다.
 
 `develop` merge 자동 배포는 팀 규칙이며 위 workflow를 #339 때문에 변경·중단하거나 required reviewer로 대기시키지 않는다. 배포 script는 queue/DB count를 출력하지 않으므로 위 성공 run만으로 잔여 Job이 0이라고 주장하지 않는다.
 
-**미확보 배포 후 운영 증거**
+**확보한 배포 후 운영 증거 (2026-07-15)**
 
-- personal staging 서버의 실제 `git rev-parse HEAD`와 workflow trigger SHA를 구분한 기록
-- 339-4: personal staging의 `pptx-import`, `ai-template-deck-generation` queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 `queued`/`running`이 0이라는 현행 상태 증거
-- 339-6: personal staging의 BullMQ `generate-deck` 전체 상태와 DB `ai-deck-generation`의 `queued`/`running`이 0이고 GenerateDeck smoke가 통과한다는 현행 상태 증거
+- personal staging 서버의 `git rev-parse HEAD`는 `462702d39ec705453e11f4e12c6c3a7ead041ca7`이며 workflow trigger SHA와 일치한다.
+- smoke 전 `2026-07-15T07:53:42Z` 기준 `pptx-import`, `ai-template-deck-generation`, `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이었다. 관련 DB type `pptx-import`, `ai-template-deck-generation`, `ai-deck-generation`의 `queued`/`running`도 모두 0이었다.
+- GenerateDeck 1~3차 Job은 `PYTHON_WORKER_GENERATE_DECK_FAILED`, progress 15로 종료됐고 저장된 안전한 오류 메시지는 각각 `WEB_RESEARCH_QUALITY_FAILED`로 분류됐다. 4차 Job은 `succeeded`, progress 100으로 완료됐다. 앞선 실패는 #339에서 보존한 terminal baseline이며 usable grounding 또는 사용자 입력이 있을 때 warning/degraded success로 바꾸는 owner와 후속 범위는 #338이다.
+- smoke 후 `2026-07-15T08:08:24Z` 기준 같은 세 queue의 모든 조회 상태와 repeat가 0이고 같은 세 DB type의 `queued`/`running`이 모두 0이었다.
 
-세 운영 증거는 코드 테스트, 성공한 배포 run 또는 로컬 queue/DB 결과로 대체하지 않는다. PR 8은 이미 merge됐으므로 Draft 조건을 소급 적용하지 않으며, 증거 확보 전에는 #339를 종료하거나 #338 구현을 시작하지 않는다.
+세 운영 증거는 코드 테스트, 성공한 배포 run 또는 로컬 queue/DB 결과로 대체하지 않고 personal staging에서 직접 수집했다. PR 8은 이미 merge됐으므로 Draft 조건을 소급 적용하지 않으며, #339 종료 조건을 충족해 #338 구현을 시작할 수 있다.
 
 **전체 검증 명령**
 
@@ -898,7 +900,7 @@ uv run pytest
 - `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 두 type을 거부한다.
 - `packages/job-queue`의 두 legacy queue/job constant와 enqueue helper, Worker consumer/processor/runtime dispatch는 제거한다.
 - 배포 후 queue/DB 잔여 확인은 runtime 제거 뒤 미처리 Job을 찾는 #339 종료 절차이며, 이미 완료된 DB 이력의 parsing 호환성을 대신하지 않는다.
-- PR 4 제거 코드는 personal staging에 자동 배포됐다. #339 종료 전 legacy queue/DB의 현행 상태가 0인지 읽기 전용으로 확인하며 로컬 결과만으로 통과 처리하지 않는다.
+- PR 4 제거 코드는 personal staging에 자동 배포됐다. legacy queue/DB의 현행 상태가 0임을 배포 환경에서 읽기 전용으로 확인했으며 로컬 결과만으로 통과 처리하지 않았다.
 - 이력 보존 기간이 끝난 뒤의 archive와 enum 축소는 별도 TypeORM migration 및 운영 계획으로 수행한다.
 
 적용 순서는 다음과 같다.
@@ -944,10 +946,10 @@ sequenceDiagram
 - [x] imported Deck의 edit → sync → export round-trip fixture가 required `db-integration` CI에 연결되어 있다.
 - [x] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
 - [x] 구형 API, queue/job constant, consumer, processor 제거가 personal staging 자동 배포 run `29354750586`에서 성공했다.
-- [ ] personal staging 서버의 실제 `git rev-parse HEAD`를 기록했고 workflow trigger SHA와 구분돼 있다.
-- [ ] personal staging의 legacy queue 전체 상태와 관련 DB queued/running이 0이라는 배포 후 읽기 전용 증거가 있다.
+- [x] personal staging 서버의 실제 `git rev-parse HEAD` `462702d39ec705453e11f4e12c6c3a7ead041ca7`을 기록했고 workflow trigger SHA와 구분돼 있다.
+- [x] personal staging의 legacy queue 전체 상태와 관련 DB queued/running이 0이라는 배포 후 읽기 전용 증거가 있다.
 - [x] 339-6 `program-v2` 계약이 자동 배포 run `29366409554`에서 Web/API/Worker/Python worker build·교체와 health check를 통과했다.
-- [ ] personal staging의 `generate-deck` queue 전체 상태와 DB `ai-deck-generation` queued/running이 0이라는 배포 후 읽기 전용 증거와 GenerateDeck smoke 성공 증거가 있다.
+- [x] personal staging의 `generate-deck` queue 전체 상태와 DB `ai-deck-generation` queued/running이 smoke 전후 0이라는 배포 후 읽기 전용 증거와 4차 GenerateDeck 성공 증거가 있다. 앞선 3건의 `WEB_RESEARCH_QUALITY_FAILED`는 #338 정책 변경 범위로 인계했다.
 - [x] historical Job row를 안전하게 읽을 수 있다.
 - [x] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [x] Python의 source, content, design, layout, visual requirements, quality, diagnostics 단계가 명시적 DTO로 단독 테스트 가능하다.
