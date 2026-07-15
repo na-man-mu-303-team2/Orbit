@@ -24,11 +24,10 @@ flowchart LR
     D --> E["후속 인프라 이슈<br/>SQS·ECS·CloudWatch 실제 전환"]
 ```
 
-구현 착수 전:
+계획·이슈 동기화 상태:
 
-- 현재 세 계획 문서에 아래 확정사항을 반영하고 상태를 `확정 · 실행 전`으로 변경한다.
-- GitHub 인증을 복구한 뒤 #341·#339·#338에 각 최신 계획 전문을 댓글로 남긴다. 기존 댓글은 기준으로 사용하지 않는다.
-- 계획 문서의 Git 추적이 완료된 뒤 작업을 시작한다.
+- 이 로컬 통합 계획과 세부 계획을 현재 실행 기준으로 사용한다.
+- GitHub #338에는 이 최신 계획 전문이 아직 게시되지 않았다. 사용자가 로컬 계획을 최종 확정한 뒤 최신 전문을 댓글로 게시하며, 게시 전에는 기존 #338 본문·댓글을 최신 실행 기준으로 사용하지 않는다.
 - 각 PR은 최신 `develop`에서 별도 브랜치로 시작하며, 선행 PR 병합 전 다음 의존 PR을 병합하지 않는다.
 
 ## 2. PR 실행 순서
@@ -70,7 +69,7 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 338-1의 현재 실행 경계는 다음과 같다.
 
 - `AI_DECK_EXECUTION_MODE=monolith`는 기존 `generate-deck` Job 이름과 request·DesignPack snapshot·image asset scope를 포함한 full-deck payload를 그대로 사용한다.
-- `AI_DECK_EXECUTION_MODE=bullmq`만 `generate-deck-staged-coordinator`에 `{ jobId, projectId }`를 보내고, coordinator가 DB의 부모 Job payload를 읽어 uncovered `referenceFileIds`를 파일별 checkpoint로 만든다.
+- `AI_DECK_EXECUTION_MODE=bullmq`만 `generate-deck-staged-coordinator`에 `{ jobId, projectId }`를 보낸다. coordinator는 DB 부모 payload에서 non-empty `references`를 우선하고, 비어 있을 때만 `referenceFileIds`를 사용해 `selectedReferenceFileIds`를 만든다. `referenceContext`로 covered된 file을 제외한 `uncoveredReferenceFileIds`에만 파일별 checkpoint를 생성한다.
 - Worker는 같은 `generate-deck` queue의 `generate-deck`과 `generate-deck-staged-coordinator`, 같은 `reference-extract` queue의 standalone `reference-extract`와 staged `reference-extract-file`을 `job.name`으로 구분한다.
 - 338-1에서 실제 dispatch·consume하는 내부 stage는 `reference-extract-file`뿐이다. OCR skip 또는 policy join이 만든 `source-grounding` checkpoint는 durable하게 남지만 338-2 전에는 dispatch하지 않는다.
 - standalone reference extraction API와 기존 `reference-extract` 다중 파일 계약은 바꾸지 않는다. 파일별 OCR·artifact·checkpoint는 AI PPT staged 경로에만 적용한다.
@@ -87,8 +86,11 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - consumer/repository는 parent row의 `jobs.job_id`, `jobs.project_id`, `jobs.type="ai-deck-generation"`을 message와 대조한다.
 - `shard_key`는 `NOT NULL DEFAULT ''`이며 `(pipeline_job_id, stage, shard_key)`를 UNIQUE로 둔다. `pipeline_job_id`는 `jobs.job_id`를 `ON DELETE CASCADE`로 참조한다.
 - 별도 join stage는 만들지 않는다. 마지막 OCR/image child가 종료될 때 전체 expected shard 상태를 트랜잭션으로 확인하고 다음 stage checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다.
-- 338-1 OCR join은 기존 `referenceContext`와 파일별 artifact의 `usable`을 함께 계산한다. `research-first`는 OCR 실패를 허용하고, `references-first`는 usable source가 하나 이상일 때만 계속하며, `references-only`는 모든 필수 파일이 usable일 때만 계속한다. 허용되지 않는 조합은 `SOURCE_GROUNDING_REQUIRED`로 부모 Job을 종료한다.
+- 338-1 OCR join은 기존 `referenceContext`와 파일별 artifact의 `usable`을 함께 계산한다. `references-only`는 `selectedReferenceFileIds`가 하나 이상이고 선택한 모든 file이 기존 context로 covered됐거나 새 artifact에서 `usable=true`일 때만 계속한다. 선택되지 않은 context만으로 strict 조건을 대신할 수 없다. `references-first`는 usable source가 하나 이상일 때만 계속하고 `research-first`는 OCR 실패를 허용한다. 허용되지 않는 조합은 `SOURCE_GROUNDING_REQUIRED`, `retryable=false`로 부모 Job을 종료한다.
+- `PYTHON_WORKER_EXTRACT_INVALID_RESPONSE` 같은 non-retryable provider schema 오류는 해당 shard를 artifact 없는 `failed`/`usable=false`로 끝내고 부모를 즉시 실패시키지 않은 채 같은 reference policy join에 합류시킨다. project·asset identity 위반만 active sibling과 부모를 즉시 terminal 처리한다.
 - queued checkpoint 자체를 durable dispatch record로 사용한다. BullMQ enqueue 결과가 `waiting`, `delayed`, `prioritized`일 때만 같은 `attempt` generation의 `dispatched_at`을 기록한다. `active`, `completed`, `failed` 또는 알 수 없는 상태는 미전송 row로 남겨 dispatcher가 재확인한다.
+- dispatcher는 `dispatched_at`이 15분 이상 지난 active parent의 queued OCR row를 매 회차 최대 100개 복구하고, partial index `idx_ai_deck_generation_stages_stale_dispatch`로 이 scan을 지원한다.
+- BullMQ 최종 transport failure에서 OCR Job은 queued checkpoint의 `dispatched_at`만 복구하고 coordinator Job은 active checkpoint와 부모를 `AI_DECK_COORDINATOR_FAILED`, `retryable=true`로 atomic 종료한다. coordinator failed entry는 `removeOnFail=false`로 cap 없이 보존하고 회차당 기본 25개·최대 100개를 `start`/`nextStart` cursor로 reconciliation한 뒤 DB recovery가 확인된 entry만 제거한다. BullMQ transport attempt와 DB checkpoint `attempt`는 서로 다른 재시도 층이다.
 - provider 호출은 crash 경계에서 재실행될 수 있으므로 exactly-once를 보장한다고 표현하지 않는다. 대신 checkpoint, 결정적 image object key와 publication 조건부 upsert로 중복 저장을 막는다.
 - claim 시 `attempt`를 증가시키며 initial attempt를 포함해 총 5회만 시도한다. 1~4번째 retryable 실패는 해당 shard를 다시 queued로 만들고 5번째 종료 시 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행해 계속 또는 terminal을 결정한다. DB lease는 10분, heartbeat는 60초이며 SQS visibility 연장은 338-4에서 5분 단위로 추가한다.
 - claim은 stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 매번 새로 발급하고 `attempt`를 lease generation fencing token으로 함께 사용한다. heartbeat·성공·실패·retry release는 claim이 반환한 `lease_owner`와 `attempt`가 모두 일치할 때만 허용하고, dispatcher도 조회 당시 `attempt`가 일치할 때만 `dispatched_at`을 기록한다.
@@ -146,10 +148,13 @@ uv run pytest
 
 - [x] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 BullMQ staged enqueue만 ID-only coordinator payload를 사용하는 contract test
 - [x] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
-- [x] OCR skip, uncovered file dedupe, 파일별 fan-out, `research-first`·`references-first`·`references-only` policy join test
+- [x] `references` 우선·`referenceFileIds` fallback, `selectedReferenceFileIds`/`uncoveredReferenceFileIds`, context-only `references-only` 거부, 파일별 fan-out과 policy join test
+- [x] `PYTHON_WORKER_EXTRACT_INVALID_RESPONSE`가 부모를 즉시 실패시키지 않고 `research-first` policy join으로 진행하는 test
 - [x] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
 - [x] initial 포함 총 5 attempts, shard-only retry, 60초 heartbeat, lease fencing, expired-lease reconciler test
 - [x] BullMQ `waiting`·`delayed`·`prioritized`만 `dispatched_at`을 기록하고 duplicate enqueue·crash 복구가 가능한 durable dispatch test
+- [x] coordinator 최종 failure의 atomic parent/checkpoint 종료, OCR 최종 transport failure의 `dispatched_at` 복구, retained coordinator bounded cursor reconciliation test
+- [x] 15분 stale queued dispatch의 bounded 복구와 `idx_ai_deck_generation_stages_stale_dispatch` migration·revert test
 - [x] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
 - [x] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
 - [ ] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
