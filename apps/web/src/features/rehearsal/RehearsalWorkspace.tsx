@@ -89,6 +89,7 @@ import {
 } from "./rehearsalErrorHandling";
 import { useJobSmoothProgress } from "./useJobSmoothProgress";
 import {
+  PreparedRehearsalSlideSnapshotsError,
   clearPreparedRehearsalSlideSnapshots,
   readPreparedRehearsalSlideSnapshots,
 } from "./rehearsalSlideSnapshots";
@@ -288,6 +289,7 @@ type RehearsalTimeMode = "stopwatch" | "timer";
 type RehearsalFlowStage =
   | "deck"
   | "run"
+  | "snapshot"
   | "upload-url"
   | "storage-put"
   | "meta"
@@ -513,9 +515,15 @@ export async function createRehearsalRun(
   });
 
   if (!response.ok) {
+    const hasPreparedSlideSnapshots = options.slideSnapshots !== undefined;
     throw new RehearsalFlowError(
-      "run",
-      await readErrorMessage(response, "리허설 실행을 만들지 못했습니다."),
+      hasPreparedSlideSnapshots ? "snapshot" : "run",
+      await readErrorMessage(
+        response,
+        hasPreparedSlideSnapshots
+          ? "슬라이드 snapshot을 확인하지 못했습니다. 프로젝트에서 리허설을 다시 시작해 주세요."
+          : "리허설 실행을 만들지 못했습니다. 프로젝트 권한을 확인한 뒤 다시 시도해 주세요.",
+      ),
       response.status,
     );
   }
@@ -610,7 +618,10 @@ export async function prepareRehearsalEvaluationRun(
       evaluationSnapshot: created.run.evaluationSnapshot ?? provisionalSnapshot,
       serverEvaluation: { state: "available" },
     };
-  } catch {
+  } catch (cause) {
+    if (!(cause instanceof TypeError)) {
+      throw cause;
+    }
     return {
       run: null,
       evaluationSnapshot: provisionalSnapshot,
@@ -1889,6 +1900,10 @@ export function RehearsalWorkspace(props: {
     props.initialDeck ? "idle" : "loading",
   );
   const [error, setError] = useState("");
+  const [canPracticeWithoutVoiceAfterFailure, setCanPracticeWithoutVoiceAfterFailure] =
+    useState(false);
+  const [requiresSnapshotRepreparation, setRequiresSnapshotRepreparation] =
+    useState(false);
   const [run, setRun] = useState<RehearsalRun | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveSttStatus>("idle");
@@ -2082,6 +2097,8 @@ export function RehearsalWorkspace(props: {
       })
       .catch((cause) => {
         if (!isCancelled) {
+          setCanPracticeWithoutVoiceAfterFailure(false);
+          setRequiresSnapshotRepreparation(false);
           setError(toErrorMessage(cause));
           setPhase("failed");
         }
@@ -2620,6 +2637,8 @@ export function RehearsalWorkspace(props: {
     stopLiveDemo();
 
     setError("");
+    setCanPracticeWithoutVoiceAfterFailure(false);
+    setRequiresSnapshotRepreparation(false);
     cancelPendingEvaluationRun();
     setRun(null);
     setJob(null);
@@ -2633,6 +2652,7 @@ export function RehearsalWorkspace(props: {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
+      setCanPracticeWithoutVoiceAfterFailure(true);
       setError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
       setPhase("failed");
       return;
@@ -2650,6 +2670,8 @@ export function RehearsalWorkspace(props: {
           }
           sessionRef.current = null;
           cancelPendingEvaluationRun();
+          setCanPracticeWithoutVoiceAfterFailure(true);
+          setRequiresSnapshotRepreparation(false);
           setError(recordingError.message);
           setPhase("failed");
         },
@@ -2684,7 +2706,15 @@ export function RehearsalWorkspace(props: {
       setError(
         hasValidationError
           ? rehearsalDeckInvalidMessage
-          : toMicrophoneErrorMessage(cause),
+          : cause instanceof RehearsalFlowError
+            ? toRehearsalFlowMessage(cause)
+            : toMicrophoneErrorMessage(cause),
+      );
+      setCanPracticeWithoutVoiceAfterFailure(
+        !hasValidationError && !(cause instanceof RehearsalFlowError),
+      );
+      setRequiresSnapshotRepreparation(
+        cause instanceof RehearsalFlowError && cause.stage === "snapshot",
       );
       setPhase("failed");
     }
@@ -3754,6 +3784,8 @@ export function RehearsalWorkspace(props: {
   async function submitRecording(activeDeck: Deck, audioFile: File) {
     setPhase("uploading");
     setError("");
+    setCanPracticeWithoutVoiceAfterFailure(false);
+    setRequiresSnapshotRepreparation(false);
 
     try {
       let uploadRun = activeRunRef.current;
@@ -3812,6 +3844,10 @@ export function RehearsalWorkspace(props: {
       }
     } catch (cause) {
       setError(toRehearsalFlowMessage(cause));
+      setCanPracticeWithoutVoiceAfterFailure(false);
+      setRequiresSnapshotRepreparation(
+        cause instanceof RehearsalFlowError && cause.stage === "snapshot",
+      );
       setIsCompletionModalOpen(false);
       setPhase("failed");
     }
@@ -3822,21 +3858,38 @@ export function RehearsalWorkspace(props: {
       activeDeck.projectId,
       props.sourceGoalSetId,
     );
-    const slideSnapshots =
-      preparedSlideSnapshotsRef.current ??
-      readPreparedRehearsalSlideSnapshots({
-        deckId: activeDeck.deckId,
-        deckVersion: activeDeck.version,
-        preparationId: props.snapshotPreparationId,
-        projectId: activeDeck.projectId,
-      });
+    let slideSnapshots: Array<{ fileId: string; slideId: string }> | undefined;
+    try {
+      slideSnapshots =
+        preparedSlideSnapshotsRef.current ??
+        readPreparedRehearsalSlideSnapshots({
+          deckId: activeDeck.deckId,
+          deckVersion: activeDeck.version,
+          preparationId: props.snapshotPreparationId,
+          projectId: activeDeck.projectId,
+        });
+    } catch (cause) {
+      clearPreparedRehearsalSlideSnapshots(props.snapshotPreparationId);
+      preparedSlideSnapshotsRef.current = undefined;
+      if (cause instanceof PreparedRehearsalSlideSnapshotsError) {
+        throw new RehearsalFlowError("snapshot", cause.message);
+      }
+      throw cause;
+    }
     preparedSlideSnapshotsRef.current = slideSnapshots;
-    const prepared = await prepareRehearsalEvaluationRun(
-      activeDeck,
-      fetch,
-      coachingContext,
-      slideSnapshots,
-    );
+    let prepared: Awaited<ReturnType<typeof prepareRehearsalEvaluationRun>>;
+    try {
+      prepared = await prepareRehearsalEvaluationRun(
+        activeDeck,
+        fetch,
+        coachingContext,
+        slideSnapshots,
+      );
+    } catch (cause) {
+      clearPreparedRehearsalSlideSnapshots(props.snapshotPreparationId);
+      preparedSlideSnapshotsRef.current = undefined;
+      throw cause;
+    }
     activeRunRef.current = prepared.run;
     setRun(prepared.run);
     if (prepared.run) {
@@ -4303,6 +4356,8 @@ export function RehearsalWorkspace(props: {
     setLiveStatus("idle");
     setLiveError("");
     setError("");
+    setCanPracticeWithoutVoiceAfterFailure(false);
+    setRequiresSnapshotRepreparation(false);
     setPracticeWithoutVoiceAt(null);
     setSemanticCapabilityEvents([]);
     setComparisonReminderState(createComparisonReminderState());
@@ -4442,8 +4497,23 @@ export function RehearsalWorkspace(props: {
     return (
       <RehearsalFailureScreen
         error={error}
-        onPracticeWithoutVoice={deck ? startPracticeWithoutVoice : undefined}
-        onRetry={deck ? returnToPreflight : () => window.location.reload()}
+        onPracticeWithoutVoice={
+          deck && canPracticeWithoutVoiceAfterFailure
+            ? startPracticeWithoutVoice
+            : undefined
+        }
+        onRetry={
+          requiresSnapshotRepreparation
+            ? undefined
+            : deck
+              ? returnToPreflight
+              : () => window.location.reload()
+        }
+        projectActionLabel={
+          requiresSnapshotRepreparation
+            ? "프로젝트에서 snapshot 다시 준비"
+            : undefined
+        }
         projectId={deck?.projectId ?? props.projectId}
       />
     );
@@ -5084,7 +5154,8 @@ export function RehearsalWorkspace(props: {
 export function RehearsalFailureScreen(props: {
   error: string;
   onPracticeWithoutVoice?: () => void;
-  onRetry: () => void;
+  onRetry?: () => void;
+  projectActionLabel?: string;
   projectId?: string;
 }) {
   return (
@@ -5096,16 +5167,18 @@ export function RehearsalFailureScreen(props: {
           <p>{props.error}</p>
         </div>
         <div className="rehearsal-preflight-actions">
-          <button className="rehearsal-preflight-start" onClick={props.onRetry} type="button">
-            다시 시도
-          </button>
+          {props.onRetry ? (
+            <button className="rehearsal-preflight-start" onClick={props.onRetry} type="button">
+              다시 시도
+            </button>
+          ) : null}
           {props.onPracticeWithoutVoice ? (
             <button className="rehearsal-preflight-quiet" onClick={props.onPracticeWithoutVoice} type="button">
               마이크 없이 연습
             </button>
           ) : null}
           <a href={props.projectId ? `/project/${encodeURIComponent(props.projectId)}` : "/project"}>
-            프로젝트로 돌아가기
+            {props.projectActionLabel ?? "프로젝트로 돌아가기"}
           </a>
         </div>
       </section>
@@ -6972,6 +7045,20 @@ function toMicrophoneErrorMessage(cause: unknown) {
 
 function toRehearsalFlowMessage(cause: unknown) {
   if (cause instanceof RehearsalFlowError) {
+    if (cause.stage === "snapshot") {
+      return (
+        cause.message ||
+        "슬라이드 snapshot을 확인하지 못했습니다. 프로젝트에서 리허설을 다시 시작해 주세요."
+      );
+    }
+
+    if (cause.stage === "run") {
+      return (
+        cause.message ||
+        "리허설 실행을 준비하지 못했습니다. 프로젝트 권한과 최신 발표 자료를 확인한 뒤 다시 시도해 주세요."
+      );
+    }
+
     if (cause.stage === "storage-put") {
       return "업로드가 중단되었습니다. 네트워크와 스토리지 연결을 확인해 주세요.";
     }

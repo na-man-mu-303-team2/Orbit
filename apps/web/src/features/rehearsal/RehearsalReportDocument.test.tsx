@@ -101,6 +101,7 @@ describe("RehearsalReportDocument", () => {
         run={{
           runId: "run_1",
           projectId: "project_a",
+          createdByUserId: "user_a",
           deckId: "deck_a",
           jobId: null,
           audioFileId: null,
@@ -244,6 +245,7 @@ describe("RehearsalReportDocument", () => {
         run={{
           runId: "run_1",
           projectId: "project_a",
+          createdByUserId: "user_a",
           deckId: "deck_a",
           jobId: null,
           audioFileId: null,
@@ -287,6 +289,7 @@ describe("RehearsalReportDocument", () => {
         run={{
           runId: "run_1",
           projectId: "project_a",
+          createdByUserId: "user_a",
           deckId: "deck_a",
           jobId: null,
           audioFileId: null,
@@ -325,6 +328,7 @@ describe("RehearsalReportDocument", () => {
         run={{
           runId: "run_1",
           projectId: "project_a",
+          createdByUserId: "user_a",
           deckId: "deck_a",
           jobId: null,
           audioFileId: null,

@@ -653,6 +653,21 @@ async function createSlideRenderFile(args: {
   );
 }
 
+export function requireCompleteRehearsalSlideRender(
+  deck: Deck,
+  files: ReadonlyMap<string, File>,
+) {
+  return deck.slides.map((slide) => {
+    const file = files.get(slide.slideId);
+    if (!file) {
+      throw new Error(
+        "모든 슬라이드 snapshot을 준비하지 못했습니다. 리허설을 다시 시작해 주세요.",
+      );
+    }
+    return { file, slide };
+  });
+}
+
 async function drawSlideRenderFallbackImage(
   context: CanvasRenderingContext2D,
   imageUrl: string,
@@ -2403,10 +2418,10 @@ export function EditorShell(props: { projectId?: string }) {
       const renderResult = await renderSlideFiles(sourceDeck);
       const snapshots: Array<{ fileId: string; slideId: string }> = [];
 
-      for (const slide of sourceDeck.slides) {
-        const file = renderResult.files.get(slide.slideId);
-        if (!file) continue;
-
+      for (const { file, slide } of requireCompleteRehearsalSlideRender(
+        sourceDeck,
+        renderResult.files,
+      )) {
         const uploaded = await uploadProjectAsset(
           activeProjectId,
           createSlideScopedUploadFile(file, slide.order, "thumbnail"),
@@ -6840,7 +6855,7 @@ function getSaveRecoveryHint(saveErrorCode: SaveErrorCode | null) {
     case "rehearsal-blocked":
       return "발표 자료를 먼저 불러와 주세요";
     case "rehearsal-save-failed":
-      return "리허설 다시 시작";
+      return "상단 리허설 버튼으로 다시 시도";
     case "missing-project":
     case "missing-persisted-base":
       return "새로고침 후 재시도";

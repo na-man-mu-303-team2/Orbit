@@ -13,6 +13,7 @@ function runFixture(
   return {
     runId,
     projectId: "project-a",
+    createdByUserId: "user-a",
     deckId: "deck-a",
     audioFileId: null,
     jobId: null,

@@ -109,6 +109,7 @@ const reportMockupGeneratedAt = "2026-07-01T09:00:00.000Z";
 const reportMockupRun: RehearsalRun = {
   runId: reportMockupRunId,
   projectId: demoIds.projectId,
+  createdByUserId: demoIds.userId,
   deckId: demoIds.deckId,
   audioFileId: "file_report_mockup_audio",
   jobId: "job_report_mockup_stt",

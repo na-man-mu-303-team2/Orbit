@@ -29,7 +29,11 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
       >
         {isSaving ? "저장 중..." : "저장"}
       </button>
-      <div className="editor-save-meta">
+      <div
+        aria-live={recoveryHint ? "assertive" : "polite"}
+        className="editor-save-meta"
+        role={recoveryHint ? "alert" : "status"}
+      >
         <span className="editor-save-status">{statusLabel}</span>
         {recoveryHint ? <span className="editor-save-status">{recoveryHint}</span> : null}
         <span className="editor-save-time">
