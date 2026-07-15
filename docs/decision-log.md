@@ -386,3 +386,15 @@
 - Rationale: 실제 전체 녹음 시간을 별도 canonical transport로 보존하면 duration resolver와 마지막 slide timing이 같은 근거를 사용하고, 배포 전 저장된 Run meta와 기존 complete 요청은 `null` default로 계속 읽을 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.test.ts`, `apps/web/src/features/rehearsal/speech/p3RehearsalSession.test.ts`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: Web/API producer는 legacy와 chunk upload 모두 실제 recorder 경과시간을 보내고 Run meta 저장 성공 뒤에만 분석 Job을 enqueue한다. P1 worker sender는 Run meta 값을 `recordingDurationSeconds`로 전달하고 STT Provider 값은 `providerDurationSeconds`에만 둔다.
+
+## ORBIT environment contract CI and personal staging deployment gate
+
+- Context: 기존 환경 검증은 TypeScript CI 내부에서 예시 파일의 key 존재와 집합만 비교했다. 허용되지 않은 빈 값·중복·잘못된 선언 형식을 잡지 못했고, `develop` push의 개인 서버 배포 workflow도 CI 결과와 독립적으로 시작했다.
+- Options considered:
+  - 기존 TypeScript CI 안에서만 `check-env.mjs`를 강화하고 배포 workflow는 그대로 둔다.
+  - 별도 Environment Contract CI를 모든 PR과 `develop` push에서 실행하고 성공한 `develop` run만 개인 서버 배포를 시작한다.
+  - 실제 Doppler 값을 PR CI에 전달해 한 번에 검사한다.
+- Final decision: 환경 계약을 의존성 설치가 없는 별도 `environment-contract` job으로 분리한다. 예시 파일은 key 누락·집합 불일치·중복·형식 오류·환경별로 허용되지 않은 빈 값을 검사한다. 실제 개인 서버 값은 secret을 출력하지 않는 배포 전 Bash preflight로 검사한다. `develop` push의 자동 배포는 같은 workflow의 후속 `needs` job이 reusable deploy workflow를 호출해 검증한 `github.sha`를 wrapper에 전달하고, 서버의 실제 `develop` HEAD가 다르면 build 전에 거부한다.
+- Rationale: PR에는 실제 secret을 노출하지 않으면서 환경 계약 오류를 빠르게 확인하고, merge 뒤에도 환경 검증 실패나 검증되지 않은 최신 commit이 서비스 교체까지 진행되는 것을 막는다. 수동 배포는 CI를 우회할 수 있지만 동일한 서버 환경 preflight와 Compose interpolation 검증은 반드시 거친다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/typescript-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/check-env.mjs`, `infra/scripts/check-personal-staging-env.sh`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR의 `environment-contract` check가 생성되면 GitHub `main dev protect` ruleset에 required status check로 등록해야 merge 차단이 활성화된다. PR merge 전에 개인 서버의 `/usr/local/sbin/orbit-deploy-personal-staging` wrapper를 runbook의 SHA 전달 버전으로 갱신하고, 첫 자동 배포에서 환경 오류가 key 이름만 출력되는지와 검증 SHA·서버 HEAD 일치를 확인한다.

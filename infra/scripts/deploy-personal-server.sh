@@ -4,6 +4,7 @@ set -euo pipefail
 APP_DIR="${ORBIT_APP_DIR:-/var/www/orbit}"
 DEPLOY_BRANCH="${ORBIT_DEPLOY_BRANCH:-develop}"
 LOCK_FILE="${ORBIT_DEPLOY_LOCK_FILE:-/tmp/orbit-personal-server-deploy.lock}"
+EXPECTED_SHA="${1:-}"
 
 COMPOSE=(
   docker compose
@@ -12,6 +13,11 @@ COMPOSE=(
 )
 
 cd "$APP_DIR"
+
+if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid expected deployment SHA."
+  exit 1
+fi
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -22,6 +28,12 @@ fi
 git switch "$DEPLOY_BRANCH"
 git pull --ff-only origin "$DEPLOY_BRANCH"
 
+if [[ -n "$EXPECTED_SHA" && "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+  echo "Develop HEAD changed after environment CI. Deployment refused."
+  exit 1
+fi
+
+doppler run -- bash infra/scripts/check-personal-staging-env.sh
 doppler run -- "${COMPOSE[@]}" config --quiet
 doppler run -- "${COMPOSE[@]}" build
 doppler run -- "${COMPOSE[@]}" up -d postgres redis minio minio-init
