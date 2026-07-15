@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SQSClient } from "@aws-sdk/client-sqs";
 import { generateDeckRequestSchema } from "@orbit/shared";
 import {
+  AiDeckSqsTransport,
   InMemoryJobQueue,
   aiDeckDesignLayoutQueueName,
   aiDeckGenerationStageJobId,
@@ -26,6 +28,21 @@ import {
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
+
+const stageMessage = {
+  pipelineJobId: "job-ai-deck-1",
+  projectId: "project-a",
+  stage: "source-grounding" as const,
+  shardKey: "",
+};
+
+const sqsQueueUrls = {
+  [referenceExtractQueueName]: "https://sqs.example/reference",
+  [aiDeckResearchContentQueueName]: "https://sqs.example/research",
+  [aiDeckDesignLayoutQueueName]: "https://sqs.example/design",
+  [aiDeckImageQueueName]: "https://sqs.example/image",
+  [aiDeckQaFinalizeQueueName]: "https://sqs.example/qa",
+};
 
 describe("aiDeckGenerationStageJobId", () => {
   it("builds a stable three-part BullMQ transport ID", () => {
@@ -199,13 +216,29 @@ describe("AI Deck staged BullMQ transport", () => {
     );
   });
 
-  it.each([
-    { driver: "sqs" as const, executionMode: "monolith" as const },
-    { driver: "bullmq" as const, executionMode: "sqs" as const },
-  ])("fails fast for an unavailable SQS path: $driver/$executionMode", async (mode) => {
+  it("uses the same ID-only BullMQ coordinator in SQS execution mode", async () => {
+    await enqueueGenerateDeckJob({
+      driver: "bullmq",
+      executionMode: "sqs",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-sqs-1",
+      projectId: "project-a",
+      request: generateDeckRequestSchema.parse({ topic: "SQS" }),
+    });
+
+    expect(queueMock.add).toHaveBeenCalledWith(
+      "generate-deck-staged-coordinator",
+      { jobId: "job-sqs-1", projectId: "project-a" },
+      expect.objectContaining({ jobId: "job-sqs-1", attempts: 5 }),
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain('"topic":"SQS"');
+  });
+
+  it("keeps the global SQS driver unavailable for non-stage jobs", async () => {
     await expect(
       enqueueGenerateDeckJob({
-        ...mode,
+        driver: "sqs",
+        executionMode: "monolith",
         redisUrl: "redis://localhost:6379",
         jobId: "job-sqs-1",
         projectId: "project-a",
@@ -213,6 +246,102 @@ describe("AI Deck staged BullMQ transport", () => {
       }),
     ).rejects.toThrow(/not implemented yet/);
     expect(queueMock.Queue).not.toHaveBeenCalled();
+  });
+});
+
+describe("AI Deck SQS transport", () => {
+  it("sends and receives the exact shared stage message", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ MessageId: "sqs-message-1" })
+      .mockResolvedValueOnce({
+        Messages: [
+          {
+            MessageId: "sqs-message-1",
+            ReceiptHandle: "receipt-1",
+            Body: JSON.stringify(stageMessage),
+          },
+        ],
+      });
+    const transport = new AiDeckSqsTransport({
+      region: "ap-northeast-2",
+      queueUrls: sqsQueueUrls,
+      client: { send, destroy: vi.fn() } as unknown as SQSClient,
+    });
+
+    await expect(transport.send(stageMessage)).resolves.toEqual({
+      jobId: "sqs-message-1",
+      state: "waiting",
+    });
+    await expect(
+      transport.receive(aiDeckResearchContentQueueName),
+    ).resolves.toEqual([
+      {
+        messageId: "sqs-message-1",
+        message: stageMessage,
+        queueUrl: sqsQueueUrls[aiDeckResearchContentQueueName],
+        receiptHandle: "receipt-1",
+      },
+    ]);
+
+    expect(send.mock.calls[0][0].input).toEqual({
+      QueueUrl: sqsQueueUrls[aiDeckResearchContentQueueName],
+      MessageBody: JSON.stringify(stageMessage),
+    });
+    expect(send.mock.calls[1][0].input).toMatchObject({
+      QueueUrl: sqsQueueUrls[aiDeckResearchContentQueueName],
+      MaxNumberOfMessages: 1,
+      WaitTimeSeconds: 20,
+      VisibilityTimeout: 300,
+    });
+  });
+
+  it("deletes by receipt handle and extends visibility by five minutes", async () => {
+    const send = vi.fn(async (_command: { input: unknown }) => ({}));
+    const transport = new AiDeckSqsTransport({
+      region: "ap-northeast-2",
+      queueUrls: sqsQueueUrls,
+      client: { send, destroy: vi.fn() } as unknown as SQSClient,
+    });
+    const delivery = {
+      messageId: "sqs-message-1",
+      message: stageMessage,
+      queueUrl: sqsQueueUrls[aiDeckResearchContentQueueName],
+      receiptHandle: "receipt-1",
+    };
+
+    await transport.extendVisibility(delivery);
+    await transport.delete(delivery);
+
+    expect(send.mock.calls[0][0].input).toEqual({
+      QueueUrl: delivery.queueUrl,
+      ReceiptHandle: "receipt-1",
+      VisibilityTimeout: 300,
+    });
+    expect(send.mock.calls[1][0].input).toEqual({
+      QueueUrl: delivery.queueUrl,
+      ReceiptHandle: "receipt-1",
+    });
+  });
+
+  it("rejects an SQS body outside the strict shared schema", async () => {
+    const send = vi.fn(async () => ({
+      Messages: [
+        {
+          ReceiptHandle: "receipt-1",
+          Body: JSON.stringify({ ...stageMessage, contentBase64: "blocked" }),
+        },
+      ],
+    }));
+    const transport = new AiDeckSqsTransport({
+      region: "ap-northeast-2",
+      queueUrls: sqsQueueUrls,
+      client: { send, destroy: vi.fn() } as unknown as SQSClient,
+    });
+
+    await expect(
+      transport.receive(aiDeckResearchContentQueueName),
+    ).rejects.toThrow();
   });
 });
 

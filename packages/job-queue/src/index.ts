@@ -26,6 +26,13 @@ import {
   type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
+import {
+  ChangeMessageVisibilityCommand,
+  DeleteMessageCommand,
+  ReceiveMessageCommand,
+  SendMessageCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
 import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
@@ -171,6 +178,7 @@ export interface EnqueueAiDeckGenerationStageJobInput {
   driver: "bullmq" | "sqs";
   redisUrl: string;
   message: AiDeckGenerationStageMessage;
+  sqs?: AiDeckSqsTransportOptions;
 }
 
 export interface AiDeckGenerationStageEnqueueResult {
@@ -320,16 +328,12 @@ export async function enqueueGenerateDeckJob(
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
   const executionMode = input.executionMode ?? "monolith";
-  if (executionMode === "sqs") {
-    throw new Error("AI Deck SQS transport is not implemented yet.");
-  }
-
   const queue = new Queue(generateDeckQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
-    if (executionMode === "bullmq") {
+    if (executionMode === "bullmq" || executionMode === "sqs") {
       await queue.add(
         generateDeckStagedCoordinatorJobName,
         {
@@ -391,7 +395,15 @@ export async function enqueueAiDeckGenerationStageJob(
   input: EnqueueAiDeckGenerationStageJobInput,
 ): Promise<AiDeckGenerationStageEnqueueResult> {
   if (input.driver === "sqs") {
-    throw new Error("AI Deck SQS transport is not implemented yet.");
+    if (!input.sqs) {
+      throw new Error("AI Deck SQS transport options are required.");
+    }
+    const transport = new AiDeckSqsTransport(input.sqs);
+    try {
+      return await transport.send(input.message);
+    } finally {
+      transport.close();
+    }
   }
   const message = aiDeckGenerationStageMessageSchema.parse(input.message);
   const queue = new Queue(aiDeckGenerationStageQueueName(message.stage), {
@@ -623,7 +635,7 @@ function canonicalJobOptions(jobId: string) {
 
 export function aiDeckGenerationStageQueueName(
   stage: AiDeckGenerationStage,
-): string {
+): AiDeckSqsQueueName {
   switch (stage) {
     case "reference-extract-file":
       return referenceExtractQueueName;
@@ -639,6 +651,113 @@ export function aiDeckGenerationStageQueueName(
     case "rendered-visual-quality":
     case "publication":
       return aiDeckQaFinalizeQueueName;
+  }
+}
+
+export const aiDeckSqsQueueNames = [
+  referenceExtractQueueName,
+  aiDeckResearchContentQueueName,
+  aiDeckDesignLayoutQueueName,
+  aiDeckImageQueueName,
+  aiDeckQaFinalizeQueueName,
+] as const;
+
+export type AiDeckSqsQueueName = (typeof aiDeckSqsQueueNames)[number];
+export type AiDeckSqsQueueUrls = Record<AiDeckSqsQueueName, string>;
+
+export interface AiDeckSqsTransportOptions {
+  region: string;
+  queueUrls: AiDeckSqsQueueUrls;
+  client?: SQSClient;
+}
+
+export interface AiDeckSqsDelivery {
+  messageId: string;
+  message: AiDeckGenerationStageMessage;
+  queueUrl: string;
+  receiptHandle: string;
+}
+
+export class AiDeckSqsTransport {
+  private readonly client: SQSClient;
+
+  constructor(private readonly options: AiDeckSqsTransportOptions) {
+    this.client = options.client ?? new SQSClient({ region: options.region });
+  }
+
+  async send(
+    rawMessage: AiDeckGenerationStageMessage,
+  ): Promise<AiDeckGenerationStageEnqueueResult> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const response = await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: this.queueUrl(aiDeckGenerationStageQueueName(message.stage)),
+        MessageBody: JSON.stringify(message),
+      }),
+    );
+    return {
+      jobId: response.MessageId ?? aiDeckGenerationStageJobId(message),
+      state: "waiting",
+    };
+  }
+
+  async receive(
+    queueName: AiDeckSqsQueueName,
+    abortSignal?: AbortSignal,
+  ): Promise<AiDeckSqsDelivery[]> {
+    const queueUrl = this.queueUrl(queueName);
+    const response = await this.client.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queueUrl,
+        MaxNumberOfMessages: 1,
+        WaitTimeSeconds: 20,
+        VisibilityTimeout: 300,
+      }),
+      abortSignal ? { abortSignal } : undefined,
+    );
+    return (response.Messages ?? []).map((item) => {
+      if (!item.Body || !item.ReceiptHandle) {
+        throw new Error("SQS stage message is missing body or receipt handle.");
+      }
+      return {
+        messageId: item.MessageId ?? "unknown",
+        message: aiDeckGenerationStageMessageSchema.parse(JSON.parse(item.Body)),
+        queueUrl,
+        receiptHandle: item.ReceiptHandle,
+      };
+    });
+  }
+
+  async delete(delivery: AiDeckSqsDelivery): Promise<void> {
+    await this.client.send(
+      new DeleteMessageCommand({
+        QueueUrl: delivery.queueUrl,
+        ReceiptHandle: delivery.receiptHandle,
+      }),
+    );
+  }
+
+  async extendVisibility(
+    delivery: AiDeckSqsDelivery,
+    visibilityTimeout = 300,
+  ): Promise<void> {
+    await this.client.send(
+      new ChangeMessageVisibilityCommand({
+        QueueUrl: delivery.queueUrl,
+        ReceiptHandle: delivery.receiptHandle,
+        VisibilityTimeout: visibilityTimeout,
+      }),
+    );
+  }
+
+  close(): void {
+    this.client.destroy();
+  }
+
+  private queueUrl(queueName: AiDeckSqsQueueName): string {
+    const queueUrl = this.options.queueUrls[queueName];
+    if (!queueUrl) throw new Error(`Missing SQS queue URL for ${queueName}.`);
+    return queueUrl;
   }
 }
 

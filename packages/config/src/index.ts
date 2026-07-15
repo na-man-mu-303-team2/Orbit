@@ -237,6 +237,11 @@ export const orbitEnvSchema = z.object({
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
   AI_DECK_EXECUTION_MODE: aiDeckExecutionModeSchema.default("bullmq"),
   AI_DECK_WORKER_QUEUE: aiDeckWorkerQueueSchema.default("all"),
+  AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL: optionalUrl("AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL"),
+  AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL: optionalUrl("AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL"),
+  AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL: optionalUrl("AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL"),
+  AI_DECK_SQS_IMAGE_QUEUE_URL: optionalUrl("AI_DECK_SQS_IMAGE_QUEUE_URL"),
+  AI_DECK_SQS_QA_FINALIZE_QUEUE_URL: optionalUrl("AI_DECK_SQS_QA_FINALIZE_QUEUE_URL"),
   LIVE_STT_PROVIDER: liveSttProviderSchema,
   LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
   REPORT_STT_PROVIDER: reportSttProviderSchema,
@@ -292,6 +297,19 @@ export const orbitEnvSchema = z.object({
   DEMO_DECK_ID: requiredString("DEMO_DECK_ID"),
   DEMO_SESSION_ID: requiredString("DEMO_SESSION_ID")
 }).superRefine((value, context) => {
+  if (value.AI_DECK_EXECUTION_MODE === "sqs") {
+    for (const key of [
+      "AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL",
+      "AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL",
+      "AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL",
+      "AI_DECK_SQS_IMAGE_QUEUE_URL",
+      "AI_DECK_SQS_QA_FINALIZE_QUEUE_URL"
+    ] as const) {
+      if (!value[key]) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required when AI_DECK_EXECUTION_MODE=sqs` });
+      }
+    }
+  }
   if ((value.FOCUSED_PRACTICE_ENABLED || value.CHALLENGE_QNA_ENABLED) && !value.ADAPTIVE_REHEARSAL_COACH_ENABLED) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["ADAPTIVE_REHEARSAL_COACH_ENABLED"], message: "Adaptive coaching core must be enabled before focused practice or Challenge Q&A" });
   }

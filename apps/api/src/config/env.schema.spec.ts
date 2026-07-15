@@ -86,6 +86,30 @@ describe("ORBIT env validation", () => {
     ).toThrow(/AI_DECK_WORKER_QUEUE/);
   });
 
+  it("requires all five queue URLs only in SQS execution mode", () => {
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_EXECUTION_MODE: "sqs" },
+        { service: "worker" },
+      ),
+    ).toThrow("AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL");
+
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          AI_DECK_EXECUTION_MODE: "sqs",
+          AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL: "https://sqs.example/reference",
+          AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL: "https://sqs.example/research",
+          AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL: "https://sqs.example/design",
+          AI_DECK_SQS_IMAGE_QUEUE_URL: "https://sqs.example/image",
+          AI_DECK_SQS_QA_FINALIZE_QUEUE_URL: "https://sqs.example/qa",
+        },
+        { service: "worker" },
+      ),
+    ).toMatchObject({ AI_DECK_EXECUTION_MODE: "sqs" });
+  });
+
   it("parses coaching flags and exact project allowlists", () => {
     const config = loadOrbitConfig({ ...validEnv, ADAPTIVE_REHEARSAL_COACH_ENABLED: "true", FOCUSED_PRACTICE_ENABLED: "true", ADAPTIVE_COACHING_PROJECT_ALLOWLIST: "project-a,project-b" }, { service: "api" });
     expect(config.FOCUSED_PRACTICE_ENABLED).toBe(true);
