@@ -45,8 +45,9 @@ const maintenance = vi.hoisted(() => ({
   coordinator: vi.fn(async () => ({
     scanned: 0,
     recovered: 0,
+    resumed: 0,
     removed: 0,
-    nextStart: 0,
+    nextCursor: { redisCursor: "0", pendingJobIds: [] },
   })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
   reconcile: vi.fn(async () => ({
@@ -226,7 +227,7 @@ describe("WorkerService queue subscriptions", () => {
       expect.anything(),
       expect.objectContaining({
         redisUrl: configState.REDIS_URL,
-        start: 0,
+        cursor: { redisCursor: "0", pendingJobIds: [] },
       }),
     );
     expect(maintenance.reconcile).toHaveBeenCalled();

@@ -27,7 +27,10 @@ import { randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { processDeckExportJob } from "./deck-export.processor";
 import { processGenerateDeckJob } from "./generate-deck.processor";
-import { reconcileFailedAiDeckCoordinatorJobs } from "./generate-deck/coordinator-failure-reconciler";
+import {
+  type FailedCoordinatorScanCursor,
+  reconcileFailedAiDeckCoordinatorJobs,
+} from "./generate-deck/coordinator-failure-reconciler";
 import { processAiDeckReferenceExtractionStage } from "./generate-deck/reference-extract-stage";
 import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher";
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
@@ -78,7 +81,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
-  private aiDeckFailedCoordinatorScanStart = 0;
+  private aiDeckFailedCoordinatorScanCursor: FailedCoordinatorScanCursor = {
+    redisCursor: "0",
+    pendingJobIds: [],
+  };
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -546,7 +552,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         this.dataSource,
         {
           redisUrl: this.config.REDIS_URL,
-          start: this.aiDeckFailedCoordinatorScanStart,
+          cursor: this.aiDeckFailedCoordinatorScanCursor,
           onError: (error, job) =>
             this.logger.error(
               {
@@ -560,12 +566,17 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             ),
         },
       );
-      this.aiDeckFailedCoordinatorScanStart = result.nextStart;
+      this.aiDeckFailedCoordinatorScanCursor = result.nextCursor;
       if (result.recovered > 0 || result.removed > 0) {
         this.logger.warn(
           {
             event: "ai_deck.coordinator.reconciled",
-            ...result,
+            scanned: result.scanned,
+            recovered: result.recovered,
+            resumed: result.resumed,
+            removed: result.removed,
+            redisCursor: result.nextCursor.redisCursor,
+            pendingJobCount: result.nextCursor.pendingJobIds.length,
           },
           "AI deck failed coordinators reconciled.",
         );
