@@ -4,6 +4,52 @@ import { defaultPauseDetectorConfig } from "../advance/autoAdvanceConfig";
 import { createPauseDetector } from "./pauseDetector";
 
 describe("pauseDetector", () => {
+  it("audio-level이 없으면 transcript 무갱신 시간으로 pause를 시작한다", () => {
+    const detector = createPauseDetector({
+      config: defaultPauseDetectorConfig,
+      pauseMs: 600
+    });
+
+    expect(
+      detector.accept({
+        type: "transcript-activity",
+        atMs: 1_000,
+        isFinal: true
+      })
+    ).toEqual([]);
+    expect(detector.accept({ type: "tick", atMs: 1_599 })).toEqual([]);
+    expect(detector.accept({ type: "tick", atMs: 1_600 })).toEqual([
+      { type: "pause-started", atMs: 1_600, silenceDurationMs: 600 }
+    ]);
+    expect(
+      detector.accept({
+        type: "transcript-activity",
+        atMs: 1_700,
+        isFinal: false
+      })
+    ).toEqual([{ type: "speech-resumed", atMs: 1_700 }]);
+    expect(detector.accept({ type: "tick", atMs: 2_299 })).toEqual([]);
+    expect(detector.accept({ type: "tick", atMs: 2_300 })).toEqual([
+      { type: "pause-started", atMs: 2_300, silenceDurationMs: 600 }
+    ]);
+  });
+
+  it("audio-level evidence가 있으면 transcript fallback보다 RMS를 우선한다", () => {
+    const detector = createPauseDetector({
+      config: defaultPauseDetectorConfig,
+      pauseMs: 600
+    });
+
+    detector.accept({ type: "audio-level", atMs: 0, rmsDb: -20 });
+    detector.accept({
+      type: "transcript-activity",
+      atMs: 100,
+      isFinal: true
+    });
+
+    expect(detector.accept({ type: "tick", atMs: 700 })).toEqual([]);
+  });
+
   it("starts pause after RMS silence and transcript inactivity", () => {
     const detector = createPauseDetector({
       config: defaultPauseDetectorConfig,
