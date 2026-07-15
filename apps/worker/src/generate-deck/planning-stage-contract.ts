@@ -1,4 +1,5 @@
 import type { AiDeckGenerationStage } from "@orbit/shared";
+import { generateDeckResponseSchema } from "@orbit/shared";
 import { z } from "zod";
 
 export const aiDeckPlanningStageSchema = z.enum([
@@ -34,6 +35,7 @@ export const layoutCompileArtifactPayloadSchema = z
   .object({
     layoutResult: jsonObjectSchema,
     visualRequirements: jsonObjectSchema,
+    workerPayload: generateDeckResponseSchema,
   })
   .strict();
 

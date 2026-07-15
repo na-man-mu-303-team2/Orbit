@@ -33,10 +33,17 @@ export const aiDeckPlanningArtifactReferenceSchema = z
   })
   .strict();
 
+export const aiDeckExecutionArtifactReferenceSchema = z
+  .object({
+    executionArtifactId: z.string().uuid(),
+  })
+  .strict();
+
 export const aiDeckGenerationStageReferenceSchema = z.union([
   aiDeckGenerationStageEmptyReferenceSchema,
   aiDeckReferenceExtractionResultReferenceSchema,
   aiDeckPlanningArtifactReferenceSchema,
+  aiDeckExecutionArtifactReferenceSchema,
 ]);
 
 const planningStages = new Set<AiDeckGenerationStage>([
@@ -52,6 +59,13 @@ const planningStagesWithArtifactInput = new Set<AiDeckGenerationStage>([
   "layout-compile",
 ]);
 
+const executionStages = new Set<AiDeckGenerationStage>([
+  "image-slide",
+  "semantic-quality",
+  "rendered-visual-quality",
+  "publication",
+]);
+
 export const aiDeckGenerationStageInputReferenceSchema = z
   .object({
     stage: aiDeckGenerationStageSchema,
@@ -65,7 +79,19 @@ export const aiDeckGenerationStageInputReferenceSchema = z
     const isPlanningArtifact =
       planningStagesWithArtifactInput.has(value.stage) &&
       aiDeckPlanningArtifactReferenceSchema.safeParse(value.reference).success;
-    if (!isEmpty && !isPlanningArtifact) {
+    const isLayoutArtifactInput =
+      (value.stage === "image-slide" || value.stage === "semantic-quality") &&
+      aiDeckPlanningArtifactReferenceSchema.safeParse(value.reference).success;
+    const isExecutionArtifactInput =
+      (value.stage === "rendered-visual-quality" ||
+        value.stage === "publication") &&
+      aiDeckExecutionArtifactReferenceSchema.safeParse(value.reference).success;
+    if (
+      !isEmpty &&
+      !isPlanningArtifact &&
+      !isLayoutArtifactInput &&
+      !isExecutionArtifactInput
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["reference"],
@@ -91,7 +117,15 @@ export const aiDeckGenerationStageResultReferenceSchema = z
     const isPlanningArtifact =
       planningStages.has(value.stage) &&
       aiDeckPlanningArtifactReferenceSchema.safeParse(value.reference).success;
-    if (!isEmpty && !isReferenceExtractionResult && !isPlanningArtifact) {
+    const isExecutionArtifact =
+      executionStages.has(value.stage) &&
+      aiDeckExecutionArtifactReferenceSchema.safeParse(value.reference).success;
+    if (
+      !isEmpty &&
+      !isReferenceExtractionResult &&
+      !isPlanningArtifact &&
+      !isExecutionArtifact
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["reference"],
@@ -162,6 +196,9 @@ export type AiDeckReferenceExtractionResultReference = z.infer<
 >;
 export type AiDeckPlanningArtifactReference = z.infer<
   typeof aiDeckPlanningArtifactReferenceSchema
+>;
+export type AiDeckExecutionArtifactReference = z.infer<
+  typeof aiDeckExecutionArtifactReferenceSchema
 >;
 export type AiDeckGenerationStageMessage = z.infer<
   typeof aiDeckGenerationStageMessageSchema

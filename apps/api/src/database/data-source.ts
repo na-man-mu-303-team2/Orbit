@@ -42,6 +42,7 @@ import { CreateAiDeckGenerationStages2026071502000 } from "./migrations/20260715
 import { CreateAiDeckReferenceExtractionArtifacts2026071503000 } from "./migrations/2026071503000-CreateAiDeckReferenceExtractionArtifacts";
 import { CreateAiDeckPlanningArtifacts2026071601000 } from "./migrations/2026071601000-CreateAiDeckPlanningArtifacts";
 import { ExpandAiDeckStageDispatchRecovery2026071601100 } from "./migrations/2026071601100-ExpandAiDeckStageDispatchRecovery";
+import { CreateAiDeckExecutionArtifacts2026071602000 } from "./migrations/2026071602000-CreateAiDeckExecutionArtifacts";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -95,7 +96,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckGenerationStages2026071502000,
     CreateAiDeckReferenceExtractionArtifacts2026071503000,
     CreateAiDeckPlanningArtifacts2026071601000,
-    ExpandAiDeckStageDispatchRecovery2026071601100
+    ExpandAiDeckStageDispatchRecovery2026071601100,
+    CreateAiDeckExecutionArtifacts2026071602000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

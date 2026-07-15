@@ -119,8 +119,14 @@ export function designPlanningStageInput(
 export function layoutCompileStageInput(
   content: ContentPlanningArtifactPayload,
   design: DesignPlanningArtifactPayload,
+  sourceWarnings: string[],
 ) {
-  return { rawInput: content.rawInput, designPlan: design.designPlan };
+  return {
+    rawInput: content.rawInput,
+    contentPlan: content.contentPlan,
+    designPlan: design.designPlan,
+    sourceWarnings,
+  };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -131,7 +137,10 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function normalizeHttpError(status: number, body: unknown): AiDeckPlanningStageError {
+function normalizeHttpError(
+  status: number,
+  body: unknown,
+): AiDeckPlanningStageError {
   const detail = errorResponseSchema.safeParse(body).data?.detail ?? "";
   if (detail.includes("SOURCE_GROUNDING_REQUIRED")) {
     return new AiDeckPlanningStageError(

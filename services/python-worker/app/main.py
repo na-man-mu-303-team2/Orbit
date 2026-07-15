@@ -648,8 +648,15 @@ def design_planning_stage(
 )
 def layout_compile_stage(
     payload: LayoutCompileStageInput,
+    request: Request,
 ) -> LayoutCompileStageResult:
-    return run_layout_compile_stage(payload)
+    config = _config(request)
+    return run_layout_compile_stage(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+        image_review_mode=config.ai_slide_image_review_mode,
+    )
 
 
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
