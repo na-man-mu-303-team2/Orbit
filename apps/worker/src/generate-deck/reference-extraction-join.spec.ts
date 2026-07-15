@@ -142,6 +142,59 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       query.mock.calls.some((call) => compactSql(call[0]).startsWith("UPDATE jobs")),
     ).toBe(false);
   });
+
+  it("terminalizes active sibling checkpoints before a fatal parent failure", async () => {
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
+        return [parentJobRow("references-first")];
+      }
+      if (
+        compact.startsWith("UPDATE ai_deck_generation_stages stages") &&
+        compact.includes("stages.lease_owner = $5")
+      ) {
+        return [checkpointRow("failed", null)];
+      }
+      if (
+        compact.startsWith("UPDATE ai_deck_generation_stages") &&
+        compact.includes("stages.status IN ('queued','running')")
+      ) {
+        return [{ stage: "reference-extract-file", shard_key: "file-b" }];
+      }
+      if (compact.startsWith("UPDATE jobs")) return [];
+      throw new Error(`Unexpected query: ${compact}`);
+    });
+    const dataSource = transactionalDataSource(query);
+    const fatalError = {
+      code: "REFERENCE_ASSET_INVALID",
+      message: "Reference asset does not satisfy the staged extraction contract.",
+      failedStage: "reference-extract-file" as const,
+      retryable: false,
+    };
+
+    await completeAiDeckReferenceExtractionStage(dataSource, {
+      message,
+      leaseOwner: "worker-a:7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+      attempt: 1,
+      error: fatalError,
+      fatalParent: true,
+    });
+
+    const calls = query.mock.calls.map((call) => compactSql(call[0]));
+    const siblingFailureIndex = calls.findIndex(
+      (sql) =>
+        sql.startsWith("UPDATE ai_deck_generation_stages") &&
+        sql.includes("stages.status IN ('queued','running')"),
+    );
+    const parentFailureIndex = calls.findIndex((sql) => sql.startsWith("UPDATE jobs"));
+    expect(siblingFailureIndex).toBeGreaterThan(-1);
+    expect(siblingFailureIndex).toBeLessThan(parentFailureIndex);
+    expect(calls[siblingFailureIndex]).toContain("result_ref_json = NULL");
+    expect(calls[siblingFailureIndex]).toContain("lease_owner = NULL");
+    expect(calls[siblingFailureIndex]).toContain("lease_expires_at = NULL");
+    expect(calls[siblingFailureIndex]).toContain("dispatched_at = NULL");
+    expect(query.mock.calls[siblingFailureIndex]?.[1]?.[1]).toEqual(fatalError);
+  });
 });
 
 function transactionalDataSource(query: ReturnType<typeof vi.fn>): DataSource {
