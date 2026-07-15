@@ -84,6 +84,11 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       retryable: false,
     });
     expect(
+      query.mock.calls
+        .map((call) => compactSql(call[0]))
+        .find((sql) => sql.includes("FROM ai_deck_generation_stages stages")),
+    ).toContain("FOR UPDATE OF stages");
+    expect(
       query.mock.calls.some((call) =>
         compactSql(call[0]).startsWith("INSERT INTO ai_deck_generation_stages"),
       ),
