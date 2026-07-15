@@ -2760,6 +2760,10 @@
   line-height: 1.45;
 }
 
+.script-panel-character-count {
+  justify-content: flex-end;
+}
+
 .speaker-notes-length-meter {
   display: grid;
   gap: 8px;
@@ -3003,29 +3007,20 @@
 }
 
 .script-keyword-section {
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--orbit-ds-border);
 }
 
 .script-keyword-heading {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
 }
 
 .script-keyword-heading strong {
   color: var(--orbit-ds-ink);
   font-size: var(--orbit-ds-type-ui-small);
   line-height: 1.45;
-}
-
-.script-keyword-heading span {
-  color: var(--orbit-ds-text-muted);
-  font-size: var(--orbit-ds-type-caption);
-  line-height: 1.45;
-  text-align: right;
 }
 
 .keyword-mark {

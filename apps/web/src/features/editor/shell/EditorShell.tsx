@@ -5917,7 +5917,6 @@ export function EditorShell(props: { projectId?: string }) {
               {isSpeakerNotesEditing ? (
                 <div className="script-panel-body">
                   <textarea
-                    aria-describedby="speaker-notes-edit-help"
                     aria-label="발표 메모 수정"
                     autoFocus
                     className="script-notes-editor"
@@ -5927,8 +5926,10 @@ export function EditorShell(props: { projectId?: string }) {
                     value={speakerNotesDraft}
                     onChange={(event) => setSpeakerNotesDraft(event.target.value)}
                   />
-                  <div className="script-panel-meta" id="speaker-notes-edit-help">
-                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                  <div
+                    aria-live="polite"
+                    className="script-panel-meta script-panel-character-count"
+                  >
                     <span>{speakerNotesDraft.length.toLocaleString()}자</span>
                   </div>
                   <SpeakerNotesLengthMeter
@@ -5949,20 +5950,15 @@ export function EditorShell(props: { projectId?: string }) {
                       onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                     />
                   </div>
-                  <div className="script-panel-meta">
-                    <span>줄바꿈은 발표자 화면에도 반영됩니다.</span>
+                  <div className="script-panel-meta script-panel-character-count">
                     <span>{(currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
                   </div>
-                  <SpeakerNotesLengthMeter
-                    guidance={speakerNotesLengthGuidance}
-                  />
                   <section
                     aria-labelledby="speaker-notes-keywords-title"
                     className="script-keyword-section"
                   >
                     <div className="script-keyword-heading">
                       <strong id="speaker-notes-keywords-title">발표 체크포인트</strong>
-                      <span>필수 발화와 화면 전환에 연결된 키워드입니다.</span>
                     </div>
                     <KeywordList
                       keywords={currentSlide?.keywords ?? []}
@@ -5972,6 +5968,9 @@ export function EditorShell(props: { projectId?: string }) {
                       onSelectKeyword={handleSelectKeyword}
                     />
                   </section>
+                  <SpeakerNotesLengthMeter
+                    guidance={speakerNotesLengthGuidance}
+                  />
                   {selectedKeyword ? (
                     <KeywordDetail
                       keyword={selectedKeyword}
