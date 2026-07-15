@@ -25,6 +25,7 @@ describe("EditorSaveControl", () => {
         isSaving={false}
         lastSavedAtLabel={null}
         onSave={vi.fn()}
+        errorMessage="retryable save failure"
         recoveryHint="상단 리허설 버튼으로 다시 시도"
         statusLabel="리허설 준비 실패"
       />,
@@ -33,6 +34,7 @@ describe("EditorSaveControl", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('aria-live="assertive"');
     expect(html).toContain("상단 리허설 버튼으로 다시 시도");
+    expect(html).toContain("retryable save failure");
     expect(html).toContain("다시 저장");
   });
 });

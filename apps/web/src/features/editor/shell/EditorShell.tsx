@@ -592,6 +592,22 @@ function waitForAnimationFrame() {
   });
 }
 
+export async function waitForSlideRenderStages(
+  slideIds: readonly string[],
+  stageRefs: ReadonlyMap<string, unknown>,
+  waitForNextFrame: () => Promise<void> = waitForAnimationFrame,
+  maxFrames = 12
+) {
+  for (let frame = 0; frame < maxFrames; frame += 1) {
+    await waitForNextFrame();
+    if (slideIds.every((slideId) => stageRefs.has(slideId))) {
+      return;
+    }
+  }
+
+  throw new Error("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
+}
+
 function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
@@ -2396,10 +2412,14 @@ function EditorRuntime(props: {
     flushSync(() => {
       setRenderingDeck(nextDeck);
     });
-    await waitForAnimationFrame();
-    await waitForAnimationFrame();
-
     try {
+      await waitForSlideRenderStages(
+        nextDeck.slides
+          .filter((slide) => !targetSlideIds || targetSlideIds.has(slide.slideId))
+          .map((slide) => slide.slideId),
+        slideRenderStageRefs.current
+      );
+
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
         const slide = nextDeck.slides[index];
         if (targetSlideIds && !targetSlideIds.has(slide.slideId)) {
@@ -5698,7 +5718,6 @@ function EditorRuntime(props: {
               </button>
               <span>
                 <strong>{deck.title}</strong>
-                <small>{saveStatusLabel}</small>
               </span>
             </div>
             <div className="menu-row">
@@ -5822,6 +5841,7 @@ function EditorRuntime(props: {
             <EditorSaveControl
               disabled={isDeckLoading || isUsingFallbackDeck}
               emptyStateLabel={deckQuery.data ? "불러온 파일" : "저장 기록 없음"}
+              errorMessage={saveErrorMessage}
               isSaving={isSaveInFlight(saveState)}
               lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
               onSave={() => void handleSaveDeck()}
@@ -5910,6 +5930,11 @@ function EditorRuntime(props: {
         </div>
       </header>
       {!canMutateDeck ? <ProjectReadOnlyBanner /> : null}
+      {!canMutateDeck && saveErrorMessage ? (
+        <p className="editor-viewer-action-error" role="alert">
+          {saveErrorMessage}
+        </p>
+      ) : null}
       {capabilities.canManageShare && isSharePanelOpen
         ? createPortal(
             <ShareAccessModal

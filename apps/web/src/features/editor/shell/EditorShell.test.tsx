@@ -42,6 +42,7 @@ import {
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
+  waitForSlideRenderStages,
   resolveHistoryNavigation,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
@@ -230,6 +231,25 @@ describe("editor shell", () => {
     expect(() => requireCompleteRehearsalSlideRender(deck, files)).toThrow(
       "모든 슬라이드 snapshot을 준비하지 못했습니다.",
     );
+  });
+
+  it("waits for every hidden slide stage instead of assuming two frames are enough", async () => {
+    const stageRefs = new Map<string, unknown>();
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1", "slide_2"],
+        stageRefs,
+        async () => {
+          frame += 1;
+          if (frame === 2) stageRefs.set("slide_1", {});
+          if (frame === 4) stageRefs.set("slide_2", {});
+        },
+        6
+      )
+    ).resolves.toBeUndefined();
+    expect(frame).toBe(4);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -565,6 +585,7 @@ describe("editor shell", () => {
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
+    expect(html.match(/모두 저장됨/g)).toHaveLength(1);
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 코치");
