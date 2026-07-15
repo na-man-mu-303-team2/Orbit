@@ -218,18 +218,6 @@
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `docker-compose.staging.yml`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: 첫 merge 후 GitHub Actions에서 runner label 매칭, sudoers wrapper 실행, `db:migration:run`, `/api/health`, `/assets/orbit-personal-staging/` 접근을 확인한다. 완전 자동 배포가 목표면 GitHub Environment `personal-staging`에 required reviewer를 설정하지 않는다.
 
-## ORBIT-339 personal staging manual deploy recovery policy
-
-- Context: legacy consumer를 제거한 PR #365, GenerateDeck breaking contract를 적용한 PR #371과 readiness PR #380이 각 queue/DB drain 증거 또는 required reviewer 없이 merge됐고 각각 Actions run `29354750586`, `29366409554`, `29388943867`로 배포됐다. 기존 배포 workflow와 script에는 ingress maintenance, drain, Web cache 무효화 단계가 없다.
-- Options considered:
-  - GitHub Environment에 required reviewer를 즉시 설정한다.
-  - 기존 `develop` push 자동 배포를 유지하고 운영 증거를 나중에 보강한다.
-  - 자동 trigger를 제거하고 `workflow_dispatch`만 유지한 뒤 339-4·339-6을 사후 복구한다.
-- Final decision: `personal-staging` 배포는 #339 운영 gate 복구가 끝날 때까지 `workflow_dispatch` 수동 실행만 허용한다. 이 결정은 ORBIT-228의 `develop` push trigger 결정을 임시 대체하며 self-hosted runner, 최소 sudo wrapper와 서버 내부 Doppler 경계는 유지한다.
-- Rationale: 사전 drain은 소급 증명할 수 없으므로 추가 자동 배포를 막는다. 339-4는 current-state reconciliation과 필요 시 consumer 복구 또는 데이터 remediation 뒤 formal waiver를 받고, 339-6은 통제된 재-cutover를 실제 완료하거나 상태·영향 감사에 근거한 formal waiver를 받아야 한다.
-- Affected files: `.github/workflows/deploy-personal-staging.yml`, `docs/contracts.md`, `docs/runbooks/personal-server-deployment.md`, `docs/plans/ai-ppt-341-339-338-integrated-execution-plan.md`, `docs/plans/generate-deck-separation-before-issue-338.md`, `docs/decision-log.md`.
-- Follow-up review notes: 환경명·UTC 시각·배포 SHA가 포함된 queue/DB 수치, remediation 결과와 formal waiver 또는 재-cutover 완료 증거를 #339에 남긴다. 현재 수치나 처리 방식 결정만으로 과거 gate를 소급 충족하지 않는다. 그전에는 #339를 닫거나 #338을 시작하지 않으며, 자동 배포 재개는 별도 결정으로 기록한다.
-
 ## ORBIT personal HTTP demo auth cookie exception
 
 - Context: 개인 서버 develop demo가 HTTP origin으로 운영되는 동안 `APP_ENV=staging`의 secure auth cookie가 브라우저에 저장되지 않아 로그인 후 `/api/v1/auth/me`가 401을 반환한다.

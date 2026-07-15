@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 PR 8 병합 · 운영 gate 사후 복구 대기
+**상태**: 확정 · #341 완료 · #339 PR 8 코드 검증 완료 · 운영 증거 대기
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -52,11 +52,9 @@ flowchart LR
 | 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
 | 339-7A | Python generation core 분리 | `deck_generation/` 아래 `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. 하위 stage는 상세 계획의 순환 없는 upstream helper DAG와 `models.py` DTO를 따르며 동기식 `pipeline.py`만 stage entrypoint 순서를 조립한다. #341 정규화는 기존 `design_program.py` 구현을 재사용해 design stage가 보장하고 공개 `/ai/generate-deck` 계약과 실패 정책은 바꾸지 않는다. |
 | 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
-| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시킨다. 339-4는 late reconciliation·필요한 remediation·formal waiver를 완료하고, 339-6은 통제된 재-cutover 완료 증거 또는 상태·영향 감사 기반 formal waiver를 확보한 뒤 #339를 종료한다. |
+| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시키고, 339-4 legacy drain과 339-6 동시 cutover의 배포 환경 증거를 확인한 뒤 #339를 종료한다. |
 
-PR 8의 로컬·required 자동 CI 회귀 증거와 미완료 운영 복구 gate는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 339-4의 late reconciliation·필요한 remediation·formal waiver와 339-6의 통제된 재-cutover 완료 증거 또는 상태·영향 감사 기반 formal waiver가 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
-
-2026-07-15 사후 감사에서 PR #365·#371·#380이 운영 gate 증거 없이 merge됐고 `personal-staging` 자동 배포까지 완료된 사실을 확인했다. 자동 `develop` 배포를 중단한 뒤 339-4 legacy queue/DB late reconciliation과 필요 시 consumer 복구 또는 데이터 remediation을 완료하고 과거 사전 증거 부재에 대한 formal waiver를 받아야 한다. 339-6은 통제 재-cutover를 실제 완료하거나 현재 상태·영향 감사를 근거로 운영 책임자의 formal waiver를 받아야 한다. 과거 gate는 현재 수치나 단순 결정 기록만으로 소급 충족하지 않으며, 실제 복구 결과 또는 formal waiver 전까지 #338을 시작하지 않는다.
+PR 8의 로컬·required 자동 CI 회귀 증거와 미확보 운영 hard gate는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 339-4·339-6 배포 환경 증거가 모두 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
 
 ### #338 — stage Job, checkpoint와 queue adapter
 
@@ -132,7 +130,7 @@ uv run pytest
 
 - #341 mismatch fixture가 provider 한 번만 호출하고 최종 Deck snapshot까지 일치한다.
 - PPTX import → PUT/patch 편집 → sync → export → 재-import에서 최신 writable 요소가 유지된다.
-- 레거시 consumer는 원칙상 배포 환경 drain 전 제거하지 않는다. PR #365는 이 gate를 위반해 제거·배포됐으므로 339-4 late reconciliation, 필요한 consumer 복구 또는 데이터 remediation과 formal waiver를 완료하고, 과거 Job row 조회 호환은 계속 유지한다.
+- 레거시 consumer는 배포 환경 drain 전 제거되지 않으며, 로컬 결과만으로 merge/deploy하지 않고 과거 Job row는 계속 조회된다.
 - 339-6 breaking cutover는 mixed-version rolling deployment를 금지한다. generate-deck ingress를 중단하고 BullMQ `generate-deck` queue 전체 상태와 DB `type = ai-deck-generation`의 queued/running을 drain한 뒤 Web/API/Worker/Python worker를 함께 교체하고 Web cache를 무효화한다.
 - duplicate stage message, enqueue 직후 crash, provider 완료 직후 crash, lease 만료를 각각 재현한다.
 - OCR 하나 또는 image 하나의 실패가 다른 shard와 이전 stage를 재실행하지 않는다.

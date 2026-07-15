@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · PR 8 병합 · 운영 gate 사후 복구 대기
+**상태**: 확정 · PR 8 코드 검증 완료 · 배포 환경 운영 증거 대기
 
 **기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
@@ -843,16 +843,7 @@ uv run pytest
 - 339-4: 배포 환경의 `pptx-import`, `ai-template-deck-generation` queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 `queued`/`running`이 0이라는 drain 증거
 - 339-6: `personal-staging` required reviewer 또는 자동 배포 중단, cutover 담당자·시간·maintenance 방식, BullMQ `generate-deck` 전체 상태와 DB `ai-deck-generation`의 `queued`/`running` drain, Web/API/Worker/Python worker 동시 교체와 Web cache 무효화 증거
 
-**사후 감사 (2026-07-15)**
-
-- PR #365는 배포 환경 drain 증거 없이 merge됐고 PR 본문에는 로컬 Compose 결과만 기록돼 있다. merge SHA `0df9343d`는 자동 배포 run `29354750586`으로 배포됐으며 해당 run에도 legacy queue/DB drain 출력이 없다.
-- PR #371은 모든 cutover gate가 미체크된 상태로 merge됐으며 `personal-staging` Environment의 `protection_rules`는 비어 있다.
-- `develop` push 자동 배포 run `29366409554`, `29388943867`은 성공했지만 ingress maintenance, queue/DB drain, Web cache 무효화 증거를 남기지 않았다.
-- 서비스 교체 전 시점의 drain은 소급 증명할 수 없고 현재 0이라는 결과만으로 원 gate를 충족했다고 간주하지 않는다.
-- 339-4는 현재 legacy queue/DB 상태를 환경명·UTC 시각·배포 SHA와 함께 late reconciliation으로 기록한다. 잔여 항목이 있으면 PR 3 호환 consumer 복구 또는 명시적 데이터 remediation으로 terminal 처리한 뒤, 과거 사전 증거 부재에 대한 운영 책임자의 formal waiver를 남긴다.
-- 339-6은 ingress maintenance, `generate-deck` queue/DB drain, 서비스 동시 교체와 Web cache 무효화를 포함한 통제된 재-cutover를 실제 완료하거나, 현재 상태·영향 감사를 근거로 운영 책임자가 formal waiver를 승인해야 한다. 단순히 처리 방식을 결정한 기록만으로 완료하지 않는다.
-
-PR 8은 운영 증거 없이 이미 merge됐다. 자동 `develop` 배포를 중단한 뒤 위 사후 복구를 완료할 때까지 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
+두 운영 증거는 코드 테스트나 로컬 queue/DB 결과로 대체하지 않는다. 확보 전에는 PR 8을 Draft로 유지하고 #339를 종료하거나 #338 구현을 시작하지 않는다.
 
 **전체 검증 명령**
 
@@ -939,8 +930,8 @@ sequenceDiagram
 - [x] TemplateBlueprint와 source/current package mapping이 유지된다.
 - [x] imported Deck의 edit → sync → export round-trip fixture가 required `db-integration` CI에 연결되어 있다.
 - [x] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
-- [ ] 339-4 legacy queue/DB late reconciliation과 nonzero 잔여 항목 remediation을 완료하고, 과거 사전 증거 부재에 대한 운영 책임자의 formal waiver가 있다.
-- [ ] 339-6 자동 배포가 중단돼 있고, 통제된 재-cutover 완료 증거 또는 현재 상태·영향 감사에 근거한 운영 책임자의 formal waiver가 있다.
+- [ ] 배포 환경 drain 확인 후 구형 API, queue/job constant, consumer, processor가 제거됐다.
+- [ ] 339-6 breaking cutover의 배포 중단, 담당자·시간·maintenance, queue/DB drain, 동시 교체와 cache 무효화 증거가 있다.
 - [x] historical Job row를 안전하게 읽을 수 있다.
 - [x] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [x] Python의 source, content, design, layout, visual requirements, quality, diagnostics 단계가 명시적 DTO로 단독 테스트 가능하다.
