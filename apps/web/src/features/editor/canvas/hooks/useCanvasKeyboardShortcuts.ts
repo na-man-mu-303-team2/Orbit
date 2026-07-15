@@ -5,6 +5,7 @@ import { commitCustomShapeEditGeometry } from "../utils/canvasInteractionUtils";
 import type { CustomShapeEditDraft, CustomShapeInsertDraft } from "./types";
 
 export function useCanvasKeyboardShortcuts(args: {
+  enabled?: boolean;
   customShapeEditDraft: CustomShapeEditDraft | null;
   customShapeInsertDraft: CustomShapeInsertDraft | null;
   editingCustomShapeElement: DeckElement | null;
@@ -32,6 +33,7 @@ export function useCanvasKeyboardShortcuts(args: {
   isKeyboardEditableTarget: (target: EventTarget | null) => boolean;
 }) {
   const {
+    enabled = true,
     customShapeEditDraft,
     customShapeInsertDraft,
     editingCustomShapeElement,
@@ -46,6 +48,10 @@ export function useCanvasKeyboardShortcuts(args: {
   } = args;
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     function handleKeyDown(event: KeyboardEvent) {
       if (isKeyboardEditableTarget(event.target)) {
         return;
@@ -147,6 +153,7 @@ export function useCanvasKeyboardShortcuts(args: {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    enabled,
     customShapeEditDraft,
     customShapeInsertDraft,
     editingCustomShapeElement,

@@ -504,6 +504,34 @@ API:
 - `packages/shared/src/projects/project.schema.ts`
 - `apps/api/src/projects`
 
+### 프로젝트 접근과 Editor capability
+
+`GET /api/v1/projects/:projectId/access` 응답은
+`packages/shared/src/projects/project.schema.ts`의
+`projectAccessResponseSchema`를 사용한다. 응답은 `{ project, membership }`
+구조이며 `membership`은 현재 사용자의 해당 project membership만 나타낸다.
+
+결정 사항:
+
+- Editor에서 사용하는 역할의 canonical source는 `projects.createdBy`가 아니라 현재
+  사용자의 project membership이다. Owner 이전 뒤에도 `createdBy`로 역할을 추론하지
+  않는다.
+- `owner`, `editor`, `viewer` 중 하나이고 `status=accepted`인 membership만 project
+  화면에 진입할 수 있다. pending, rejected, non-member, 알 수 없는 role/status 및
+  schema가 맞지 않는 응답은 fail-closed 처리한다.
+- Editor, Brief, History, Rehearsal의 직접 URL은 같은 project access 결과와 capability
+  object를 사용한다. 화면별로 역할을 다시 추론하지 않는다.
+- Owner와 Editor는 Deck 편집, Brief 저장, History 복원, 지원되는 export와 presentation
+  session 생성을 수행할 수 있다. project 공유 관리는 Owner만 수행한다.
+- Viewer는 Deck, 발표자 메모, Brief와 History를 읽고 본인의 개인 리허설을 시작할 수
+  있다. Deck patch/PUT, Brief PUT, History restore, AI apply, export, 공유 변경 및
+  presentation session 생성 capability는 모두 false다.
+- Viewer의 개인 리허설은 기존 creator-owned Run과
+  `rehearsal-audio`/`rehearsal-slide-snapshot` 경계를 그대로 사용한다. 이 예외로 일반
+  project asset 또는 Deck write 권한을 완화하지 않는다.
+- Web에서 control을 숨기는 것은 권한 경계의 전부가 아니다. API는 각 mutation마다
+  accepted membership과 필요한 role을 계속 검증한다.
+
 ## 덱 저장/복원 API 계약
 
 ORBIT-15에서 추가하는 저장/복원 API 계약은 deck 자체 구조를 다시 정의하지 않고, API request/response envelope만 정의한다. NestJS API, web/editor, AI 생성 결과 적용 흐름은 같은 shared schema를 기준으로 payload를 검증한다.

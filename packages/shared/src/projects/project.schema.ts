@@ -31,6 +31,18 @@ export const projectMemberSchema = z.object({
   status: projectMemberStatusSchema,
   createdAt: isoDateTimeSchema,
 });
+export const projectAccessMembershipSchema = z
+  .object({
+    role: projectMemberRoleSchema,
+    status: projectMemberStatusSchema,
+  })
+  .strict();
+export const projectAccessResponseSchema = z
+  .object({
+    project: projectSchema,
+    membership: projectAccessMembershipSchema.nullable(),
+  })
+  .strict();
 export const projectMembersResponseSchema = z.object({
   members: z.array(projectMemberSchema),
   requests: z.array(projectMemberSchema),
@@ -57,6 +69,10 @@ export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
 export type ProjectMember = z.infer<typeof projectMemberSchema>;
+export type ProjectAccessMembership = z.infer<
+  typeof projectAccessMembershipSchema
+>;
+export type ProjectAccessResponse = z.infer<typeof projectAccessResponseSchema>;
 export type ProjectMembersResponse = z.infer<typeof projectMembersResponseSchema>;
 export type UpsertProjectMemberRequest = z.infer<typeof upsertProjectMemberRequestSchema>;
 export type CreateProjectAccessRequest = z.infer<typeof createProjectAccessRequestSchema>;

@@ -37,10 +37,12 @@ import {
   getEditorValidationItems,
   getResponsiveEditorStageScale,
   importPptxIntoEditor,
+  loadProjectDeck,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
+  waitForSlideRenderStages,
   resolveHistoryNavigation,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
@@ -59,6 +61,8 @@ import {
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
+import { resolveEditorCapabilities } from "./editorCapabilities";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -120,16 +124,39 @@ function createTestQueryClient() {
   });
 }
 
-function renderApp(queryClient: QueryClient, projectId?: string) {
+function renderApp(
+  queryClient: QueryClient,
+  projectId?: string,
+  role: "owner" | "editor" | "viewer" = "owner",
+) {
+  const resolvedProjectId = projectId ?? demoIds.projectId;
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell projectId={projectId} />
+      <ProjectAccessProvider
+        access={{
+          capabilities: resolveEditorCapabilities({ role, status: "accepted" }),
+          project: {
+            projectId: resolvedProjectId,
+            workspaceId: demoIds.workspaceId,
+            title: "테스트 프로젝트",
+            createdBy: demoIds.userId,
+            createdAt: "2026-07-16T00:00:00.000Z",
+          },
+          role,
+        }}
+      >
+        <EditorShell projectId={resolvedProjectId} />
+      </ProjectAccessProvider>
     </QueryClientProvider>
   );
 }
 
 function setDeckData(queryClient: QueryClient, deck: Deck) {
   queryClient.setQueryData(["deck", demoIds.projectId], deck);
+  queryClient.setQueryData(["editor-deck-load", demoIds.projectId], {
+    kind: "ready",
+    deck,
+  });
   queryClient.setQueryData(["health"], {
     app: "orbit-api",
     demo: demoIds,
@@ -140,6 +167,45 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("Deck GET 결과를 생성 부작용 없이 상태별로 분류한다", async () => {
+    const deck = createDemoDeck();
+    const readyFetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        deck,
+        projectId: deck.projectId,
+        updatedAt: "2026-07-16T00:00:00.000Z",
+      }), { status: 200 }),
+    );
+    const missingFetcher = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    const deniedFetcher = vi.fn().mockResolvedValue(new Response("denied", { status: 403 }));
+    const failedFetcher = vi.fn().mockResolvedValue(new Response("failed", { status: 500 }));
+    const offlineFetcher = vi.fn().mockRejectedValue(new TypeError("offline"));
+
+    await expect(loadProjectDeck(deck.projectId, readyFetcher)).resolves.toEqual({
+      kind: "ready",
+      deck,
+    });
+    await expect(loadProjectDeck(deck.projectId, missingFetcher)).resolves.toEqual({
+      kind: "missing",
+    });
+    await expect(loadProjectDeck(deck.projectId, deniedFetcher)).resolves.toMatchObject({
+      kind: "access-denied",
+      status: 403,
+    });
+    await expect(loadProjectDeck(deck.projectId, failedFetcher)).resolves.toMatchObject({
+      kind: "server-error",
+      status: 500,
+    });
+    await expect(loadProjectDeck(deck.projectId, offlineFetcher)).resolves.toMatchObject({
+      kind: "network-error",
+    });
+    expect(missingFetcher).toHaveBeenCalledOnce();
+    expect(missingFetcher).toHaveBeenCalledWith(
+      `/api/v1/projects/${encodeURIComponent(deck.projectId)}/deck`,
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("fits the editor canvas inside compact viewports", () => {
@@ -165,6 +231,58 @@ describe("editor shell", () => {
     expect(() => requireCompleteRehearsalSlideRender(deck, files)).toThrow(
       "모든 슬라이드 snapshot을 준비하지 못했습니다.",
     );
+  });
+
+  it("waits beyond twelve frames for every hidden slide stage", async () => {
+    const stageRefs = new Map<string, unknown>();
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1", "slide_2"],
+        stageRefs,
+        async () => {
+          frame += 1;
+          if (frame === 18) stageRefs.set("slide_1", {});
+          if (frame === 48) stageRefs.set("slide_2", {});
+        },
+        60
+      )
+    ).resolves.toBeUndefined();
+    expect(frame).toBe(48);
+  });
+
+  it("times out when hidden slide stages never register", async () => {
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1"],
+        new Map(),
+        async () => {
+          frame += 1;
+        },
+        3
+      )
+    ).rejects.toThrow("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
+    expect(frame).toBe(3);
+  });
+
+  it("stops waiting when snapshot preparation is cancelled", async () => {
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1"],
+        new Map(),
+        async () => {
+          frame += 1;
+        },
+        90,
+        () => frame >= 2
+      )
+    ).rejects.toThrow("슬라이드 snapshot 준비가 취소되었습니다.");
+    expect(frame).toBe(2);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -500,6 +618,7 @@ describe("editor shell", () => {
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
+    expect(html.match(/모두 저장됨/g)).toHaveLength(1);
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 코치");
@@ -515,7 +634,7 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
     expect(html).toContain('class="editor-document-title"');
     expect(html).toContain("파일");
-    expect(html).toContain("편집 중");
+    expect(html).not.toContain("편집 중");
     expect(html).toContain("공유");
     expect(html).toContain("리허설");
     expect(html).toContain("발표하기");
@@ -2321,14 +2440,14 @@ describe("editor shell", () => {
     );
   });
 
-  it("keeps the demo deck visible while the deck query is pending", () => {
+  it("Deck query가 pending이면 demo Deck과 Canvas를 렌더링하지 않는다", () => {
     const queryClient = createTestQueryClient();
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain("ORBIT Demo Deck");
-    expect(html).toContain("불러오는 중");
-    expect(html).not.toContain("덱을 불러오는 중");
+    expect(html).toContain("발표 자료를 불러오는 중입니다");
+    expect(html).not.toContain("ORBIT Demo Deck");
+    expect(html).not.toContain('data-testid="editor-canvas-stage"');
   });
 
   it("renders an empty deck state without a selected slide", () => {
@@ -2347,18 +2466,61 @@ describe("editor shell", () => {
     expect(html).toContain("등록된 키워드 없음");
   });
 
-  it("renders a deck load error state with demo fallback", () => {
-    const html = renderToString(
+  it("Viewer에게 읽기 전용 Deck과 개인 리허설만 노출한다", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    setDeckData(queryClient, deck);
+
+    const html = renderApp(queryClient, deck.projectId, "viewer");
+
+    expect(html).toContain("보기 전용으로 열었습니다");
+    expect(html).toContain("개인 리허설");
+    expect(html).toContain("ORBIT 데모 흐름을 소개합니다");
+    expect(html).toContain('aria-readonly="true"');
+    expect(html).not.toContain("PPTX 가져오기");
+    expect(html).not.toContain("PPTX 내보내기");
+    expect(html).not.toContain("공유</button>");
+    expect(html).not.toContain("발표하기");
+    expect(html).not.toContain("AI에게 메시지 보내기");
+    expect(html).not.toContain("메모 편집");
+    expect(html).not.toContain('aria-label="발표 메모 수정"');
+  });
+
+  it("Deck이 없을 때 편집자에게만 첫 슬라이드 생성 action을 노출한다", () => {
+    const editorHtml = renderToString(
       <EditorStateNotice
-        isError
-        isLoading={false}
-        isUsingFallback
+        canCreate
+        kind="missing"
+        onCreate={() => undefined}
+      />
+    );
+    const viewerHtml = renderToString(
+      <EditorStateNotice
+        canCreate={false}
+        kind="missing"
       />
     );
 
-    expect(html).toContain("덱을 불러올 수 없음");
-    expect(html).toContain("403/404 또는 네트워크 오류");
-    expect(html).toContain("demo fallback");
+    expect(editorHtml).toContain("첫 슬라이드 만들기");
+    expect(viewerHtml).not.toContain("첫 슬라이드 만들기");
+    expect(viewerHtml).toContain("소유자나 편집자");
+  });
+
+  it("renders a recoverable deck load error without demo fallback", () => {
+    const html = renderToString(
+      <EditorStateNotice
+        kind="error"
+        message="발표 자료를 불러오지 못했습니다."
+        onRetry={() => undefined}
+      />
+    );
+
+    expect(html).toContain("발표 자료를 불러오지 못했습니다.");
+    expect(html).toContain('aria-label="발표 자료 로드 오류"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("다시 시도");
+    expect(html).toContain("프로젝트로 돌아가기");
+    expect(html).not.toContain("demo fallback");
   });
 });
 

@@ -2,10 +2,11 @@ import {
   deckSchema,
   demoIds,
   legacyRehearsalReportMetricsDefaults,
+  projectAccessResponseSchema,
   type Deck,
   type Project,
+  type ProjectAccessResponse,
   type ProjectMemberRole,
-  type ProjectMemberStatus,
   type RehearsalReport,
   type RehearsalRun
 } from "@orbit/shared";
@@ -36,8 +37,13 @@ import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
 import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
+import type { EditorCapability } from "./features/editor/shell/editorCapabilities";
 import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
+import {
+  ProjectAccessProvider,
+  createAcceptedProjectAccess,
+} from "./features/projects/ProjectAccessContext";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -88,14 +94,6 @@ export type Route =
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
-
-type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
-};
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
@@ -191,7 +189,7 @@ async function fetchProjectAccess(projectId: string): Promise<ProjectAccessRespo
   if (!response.ok) {
     throw new Error(await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."));
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return parseProjectAccessResponse(projectId, await response.json());
 }
 
 async function requestProjectAccess(
@@ -210,7 +208,33 @@ async function requestProjectAccess(
   if (!response.ok) {
     throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return parseProjectAccessResponse(projectId, await response.json());
+}
+
+export function parseProjectAccessResponse(
+  projectId: string,
+  payload: unknown,
+): ProjectAccessResponse {
+  const access = projectAccessResponseSchema.parse(payload);
+  if (access.project.projectId !== projectId) {
+    throw new Error("Project access response mismatch");
+  }
+  return access;
+}
+
+export function getProjectRouteCapability(
+  route: Route,
+): EditorCapability | null | undefined {
+  if (
+    route.name === "project-editor" ||
+    route.name === "project-brief" ||
+    route.name === "project-history"
+  ) {
+    return null;
+  }
+  if (route.name === "rehearsal") return "canStartPersonalRehearsal";
+  if (route.name === "presentation") return "canCreatePresentationSession";
+  return undefined;
 }
 
 export function getRoute(
@@ -494,10 +518,15 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "presentation") {
     return (
-      <PresentationWorkspace
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+      <ProjectAccessGate
         projectId={route.projectId}
-      />
+        requiredCapability="canCreatePresentationSession"
+      >
+        <PresentationWorkspace
+          fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+          projectId={route.projectId}
+        />
+      </ProjectAccessGate>
     );
   }
   if (route.name === "present") {
@@ -505,17 +534,22 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "rehearsal") {
     return (
-      <RehearsalWorkspace
+      <ProjectAccessGate
         projectId={route.projectId}
-        presenterInitialSlideIndex={route.presenterInitialSlideIndex}
-        presenterInitialStepIndex={route.presenterInitialStepIndex}
-        presenterSessionId={route.presenterSessionId}
-        presenterWindow={route.presenterWindow}
-        snapshotPreparationId={route.snapshotPreparationId}
-        sourceFullRunId={route.sourceFullRunId}
-        sourceGoalSetId={route.sourceGoalSetId}
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
-      />
+        requiredCapability="canStartPersonalRehearsal"
+      >
+        <RehearsalWorkspace
+          projectId={route.projectId}
+          presenterInitialSlideIndex={route.presenterInitialSlideIndex}
+          presenterInitialStepIndex={route.presenterInitialStepIndex}
+          presenterSessionId={route.presenterSessionId}
+          presenterWindow={route.presenterWindow}
+          snapshotPreparationId={route.snapshotPreparationId}
+          sourceFullRunId={route.sourceFullRunId}
+          sourceGoalSetId={route.sourceGoalSetId}
+          fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
+        />
+      </ProjectAccessGate>
     );
   }
   if (route.name === "rehearsal-report") {
@@ -751,7 +785,11 @@ async function readApiError(response: Response, fallback: string) {
   return fallback;
 }
 
-function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
+function ProjectAccessGate(props: {
+  children: ReactNode;
+  projectId: string;
+  requiredCapability?: EditorCapability;
+}) {
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
@@ -776,7 +814,36 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   }
   if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
 
-  return <>{props.children}</>;
+  const acceptedAccess = createAcceptedProjectAccess(access.data);
+  if (!acceptedAccess) return <EditorLoadingFallback />;
+
+  if (
+    props.requiredCapability &&
+    !acceptedAccess.capabilities[props.requiredCapability]
+  ) {
+    return <ProjectCapabilityDenied projectId={props.projectId} />;
+  }
+
+  return (
+    <ProjectAccessProvider access={acceptedAccess}>
+      {props.children}
+    </ProjectAccessProvider>
+  );
+}
+
+function ProjectCapabilityDenied(props: { projectId: string }) {
+  return (
+    <ProjectAccessLayout projectId={props.projectId}>
+      <article className="orbit-access-message">
+        <span className="orbit-ds-eyebrow">VIEW ONLY</span>
+        <h1>보기 전용 권한으로는 이 기능을 시작할 수 없습니다.</h1>
+        <p>프로젝트 내용은 에디터에서 읽고 개인 리허설로 연습할 수 있습니다.</p>
+        <a href={`/project/${encodeURIComponent(props.projectId)}`}>
+          프로젝트로 돌아가기
+        </a>
+      </article>
+    </ProjectAccessLayout>
+  );
 }
 
 function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {

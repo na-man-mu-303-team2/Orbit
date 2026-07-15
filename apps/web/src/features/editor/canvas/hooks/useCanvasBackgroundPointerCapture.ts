@@ -6,6 +6,7 @@ import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteract
 import type { CustomShapeEditDraft } from "./types";
 
 export function useCanvasBackgroundPointerCapture(args: {
+  enabled?: boolean;
   deck: Deck;
   editingElementId: string | null;
   customShapeEditDraft: CustomShapeEditDraft | null;
@@ -26,6 +27,7 @@ export function useCanvasBackgroundPointerCapture(args: {
   isKeyboardEditableTarget: (target: EventTarget | null) => boolean;
 }) {
   const {
+    enabled = true,
     deck,
     editingElementId,
     customShapeEditDraft,
@@ -42,6 +44,10 @@ export function useCanvasBackgroundPointerCapture(args: {
   } = args;
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const stageContainer = stageRef.current?.container();
 
     if (!stageContainer) {
@@ -138,6 +144,7 @@ export function useCanvasBackgroundPointerCapture(args: {
     customShapeEditDraft,
     deck,
     editingElementId,
+    enabled,
     insertTool,
     isKeyboardEditableTarget,
     onClearSelection,

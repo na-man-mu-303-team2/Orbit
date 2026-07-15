@@ -1,5 +1,6 @@
 .deck-history-page { min-height: calc(100vh - 76px); padding: 42px 44px 90px; }
 .deck-history-page > * { margin-inline: auto; max-width: 1260px; }
+.deck-history-page > .orbit-project-read-only-banner { margin-bottom: 24px; }
 .deck-history-breadcrumb { align-items: center; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 10px; margin-bottom: 46px; }
 .deck-history-breadcrumb a { align-items: center; color: var(--orbit-ds-text-muted); display: inline-flex; font-weight: 650; gap: 7px; text-decoration: none; }
 .deck-history-heading { align-items: end; display: flex; gap: 28px; justify-content: space-between; margin-bottom: 34px; }

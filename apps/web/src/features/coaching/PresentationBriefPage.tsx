@@ -27,6 +27,10 @@ import {
   PresentationBriefConflictError,
   putPresentationBrief,
 } from "./presentationBriefApi";
+import {
+  ProjectReadOnlyBanner,
+  useProjectAccess,
+} from "../projects/ProjectAccessContext";
 import "./presentation-brief.css";
 
 type Audience = PutPresentationBriefRequest["audience"];
@@ -52,6 +56,7 @@ const fallbackLenses: EvaluatorLensDefinition[] = [
 ];
 
 export function PresentationBriefPage(props: { projectId: string }) {
+  const { capabilities } = useProjectAccess(props.projectId);
   const queryClient = useQueryClient();
   const briefQuery = useQuery({
     queryKey: ["presentation-brief", props.projectId],
@@ -152,6 +157,19 @@ export function PresentationBriefPage(props: { projectId: string }) {
     return <BriefState title="발표 브리프를 불러오고 있어요." />;
   }
 
+  if (!capabilities.canEditBrief) {
+    return (
+      <PresentationBriefReadOnly
+        brief={briefQuery.data}
+        error={briefQuery.isError || lensesQuery.isError}
+        lens={lenses.find(
+          (item) => item.ref.lensId === briefQuery.data?.evaluatorLensRef.lensId,
+        )}
+        projectId={props.projectId}
+      />
+    );
+  }
+
   return (
     <div className="orbit-ds-page presentation-brief-page">
       <div className="presentation-brief-breadcrumb">
@@ -242,6 +260,115 @@ export function PresentationBriefPage(props: { projectId: string }) {
       </div>
     </div>
   );
+}
+
+function PresentationBriefReadOnly(props: {
+  brief: PresentationBrief | null | undefined;
+  error: boolean;
+  lens?: EvaluatorLensDefinition;
+  projectId: string;
+}) {
+  const { brief } = props;
+
+  return (
+    <div className="orbit-ds-page presentation-brief-page">
+      <div className="presentation-brief-breadcrumb">
+        <a href={`/project/${encodeURIComponent(props.projectId)}`}>
+          <IconArrowLeft aria-hidden="true" size={17} /> 에디터
+        </a>
+        <span>/</span>
+        <strong>발표 브리프</strong>
+      </div>
+
+      <ProjectReadOnlyBanner />
+
+      <section className="presentation-brief-heading">
+        <div>
+          <p className="orbit-ds-eyebrow">Presentation brief</p>
+          <h1>발표 기준을 확인하세요.</h1>
+          <p>보기 전용 사용자는 저장된 브리프를 읽을 수 있습니다.</p>
+        </div>
+        <OrbitStatus tone="neutral">
+          {brief ? `${brief.revision}차` : "브리프 없음"}
+        </OrbitStatus>
+      </section>
+
+      {props.error ? (
+        <p className="presentation-brief-error" role="alert">
+          발표 브리프를 불러오지 못했습니다.
+        </p>
+      ) : brief ? (
+        <div className="presentation-brief-layout">
+          <section
+            aria-label="발표 브리프 내용"
+            className="presentation-brief-form presentation-brief-read-only"
+          >
+            <ReadOnlyBriefField label="청중" value={audienceLabel(brief.audience)} />
+            <ReadOnlyBriefField label="발표 목적" value={purposeLabel(brief.purpose)} />
+            <ReadOnlyBriefField
+              label="목표 시간"
+              value={`${brief.targetDurationMinutes}분`}
+            />
+            <ReadOnlyBriefField label="발표 후 원하는 결과" value={brief.desiredOutcome} />
+            <ReadOnlyBriefField
+              label="반드시 전달할 내용"
+              value={requirementsFor(brief, "must-cover").map((item) => item.text)}
+            />
+            <ReadOnlyBriefField
+              label="오프닝 조건"
+              value={requirementsFor(brief, "opening").map((item) => item.text)}
+            />
+            <ReadOnlyBriefField
+              label="클로징 조건"
+              value={requirementsFor(brief, "closing").map((item) => item.text)}
+            />
+            <ReadOnlyBriefField label="예상 질문 주제" value={brief.challengeTopics} />
+          </section>
+
+          <aside className="presentation-lens-panel">
+            <header>
+              <span><IconUser aria-hidden="true" size={23} /></span>
+              <div>
+                <h2>{props.lens?.label ?? brief.evaluatorLensRef.lensId}</h2>
+                <p>{props.lens?.description ?? "저장된 평가 관점"}</p>
+              </div>
+            </header>
+          </aside>
+        </div>
+      ) : (
+        <section className="presentation-brief-form presentation-brief-read-only-empty">
+          <strong>아직 저장된 발표 브리프가 없습니다.</strong>
+          <span>Owner 또는 Editor가 브리프를 저장하면 이곳에서 확인할 수 있습니다.</span>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ReadOnlyBriefField(props: {
+  label: string;
+  value: string | string[];
+}) {
+  const values = Array.isArray(props.value) ? props.value : [props.value];
+  const visibleValues = values.filter(Boolean);
+  return (
+    <div className="presentation-brief-read-only-field">
+      <strong>{props.label}</strong>
+      {visibleValues.length ? (
+        visibleValues.map((value) => <span key={value}>{value}</span>)
+      ) : (
+        <span>설정 없음</span>
+      )}
+    </div>
+  );
+}
+
+function audienceLabel(audience: PresentationBrief["audience"]) {
+  return audienceOptions.find((option) => option.id === audience)?.label ?? audience;
+}
+
+function purposeLabel(purpose: PresentationBrief["purpose"]) {
+  return purposeOptions.find((option) => option.id === purpose)?.label ?? purpose;
 }
 
 function ChoiceGroup(props: {
