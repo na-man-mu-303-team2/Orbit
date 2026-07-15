@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InMemoryJobQueue,
+  aiDeckGenerationStageJobId,
   enqueueSemanticCueExtractionJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
@@ -15,6 +16,43 @@ import {
   workerHealthCheckJobName,
   workerHealthCheckQueueName
 } from "./index";
+
+describe("aiDeckGenerationStageJobId", () => {
+  it("builds a stable three-part BullMQ transport ID", () => {
+    const singleton = {
+      pipelineJobId: "job-ai-deck-1",
+      projectId: "project-a",
+      stage: "content-planning" as const,
+      shardKey: "",
+    };
+
+    expect(aiDeckGenerationStageJobId(singleton)).toBe(
+      "job-ai-deck-1:content-planning:",
+    );
+    expect(aiDeckGenerationStageJobId(singleton).split(":")).toHaveLength(3);
+    expect(aiDeckGenerationStageJobId(singleton)).toBe(
+      aiDeckGenerationStageJobId({ ...singleton }),
+    );
+    expect(
+      aiDeckGenerationStageJobId({
+        ...singleton,
+        stage: "image-slide",
+        shardKey: "slide-2",
+      }),
+    ).toBe("job-ai-deck-1:image-slide:slide-2");
+  });
+
+  it("rejects IDs that could add BullMQ transport segments", () => {
+    expect(() =>
+      aiDeckGenerationStageJobId({
+        pipelineJobId: "job:ai-deck-1",
+        projectId: "project-a",
+        stage: "publication",
+        shardKey: "",
+      }),
+    ).toThrow();
+  });
+});
 
 const queueMock = vi.hoisted(() => ({
   add: vi.fn(),

@@ -71,3 +71,59 @@ describe("jobTypeSchema", () => {
     }
   });
 });
+
+describe("jobSchema error metadata", () => {
+  const baseJob = {
+    jobId: "job-ai-deck-1",
+    projectId: "project-a",
+    type: "ai-deck-generation" as const,
+    status: "failed" as const,
+    progress: 40,
+    message: "failed",
+    result: null,
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T00:00:00.000Z",
+  };
+
+  it("keeps legacy error rows readable", () => {
+    expect(
+      jobSchema.parse({
+        ...baseJob,
+        error: { code: "LEGACY_FAILURE", message: "legacy failure" },
+      }).error,
+    ).toEqual({ code: "LEGACY_FAILURE", message: "legacy failure" });
+  });
+
+  it("preserves failed stage and retryability metadata", () => {
+    expect(
+      jobSchema.parse({
+        ...baseJob,
+        error: {
+          code: "WEB_RESEARCH_PROVIDER_FAILED",
+          message: "provider unavailable",
+          failedStage: "source-grounding",
+          retryable: true,
+        },
+      }).error,
+    ).toEqual({
+      code: "WEB_RESEARCH_PROVIDER_FAILED",
+      message: "provider unavailable",
+      failedStage: "source-grounding",
+      retryable: true,
+    });
+  });
+
+  it("rejects unknown failed stage values", () => {
+    expect(
+      jobSchema.safeParse({
+        ...baseJob,
+        error: {
+          code: "STAGE_FAILED",
+          message: "stage failed",
+          failedStage: "unknown-stage",
+          retryable: false,
+        },
+      }).success,
+    ).toBe(false);
+  });
+});

@@ -261,10 +261,44 @@ def test_generate_deck_request_rejects_invalid_contract_fields(
 def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
     diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
 
+    assert diagnostics["warningCodes"] == []
     assert diagnostics["visualQaStatus"] == "not-run"
     assert diagnostics["visualReviewAttempts"] == 0
     assert diagnostics["visualRepairAttempts"] == 0
     assert diagnostics["visualIssueCodes"] == []
+
+
+def test_generate_deck_diagnostics_accept_visual_qa_unavailable_warning() -> None:
+    diagnostics = GenerateDeckDiagnostics.model_validate(
+        {
+            "visualQaStatus": "unavailable",
+            "warningCodes": ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+        }
+    ).model_dump(by_alias=True)
+
+    assert diagnostics["visualQaStatus"] == "unavailable"
+    assert diagnostics["warningCodes"] == [
+        "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+    ]
+
+
+@pytest.mark.parametrize(
+    "warning_code",
+    ["", "   ", "visual_qa_unavailable", "VISUAL-QA", "Visual QA unavailable"],
+)
+def test_generate_deck_diagnostics_reject_user_facing_warning_codes(
+    warning_code: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckDiagnostics.model_validate({"warningCodes": [warning_code]})
+
+
+def test_generate_deck_diagnostics_accept_extensible_warning_codes() -> None:
+    diagnostics = GenerateDeckDiagnostics.model_validate(
+        {"warningCodes": ["FUTURE_DEGRADED_RESULT"]}
+    )
+
+    assert diagnostics.warning_codes == ["FUTURE_DEGRADED_RESULT"]
 
 
 @pytest.mark.parametrize(
