@@ -58,6 +58,12 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       if (compact.includes("FROM ai_deck_generation_stages stages")) {
         return [{ shard_key: "file-a", status: "succeeded", usable: false }];
       }
+      if (
+        compact.startsWith("UPDATE ai_deck_generation_stages") &&
+        compact.includes("stages.status IN ('queued','running')")
+      ) {
+        return [];
+      }
       if (compact.startsWith("UPDATE jobs")) return [];
       throw new Error(`Unexpected query: ${compact}`);
     });

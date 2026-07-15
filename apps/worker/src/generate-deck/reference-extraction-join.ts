@@ -233,6 +233,21 @@ async function failParent(
   const error = jobErrorSchema.parse(rawError);
   await db.query(
     `
+      UPDATE ai_deck_generation_stages stages
+      SET status = 'failed',
+          result_ref_json = NULL,
+          error_json = $2::jsonb,
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          dispatched_at = NULL,
+          updated_at = now()
+      WHERE stages.pipeline_job_id = $1
+        AND stages.status IN ('queued','running')
+    `,
+    [message.pipelineJobId, error],
+  );
+  await db.query(
+    `
       UPDATE jobs
       SET status = 'failed',
           message = 'AI deck generation failed.',
