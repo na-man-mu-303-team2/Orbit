@@ -13,7 +13,14 @@ import type {
   TableElementProps,
   TextElementProps
 } from "@orbit/shared";
-import { AlignCenter, ArrowDown, ArrowUp, Eye, EyeOff, PenLine } from "lucide-react";
+import {
+  IconAlignCenter as AlignCenter,
+  IconArrowDown as ArrowDown,
+  IconArrowUp as ArrowUp,
+  IconEye as Eye,
+  IconEyeOff as EyeOff,
+  IconPencil as PenLine
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import {

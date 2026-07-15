@@ -1,5 +1,9 @@
 import type { EditorValidationItem } from "./editorValidation";
-import { Maximize2, Minimize2, MoveHorizontal } from "lucide-react";
+import {
+  IconArrowsHorizontal as MoveHorizontal,
+  IconMaximize as Maximize2,
+  IconMinimize as Minimize2
+} from "@tabler/icons-react";
 
 export type ValidationTextOverflowAction =
   | "shrinkText"

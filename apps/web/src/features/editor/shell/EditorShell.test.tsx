@@ -145,6 +145,11 @@ describe("editor shell", () => {
     expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
     expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
     expect(getResponsiveEditorStageScale(1920, null)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, 652, 1080, 600)).toBeCloseTo(
+      604 / 1920,
+      5,
+    );
+    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -470,7 +475,8 @@ describe("editor shell", () => {
     expect(html).toContain("발표 메모");
     expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
     expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
-    expect(html).toContain("메모 편집");
+    expect(html).not.toContain("메모 편집");
+    expect(html).toContain(deck.slides[0].speakerNotes);
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
@@ -481,7 +487,10 @@ describe("editor shell", () => {
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
-    expect(html).toContain("AI 도구");
+    expect(html).toContain("AI 코치");
+    expect(html).toContain(">검사<");
+    expect(html).toContain(">디자인<");
+    expect(html).not.toContain('id="editor-notes-tab"');
     expect(html).not.toContain("ID 표시");
     expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
@@ -493,10 +502,22 @@ describe("editor shell", () => {
     expect(html).toContain("파일");
     expect(html).toContain("편집 중");
     expect(html).toContain("공유");
+    expect(html).toContain("리허설");
+    expect(html).toContain("발표하기");
+    expect(html).toContain('aria-label="실행 취소"');
+    expect(html).toContain('aria-label="다시 실행"');
+    expect(html).toContain('aria-label="선택 도구"');
+    expect(html).toContain('aria-label="오른쪽 패널 접기"');
     expect(html).toContain('aria-label="오른쪽 패널 보기"');
-    expect(html).toContain("AI 채팅");
-    expect(html).toContain("AI 도구");
-    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
+    expect(html).toContain('id="editor-design-panel"');
+    expect(html).not.toContain('id="editor-notes-panel"');
+    expect(html).toContain("stage-speaker-notes-panel");
+    expect(html).toContain('aria-controls="speaker-notes-content"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-label="발표 메모 펼치기"');
+    expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
+    expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -540,8 +561,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('hidden="" id="editor-semantic-cue-tab"');
-    expect(html).toContain('id="editor-semantic-cue-panel"');
+    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
     expect(html).toContain("발표 메시지");
     expect(html).toContain("AI로 전체 덱 다시 분석");
     expect(html).toContain("도입 효과");

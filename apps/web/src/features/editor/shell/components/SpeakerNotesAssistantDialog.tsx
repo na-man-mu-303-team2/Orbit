@@ -2,7 +2,10 @@ import type {
   SpeakerNotesSuggestionMode,
   SpeakerNotesSuggestionResult,
 } from "@orbit/shared";
-import { AlertTriangle, Sparkles } from "lucide-react";
+import {
+  IconAlertTriangle as AlertTriangle,
+  IconSparkles as Sparkles
+} from "@tabler/icons-react";
 
 import { OrbitButton, OrbitDialog, OrbitStatus } from "../../../../design-system";
 import { formatSpeakerNotesDuration } from "../speakerNotesAssistant";

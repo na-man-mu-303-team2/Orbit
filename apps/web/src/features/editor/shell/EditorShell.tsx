@@ -88,7 +88,6 @@ import { PresentationMenu } from "./components/PresentationMenu";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
-import { HistoryChevronIcon } from "./components/HistoryChevronIcon";
 import {
   AiChatPanel,
   createInitialAiChatState
@@ -149,32 +148,36 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type Konva from "konva";
 import {
-  BarChart3,
-  ChevronDown,
-  Cloud,
-  Download,
-  FileText,
-  FolderPlus,
-  ImagePlus,
-  LayoutTemplate,
-  Minus,
-  MoveRight,
-  MousePointer2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  PenLine,
-  RefreshCw,
-  Shapes,
-  Share2,
-  Sparkles,
-  Type,
-  Upload,
-  Wand2,
-  Home,
-  History,
-} from "lucide-react";
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconArrowRight as MoveRight,
+  IconChartBar as BarChart3,
+  IconChevronDown as ChevronDown,
+  IconCloud as Cloud,
+  IconDownload as Download,
+  IconFileText as FileText,
+  IconFolderPlus as FolderPlus,
+  IconGripHorizontal as GripHorizontal,
+  IconHistory as History,
+  IconHome as Home,
+  IconLayoutSidebarLeftCollapse as PanelLeftClose,
+  IconLayoutSidebarLeftExpand as PanelLeftOpen,
+  IconLayoutSidebarRightCollapse as PanelRightClose,
+  IconLayoutSidebarRightExpand as PanelRightOpen,
+  IconMinus as Minus,
+  IconPencil as PenLine,
+  IconPhotoPlus as ImagePlus,
+  IconPlus as Plus,
+  IconPointer as MousePointer2,
+  IconRefresh as RefreshCw,
+  IconShape as Shapes,
+  IconShare as Share2,
+  IconSparkles as Sparkles,
+  IconTemplate as LayoutTemplate,
+  IconTypography as Type,
+  IconUpload as Upload,
+  IconWand as Wand2
+} from "@tabler/icons-react";
 import type {
   ChangeEvent,
   CSSProperties,
@@ -251,13 +254,43 @@ type EditorSessionDebugState =
   | { status: "error"; message: string };
 
 const defaultEditorStageScale = 0.44;
+const maximumEditorStageScale = 0.66;
 const compactEditorBreakpoint = 760;
 const compactEditorCanvasInset = 32;
+const fittedEditorCanvasHorizontalInset = 48;
+const fittedEditorCanvasVerticalInset = 64;
 
 export function getResponsiveEditorStageScale(
   canvasWidth: number,
-  viewportWidth: number | null
+  viewportWidth: number | null,
+  canvasHeight?: number,
+  viewportHeight?: number | null,
 ) {
+  if (
+    viewportWidth &&
+    viewportHeight &&
+    canvasWidth > 0 &&
+    canvasHeight &&
+    canvasHeight > 0
+  ) {
+    const availableWidth = Math.max(
+      0,
+      viewportWidth - fittedEditorCanvasHorizontalInset,
+    );
+    const availableHeight = Math.max(
+      0,
+      viewportHeight - fittedEditorCanvasVerticalInset,
+    );
+
+    return Math.min(
+      maximumEditorStageScale,
+      Math.max(
+        0.16,
+        Math.min(availableWidth / canvasWidth, availableHeight / canvasHeight),
+      ),
+    );
+  }
+
   if (!viewportWidth || viewportWidth > compactEditorBreakpoint || canvasWidth <= 0) {
     return defaultEditorStageScale;
   }
@@ -339,6 +372,11 @@ const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
 const minRightPaneWidth = 260;
 const maxRightPaneWidth = 560;
+const defaultSpeakerNotesPanelHeight = 240;
+const initialSpeakerNotesPanelHeight = 360;
+const minSpeakerNotesPanelHeight = 120;
+const speakerNotesPanelHideThreshold = 84;
+const speakerNotesPanelKeyboardStep = 24;
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
 const defaultImageInsertFrame = {
   height: 240,
@@ -1382,9 +1420,10 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
-  const [rightPanelView, setRightPanelView] = useState<
-    "ai-chat" | "ai-tools" | "semantic-cues"
-  >("ai-chat");
+  const [rightPanelView, setRightPanelView] = useState<"ai" | "design">("ai");
+  const [aiPanelView, setAiPanelView] = useState<
+    "chat" | "tools" | "semantic-cues"
+  >("chat");
   const [aiChatState, setAiChatState] = useState(() =>
     createInitialAiChatState(projectId)
   );
@@ -1452,6 +1491,13 @@ export function EditorShell(props: { projectId?: string }) {
     (state) => state.setSelectedKeywordOccurrenceKey
   );
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
+  const [isSpeakerNotesPanelExpanded, setIsSpeakerNotesPanelExpanded] =
+    useState(false);
+  const [isSpeakerNotesPanelResizing, setIsSpeakerNotesPanelResizing] =
+    useState(false);
+  const [speakerNotesPanelHeight, setSpeakerNotesPanelHeight] = useState(
+    defaultSpeakerNotesPanelHeight
+  );
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
   const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
@@ -1520,6 +1566,10 @@ export function EditorShell(props: { projectId?: string }) {
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
+  const hasExpandedSpeakerNotesPanelRef = useRef(false);
+  const shouldMeasureInitialSpeakerNotesHeightRef = useRef(false);
+  const speakerNotesContentRef = useRef<HTMLDivElement | null>(null);
+  const speakerNotesPanelHeightRef = useRef(defaultSpeakerNotesPanelHeight);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const pptxFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1549,7 +1599,8 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
-    setRightPanelView("ai-chat");
+    setRightPanelView("ai");
+    setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
     setIsSpeakerNotesAssistantOpen(false);
@@ -1557,7 +1608,30 @@ export function EditorShell(props: { projectId?: string }) {
     setSpeakerNotesAssistantResult(null);
     setSpeakerNotesAssistantError("");
     setSpeakerNotesAssistantSource(null);
+    setIsSpeakerNotesPanelExpanded(false);
+    hasExpandedSpeakerNotesPanelRef.current = false;
+    shouldMeasureInitialSpeakerNotesHeightRef.current = false;
+    setSpeakerNotesPanelHeight(defaultSpeakerNotesPanelHeight);
+    speakerNotesPanelHeightRef.current = defaultSpeakerNotesPanelHeight;
   }, [projectId, resetProjectUiState]);
+
+  useEffect(() => {
+    if (
+      !isSpeakerNotesPanelExpanded ||
+      !shouldMeasureInitialSpeakerNotesHeightRef.current ||
+      !speakerNotesContentRef.current
+    ) {
+      return;
+    }
+
+    shouldMeasureInitialSpeakerNotesHeightRef.current = false;
+    commitSpeakerNotesPanelHeight(
+      Math.max(
+        initialSpeakerNotesPanelHeight,
+        speakerNotesContentRef.current.scrollHeight + 65
+      )
+    );
+  }, [isSpeakerNotesPanelExpanded]);
 
   useEffect(() => {
     const socket: ClientSocket = io({
@@ -1748,11 +1822,12 @@ export function EditorShell(props: { projectId?: string }) {
   const isUsingFallbackDeck = !deckQuery.data;
   const isDeckLoading = deckQuery.isPending;
   const isDeckError = deckQuery.isError;
-  const canStartPresentation =
+  const canOpenAudienceLink =
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
-    !isDeckError &&
-    !activePresentationAction;
+    !isDeckError;
+  const canStartPresentation =
+    canOpenAudienceLink && !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const speakerNotesLengthGuidance = useMemo(
@@ -1792,15 +1867,64 @@ export function EditorShell(props: { projectId?: string }) {
     [deck, currentSlide]
   );
   const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
+  const [editorCanvasViewport, setEditorCanvasViewport] = useState<{
+    height: number;
+    width: number;
+  } | null>(null);
+  const editorCanvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const wasCompactEditorLayoutRef = useRef(false);
   useEffect(() => {
     const syncEditorViewportWidth = () => setEditorViewportWidth(window.innerWidth);
     syncEditorViewportWidth();
     window.addEventListener("resize", syncEditorViewportWidth);
     return () => window.removeEventListener("resize", syncEditorViewportWidth);
   }, []);
+  useEffect(() => {
+    const canvasViewport = editorCanvasViewportRef.current;
+    if (!canvasViewport) {
+      return;
+    }
+
+    const syncCanvasViewport = () => {
+      setEditorCanvasViewport({
+        height: canvasViewport.clientHeight,
+        width: canvasViewport.clientWidth,
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(syncCanvasViewport);
+
+    syncCanvasViewport();
+    resizeObserver?.observe(canvasViewport);
+    window.addEventListener("resize", syncCanvasViewport);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncCanvasViewport);
+    };
+  }, []);
+  useEffect(() => {
+    if (editorViewportWidth === null) {
+      return;
+    }
+
+    const isCompactLayout = editorViewportWidth <= 860;
+    if (
+      isCompactLayout &&
+      !wasCompactEditorLayoutRef.current &&
+      isRightPanelOpen
+    ) {
+      setIsRightPanelOpen(false);
+    }
+    wasCompactEditorLayoutRef.current = isCompactLayout;
+  }, [editorViewportWidth, isRightPanelOpen, setIsRightPanelOpen]);
   const stageScale = getResponsiveEditorStageScale(
     deck.canvas.width,
-    editorViewportWidth
+    editorCanvasViewport?.width ?? editorViewportWidth,
+    deck.canvas.height,
+    editorCanvasViewport?.height,
   );
   const currentSlideAnimations = useMemo(
     () =>
@@ -2835,13 +2959,31 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
     event.preventDefault();
-    const views = ["ai-chat", "ai-tools"] as const;
-    const currentIndex = rightPanelView === "ai-tools" ? 1 : 0;
+    const views = ["ai", "design"] as const;
+    const currentIndex = views.indexOf(rightPanelView);
     const direction = event.key === "ArrowRight" ? 1 : -1;
     const nextView = views[(currentIndex + direction + views.length) % views.length];
     setRightPanelView(nextView);
     requestAnimationFrame(() => {
       document.getElementById(`editor-${nextView}-tab`)?.focus();
+    });
+  }
+
+  function handleAiPanelTabKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+
+    event.preventDefault();
+    const views = ["chat", "tools"] as const;
+    const currentIndex = aiPanelView === "tools" ? 1 : 0;
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextView = views[(currentIndex + direction + views.length) % views.length];
+    setAiPanelView(nextView);
+    requestAnimationFrame(() => {
+      document.getElementById(`editor-ai-${nextView}-tab`)?.focus();
     });
   }
 
@@ -3218,6 +3360,7 @@ export function EditorShell(props: { projectId?: string }) {
   function handleStartSpeakerNotesEdit() {
     const currentNotes = currentSlide?.speakerNotes ?? "";
     clearSelectedKeyword();
+    setIsSpeakerNotesPanelExpanded(true);
     setSpeakerNotesDraft(currentNotes);
     setSpeakerNotesDraftBase(currentNotes);
     setSpeakerNotesEditSlideId(currentSlide?.slideId ?? null);
@@ -4537,6 +4680,120 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
+  function getSpeakerNotesPanelMaxHeight() {
+    return typeof window === "undefined"
+      ? 480
+      : Math.max(
+          minSpeakerNotesPanelHeight,
+          Math.min(480, Math.round(window.innerHeight * 0.52))
+        );
+  }
+
+  function commitSpeakerNotesPanelHeight(height: number) {
+    const nextHeight = Math.round(
+      Math.min(
+        getSpeakerNotesPanelMaxHeight(),
+        Math.max(minSpeakerNotesPanelHeight, height)
+      )
+    );
+    speakerNotesPanelHeightRef.current = nextHeight;
+    setSpeakerNotesPanelHeight(nextHeight);
+  }
+
+  function collapseSpeakerNotesPanel() {
+    if (isSpeakerNotesEditing) return;
+    setIsSpeakerNotesPanelExpanded(false);
+  }
+
+  function handleToggleSpeakerNotesPanel() {
+    if (isSpeakerNotesPanelExpanded) {
+      collapseSpeakerNotesPanel();
+      return;
+    }
+
+    if (!hasExpandedSpeakerNotesPanelRef.current) {
+      hasExpandedSpeakerNotesPanelRef.current = true;
+      shouldMeasureInitialSpeakerNotesHeightRef.current = true;
+      commitSpeakerNotesPanelHeight(initialSpeakerNotesPanelHeight);
+    }
+
+    setIsSpeakerNotesPanelExpanded(true);
+  }
+
+  function handleSpeakerNotesResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    if (isSpeakerNotesEditing) return;
+
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = speakerNotesPanelHeightRef.current;
+    let latestRawHeight = startHeight;
+    setIsSpeakerNotesPanelResizing(true);
+    document.body.classList.add("is-resizing-speaker-notes");
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      latestRawHeight = startHeight + startY - pointerEvent.clientY;
+      const previewHeight = Math.round(
+        Math.min(
+          getSpeakerNotesPanelMaxHeight(),
+          Math.max(54, latestRawHeight)
+        )
+      );
+      speakerNotesPanelHeightRef.current = previewHeight;
+      setSpeakerNotesPanelHeight(previewHeight);
+    }
+
+    function finishResize() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      document.body.classList.remove("is-resizing-speaker-notes");
+      setIsSpeakerNotesPanelResizing(false);
+
+      if (latestRawHeight <= speakerNotesPanelHideThreshold) {
+        speakerNotesPanelHeightRef.current = Math.max(
+          minSpeakerNotesPanelHeight,
+          startHeight
+        );
+        setSpeakerNotesPanelHeight(speakerNotesPanelHeightRef.current);
+        collapseSpeakerNotesPanel();
+        return;
+      }
+
+      commitSpeakerNotesPanelHeight(latestRawHeight);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleSpeakerNotesResizeKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (isSpeakerNotesEditing) return;
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      commitSpeakerNotesPanelHeight(
+        speakerNotesPanelHeightRef.current + speakerNotesPanelKeyboardStep
+      );
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const nextHeight =
+        speakerNotesPanelHeightRef.current - speakerNotesPanelKeyboardStep;
+      if (nextHeight < minSpeakerNotesPanelHeight) {
+        collapseSpeakerNotesPanel();
+      } else {
+        commitSpeakerNotesPanelHeight(nextHeight);
+      }
+    }
+  }
+
   function handleAnimationPaneResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>
   ) {
@@ -4986,6 +5243,280 @@ export function EditorShell(props: { projectId?: string }) {
         )
       : null;
 
+  function renderSelectionProperties(
+    element: DeckElement | null,
+    slide: Slide | null,
+    keyPrefix: string
+  ) {
+    return (
+      <SelectionQuickBar
+        animations={element ? selectedElementAnimations : []}
+        animationDiagnostics={
+          currentSlideAnimationDiagnostics ?? {
+            danglingAnimations: [],
+            duplicateOrders: [],
+            selectedElementEmpty: false
+          }
+        }
+        canCreateAnimation={Boolean(currentSlide && element)}
+        canvas={deck.canvas}
+        key={`${keyPrefix}-${element?.elementId ?? slide?.slideId ?? "none"}`}
+        customShapeEditActive={isCustomShapeEditingSelection}
+        element={element}
+        selectedKeywordLabel={selectedKeyword?.text ?? null}
+        slide={slide}
+        showIds={showIds}
+        theme={deck.theme}
+        onOpenAnimationEditor={openAnimationInspector}
+        onDeleteAnimation={(animationId) => {
+          if (currentSlide) {
+            handleDeleteAnimation(currentSlide.slideId, animationId);
+          }
+        }}
+        onToggleCustomShapeClosed={() => {
+          if (!element || !currentSlide || element.type !== "customShape") return;
+          handleCommitCustomShapeGeometry(
+            currentSlide.slideId,
+            element.elementId,
+            getCustomShapeAbsoluteNodes(element),
+            !(element.props as CustomShapeElementProps).closed
+          );
+        }}
+        onToggleCustomShapeEdit={() => {
+          if (!element || element.type !== "customShape") return;
+          setEditingElementId(null);
+          setCustomShapeEditElementId((current) =>
+            current === element.elementId ? null : element.elementId
+          );
+        }}
+        onChangeFrame={(frame) => {
+          if (element && currentSlide) {
+            handleElementFrameChange(currentSlide.slideId, element.elementId, frame);
+          }
+        }}
+        onChangeProps={(props) => {
+          if (element && currentSlide) {
+            handleElementPropsChange(currentSlide.slideId, element.elementId, props);
+          }
+        }}
+        onChangeSlideStyle={(style) => {
+          if (currentSlide) {
+            handleSlideStyleChange(currentSlide.slideId, style);
+          }
+        }}
+        onChangeTheme={handleThemeChange}
+      />
+    );
+  }
+
+  function renderSpeakerNotesPanel() {
+    const notesPreview = (currentSlide?.speakerNotes ?? "").trim();
+
+    return (
+      <section
+        aria-labelledby="speaker-notes-title"
+        className={`script-panel stage-speaker-notes-panel ${
+          isSpeakerNotesPanelExpanded ? "expanded" : "collapsed"
+        } ${
+          isSpeakerNotesEditing ? "editing" : ""
+        } ${isSpeakerNotesPanelResizing ? "is-resizing" : ""}`}
+        style={
+          {
+            "--speaker-notes-panel-height": `${speakerNotesPanelHeight}px`
+          } as CSSProperties
+        }
+      >
+        {isSpeakerNotesPanelExpanded ? (
+          <button
+            aria-disabled={isSpeakerNotesEditing}
+            aria-label="발표 메모 높이 조절"
+            aria-orientation="horizontal"
+            aria-valuemax={getSpeakerNotesPanelMaxHeight()}
+            aria-valuemin={minSpeakerNotesPanelHeight}
+            aria-valuenow={speakerNotesPanelHeight}
+            className="speaker-notes-resize-handle"
+            role="separator"
+            tabIndex={isSpeakerNotesEditing ? -1 : 0}
+            type="button"
+            onKeyDown={handleSpeakerNotesResizeKeyDown}
+            onPointerDown={handleSpeakerNotesResizeStart}
+          >
+            <GripHorizontal aria-hidden="true" size={18} stroke={1.7} />
+          </button>
+        ) : null}
+        <div className="script-panel-header">
+          <button
+            aria-controls="speaker-notes-content"
+            aria-expanded={isSpeakerNotesPanelExpanded}
+            aria-label={
+              isSpeakerNotesPanelExpanded
+                ? "발표 메모 접기"
+                : "발표 메모 펼치기"
+            }
+            className="script-panel-heading speaker-notes-toggle"
+            disabled={isSpeakerNotesEditing}
+            type="button"
+            onClick={handleToggleSpeakerNotesPanel}
+          >
+            <span aria-hidden="true" className="script-panel-icon">
+              <FileText size={18} />
+            </span>
+            <div className="speaker-notes-toggle-copy">
+              <div className="script-panel-title-row">
+                <strong id="speaker-notes-title">발표 메모</strong>
+                {isSpeakerNotesEditing ? (
+                  <span className="script-panel-status">편집 중</span>
+                ) : null}
+              </div>
+              {!isSpeakerNotesPanelExpanded ? (
+                <span className="speaker-notes-preview">
+                  {notesPreview || "발표자 노트를 추가하려면 클릭하세요."}
+                </span>
+              ) : null}
+            </div>
+            <ChevronDown
+              aria-hidden="true"
+              className="speaker-notes-toggle-chevron"
+              size={16}
+            />
+          </button>
+          {isSpeakerNotesPanelExpanded && isSpeakerNotesEditing ? (
+            <div className="script-panel-actions">
+              <button
+                className="script-panel-action"
+                type="button"
+                onClick={handleCancelSpeakerNotesEdit}
+              >
+                취소
+              </button>
+              <button
+                className="script-panel-action primary"
+                type="button"
+                onClick={handleSaveSpeakerNotesEdit}
+              >
+                저장
+              </button>
+            </div>
+          ) : isSpeakerNotesPanelExpanded ? (
+            <div className="script-panel-actions">
+              <button
+                className="script-panel-action assistant"
+                type="button"
+                onClick={handleOpenSpeakerNotesAssistant}
+              >
+                <Sparkles aria-hidden="true" size={14} />
+                {(currentSlide?.speakerNotes ?? "").trim()
+                  ? "AI로 다듬기"
+                  : "AI 초안 만들기"}
+              </button>
+              <button
+                className="script-panel-action"
+                type="button"
+                onClick={handleStartSpeakerNotesEdit}
+              >
+                <PenLine aria-hidden="true" size={14} />
+                메모 편집
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <div
+          id="speaker-notes-content"
+          hidden={!isSpeakerNotesPanelExpanded}
+          ref={speakerNotesContentRef}
+        >
+          {isSpeakerNotesEditing ? (
+            <div className="script-panel-body">
+              <textarea
+                aria-label="발표 메모 수정"
+                autoFocus
+                className="script-notes-editor"
+                placeholder={
+                  "슬라이드에서 말할 내용을 입력하세요.\n문단을 나누면 발표할 때도 그대로 표시됩니다."
+                }
+                value={speakerNotesDraft}
+                onChange={(event) => setSpeakerNotesDraft(event.target.value)}
+              />
+              <div
+                aria-live="polite"
+                className="script-panel-meta script-panel-character-count"
+              >
+                <span>{speakerNotesDraft.length.toLocaleString()}자</span>
+              </div>
+              <SpeakerNotesLengthMeter guidance={speakerNotesLengthGuidance} />
+            </div>
+          ) : (
+            <div className="script-panel-body">
+              <div className="script-notes-surface">
+                <KeywordHighlightedNotes
+                  keywords={currentSlide?.keywords ?? []}
+                  notes={currentSlide?.speakerNotes ?? ""}
+                  selectedKeywordId={selectedKeywordId}
+                  selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
+                  showIds={showIds}
+                  slideId={currentSlide?.slideId ?? ""}
+                  onSelectKeyword={handleSelectKeyword}
+                  onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                />
+              </div>
+              <div className="script-panel-meta script-panel-character-count">
+                <span>{(currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
+              </div>
+              <section
+                aria-labelledby="speaker-notes-keywords-title"
+                className="script-keyword-section"
+              >
+                <div className="script-keyword-heading">
+                  <strong id="speaker-notes-keywords-title">발표 체크포인트</strong>
+                </div>
+                <KeywordList
+                  keywords={currentSlide?.keywords ?? []}
+                  selectedKeywordId={selectedKeywordId}
+                  showIds={showIds}
+                  usageByKeywordId={currentSlideKeywordUsage}
+                  onSelectKeyword={handleSelectKeyword}
+                />
+              </section>
+              <SpeakerNotesLengthMeter guidance={speakerNotesLengthGuidance} />
+              {selectedKeyword ? (
+                <KeywordDetail
+                  keyword={selectedKeyword}
+                  requiredActive={selectedKeywordRequiredActive}
+                  showIds={showIds}
+                  usage={selectedKeywordUsage}
+                  onClearSelection={clearSelectedKeyword}
+                  onDeleteKeyword={() => {
+                    if (!currentSlide) return;
+                    handleDeleteSelectedKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId
+                    );
+                  }}
+                  onToggleAdvanceSlide={() => {
+                    if (!currentSlide) return;
+                    handleToggleAdvanceSlideKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      !(selectedKeywordUsage?.advancesSlide ?? false)
+                    );
+                  }}
+                  onToggleRequired={() => {
+                    if (!currentSlide) return;
+                    handleToggleKeywordRequired(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      selectedKeywordOccurrenceKey
+                    );
+                  }}
+                />
+              ) : null}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <>
       <main
@@ -5078,7 +5609,12 @@ export function EditorShell(props: { projectId?: string }) {
                       프레젠테이션 · {deck.canvas.width} × {deck.canvas.height}px
                     </span>
                   </div>
-                  <button className="menu-ghost-button" type="button" title="Rename">
+                  <button
+                    aria-label="문서 이름 변경"
+                    className="menu-ghost-button"
+                    type="button"
+                    title="Rename"
+                  >
                     <PenLine size={15} />
                   </button>
                 </div>
@@ -5241,7 +5777,7 @@ export function EditorShell(props: { projectId?: string }) {
             type="button"
           >
             <FileText size={15} />
-            브리프
+            <span>브리프</span>
           </button>
           <button
             className="editor-context-top-button"
@@ -5249,10 +5785,11 @@ export function EditorShell(props: { projectId?: string }) {
             type="button"
           >
             <History size={15} />
-            버전
+            <span>버전</span>
           </button>
           <PresentationMenu
             activeStartAction={activePresentationAction}
+            canOpenAudienceLink={canOpenAudienceLink}
             canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
             onOpenAudienceLink={() => {
@@ -5290,6 +5827,7 @@ export function EditorShell(props: { projectId?: string }) {
             공유
           </button>
           <button
+            aria-label="에디터 새로고침"
             className="refresh-top-button"
             type="button"
             onClick={() => {
@@ -5333,6 +5871,7 @@ export function EditorShell(props: { projectId?: string }) {
         ? createPortal(
             <EditorExitConfirmModal
               isSaving={isExitSaving}
+              onCancel={() => setIsExitConfirmOpen(false)}
               onDiscard={handleDiscardAndExit}
               onSaveAndExit={() => {
                 void handleSaveAndExit();
@@ -5424,7 +5963,8 @@ export function EditorShell(props: { projectId?: string }) {
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
             }px`,
             "--right-pane-width": `${rightPaneWidth}px`,
-            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`
+            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`,
+            "--speaker-notes-panel-height": `${speakerNotesPanelHeight}px`
           } as CSSProperties
         }
       >
@@ -5433,11 +5973,15 @@ export function EditorShell(props: { projectId?: string }) {
         >
           <div className="slides-pane-header">
             {!isSlidesPaneCollapsed ? (
-              <button className="add-slide-button" type="button" onClick={handleAddSlide}>
-                + 슬라이드
-              </button>
+              <div className="slides-pane-title">
+                <strong>슬라이드</strong>
+                <span aria-label={`총 ${deck.slides.length}개`}>{deck.slides.length}</span>
+              </div>
             ) : null}
             <button
+              aria-label={
+                isSlidesPaneCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"
+              }
               className="collapse-slides-button"
               type="button"
               title={isSlidesPaneCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
@@ -5503,19 +6047,25 @@ export function EditorShell(props: { projectId?: string }) {
 
           {!isSlidesPaneCollapsed ? (
             <div className="side-footer">
-              <button
-                className={slidePanelView === "thumbnail" ? "active" : ""}
-                type="button"
-                onClick={() => setSlidePanelView("thumbnail")}
-              >
-                썸네일
-              </button>
-              <button
-                className={slidePanelView === "list" ? "active" : ""}
-                type="button"
-                onClick={() => setSlidePanelView("list")}
-              >
-                목록
+              <div className="slide-view-switch" role="group" aria-label="슬라이드 보기 방식">
+                <button
+                  className={slidePanelView === "thumbnail" ? "active" : ""}
+                  type="button"
+                  onClick={() => setSlidePanelView("thumbnail")}
+                >
+                  썸네일
+                </button>
+                <button
+                  className={slidePanelView === "list" ? "active" : ""}
+                  type="button"
+                  onClick={() => setSlidePanelView("list")}
+                >
+                  목록
+                </button>
+              </div>
+              <button className="add-slide-button" type="button" onClick={handleAddSlide}>
+                <Plus aria-hidden="true" size={17} />
+                슬라이드 추가
               </button>
             </div>
           ) : null}
@@ -5589,24 +6139,27 @@ export function EditorShell(props: { projectId?: string }) {
             <div className="editor-toolbar">
               <div className="tool-group">
                 <button
+                  aria-label="실행 취소"
                   className="icon-button history-nav-button"
                   disabled={undoStack.length === 0}
                   type="button"
                   title="Undo"
                   onClick={handleUndo}
                 >
-                  <HistoryChevronIcon className="history-nav-icon" direction="left" />
+                  <IconArrowBackUp className="history-nav-icon" size={17} />
                 </button>
                 <button
+                  aria-label="다시 실행"
                   className="icon-button history-nav-button"
                   disabled={redoStack.length === 0}
                   type="button"
                   title="Redo"
                   onClick={handleRedo}
                 >
-                  <HistoryChevronIcon className="history-nav-icon" direction="right" />
+                  <IconArrowForwardUp className="history-nav-icon" size={17} />
                 </button>
                 <button
+                  aria-label="선택 도구"
                   className={`icon-button ${insertTool === "select" ? "selected-tool" : ""}`}
                   type="button"
                   title="Select"
@@ -5696,83 +6249,12 @@ export function EditorShell(props: { projectId?: string }) {
               </div>
             </div>
 
-            <SelectionQuickBar
-              animations={selectedElementAnimations}
-              animationDiagnostics={
-                currentSlideAnimationDiagnostics ?? {
-                  danglingAnimations: [],
-                  duplicateOrders: [],
-                  selectedElementEmpty: false
-                }
-              }
-              canCreateAnimation={Boolean(currentSlide && selectedElement)}
-              canvas={deck.canvas}
-              key={`quickbar-${selectedElement?.elementId ?? currentSlide?.slideId ?? "none"}`}
-              customShapeEditActive={isCustomShapeEditingSelection}
-              element={selectedElement}
-              selectedKeywordLabel={selectedKeyword?.text ?? null}
-              slide={selectedElementIds.length > 1 ? null : currentSlide}
-              showIds={showIds}
-              theme={deck.theme}
-              onOpenAnimationEditor={openAnimationInspector}
-              onDeleteAnimation={(animationId) => {
-                if (!currentSlide) {
-                  return;
-                }
-
-                handleDeleteAnimation(currentSlide.slideId, animationId);
-              }}
-              onToggleCustomShapeClosed={() => {
-                if (!selectedElement || !currentSlide || selectedElement.type !== "customShape") {
-                  return;
-                }
-                handleCommitCustomShapeGeometry(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  getCustomShapeAbsoluteNodes(selectedElement),
-                  !(selectedElement.props as CustomShapeElementProps).closed
-                );
-              }}
-              onToggleCustomShapeEdit={() => {
-                if (!selectedElement || selectedElement.type !== "customShape") {
-                  return;
-                }
-                setEditingElementId(null);
-                setCustomShapeEditElementId((current) =>
-                  current === selectedElement.elementId ? null : selectedElement.elementId
-                );
-              }}
-              onChangeFrame={(frame) => {
-                if (!selectedElement || !currentSlide) {
-                  return;
-                }
-                handleElementFrameChange(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  frame
-                );
-              }}
-              onChangeProps={(props) => {
-                if (!selectedElement || !currentSlide) {
-                  return;
-                }
-                handleElementPropsChange(
-                  currentSlide.slideId,
-                  selectedElement.elementId,
-                  props
-                );
-              }}
-              onChangeSlideStyle={(style) => {
-                if (!currentSlide) {
-                  return;
-                }
-                handleSlideStyleChange(currentSlide.slideId, style);
-              }}
-              onChangeTheme={handleThemeChange}
-            />
+            {selectedElementIds.length > 1
+              ? null
+              : renderSelectionProperties(selectedElement, selectedElement ? currentSlide : null, "toolbar-properties")}
           </div>
 
-          <div className="canvas-scroll">
+          <div className="canvas-scroll" ref={editorCanvasViewportRef}>
             {currentSlide ? (
               <div className="konva-wrap">
                 <div
@@ -5833,167 +6315,6 @@ export function EditorShell(props: { projectId?: string }) {
               <EmptyCanvasState canvas={deck.canvas} />
             )}
 
-            <section
-              aria-labelledby="speaker-notes-title"
-              className={`script-panel ${isSpeakerNotesEditing ? "editing" : ""}`}
-            >
-              <div className="script-panel-header">
-                <div className="script-panel-heading">
-                  <span aria-hidden="true" className="script-panel-icon">
-                    <FileText size={18} />
-                  </span>
-                  <div>
-                    <div className="script-panel-title-row">
-                      <strong id="speaker-notes-title">발표 메모</strong>
-                      {isSpeakerNotesEditing ? (
-                        <span className="script-panel-status">편집 중</span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                {isSpeakerNotesEditing ? (
-                  <div className="script-panel-actions">
-                    <button
-                      className="script-panel-action"
-                      type="button"
-                      onClick={handleCancelSpeakerNotesEdit}
-                    >
-                      취소
-                    </button>
-                    <button
-                      className="script-panel-action primary"
-                      type="button"
-                      onClick={handleSaveSpeakerNotesEdit}
-                    >
-                      저장
-                    </button>
-                  </div>
-                ) : (
-                  <div className="script-panel-actions">
-                    <button
-                      className="script-panel-action assistant"
-                      type="button"
-                      onClick={handleOpenSpeakerNotesAssistant}
-                    >
-                      <Sparkles aria-hidden="true" size={14} />
-                      {(currentSlide?.speakerNotes ?? "").trim()
-                        ? "AI로 다듬기"
-                        : "AI 초안 만들기"}
-                    </button>
-                    <button
-                      className="script-panel-action"
-                      type="button"
-                      onClick={handleStartSpeakerNotesEdit}
-                    >
-                      <PenLine aria-hidden="true" size={14} />
-                      메모 편집
-                    </button>
-                  </div>
-                )}
-              </div>
-              {isSpeakerNotesEditing ? (
-                <div className="script-panel-body">
-                  <textarea
-                    aria-label="발표 메모 수정"
-                    autoFocus
-                    className="script-notes-editor"
-                    placeholder={
-                      "슬라이드에서 말할 내용을 입력하세요.\n문단을 나누면 발표할 때도 그대로 표시됩니다."
-                    }
-                    value={speakerNotesDraft}
-                    onChange={(event) => setSpeakerNotesDraft(event.target.value)}
-                  />
-                  <div
-                    aria-live="polite"
-                    className="script-panel-meta script-panel-character-count"
-                  >
-                    <span>{speakerNotesDraft.length.toLocaleString()}자</span>
-                  </div>
-                  <SpeakerNotesLengthMeter
-                    guidance={speakerNotesLengthGuidance}
-                  />
-                </div>
-              ) : (
-                <div className="script-panel-body">
-                  <div className="script-notes-surface">
-                    <KeywordHighlightedNotes
-                      keywords={currentSlide?.keywords ?? []}
-                      notes={currentSlide?.speakerNotes ?? ""}
-                      selectedKeywordId={selectedKeywordId}
-                      selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
-                      showIds={showIds}
-                      slideId={currentSlide?.slideId ?? ""}
-                      onSelectKeyword={handleSelectKeyword}
-                      onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-                    />
-                  </div>
-                  <div className="script-panel-meta script-panel-character-count">
-                    <span>{(currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
-                  </div>
-                  <section
-                    aria-labelledby="speaker-notes-keywords-title"
-                    className="script-keyword-section"
-                  >
-                    <div className="script-keyword-heading">
-                      <strong id="speaker-notes-keywords-title">발표 체크포인트</strong>
-                    </div>
-                    <KeywordList
-                      keywords={currentSlide?.keywords ?? []}
-                      selectedKeywordId={selectedKeywordId}
-                      showIds={showIds}
-                      usageByKeywordId={currentSlideKeywordUsage}
-                      onSelectKeyword={handleSelectKeyword}
-                    />
-                  </section>
-                  <SpeakerNotesLengthMeter
-                    guidance={speakerNotesLengthGuidance}
-                  />
-                  {selectedKeyword ? (
-                    <KeywordDetail
-                      keyword={selectedKeyword}
-                      requiredActive={selectedKeywordRequiredActive}
-                      showIds={showIds}
-                      usage={selectedKeywordUsage}
-                      onClearSelection={clearSelectedKeyword}
-                      onDeleteKeyword={() => {
-                        if (!currentSlide) {
-                          return;
-                        }
-
-                        handleDeleteSelectedKeyword(
-                          currentSlide.slideId,
-                          selectedKeyword.keywordId
-                        );
-                      }}
-                      onToggleAdvanceSlide={() => {
-                        if (!currentSlide) {
-                          return;
-                        }
-
-                        handleToggleAdvanceSlideKeyword(
-                          currentSlide.slideId,
-                          selectedKeyword.keywordId,
-                          !(
-                            selectedKeywordUsage?.advancesSlide ?? false
-                          )
-                        );
-                      }}
-                      onToggleRequired={() => {
-                        if (!currentSlide) {
-                          return;
-                        }
-
-                        handleToggleKeywordRequired(
-                          currentSlide.slideId,
-                          selectedKeyword.keywordId,
-                          selectedKeywordOccurrenceKey
-                        );
-                      }}
-                    />
-                  ) : null}
-                </div>
-              )}
-            </section>
             <SpeakerNotesAssistantDialog
               errorMessage={speakerNotesAssistantError}
               mode={speakerNotesAssistantMode}
@@ -6008,6 +6329,8 @@ export function EditorShell(props: { projectId?: string }) {
               status={speakerNotesAssistantStatus}
             />
           </div>
+
+          {renderSpeakerNotesPanel()}
         </section>
 
         <aside className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}>
@@ -6020,9 +6343,10 @@ export function EditorShell(props: { projectId?: string }) {
                 onPointerDown={handleRightPaneResizeStart}
               />
               <div className="ai-header">
-                <h2>도구</h2>
+                <h2>편집 패널</h2>
                 <div>
                   <button
+                    aria-label="오른쪽 패널 접기"
                     className="collapse-right-pane-button"
                     type="button"
                     title="오른쪽 패널 접기"
@@ -6038,102 +6362,130 @@ export function EditorShell(props: { projectId?: string }) {
                 role="tablist"
               >
                 <button
-                  aria-controls="editor-ai-chat-panel"
-                  aria-selected={rightPanelView === "ai-chat"}
-                  className={rightPanelView === "ai-chat" ? "active" : ""}
-                  id="editor-ai-chat-tab"
+                  aria-controls="editor-ai-panel"
+                  aria-selected={rightPanelView === "ai"}
+                  className={rightPanelView === "ai" ? "active" : ""}
+                  id="editor-ai-tab"
                   role="tab"
-                  tabIndex={rightPanelView === "ai-chat" ? 0 : -1}
+                  tabIndex={rightPanelView === "ai" ? 0 : -1}
                   type="button"
-                  onClick={() => setRightPanelView("ai-chat")}
+                  onClick={() => setRightPanelView("ai")}
                   onKeyDown={handleRightPanelTabKeyDown}
                 >
-                  AI 채팅
+                  AI 코치
                 </button>
                 <button
-                  aria-controls="editor-ai-tools-panel"
-                  aria-selected={rightPanelView === "ai-tools"}
-                  className={rightPanelView === "ai-tools" ? "active" : ""}
-                  id="editor-ai-tools-tab"
+                  aria-controls="editor-design-panel"
+                  aria-selected={rightPanelView === "design"}
+                  className={rightPanelView === "design" ? "active" : ""}
+                  id="editor-design-tab"
                   role="tab"
-                  tabIndex={rightPanelView === "ai-tools" ? 0 : -1}
+                  tabIndex={rightPanelView === "design" ? 0 : -1}
                   type="button"
-                  onClick={() => setRightPanelView("ai-tools")}
+                  onClick={() => setRightPanelView("design")}
                   onKeyDown={handleRightPanelTabKeyDown}
                 >
-                  AI 도구
-                </button>
-                <button
-                  aria-controls="editor-semantic-cue-panel"
-                  aria-selected={rightPanelView === "semantic-cues"}
-                  className={rightPanelView === "semantic-cues" ? "active" : ""}
-                  hidden
-                  id="editor-semantic-cue-tab"
-                  role="tab"
-                  tabIndex={rightPanelView === "semantic-cues" ? 0 : -1}
-                  type="button"
-                  onClick={() => setRightPanelView("semantic-cues")}
-                  onKeyDown={handleRightPanelTabKeyDown}
-                >
-                  발표 메시지
-                  {currentSlide?.semanticCues.length
-                    ? ` ${currentSlide.semanticCues.length}`
-                    : ""}
+                  디자인
                 </button>
               </div>
               <div className="assistant-panel-slot">
                 <div
-                  aria-labelledby="editor-ai-chat-tab"
-                  className="assistant-panel-view"
-                  hidden={rightPanelView !== "ai-chat"}
-                  id="editor-ai-chat-panel"
+                  aria-labelledby="editor-ai-tab"
+                  className="assistant-panel-view editor-ai-coach-panel"
+                  hidden={rightPanelView !== "ai"}
+                  id="editor-ai-panel"
                   role="tabpanel"
                 >
-                  <AiChatPanel
-                    projectId={projectId}
-                    deck={deck}
-                    currentSlide={currentSlide}
-                    selectedElementIds={selectedElementIds}
-                    chatState={aiChatState}
-                    onChatStateChange={setAiChatState}
-                    onProposalApplied={handleDesignAgentProposalApplied}
-                  />
+                  <div
+                    aria-label="AI 코치 보기"
+                    className="assistant-subtabs"
+                    role="tablist"
+                  >
+                    <button
+                      aria-controls="editor-ai-chat-panel"
+                      aria-selected={aiPanelView === "chat"}
+                      className={aiPanelView === "chat" ? "active" : ""}
+                      id="editor-ai-chat-tab"
+                      role="tab"
+                      tabIndex={aiPanelView === "chat" ? 0 : -1}
+                      type="button"
+                      onClick={() => setAiPanelView("chat")}
+                      onKeyDown={handleAiPanelTabKeyDown}
+                    >
+                      채팅
+                    </button>
+                    <button
+                      aria-controls="editor-ai-tools-panel"
+                      aria-selected={aiPanelView === "tools"}
+                      className={aiPanelView === "tools" ? "active" : ""}
+                      id="editor-ai-tools-tab"
+                      role="tab"
+                      tabIndex={aiPanelView === "tools" ? 0 : -1}
+                      type="button"
+                      onClick={() => setAiPanelView("tools")}
+                      onKeyDown={handleAiPanelTabKeyDown}
+                    >
+                      검사
+                    </button>
+                  </div>
+                  <div
+                    aria-labelledby="editor-ai-chat-tab"
+                    className="assistant-panel-subview"
+                    hidden={aiPanelView !== "chat"}
+                    id="editor-ai-chat-panel"
+                    role="tabpanel"
+                  >
+                    <AiChatPanel
+                      projectId={projectId}
+                      deck={deck}
+                      currentSlide={currentSlide}
+                      selectedElementIds={selectedElementIds}
+                      chatState={aiChatState}
+                      onChatStateChange={setAiChatState}
+                      onProposalApplied={handleDesignAgentProposalApplied}
+                    />
+                  </div>
+                  <div
+                    aria-labelledby="editor-ai-tools-tab"
+                    className="assistant-panel-subview editor-ai-tools-subview"
+                    hidden={aiPanelView !== "tools"}
+                    id="editor-ai-tools-panel"
+                    role="tabpanel"
+                  >
+                    <PptxImportQualityPanel state={pptxImportState} />
+                    <ValidationPanel
+                      items={editorValidationItems}
+                      onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                      onHighlightElementIds={setValidationHighlightElementIds}
+                      onTextOverflowAction={handleValidationTextOverflowAction}
+                    />
+                    <SourceLedgerPanel slide={currentSlide ?? null} />
+                    <SemanticCueReviewPanel
+                      extractionState={semanticCueExtractionState}
+                      slide={currentSlide}
+                      onChange={handleSemanticCueReviewChange}
+                      onExtract={(force) => void handleSemanticCueExtraction(force)}
+                    />
+                  </div>
                 </div>
                 <div
-                  aria-labelledby="editor-ai-tools-tab"
-                  className="assistant-panel-view"
-                  hidden={rightPanelView !== "ai-tools"}
-                  id="editor-ai-tools-panel"
+                  aria-labelledby="editor-design-tab"
+                  className="assistant-panel-view editor-design-panel"
+                  hidden={rightPanelView !== "design"}
+                  id="editor-design-panel"
                   role="tabpanel"
                 >
-                  <PptxImportQualityPanel state={pptxImportState} />
-                  <ValidationPanel
-                    items={editorValidationItems}
-                    onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
-                    onHighlightElementIds={setValidationHighlightElementIds}
-                    onTextOverflowAction={handleValidationTextOverflowAction}
-                  />
-                  <SourceLedgerPanel slide={currentSlide ?? null} />
-                </div>
-                <div
-                  aria-labelledby="editor-semantic-cue-tab"
-                  className="assistant-panel-view"
-                  hidden={rightPanelView !== "semantic-cues"}
-                  id="editor-semantic-cue-panel"
-                  role="tabpanel"
-                >
-                  <SemanticCueReviewPanel
-                    extractionState={semanticCueExtractionState}
-                    slide={currentSlide}
-                    onChange={handleSemanticCueReviewChange}
-                    onExtract={(force) => void handleSemanticCueExtraction(force)}
-                  />
+                  <span className="orbit-ds-eyebrow">SLIDE DESIGN</span>
+                  <h3>현재 슬라이드</h3>
+                  <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
+                  {renderSelectionProperties(null, currentSlide, "design-properties")}
                 </div>
               </div>
             </>
           ) : (
             <div className="collapsed-right-rail">
               <button
+                aria-label="오른쪽 패널 펼치기"
                 className="collapse-right-pane-button"
                 type="button"
                 title="오른쪽 패널 펼치기"

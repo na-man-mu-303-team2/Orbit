@@ -2,8 +2,8 @@ import { create } from "zustand";
 
 import { defaultAnimationPaneWidth } from "./components/animation/utils/layout";
 
-export const defaultSlidesPaneWidth = 176;
-export const defaultRightPaneWidth = 480;
+export const defaultSlidesPaneWidth = 224;
+export const defaultRightPaneWidth = 304;
 
 export type TopMenu = "file" | "resize" | "editMode" | "quickEdit" | "presentation";
 export type SlidePanelView = "thumbnail" | "list";

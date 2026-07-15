@@ -1,5 +1,5 @@
 import type { AudienceAccessSession } from "@orbit/shared";
-import { Share2, X } from "lucide-react";
+import { IconShare as Share2, IconX as X } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
