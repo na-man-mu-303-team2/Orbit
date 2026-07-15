@@ -56,12 +56,26 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
 ): Promise<{ scanned: number; recovered: number; removed: number }> {
   const limit = reconcileLimitSchema.parse(options.limit ?? 100);
   const queue = (options.queueFactory ?? createQueue)(options.redisUrl);
+  let scanned = 0;
   let recovered = 0;
   let removed = 0;
   try {
-    const jobs = await queue.getJobs(["failed"], 0, limit - 1, true);
-    for (const job of jobs) {
-      if (!isExhaustedCoordinator(job)) continue;
+    const candidates: FailedAiDeckCoordinatorJob[] = [];
+    let start = 0;
+    while (true) {
+      const jobs = await queue.getJobs(
+        ["failed"],
+        start,
+        start + limit - 1,
+        true,
+      );
+      scanned += jobs.length;
+      candidates.push(...jobs.filter(isExhaustedCoordinator));
+      if (jobs.length < limit) break;
+      start += jobs.length;
+    }
+
+    for (const job of candidates) {
       try {
         const result = await (
           options.recover ?? recoverAiDeckBullMqFinalFailure
@@ -77,7 +91,7 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
         options.onError?.(error, job);
       }
     }
-    return { scanned: jobs.length, recovered, removed };
+    return { scanned, recovered, removed };
   } finally {
     await queue.close();
   }
