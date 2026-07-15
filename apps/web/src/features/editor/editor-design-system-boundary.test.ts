@@ -39,4 +39,13 @@ describe("ORBIT production editor design boundary", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("keeps editor layout independent from selection quickbars", () => {
+    const editorShellCss = fs.readFileSync(
+      path.join(webRoot, "src/features/editor/editor-shell.css"),
+      "utf8"
+    );
+
+    expect(editorShellCss).not.toMatch(/:has\([^)]*\.selection-quickbar/);
+  });
 });

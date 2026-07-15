@@ -724,6 +724,11 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="발표 메모 펼치기"');
     expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
     expect(html).not.toContain("speaker-notes-restore-handle");
+    const toolbarStart = html.indexOf('class="stage-top-controls"');
+    const canvasStart = html.indexOf('class="canvas-scroll"');
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(canvasStart).toBeGreaterThan(toolbarStart);
+    expect(html.slice(toolbarStart, canvasStart)).not.toContain("selection-quickbar");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -2568,7 +2573,15 @@ describe("editor shell", () => {
     expect(html).toContain("보기 전용으로 열었습니다");
     expect(html).toContain("개인 리허설");
     expect(html).toContain("ORBIT 데모 흐름을 소개합니다");
-    expect(html).toContain('aria-readonly="true"');
+    expect(html).toContain('aria-label="현재 선택"');
+    expect(html).toContain("슬라이드의 정보를 보고 있습니다.");
+    expect(html).not.toContain('aria-readonly="true"');
+    const inspectorStart = html.indexOf('aria-label="현재 선택"');
+    const inspectorEnd = html.indexOf("</section>", inspectorStart);
+    const inspectorHtml = html.slice(inspectorStart, inspectorEnd);
+    expect(inspectorHtml).not.toContain("<input");
+    expect(inspectorHtml).not.toContain("<select");
+    expect(inspectorHtml).not.toContain("<textarea");
     expect(html).not.toContain("PPTX 가져오기");
     expect(html).not.toContain("PPTX 내보내기");
     expect(html).not.toContain("공유</button>");

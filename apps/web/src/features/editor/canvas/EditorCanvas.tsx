@@ -508,7 +508,6 @@ export function EditableCanvas(props: {
 
   return (
     <div
-      aria-readonly={disableInteractions}
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
       ref={containerRef}
