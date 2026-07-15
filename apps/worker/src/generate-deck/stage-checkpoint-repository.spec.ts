@@ -261,6 +261,88 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("LIMIT $1");
     expect(query.mock.calls[0]?.[1]).toEqual([25]);
   });
+
+  it("lists only expired running OCR lease generations", async () => {
+    const { query, repository } = repositoryWithResponses([
+      {
+        ...runningRow(),
+        project_id: "project-a",
+        stage: "reference-extract-file",
+        shard_key: "file-a",
+        attempt: 4,
+      },
+    ]);
+
+    await expect(repository.listExpiredLeases(10)).resolves.toEqual([
+      {
+        message: {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage: "reference-extract-file",
+          shardKey: "file-a",
+        },
+        attempt: 4,
+      },
+    ]);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.status = 'running'");
+    expect(sql).toContain("stages.lease_expires_at <= now()");
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("LIMIT $1");
+  });
+
+  it.each([
+    [4, "queued", true],
+    [5, "failed", false],
+  ] as const)(
+    "reconciles expired attempt %i to %s without changing its generation",
+    async (attempt, status, retryable) => {
+      const row =
+        status === "queued"
+          ? queuedRow({ attempt })
+          : failedRow({
+              attempt,
+              error_json: {
+                code: "REFERENCE_EXTRACTION_LEASE_EXHAUSTED",
+                message: "Reference extraction lease expired.",
+                failedStage: "reference-extract-file",
+                retryable: false,
+              },
+            });
+      const { query, repository } = repositoryWithResponses([row]);
+      const retryError = {
+        code: "REFERENCE_EXTRACTION_LEASE_EXPIRED",
+        message: "Reference extraction lease expired.",
+        failedStage: "reference-extract-file" as const,
+        retryable: true as const,
+      };
+      const exhaustedError = {
+        code: "REFERENCE_EXTRACTION_LEASE_EXHAUSTED",
+        message: "Reference extraction lease expired.",
+        failedStage: "reference-extract-file" as const,
+        retryable: false as const,
+      };
+
+      await expect(
+        repository.reconcileExpiredLease(
+          { ...message, stage: "reference-extract-file", shardKey: "file-a" },
+          attempt,
+          retryError,
+          exhaustedError,
+        ),
+      ).resolves.toMatchObject({ status, attempt });
+
+      const sql = compactSql(query.mock.calls[0]?.[0]);
+      expect(sql).toContain("stages.attempt = $5");
+      expect(sql).toContain("stages.lease_expires_at <= now()");
+      expect(sql).toContain("dispatched_at = NULL");
+      expect(sql).toContain("lease_owner = NULL");
+      expect(query.mock.calls[0]?.[1]?.[attempt < 5 ? 5 : 6]).toMatchObject({
+        retryable,
+      });
+    },
+  );
 });
 
 function repositoryWithResponses(...responses: unknown[][]) {
@@ -302,7 +384,7 @@ function succeededRow() {
   });
 }
 
-function failedRow() {
+function failedRow(overrides: Record<string, unknown> = {}) {
   return checkpointRow({
     status: "failed",
     attempt: 1,
@@ -312,6 +394,7 @@ function failedRow() {
       failedStage: "content-planning",
       retryable: false,
     },
+    ...overrides,
   });
 }
 
