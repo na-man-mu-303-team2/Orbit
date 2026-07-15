@@ -151,7 +151,7 @@ describe("AI Deck staged BullMQ transport", () => {
       expect.objectContaining({
         jobId: "job-ai-deck-1",
         attempts: 5,
-        removeOnFail: false,
+        removeOnFail: { count: 5_000 },
       }),
     );
     expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain(

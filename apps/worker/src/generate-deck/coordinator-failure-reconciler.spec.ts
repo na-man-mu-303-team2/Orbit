@@ -15,7 +15,12 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
         queueFactory: () => queue,
         recover,
       }),
-    ).resolves.toEqual({ scanned: 1, recovered: 1, removed: 1 });
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 1,
+      removed: 1,
+      nextStart: 0,
+    });
 
     expect(queue.getJobs).toHaveBeenCalledWith(["failed"], 0, 99, true);
     expect(recover).toHaveBeenCalledWith(expect.anything(), {
@@ -42,7 +47,12 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
         }),
         onError,
       }),
-    ).resolves.toEqual({ scanned: 1, recovered: 0, removed: 0 });
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 0,
+      removed: 0,
+      nextStart: 0,
+    });
 
     expect(job.remove).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(recoveryError, job);
@@ -61,19 +71,68 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
         queueFactory: () => queue,
         recover,
       }),
-    ).resolves.toEqual({ scanned: 2, recovered: 0, removed: 0 });
+    ).resolves.toEqual({
+      scanned: 2,
+      recovered: 0,
+      removed: 0,
+      nextStart: 0,
+    });
 
     expect(recover).not.toHaveBeenCalled();
     expect(unrelated.remove).not.toHaveBeenCalled();
     expect(nonExhausted.remove).not.toHaveBeenCalled();
   });
 
-  it("continues past a full unrelated page to recover the next coordinator", async () => {
+  it("bounds each scan and resumes from a cursor on the next tick", async () => {
     const unrelated = Array.from({ length: 100 }, (_, index) =>
       failedCoordinatorJob({ id: `legacy-${index}`, name: "generate-deck" }),
     );
     const coordinator = failedCoordinatorJob();
     const queue = failedQueue(...unrelated, coordinator);
+    const recover = vi.fn(async () => "coordinator-failed" as const);
+
+    const first = await reconcileFailedAiDeckCoordinatorJobs(
+      {} as DataSource,
+      {
+        redisUrl: "redis://localhost:6379",
+        queueFactory: () => queue,
+        recover,
+      },
+    );
+
+    expect(first).toEqual({
+      scanned: 100,
+      recovered: 0,
+      removed: 0,
+      nextStart: 100,
+    });
+
+    await expect(
+      reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+        redisUrl: "redis://localhost:6379",
+        start: first.nextStart,
+        queueFactory: () => queue,
+        recover,
+      }),
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 1,
+      removed: 1,
+      nextStart: 0,
+    });
+
+    expect(queue.getJobs).toHaveBeenNthCalledWith(1, ["failed"], 0, 99, true);
+    expect(queue.getJobs).toHaveBeenNthCalledWith(2, ["failed"], 100, 199, true);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(coordinator.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips missing jobs returned during concurrent replica cleanup", async () => {
+    const coordinator = failedCoordinatorJob();
+    const queue = {
+      getJobs: vi.fn(async () => [undefined, coordinator, null]),
+      close: vi.fn(async () => undefined),
+    };
     const recover = vi.fn(async () => "coordinator-failed" as const);
 
     await expect(
@@ -82,12 +141,12 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
         queueFactory: () => queue,
         recover,
       }),
-    ).resolves.toEqual({ scanned: 101, recovered: 1, removed: 1 });
-
-    expect(queue.getJobs).toHaveBeenNthCalledWith(1, ["failed"], 0, 99, true);
-    expect(queue.getJobs).toHaveBeenNthCalledWith(2, ["failed"], 100, 199, true);
-    expect(recover).toHaveBeenCalledTimes(1);
-    expect(coordinator.remove).toHaveBeenCalledTimes(1);
+    ).resolves.toEqual({
+      scanned: 1,
+      recovered: 1,
+      removed: 1,
+      nextStart: 0,
+    });
   });
 });
 

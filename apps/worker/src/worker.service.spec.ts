@@ -42,7 +42,12 @@ const processors = vi.hoisted(() => ({
 }));
 
 const maintenance = vi.hoisted(() => ({
-  coordinator: vi.fn(async () => ({ scanned: 0, recovered: 0, removed: 0 })),
+  coordinator: vi.fn(async () => ({
+    scanned: 0,
+    recovered: 0,
+    removed: 0,
+    nextStart: 0,
+  })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
   reconcile: vi.fn(async () => ({ scanned: 0, requeued: 0, failed: 0 })),
 }));
@@ -198,7 +203,10 @@ describe("WorkerService queue subscriptions", () => {
     );
     expect(maintenance.coordinator).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ redisUrl: configState.REDIS_URL }),
+      expect.objectContaining({
+        redisUrl: configState.REDIS_URL,
+        start: 0,
+      }),
     );
     expect(maintenance.reconcile).toHaveBeenCalled();
 
