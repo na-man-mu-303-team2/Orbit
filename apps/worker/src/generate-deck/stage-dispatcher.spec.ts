@@ -15,6 +15,7 @@ describe("dispatchAiDeckGenerationStages", () => {
     "marks the observed checkpoint generation after a %s disposition",
     async (state) => {
       const repository = {
+        recoverStaleDispatches: vi.fn(async () => 1),
         listUndispatched: vi.fn(async () => [
           { message: referenceMessage, attempt: 2 },
         ]),
@@ -32,6 +33,7 @@ describe("dispatchAiDeckGenerationStages", () => {
           enqueue,
         }),
       ).resolves.toEqual({ scanned: 1, dispatched: 1 });
+      expect(repository.recoverStaleDispatches).toHaveBeenCalledWith(100);
       expect(repository.markDispatched).toHaveBeenCalledWith(referenceMessage, 2);
     },
   );
@@ -40,6 +42,7 @@ describe("dispatchAiDeckGenerationStages", () => {
     "does not mark a %s duplicate as durably dispatched",
     async (state) => {
       const repository = {
+        recoverStaleDispatches: vi.fn(async () => 0),
         listUndispatched: vi.fn(async () => [
           { message: referenceMessage, attempt: 1 },
         ]),
@@ -68,6 +71,7 @@ describe("dispatchAiDeckGenerationStages", () => {
       shardKey: "",
     };
     const repository = {
+      recoverStaleDispatches: vi.fn(async () => 0),
       listUndispatched: vi.fn(async () => [
         { message: sourceMessage, attempt: 0 },
       ]),
@@ -89,6 +93,7 @@ describe("dispatchAiDeckGenerationStages", () => {
   it("leaves a failed send undispatched and continues with the next row", async () => {
     const secondMessage = { ...referenceMessage, shardKey: "file-b" };
     const repository = {
+      recoverStaleDispatches: vi.fn(async () => 0),
       listUndispatched: vi.fn(async () => [
         { message: referenceMessage, attempt: 0 },
         { message: secondMessage, attempt: 1 },

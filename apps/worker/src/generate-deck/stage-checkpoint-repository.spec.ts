@@ -231,6 +231,45 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("stages.attempt = $5");
   });
 
+  it("releases only an active parent's queued dispatch marker after transport exhaustion", async () => {
+    const { query, repository } = repositoryWithResponses([
+      queuedRow({ dispatched_at: null }),
+    ]);
+    const referenceMessage = {
+      ...message,
+      stage: "reference-extract-file" as const,
+      shardKey: "file-a",
+    };
+
+    await expect(
+      repository.releaseDispatchedForTransportRetry(referenceMessage),
+    ).resolves.toMatchObject({ status: "queued", dispatchedAt: null });
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("jobs.project_id = $2");
+    expect(sql).toContain("jobs.status IN ('queued','running')");
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at IS NOT NULL");
+    expect(sql).toContain("dispatched_at = NULL");
+  });
+
+  it("recovers bounded stale queued dispatches for deterministic re-enqueue", async () => {
+    const { query, repository } = repositoryWithResponses([
+      queuedRow({ dispatched_at: null }),
+    ]);
+
+    await expect(repository.recoverStaleDispatches(25)).resolves.toBe(1);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at <= now() - interval '15 minutes'");
+    expect(sql).toContain("FOR UPDATE OF stages SKIP LOCKED");
+    expect(sql).toContain("LIMIT $1");
+    expect(sql).toContain("dispatched_at = NULL");
+    expect(query.mock.calls[0]?.[1]).toEqual([25]);
+  });
+
   it("lists only undispatched OCR checkpoints with the validated parent project", async () => {
     const { query, repository } = repositoryWithResponses([
       {
