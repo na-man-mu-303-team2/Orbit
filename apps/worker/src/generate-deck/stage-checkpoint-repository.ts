@@ -382,7 +382,10 @@ export class AiDeckGenerationStageCheckpointRepository {
           JOIN jobs ON jobs.job_id = stages.pipeline_job_id
           WHERE jobs.type = 'ai-deck-generation'
             AND jobs.status IN ('queued','running')
-            AND stages.stage = 'reference-extract-file'
+            AND stages.stage IN (
+              'reference-extract-file','source-grounding','content-planning',
+              'design-planning','layout-compile'
+            )
             AND stages.status = 'queued'
             AND stages.dispatched_at <= now() - interval '15 minutes'
           ORDER BY stages.dispatched_at,
@@ -418,7 +421,10 @@ export class AiDeckGenerationStageCheckpointRepository {
         JOIN jobs ON jobs.job_id = stages.pipeline_job_id
         WHERE jobs.type = 'ai-deck-generation'
           AND jobs.status IN ('queued','running')
-          AND stages.stage = 'reference-extract-file'
+          AND stages.stage IN (
+            'reference-extract-file','source-grounding','content-planning',
+            'design-planning','layout-compile'
+          )
           AND stages.status = 'queued'
           AND stages.dispatched_at IS NULL
         ORDER BY stages.created_at, stages.pipeline_job_id, stages.shard_key
@@ -452,7 +458,10 @@ export class AiDeckGenerationStageCheckpointRepository {
         JOIN jobs ON jobs.job_id = stages.pipeline_job_id
         WHERE jobs.type = 'ai-deck-generation'
           AND jobs.status IN ('queued','running')
-          AND stages.stage = 'reference-extract-file'
+          AND stages.stage IN (
+            'reference-extract-file','source-grounding','content-planning',
+            'design-planning','layout-compile'
+          )
           AND stages.status = 'running'
           AND stages.lease_expires_at <= now()
         ORDER BY stages.lease_expires_at, stages.pipeline_job_id, stages.shard_key

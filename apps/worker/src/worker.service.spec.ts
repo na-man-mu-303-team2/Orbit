@@ -5,6 +5,8 @@ import {
   pptxOoxmlGenerationQueueName,
   referenceExtractJobName,
   referenceExtractQueueName,
+  aiDeckResearchContentQueueName,
+  aiDeckDesignLayoutQueueName,
 } from "@orbit/job-queue";
 import type { Job } from "@orbit/shared";
 import type { PinoLogger } from "nestjs-pino";
@@ -40,6 +42,7 @@ const processors = vi.hoisted(() => ({
   stagedCoordinator: vi.fn(async () => orbitJob("running")),
   referenceExtract: vi.fn(async () => orbitJob("succeeded", "reference-extract")),
   referenceExtractStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
+  planningStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
 }));
 
 const maintenance = vi.hoisted(() => ({
@@ -101,6 +104,9 @@ vi.mock("./reference-extract.processor", () => ({
 vi.mock("./generate-deck/reference-extract-stage", () => ({
   processAiDeckReferenceExtractionStage: processors.referenceExtractStage,
 }));
+vi.mock("./generate-deck/planning-stage.processor", () => ({
+  processAiDeckPlanningStage: processors.planningStage,
+}));
 vi.mock("./generate-deck/stage-dispatcher", () => ({
   dispatchAiDeckGenerationStages: maintenance.dispatch,
 }));
@@ -157,6 +163,8 @@ describe("WorkerService queue subscriptions", () => {
     expect(bullMq.queues).toContain(generateDeckQueueName);
     expect(bullMq.queues).toContain(referenceExtractQueueName);
     expect(bullMq.queues).toContain(pptxOoxmlGenerationQueueName);
+    expect(bullMq.queues).toContain(aiDeckResearchContentQueueName);
+    expect(bullMq.queues).toContain(aiDeckDesignLayoutQueueName);
     expect(bullMq.queues).not.toContain("pptx-import");
     expect(bullMq.queues).not.toContain("ai-template-deck-generation");
 
@@ -388,6 +396,32 @@ describe("WorkerService queue subscriptions", () => {
     await service.onModuleDestroy();
   });
 
+  it.each([
+    ["research-content", aiDeckResearchContentQueueName, "source-grounding"],
+    ["design-layout", aiDeckDesignLayoutQueueName, "design-planning"],
+  ] as const)(
+    "limits the %s role and routes its planning stages",
+    async (role, queueName, stage) => {
+      configState.AI_DECK_EXECUTION_MODE = "bullmq";
+      configState.AI_DECK_WORKER_QUEUE = role;
+      const { service } = createService();
+
+      service.onModuleInit();
+
+      expect(bullMq.queues).toEqual([queueName]);
+      await requiredHandler(queueName)(
+        bullJob(stage, {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage,
+          shardKey: "",
+        }),
+      );
+      expect(processors.planningStage).toHaveBeenCalledTimes(1);
+      await service.onModuleDestroy();
+    },
+  );
+
   it("awaits DB recovery for final coordinator and OCR transport attempts", async () => {
     configState.AI_DECK_EXECUTION_MODE = "bullmq";
     const { service } = createService();
@@ -560,10 +594,10 @@ describe("WorkerService queue subscriptions", () => {
 
   it.each([
     ["sqs", "all"],
-    ["bullmq", "research-content"],
     ["monolith", "reference-extract"],
+    ["bullmq", "image"],
   ] as const)(
-    "fails startup for an unavailable 338-1 mode %s/%s",
+    "fails startup for an unavailable 338-2 mode %s/%s",
     (executionMode, workerQueue) => {
       configState.AI_DECK_EXECUTION_MODE = executionMode;
       configState.AI_DECK_WORKER_QUEUE = workerQueue;

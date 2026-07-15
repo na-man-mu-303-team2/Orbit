@@ -16,6 +16,8 @@ import {
   focusedPracticeAnalysisQueueName,
   challengeQnaGenerationQueueName,
   challengeQnaAnswerAnalysisQueueName,
+  aiDeckResearchContentQueueName,
+  aiDeckDesignLayoutQueueName,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -32,6 +34,7 @@ import {
   reconcileFailedAiDeckCoordinatorJobs,
 } from "./generate-deck/coordinator-failure-reconciler";
 import { processAiDeckReferenceExtractionStage } from "./generate-deck/reference-extract-stage";
+import { processAiDeckPlanningStage } from "./generate-deck/planning-stage.processor";
 import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher";
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
 import { reconcileExpiredAiDeckStageLeases } from "./generate-deck/stage-reconciler";
@@ -72,6 +75,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     focusedPracticeAnalysisQueueName,
     challengeQnaGenerationQueueName,
     challengeQnaAnswerAnalysisQueueName,
+    aiDeckResearchContentQueueName,
+    aiDeckDesignLayoutQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
   private queueNames: string[] = [];
@@ -101,25 +106,26 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
     if (
       this.config.AI_DECK_WORKER_QUEUE !== "all" &&
-      this.config.AI_DECK_WORKER_QUEUE !== "reference-extract"
+      ![
+        "reference-extract",
+        "research-content",
+        "design-layout",
+      ].includes(this.config.AI_DECK_WORKER_QUEUE)
     ) {
       throw new Error(
-        `AI Deck worker role ${this.config.AI_DECK_WORKER_QUEUE} is not implemented in 338-1.`,
+        `AI Deck worker role ${this.config.AI_DECK_WORKER_QUEUE} is not implemented in 338-2.`,
       );
     }
     if (
-      this.config.AI_DECK_WORKER_QUEUE === "reference-extract" &&
+      this.config.AI_DECK_WORKER_QUEUE !== "all" &&
       this.config.AI_DECK_EXECUTION_MODE !== "bullmq"
     ) {
       throw new Error(
-        "AI Deck reference-extract worker role is not implemented outside bullmq execution mode.",
+        "Dedicated AI Deck worker roles are not implemented outside bullmq execution mode.",
       );
     }
 
-    this.queueNames =
-      this.config.AI_DECK_WORKER_QUEUE === "reference-extract"
-        ? [generateDeckQueueName, referenceExtractQueueName]
-        : this.allQueueNames;
+    this.queueNames = this.aiDeckQueueNames();
     const storage = workerStorage();
     const reconcileDeletions = () => {
       void reconcileStorageDeletionOutbox(this.dataSource, storage).catch(
@@ -229,6 +235,34 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             return processAiDeckStagedCoordinatorJob(this.dataSource, job.data);
           }
           throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+        },
+      },
+      {
+        queueName: aiDeckResearchContentQueueName,
+        handler: (job) => {
+          if (job.name !== "source-grounding" && job.name !== "content-planning") {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processAiDeckPlanningStage(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            this.workerId,
+            job.data,
+          );
+        },
+      },
+      {
+        queueName: aiDeckDesignLayoutQueueName,
+        handler: (job) => {
+          if (job.name !== "design-planning" && job.name !== "layout-compile") {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processAiDeckPlanningStage(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            this.workerId,
+            job.data,
+          );
         },
       },
       {
@@ -661,6 +695,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
         "Job finished.",
       );
+    }
+  }
+
+  private aiDeckQueueNames(): string[] {
+    switch (this.config.AI_DECK_WORKER_QUEUE) {
+      case "reference-extract":
+        return [generateDeckQueueName, referenceExtractQueueName];
+      case "research-content":
+        return [aiDeckResearchContentQueueName];
+      case "design-layout":
+        return [aiDeckDesignLayoutQueueName];
+      default:
+        return this.allQueueNames;
     }
   }
 }

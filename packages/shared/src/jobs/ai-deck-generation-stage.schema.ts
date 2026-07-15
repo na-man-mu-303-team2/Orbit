@@ -27,9 +27,29 @@ export const aiDeckReferenceExtractionResultReferenceSchema = z
   })
   .strict();
 
+export const aiDeckPlanningArtifactReferenceSchema = z
+  .object({
+    planningArtifactId: z.string().uuid(),
+  })
+  .strict();
+
 export const aiDeckGenerationStageReferenceSchema = z.union([
   aiDeckGenerationStageEmptyReferenceSchema,
   aiDeckReferenceExtractionResultReferenceSchema,
+  aiDeckPlanningArtifactReferenceSchema,
+]);
+
+const planningStages = new Set<AiDeckGenerationStage>([
+  "source-grounding",
+  "content-planning",
+  "design-planning",
+  "layout-compile",
+]);
+
+const planningStagesWithArtifactInput = new Set<AiDeckGenerationStage>([
+  "content-planning",
+  "design-planning",
+  "layout-compile",
 ]);
 
 export const aiDeckGenerationStageInputReferenceSchema = z
@@ -39,14 +59,17 @@ export const aiDeckGenerationStageInputReferenceSchema = z
   })
   .strict()
   .superRefine((value, context) => {
-    if (
-      !aiDeckGenerationStageEmptyReferenceSchema.safeParse(value.reference)
-        .success
-    ) {
+    const isEmpty = aiDeckGenerationStageEmptyReferenceSchema.safeParse(
+      value.reference,
+    ).success;
+    const isPlanningArtifact =
+      planningStagesWithArtifactInput.has(value.stage) &&
+      aiDeckPlanningArtifactReferenceSchema.safeParse(value.reference).success;
+    if (!isEmpty && !isPlanningArtifact) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["reference"],
-        message: `${value.stage} input references must be empty`,
+        message: `${value.stage} input reference is not declared`,
       });
     }
   });
@@ -65,7 +88,10 @@ export const aiDeckGenerationStageResultReferenceSchema = z
       value.stage === "reference-extract-file" &&
       aiDeckReferenceExtractionResultReferenceSchema.safeParse(value.reference)
         .success;
-    if (!isEmpty && !isReferenceExtractionResult) {
+    const isPlanningArtifact =
+      planningStages.has(value.stage) &&
+      aiDeckPlanningArtifactReferenceSchema.safeParse(value.reference).success;
+    if (!isEmpty && !isReferenceExtractionResult && !isPlanningArtifact) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["reference"],
@@ -133,6 +159,9 @@ export type AiDeckGenerationStageReference = z.infer<
 >;
 export type AiDeckReferenceExtractionResultReference = z.infer<
   typeof aiDeckReferenceExtractionResultReferenceSchema
+>;
+export type AiDeckPlanningArtifactReference = z.infer<
+  typeof aiDeckPlanningArtifactReferenceSchema
 >;
 export type AiDeckGenerationStageMessage = z.infer<
   typeof aiDeckGenerationStageMessageSchema
