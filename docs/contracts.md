@@ -624,8 +624,8 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
 - GenerateDeck public request에는 `generationMode`, `design.engineVersion`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 없다. root request와 모든 중첩 request object는 strict하며 제거된 필드와 unknown field를 거부하고 ingress 호환 shim을 두지 않는다.
-- 이 breaking request 계약은 mixed-version rolling deployment를 허용하지 않는다. 배포 전에 generate-deck ingress를 중단하고 BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 DB `type = ai-deck-generation`의 `queued`/`running` Job이 모두 0임을 확인한 뒤 Web/API/Worker/Python worker를 같은 cutover window에 교체하고 Web cache를 무효화해야 한다. 이 증거가 없으면 production과 `develop` 자동 personal staging 배포를 모두 차단한다.
-- 이 계약을 도입하는 #339 PR 6은 `personal-staging` required reviewer 활성화 또는 자동 deploy workflow 중단이 확인되고, cutover 담당자·시간·maintenance 전환 방법이 PR 본문에 기록될 때까지 Draft로 유지한다. 이 merge gate를 충족한 뒤에만 Ready 전환과 merge를 허용한다. merge 후에는 queue/DB drain 증거를 확인한 뒤에만 대기 중인 deploy workflow를 승인한다.
+- `develop` merge는 `.github/workflows/deploy-personal-staging.yml`을 통해 personal staging에 자동 배포한다. #339 때문에 이 workflow를 변경·중단하거나 `personal-staging` required reviewer를 추가하지 않는다. workflow는 run 실행 시점에 `git pull --ff-only origin develop`로 동기화한 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드·교체하고 API/root health check가 통과해야 성공한다.
+- #339 종료 증거는 자동 배포 run 성공, 서버에서 확인한 `git rev-parse HEAD`, 배포 후 BullMQ `pptx-import`, `ai-template-deck-generation`, `generate-deck` 전체 상태와 관련 DB Job의 `queued`/`running`을 읽기 전용으로 확인하고 GenerateDeck smoke를 실행한 결과다. workflow trigger SHA와 실제 서버 HEAD를 구분하며, 성공한 배포 run만으로 queue/DB가 0이었다고 주장하지 않는다. production의 ingress 중단, drain, 동시 교체와 cache invalidation은 별도 승인된 배포 계획에서 다룬다.
 - 유효한 GenerateDeck request는 내부적으로 항상 `design-pack + program-v2`로 실행한다. `generationMode`와 engine은 public selector가 아니라 내부 상수다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.
@@ -759,7 +759,7 @@ PPTX import는 최종 편집/렌더링용 `Deck`과 템플릿 의미 sidecar인 
 
 `/pptx-imports`는 에디터의 활성 import 경로가 아니다. #339 PR 3부터 신규 요청과 Job 생성을 중단했고, PR 4에서 남은 API tombstone, queue/job constant, consumer, processor를 제거한다. `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 과거 row 조회 호환을 유지하며 `pptxImportJobResultSchema`는 historical result parser로만 남긴다. `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 `pptx-import`를 거부한다.
 
-PR 4의 런타임 제거는 배포 환경에서 PR 3 이후 신규 enqueue가 없고 queued/active 및 예약·repeat 잔여 Job이 없다는 증거를 merge hard gate로 둔다. 로컬 queue와 DB의 drain 결과는 이 배포 환경 증거를 대신하지 않는다.
+PR 4의 런타임 제거와 personal staging 자동 배포는 완료됐다. #339 종료 전 배포 환경의 `pptx-import` queue에서 queued/active 및 예약·repeat 잔여 Job과 관련 DB queued/running Job이 0인지 읽기 전용으로 확인한다. 사전 drain을 수행했다고 소급 주장하지 않으며 로컬 결과는 이 종료 증거를 대신하지 않는다.
 
 제거된 Legacy API 계약:
 
@@ -918,7 +918,7 @@ TemplateBlueprint optional OOXML tracking fields:
 
 신규 AI PPT 생성은 `/createdeck`의 `generate-deck` `program-v2` 경로만 사용한다. `TemplateBlueprint`, `template_blueprints` 테이블, `purpose: "pptx-import"`, Python `/design/import-pptx`, PPTX OOXML generation/sync/export 경로는 활성 PPTX round-trip 계약이므로 이 레거시 제거 범위에 포함하지 않는다.
 
-PR 4 merge 전에는 배포 환경의 `ai-template-deck-generation` queue가 PR 3 이후 신규 enqueue 없이 완전히 drain됐다는 운영 증거를 확인해야 한다.
+PR 4의 personal staging 자동 배포는 완료됐다. #339 종료 전 배포 환경의 `ai-template-deck-generation` queue와 관련 DB에 queued/running 잔여 Job이 0인지 읽기 전용으로 확인해야 한다.
 
 ## PPTX OOXML sync contract
 
@@ -1424,7 +1424,7 @@ historical `type` 값:
 - `historicalJobTypeSchema`, `jobTypeSchema`, `jobSchema`는 `pptx-import`, `ai-template-deck-generation` 과거 row를 계속 읽는다.
 - `activeJobTypeSchema`와 `publicCreatableJobTypeSchema`는 두 historical-only type을 거부한다.
 - `packages/job-queue`는 두 legacy queue/job constant와 enqueue helper를 export하지 않으며 Worker도 해당 queue를 구독하지 않는다.
-- PR 4 merge 전 배포 환경에서 PR 3 이후 신규 enqueue가 없고 두 queue가 완전히 drain됐다는 운영 증거를 확인한다. 로컬 증거만으로 merge gate를 충족하지 않는다.
+- PR 4 제거 코드는 personal staging에 자동 배포됐다. #339 종료 전 배포 환경의 두 legacy queue와 관련 DB queued/running 잔여 상태가 0인지 읽기 전용으로 확인하며 로컬 증거로 대신하지 않는다.
 - 프론트는 `jobId`로 진행률을 조회한다.
 - Job 조회 API는 `GET /jobs/:jobId`를 기본 경로로 사용하고, 기존/캐시된 web client 호환을 위해 `GET /api/v1/jobs/:jobId`도 같은 응답을 반환한다.
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.

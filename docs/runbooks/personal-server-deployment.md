@@ -151,25 +151,24 @@ cd /var/www/orbit
 
 `develop`에 merge되면 `.github/workflows/deploy-personal-staging.yml`이 개인 서버 self-hosted runner에서 배포 wrapper를 실행한다.
 
-### GenerateDeck breaking contract cutover
+### GenerateDeck breaking contract 자동 배포와 사후 확인
 
-#339 PR 6처럼 Web/API/Worker/Python worker가 공유하는 GenerateDeck request를 호환 shim 없이 축소하는 변경은 일반 자동 배포 대상이 아니다. 현재 배포 script는 queue drain이나 ingress freeze 없이 `docker compose up -d`로 서비스를 교체하므로 mixed-version window를 막지 못한다.
+#339 PR 6처럼 Web/API/Worker/Python worker가 공유하는 GenerateDeck request를 호환 shim 없이 축소하는 변경도 기존 `develop` 자동 배포 규칙을 따른다. 이 변경 때문에 workflow를 중단하거나 GitHub Environment `personal-staging`에 required reviewer를 추가하지 않는다.
 
-이 변경은 merge 전에 GitHub Environment `personal-staging`에 required reviewer를 임시 설정해 자동 workflow가 승인 대기하도록 만들거나 자동 배포 자체를 중단해야 한다. 둘 다 준비하지 못했다면 PR을 merge하지 않는다.
+자동 배포와 사후 확인 순서는 다음과 같다.
 
-merge 및 승인 순서는 다음과 같다.
+1. PR merge로 `develop` push workflow를 시작한다.
+2. 배포 script가 `git pull --ff-only origin develop`로 run 실행 시점의 최신 `develop` HEAD를 동기화하고, 해당 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드한다.
+3. migration을 실행하고 `docker compose up -d`로 서비스를 교체한다.
+4. 배포 script의 API/root health check가 통과해 workflow가 성공했는지 확인한다.
+5. 서버에서 `git rev-parse HEAD`를 실행해 실제 배포 SHA를 기록하고 workflow trigger SHA와 구분한다.
+6. BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`를 읽기 전용으로 확인한다.
+7. DB에서 `type = 'ai-deck-generation'`이고 `status IN ('queued', 'running')`인 Job 수를 읽기 전용으로 확인한다.
+8. GenerateDeck smoke를 실행하고 queue/DB에 stuck Job이 없음을 운영 기록에 남긴다.
 
-1. PR을 Draft로 유지한다.
-2. `personal-staging` required reviewer 또는 자동 deploy workflow 중단을 설정하고 설정 증거를 PR 본문에 남긴다.
-3. cutover 담당자·시간·maintenance 전환 방법을 PR 본문에 기록한 뒤 Ready for review로 전환한다.
-4. 리뷰와 merge가 끝나면 자동 workflow가 승인 대기 또는 중단 상태인지 확인한다.
-5. generate-deck ingress를 maintenance 상태로 전환해 새 요청을 막는다.
-6. BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0인지 확인한다.
-7. DB에서 `type = 'ai-deck-generation'`이고 `status IN ('queued', 'running')`인 Job이 0인지 확인한다.
-8. queue와 DB 증거를 PR 또는 승인 기록에 남긴 뒤 대기 중인 personal staging workflow를 승인해 Web/API/Worker/Python worker를 같은 cutover window에 교체한다.
-9. health check를 통과시키고 기존 Web asset/cache를 무효화한 다음 ingress를 재개한다.
+배포 script는 실제 서버 HEAD와 queue/DB count를 출력하지 않으므로 workflow 성공만으로 5~8번을 충족했다고 기록하지 않는다. #339 도입 시점의 사전 drain 증거는 남아 있지 않으며, 수행했다고 소급 주장하지 않는다.
 
-production ECS/CloudFront cutover는 이 personal staging runbook으로 대신하지 않는다. production에서도 같은 drain 불변조건을 만족하되 서비스 동시 교체와 cache invalidation은 별도 승인된 배포 계획으로 수행한다.
+production ECS/CloudFront cutover는 이 personal staging runbook으로 대신하지 않는다. production의 ingress 중단, drain, 서비스 동시 교체와 cache invalidation은 별도 승인된 배포 계획으로 수행한다.
 
 필수 서버 조건:
 
@@ -187,18 +186,68 @@ set -euo pipefail
 exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts/deploy-personal-server.sh'
 ```
 
-완전 자동 배포가 목표라면 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. 승인 단계를 두고 싶을 때만 environment protection rule을 추가한다.
+GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. `develop` merge 후 완전 자동 배포가 팀의 고정 규칙이다.
 
 ## 검증
 
 서버 내부에서 확인한다.
 
 ```bash
+sudo -iu orbit
+cd /var/www/orbit
+git rev-parse HEAD
 curl -fsS http://127.0.0.1/api/health
 curl -I http://127.0.0.1/
 curl -I http://127.0.0.1:9000/minio/health/live
 doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
+
+### #339 queue/DB 사후 확인
+
+다음 명령은 queue payload나 credential을 출력하지 않고 `pptx-import`, `ai-template-deck-generation`, `generate-deck`의 현재 BullMQ 상태 수만 출력한다. 모든 값이 0이어야 하며 하나라도 남으면 exit code 1이다.
+
+```bash
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T -w /app/apps/worker worker node --input-type=module -e '
+const { Queue } = await import("bullmq");
+const { redisConnectionOptions } = await import("@orbit/job-queue");
+const names = ["pptx-import", "ai-template-deck-generation", "generate-deck"];
+const states = ["waiting", "paused", "delayed", "prioritized", "waiting-children", "active"];
+let hasRemainingJob = false;
+for (const name of names) {
+  const queue = new Queue(name, {
+    connection: redisConnectionOptions(process.env.REDIS_URL),
+    skipMetasUpdate: true,
+  });
+  const counts = await queue.getJobCounts(...states);
+  const repeat = (await queue.getRepeatableJobs()).length;
+  console.log(JSON.stringify({ queue: name, ...counts, repeat }));
+  hasRemainingJob ||= Object.values(counts).some((count) => count !== 0) || repeat !== 0;
+  await queue.close();
+}
+if (hasRemainingJob) process.exitCode = 1;
+'
+```
+
+DB는 세 historical/active type의 `queued`, `running` 수만 집계한다. 결과의 두 count가 모두 0이어야 한다.
+
+```bash
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T postgres psql -U orbit -d orbit -v ON_ERROR_STOP=1 -c "
+WITH expected(type) AS (
+  VALUES ('pptx-import'), ('ai-template-deck-generation'), ('ai-deck-generation')
+)
+SELECT expected.type,
+       COUNT(j.*) FILTER (WHERE j.status = 'queued') AS queued,
+       COUNT(j.*) FILTER (WHERE j.status = 'running') AS running
+FROM expected
+LEFT JOIN jobs j
+  ON j.type = expected.type
+ AND j.status IN ('queued', 'running')
+GROUP BY expected.type
+ORDER BY expected.type;
+"
+```
+
+마지막으로 인증된 브라우저에서 `/createdeck` GenerateDeck smoke를 1회 완료하고, 위 두 명령을 다시 실행해 stuck Job이 없음을 확인한다. 결과에는 count와 확인 시각, workflow trigger SHA, 서버의 실제 `git rev-parse HEAD`를 구분해 기록하고 payload, prompt, 발표 원문, credential은 남기지 않는다.
 
 외부 브라우저에서는 다음 주소를 확인한다.
 
