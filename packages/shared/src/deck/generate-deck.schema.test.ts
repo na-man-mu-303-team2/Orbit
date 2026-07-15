@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
+  generateDeckDiagnosticsSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema
@@ -328,6 +329,46 @@ describe("generateDeckRequestSchema", () => {
         slideCountRange: { min: 8, max: 5 }
       }).success
     ).toBe(false);
+  });
+});
+
+describe("generateDeckDiagnosticsSchema", () => {
+  it("defaults machine-readable warning codes without breaking old payloads", () => {
+    expect(generateDeckDiagnosticsSchema.parse({}).warningCodes).toEqual([]);
+  });
+
+  it("accepts unavailable rendered visual QA with warning codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        visualQaStatus: "unavailable",
+        warningCodes: ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+      }),
+    ).toMatchObject({
+      visualQaStatus: "unavailable",
+      warningCodes: ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+    });
+  });
+
+  it("accepts extensible uppercase codes and rejects user-facing warning text", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        warningCodes: ["FUTURE_DEGRADED_RESULT"],
+      }).warningCodes,
+    ).toEqual(["FUTURE_DEGRADED_RESULT"]);
+
+    for (const warningCode of [
+      "",
+      "   ",
+      "visual_qa_unavailable",
+      "VISUAL-QA",
+      "Visual QA unavailable",
+    ]) {
+      expect(
+        generateDeckDiagnosticsSchema.safeParse({
+          warningCodes: [warningCode],
+        }).success,
+      ).toBe(false);
+    }
   });
 });
 

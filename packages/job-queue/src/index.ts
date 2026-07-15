@@ -1,6 +1,8 @@
 import {
   Job,
   type ActiveJobType,
+  type AiDeckGenerationStageMessage,
+  aiDeckGenerationStageMessageSchema,
   deckSchema,
   demoIds,
   deckExportFormatSchema,
@@ -68,6 +70,13 @@ export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
 export const pptxOoxmlSyncJobName = "pptx-ooxml-sync";
 export const workerHealthCheckQueueName = "worker-health-check";
 export const workerHealthCheckJobName = "worker-health-check";
+
+export function aiDeckGenerationStageJobId(
+  input: AiDeckGenerationStageMessage,
+): string {
+  const message = aiDeckGenerationStageMessageSchema.parse(input);
+  return `${message.pipelineJobId}:${message.stage}:${message.shardKey}`;
+}
 
 export interface ReferenceExtractBullMqFile {
   fileId: string;

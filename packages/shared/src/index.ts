@@ -43,6 +43,7 @@ export * from "./deck/template-blueprint.schema";
 export * from "./deck/theme.schema";
 export * from "./files/file.schema";
 export * from "./jobs/job.schema";
+export * from "./jobs/ai-deck-generation-stage.schema";
 export * from "./presentation/presentation.schema";
 export * from "./projects/project.schema";
 export * from "./rehearsals/live-stt.schema";

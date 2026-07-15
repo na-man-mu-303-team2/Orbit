@@ -126,7 +126,7 @@ AWS SQS는 이 문제를 해결하는 실행 기반이 될 수 있지만, 현재
 
 - `reference-extract-file`을 파일별 Job으로 fan-out한다.
 - message에는 binary나 base64가 아니라 `{ pipelineJobId, projectId, stage: "reference-extract-file", shardKey: fileId }`만 전달한다.
-- 각 파일 결과를 `stage=reference-extract-file`, `shardKey=fileId` checkpoint에 저장한다.
+- 각 파일 결과는 별도 OCR artifact persistence에 저장하고 `stage=reference-extract-file`, `shardKey=fileId` checkpoint에는 #338의 strict result locator만 저장한다.
 - 실패한 파일만 재시도하고 모든 필수 파일이 종료되면 `source-grounding`을 enqueue한다.
 - `topic-only`, `user-input-only` 요청은 OCR stage를 즉시 skip한다.
 
@@ -700,7 +700,7 @@ uv run pytest tests/test_generate_deck_contract.py
 | `VisualRequirements` | slide/element별 image 검색·생성 요구사항 | asset 검색·생성·DB 저장 수행 |
 | `PythonQualityResult` | Python 내부 content/layout validation과 repair 결과 | rendered visual QA 또는 DB Job 상태 변경 |
 
-이 DTO는 #338에서 checkpoint payload schema의 출발점이 되지만, 선행 PR에서는 프로세스 내부 객체로만 사용한다.
+이 DTO는 #338-2의 별도 stage artifact schema 출발점이며 checkpoint payload가 아니다. checkpoint에는 각 artifact 소유 PR이 정의한 strict locator만 저장하고, 338-0에서는 reference field를 열지 않는다. 선행 PR에서는 프로세스 내부 객체로만 사용한다.
 
 **이동 순서**
 
