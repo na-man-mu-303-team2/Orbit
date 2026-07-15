@@ -22,12 +22,13 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
   return (
     <div className="editor-save-control">
       <button
+        aria-busy={isSaving}
         className="editor-save-button"
         disabled={disabled || isSaving}
         type="button"
         onClick={onSave}
       >
-        {isSaving ? "저장 중..." : "저장"}
+        {isSaving ? "저장 중..." : recoveryHint ? "다시 저장" : "저장"}
       </button>
       <div
         aria-live={recoveryHint ? "assertive" : "polite"}
@@ -36,7 +37,7 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
       >
         <span className="editor-save-status">{statusLabel}</span>
         {recoveryHint ? <span className="editor-save-status">{recoveryHint}</span> : null}
-        <span className="editor-save-time">
+        <span className="editor-save-time" aria-label="마지막 저장 시각">
           {lastSavedAtLabel ? `마지막 저장 ${lastSavedAtLabel}` : emptyStateLabel}
         </span>
       </div>

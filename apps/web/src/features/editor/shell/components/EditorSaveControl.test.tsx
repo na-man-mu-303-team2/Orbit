@@ -15,6 +15,7 @@ describe("EditorSaveControl", () => {
 
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-busy="true"');
     expect(html).toContain("리허설 준비 중");
   });
 
@@ -32,5 +33,6 @@ describe("EditorSaveControl", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('aria-live="assertive"');
     expect(html).toContain("상단 리허설 버튼으로 다시 시도");
+    expect(html).toContain("다시 저장");
   });
 });
