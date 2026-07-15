@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #339 완료 · 338-0 구현 완료·병합 전 검증 중
+**상태**: 확정 · #339 완료 · #338-0 완료·병합 · #338-1 구현 완료·병합 전 검증 중
 
 **실행 이슈**: [#338 PPT 생성 - AI PPT stage Job·SQS 파이프라인 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -19,6 +19,15 @@
 ## 1. 문서 목적
 
 이 문서는 #339 완료 후 AI PPT 생성의 각 stage를 독립 Job으로 실행하는 application pipeline과 transport 계약을 정의한다. staged BullMQ 경로를 먼저 완성하고 같은 stage message에 SQS transport adapter를 추가한다. 실제 AWS queue·DLQ·IAM·ECS·autoscaling·CloudWatch와 production cutover는 후속 인프라 이슈의 범위다.
+
+현재 338-1은 전체 목표 중 staged coordinator와 파일별 OCR까지만 활성화한다.
+
+- `monolith` 기본 모드는 기존 `generate-deck` Job 이름과 request·DesignPack snapshot·image asset scope를 포함한 full-deck payload를 유지한다.
+- `bullmq` staged 모드는 `generate-deck-staged-coordinator`에 `{ jobId, projectId }`만 전달하고 부모 Job의 저장 payload에서 OCR 대상을 계산한다.
+- Worker는 `generate-deck` queue와 `reference-extract` queue에서 각각 기존 Job과 staged Job을 `job.name`으로 구분한다.
+- 338-1 dispatcher·consumer는 `reference-extract-file`만 처리한다. OCR skip 또는 policy join으로 생성된 `source-grounding` checkpoint는 dispatch하지 않고 338-2가 이어받는다.
+- standalone reference extraction의 공개 API와 기존 `reference-extract` 다중 파일 Job은 그대로 유지한다. AI PPT staged 경로만 파일별 checkpoint와 artifact를 사용한다.
+- 부모 실패 Job의 명시적 retry API는 338-3에서 연결하며 SQS queue URL과 transport는 338-4에서 추가한다.
 
 #339에서 다음 작업은 이미 끝난 것으로 간주한다.
 
@@ -103,6 +112,8 @@ flowchart LR
 
 `topic-only`, `user-input-only` 요청은 OCR child나 별도 join checkpoint를 만들지 않고 `source-grounding` checkpoint를 생성한다.
 
+위 다이어그램은 338-3까지의 목표 구조다. 338-1 실행은 OCR child의 policy join 또는 OCR skip으로 `source-grounding` checkpoint를 생성하는 지점에서 멈추며 해당 checkpoint를 queue에 보내지 않는다.
+
 ## 5. #339 stage와 #338 Job mapping
 
 #339에서 추출한 Python module과 TypeScript module을 다음 Job에서 그대로 사용한다.
@@ -128,11 +139,12 @@ Python의 `quality.py`와 `diagnostics.py`는 Python stage 내부 content/layout
 queue 수신, checkpoint, Job 상태, 다음 stage enqueue는 `apps/worker`가 소유한다. Python은 generation과 document parsing의 순수 실행 경계를 소유한다.
 
 - TypeScript Worker가 BullMQ/SQS 공통 stage message를 검증하고 checkpoint 실행권을 획득한다.
+- 338-1 Worker는 같은 `generate-deck` queue의 `generate-deck`과 `generate-deck-staged-coordinator`, 같은 `reference-extract` queue의 `reference-extract`와 `reference-extract-file`을 `job.name`으로 strict routing한다. 알 수 없는 Job 이름은 실행하지 않는다.
 - OCR과 Python generation Job은 내부 Python stage adapter를 호출한다.
 - Python `/ai/generate-deck`는 동일 stage 함수를 동기 호출하는 공개 호환 façade로 유지한다.
 - 내부 stage adapter는 public API 계약에 포함하지 않으며 로컬 서비스 또는 후속 ECS 내부 네트워크에서만 접근한다.
 - image, semantic quality, rendered visual quality, publication은 TypeScript Worker가 직접 실행한다.
-- Worker image는 `AI_DECK_WORKER_QUEUE`에 따라 담당 queue만 소비할 수 있어야 하며 후속 ECS service가 같은 image를 사용한다.
+- Worker image는 `AI_DECK_WORKER_QUEUE`에 따라 담당 queue만 소비할 수 있어야 하며 후속 ECS service가 같은 image를 사용한다. 338-1은 `all`과 `reference-extract` role만 실행하고 planning 이후 role은 owner PR 전까지 startup에서 거부한다.
 - Python execution service의 독립 확장은 후속 ECS 인프라에서 OCR과 planning/design 부하에 맞춰 구성한다.
 
 이 구조는 checkpoint와 DB 상태 변경을 TypeScript Worker 한 곳에 유지하고 Python에 별도 queue orchestration을 복제하지 않는다.
@@ -156,8 +168,8 @@ ai_deck_generation_stages
 - shard_key              # NOT NULL DEFAULT ''; fileId, slideId 또는 단일 stage의 빈 값; colon 금지
 - status                 # NOT NULL DEFAULT 'queued'; queued | running | succeeded | failed
 - attempt                # NOT NULL DEFAULT 0; 0..5
-- input_ref_json         # 338-0: 정확히 '{}'; 후속 stage PR에서 strict locator field 추가
-- result_ref_json        # 338-0: null 또는 정확히 '{}'; 후속 stage PR에서 strict locator field 추가
+- input_ref_json         # 338-1 OCR: 정확히 '{}'; 후속 stage PR에서 stage별 strict locator field 추가
+- result_ref_json        # 338-1 OCR: null 또는 strict { referenceExtractionArtifactId: uuid }
 - error_json             # nullable safe error object
 - lease_owner
 - lease_expires_at
@@ -174,19 +186,21 @@ UNIQUE (pipeline_job_id, stage, shard_key)
 2. consumer는 조건부 update로 checkpoint lease를 획득한 경우에만 provider를 호출한다.
 3. 이미 `succeeded`인 checkpoint는 결과를 재사용하고 다음 stage dispatch만 보장한다.
 4. transport 공통 message는 strict `{ pipelineJobId, projectId, stage, shardKey }`만 허용한다. `reference-extract-file`, `image-slide`은 non-empty shard를 사용하고 나머지 singleton은 `shardKey=""`를 사용한다. binary, base64, 전체 Deck JSON, provider raw response, 별도 checkpoint ID와 asset ID를 넣지 않는다.
-5. binary와 큰 stage 결과는 checkpoint가 아닌 별도 DB 또는 Storage artifact에 둔다. 338-0에서는 artifact persistence가 아직 없으므로 checkpoint reference allowlist를 비워 `input_ref_json={}`, `result_ref_json=null|{}`만 repository schema와 DB CHECK에서 허용한다. 338-1~3에서 각 stage가 artifact를 소유하는 PR이 필요한 strict locator field만 함께 추가하며 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않는다.
-6. 별도 join stage는 만들지 않는다. 마지막 OCR/image child가 종료될 때 expected shard 전체 상태를 트랜잭션으로 확인하고 다음 stage checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다.
-7. queued checkpoint 자체를 durable dispatch record로 사용한다. 전송 성공 후 `dispatched_at`을 기록하고 dispatcher가 미전송 queued row를 재전송한다.
+5. binary와 큰 stage 결과는 checkpoint가 아닌 별도 DB 또는 Storage artifact에 둔다. 338-1은 `ai_deck_reference_extraction_artifacts`에 파일별 정규화 OCR 결과와 `usable`을 저장하고 checkpoint에는 strict `{ referenceExtractionArtifactId: uuid }` locator만 기록한다. 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않으며 338-2~3도 stage별 artifact와 locator를 같은 방식으로 추가한다.
+6. 별도 join stage는 만들지 않는다. 마지막 OCR/image child가 종료될 때 expected shard 전체 상태를 트랜잭션으로 확인하고 다음 stage checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다. 338-1이 만든 `source-grounding` checkpoint는 338-2 전까지 dispatch 대상이 아니다.
+7. queued checkpoint 자체를 durable dispatch record로 사용한다. BullMQ enqueue 결과가 `waiting`, `delayed`, `prioritized`일 때만 조회 당시와 같은 `attempt` generation의 `dispatched_at`을 기록한다. `active`, `completed`, `failed` 또는 알 수 없는 상태는 미전송으로 남겨 dispatcher가 재확인한다.
 8. provider는 checkpoint 저장 전 crash 경계에서 재실행될 수 있으므로 exactly-once를 보장한다고 표현하지 않는다. checkpoint, 결정적 image object key와 publication 조건부 upsert로 중복 영속 결과를 막는다.
 9. 최종 Deck은 publication에서 기존 shared Deck schema로 검증해 저장한다.
 10. consumer/repository는 parent row의 `jobs.job_id`, `jobs.project_id`, `jobs.type="ai-deck-generation"`을 message와 대조한다.
 11. claim은 stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 매번 새로 발급하고 `attempt`를 lease generation fencing token으로 함께 사용한다. heartbeat·성공·실패·retry release는 claim이 반환한 `lease_owner`와 `attempt`가 모두 일치할 때만 허용한다. dispatcher도 조회 당시 `attempt`를 `markDispatched`에 전달해 늦은 이전 send가 새 retry row를 덮지 못하게 한다.
 
+`ai_deck_reference_extraction_artifacts`는 `(pipeline_job_id, file_id)` identity를 보존하며 checkpoint와 artifact 저장, terminal 상태 전이와 policy join은 부모 Job row를 먼저 잠근 하나의 transaction에서 처리한다. usable=false인 최종 OCR 응답도 artifact로 남겨 policy join이 provider 성공과 usable source 여부를 구분할 수 있게 한다.
+
 ### 실행 모드와 transport 설정
 
-- `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다.
-- `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용한다. 로컬은 `all`을 사용하고 후속 AWS ECS 배포에서는 queue별 값을 사용한다.
-- SQS mode에서만 다섯 queue URL을 필수 검증한다.
+- `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 338-1 기본값은 `monolith`이며 `sqs`는 API·Worker startup에서 fail-fast한다.
+- `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용한다. 338-1은 `all`과 `reference-extract`만 실행 가능하고 후속 role은 해당 stage owner PR에서 활성화한다.
+- 다섯 SQS queue URL key와 send/receive/delete/visibility transport는 338-4에서 함께 추가하고 그때 `sqs` mode에서만 필수 검증한다.
 - 전역 `JOB_QUEUE_DRIVER`는 다른 Job을 위해 `bullmq`로 유지한다.
 
 ## 8. OCR file fan-out과 join
@@ -196,17 +210,19 @@ UNIQUE (pipeline_job_id, stage, shard_key)
 1. 각 `fileId`마다 `stage=reference-extract-file`, `shardKey=fileId` checkpoint를 생성한다.
 2. `reference-extract-file` consumer는 project ownership과 asset status를 검증한다.
 3. Storage에서 파일을 읽어 Python parser에 파일 하나만 전달한다.
-4. 성공 결과는 file checkpoint의 result ref로 저장한다.
-5. retryable 오류는 해당 파일 message만 재시도한다.
+4. Python 응답은 `ai_deck_reference_extraction_artifacts`에 upsert하고 file checkpoint에는 `{ referenceExtractionArtifactId }` locator만 저장한다.
+5. retryable 오류는 해당 파일 message만 initial 포함 총 5 attempts 안에서 다시 실행한다. 1~4번째 실패는 shard를 queued로 되돌리고 5번째 종료 시 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 판정한다.
 6. 마지막으로 종료된 child는 같은 트랜잭션에서 UNIQUE child checkpoint의 terminal 상태를 조회해 모든 예상 fileId의 종료 여부를 판정한다. 중복 message마다 counter를 단순 증가시키지 않는다.
-7. 별도 join stage 없이 `source-grounding` checkpoint를 `ON CONFLICT DO NOTHING`으로 생성하고 dispatcher가 전송한다.
+7. 별도 join stage 없이 계속 가능한 policy만 `source-grounding` checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다. 338-1 dispatcher는 이 checkpoint를 전송하지 않고 338-2가 이어서 전송한다.
 
 reference policy별 처리:
 
 - `topic-only`, `user-input-only`: OCR을 skip한다.
-- `references-first`: usable file이 있으면 실패한 선택 파일을 warning으로 남기고 계속할 수 있다.
+- `references-first`: usable file이 있으면 338-1 policy join은 계속한다. 실패한 선택 파일의 warning emit은 338-2 diagnostics owner다.
 - `references-only`: 필수 파일이 usable source를 만들지 못하고 retry가 소진되면 terminal failure다.
-- `research-first`: 첨부 실패는 warning으로 전달하고 web research를 계속할 수 있다.
+- `research-first`: 첨부가 모두 실패해도 338-1 policy join은 계속한다. warning emit과 실제 web research 실행은 338-2 owner다.
+
+join은 기존 `referenceContext`의 covered usable file과 새 artifact를 함께 계산한다. `references-first`는 둘을 합쳐 usable source가 하나 이상이면 계속하고, `references-only`는 요청에서 새로 추출해야 하는 모든 필수 file이 usable이어야 계속한다. 허용되지 않는 조합은 `SOURCE_GROUNDING_REQUIRED`로 부모 Job을 종료한다.
 
 기존 standalone reference extraction API의 공개 request/response는 유지한다. 다만 AI PPT pipeline 내부 실행은 파일별 stage Job과 checkpoint를 사용하며 다중 파일 base64 queue payload를 사용하지 않는다.
 
@@ -265,9 +281,9 @@ BullMQ와 SQS의 duplicate delivery는 정상 상황으로 취급한다. message
 - 일시적 DB·Storage·내부 Python service 연결 실패
 - Worker 종료와 SQS visibility timeout 만료
 
-claim 시 `attempt`를 증가시키고 현재 file, stage 또는 slide message만 지수 backoff로 최대 5회 재시도한다. DB lease는 10분, heartbeat는 60초로 유지하고 SQS transport는 visibility를 5분 단위로 연장한다. 부모 Job과 성공한 checkpoint는 초기화하지 않는다.
+claim 시 `attempt`를 증가시키고 현재 file, stage 또는 slide message만 initial attempt를 포함해 총 5회 시도한다. 1~4번째 retryable 실패만 지수 backoff로 재큐잉하며 5번째 종료는 해당 stage의 policy join 또는 terminal 규칙으로 확정한다. DB lease는 10분, heartbeat는 60초로 유지하고 SQS transport의 5분 단위 visibility 연장은 338-4에서 추가한다. 부모 Job과 성공한 checkpoint는 초기화하지 않는다.
 
-retry release와 expired lease는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 되돌리고 기존 `attempt`는 유지한다. 338-1 reconciler가 expired lease 전이를 실행한다. 최대 시도 횟수를 초과하면 checkpoint와 부모 Job을 함께 `failed`로 종료한다. 실패 Job 재시도 API는 기록된 `failedStage`부터 시작하고 upstream 성공 checkpoint는 보존한다. OCR/image shard 실패는 해당 shard만 초기화하고 downstream checkpoint만 무효화한다.
+retry release와 expired lease는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 되돌리고 기존 `attempt`는 유지한다. 338-1 reconciler가 expired lease 전이를 실행한다. 5번째 attempt가 끝나면 OCR은 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행하고, 다른 필수 stage는 checkpoint와 부모 Job을 함께 `failed`로 종료한다. 실패 Job의 명시적 재시도 API는 338-3에서 구현하며 기록된 `failedStage`부터 시작하고 upstream 성공 checkpoint를 보존한다. OCR/image shard 실패는 해당 shard만 초기화하고 downstream checkpoint만 무효화한다.
 
 Art Director의 `backgroundSequence`와 `slides[].backgroundMode` 불일치는 retry 대상이 아니다. `design-planning` adapter가 `slides[].backgroundMode`에서 sequence를 다시 만들어 첫 응답에서 복구한다.
 
@@ -307,7 +323,7 @@ Art Director의 `backgroundSequence`와 `slides[].backgroundMode` 불일치는 r
 - `GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED`: optional no-media fallback request 실패의 terminal failure
 - `GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED`: bounded repair 후 blocking visual issue가 남은 terminal failure
 
-필수 stage가 최종 실패하면 부모 Job에 `failedStage`, `retryable`과 안전한 오류 코드만 기록한다. 이전 checkpoint는 보존하며 명시적 재시도 시 해당 stage부터 다시 시작한다.
+필수 stage가 최종 실패하면 부모 Job에 `failedStage`, `retryable`과 안전한 오류 코드만 기록한다. 이전 checkpoint는 보존하며 338-3의 명시적 재시도 API가 해당 stage부터 다시 시작한다.
 
 SQS adapter는 DLQ/redrive 계약과 오류 처리를 지원하되 실제 다섯 DLQ와 redrive policy 생성은 후속 인프라 이슈에서 수행한다. DLQ는 자동 복구가 아니라 반복 실패 조사와 명시적 redrive에 사용한다.
 
@@ -393,11 +409,13 @@ flowchart TB
 
 ### 338-1: staged BullMQ coordinator와 OCR
 
-- 기존 monolith를 기본값으로 유지한 채 staged BullMQ 경로를 추가한다.
-- `reference-extract-file` message를 추가하고 base64 queue payload를 제거한다.
-- fileId 기반 Storage 조회, 파일별 checkpoint, retry, join을 구현한다.
-- queued checkpoint 기반 durable dispatch와 stage-only retry를 구현한다.
-- OCR이 없는 request의 skip 경로를 검증한다.
+- 기존 monolith의 `generate-deck` full-deck payload와 기본값을 유지한 채 ID-only `generate-deck-staged-coordinator` BullMQ 경로를 추가한다.
+- 같은 queue의 legacy와 staged handler를 `job.name`으로 구분하고 `reference-extract-file`만 staged stage message로 dispatch·consume한다.
+- fileId 기반 Storage 조회, 파일별 checkpoint, `ai_deck_reference_extraction_artifacts`, strict `{ referenceExtractionArtifactId }` locator를 구현한다.
+- initial 포함 총 5 attempts, shard-only retry, 60초 heartbeat, lease fencing, expired-lease reconciler를 구현한다.
+- BullMQ `waiting`·`delayed`·`prioritized` 상태만 전송 완료로 인정하는 durable dispatch를 구현한다.
+- OCR skip과 reference policy join은 `source-grounding` checkpoint까지만 만들고 338-2 전에는 dispatch하지 않는다.
+- standalone reference extraction API와 기존 `reference-extract` 다중 파일 Job은 변경하지 않는다.
 
 ### 338-2: Python planning stage 연결
 
@@ -414,10 +432,12 @@ flowchart TB
 - Visual QA unavailable warning과 bounded repair 이후 blocking issue terminal 정책을 contract test로 고정한다.
 - optional image의 결정적 no-media fallback과 advisory Visual QA acceptance를 #339 baseline 그대로 stage contract test로 고정한다.
 - no-media fallback 실패를 `GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED` terminal로 분리해 rendered QA unavailable degraded 분기와 구분한다.
+- 부모 실패 Job을 `failedStage`부터 다시 시작하고 upstream 성공 checkpoint를 보존하는 명시적 retry API와 shard/downstream invalidation을 연결한다.
 - 로컬 기본 실행을 staged BullMQ로 전환한다.
 
 ### 338-4: SQS transport adapter
 
+- 다섯 SQS queue URL 환경변수 key를 추가하고 `AI_DECK_EXECUTION_MODE=sqs`에서만 필수 검증한다.
 - `@aws-sdk/client-sqs`로 동일 stage message의 send, receive, delete와 visibility 연장을 구현한다.
 - staged BullMQ와 mocked SQS adapter가 같은 checkpoint 상태 전이와 retry 결과를 만드는 parity test를 추가한다.
 - 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다.
@@ -456,6 +476,20 @@ flowchart TB
 - 공개 `/ai/generate-deck` endpoint 분할
 
 ## 15. 완료 조건
+
+### 338-1 병합 전 증거 체크리스트
+
+- [ ] monolith enqueue가 기존 `generate-deck` full-deck payload를 유지하고 staged enqueue만 ID-only coordinator payload를 사용하는 contract test
+- [ ] `job.name` 기준 coordinator·monolith 및 standalone·staged OCR routing과 미지원 worker role·`sqs` startup fail-fast test
+- [ ] OCR skip, uncovered file dedupe, 파일별 fan-out, `research-first`·`references-first`·`references-only` policy join test
+- [ ] `ai_deck_reference_extraction_artifacts`와 `{ referenceExtractionArtifactId }` locator의 migration·repository·atomic checkpoint completion test
+- [ ] initial 포함 총 5 attempts, shard-only retry, heartbeat, lease fencing, expired-lease reconciler test
+- [ ] BullMQ `waiting`·`delayed`·`prioritized`만 `dispatched_at`을 기록하고 duplicate enqueue·crash 복구가 가능한 durable dispatch test
+- [ ] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
+- [ ] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
+- [ ] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
+
+### #338 전체 완료 조건
 
 1. staged BullMQ에서 첨부자료가 있는 요청 여러 개를 동시에 실행해도 다중 파일 OCR Job 하나 때문에 전체 요청이 직렬 대기하지 않는다.
 2. OCR 파일 하나가 실패하면 해당 파일만 재시도하고 다른 파일 결과를 재사용한다.
