@@ -27,6 +27,13 @@ describe("CreateAiDeckReferenceExtractionArtifacts migration", () => {
       "FOREIGN KEY (pipeline_job_id, stage, file_id) REFERENCES ai_deck_generation_stages(pipeline_job_id, stage, shard_key) ON DELETE CASCADE",
     );
     expect(sql).toContain("stage = 'reference-extract-file'");
+    expect(sql).toContain(
+      "CREATE INDEX idx_ai_deck_generation_stages_stale_dispatch",
+    );
+    expect(sql).toContain("ON ai_deck_generation_stages (dispatched_at, pipeline_job_id, shard_key)");
+    expect(sql).toContain(
+      "WHERE stage = 'reference-extract-file' AND status = 'queued' AND dispatched_at IS NOT NULL",
+    );
   });
 
   it("allows the exact OCR locator only on reference extraction results", async () => {
@@ -61,6 +68,9 @@ describe("CreateAiDeckReferenceExtractionArtifacts migration", () => {
     );
     expect(sql).toContain(
       "DROP TABLE IF EXISTS ai_deck_reference_extraction_artifacts",
+    );
+    expect(sql).toContain(
+      "DROP INDEX IF EXISTS idx_ai_deck_generation_stages_stale_dispatch",
     );
     expect(sql).toContain(
       "result_ref_json IS NULL OR result_ref_json = '{}'::jsonb",
