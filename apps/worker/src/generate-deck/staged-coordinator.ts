@@ -96,6 +96,39 @@ export async function processAiDeckStagedCoordinatorJob(
     }
 
     const storedPayload = storedPayloadSchema.parse(parent.payload);
+    const plan = planAiDeckInitialStages(storedPayload.request);
+    if (requiresUnavailableGrounding(storedPayload.request, plan)) {
+      const failedRows = await manager.query(
+        `
+          UPDATE jobs
+          SET status = 'failed',
+              message = 'AI deck generation failed.',
+              error = $3::jsonb,
+              updated_at = now()
+          WHERE job_id = $1
+            AND project_id = $2
+            AND type = 'ai-deck-generation'
+            AND status IN ('queued','running')
+          RETURNING *
+        `,
+        [
+          payload.jobId,
+          payload.projectId,
+          {
+            code: "SOURCE_GROUNDING_REQUIRED",
+            message: "The selected reference policy requires usable grounding.",
+            failedStage: "reference-extract-file",
+            retryable: false,
+          },
+        ],
+      );
+      const failedParent = parentJobFromQuery(failedRows);
+      if (!failedParent) {
+        throw new Error("AI deck generation parent job is not runnable.");
+      }
+      return rowToJob(failedParent);
+    }
+
     const updatedRows = await manager.query(
       `
         UPDATE jobs
@@ -117,7 +150,6 @@ export async function processAiDeckStagedCoordinatorJob(
       throw new Error("AI deck generation parent job is not runnable.");
     }
 
-    const plan = planAiDeckInitialStages(storedPayload.request);
     const messages = plan.referenceFileIds.length
       ? plan.referenceFileIds.map((fileId) => ({
           pipelineJobId: payload.jobId,
@@ -143,6 +175,23 @@ export async function processAiDeckStagedCoordinatorJob(
 
     return rowToJob(updatedParent);
   });
+}
+
+function requiresUnavailableGrounding(
+  request: GenerateDeckRequest,
+  plan: AiDeckInitialStagePlan,
+): boolean {
+  if (plan.referenceFileIds.length > 0) return false;
+  if (
+    plan.referencePolicy !== "references-first" &&
+    plan.referencePolicy !== "references-only"
+  ) {
+    return false;
+  }
+  return (
+    new Set(request.referenceContext.map((context) => context.fileId)).size ===
+    0
+  );
 }
 
 type ParentJobRow = z.infer<typeof parentJobRowSchema>;
