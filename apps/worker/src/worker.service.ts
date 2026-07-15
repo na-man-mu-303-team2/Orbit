@@ -505,14 +505,17 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         jobName: job.name,
         data: job.data,
       });
-      if (result === "ignored") return;
+      if (result.outcome === "ignored") return;
+      this.logTerminalFailures(
+        result.terminalJob ? [result.terminalJob] : [],
+      );
       this.logger.warn(
         {
           event: "ai_deck.transport_failure.recovered",
           queueName,
           bullJobId: job.id,
           attemptsMade: job.attemptsMade,
-          recovery: result,
+          recovery: result.outcome,
           ...jobPayloadFields(job.data),
         },
         "AI deck transport failure recovered.",
@@ -567,6 +570,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
       );
       this.aiDeckFailedCoordinatorScanCursor = result.nextCursor;
+      this.logTerminalFailures(result.terminalJobs);
       if (result.recovered > 0 || result.removed > 0) {
         this.logger.warn(
           {
@@ -631,20 +635,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             "AI deck stage reconciliation failed.",
           ),
       });
-      for (const job of result.terminalJobs) {
-        if (job.status !== "failed") continue;
-        this.logger.error(
-          {
-            event: "job.failed",
-            jobId: job.jobId,
-            jobType: job.type,
-            projectId: job.projectId,
-            status: job.status,
-            error: job.error ?? undefined,
-          },
-          "Job finished.",
-        );
-      }
+      this.logTerminalFailures(result.terminalJobs);
     } catch (error) {
       this.logger.error(
         {
@@ -652,6 +643,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           error: serializeLogError(error),
         },
         "AI deck stage reconciliation scan failed.",
+      );
+    }
+  }
+
+  private logTerminalFailures(jobs: OrbitJob[]): void {
+    for (const job of jobs) {
+      if (job.status !== "failed") continue;
+      this.logger.error(
+        {
+          event: "job.failed",
+          jobId: job.jobId,
+          jobType: job.type,
+          projectId: job.projectId,
+          status: job.status,
+          error: job.error ?? undefined,
+        },
+        "Job finished.",
       );
     }
   }

@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import {
   recoverAiDeckBullMqFinalFailure,
+  type AiDeckBullMqFailureRecoveryOutcome,
   type AiDeckBullMqFailureRecoveryResult,
 } from "./transport-failure-recovery";
 import { processAiDeckStagedCoordinatorJob } from "./staged-coordinator";
@@ -61,7 +62,9 @@ type RecoveryFunction = (
     jobName: string;
     data: unknown;
   },
-) => Promise<AiDeckBullMqFailureRecoveryResult>;
+) => Promise<
+  AiDeckBullMqFailureRecoveryResult | AiDeckBullMqFailureRecoveryOutcome
+>;
 
 type ResumeFunction = (
   dataSource: DataSource,
@@ -86,6 +89,7 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
   recovered: number;
   resumed: number;
   removed: number;
+  terminalJobs: Job[];
   nextCursor: FailedCoordinatorScanCursor;
 }> {
   const limit = reconcileLimitSchema.parse(options.limit ?? 25);
@@ -97,6 +101,7 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
   let recovered = 0;
   let resumed = 0;
   let removed = 0;
+  const terminalJobs: Job[] = [];
   try {
     let redisCursor = cursor.redisCursor;
     let pendingJobIds = [...cursor.pendingJobIds];
@@ -118,20 +123,28 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
     for (const job of candidates) {
       try {
         if (hasExhaustedConfiguredAttempts(job)) {
-          const result = await (
-            options.recover ?? recoverAiDeckBullMqFinalFailure
-          )(dataSource, {
-            queueName: generateDeckQueueName,
-            jobName: job.name,
-            data: job.data,
-          });
-          if (result === "coordinator-failed") recovered += 1;
+          const recovery = normalizeRecoveryResult(
+            await (
+              options.recover ?? recoverAiDeckBullMqFinalFailure
+            )(dataSource, {
+              queueName: generateDeckQueueName,
+              jobName: job.name,
+              data: job.data,
+            }),
+          );
+          if (recovery.outcome === "coordinator-failed") recovered += 1;
+          if (recovery.terminalJob?.status === "failed") {
+            terminalJobs.push(recovery.terminalJob);
+          }
         } else {
-          await (options.resume ?? processAiDeckStagedCoordinatorJob)(
+          const parentJob = await (
+            options.resume ?? processAiDeckStagedCoordinatorJob
+          )(
             dataSource,
             job.data,
           );
           resumed += 1;
+          if (parentJob.status === "failed") terminalJobs.push(parentJob);
         }
         await job.remove();
         removed += 1;
@@ -144,6 +157,7 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
       recovered,
       resumed,
       removed,
+      terminalJobs,
       nextCursor: { redisCursor, pendingJobIds },
     };
   } finally {
@@ -211,4 +225,15 @@ function initialScanCursor(): FailedCoordinatorScanCursor {
 
 function uniqueJobIds(jobIds: string[]): string[] {
   return [...new Set(jobIds.filter((jobId) => jobId.length > 0))];
+}
+
+function normalizeRecoveryResult(
+  result: AiDeckBullMqFailureRecoveryResult | AiDeckBullMqFailureRecoveryOutcome,
+): {
+  outcome: AiDeckBullMqFailureRecoveryOutcome;
+  terminalJob: Job | null;
+} {
+  return typeof result === "string"
+    ? { outcome: result, terminalJob: null }
+    : result;
 }

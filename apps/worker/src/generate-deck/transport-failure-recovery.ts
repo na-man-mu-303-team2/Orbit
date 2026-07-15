@@ -6,7 +6,9 @@ import {
 import {
   aiDeckGenerationStageMessageSchema,
   jobErrorSchema,
+  jobSchema,
   type AiDeckGenerationStageMessage,
+  type Job,
   type JobError,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
@@ -25,11 +27,31 @@ const activeParentRowSchema = z.object({
   project_id: z.string().min(1),
   status: z.enum(["queued", "running"]),
 });
+const timestampSchema = z.union([z.date(), z.string().min(1)]);
+const failedParentRowSchema = z.object({
+  job_id: z.string().min(1),
+  project_id: z.string().min(1),
+  type: z.literal("ai-deck-generation"),
+  status: z.literal("failed"),
+  progress: z.number().int().min(0).max(100),
+  message: z.string(),
+  result: z.record(z.unknown()).nullable(),
+  error: jobErrorSchema,
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+});
 
-export type AiDeckBullMqFailureRecoveryResult =
+export type AiDeckBullMqFailureRecoveryOutcome =
   | "coordinator-failed"
   | "stage-dispatch-released"
   | "ignored";
+
+export type AiDeckBullMqFailureRecoveryResult =
+  | { outcome: "coordinator-failed"; terminalJob: Job }
+  | {
+      outcome: "stage-dispatch-released" | "ignored";
+      terminalJob: null;
+    };
 
 export interface AiDeckBullMqFinalFailureInput {
   queueName: string;
@@ -52,10 +74,12 @@ export async function recoverAiDeckBullMqFinalFailure(
     input.jobName === "reference-extract-file"
   ) {
     const message = aiDeckGenerationStageMessageSchema.parse(input.data);
-    if (message.stage !== "reference-extract-file") return "ignored";
+    if (message.stage !== "reference-extract-file") {
+      return { outcome: "ignored", terminalJob: null };
+    }
     return releaseStageDispatch(dataSource, message);
   }
-  return "ignored";
+  return { outcome: "ignored", terminalJob: null };
 }
 
 async function failCoordinatorParent(
@@ -70,7 +94,7 @@ async function failCoordinatorParent(
       payload.jobId,
       payload.projectId,
     );
-    if (!parent) return "ignored";
+    if (!parent) return { outcome: "ignored", terminalJob: null };
 
     await manager.query(
       `
@@ -98,11 +122,16 @@ async function failCoordinatorParent(
           AND project_id = $2
           AND type = 'ai-deck-generation'
           AND status IN ('queued','running')
-        RETURNING job_id
+        RETURNING *
       `,
       [payload.jobId, payload.projectId, error],
     );
-    return hasQueryRow(rows) ? "coordinator-failed" : "ignored";
+    const row = firstQueryRow(rows);
+    if (row === null) return { outcome: "ignored", terminalJob: null };
+    return {
+      outcome: "coordinator-failed",
+      terminalJob: failedParentJob(failedParentRowSchema.parse(row)),
+    };
   });
 }
 
@@ -116,12 +145,14 @@ async function releaseStageDispatch(
       message.pipelineJobId,
       message.projectId,
     );
-    if (!parent) return "ignored";
+    if (!parent) return { outcome: "ignored", terminalJob: null };
     const checkpoint =
       await new AiDeckGenerationStageCheckpointRepository(
         manager,
       ).releaseDispatchedForTransportRetry(message);
-    return checkpoint ? "stage-dispatch-released" : "ignored";
+    return checkpoint
+      ? { outcome: "stage-dispatch-released", terminalJob: null }
+      : { outcome: "ignored", terminalJob: null };
   });
 }
 
@@ -155,8 +186,23 @@ function coordinatorFailureError(): JobError {
   });
 }
 
-function hasQueryRow(queryResult: unknown): boolean {
-  return firstQueryRow(queryResult) !== null;
+function failedParentJob(row: z.infer<typeof failedParentRowSchema>): Job {
+  return jobSchema.parse({
+    jobId: row.job_id,
+    projectId: row.project_id,
+    type: row.type,
+    status: row.status,
+    progress: row.progress,
+    message: row.message,
+    result: row.result,
+    error: row.error,
+    createdAt: isoTimestamp(row.created_at),
+    updatedAt: isoTimestamp(row.updated_at),
+  });
+}
+
+function isoTimestamp(value: z.infer<typeof timestampSchema>): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function firstQueryRow(queryResult: unknown): unknown | null {

@@ -11,6 +11,7 @@ import type { PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AiDeckBullMqFailureRecoveryResult } from "./generate-deck/transport-failure-recovery";
 import { WorkerService } from "./worker.service";
 
 const bullMq = vi.hoisted(() => ({
@@ -60,10 +61,9 @@ const maintenance = vi.hoisted(() => ({
 }));
 
 const transportRecovery = vi.hoisted(() => ({
-  recover: vi.fn(async () => ({
-    outcome: "ignored" as const,
-    terminalJob: null as Job | null,
-  })),
+  recover: vi.fn<
+    (...args: unknown[]) => Promise<AiDeckBullMqFailureRecoveryResult>
+  >(async () => ({ outcome: "ignored", terminalJob: null })),
 }));
 
 vi.mock("bullmq", () => ({
