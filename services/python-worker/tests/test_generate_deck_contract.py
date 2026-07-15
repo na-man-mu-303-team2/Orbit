@@ -1284,17 +1284,17 @@ def test_design_pack_core_geometry_uses_grid_and_detects_drift() -> None:
 @pytest.mark.parametrize(
         ("request_patch", "expected"),
     [
-        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 240),
-        ({"brief": {"presentationType": "초등 교육"}}, 240),
-        ({"brief": {"presentationType": "자유 토의"}}, 240),
-        ({"metadata": {"tone": "friendly"}}, 260),
-        ({"metadata": {"tone": "concise"}}, 260),
-        ({"brief": {"presentationType": "제품 기획 피치"}}, 280),
-        ({"prompt": "빠른 발표 속도로 진행"}, 300),
-        ({}, 260),
+        ({"metadata": {"audience": "executive", "tone": "friendly"}}, 400),
+        ({"brief": {"presentationType": "초등 교육"}}, 400),
+        ({"brief": {"presentationType": "자유 토의"}}, 400),
+        ({"metadata": {"tone": "friendly"}}, 400),
+        ({"metadata": {"tone": "concise"}}, 400),
+        ({"brief": {"presentationType": "제품 기획 피치"}}, 400),
+        ({"prompt": "빠른 발표 속도로 진행"}, 400),
+        ({}, 400),
     ],
 )
-def test_chars_per_minute_uses_ordered_presentation_context(
+def test_chars_per_minute_uses_common_rate_regardless_of_context(
     request_patch: dict[str, object],
     expected: int,
 ) -> None:
@@ -4711,7 +4711,7 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     )
 
     timing_plan = slides[0]["aiNotes"]["timingPlan"]
-    assert timing_plan["charsPerMinute"] == 240
+    assert timing_plan["charsPerMinute"] == 400
     assert timing_plan["speakingTimeRatio"] == 0.8
     assert timing_plan["targetSlideCount"] == 7
     assert sum(slide["estimatedSeconds"] for slide in slides) == 420

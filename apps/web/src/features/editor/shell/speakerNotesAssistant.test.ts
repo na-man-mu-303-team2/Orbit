@@ -11,14 +11,29 @@ describe("speaker notes assistant model", () => {
   it("classifies the local length without sending text anywhere", () => {
     expect(
       getSpeakerNotesLengthGuidance("짧은 메모입니다.", {
-        charsPerMinute: 300,
+        charsPerMinute: 400,
         targetSpeakerNotesChars: 100,
+        targetSpokenSeconds: 15,
       }),
     ).toMatchObject({
       characterCount: 8,
       estimatedSeconds: 2,
       tone: "short",
       targetCharacters: 100,
+    });
+  });
+
+  it("normalizes legacy timing plans to 400 spoken characters per minute", () => {
+    expect(
+      getSpeakerNotesLengthGuidance("가".repeat(200), {
+        charsPerMinute: 260,
+        targetSpeakerNotesChars: 260,
+      }),
+    ).toMatchObject({
+      characterCount: 200,
+      estimatedSeconds: 30,
+      targetCharacters: 400,
+      tone: "short",
     });
   });
 

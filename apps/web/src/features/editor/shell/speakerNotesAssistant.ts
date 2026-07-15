@@ -15,19 +15,21 @@ export type SpeakerNotesLengthGuidance = {
   tone: "neutral" | "short" | "balanced" | "long";
 };
 
+export const SPEAKER_NOTES_CHARS_PER_MINUTE = 400;
+
 export function getSpeakerNotesLengthGuidance(
   notes: string,
   timingPlan?: {
     charsPerMinute?: number;
     targetSpeakerNotesChars?: number;
+    targetSpokenSeconds?: number;
   },
 ): SpeakerNotesLengthGuidance {
   const characterCount = countSpokenChars(notes);
-  const charsPerMinute = timingPlan?.charsPerMinute;
-  const targetCharacters = timingPlan?.targetSpeakerNotesChars;
-  const estimatedSeconds = charsPerMinute
-    ? Math.ceil((characterCount / charsPerMinute) * 60)
-    : undefined;
+  const estimatedSeconds = Math.ceil(
+    (characterCount / SPEAKER_NOTES_CHARS_PER_MINUTE) * 60,
+  );
+  const targetCharacters = getTargetCharacters(timingPlan);
 
   if (!targetCharacters || targetCharacters <= 0) {
     return {
@@ -53,6 +55,29 @@ export function getSpeakerNotesLengthGuidance(
     targetCharacters,
     tone,
   };
+}
+
+function getTargetCharacters(timingPlan?: {
+  charsPerMinute?: number;
+  targetSpeakerNotesChars?: number;
+  targetSpokenSeconds?: number;
+}): number | undefined {
+  if (timingPlan?.targetSpokenSeconds) {
+    return Math.round(
+      (timingPlan.targetSpokenSeconds * SPEAKER_NOTES_CHARS_PER_MINUTE) / 60,
+    );
+  }
+  if (
+    timingPlan?.targetSpeakerNotesChars &&
+    timingPlan.charsPerMinute &&
+    timingPlan.charsPerMinute !== SPEAKER_NOTES_CHARS_PER_MINUTE
+  ) {
+    return Math.round(
+      (timingPlan.targetSpeakerNotesChars * SPEAKER_NOTES_CHARS_PER_MINUTE) /
+        timingPlan.charsPerMinute,
+    );
+  }
+  return timingPlan?.targetSpeakerNotesChars;
 }
 
 export function formatSpeakerNotesDuration(seconds?: number): string | null {

@@ -40,6 +40,9 @@ from app.ai.deck_generation.source_grounding import (
 DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
 
 
+SPEAKER_NOTES_CHARS_PER_MINUTE = 400
+
+
 DECK_CONTENT_PLAN_CACHE_MAX = 128
 
 
@@ -357,48 +360,8 @@ def presentation_timing_plan_for_request(
     )
 
 
-def chars_per_minute_for_request(request: GenerateDeckRequest) -> int:
-    source = " ".join(
-        part
-        for part in [
-            request.metadata.tone,
-            request.prompt,
-            request.design_prompt,
-            request.brief.presentation_context,
-            request.brief.audience_text,
-            request.brief.presentation_type,
-            request.brief.success_criteria,
-        ]
-        if part
-    ).casefold()
-    if has_any(source, ["fast", "quick", "빠른", "속도감"]):
-        return 300
-    profile = presentation_profile_for_request(request)
-    if (
-        request.metadata.audience == "executive"
-        or profile
-        in {
-            "executive-report",
-            "education",
-        }
-        or has_any(
-            source,
-            [
-                "discussion",
-                "workshop",
-                "토의",
-                "토론",
-                "자유롭게",
-            ],
-        )
-    ):
-        return 240
-    if profile in {"product-launch", "proposal"} or has_any(
-        source,
-        ["product", "proposal", "pitch", "제품", "제안", "피치"],
-    ):
-        return 280
-    return 260
+def chars_per_minute_for_request(_request: GenerateDeckRequest) -> int:
+    return SPEAKER_NOTES_CHARS_PER_MINUTE
 
 
 def split_content_and_design_prompt(prompt: str, design_prompt: str) -> tuple[str, str]:
