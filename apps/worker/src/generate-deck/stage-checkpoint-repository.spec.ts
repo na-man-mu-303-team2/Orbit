@@ -15,7 +15,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     const { query, repository } = repositoryWithResponses([], [queuedRow()]);
 
     const checkpoint = await repository.ensureQueued(message, {
-      requestRef: "job-payload",
+      artifactKey: "ai-deck/job-1/request.json",
     });
 
     expect(checkpoint?.status).toBe("queued");
@@ -34,7 +34,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       "project-a",
       "content-planning",
       "",
-      { requestRef: "job-payload" },
+      { artifactKey: "ai-deck/job-1/request.json" },
     ]);
 
     const selectSql = compactSql(query.mock.calls[1]?.[0]);
@@ -50,10 +50,8 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
 
     await expect(
       repository.ensureQueued(message, {
-        upstream: {
-          storageKey: "ai-deck/job-1/content-plan.json",
-          sourceIds: ["source-1", "source-2"],
-        },
+        storageKey: "ai-deck/job-1/content-plan.json",
+        sourceIds: ["source-1", "source-2"],
         version: 1,
       }),
     ).resolves.toMatchObject({ status: "queued" });
@@ -61,8 +59,13 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     for (const invalidReference of [
       { deck: { slides: [] } },
       { contentBase64: "ZmFrZQ==" },
+      { content_base64: "ZmFrZQ==" },
       { providerResponse: { output: "raw" } },
+      { provider_response: { output: "raw" } },
       { content: "user content" },
+      { sourceText: "full user content" },
+      { blob: "ZmFrZQ==" },
+      { output: "raw provider output" },
       { assetUrl: "data:image/png;base64,ZmFrZQ==" },
       { bytes: Buffer.from("fake") },
     ]) {
@@ -121,10 +124,10 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       repository.renewLease(message, "worker-a", 1),
     ).resolves.toMatchObject({ status: "running" });
     await expect(
-      repository.succeed(message, "worker-a", 1, { deckRef: "deck-1" }),
+      repository.succeed(message, "worker-a", 1, { deckId: "deck-1" }),
     ).resolves.toMatchObject({ status: "succeeded", leaseOwner: null });
     await expect(
-      repository.succeed(message, "worker-a", 1, { deckRef: "deck-1" }),
+      repository.succeed(message, "worker-a", 1, { deckId: "deck-1" }),
     ).resolves.toBeNull();
 
     for (const callIndex of [0, 1, 2]) {
@@ -242,7 +245,7 @@ function succeededRow() {
   return checkpointRow({
     status: "succeeded",
     attempt: 1,
-    result_ref_json: { deckRef: "deck-1" },
+    result_ref_json: { deckId: "deck-1" },
   });
 }
 
