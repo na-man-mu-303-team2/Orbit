@@ -9,6 +9,8 @@ import {
   enqueueWorkerHealthCheckJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
+  rehearsalSttJobName,
+  rehearsalSttQueueName,
   rehearsalSemanticEvaluationJobName,
   rehearsalSemanticEvaluationQueueName,
   semanticCueExtractionJobName,
@@ -121,6 +123,43 @@ describe("InMemoryJobQueue", () => {
 });
 
 describe("enqueueRehearsalSttJob", () => {
+  it("adds an ID-only rehearsal STT job without private rehearsal content", async () => {
+    await enqueueRehearsalSttJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-rehearsal-stt",
+      projectId: "project-a",
+      runId: "run-1",
+      deckId: "deck-1",
+      audioFileId: "file-1",
+      storageUrl: "internal://private-audio",
+      storageKey: "projects/project-a/private/rehearsal.webm",
+      audioBytes: "private-audio-bytes",
+      transcript: "private-transcript",
+      script: "private-speaker-script",
+    } as Parameters<typeof enqueueRehearsalSttJob>[0] &
+      Record<string, unknown>);
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(rehearsalSttQueueName, {
+      connection: expect.objectContaining({ host: "localhost", port: 6379 }),
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(
+      rehearsalSttJobName,
+      {
+        jobId: "job-rehearsal-stt",
+        projectId: "project-a",
+        runId: "run-1",
+        deckId: "deck-1",
+        audioFileId: "file-1",
+      },
+      expect.objectContaining({ jobId: "job-rehearsal-stt", attempts: 5 }),
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toMatch(
+      /storageUrl|storageKey|audioBytes|transcript|script|private-audio|private-transcript|private-speaker-script/,
+    );
+    expect(queueMock.close).toHaveBeenCalled();
+  });
+
   it("keeps the SQS rehearsal STT adapter explicitly unsupported", async () => {
     await expect(
       enqueueRehearsalSttJob({
