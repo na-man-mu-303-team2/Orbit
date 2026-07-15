@@ -111,6 +111,33 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     expect(stalled.remove).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "job stalled more than allowable limit",
+    "job started more than allowable limit",
+  ])(
+    "resumes a transport-boundary failure even when attemptsMade reached the configured limit: %s",
+    async (failedReason) => {
+      const stalled = failedCoordinatorJob({ failedReason });
+      const queue = failedQueue(stalled);
+      const recover = vi.fn();
+      const resume = vi.fn(async () => runningParentJob());
+
+      await expect(
+        reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
+          redisUrl: "redis://localhost:6379",
+          queueFactory: () => queue,
+          recover,
+          resume,
+        }),
+      ).resolves.toMatchObject({ recovered: 0, resumed: 1, removed: 1 });
+
+      expect(stalled.attemptsMade).toBe(stalled.opts.attempts);
+      expect(resume).toHaveBeenCalledWith(expect.anything(), stalled.data);
+      expect(recover).not.toHaveBeenCalled();
+      expect(stalled.remove).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("preserves an oversized ZSCAN batch in pending IDs for the next tick", async () => {
     const unrelated = Array.from({ length: 100 }, (_, index) =>
       failedCoordinatorJob({ id: `legacy-${index}`, name: "generate-deck" }),
