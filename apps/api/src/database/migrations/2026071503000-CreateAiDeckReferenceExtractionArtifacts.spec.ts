@@ -41,7 +41,8 @@ describe("CreateAiDeckReferenceExtractionArtifacts migration", () => {
       "DROP CONSTRAINT ck_ai_deck_generation_stages_result_ref",
     );
     expect(sql).toContain("referenceExtractionArtifactId");
-    expect(sql).toContain("jsonb_object_length(result_ref_json) = 1");
+    expect(sql).toContain("result_ref_json = jsonb_build_object");
+    expect(sql).not.toContain("jsonb_object_length");
     expect(sql).toContain("stage = 'reference-extract-file'");
     expect(sql).toContain("result_ref_json IS NULL");
     expect(sql).toContain("result_ref_json = '{}'::jsonb");
