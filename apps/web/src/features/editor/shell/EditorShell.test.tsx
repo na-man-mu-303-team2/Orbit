@@ -465,12 +465,11 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(deck.title);
-    expect(html).toContain("Opening");
     expect(html).toContain("차트");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
-    expect(html).toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
-    expect(html).toContain("현재 슬라이드 · <!-- -->Opening");
+    expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
+    expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
     expect(html).toContain("메모 편집");
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
@@ -2291,7 +2290,6 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("ORBIT Demo Deck");
-    expect(html).toContain("Opening");
     expect(html).toContain("불러오는 중");
     expect(html).not.toContain("덱을 불러오는 중");
   });

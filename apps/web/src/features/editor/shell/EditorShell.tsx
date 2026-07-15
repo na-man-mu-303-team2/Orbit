@@ -5862,16 +5862,6 @@ export function EditorShell(props: { projectId?: string }) {
                         <span className="script-panel-status">편집 중</span>
                       ) : null}
                     </div>
-                    <span className="script-panel-context">
-                      현재 슬라이드 · {currentSlide && showIds ? (
-                        <IdBadge id={currentSlide.slideId} />
-                      ) : (
-                        currentSlide?.title || `슬라이드 ${currentSlideIndex + 1}`
-                      )}
-                    </span>
-                    <p className="script-panel-description">
-                      발표할 때 참고할 내용을 슬라이드별로 정리하세요.
-                    </p>
                   </div>
                 </div>
                 {isSpeakerNotesEditing ? (
