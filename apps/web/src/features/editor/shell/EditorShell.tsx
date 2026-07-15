@@ -5869,6 +5869,7 @@ export function EditorShell(props: { projectId?: string }) {
         ? createPortal(
             <EditorExitConfirmModal
               isSaving={isExitSaving}
+              onCancel={() => setIsExitConfirmOpen(false)}
               onDiscard={handleDiscardAndExit}
               onSaveAndExit={() => {
                 void handleSaveAndExit();
