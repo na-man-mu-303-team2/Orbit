@@ -19,6 +19,10 @@ export const aiDeckGenerationStageStatusSchema = z.enum([
   "failed",
 ]);
 
+// 338-0에는 stage artifact 저장소가 아직 없으므로 참조 field를 선점하지 않는다.
+// 각 stage가 artifact persistence를 소유하는 후속 PR에서 필요한 field만 추가한다.
+export const aiDeckGenerationStageReferenceSchema = z.object({}).strict();
+
 const transportIdSegmentSchema = z
   .string()
   .min(1)
@@ -69,11 +73,12 @@ export const aiDeckGenerationStageMessageSchema = z
     }
   });
 
-export type AiDeckGenerationStage = z.infer<
-  typeof aiDeckGenerationStageSchema
->;
+export type AiDeckGenerationStage = z.infer<typeof aiDeckGenerationStageSchema>;
 export type AiDeckGenerationStageStatus = z.infer<
   typeof aiDeckGenerationStageStatusSchema
+>;
+export type AiDeckGenerationStageReference = z.infer<
+  typeof aiDeckGenerationStageReferenceSchema
 >;
 export type AiDeckGenerationStageMessage = z.infer<
   typeof aiDeckGenerationStageMessageSchema

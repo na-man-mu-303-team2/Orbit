@@ -73,6 +73,22 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects undeclared result refs before querying and non-empty refs read from DB", async () => {
+    const write = repositoryWithResponses();
+
+    await expect(
+      write.repository.succeed(message, "worker-a:lease-token", 1, {
+        provider_response: { output: "raw" },
+      }),
+    ).rejects.toThrow();
+    expect(write.query).not.toHaveBeenCalled();
+
+    const read = repositoryWithResponses([
+      queuedRow({ input_ref_json: { storageKey: "uncontracted-key" } }),
+    ]);
+    await expect(read.repository.get(message)).rejects.toThrow();
+  });
+
   it("claims queued work atomically and increments attempt only on claim", async () => {
     const { query, repository } = repositoryWithResponses([runningRow()]);
 

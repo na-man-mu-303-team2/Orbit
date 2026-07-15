@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class CreateAiDeckGenerationStages2026071502000
-  implements MigrationInterface
-{
+export class CreateAiDeckGenerationStages2026071502000 implements MigrationInterface {
   name = "CreateAiDeckGenerationStages2026071502000";
 
   async up(queryRunner: QueryRunner): Promise<void> {
@@ -33,9 +31,9 @@ export class CreateAiDeckGenerationStages2026071502000
         CONSTRAINT ck_ai_deck_generation_stages_attempt
           CHECK (attempt BETWEEN 0 AND 5),
         CONSTRAINT ck_ai_deck_generation_stages_input_ref
-          CHECK (jsonb_typeof(input_ref_json) = 'object'),
+          CHECK (input_ref_json = '{}'::jsonb),
         CONSTRAINT ck_ai_deck_generation_stages_result_ref
-          CHECK (result_ref_json IS NULL OR jsonb_typeof(result_ref_json) = 'object'),
+          CHECK (result_ref_json IS NULL OR result_ref_json = '{}'::jsonb),
         CONSTRAINT ck_ai_deck_generation_stages_error
           CHECK (error_json IS NULL OR jsonb_typeof(error_json) = 'object'),
         CONSTRAINT ck_ai_deck_generation_stages_job_id_delimiter
@@ -84,8 +82,6 @@ export class CreateAiDeckGenerationStages2026071502000
     await queryRunner.query(
       `DROP INDEX IF EXISTS idx_ai_deck_generation_stages_undispatched`,
     );
-    await queryRunner.query(
-      `DROP TABLE IF EXISTS ai_deck_generation_stages`,
-    );
+    await queryRunner.query(`DROP TABLE IF EXISTS ai_deck_generation_stages`);
   }
 }

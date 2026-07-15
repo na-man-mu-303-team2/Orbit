@@ -1,4 +1,5 @@
 import {
+  aiDeckGenerationStageReferenceSchema,
   aiDeckGenerationStageMessageSchema,
   aiDeckGenerationStageSchema,
   aiDeckGenerationStageStatusSchema,
@@ -14,28 +15,6 @@ import { z } from "zod";
 
 type QueryExecutor = Pick<DataSource, "query">;
 
-const forbiddenReferenceKeys = new Set([
-  "base64",
-  "binary",
-  "body",
-  "buffer",
-  "bytes",
-  "content",
-  "contentbase64",
-  "deck",
-  "deckjson",
-  "payload",
-  "providerresponse",
-  "raw",
-  "rawresponse",
-  "script",
-  "speakernotes",
-  "text",
-  "transcript",
-]);
-const referenceSchema = z.record(z.unknown()).superRefine((value, context) => {
-  validateReferenceValue(value, context, [], 0);
-});
 const workerIdSchema = z
   .string()
   .trim()
@@ -58,8 +37,8 @@ const checkpointRowSchema = z.object({
   shard_key: z.string(),
   status: aiDeckGenerationStageStatusSchema,
   attempt: z.number().int().min(0).max(5),
-  input_ref_json: referenceSchema,
-  result_ref_json: referenceSchema.nullable(),
+  input_ref_json: aiDeckGenerationStageReferenceSchema,
+  result_ref_json: aiDeckGenerationStageReferenceSchema.nullable(),
   error_json: jobErrorSchema.nullable(),
   lease_owner: z.string().nullable(),
   lease_expires_at: timestampSchema.nullable(),
@@ -92,7 +71,7 @@ export class AiDeckGenerationStageCheckpointRepository {
     rawInputRef: unknown = {},
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
-    const inputRef = referenceSchema.parse(rawInputRef);
+    const inputRef = aiDeckGenerationStageReferenceSchema.parse(rawInputRef);
     const rows = await this.db.query(
       `
         INSERT INTO ai_deck_generation_stages (
@@ -209,7 +188,7 @@ export class AiDeckGenerationStageCheckpointRepository {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
     const attempt = claimedAttemptSchema.parse(rawAttempt);
-    const resultRef = referenceSchema.parse(rawResultRef);
+    const resultRef = aiDeckGenerationStageReferenceSchema.parse(rawResultRef);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
@@ -396,94 +375,4 @@ function toIso(value: Date | string): string {
   return value instanceof Date
     ? value.toISOString()
     : new Date(value).toISOString();
-}
-
-function validateReferenceValue(
-  value: unknown,
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  depth: number,
-): void {
-  if (depth > 6) {
-    addReferenceIssue(context, path, "Reference metadata is nested too deeply");
-    return;
-  }
-  if (value === null || typeof value === "boolean") return;
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      addReferenceIssue(context, path, "Reference numbers must be finite");
-    }
-    return;
-  }
-  if (typeof value === "string") {
-    if (value.length > 4096 || /^data:/i.test(value)) {
-      addReferenceIssue(
-        context,
-        path,
-        "Embedded payload strings are not allowed",
-      );
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    if (value.length > 100) {
-      addReferenceIssue(
-        context,
-        path,
-        "Reference arrays cannot exceed 100 items",
-      );
-      return;
-    }
-    value.forEach((item, index) =>
-      validateReferenceValue(item, context, [...path, index], depth + 1),
-    );
-    return;
-  }
-  if (typeof value !== "object") {
-    addReferenceIssue(
-      context,
-      path,
-      "Reference metadata must be JSON-compatible",
-    );
-    return;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    addReferenceIssue(
-      context,
-      path,
-      "Binary and class instances are not allowed",
-    );
-    return;
-  }
-  const entries = Object.entries(value);
-  if (entries.length > 100) {
-    addReferenceIssue(
-      context,
-      path,
-      "Reference objects cannot exceed 100 fields",
-    );
-    return;
-  }
-  for (const [key, nested] of entries) {
-    const nestedPath = [...path, key];
-    if (key.length > 128 || forbiddenReferenceKeys.has(key.toLowerCase())) {
-      addReferenceIssue(
-        context,
-        nestedPath,
-        "Embedded payload fields are not allowed",
-      );
-      continue;
-    }
-    validateReferenceValue(nested, context, nestedPath, depth + 1);
-  }
-}
-
-function addReferenceIssue(
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  message: string,
-): void {
-  context.addIssue({ code: z.ZodIssueCode.custom, path, message });
 }
