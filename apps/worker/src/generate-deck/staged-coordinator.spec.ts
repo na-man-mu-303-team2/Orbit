@@ -92,6 +92,44 @@ describe("processAiDeckStagedCoordinatorJob", () => {
     ]);
   });
 
+  it("reuses existing checkpoints when a stalled coordinator runs again after commit", async () => {
+    const query = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        parentJobRow({ status: "running", progress: 10 }),
+      ])
+      .mockResolvedValueOnce([parentJobRow({ status: "running", progress: 10 })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([checkpointRow("file-a")])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([checkpointRow("file-b")]);
+    const transaction = vi.fn(
+      async (work: (manager: { query: QueryFunction }) => unknown) =>
+        work({ query }),
+    );
+
+    const result = await processAiDeckStagedCoordinatorJob(
+      { transaction } as unknown as DataSource,
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+    );
+
+    expect(result).toMatchObject({ status: "running", progress: 10 });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(6);
+    expect(compactSql(query.mock.calls[2]?.[0])).toContain(
+      "ON CONFLICT (pipeline_job_id, stage, shard_key) DO NOTHING",
+    );
+    expect(compactSql(query.mock.calls[3]?.[0])).toContain(
+      "SELECT stages.*",
+    );
+    expect(compactSql(query.mock.calls[4]?.[0])).toContain(
+      "ON CONFLICT (pipeline_job_id, stage, shard_key) DO NOTHING",
+    );
+    expect(compactSql(query.mock.calls[5]?.[0])).toContain(
+      "SELECT stages.*",
+    );
+  });
+
   it("creates source-grounding directly when every requested file is already covered", async () => {
     const query = vi
       .fn<QueryFunction>()
