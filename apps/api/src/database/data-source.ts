@@ -40,6 +40,7 @@ import { DropOrganizationsAndBrandKits2026071401000 } from "./migrations/2026071
 import { BackfillFocusedPracticeGoalSetRef2026071501000 } from "./migrations/2026071501000-BackfillFocusedPracticeGoalSetRef";
 import { CreateAiDeckGenerationStages2026071502000 } from "./migrations/2026071502000-CreateAiDeckGenerationStages";
 import { CreateAiDeckReferenceExtractionArtifacts2026071503000 } from "./migrations/2026071503000-CreateAiDeckReferenceExtractionArtifacts";
+import { CreateAiDeckPlanningArtifacts2026071601000 } from "./migrations/2026071601000-CreateAiDeckPlanningArtifacts";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -91,7 +92,8 @@ export const databaseOptions: DataSourceOptions = {
     DropOrganizationsAndBrandKits2026071401000,
     BackfillFocusedPracticeGoalSetRef2026071501000,
     CreateAiDeckGenerationStages2026071502000,
-    CreateAiDeckReferenceExtractionArtifacts2026071503000
+    CreateAiDeckReferenceExtractionArtifacts2026071503000,
+    CreateAiDeckPlanningArtifacts2026071601000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
