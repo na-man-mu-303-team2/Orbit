@@ -38,7 +38,9 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     ]);
 
     const selectSql = compactSql(query.mock.calls[1]?.[0]);
-    expect(selectSql).toContain("JOIN jobs ON jobs.job_id = stages.pipeline_job_id");
+    expect(selectSql).toContain(
+      "JOIN jobs ON jobs.job_id = stages.pipeline_job_id",
+    );
     expect(selectSql).toContain("jobs.project_id = $2");
     expect(selectSql).toContain("jobs.type = 'ai-deck-generation'");
   });
@@ -93,6 +95,19 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     const { repository } = repositoryWithResponses([]);
 
     await expect(repository.claim(message, "worker-b")).resolves.toBeNull();
+  });
+
+  it("issues a unique lease token for every claim generation", async () => {
+    const { query, repository } = repositoryWithResponses([runningRow()], []);
+
+    await repository.claim(message, "worker-a");
+    await repository.claim(message, "worker-a");
+
+    const firstLease = query.mock.calls[0]?.[1]?.[4];
+    const secondLease = query.mock.calls[1]?.[1]?.[4];
+    expect(firstLease).toMatch(/^worker-a:[0-9a-f-]{36}$/);
+    expect(secondLease).toMatch(/^worker-a:[0-9a-f-]{36}$/);
+    expect(firstLease).not.toBe(secondLease);
   });
 
   it("renews and completes only a live lease owned by the caller", async () => {
@@ -150,7 +165,9 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
   });
 
   it("requeues retryable work as an undispatched checkpoint", async () => {
-    const { query, repository } = repositoryWithResponses([queuedRow({ attempt: 1 })]);
+    const { query, repository } = repositoryWithResponses([
+      queuedRow({ attempt: 1 }),
+    ]);
 
     await expect(
       repository.releaseForRetry(message, "worker-a", 1, {
