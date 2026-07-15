@@ -48,7 +48,7 @@ const maintenance = vi.hoisted(() => ({
     resumed: 0,
     removed: 0,
     terminalJobs: [] as Job[],
-    nextCursor: { redisCursor: "0", pendingJobIds: [] },
+    nextCursor: { redisCursor: "0", pendingJobIds: [] as string[] },
   })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
   reconcile: vi.fn(async () => ({
@@ -60,7 +60,10 @@ const maintenance = vi.hoisted(() => ({
 }));
 
 const transportRecovery = vi.hoisted(() => ({
-  recover: vi.fn(async () => "ignored" as const),
+  recover: vi.fn(async () => ({
+    outcome: "ignored" as const,
+    terminalJob: null as Job | null,
+  })),
 }));
 
 vi.mock("bullmq", () => ({
@@ -440,6 +443,67 @@ describe("WorkerService queue subscriptions", () => {
     await service.onModuleDestroy();
   });
 
+  it("logs a final coordinator recovery only after its parent commit", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const terminalJob: Job = {
+      ...orbitJob("failed"),
+      result: { privateArtifact: "must-not-be-logged" },
+      error: {
+        code: "AI_DECK_COORDINATOR_FAILED",
+        message: "AI deck staged coordinator retries were exhausted.",
+        failedStage: "reference-extract-file",
+        retryable: true,
+      },
+    };
+    let resolveRecovery!: (result: {
+      outcome: "coordinator-failed";
+      terminalJob: Job;
+    }) => void;
+    transportRecovery.recover.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRecovery = resolve;
+        }),
+    );
+    const { service, logger } = createService();
+    service.onModuleInit();
+    processors.stagedCoordinator.mockRejectedValueOnce(
+      new Error("final coordinator transport failure"),
+    );
+
+    const completion = requiredHandler(generateDeckQueueName)(
+      bullJob(
+        generateDeckStagedCoordinatorJobName,
+        { jobId: "job-ai-deck-1", projectId: "project-a" },
+        4,
+      ),
+    ).catch((error: unknown) => error);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(transportRecovery.recover).toHaveBeenCalledTimes(1);
+    expect(failedJobLogCalls(logger)).toEqual([]);
+
+    resolveRecovery({ outcome: "coordinator-failed", terminalJob });
+    await expect(completion).resolves.toEqual(
+      new Error("final coordinator transport failure"),
+    );
+
+    expect(failedJobLogCalls(logger)).toEqual([
+      [
+        {
+          event: "job.failed",
+          jobId: terminalJob.jobId,
+          jobType: terminalJob.type,
+          projectId: terminalJob.projectId,
+          status: terminalJob.status,
+          error: terminalJob.error,
+        },
+        "Job finished.",
+      ],
+    ]);
+    await service.onModuleDestroy();
+  });
+
   it("does not recover an intermediate BullMQ attempt", async () => {
     configState.AI_DECK_EXECUTION_MODE = "bullmq";
     const { service } = createService();
@@ -561,11 +625,12 @@ function failedJobLogCalls(logger: {
   error: ReturnType<typeof vi.fn>;
 }) {
   return logger.error.mock.calls.filter(
-    ([fields]) =>
+    ([fields, message]) =>
       typeof fields === "object" &&
       fields !== null &&
       "event" in fields &&
-      fields.event === "job.failed",
+      fields.event === "job.failed" &&
+      message === "Job finished.",
   );
 }
 

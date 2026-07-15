@@ -1,3 +1,4 @@
+import type { Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +8,11 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
   it("retries DB recovery for a retained exhausted coordinator and removes it", async () => {
     const job = failedCoordinatorJob();
     const queue = failedQueue(job);
-    const recover = vi.fn(async () => "coordinator-failed" as const);
+    const terminalJob = failedParentJob();
+    const recover = vi.fn(async () => ({
+      outcome: "coordinator-failed" as const,
+      terminalJob,
+    }));
 
     await expect(
       reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
@@ -20,7 +25,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       recovered: 1,
       resumed: 0,
       removed: 1,
-      terminalJobs: [],
+      terminalJobs: [terminalJob],
       nextCursor: emptyCursor(),
     });
 
@@ -366,7 +371,7 @@ function failedCoordinatorJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function runningParentJob() {
+function runningParentJob(): Job {
   return {
     jobId: "job-ai-deck-1",
     projectId: "project-a",
@@ -381,7 +386,7 @@ function runningParentJob() {
   };
 }
 
-function failedParentJob() {
+function failedParentJob(): Job {
   return {
     ...runningParentJob(),
     status: "failed" as const,
@@ -395,7 +400,7 @@ function failedParentJob() {
   };
 }
 
-function succeededParentJob() {
+function succeededParentJob(): Job {
   return {
     ...runningParentJob(),
     status: "succeeded" as const,

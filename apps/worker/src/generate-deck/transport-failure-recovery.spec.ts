@@ -10,13 +10,16 @@ import { recoverAiDeckBullMqFinalFailure } from "./transport-failure-recovery";
 
 describe("recoverAiDeckBullMqFinalFailure", () => {
   it("fails an active coordinator parent and its active checkpoints atomically", async () => {
+    const terminalJob = failedParentJob();
     const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
         return [{ job_id: "job-ai-deck-1", project_id: "project-a", status: "running" }];
       }
       if (compact.startsWith("UPDATE ai_deck_generation_stages")) return [];
-      if (compact.startsWith("UPDATE jobs")) return [{ job_id: "job-ai-deck-1" }];
+      if (compact.startsWith("UPDATE jobs")) {
+        return [failedParentJobRow(parameters?.[2])];
+      }
       throw new Error(`Unexpected query: ${compact} ${String(parameters)}`);
     });
     const dataSource = transactionalDataSource(query);
@@ -27,7 +30,7 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
         jobName: generateDeckStagedCoordinatorJobName,
         data: { jobId: "job-ai-deck-1", projectId: "project-a" },
       }),
-    ).resolves.toBe("coordinator-failed");
+    ).resolves.toEqual({ outcome: "coordinator-failed", terminalJob });
 
     const calls = query.mock.calls.map((call) => compactSql(call[0]));
     const stageUpdate = calls.findIndex((sql) =>
@@ -67,7 +70,10 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
         jobName: "reference-extract-file",
         data: stageMessage(),
       }),
-    ).resolves.toBe("stage-dispatch-released");
+    ).resolves.toEqual({
+      outcome: "stage-dispatch-released",
+      terminalJob: null,
+    });
 
     const releaseSql = compactSql(query.mock.calls[1]?.[0]);
     expect(releaseSql).toContain("stages.status = 'queued'");
@@ -94,7 +100,7 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
         jobName: "other-job",
         data: {},
       }),
-    ).resolves.toBe("ignored");
+    ).resolves.toEqual({ outcome: "ignored", terminalJob: null });
     expect(transaction).not.toHaveBeenCalled();
 
     await expect(
@@ -103,7 +109,7 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
         jobName: "reference-extract-file",
         data: stageMessage(),
       }),
-    ).resolves.toBe("ignored");
+    ).resolves.toEqual({ outcome: "ignored", terminalJob: null });
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 });
@@ -141,6 +147,41 @@ function checkpointRow(overrides: Record<string, unknown> = {}) {
     created_at: "2026-07-15T00:00:00.000Z",
     updated_at: "2026-07-15T01:00:00.000Z",
     ...overrides,
+  };
+}
+
+function failedParentJobRow(error: unknown) {
+  return {
+    job_id: "job-ai-deck-1",
+    project_id: "project-a",
+    type: "ai-deck-generation",
+    status: "failed",
+    progress: 10,
+    message: "AI deck generation failed.",
+    result: null,
+    error,
+    created_at: "2026-07-15T00:00:00.000Z",
+    updated_at: "2026-07-15T01:00:00.000Z",
+  };
+}
+
+function failedParentJob() {
+  return {
+    jobId: "job-ai-deck-1",
+    projectId: "project-a",
+    type: "ai-deck-generation",
+    status: "failed",
+    progress: 10,
+    message: "AI deck generation failed.",
+    result: null,
+    error: {
+      code: "AI_DECK_COORDINATOR_FAILED",
+      message: "AI deck staged coordinator retries were exhausted.",
+      failedStage: "reference-extract-file",
+      retryable: true,
+    },
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T01:00:00.000Z",
   };
 }
 
