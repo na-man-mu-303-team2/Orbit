@@ -2,7 +2,15 @@ import type { SemanticCapabilityEvent, SemanticCue } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { LiveSttError, type LiveSttPort, type LiveSttResult } from "../stt/liveSttPort";
-import { defaultPauseDetectorConfig } from "../advance/autoAdvanceConfig";
+import {
+  defaultAutoAdvanceConfig,
+  defaultAutoAdvancePolicy,
+  defaultPauseDetectorConfig
+} from "../advance/autoAdvanceConfig";
+import {
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController
+} from "../advance/advanceController";
 import { createP3RehearsalSession, type P3RehearsalSessionSlide } from "./p3RehearsalSession";
 import { createPauseDetector } from "./pauseDetector";
 import type { SemanticCueDebugEvent } from "./semanticCueDebugEvents";
@@ -518,6 +526,81 @@ describe("p3RehearsalSession", () => {
         finalSentenceCommitted: true
       }
     });
+  });
+
+  it("audio-level이 없는 Web Speech에서도 마지막 문장을 commit하고 자동 전환한다", async () => {
+    const port = createMockLiveSttPort();
+    const session = createP3RehearsalSession({
+      slides,
+      port,
+      now: () => 100_000
+    });
+    const detector = createPauseDetector({
+      config: defaultPauseDetectorConfig,
+      pauseMs: 600
+    });
+
+    await session.start({ audioSource: {} as MediaStream, slideIndex: 0 });
+    port.emit(p3CombinedFinalResult());
+    detector.accept({
+      type: "transcript-activity",
+      atMs: 1_000,
+      isFinal: true
+    });
+
+    const pauseOutputs = detector.accept({ type: "tick", atMs: 1_600 });
+    for (const output of pauseOutputs) {
+      if (output.type === "pause-started") {
+        session.acceptPrompterPauseBoundary(output.silenceDurationMs);
+      }
+    }
+
+    expect(pauseOutputs).toEqual([
+      { type: "pause-started", atMs: 1_600, silenceDurationMs: 600 }
+    ]);
+    expect(session.getState().snapshot).toMatchObject({
+      finalSentenceCommitted: true,
+      prompterProgress: {
+        currentSentenceId: null,
+        committedSentenceIds: ["sentence_1", "sentence_2"],
+        finalSentenceCommitted: true
+      }
+    });
+
+    const speechSnapshot = session.getState().snapshot!;
+    const controllerInput = {
+      effectiveCoverage: speechSnapshot.effectiveCoverage,
+      finalSentenceCommitted: speechSnapshot.finalSentenceCommitted === true,
+      finalSentenceCommittedAtMs: 1_600,
+      finalSentenceSpoken: speechSnapshot.finalSentenceSpoken,
+      finalSentenceSpokenAtMs: 1_000,
+      isLastSlide: false,
+      mode: "rehearsal" as const,
+      nowMs: 1_600,
+      pause: detector.snapshot(1_600),
+      policy: defaultAutoAdvancePolicy,
+      remainingTriggerSteps: 0,
+      slideId: "slide_1"
+    };
+    const countdown = evaluateAdvanceController(
+      createInitialAdvanceControllerState(),
+      controllerInput,
+      defaultAutoAdvanceConfig
+    );
+    const advanced = evaluateAdvanceController(
+      countdown.state,
+      {
+        ...controllerInput,
+        nowMs: 3_600,
+        pause: detector.snapshot(3_600)
+      },
+      defaultAutoAdvanceConfig
+    );
+
+    expect(countdown.state.status).toBe("countdown");
+    expect(advanced.commands).toEqual([
+      { type: "advance-slide", slideId: "slide_1" }
+    ]);
   });
 
   it("동일 final dedupe 뒤에도 별도 pause boundary는 승계 candidate를 commit한다", async () => {
