@@ -36,21 +36,23 @@ export function EditorStateNotice(props: EditorStateNoticeProps) {
 
   if (props.kind === "error") {
     return (
-      <OrbitEmptyState
-        action={
-          <>
-            <OrbitButton icon={<IconRefresh aria-hidden="true" size={17} />} onClick={props.onRetry}>
-              다시 시도
-            </OrbitButton>
-            <a className="editor-state-back-link" href="/project">
-              <IconArrowLeft aria-hidden="true" size={17} /> 프로젝트로 돌아가기
-            </a>
-          </>
-        }
-        description={props.message}
-        icon={<IconRefresh aria-hidden="true" size={26} />}
-        title="발표 자료를 열지 못했습니다"
-      />
+      <section aria-label="발표 자료 로드 오류" role="alert">
+        <OrbitEmptyState
+          action={
+            <>
+              <OrbitButton icon={<IconRefresh aria-hidden="true" size={17} />} onClick={props.onRetry}>
+                다시 시도
+              </OrbitButton>
+              <a className="editor-state-back-link" href="/project">
+                <IconArrowLeft aria-hidden="true" size={17} /> 프로젝트로 돌아가기
+              </a>
+            </>
+          }
+          description={props.message}
+          icon={<IconRefresh aria-hidden="true" size={26} />}
+          title="발표 자료를 열지 못했습니다"
+        />
+      </section>
     );
   }
 

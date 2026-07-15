@@ -2462,6 +2462,8 @@ describe("editor shell", () => {
     );
 
     expect(html).toContain("발표 자료를 불러오지 못했습니다.");
+    expect(html).toContain('aria-label="발표 자료 로드 오류"');
+    expect(html).toContain('role="alert"');
     expect(html).toContain("다시 시도");
     expect(html).toContain("프로젝트로 돌아가기");
     expect(html).not.toContain("demo fallback");
