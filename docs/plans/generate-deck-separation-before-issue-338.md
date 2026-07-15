@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · 실행 중 (#341 완료)
+**상태**: 확정 · PR 8 로컬 검증 완료 · 자동 CI 및 배포 환경 운영 증거 대기
 
 **기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
@@ -813,12 +813,37 @@ uv run pytest
 | 현재 reference extraction | 단일·다중 파일의 결과와 오류 계약이 유지되고 #338용 기준선이 확보됨 |
 | web research 품질 부족 | #339 시점의 기존 실패 정책과 오류 계약을 그대로 보존하고 #338의 degraded success 전환은 적용하지 않음 |
 | 이미지 provider 일부 실패 | 현재 합의된 fallback으로 Deck 생성 계속 |
-| Saved DesignPack 선택 | snapshot 기반 palette/font/layout 적용 |
+| Saved DesignPack 선택 | resolved snapshot의 palette/font는 최종 Deck에 반영되고 layout preference는 Art Director context에 전달되며 선택된 composition은 snapshot/`aiNotes`에 일관되게 매핑 |
 | PPTX vector import | 편집 가능한 요소, mapping, render, package 저장 |
 | PPTX fallback import | snapshot/fallback warning과 유효 Deck 저장 |
 | imported Deck 편집·export | 최신 OOXML sync package 반환 |
 | 일반 AI Deck export | generic `/ai/export-deck-pptx` 사용 |
-| 과거 Job 목록 조회 | 제거된 type row가 있어도 조회 실패 없음 |
+| 과거 Job 단건 조회 | 제거된 type row가 있어도 조회 실패 없음 |
+
+**PR 8 회귀 증거 (2026-07-15)**
+
+| 시나리오 | 고정한 회귀 경계 | 현재 결과 |
+| --- | --- | --- |
+| topic만으로 AI PPT 생성 | Python topic-only 생성, API `program-v2` request/enqueue, Worker 공통 publication, `/createdeck` route와 성공 후 에디터 이동 검증 | 로컬 통과 |
+| 첨부자료 포함 생성 | `reference-extract.processor.spec.ts`, `AiPptMockupPage.test.ts`, `test_generate_deck_contract.py`의 usable source와 diagnostics 검증 | 로컬 통과 |
+| 현재 reference extraction | shared schema, API enqueue, Worker 단일·다중 부분 실패, Python extract API 검증 | 로컬 통과 |
+| web research 품질 부족 | Python 3회 bounded attempt와 `WEB_RESEARCH_QUALITY_FAILED`, Worker terminal 전달, Web 안내 문구 검증 | 로컬 통과 · #338 정책 미적용 |
+| 이미지 provider 일부 실패 | `processGenerateDeckJob`에서 실패 slide만 no-media fallback, 후속 slide 이미지 유지, warning과 최종 `succeeded`를 검증하고 fallback request 실패는 terminal baseline으로 고정 | 로컬 통과 |
+| Saved DesignPack 선택 | API resolve → DB/queue snapshot, Worker `savedDesignPreferences` 전달, Python Art Director layout preference context, 최종 Deck palette/font와 선택된 composition의 snapshot/`aiNotes` 일관성 검증 | 로컬 통과 |
+| PPTX vector import | Python importer와 Worker의 editable element, mapping, render, source/current package 검증 | 로컬 통과 |
+| PPTX fallback import | Python fallback 생성과 Worker의 유효 Deck 저장 및 최종 `Job.result.warnings` 보존 검증 | 로컬 통과 |
+| imported Deck 편집·export | 실제 import → PUT/patch → sync → export → re-import DB integration fixture | 자동 CI `db-integration` 재검증 대기 |
+| 일반 AI Deck export | Worker generic exporter와 Python `/ai/export-deck-pptx` 검증 | 로컬 통과 |
+| 과거 Job 단건 조회 | shared historical type parsing과 mocked legacy row의 `DbJobQueue.get` mapping 검증 | 로컬 통과 |
+
+로컬에서는 `pnpm build` 10/10, `pnpm lint` 17/17, `pnpm test` 17/17 task, `check-env`, Docker Compose config, `uv sync --locked`, Ruff, mypy와 Python 480개 테스트가 통과했다. 기본 Worker test에서 skip되는 OOXML DB integration 4개는 owner 없는 skip이 아니라 required `db-integration` CI가 `pnpm test:coaching:integration`으로 실행하는 항목이다. PR 8의 자동 CI가 이를 포함해 모두 통과해야 전체 검증을 완료 처리한다.
+
+**미확보 운영 hard gate**
+
+- 339-4: 배포 환경의 `pptx-import`, `ai-template-deck-generation` queue에서 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`가 모두 0이고 관련 DB Job의 `queued`/`running`이 0이라는 drain 증거
+- 339-6: `personal-staging` required reviewer 또는 자동 배포 중단, cutover 담당자·시간·maintenance 방식, BullMQ `generate-deck` 전체 상태와 DB `ai-deck-generation`의 `queued`/`running` drain, Web/API/Worker/Python worker 동시 교체와 Web cache 무효화 증거
+
+두 운영 증거는 코드 테스트나 로컬 queue/DB 결과로 대체하지 않는다. 확보 전에는 PR 8을 Draft로 유지하고 #339를 종료하거나 #338 구현을 시작하지 않는다.
 
 **전체 검증 명령**
 
@@ -827,8 +852,12 @@ pnpm --filter @orbit/shared test
 pnpm --filter @orbit/web test
 pnpm --filter @orbit/api test
 pnpm --filter @orbit/worker test
+pnpm test:coaching:migrations
+pnpm test:coaching:integration
 pnpm build
 pnpm lint
+node infra/scripts/check-env.mjs
+docker compose config --quiet
 cd services/python-worker
 uv sync --locked
 uv run ruff check .
@@ -891,23 +920,24 @@ sequenceDiagram
 
 다음 항목이 모두 완료되어야 #338의 staged BullMQ/checkpoint 구현과 후속 SQS transport adapter 작업을 시작한다.
 
-- [ ] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
-- [ ] `design_planning.py`가 기존 `design_program.py`의 #341 정규화를 호출하고 design stage 회귀 테스트가 `slides[].backgroundMode` canonical 규칙을 검증한다.
-- [ ] 일반 AI 생성 request가 `program-v2` 전용이며 `legacy`, `recipe-v1` 분기가 없다.
-- [ ] `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 일반 AI 생성 계약에 없고 내부 recipe-v1 `layoutVariant`·`slotPreset` selector도 없다.
-- [ ] DesignPack 기능과 기존 생성 품질 회귀 테스트가 통과한다.
-- [ ] 에디터 PPTX import가 `/pptx-ooxml-generations`를 사용한다.
-- [ ] PPTX OOXML request는 `{ fileId }`만 받고 LLM을 호출하지 않는다.
-- [ ] TemplateBlueprint와 source/current package mapping이 유지된다.
-- [ ] imported Deck의 edit → sync → export round-trip이 검증됐다.
-- [ ] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
+- [x] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
+- [x] `design_planning.py`가 기존 `design_program.py`의 #341 정규화를 호출하고 design stage 회귀 테스트가 `slides[].backgroundMode` canonical 규칙을 검증한다.
+- [x] 일반 AI 생성 request가 `program-v2` 전용이며 `legacy`, `recipe-v1` 분기가 없다.
+- [x] `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 일반 AI 생성 계약에 없고 내부 recipe-v1 `layoutVariant`·`slotPreset` selector도 없다.
+- [x] DesignPack 기능과 기존 생성 품질 회귀 테스트가 통과한다.
+- [x] 에디터 PPTX import가 `/pptx-ooxml-generations`를 사용한다.
+- [x] PPTX OOXML request는 `{ fileId }`만 받고 LLM을 호출하지 않는다.
+- [x] TemplateBlueprint와 source/current package mapping이 유지된다.
+- [x] imported Deck의 edit → sync → export round-trip fixture가 required `db-integration` CI에 연결되어 있다.
+- [x] 구형 `pptx-import` 및 `ai-template-deck-generation` 신규 enqueue가 없다.
 - [ ] 배포 환경 drain 확인 후 구형 API, queue/job constant, consumer, processor가 제거됐다.
-- [ ] historical Job row를 안전하게 읽을 수 있다.
-- [ ] `generate_deck.py`가 façade 수준으로 축소됐다.
-- [ ] Python의 source, content, design, layout, visual requirements, quality 단계가 명시적 DTO로 단독 테스트 가능하다.
-- [ ] Worker의 asset resolution, semantic quality, rendered visual quality, publication 단계가 단독 테스트 가능하다.
-- [ ] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환과 SQS transport adapter는 #338 범위로 명시되어 있다.
-- [ ] `/ai/generate-deck` 공개 계약과 최종 Deck schema가 유지된다.
+- [ ] 339-6 breaking cutover의 배포 중단, 담당자·시간·maintenance, queue/DB drain, 동시 교체와 cache 무효화 증거가 있다.
+- [x] historical Job row를 안전하게 읽을 수 있다.
+- [x] `generate_deck.py`가 façade 수준으로 축소됐다.
+- [x] Python의 source, content, design, layout, visual requirements, quality, diagnostics 단계가 명시적 DTO로 단독 테스트 가능하다.
+- [x] Worker의 asset resolution, semantic quality, rendered visual quality, publication 단계가 단독 테스트 가능하다.
+- [x] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환과 SQS transport adapter는 #338 범위로 명시되어 있다.
+- [x] `/ai/generate-deck` 공개 계약과 최종 Deck schema가 유지된다.
 - [ ] 전체 TypeScript/Python 검증이 통과한다.
 
 이 체크리스트 이후 #338에서는 다음 작업에만 집중할 수 있어야 한다.
