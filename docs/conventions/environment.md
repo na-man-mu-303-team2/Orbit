@@ -24,6 +24,8 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq | sqs
+AI_DECK_EXECUTION_MODE=monolith | bullmq | sqs
+AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize
 LIVE_STT_PROVIDER=sherpa
 LIVE_STT_ENGINE=openai-realtime | web-speech
 REPORT_STT_PROVIDER=openai | whisperx
@@ -31,7 +33,19 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
-현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. `JOB_QUEUE_DRIVER=sqs`는 AWS SQS adapter 구현 후 활성화한다.
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`는 AI Deck 이외의 Job도 제어하므로 #338 작업 중에도 `bullmq`로 유지한다. `JOB_QUEUE_DRIVER=sqs`는 adapter가 아직 없어 Worker startup이 실패한다.
+
+`AI_DECK_EXECUTION_MODE`의 기본값은 `monolith`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. 로컬 `docker-compose.yml`의 API와 Worker는 두 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. 세 환경 예제도 현재 안전한 기본 조합인 `monolith`/`all`을 사용한다.
+
+338-1에서 실제로 지원하는 조합은 다음과 같다.
+
+| `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작 |
+| --- | --- | --- |
+| `monolith` | `all` | 기본값. 기존 full-deck 생성 경로를 실행한다. |
+| `bullmq` | `all` | staged coordinator, 파일별 OCR consumer, dispatcher와 expired-lease reconciler를 기존 Worker 전체 queue와 함께 실행한다. |
+| `bullmq` | `reference-extract` | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
+
+`AI_DECK_EXECUTION_MODE=sqs`는 schema에는 후속 adapter 계약을 위해 남아 있지만 API와 Worker가 startup에서 거부한다. `research-content`, `design-layout`, `image`, `qa-finalize` 역할도 후속 338 slice용 예약값이며 338-1 Worker는 startup에서 거부한다. `reference-extract` 역할은 `bullmq` 실행 모드에서만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
 
 ## 서버 로그
 
