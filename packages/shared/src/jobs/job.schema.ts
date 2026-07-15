@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import { aiDeckGenerationStageSchema } from "./ai-deck-generation-stage.schema";
 
 export const jobStatusSchema = z.enum([
   "queued",
@@ -69,6 +70,8 @@ export const jobSchema = z.object({
     .object({
       code: z.string().min(1),
       message: z.string().min(1),
+      failedStage: aiDeckGenerationStageSchema.optional(),
+      retryable: z.boolean().optional(),
     })
     .nullable(),
   createdAt: isoDateTimeSchema,

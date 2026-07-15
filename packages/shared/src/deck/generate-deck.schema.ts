@@ -331,6 +331,10 @@ export const generateDeckVisualRepairActionSchema = z.object({
   reason: z.string().trim().min(1)
 });
 
+export const generateDeckWarningCodeSchema = z
+  .string()
+  .regex(/^[A-Z][A-Z0-9_]*$/);
+
 export const generateDeckDiagnosticsSchema = z
   .object({
     referencePolicy: generateDeckReferencePolicySchema.default("topic-only"),
@@ -343,7 +347,10 @@ export const generateDeckDiagnosticsSchema = z
     repairReasons: z.array(generateDeckRepairReasonSchema).default([]),
     uniqueCoreLayoutCount: z.number().int().nonnegative().default(0),
     validationIssueCount: z.number().int().nonnegative().default(0),
-    visualQaStatus: z.enum(["not-run", "passed", "failed"]).optional(),
+    warningCodes: z.array(generateDeckWarningCodeSchema).default([]),
+    visualQaStatus: z
+      .enum(["not-run", "passed", "failed", "unavailable"])
+      .optional(),
     visualReviewAttempts: z.number().int().nonnegative().optional(),
     visualRepairAttempts: z.number().int().nonnegative().optional(),
     visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional()
@@ -432,6 +439,9 @@ export type TemplateSelectionItem = z.infer<typeof templateSelectionItemSchema>;
 export type GenerateDeckResponse = z.infer<typeof generateDeckResponseSchema>;
 export type GenerateDeckDiagnostics = z.infer<
   typeof generateDeckDiagnosticsSchema
+>;
+export type GenerateDeckWarningCode = z.infer<
+  typeof generateDeckWarningCodeSchema
 >;
 export type GenerateDeckVisualIssueCode = z.infer<
   typeof generateDeckVisualIssueCodeSchema

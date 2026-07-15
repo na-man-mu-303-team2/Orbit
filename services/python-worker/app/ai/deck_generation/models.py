@@ -44,6 +44,7 @@ RepairReasonCode = Literal[
     "SPEAKER_NOTES_LONG",
     "SPEAKER_NOTES_REPEATED",
 ]
+WarningCode = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
 ForbiddenStyle = Literal["gradient", "pastel"]
 CanvasBackground = Literal["auto", "white"]
 ColorMood = Literal[
@@ -774,7 +775,11 @@ class GenerateDeckDiagnostics(BaseModel):
         alias="validationIssueCount",
         ge=0,
     )
-    visual_qa_status: Literal["not-run", "passed", "failed"] = Field(
+    warning_codes: list[WarningCode] = Field(
+        default_factory=list,
+        alias="warningCodes",
+    )
+    visual_qa_status: Literal["not-run", "passed", "failed", "unavailable"] = Field(
         default="not-run",
         alias="visualQaStatus",
     )
