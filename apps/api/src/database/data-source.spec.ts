@@ -33,5 +33,12 @@ describe("databaseOptions", () => {
           migration.name === "CreateAiDeckPlanningArtifacts2026071601000",
       ),
     ).toBe(true);
+    expect(
+      migrations.some(
+        (migration) =>
+          typeof migration === "function" &&
+          migration.name === "ExpandAiDeckStageDispatchRecovery2026071601100",
+      ),
+    ).toBe(true);
   });
 });

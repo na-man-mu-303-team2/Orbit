@@ -41,7 +41,7 @@ export async function dispatchAiDeckGenerationStages(
   const pending = await repository.listUndispatched(limit);
   let dispatched = 0;
   for (const checkpoint of pending) {
-    if (!isReferenceExtractionCheckpoint(checkpoint)) continue;
+    if (!isImplementedStageCheckpoint(checkpoint)) continue;
     let result: AiDeckGenerationStageEnqueueResult;
     try {
       result = await (options.enqueue ?? enqueueAiDeckGenerationStageJob)({
@@ -63,8 +63,16 @@ export async function dispatchAiDeckGenerationStages(
   return { scanned: pending.length, dispatched };
 }
 
-function isReferenceExtractionCheckpoint(
+function isImplementedStageCheckpoint(
   checkpoint: DispatchableAiDeckGenerationStage,
 ): boolean {
-  return checkpoint.message.stage === "reference-extract-file";
+  return implementedStages.has(checkpoint.message.stage);
 }
+
+const implementedStages = new Set([
+  "reference-extract-file",
+  "source-grounding",
+  "content-planning",
+  "design-planning",
+  "layout-compile",
+]);
