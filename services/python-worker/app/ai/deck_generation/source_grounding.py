@@ -106,13 +106,15 @@ def ground_sources(
     if research.status == "succeeded":
         raw_input.source_records.extend(research.sources)
     elif raw_input.brief.reference_policy == "research-first":
-        raise DeckContentGenerationError(
-            "WEB_RESEARCH_QUALITY_FAILED: "
-            + (
-                research.message
-                or "관련성 있는 공식·독립 웹 출처를 확보하지 못했습니다."
+        if not has_usable_grounding_or_user_input(raw_input):
+            raise DeckContentGenerationError(
+                "SOURCE_GROUNDING_REQUIRED: usable grounding is required."
             )
+        warnings.append(
+            "Web research quality was insufficient; generation continued with available input."
         )
+        if "WEB_RESEARCH_QUALITY_FAILED" not in raw_input.warning_codes:
+            raw_input.warning_codes.append("WEB_RESEARCH_QUALITY_FAILED")
     elif raw_input.brief.reference_policy == "references-first":
         warnings.append(
             "Web research was unavailable; generation continued with uploaded references."
@@ -122,6 +124,26 @@ def ground_sources(
         sourceRecords=raw_input.source_records,
         warnings=warnings,
         webSourceCount=len(research.sources),
+    )
+
+
+def has_usable_grounding_or_user_input(raw_input: RawInput) -> bool:
+    if any(
+        record.content.strip()
+        for record in raw_input.source_records
+        if record.source_type in {"uploaded", "web"}
+    ):
+        return True
+    return any(
+        value.strip()
+        for value in (
+            raw_input.topic,
+            raw_input.prompt,
+            raw_input.brief.presentation_context,
+            raw_input.brief.audience_text,
+            raw_input.brief.presentation_type,
+            raw_input.brief.success_criteria,
+        )
     )
 
 

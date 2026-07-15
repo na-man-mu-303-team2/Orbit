@@ -42,6 +42,7 @@ def generate_deck_diagnostics(
         repairReasons=raw_input.repair_reason_codes,
         uniqueCoreLayoutCount=unique_core_layout_count,
         validationIssueCount=validation_issue_count,
+        warningCodes=raw_input.warning_codes,
     )
 
 

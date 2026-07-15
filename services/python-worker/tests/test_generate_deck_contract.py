@@ -2226,25 +2226,38 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     assert "sourceRefs" in slide_schema["required"]
 
 
-def test_research_first_retries_then_rejects_fewer_than_two_url_citations() -> None:
+def test_research_first_retries_then_warns_for_fewer_than_two_url_citations() -> None:
     client = FakeResearchOpenAIClient(
-        {"title": "unused", "slides": []},
+        {
+            "title": "Research",
+            "slides": [
+                slide_payload(
+                    "Research",
+                    "Available input supports the presentation.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                )
+            ],
+        },
         [("https://example.com/only", "Only source")],
     )
 
-    with pytest.raises(DeckContentGenerationError, match="WEB_RESEARCH_QUALITY_FAILED"):
-        generate_deck(
-            GenerateDeckRequest(
-                projectId="project_demo_1",
-                topic="Research",
-                referencePolicy="research-first",
-                brief={"referencePolicy": "research-first"},
-                slideCountRange={"min": 1, "max": 1},
-            ),
-            client=client,
-        )
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Research",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
 
     assert len([request for request in client.requests if request.get("tools")]) == 3
+    assert response.diagnostics.warning_codes == ["WEB_RESEARCH_QUALITY_FAILED"]
+    assert any("Web research quality was insufficient" in item for item in response.warnings)
 
 
 def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
