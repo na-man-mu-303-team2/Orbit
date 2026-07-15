@@ -78,6 +78,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
+  private aiDeckFailedCoordinatorScanStart = 0;
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -545,6 +546,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         this.dataSource,
         {
           redisUrl: this.config.REDIS_URL,
+          start: this.aiDeckFailedCoordinatorScanStart,
           onError: (error, job) =>
             this.logger.error(
               {
@@ -558,6 +560,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             ),
         },
       );
+      this.aiDeckFailedCoordinatorScanStart = result.nextStart;
       if (result.recovered > 0 || result.removed > 0) {
         this.logger.warn(
           {

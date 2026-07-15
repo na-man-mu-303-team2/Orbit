@@ -12,7 +12,8 @@ import {
   type AiDeckBullMqFailureRecoveryResult,
 } from "./transport-failure-recovery";
 
-const reconcileLimitSchema = z.number().int().min(1).max(500);
+const reconcileLimitSchema = z.number().int().min(1).max(100);
+const reconcileStartSchema = z.number().int().nonnegative();
 
 export interface FailedAiDeckCoordinatorJob {
   id?: string;
@@ -29,7 +30,7 @@ interface FailedCoordinatorQueue {
     start: number,
     end: number,
     asc: boolean,
-  ): Promise<FailedAiDeckCoordinatorJob[]>;
+  ): Promise<Array<FailedAiDeckCoordinatorJob | null | undefined>>;
   close(): Promise<void>;
 }
 
@@ -44,6 +45,7 @@ type RecoveryFunction = (
 
 export interface FailedAiDeckCoordinatorReconcilerOptions {
   redisUrl: string;
+  start?: number;
   limit?: number;
   queueFactory?: (redisUrl: string) => FailedCoordinatorQueue;
   recover?: RecoveryFunction;
@@ -53,27 +55,28 @@ export interface FailedAiDeckCoordinatorReconcilerOptions {
 export async function reconcileFailedAiDeckCoordinatorJobs(
   dataSource: DataSource,
   options: FailedAiDeckCoordinatorReconcilerOptions,
-): Promise<{ scanned: number; recovered: number; removed: number }> {
-  const limit = reconcileLimitSchema.parse(options.limit ?? 100);
+): Promise<{
+  scanned: number;
+  recovered: number;
+  removed: number;
+  nextStart: number;
+}> {
+  const start = reconcileStartSchema.parse(options.start ?? 0);
+  const limit = reconcileLimitSchema.parse(options.limit ?? 25);
   const queue = (options.queueFactory ?? createQueue)(options.redisUrl);
   let scanned = 0;
   let recovered = 0;
   let removed = 0;
   try {
-    const candidates: FailedAiDeckCoordinatorJob[] = [];
-    let start = 0;
-    while (true) {
-      const jobs = await queue.getJobs(
-        ["failed"],
-        start,
-        start + limit - 1,
-        true,
-      );
-      scanned += jobs.length;
-      candidates.push(...jobs.filter(isExhaustedCoordinator));
-      if (jobs.length < limit) break;
-      start += jobs.length;
-    }
+    const queueRows = await queue.getJobs(
+      ["failed"],
+      start,
+      start + limit - 1,
+      true,
+    );
+    const jobs = queueRows.filter(isFailedCoordinatorJob);
+    scanned = jobs.length;
+    const candidates = jobs.filter(isExhaustedCoordinator);
 
     for (const job of candidates) {
       try {
@@ -91,10 +94,20 @@ export async function reconcileFailedAiDeckCoordinatorJobs(
         options.onError?.(error, job);
       }
     }
-    return { scanned, recovered, removed };
+    const nextStart =
+      queueRows.length < limit
+        ? 0
+        : Math.max(0, start + queueRows.length - removed);
+    return { scanned, recovered, removed, nextStart };
   } finally {
     await queue.close();
   }
+}
+
+function isFailedCoordinatorJob(
+  job: FailedAiDeckCoordinatorJob | null | undefined,
+): job is FailedAiDeckCoordinatorJob {
+  return job !== null && job !== undefined;
 }
 
 function createQueue(redisUrl: string): FailedCoordinatorQueue {

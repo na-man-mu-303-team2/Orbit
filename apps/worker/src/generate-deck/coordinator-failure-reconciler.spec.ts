@@ -22,7 +22,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       nextStart: 0,
     });
 
-    expect(queue.getJobs).toHaveBeenCalledWith(["failed"], 0, 99, true);
+    expect(queue.getJobs).toHaveBeenCalledWith(["failed"], 0, 24, true);
     expect(recover).toHaveBeenCalledWith(expect.anything(), {
       queueName: "generate-deck",
       jobName: "generate-deck-staged-coordinator",
@@ -95,6 +95,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       {} as DataSource,
       {
         redisUrl: "redis://localhost:6379",
+        limit: 100,
         queueFactory: () => queue,
         recover,
       },
@@ -111,6 +112,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
       reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
         redisUrl: "redis://localhost:6379",
         start: first.nextStart,
+        limit: 100,
         queueFactory: () => queue,
         recover,
       }),
