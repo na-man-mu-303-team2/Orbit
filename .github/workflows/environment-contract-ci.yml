@@ -40,4 +40,6 @@ jobs:
       - environment-contract
     uses: ./.github/workflows/deploy-personal-staging.yml
     with:
+      deployment_mode: full
       expected_sha: ${{ github.sha }}
+      trigger_source: develop-push
