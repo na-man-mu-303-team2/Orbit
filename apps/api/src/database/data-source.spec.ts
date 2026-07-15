@@ -18,5 +18,13 @@ describe("databaseOptions", () => {
           migration.name === "CreateAiDeckGenerationStages2026071502000",
       ),
     ).toBe(true);
+    expect(
+      migrations.some(
+        (migration) =>
+          typeof migration === "function" &&
+          migration.name ===
+            "CreateAiDeckReferenceExtractionArtifacts2026071504000",
+      ),
+    ).toBe(true);
   });
 });

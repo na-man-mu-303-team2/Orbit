@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateDeckRequestSchema } from "@orbit/shared";
 import {
   InMemoryJobQueue,
+  aiDeckDesignLayoutQueueName,
   aiDeckGenerationStageJobId,
+  aiDeckGenerationStageQueueName,
+  aiDeckImageQueueName,
+  aiDeckQaFinalizeQueueName,
+  aiDeckResearchContentQueueName,
+  enqueueAiDeckGenerationStageJob,
+  enqueueGenerateDeckJob,
   enqueueSemanticCueExtractionJob,
   enqueuePptxOoxmlGenerationJob,
   enqueueRehearsalSttJob,
@@ -9,6 +17,7 @@ import {
   enqueueWorkerHealthCheckJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
+  referenceExtractQueueName,
   rehearsalSttJobName,
   rehearsalSttQueueName,
   rehearsalSemanticEvaluationJobName,
@@ -56,9 +65,141 @@ describe("aiDeckGenerationStageJobId", () => {
   });
 });
 
+describe("AI Deck staged BullMQ transport", () => {
+  it("enqueues an exact four-field stage message without file bytes", async () => {
+    const result = await enqueueAiDeckGenerationStageJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      message: {
+        pipelineJobId: "job-ai-deck-1",
+        projectId: "project-a",
+        stage: "reference-extract-file",
+        shardKey: "file-1",
+      },
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(referenceExtractQueueName, {
+      connection: expect.objectContaining({ host: "localhost", port: 6379 }),
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(
+      "reference-extract-file",
+      {
+        pipelineJobId: "job-ai-deck-1",
+        projectId: "project-a",
+        stage: "reference-extract-file",
+        shardKey: "file-1",
+      },
+      expect.objectContaining({
+        jobId: "job-ai-deck-1:reference-extract-file:file-1",
+        attempts: 5,
+        backoff: { type: "exponential", delay: 1000 },
+        removeOnComplete: true,
+        removeOnFail: true,
+      }),
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toMatch(
+      /base64|content|storageKey|mimeType/i,
+    );
+    expect(result).toEqual({
+      jobId: "job-ai-deck-1:reference-extract-file:file-1",
+      state: "waiting",
+    });
+  });
+
+  it.each([
+    ["reference-extract-file", referenceExtractQueueName],
+    ["source-grounding", aiDeckResearchContentQueueName],
+    ["content-planning", aiDeckResearchContentQueueName],
+    ["design-planning", aiDeckDesignLayoutQueueName],
+    ["layout-compile", aiDeckDesignLayoutQueueName],
+    ["image-slide", aiDeckImageQueueName],
+    ["semantic-quality", aiDeckQaFinalizeQueueName],
+    ["rendered-visual-quality", aiDeckQaFinalizeQueueName],
+    ["publication", aiDeckQaFinalizeQueueName],
+  ] as const)("maps %s to %s", (stage, queueName) => {
+    expect(aiDeckGenerationStageQueueName(stage)).toBe(queueName);
+  });
+
+  it("maps source grounding to the research-content queue", async () => {
+    await enqueueAiDeckGenerationStageJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      message: {
+        pipelineJobId: "job-ai-deck-1",
+        projectId: "project-a",
+        stage: "source-grounding",
+        shardKey: "",
+      },
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(aiDeckResearchContentQueueName, {
+      connection: expect.any(Object),
+    });
+  });
+
+  it("uses an ID-only coordinator seed in BullMQ mode", async () => {
+    await enqueueGenerateDeckJob({
+      driver: "bullmq",
+      executionMode: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-ai-deck-1",
+      projectId: "project-a",
+      request: generateDeckRequestSchema.parse({ topic: "분산 파이프라인" }),
+    });
+
+    expect(queueMock.add).toHaveBeenCalledWith(
+      "generate-deck-staged-coordinator",
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+      expect.objectContaining({
+        jobId: "job-ai-deck-1",
+        attempts: 5,
+        removeOnFail: false,
+      }),
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain(
+      "분산 파이프라인",
+    );
+  });
+
+  it("preserves the full monolith payload when executionMode is omitted", async () => {
+    const request = generateDeckRequestSchema.parse({ topic: "monolith" });
+
+    await enqueueGenerateDeckJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-monolith-1",
+      projectId: "project-a",
+      request,
+    });
+
+    expect(queueMock.add).toHaveBeenCalledWith(
+      "generate-deck",
+      { jobId: "job-monolith-1", projectId: "project-a", request },
+      expect.objectContaining({ jobId: "job-monolith-1" }),
+    );
+  });
+
+  it.each([
+    { driver: "sqs" as const, executionMode: "monolith" as const },
+    { driver: "bullmq" as const, executionMode: "sqs" as const },
+  ])("fails fast for an unavailable SQS path: $driver/$executionMode", async (mode) => {
+    await expect(
+      enqueueGenerateDeckJob({
+        ...mode,
+        redisUrl: "redis://localhost:6379",
+        jobId: "job-sqs-1",
+        projectId: "project-a",
+        request: generateDeckRequestSchema.parse({ topic: "SQS" }),
+      }),
+    ).rejects.toThrow(/not implemented yet/);
+    expect(queueMock.Queue).not.toHaveBeenCalled();
+  });
+});
+
 const queueMock = vi.hoisted(() => ({
   add: vi.fn(),
   close: vi.fn(),
+  getState: vi.fn(),
   Queue: vi.fn()
 }));
 
@@ -69,8 +210,13 @@ vi.mock("bullmq", () => ({
 beforeEach(() => {
   queueMock.add.mockReset();
   queueMock.close.mockReset();
+  queueMock.getState.mockReset();
   queueMock.Queue.mockReset();
-  queueMock.add.mockResolvedValue(undefined);
+  queueMock.getState.mockResolvedValue("waiting");
+  queueMock.add.mockImplementation(async (_name, _payload, options) => ({
+    id: options?.jobId,
+    getState: queueMock.getState,
+  }));
   queueMock.close.mockResolvedValue(undefined);
   queueMock.Queue.mockImplementation(() => ({
     add: queueMock.add,

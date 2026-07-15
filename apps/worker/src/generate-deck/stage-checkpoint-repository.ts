@@ -1,6 +1,8 @@
 import {
-  aiDeckGenerationStageReferenceSchema,
+  aiDeckGenerationStageInputReferenceSchema,
   aiDeckGenerationStageMessageSchema,
+  aiDeckGenerationStageReferenceSchema,
+  aiDeckGenerationStageResultReferenceSchema,
   aiDeckGenerationStageSchema,
   aiDeckGenerationStageStatusSchema,
   jobErrorSchema,
@@ -29,7 +31,11 @@ const claimedAttemptSchema = checkpointAttemptSchema.min(1);
 const retryableErrorSchema = jobErrorSchema.extend({
   retryable: z.literal(true),
 });
+const exhaustedErrorSchema = jobErrorSchema.extend({
+  retryable: z.literal(false),
+});
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
+const dispatchLimitSchema = z.number().int().min(1).max(500);
 
 const checkpointRowSchema = z.object({
   pipeline_job_id: z.string().min(1),
@@ -45,6 +51,10 @@ const checkpointRowSchema = z.object({
   dispatched_at: timestampSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,
+});
+
+const dispatchableCheckpointRowSchema = checkpointRowSchema.extend({
+  project_id: z.string().min(1),
 });
 
 export interface AiDeckGenerationStageCheckpoint {
@@ -63,6 +73,11 @@ export interface AiDeckGenerationStageCheckpoint {
   updatedAt: string;
 }
 
+export interface DispatchableAiDeckGenerationStage {
+  message: AiDeckGenerationStageMessage;
+  attempt: number;
+}
+
 export class AiDeckGenerationStageCheckpointRepository {
   constructor(private readonly db: QueryExecutor) {}
 
@@ -71,7 +86,10 @@ export class AiDeckGenerationStageCheckpointRepository {
     rawInputRef: unknown = {},
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
-    const inputRef = aiDeckGenerationStageReferenceSchema.parse(rawInputRef);
+    const inputRef = aiDeckGenerationStageInputReferenceSchema.parse({
+      stage: message.stage,
+      reference: rawInputRef,
+    }).reference;
     const rows = await this.db.query(
       `
         INSERT INTO ai_deck_generation_stages (
@@ -188,7 +206,10 @@ export class AiDeckGenerationStageCheckpointRepository {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
     const attempt = claimedAttemptSchema.parse(rawAttempt);
-    const resultRef = aiDeckGenerationStageReferenceSchema.parse(rawResultRef);
+    const resultRef = aiDeckGenerationStageResultReferenceSchema.parse({
+      stage: message.stage,
+      reference: rawResultRef,
+    }).reference;
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
@@ -322,6 +343,175 @@ export class AiDeckGenerationStageCheckpointRepository {
     );
     return checkpointFromQuery(rows);
   }
+
+  async releaseDispatchedForTransportRetry(
+    rawMessage: unknown,
+  ): Promise<AiDeckGenerationStageCheckpoint | null> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const rows = await this.db.query(
+      `
+        UPDATE ai_deck_generation_stages stages
+        SET dispatched_at = NULL,
+            updated_at = now()
+        FROM jobs
+        WHERE jobs.job_id = stages.pipeline_job_id
+          AND jobs.project_id = $2
+          AND jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.pipeline_job_id = $1
+          AND stages.stage = $3
+          AND stages.shard_key = $4
+          AND stages.status = 'queued'
+          AND stages.dispatched_at IS NOT NULL
+        RETURNING stages.*
+      `,
+      messageParameters(message),
+    );
+    return checkpointFromQuery(rows);
+  }
+
+  async recoverStaleDispatches(rawLimit = 100): Promise<number> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        WITH stale AS (
+          SELECT stages.pipeline_job_id,
+                 stages.stage,
+                 stages.shard_key
+          FROM ai_deck_generation_stages stages
+          JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+          WHERE jobs.type = 'ai-deck-generation'
+            AND jobs.status IN ('queued','running')
+            AND stages.stage = 'reference-extract-file'
+            AND stages.status = 'queued'
+            AND stages.dispatched_at <= now() - interval '15 minutes'
+          ORDER BY stages.dispatched_at,
+                   stages.pipeline_job_id,
+                   stages.shard_key
+          LIMIT $1
+          FOR UPDATE OF stages SKIP LOCKED
+        )
+        UPDATE ai_deck_generation_stages stages
+        SET dispatched_at = NULL,
+            updated_at = now()
+        FROM stale
+        WHERE stages.pipeline_job_id = stale.pipeline_job_id
+          AND stages.stage = stale.stage
+          AND stages.shard_key = stale.shard_key
+        RETURNING stages.*
+      `,
+      [limit],
+    );
+    const recoveredRows = queryRows(rows);
+    for (const row of recoveredRows) checkpointRowSchema.parse(row);
+    return recoveredRows.length;
+  }
+
+  async listUndispatched(
+    rawLimit = 100,
+  ): Promise<DispatchableAiDeckGenerationStage[]> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        SELECT stages.*, jobs.project_id
+        FROM ai_deck_generation_stages stages
+        JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+        WHERE jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.stage = 'reference-extract-file'
+          AND stages.status = 'queued'
+          AND stages.dispatched_at IS NULL
+        ORDER BY stages.created_at, stages.pipeline_job_id, stages.shard_key
+        LIMIT $1
+      `,
+      [limit],
+    );
+    if (!Array.isArray(rows)) return [];
+    return rows.map((rawRow) => {
+      const row = dispatchableCheckpointRowSchema.parse(rawRow);
+      return {
+        message: aiDeckGenerationStageMessageSchema.parse({
+          pipelineJobId: row.pipeline_job_id,
+          projectId: row.project_id,
+          stage: row.stage,
+          shardKey: row.shard_key,
+        }),
+        attempt: row.attempt,
+      };
+    });
+  }
+
+  async listExpiredLeases(
+    rawLimit = 100,
+  ): Promise<DispatchableAiDeckGenerationStage[]> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        SELECT stages.*, jobs.project_id
+        FROM ai_deck_generation_stages stages
+        JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+        WHERE jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.stage = 'reference-extract-file'
+          AND stages.status = 'running'
+          AND stages.lease_expires_at <= now()
+        ORDER BY stages.lease_expires_at, stages.pipeline_job_id, stages.shard_key
+        LIMIT $1
+      `,
+      [limit],
+    );
+    if (!Array.isArray(rows)) return [];
+    return rows.map((rawRow) => dispatchableFromRow(rawRow));
+  }
+
+  async reconcileExpiredLease(
+    rawMessage: unknown,
+    rawObservedAttempt: unknown,
+    rawRetryError: unknown,
+    rawExhaustedError: unknown,
+  ): Promise<AiDeckGenerationStageCheckpoint | null> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const observedAttempt = claimedAttemptSchema.parse(rawObservedAttempt);
+    const retryError = retryableErrorSchema.parse(rawRetryError);
+    const exhaustedError = exhaustedErrorSchema.parse(rawExhaustedError);
+    const rows = await this.db.query(
+      `
+        UPDATE ai_deck_generation_stages stages
+        SET status = CASE
+              WHEN stages.attempt < 5 THEN 'queued'
+              ELSE 'failed'
+            END,
+            result_ref_json = NULL,
+            error_json = CASE
+              WHEN stages.attempt < 5 THEN $6::jsonb
+              ELSE $7::jsonb
+            END,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            dispatched_at = NULL,
+            updated_at = now()
+        FROM jobs
+        WHERE jobs.job_id = stages.pipeline_job_id
+          AND jobs.project_id = $2
+          AND jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.pipeline_job_id = $1
+          AND stages.stage = $3
+          AND stages.shard_key = $4
+          AND stages.status = 'running'
+          AND stages.attempt = $5
+          AND stages.lease_expires_at <= now()
+        RETURNING stages.*
+      `,
+      messageParameters(
+        message,
+        observedAttempt,
+        retryError,
+        exhaustedError,
+      ),
+    );
+    return checkpointFromQuery(rows);
+  }
 }
 
 function messageParameters(
@@ -343,6 +533,16 @@ function checkpointFromQuery(
   const rawRow = firstQueryRow(queryResult);
   if (!rawRow) return null;
   const row = checkpointRowSchema.parse(rawRow);
+  aiDeckGenerationStageInputReferenceSchema.parse({
+    stage: row.stage,
+    reference: row.input_ref_json,
+  });
+  if (row.result_ref_json !== null) {
+    aiDeckGenerationStageResultReferenceSchema.parse({
+      stage: row.stage,
+      reference: row.result_ref_json,
+    });
+  }
   return {
     pipelineJobId: row.pipeline_job_id,
     stage: row.stage,
@@ -360,11 +560,32 @@ function checkpointFromQuery(
   };
 }
 
+function dispatchableFromRow(
+  rawRow: unknown,
+): DispatchableAiDeckGenerationStage {
+  const row = dispatchableCheckpointRowSchema.parse(rawRow);
+  return {
+    message: aiDeckGenerationStageMessageSchema.parse({
+      pipelineJobId: row.pipeline_job_id,
+      projectId: row.project_id,
+      stage: row.stage,
+      shardKey: row.shard_key,
+    }),
+    attempt: row.attempt,
+  };
+}
+
 function firstQueryRow(queryResult: unknown): unknown | null {
   if (!Array.isArray(queryResult)) return null;
   const first = queryResult[0];
   if (Array.isArray(first)) return first[0] ?? null;
   return first ?? null;
+}
+
+function queryRows(queryResult: unknown): unknown[] {
+  if (!Array.isArray(queryResult)) return [];
+  const first = queryResult[0];
+  return Array.isArray(first) ? first : queryResult;
 }
 
 function optionalIso(value: Date | string | null): string | null {

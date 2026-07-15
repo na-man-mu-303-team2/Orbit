@@ -426,12 +426,16 @@ class GenerateDeckRequest(BaseModel):
     reference_file_ids: list[NonEmptyString] = Field(
         default_factory=list,
         alias="referenceFileIds",
+        max_length=10,
     )
     official_asset_file_ids: list[NonEmptyString] | None = Field(
         default=None,
         alias="officialAssetFileIds",
     )
-    references: list[GenerateDeckReference] = Field(default_factory=list)
+    references: list[GenerateDeckReference] = Field(
+        default_factory=list,
+        max_length=10,
+    )
     reference_keywords: list[GenerateDeckReferenceKeyword] = Field(
         default_factory=list,
         alias="referenceKeywords",

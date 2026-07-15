@@ -37,6 +37,29 @@ describe("generateDeckRequestSchema", () => {
     expect(request.referenceContext).toEqual([]);
   });
 
+  it("rejects more than 10 referenceFileIds", () => {
+    const result = generateDeckRequestSchema.safeParse({
+      topic: "AI deck generation",
+      referenceFileIds: Array.from(
+        { length: 11 },
+        (_, index) => `file_${index + 1}`
+      )
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects more than 10 public references", () => {
+    const result = generateDeckRequestSchema.safeParse({
+      topic: "AI deck generation",
+      references: Array.from({ length: 11 }, (_, index) => ({
+        fileId: `file_${index + 1}`
+      }))
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("accepts survey brief fields for AI PPT generation", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "Brandlogy renewal",
