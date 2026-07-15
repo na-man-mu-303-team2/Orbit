@@ -47,7 +47,11 @@ export class GenerateDeckService {
     private readonly savedDesignPacksService?: SavedDesignPacksService,
     @Optional()
     private readonly presentationBriefs?: PresentationBriefsService
-  ) {}
+  ) {
+    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
+      throw new Error("AI Deck SQS transport is not implemented yet.");
+    }
+  }
 
   async createJob(
     projectId: string,

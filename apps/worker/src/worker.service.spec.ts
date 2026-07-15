@@ -169,11 +169,29 @@ describe("WorkerService queue subscriptions", () => {
       expect.objectContaining({ event: "job.progressed" }),
       "Job progressed.",
     );
-    expect(maintenance.dispatch).toHaveBeenCalled();
+    expect(
+      logger.info.mock.calls.filter(
+        ([fields]) =>
+          typeof fields === "object" &&
+          fields !== null &&
+          "event" in fields &&
+          fields.event === "job.progressed",
+      ),
+    ).toHaveLength(2);
+    expect(maintenance.dispatch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        driver: "bullmq",
+        redisUrl: configState.REDIS_URL,
+      }),
+    );
     expect(maintenance.reconcile).toHaveBeenCalled();
 
     await expect(
       generateHandler(bullJob("unknown-generate-deck-job", {})),
+    ).rejects.toThrow("Unsupported BullMQ job name");
+    await expect(
+      referenceHandler(bullJob("unknown-reference-job", {})),
     ).rejects.toThrow("Unsupported BullMQ job name");
     await service.onModuleDestroy();
   });
@@ -194,15 +212,22 @@ describe("WorkerService queue subscriptions", () => {
   it.each([
     ["sqs", "all"],
     ["bullmq", "research-content"],
+    ["monolith", "reference-extract"],
   ] as const)(
     "fails startup for an unavailable 338-1 mode %s/%s",
     (executionMode, workerQueue) => {
       configState.AI_DECK_EXECUTION_MODE = executionMode;
       configState.AI_DECK_WORKER_QUEUE = workerQueue;
-      const { service } = createService();
+      const { service, logger } = createService();
 
       expect(() => service.onModuleInit()).toThrow(/not implemented/i);
       expect(bullMq.queues).toEqual([]);
+      expect(maintenance.dispatch).not.toHaveBeenCalled();
+      expect(maintenance.reconcile).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "worker.ready" }),
+        "Worker ready.",
+      );
     },
   );
 });
