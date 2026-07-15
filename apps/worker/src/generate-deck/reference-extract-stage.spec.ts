@@ -34,7 +34,7 @@ describe("processAiDeckReferenceExtractionStage", () => {
   });
 
   it("downloads one asset and atomically saves its artifact, fenced checkpoint, and join", async () => {
-    const outerQuery = vi.fn(async (sql: string) => {
+    const outerQuery = vi.fn(async (sql: string, _parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
         return [runningCheckpointRow()];
@@ -42,25 +42,31 @@ describe("processAiDeckReferenceExtractionStage", () => {
       if (compact.includes("FROM project_assets assets")) return [assetRow()];
       throw new Error(`Unexpected outer query: ${compact}`);
     });
-    const transactionQuery = vi.fn(async (sql: string) => {
-      const compact = compactSql(sql);
-      if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
-        return [parentJobRow()];
-      }
-      if (compact.startsWith("INSERT INTO ai_deck_reference_extraction_artifacts")) {
-        return [artifactRow()];
-      }
-      if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
-        return [succeededCheckpointRow()];
-      }
-      if (compact.includes("FROM ai_deck_generation_stages stages")) {
-        return [{ shard_key: "file-a", status: "succeeded" }];
-      }
-      if (compact.startsWith("INSERT INTO ai_deck_generation_stages")) {
-        return [sourceGroundingCheckpointRow()];
-      }
-      throw new Error(`Unexpected transaction query: ${compact}`);
-    });
+    const transactionQuery = vi.fn(
+      async (sql: string, _parameters?: unknown[]) => {
+        const compact = compactSql(sql);
+        if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
+          return [parentJobRow()];
+        }
+        if (
+          compact.startsWith(
+            "INSERT INTO ai_deck_reference_extraction_artifacts",
+          )
+        ) {
+          return [artifactRow()];
+        }
+        if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
+          return [succeededCheckpointRow()];
+        }
+        if (compact.includes("FROM ai_deck_generation_stages stages")) {
+          return [{ shard_key: "file-a", status: "succeeded", usable: true }];
+        }
+        if (compact.startsWith("INSERT INTO ai_deck_generation_stages")) {
+          return [sourceGroundingCheckpointRow()];
+        }
+        throw new Error(`Unexpected transaction query: ${compact}`);
+      },
+    );
     const transaction = vi.fn(async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
       work({ query: transactionQuery }),
     );
@@ -114,16 +120,19 @@ describe("processAiDeckReferenceExtractionStage", () => {
     expect(transactionSql.findIndex((sql) => sql.includes("FROM jobs"))).toBeLessThan(
       transactionSql.findIndex((sql) => sql.startsWith("INSERT INTO ai_deck_reference")),
     );
-    expect(
-      transactionSql.some((sql) => sql.includes("referenceExtractionArtifactId")),
-    ).toBe(true);
+    const checkpointSuccessCall = transactionQuery.mock.calls.find((call) =>
+      compactSql(call[0]).includes("SET status = 'succeeded'"),
+    );
+    expect(checkpointSuccessCall?.[1]?.[6]).toEqual({
+      referenceExtractionArtifactId: "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+    });
     expect(
       transactionSql.some((sql) => sql.startsWith("INSERT INTO ai_deck_generation_stages")),
     ).toBe(true);
   });
 
   it("releases only the claimed shard and throws so BullMQ applies backoff", async () => {
-    const query = vi.fn(async (sql: string) => {
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.includes("SET status = 'running'")) return [runningCheckpointRow()];
       if (compact.includes("FROM project_assets assets")) return [assetRow()];
@@ -163,6 +172,64 @@ describe("processAiDeckReferenceExtractionStage", () => {
     ]);
     expect(String(releaseCall?.[1]?.[6])).not.toContain("signed object");
     expect(dataSource.transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails an invalid project asset without calling Storage or Python", async () => {
+    const outerQuery = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("SET status = 'running'")) return [runningCheckpointRow()];
+      if (compact.includes("FROM project_assets assets")) {
+        return [{ ...assetRow(), purpose: "design-asset" }];
+      }
+      throw new Error(`Unexpected outer query: ${compact}`);
+    });
+    const transactionQuery = vi.fn(
+      async (sql: string, parameters?: unknown[]) => {
+        const compact = compactSql(sql);
+        if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
+          return [parentJobRow()];
+        }
+        if (compact.includes("SET status = 'failed'")) {
+          return [
+            checkpointRow({
+              status: "failed",
+              attempt: 1,
+              error_json: parameters?.[6],
+            }),
+          ];
+        }
+        if (compact.startsWith("UPDATE jobs")) return [];
+        throw new Error(`Unexpected transaction query: ${compact}`);
+      },
+    );
+    const dataSource = {
+      query: outerQuery,
+      transaction: vi.fn(
+        async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
+          work({ query: transactionQuery }),
+      ),
+    } as unknown as DataSource;
+    const storage = storageStub();
+    const fetchImpl = vi.fn();
+
+    await processAiDeckReferenceExtractionStage(
+      dataSource,
+      storage,
+      "http://python-worker:8000",
+      "worker-a",
+      message,
+      { fetchImpl },
+    );
+
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const parentFailure = transactionQuery.mock.calls.find((call) =>
+      compactSql(call[0]).startsWith("UPDATE jobs"),
+    );
+    expect(parentFailure?.[1]?.[2]).toMatchObject({
+      code: "REFERENCE_ASSET_INVALID",
+      failedStage: "reference-extract-file",
+    });
   });
 });
 

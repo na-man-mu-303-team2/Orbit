@@ -34,7 +34,9 @@ const extraction = {
 describe("AiDeckReferenceExtractionArtifactRepository", () => {
   it("upserts the parsed extraction while preserving the original artifact ID", async () => {
     const artifactId = "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a";
-    const query = vi.fn(async () => [artifactRow(artifactId)]);
+    const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => [
+      artifactRow(artifactId),
+    ]);
     const repository = new AiDeckReferenceExtractionArtifactRepository({ query });
 
     await expect(repository.upsert(message, extraction)).resolves.toEqual({
