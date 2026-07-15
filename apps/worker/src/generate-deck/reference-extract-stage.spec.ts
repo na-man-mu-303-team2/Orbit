@@ -49,10 +49,13 @@ describe("processAiDeckReferenceExtractionStage", () => {
         query,
         transaction: vi.fn(),
       } as unknown as DataSource;
-      const downloadStarted = Promise.withResolvers<void>();
+      let resolveDownloadStarted!: () => void;
+      const downloadStarted = new Promise<void>((resolve) => {
+        resolveDownloadStarted = resolve;
+      });
       const fetchImpl = vi.fn(
         async (_input: string | URL | Request, init?: RequestInit) => {
-          downloadStarted.resolve();
+          resolveDownloadStarted();
           return new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener("abort", () => {
               reject(new DOMException("aborted", "AbortError"));
@@ -69,7 +72,7 @@ describe("processAiDeckReferenceExtractionStage", () => {
         message,
         { fetchImpl, heartbeatIntervalMs: 100 },
       );
-      await downloadStarted.promise;
+      await downloadStarted;
       await vi.advanceTimersByTimeAsync(100);
       await processing;
 
