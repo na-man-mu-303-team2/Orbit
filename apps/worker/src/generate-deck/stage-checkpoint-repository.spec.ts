@@ -43,6 +43,35 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(selectSql).toContain("jobs.type = 'ai-deck-generation'");
   });
 
+  it("accepts bounded reference metadata and rejects embedded payload data", async () => {
+    const { query, repository } = repositoryWithResponses([queuedRow()]);
+
+    await expect(
+      repository.ensureQueued(message, {
+        upstream: {
+          storageKey: "ai-deck/job-1/content-plan.json",
+          sourceIds: ["source-1", "source-2"],
+        },
+        version: 1,
+      }),
+    ).resolves.toMatchObject({ status: "queued" });
+
+    for (const invalidReference of [
+      { deck: { slides: [] } },
+      { contentBase64: "ZmFrZQ==" },
+      { providerResponse: { output: "raw" } },
+      { content: "user content" },
+      { assetUrl: "data:image/png;base64,ZmFrZQ==" },
+      { bytes: Buffer.from("fake") },
+    ]) {
+      await expect(
+        repository.ensureQueued(message, invalidReference),
+      ).rejects.toThrow();
+    }
+
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
   it("claims queued work atomically and increments attempt only on claim", async () => {
     const { query, repository } = repositoryWithResponses([runningRow()]);
 
