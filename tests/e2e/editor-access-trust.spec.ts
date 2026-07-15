@@ -180,7 +180,9 @@ test.describe("P0-2 editor access and trust boundary", () => {
       /발표 자료를 불러오지 못|Deck unavailable/,
     );
     await expectNoDemoOrCanvas(page);
-    await expect(page.getByRole("button", { name: /다시 시도/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /다시 (저장|시도)/ }),
+    ).toBeVisible();
     await expect(
       page.getByRole("link", { name: /프로젝트.*돌아가기/ }),
     ).toBeVisible();
@@ -323,7 +325,9 @@ test.describe("P0-2 editor access and trust boundary", () => {
 
       await page.goto(`/project/${project.projectId}`);
       await expect(page.getByText(/보기 전용/).first()).toBeVisible();
-      await expect(page.getByText(deck!.slides[0]!.speakerNotes)).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "발표 메모 펼치기" }),
+      ).toContainText(deck!.slides[0]!.speakerNotes);
       await expect(page.locator("[contenteditable='true']")).toHaveCount(0);
       await expect(page.getByRole("button", { name: "리허설" })).toBeVisible();
       for (const name of [
@@ -534,7 +538,7 @@ test.describe("P0-2 editor access and trust boundary", () => {
     expect(mutationAccepted).toBe(true);
 
     await expect(page.getByRole("alert")).toContainText(/저장 실패|retryable/);
-    await page.getByRole("button", { name: /다시 시도/ }).click();
+    await page.getByRole("button", { name: /다시 (저장|시도)/ }).click();
 
     await expect.poll(() => patchAttempts).toBe(2);
     expect(patchBodies[1]).toBe(patchBodies[0]);
