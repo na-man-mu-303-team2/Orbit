@@ -266,7 +266,9 @@ async function loadReferenceMaterialAsset(
     row.purpose !== "reference-material" ||
     row.status !== "uploaded" ||
     !referenceMimeTypes.has(row.mime_type) ||
-    !planAiDeckInitialStages(request).referenceFileIds.includes(message.shardKey)
+    !planAiDeckInitialStages(request).uncoveredReferenceFileIds.includes(
+      message.shardKey,
+    )
   ) {
     throw stageError(
       "REFERENCE_ASSET_INVALID",
@@ -347,7 +349,7 @@ function normalizeStageError(error: unknown): {
         failedStage: "reference-extract-file",
         retryable: error.retryable,
       },
-      fatalParent: !error.retryable && error.code.includes("INVALID_RESPONSE"),
+      fatalParent: false,
     };
   }
   return {

@@ -129,7 +129,7 @@ async function ensureReferenceExtractionJoin(
   request: ReturnType<typeof generateDeckRequestSchema.parse>,
 ): Promise<void> {
   const plan = planAiDeckInitialStages(request);
-  if (plan.referenceFileIds.length === 0) {
+  if (plan.uncoveredReferenceFileIds.length === 0) {
     await ensureSourceGrounding(db, message);
     return;
   }
@@ -148,10 +148,10 @@ async function ensureReferenceExtractionJoin(
       ORDER BY stages.shard_key
       FOR UPDATE OF stages
     `,
-    [message.pipelineJobId, plan.referenceFileIds],
+    [message.pipelineJobId, plan.uncoveredReferenceFileIds],
   );
   const states = Array.isArray(rows) ? rows.map((row) => joinRowSchema.parse(row)) : [];
-  const expected = new Set(plan.referenceFileIds);
+  const expected = new Set(plan.uncoveredReferenceFileIds);
   if (
     states.length !== expected.size ||
     states.some((state) => !expected.has(state.shard_key))
@@ -251,7 +251,7 @@ function assertExpectedShard(
   request: ReturnType<typeof generateDeckRequestSchema.parse>,
   fileId: string,
 ): void {
-  const expected = planAiDeckInitialStages(request).referenceFileIds;
+  const expected = planAiDeckInitialStages(request).uncoveredReferenceFileIds;
   if (!expected.includes(fileId)) {
     throw new Error("Reference extraction shard is outside the parent request.");
   }

@@ -41,7 +41,8 @@ const parentJobRowSchema = z.object({
 
 export interface AiDeckInitialStagePlan {
   referencePolicy: GenerateDeckRequest["brief"]["referencePolicy"];
-  referenceFileIds: string[];
+  selectedReferenceFileIds: string[];
+  uncoveredReferenceFileIds: string[];
 }
 
 export function planAiDeckInitialStages(
@@ -51,17 +52,32 @@ export function planAiDeckInitialStages(
     request.referencePolicy ??
     request.design.referencePolicy ??
     request.brief.referencePolicy;
+  const selectedReferenceFileIds = [
+    ...new Set(
+      request.references.length > 0
+        ? request.references.map((reference) => reference.fileId)
+        : request.referenceFileIds,
+    ),
+  ];
   if (referencePolicy === "topic-only" || referencePolicy === "user-input-only") {
-    return { referencePolicy, referenceFileIds: [] };
+    return {
+      referencePolicy,
+      selectedReferenceFileIds,
+      uncoveredReferenceFileIds: [],
+    };
   }
 
   const coveredFileIds = new Set(
     request.referenceContext.map((context) => context.fileId),
   );
-  const referenceFileIds = [...new Set(request.referenceFileIds)].filter(
+  const uncoveredReferenceFileIds = selectedReferenceFileIds.filter(
     (fileId) => !coveredFileIds.has(fileId),
   );
-  return { referencePolicy, referenceFileIds };
+  return {
+    referencePolicy,
+    selectedReferenceFileIds,
+    uncoveredReferenceFileIds,
+  };
 }
 
 export async function processAiDeckStagedCoordinatorJob(
@@ -150,8 +166,8 @@ export async function processAiDeckStagedCoordinatorJob(
       throw new Error("AI deck generation parent job is not runnable.");
     }
 
-    const messages = plan.referenceFileIds.length
-      ? plan.referenceFileIds.map((fileId) => ({
+    const messages = plan.uncoveredReferenceFileIds.length
+      ? plan.uncoveredReferenceFileIds.map((fileId) => ({
           pipelineJobId: payload.jobId,
           projectId: payload.projectId,
           stage: "reference-extract-file" as const,
@@ -181,17 +197,12 @@ function requiresUnavailableGrounding(
   request: GenerateDeckRequest,
   plan: AiDeckInitialStagePlan,
 ): boolean {
-  if (plan.referenceFileIds.length > 0) return false;
-  if (
-    plan.referencePolicy !== "references-first" &&
-    plan.referencePolicy !== "references-only"
-  ) {
-    return false;
+  if (plan.referencePolicy === "references-only") {
+    return plan.selectedReferenceFileIds.length === 0;
   }
-  return (
-    new Set(request.referenceContext.map((context) => context.fileId)).size ===
-    0
-  );
+  if (plan.referencePolicy !== "references-first") return false;
+  if (plan.uncoveredReferenceFileIds.length > 0) return false;
+  return new Set(request.referenceContext.map((context) => context.fileId)).size === 0;
 }
 
 type ParentJobRow = z.infer<typeof parentJobRowSchema>;
