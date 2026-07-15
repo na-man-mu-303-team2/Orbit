@@ -20,7 +20,7 @@
   min-height: 100vh;
   background: var(--page);
   color: var(--ink);
-  font-family: "SUIT Variable", Pretendard, "Segoe UI", Arial, sans-serif;
+  font-family: var(--orbit-ds-font-sans);
   letter-spacing: 0;
 }
 
@@ -2390,9 +2390,7 @@
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+  font-family: var(--orbit-ds-font-mono);
   letter-spacing: 0.02em;
 }
 

@@ -56,11 +56,8 @@
   --action-primary: var(--blue-600);
   --action-primary-hover: var(--blue-700);
   --action-brand: var(--teal-600);
-  --font-sans: Pretendard, Inter, ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
-    sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-sans: "Pretendard", sans-serif;
+  --font-mono: "Pretendard", sans-serif;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -4062,8 +4059,7 @@ button:disabled {
   background: transparent;
   border: 0;
   color: #0f172a;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.86rem;
   font-weight: 900;
   height: 26px;
@@ -4603,8 +4599,7 @@ button:disabled {
 
 .single-screen-timer-overlay strong {
   color: #ffffff;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.92rem;
 }
 
@@ -5068,8 +5063,7 @@ button:disabled {
   font-weight: 950;
   letter-spacing: 0;
   line-height: 0.92;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   height: 58px;
   margin: 0;
   outline: 0;
@@ -8909,8 +8903,7 @@ button:disabled {
 
 .rehearsal-preflight-status-meta small {
   color: rgba(219, 242, 238, 0.44);
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.76rem;
   font-weight: 700;
   min-width: 0;
@@ -9204,8 +9197,7 @@ button:disabled {
 
 .rehearsal-completion-time strong {
   color: #003737;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 2.75rem;
   line-height: 1;
 }
@@ -9234,8 +9226,7 @@ button:disabled {
 
 .rehearsal-completion-coverage strong {
   color: #0f766e;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 1rem;
 }
 
@@ -9265,8 +9256,7 @@ button:disabled {
 
 .rehearsal-completion-missed h2 strong {
   color: #d99400;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 .rehearsal-completion-missed div {
@@ -9550,8 +9540,7 @@ button:disabled {
 .rehearsal-stage-label,
 .rehearsal-stage-index {
   color: rgba(219, 242, 238, 0.44);
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.76rem;
   font-weight: 750;
   position: absolute;
@@ -9876,8 +9865,7 @@ button:disabled {
   border-radius: 999px;
   color: var(--presenter-accent);
   display: inline-flex;
-  font-family:
-    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 1rem;
   height: 42px;
   justify-content: center;
