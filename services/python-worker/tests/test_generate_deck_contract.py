@@ -356,6 +356,26 @@ def client() -> TestClient:
     return TestClient(api_module.app)
 
 
+def test_internal_source_grounding_stage_endpoint_uses_strict_contract() -> None:
+    response = client().post(
+        "/internal/ai/deck-generation/source-grounding",
+        json={
+            "request": {
+                "projectId": "project_demo_1",
+                "topic": "ORBIT",
+                "brief": {},
+                "metadata": {},
+                "design": {},
+                "slideCountRange": {},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rawInput"]["topic"] == "ORBIT"
+    assert response.json()["rawInput"]["warningCodes"] == []
+
+
 @pytest.fixture(autouse=True)
 def clear_content_plan_cache() -> None:
     clear_deck_content_plan_cache()
