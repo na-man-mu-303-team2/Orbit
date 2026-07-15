@@ -146,7 +146,7 @@ async function ensureReferenceExtractionJoin(
         AND stages.stage = 'reference-extract-file'
         AND stages.shard_key = ANY($2::text[])
       ORDER BY stages.shard_key
-      FOR UPDATE
+      FOR UPDATE OF stages
     `,
     [message.pipelineJobId, plan.referenceFileIds],
   );
