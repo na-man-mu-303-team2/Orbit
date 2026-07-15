@@ -13,8 +13,31 @@ import { z } from "zod";
 
 type QueryExecutor = Pick<DataSource, "query">;
 
-const referenceSchema = z.record(z.unknown());
+const forbiddenReferenceKeys = new Set([
+  "base64",
+  "binary",
+  "body",
+  "buffer",
+  "bytes",
+  "content",
+  "contentbase64",
+  "deck",
+  "deckjson",
+  "payload",
+  "providerresponse",
+  "raw",
+  "rawresponse",
+  "script",
+  "speakernotes",
+  "text",
+  "transcript",
+]);
+const referenceSchema = z.record(z.unknown()).superRefine((value, context) => {
+  validateReferenceValue(value, context, [], 0);
+});
 const leaseOwnerSchema = z.string().trim().min(1);
+const checkpointAttemptSchema = z.number().int().min(0).max(5);
+const claimedAttemptSchema = checkpointAttemptSchema.min(1);
 const retryableErrorSchema = jobErrorSchema.extend({
   retryable: z.literal(true),
 });
@@ -138,9 +161,11 @@ export class AiDeckGenerationStageCheckpointRepository {
   async renewLease(
     rawMessage: unknown,
     rawLeaseOwner: unknown,
+    rawAttempt: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
+    const attempt = claimedAttemptSchema.parse(rawAttempt);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
@@ -156,10 +181,11 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.shard_key = $4
           AND stages.status = 'running'
           AND stages.lease_owner = $5
+          AND stages.attempt = $6
           AND stages.lease_expires_at > now()
         RETURNING stages.*
       `,
-      messageParameters(message, leaseOwner),
+      messageParameters(message, leaseOwner, attempt),
     );
     return checkpointFromQuery(rows);
   }
@@ -167,16 +193,18 @@ export class AiDeckGenerationStageCheckpointRepository {
   async succeed(
     rawMessage: unknown,
     rawLeaseOwner: unknown,
+    rawAttempt: unknown,
     rawResultRef: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
+    const attempt = claimedAttemptSchema.parse(rawAttempt);
     const resultRef = referenceSchema.parse(rawResultRef);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
         SET status = 'succeeded',
-            result_ref_json = $6::jsonb,
+            result_ref_json = $7::jsonb,
             error_json = NULL,
             lease_owner = NULL,
             lease_expires_at = NULL,
@@ -191,10 +219,11 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.shard_key = $4
           AND stages.status = 'running'
           AND stages.lease_owner = $5
+          AND stages.attempt = $6
           AND stages.lease_expires_at > now()
         RETURNING stages.*
       `,
-      messageParameters(message, leaseOwner, resultRef),
+      messageParameters(message, leaseOwner, attempt, resultRef),
     );
     return checkpointFromQuery(rows);
   }
@@ -202,16 +231,18 @@ export class AiDeckGenerationStageCheckpointRepository {
   async fail(
     rawMessage: unknown,
     rawLeaseOwner: unknown,
+    rawAttempt: unknown,
     rawError: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
+    const attempt = claimedAttemptSchema.parse(rawAttempt);
     const error = jobErrorSchema.parse(rawError);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
         SET status = 'failed',
-            error_json = $6::jsonb,
+            error_json = $7::jsonb,
             lease_owner = NULL,
             lease_expires_at = NULL,
             updated_at = now()
@@ -225,10 +256,11 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.shard_key = $4
           AND stages.status = 'running'
           AND stages.lease_owner = $5
+          AND stages.attempt = $6
           AND stages.lease_expires_at > now()
         RETURNING stages.*
       `,
-      messageParameters(message, leaseOwner, error),
+      messageParameters(message, leaseOwner, attempt, error),
     );
     return checkpointFromQuery(rows);
   }
@@ -236,17 +268,19 @@ export class AiDeckGenerationStageCheckpointRepository {
   async releaseForRetry(
     rawMessage: unknown,
     rawLeaseOwner: unknown,
+    rawAttempt: unknown,
     rawError: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const leaseOwner = leaseOwnerSchema.parse(rawLeaseOwner);
+    const attempt = claimedAttemptSchema.parse(rawAttempt);
     const error = retryableErrorSchema.parse(rawError);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
         SET status = 'queued',
             result_ref_json = NULL,
-            error_json = $6::jsonb,
+            error_json = $7::jsonb,
             lease_owner = NULL,
             lease_expires_at = NULL,
             dispatched_at = NULL,
@@ -261,19 +295,22 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.shard_key = $4
           AND stages.status = 'running'
           AND stages.lease_owner = $5
+          AND stages.attempt = $6
           AND stages.lease_expires_at > now()
           AND stages.attempt < 5
         RETURNING stages.*
       `,
-      messageParameters(message, leaseOwner, error),
+      messageParameters(message, leaseOwner, attempt, error),
     );
     return checkpointFromQuery(rows);
   }
 
   async markDispatched(
     rawMessage: unknown,
+    rawObservedAttempt: unknown,
   ): Promise<AiDeckGenerationStageCheckpoint | null> {
     const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const observedAttempt = checkpointAttemptSchema.parse(rawObservedAttempt);
     const rows = await this.db.query(
       `
         UPDATE ai_deck_generation_stages stages
@@ -289,9 +326,10 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND stages.shard_key = $4
           AND stages.status = 'queued'
           AND stages.dispatched_at IS NULL
+          AND stages.attempt = $5
         RETURNING stages.*
       `,
-      messageParameters(message),
+      messageParameters(message, observedAttempt),
     );
     return checkpointFromQuery(rows);
   }
@@ -345,5 +383,97 @@ function optionalIso(value: Date | string | null): string | null {
 }
 
 function toIso(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function validateReferenceValue(
+  value: unknown,
+  context: z.RefinementCtx,
+  path: (string | number)[],
+  depth: number,
+): void {
+  if (depth > 6) {
+    addReferenceIssue(context, path, "Reference metadata is nested too deeply");
+    return;
+  }
+  if (value === null || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      addReferenceIssue(context, path, "Reference numbers must be finite");
+    }
+    return;
+  }
+  if (typeof value === "string") {
+    if (value.length > 4096 || /^data:/i.test(value)) {
+      addReferenceIssue(
+        context,
+        path,
+        "Embedded payload strings are not allowed",
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 100) {
+      addReferenceIssue(
+        context,
+        path,
+        "Reference arrays cannot exceed 100 items",
+      );
+      return;
+    }
+    value.forEach((item, index) =>
+      validateReferenceValue(item, context, [...path, index], depth + 1),
+    );
+    return;
+  }
+  if (typeof value !== "object") {
+    addReferenceIssue(
+      context,
+      path,
+      "Reference metadata must be JSON-compatible",
+    );
+    return;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    addReferenceIssue(
+      context,
+      path,
+      "Binary and class instances are not allowed",
+    );
+    return;
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 100) {
+    addReferenceIssue(
+      context,
+      path,
+      "Reference objects cannot exceed 100 fields",
+    );
+    return;
+  }
+  for (const [key, nested] of entries) {
+    const nestedPath = [...path, key];
+    if (key.length > 128 || forbiddenReferenceKeys.has(key.toLowerCase())) {
+      addReferenceIssue(
+        context,
+        nestedPath,
+        "Embedded payload fields are not allowed",
+      );
+      continue;
+    }
+    validateReferenceValue(nested, context, nestedPath, depth + 1);
+  }
+}
+
+function addReferenceIssue(
+  context: z.RefinementCtx,
+  path: (string | number)[],
+  message: string,
+): void {
+  context.addIssue({ code: z.ZodIssueCode.custom, path, message });
 }
