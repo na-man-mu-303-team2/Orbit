@@ -27,6 +27,44 @@ final result: passed
 
 ---
 
+# Presenter Notes Resize and Hide QA — 2026-07-15
+
+## Scope
+
+- Surface: production project editor at `http://localhost:5173/project/project_4c5368cf-d6d2-4454-9a3f-9ff2d31b384c`.
+- Goal: let the presenter-notes dock resize vertically, show its full timing guidance on first open, retain the user's later height, and use one consistent collapsed presentation.
+- Boundary: only production editor files were changed; mockup code, routes, assets, Deck data, and save contracts remain untouched.
+
+## Evidence and interaction checks
+
+- Before capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/38-speaker-notes-before.png`
+- Desktop expanded capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/42-speaker-notes-final.png`
+- Compact expanded capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/41-speaker-notes-resizable-expanded-860x900.png`
+- Unified drag-collapse capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/44-notes-drag-collapse-unified.png`
+- First open measured 360px and showed the bottom timing meter with no internal scroll (`contentClientHeight` and `contentScrollHeight` both 292px).
+- After keyboard resizing to 240px, button collapse and reopen restored exactly 240px instead of recalculating the initial height.
+- A downward drag past the threshold now produces the same 54px collapsed row, preview text, chevron, and accessible toggle as button collapse; no alternate restore handle remains.
+- `ArrowUp` and `ArrowDown` resize the focused separator; moving below the 120px keyboard minimum uses the same collapsed row.
+- At 860×900 the expanded panel remained 240px tall, page width matched the viewport, and the collapsed inspector action stayed above the notes panel without overlap.
+- After resizing the compact panel to 420px, the inspector action retained a measured 16px gap above it and page width still matched the 860px viewport.
+
+## Accessibility and design-system checks
+
+- The resize handle is a focusable horizontal separator with explicit label, orientation, min/max/current values, visible ORBIT focus treatment, and Tabler grip icon.
+- The shared collapsed row retains its labeled expand control, preview text, and visible focus treatment, so notes never become unreachable.
+- Editing disables resizing/hiding to protect an in-progress draft.
+- Canvas, Surface, Border, typography, focus, and hover styles use existing ORBIT semantic tokens.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
+
+final result: passed
+
+---
+
 ## Rehearsal Presenter Chrome Visibility (2026-07-15)
 
 - Source visual truth: `/tmp/orbit-rehearsal-ui-hide-before.jpg`, captured from the annotated `localhost:5173` rehearsal route.

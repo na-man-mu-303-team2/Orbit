@@ -6256,7 +6256,7 @@
   box-shadow: none;
   display: grid;
   margin: 0;
-  max-height: min(280px, 34vh);
+  max-height: min(480px, 52vh);
   max-width: none;
   min-height: 54px;
   overflow: hidden;
@@ -6270,7 +6270,52 @@
 }
 
 .orbit-shell .stage-speaker-notes-panel.expanded {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: 12px auto minmax(0, 1fr);
+  height: min(var(--speaker-notes-panel-height, 240px), 52vh);
+  min-height: 120px;
+  transition: height 140ms ease;
+}
+
+.orbit-shell .stage-speaker-notes-panel.expanded.is-resizing {
+  transition: none;
+}
+
+.orbit-shell .speaker-notes-resize-handle {
+  align-items: center;
+  background: var(--orbit-ds-canvas);
+  border: 0;
+  color: var(--orbit-ds-text-muted);
+  cursor: ns-resize;
+  display: flex;
+  justify-content: center;
+  touch-action: none;
+  width: 100%;
+}
+
+.orbit-shell .speaker-notes-resize-handle {
+  height: 12px;
+  padding: 0;
+}
+
+.orbit-shell .speaker-notes-resize-handle:hover,
+.orbit-shell .speaker-notes-resize-handle:focus-visible {
+  background: var(--orbit-ds-surface-soft);
+  color: var(--orbit-ds-text);
+}
+
+.orbit-shell .speaker-notes-resize-handle:focus-visible {
+  box-shadow: inset var(--orbit-ds-focus);
+  outline: none;
+}
+
+.orbit-shell .speaker-notes-resize-handle[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+body.is-resizing-speaker-notes {
+  cursor: ns-resize;
+  user-select: none;
 }
 
 .orbit-shell .stage-speaker-notes-panel .script-panel-header {
@@ -6364,7 +6409,7 @@
 
 @media (max-width: 860px) {
   .orbit-shell .stage-speaker-notes-panel {
-    max-height: min(240px, 34vh);
+    max-height: min(480px, 52vh);
   }
 
   .orbit-shell .stage-speaker-notes-panel .script-panel-header {
@@ -6394,9 +6439,10 @@
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane:not(.collapsed) {
-    bottom: min(240px, 34vh);
+    bottom: min(var(--speaker-notes-panel-height, 240px), 52vh);
     max-height: 32vh;
   }
+
 }
 
 /* Editor density and alignment audit fixes.
@@ -6591,7 +6637,7 @@
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane.collapsed {
-    bottom: calc(min(240px, 34vh) + 16px);
+    bottom: calc(min(var(--speaker-notes-panel-height, 240px), 52vh) + 16px);
   }
 
   .orbit-shell .ai-pane:not(.collapsed) {

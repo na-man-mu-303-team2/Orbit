@@ -516,6 +516,8 @@ describe("editor shell", () => {
     expect(html).toContain('aria-controls="speaker-notes-content"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('aria-label="발표 메모 펼치기"');
+    expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
+    expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {

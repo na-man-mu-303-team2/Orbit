@@ -157,6 +157,7 @@ import {
   IconDownload as Download,
   IconFileText as FileText,
   IconFolderPlus as FolderPlus,
+  IconGripHorizontal as GripHorizontal,
   IconHistory as History,
   IconHome as Home,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
@@ -371,6 +372,11 @@ const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
 const minRightPaneWidth = 260;
 const maxRightPaneWidth = 560;
+const defaultSpeakerNotesPanelHeight = 240;
+const initialSpeakerNotesPanelHeight = 360;
+const minSpeakerNotesPanelHeight = 120;
+const speakerNotesPanelHideThreshold = 84;
+const speakerNotesPanelKeyboardStep = 24;
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
 const defaultImageInsertFrame = {
   height: 240,
@@ -1487,6 +1493,11 @@ export function EditorShell(props: { projectId?: string }) {
   const [isSpeakerNotesEditing, setIsSpeakerNotesEditing] = useState(false);
   const [isSpeakerNotesPanelExpanded, setIsSpeakerNotesPanelExpanded] =
     useState(false);
+  const [isSpeakerNotesPanelResizing, setIsSpeakerNotesPanelResizing] =
+    useState(false);
+  const [speakerNotesPanelHeight, setSpeakerNotesPanelHeight] = useState(
+    defaultSpeakerNotesPanelHeight
+  );
   const [speakerNotesDraft, setSpeakerNotesDraft] = useState("");
   const [speakerNotesDraftBase, setSpeakerNotesDraftBase] = useState("");
   const [speakerNotesEditSlideId, setSpeakerNotesEditSlideId] = useState<
@@ -1555,6 +1566,10 @@ export function EditorShell(props: { projectId?: string }) {
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const topbarRef = useRef<HTMLElement | null>(null);
+  const hasExpandedSpeakerNotesPanelRef = useRef(false);
+  const shouldMeasureInitialSpeakerNotesHeightRef = useRef(false);
+  const speakerNotesContentRef = useRef<HTMLDivElement | null>(null);
+  const speakerNotesPanelHeightRef = useRef(defaultSpeakerNotesPanelHeight);
   const shapeMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const pptxFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1594,7 +1609,29 @@ export function EditorShell(props: { projectId?: string }) {
     setSpeakerNotesAssistantError("");
     setSpeakerNotesAssistantSource(null);
     setIsSpeakerNotesPanelExpanded(false);
+    hasExpandedSpeakerNotesPanelRef.current = false;
+    shouldMeasureInitialSpeakerNotesHeightRef.current = false;
+    setSpeakerNotesPanelHeight(defaultSpeakerNotesPanelHeight);
+    speakerNotesPanelHeightRef.current = defaultSpeakerNotesPanelHeight;
   }, [projectId, resetProjectUiState]);
+
+  useEffect(() => {
+    if (
+      !isSpeakerNotesPanelExpanded ||
+      !shouldMeasureInitialSpeakerNotesHeightRef.current ||
+      !speakerNotesContentRef.current
+    ) {
+      return;
+    }
+
+    shouldMeasureInitialSpeakerNotesHeightRef.current = false;
+    commitSpeakerNotesPanelHeight(
+      Math.max(
+        initialSpeakerNotesPanelHeight,
+        speakerNotesContentRef.current.scrollHeight + 65
+      )
+    );
+  }, [isSpeakerNotesPanelExpanded]);
 
   useEffect(() => {
     const socket: ClientSocket = io({
@@ -4642,6 +4679,120 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
+  function getSpeakerNotesPanelMaxHeight() {
+    return typeof window === "undefined"
+      ? 480
+      : Math.max(
+          minSpeakerNotesPanelHeight,
+          Math.min(480, Math.round(window.innerHeight * 0.52))
+        );
+  }
+
+  function commitSpeakerNotesPanelHeight(height: number) {
+    const nextHeight = Math.round(
+      Math.min(
+        getSpeakerNotesPanelMaxHeight(),
+        Math.max(minSpeakerNotesPanelHeight, height)
+      )
+    );
+    speakerNotesPanelHeightRef.current = nextHeight;
+    setSpeakerNotesPanelHeight(nextHeight);
+  }
+
+  function collapseSpeakerNotesPanel() {
+    if (isSpeakerNotesEditing) return;
+    setIsSpeakerNotesPanelExpanded(false);
+  }
+
+  function handleToggleSpeakerNotesPanel() {
+    if (isSpeakerNotesPanelExpanded) {
+      collapseSpeakerNotesPanel();
+      return;
+    }
+
+    if (!hasExpandedSpeakerNotesPanelRef.current) {
+      hasExpandedSpeakerNotesPanelRef.current = true;
+      shouldMeasureInitialSpeakerNotesHeightRef.current = true;
+      commitSpeakerNotesPanelHeight(initialSpeakerNotesPanelHeight);
+    }
+
+    setIsSpeakerNotesPanelExpanded(true);
+  }
+
+  function handleSpeakerNotesResizeStart(
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) {
+    if (isSpeakerNotesEditing) return;
+
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = speakerNotesPanelHeightRef.current;
+    let latestRawHeight = startHeight;
+    setIsSpeakerNotesPanelResizing(true);
+    document.body.classList.add("is-resizing-speaker-notes");
+
+    function handlePointerMove(pointerEvent: PointerEvent) {
+      latestRawHeight = startHeight + startY - pointerEvent.clientY;
+      const previewHeight = Math.round(
+        Math.min(
+          getSpeakerNotesPanelMaxHeight(),
+          Math.max(54, latestRawHeight)
+        )
+      );
+      speakerNotesPanelHeightRef.current = previewHeight;
+      setSpeakerNotesPanelHeight(previewHeight);
+    }
+
+    function finishResize() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+      document.body.classList.remove("is-resizing-speaker-notes");
+      setIsSpeakerNotesPanelResizing(false);
+
+      if (latestRawHeight <= speakerNotesPanelHideThreshold) {
+        speakerNotesPanelHeightRef.current = Math.max(
+          minSpeakerNotesPanelHeight,
+          startHeight
+        );
+        setSpeakerNotesPanelHeight(speakerNotesPanelHeightRef.current);
+        collapseSpeakerNotesPanel();
+        return;
+      }
+
+      commitSpeakerNotesPanelHeight(latestRawHeight);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleSpeakerNotesResizeKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>
+  ) {
+    if (isSpeakerNotesEditing) return;
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      commitSpeakerNotesPanelHeight(
+        speakerNotesPanelHeightRef.current + speakerNotesPanelKeyboardStep
+      );
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const nextHeight =
+        speakerNotesPanelHeightRef.current - speakerNotesPanelKeyboardStep;
+      if (nextHeight < minSpeakerNotesPanelHeight) {
+        collapseSpeakerNotesPanel();
+      } else {
+        commitSpeakerNotesPanelHeight(nextHeight);
+      }
+    }
+  }
+
   function handleAnimationPaneResizeStart(
     event: ReactPointerEvent<HTMLButtonElement>
   ) {
@@ -5167,8 +5318,31 @@ export function EditorShell(props: { projectId?: string }) {
           isSpeakerNotesPanelExpanded ? "expanded" : "collapsed"
         } ${
           isSpeakerNotesEditing ? "editing" : ""
-        }`}
+        } ${isSpeakerNotesPanelResizing ? "is-resizing" : ""}`}
+        style={
+          {
+            "--speaker-notes-panel-height": `${speakerNotesPanelHeight}px`
+          } as CSSProperties
+        }
       >
+        {isSpeakerNotesPanelExpanded ? (
+          <button
+            aria-disabled={isSpeakerNotesEditing}
+            aria-label="발표 메모 높이 조절"
+            aria-orientation="horizontal"
+            aria-valuemax={getSpeakerNotesPanelMaxHeight()}
+            aria-valuemin={minSpeakerNotesPanelHeight}
+            aria-valuenow={speakerNotesPanelHeight}
+            className="speaker-notes-resize-handle"
+            role="separator"
+            tabIndex={isSpeakerNotesEditing ? -1 : 0}
+            type="button"
+            onKeyDown={handleSpeakerNotesResizeKeyDown}
+            onPointerDown={handleSpeakerNotesResizeStart}
+          >
+            <GripHorizontal aria-hidden="true" size={18} stroke={1.7} />
+          </button>
+        ) : null}
         <div className="script-panel-header">
           <button
             aria-controls="speaker-notes-content"
@@ -5181,9 +5355,7 @@ export function EditorShell(props: { projectId?: string }) {
             className="script-panel-heading speaker-notes-toggle"
             disabled={isSpeakerNotesEditing}
             type="button"
-            onClick={() =>
-              setIsSpeakerNotesPanelExpanded((expanded) => !expanded)
-            }
+            onClick={handleToggleSpeakerNotesPanel}
           >
             <span aria-hidden="true" className="script-panel-icon">
               <FileText size={18} />
@@ -5247,7 +5419,11 @@ export function EditorShell(props: { projectId?: string }) {
             </div>
           ) : null}
         </div>
-        <div id="speaker-notes-content" hidden={!isSpeakerNotesPanelExpanded}>
+        <div
+          id="speaker-notes-content"
+          hidden={!isSpeakerNotesPanelExpanded}
+          ref={speakerNotesContentRef}
+        >
           {isSpeakerNotesEditing ? (
             <div className="script-panel-body">
               <textarea
@@ -5784,7 +5960,8 @@ export function EditorShell(props: { projectId?: string }) {
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
             }px`,
             "--right-pane-width": `${rightPaneWidth}px`,
-            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`
+            "--right-pane-collapsed-width": `${collapsedRightPaneWidth}px`,
+            "--speaker-notes-panel-height": `${speakerNotesPanelHeight}px`
           } as CSSProperties
         }
       >
