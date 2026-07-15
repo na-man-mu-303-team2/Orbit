@@ -25,7 +25,9 @@ describe("CreateAiDeckGenerationStages migration", () => {
       "result_ref_json IS NULL OR result_ref_json = '{}'::jsonb",
     );
     expect(sql).toContain("position(':' in pipeline_job_id) = 0");
+    expect(sql).toContain("pipeline_job_id = btrim(pipeline_job_id)");
     expect(sql).toContain("position(':' in shard_key) = 0");
+    expect(sql).toContain("shard_key = btrim(shard_key)");
     expect(sql).toContain("stage IN ('reference-extract-file','image-slide')");
     expect(sql).toContain("status = 'running' AND lease_owner IS NOT NULL");
     expect(sql).toContain("UNIQUE (pipeline_job_id, stage, shard_key)");
