@@ -256,6 +256,13 @@ describe("processPptxOoxmlGenerationJob", () => {
       ])
     );
     expect(deck.slides[0].elements).toEqual([]);
+    expect(job.result).toMatchObject({
+      warnings: [
+        expect.stringContaining(
+          "OOXML visual tree importer failed; python-pptx fallback used:"
+        )
+      ]
+    });
   });
 
   it("keeps resolved object fallback images as editable image elements", async () => {
@@ -587,6 +594,9 @@ function workerResponse() {
 
 function workerResponseWithUnresolvedFallback() {
   const response = workerResponse();
+  response.warnings = [
+    "OOXML visual tree importer failed; python-pptx fallback used: synthetic importer failure"
+  ];
   response.blueprint.slides[0].elements = [
     {
       elementId: "el_ooxml_1_slide_99_fallback_image",

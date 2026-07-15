@@ -123,9 +123,18 @@ describe("SavedDesignPacksService", () => {
 
     expect(resolved.request.design.paletteOverride?.primary).toBe("#ABCDEF");
     expect(resolved.request.design.densityTarget).toBe("low");
+    expect(resolved.request.design.layoutDiversity).toBe("stable");
     expect(resolved.request.design.mediaPolicy).toBe("public-assets");
     expect(resolved.request.design.fontOverride?.recommendedBodySize).toBeGreaterThanOrEqual(18);
     expect(resolved.snapshot?.id).toBe("design_pack_1");
+    expect(resolved.snapshot?.preferences).toMatchObject({
+      palette: { primary: "#ABCDEF" },
+      typography: {
+        headingFontFamily: "Pretendard",
+        bodyFontFamily: "Pretendard"
+      },
+      layoutPreference: "stable"
+    });
     expect(resolved.request).not.toHaveProperty("generationMode");
     expect(resolved.request).not.toHaveProperty("design.engineVersion");
   });

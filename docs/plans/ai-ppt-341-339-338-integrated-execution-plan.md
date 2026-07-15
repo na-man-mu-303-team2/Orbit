@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 실행 중
+**상태**: 확정 · #341 완료 · #339 PR 8 코드 검증 완료 · 운영 증거 대기
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -52,7 +52,9 @@ flowchart LR
 | 339-6 | GenerateDeck `program-v2` 전용화 | public request에서 `generationMode`, `design.engineVersion`, recipe-v1 전용 `design.slidePresetId`, `designReferences`, `templateBlueprintId`를 제거하고 TypeScript/Python root·nested extra field를 거부한다. 호환 shim은 두지 않으며 `layoutVariant`, `slotPreset`, slide-preset registry/selector도 제거한다. 기존 Deck의 `metadata.createdFrom.designReferences` parsing과 PPTX용 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints`, OOXML generation/sync/export mapping은 유지하되 일반 AI generation에서는 참조하지 않는다. |
 | 339-7A | Python generation core 분리 | `deck_generation/` 아래 `models`, `source_grounding`, `content_planning`, `design_planning`, `layout_compiler`, `visual_requirements`, `quality`, `diagnostics`, `pipeline`으로 이동한다. 하위 stage는 상세 계획의 순환 없는 upstream helper DAG와 `models.py` DTO를 따르며 동기식 `pipeline.py`만 stage entrypoint 순서를 조립한다. #341 정규화는 기존 `design_program.py` 구현을 재사용해 design stage가 보장하고 공개 `/ai/generate-deck` 계약과 실패 정책은 바꾸지 않는다. |
 | 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
-| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시키고 #339를 종료한다. |
+| 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시키고, 339-4 legacy drain과 339-6 동시 cutover의 배포 환경 증거를 확인한 뒤 #339를 종료한다. |
+
+PR 8의 로컬·required 자동 CI 회귀 증거와 미확보 운영 hard gate는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 339-4·339-6 배포 환경 증거가 모두 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
 
 ### #338 — stage Job, checkpoint와 queue adapter
 
@@ -60,8 +62,8 @@ flowchart LR
 | --- | --- | --- |
 | 338-0 | stage 계약과 persistence | shared stage/message schema, optional `Job.error.failedStage`, `retryable`, diagnostics warning code를 추가한다. `ai_deck_generation_stages` migration과 checkpoint repository를 구현한다. |
 | 338-1 | staged BullMQ coordinator와 OCR | 기존 monolith를 기본값으로 둔 채 staged BullMQ 경로를 추가한다. 파일별 OCR fan-out, source join, durable dispatch와 stage-only retry를 구현한다. |
-| 338-2 | Python planning stage 연결 | `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 독립 실행한다. 새 research·Art Director 실패 정책으로 `docs/contracts.md`와 shared contract test를 갱신한다. |
-| 338-3 | image·QA·publication 연결 | slide별 image fan-out, semantic quality, rendered visual quality, publication을 연결한다. 로컬 기본 실행을 staged BullMQ로 전환하고 Visual QA·optional image 정책을 새 계약으로 변경한다. |
+| 338-2 | Python planning stage 연결 | `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 독립 실행한다. research 실패 정책은 새 계약으로 변경하고 #341의 Art Director 정규화·terminal 정책은 보존하며 `docs/contracts.md`와 shared contract test를 갱신한다. |
+| 338-3 | image·QA·publication 연결 | slide별 image fan-out, semantic quality, rendered visual quality, publication을 연결한다. 로컬 기본 실행을 staged BullMQ로 전환하고 Visual QA unavailable 정책은 새 계약으로 변경하되, #339에서 고정한 optional image no-media fallback과 advisory Visual QA acceptance는 stage 경계에서도 보존한다. |
 | 338-4 | SQS transport adapter | `@aws-sdk/client-sqs`를 이용해 동일 stage message의 send/receive/delete/visibility 연장을 구현한다. 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. |
 | 338-5 | monolith 제거와 인계 | staged BullMQ 전체 회귀와 SQS adapter parity test를 통과한 뒤 Worker의 기존 장기 `generate-deck` handler와 `monolith` 실행 모드를 제거한다. 실제 AWS 리소스 전환은 후속 인프라 이슈로 인계한다. |
 
@@ -95,10 +97,11 @@ flowchart LR
 - `ART_DIRECTOR_INVALID_RESPONSE`: enum/count/order/JSON 오류가 내부 재시도 후 남으면 terminal.
 - `WEB_RESEARCH_QUALITY_FAILED`: usable grounding 또는 사용자 입력이 있으면 warning/degraded success.
 - `SOURCE_GROUNDING_REQUIRED`: strict policy에서 usable grounding이 전혀 없으면 terminal.
-- `GENERATE_DECK_VISUAL_QA_UNAVAILABLE`: semantic/deterministic validation에 blocking issue가 없으면 warning과 함께 publication.
+- `GENERATE_DECK_VISUAL_QA_UNAVAILABLE`: semantic/deterministic validation에 blocking issue와 unresolved placeholder가 모두 없으면 warning과 함께 publication.
+- rendered Visual QA advisory: 남은 issue가 `BALANCE_WEAK`, `LAYOUT_REPETITIVE`, `BACKGROUND_RHYTHM_FLAT`, `CARD_OVERUSED`로만 구성되고 영향 slide 수가 `max(1, floor(slideCount * 0.2))` 이하면 현재 #339 baseline처럼 warning과 함께 publication.
 - `GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED`: 실제 visual blocking issue가 bounded repair 후에도 남으면 terminal.
-- optional image 실패: no-media composition으로 결정론적으로 전환되고 blocking issue와 placeholder가 남지 않을 때만 degraded success. required asset이거나 fallback이 실패하면 기존 quality gate terminal로 처리한다.
-- V12의 반대되는 research·Visual QA·이미지 fallback 정책은 #338이 대체하며 V12는 과거 품질 승인 fixture만 보존한다.
+- optional image 실패: 현재 #339 baseline처럼 no-media composition으로 결정론적으로 전환되고 blocking issue와 placeholder가 남지 않을 때만 degraded success. required asset 실패는 기존 quality gate terminal로 유지하고, optional no-media fallback request 실패만 `GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED` terminal로 분리하며 #338 stage 전환에서도 이 경계를 보존한다.
+- V12의 반대되는 research·Visual QA unavailable 정책은 #338이 대체하며, optional image fallback과 advisory Visual QA acceptance는 #339 baseline을 보존한다. V12 자체는 과거 품질 승인 fixture만 보존한다.
 
 ## 4. 검증과 완료 기준
 
@@ -109,10 +112,12 @@ pnpm --filter @orbit/shared test
 pnpm --filter @orbit/web test
 pnpm --filter @orbit/api test
 pnpm --filter @orbit/worker test
+pnpm test:coaching:migrations
+pnpm test:coaching:integration
 pnpm build
 pnpm lint
 node infra/scripts/check-env.mjs
-docker compose config
+docker compose config --quiet
 
 cd services/python-worker
 uv sync --locked

@@ -707,6 +707,168 @@ describe("processGenerateDeckJob", () => {
     ).toBe(false);
   });
 
+  it("fails without publishing when optional no-media fallback is unavailable", async () => {
+    const deck = programV2DeckWithOptionalMedia();
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          return new Response("optional no-media fallback unavailable", {
+            status: 503
+          });
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+      message: "optional no-media fallback unavailable"
+    });
+    expect(job.result).toMatchObject({
+      deck: { deckId: deck.deckId },
+      diagnostics: {
+        visualQaStatus: "failed",
+        visualReviewAttempts: 0,
+        visualRepairAttempts: 0
+      }
+    });
+    expect(
+      (job.result as GenerateDeckJobResult).deck.slides[0].elements.some(
+        (element) => element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(true);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("publishes later images when one provider request needs optional fallback", async () => {
+    const deck = programV2DeckWithTwoOptionalMedia();
+    const query = dynamicJobQuery();
+    const generate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider exhausted"))
+      .mockRejectedValueOnce(new Error("provider exhausted"))
+      .mockResolvedValueOnce({
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: "generated.png",
+        provider: "openai"
+      });
+    let fallbackBody: {
+      deck: Deck;
+      dropOptionalMediaSlideIds: string[];
+    } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          fallbackBody = JSON.parse(String(init?.body));
+          const candidate = deckSchema.parse(fallbackBody?.deck);
+          const fallbackDeck = deckSchema.parse({
+            ...candidate,
+            metadata: {
+              ...candidate.metadata,
+              designProgramSnapshot: {
+                ...candidate.metadata.designProgramSnapshot,
+                compositionIds: ["minimal-cover", "hero-split"]
+              }
+            },
+            slides: candidate.slides.map((slide, index) =>
+              index === 0
+                ? {
+                    ...slide,
+                    elements: slide.elements.filter(
+                      (element) =>
+                        !element.elementId.endsWith("_media_placeholder")
+                    ),
+                    aiNotes: {
+                      ...slide.aiNotes,
+                      visualPlan: {
+                        ...slide.aiNotes?.visualPlan,
+                        visualType: "minimal-cover",
+                        imageNeeded: false,
+                        imageSourcePolicy: "minimal",
+                        reason: "Optional image unavailable"
+                      },
+                      compositionPlan: {
+                        ...slide.aiNotes?.compositionPlan,
+                        compositionId: "minimal-cover",
+                        focalType: "title",
+                        assetRole: "none",
+                        requiredAsset: false
+                      }
+                    }
+                  }
+                : slide
+            )
+          });
+          return visualRepairResponse(fallbackDeck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...programV2Payload(),
+        imageAssetScope: { userId: "user_1" }
+      },
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30
+      }
+    );
+
+    const result = job.result as GenerateDeckJobResult;
+    expect(job.status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(fallbackBody?.dropOptionalMediaSlideIds).toEqual(["slide_1"]);
+    expect(
+      result.deck.slides[0].elements.some((element) =>
+        element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(false);
+    expect(
+      result.deck.slides[1].elements.some(
+        (element) =>
+          element.type === "image" &&
+          element.elementId.endsWith("_media_asset")
+      )
+    ).toBe(true);
+    expect(result.deck.slides[1].aiNotes?.visualPlan?.asset?.provider).toBe(
+      "openai"
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("provider exhausted")])
+    );
+  });
+
   it("publishes a hybrid program-v2 deck below the resolved media floor with a warning", async () => {
     const deck = programV2DeckWithResolvedMediaCount(2);
     const query = dynamicJobQuery();
@@ -1695,6 +1857,46 @@ function programV2DeckWithOptionalMedia() {
         }
       }
     ]
+  });
+}
+
+function programV2DeckWithTwoOptionalMedia() {
+  const base = programV2DeckWithOptionalMedia();
+  const source = base.slides[0];
+  const second = {
+    ...source,
+    slideId: "slide_2",
+    order: 2,
+    title: "Second visual deck",
+    elements: source.elements.map((element) => ({
+      ...element,
+      elementId: element.elementId.replace("el_1_", "el_2_")
+    })),
+    aiNotes: {
+      ...source.aiNotes,
+      compositionPlan: source.aiNotes?.compositionPlan
+        ? {
+            ...source.aiNotes.compositionPlan,
+            primaryFocalElementId:
+              source.aiNotes.compositionPlan.primaryFocalElementId?.replace(
+                "el_1_",
+                "el_2_"
+              )
+          }
+        : undefined
+    }
+  };
+  return deckSchema.parse({
+    ...base,
+    metadata: {
+      ...base.metadata,
+      designProgramSnapshot: {
+        ...base.metadata.designProgramSnapshot,
+        backgroundSequence: ["light", "light"],
+        compositionIds: ["hero-split", "hero-split"]
+      }
+    },
+    slides: [source, second]
   });
 }
 
