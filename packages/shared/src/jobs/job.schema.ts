@@ -58,6 +58,13 @@ export const publicCreatableJobTypeSchema = z.enum([
   "report-pdf-export",
 ]);
 
+export const jobErrorSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  failedStage: aiDeckGenerationStageSchema.optional(),
+  retryable: z.boolean().optional(),
+});
+
 export const jobSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
@@ -66,14 +73,7 @@ export const jobSchema = z.object({
   progress: z.number().int().min(0).max(100),
   message: z.string().default(""),
   result: z.record(z.unknown()).nullable(),
-  error: z
-    .object({
-      code: z.string().min(1),
-      message: z.string().min(1),
-      failedStage: aiDeckGenerationStageSchema.optional(),
-      retryable: z.boolean().optional(),
-    })
-    .nullable(),
+  error: jobErrorSchema.nullable(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
@@ -84,3 +84,4 @@ export type JobType = z.infer<typeof jobTypeSchema>;
 export type ActiveJobType = z.infer<typeof activeJobTypeSchema>;
 export type InternalCoachingJobType = z.infer<typeof internalCoachingJobTypeSchema>;
 export type PublicCreatableJobType = z.infer<typeof publicCreatableJobTypeSchema>;
+export type JobError = z.infer<typeof jobErrorSchema>;

@@ -8,8 +8,11 @@ describe("databaseOptions", () => {
   });
 
   it("registers the AI deck stage checkpoint migration", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
     expect(
-      databaseOptions.migrations?.some(
+      migrations.some(
         (migration) =>
           typeof migration === "function" &&
           migration.name === "CreateAiDeckGenerationStages2026071502000",

@@ -38,6 +38,7 @@ import { BackfillFallbackPracticeGoals2026071201000 } from "./migrations/2026071
 import { CreateP0CoachingContracts2026071301000 } from "./migrations/2026071301000-CreateP0CoachingContracts";
 import { DropOrganizationsAndBrandKits2026071401000 } from "./migrations/2026071401000-DropOrganizationsAndBrandKits";
 import { BackfillFocusedPracticeGoalSetRef2026071501000 } from "./migrations/2026071501000-BackfillFocusedPracticeGoalSetRef";
+import { CreateAiDeckGenerationStages2026071502000 } from "./migrations/2026071502000-CreateAiDeckGenerationStages";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -87,7 +88,8 @@ export const databaseOptions: DataSourceOptions = {
     BackfillFallbackPracticeGoals2026071201000,
     CreateP0CoachingContracts2026071301000,
     DropOrganizationsAndBrandKits2026071401000,
-    BackfillFocusedPracticeGoalSetRef2026071501000
+    BackfillFocusedPracticeGoalSetRef2026071501000,
+    CreateAiDeckGenerationStages2026071502000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

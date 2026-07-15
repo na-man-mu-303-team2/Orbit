@@ -156,12 +156,17 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
 
 function repositoryWithResponses(...responses: unknown[][]) {
   const pending = [...responses];
-  const query = vi.fn(async () => pending.shift() ?? []);
+  const query = vi.fn<QueryFunction>(async () => pending.shift() ?? []);
   const repository = new AiDeckGenerationStageCheckpointRepository({
     query,
   } as unknown as Pick<DataSource, "query">);
   return { query, repository };
 }
+
+type QueryFunction = (
+  sql: string,
+  parameters?: unknown[],
+) => Promise<unknown[]>;
 
 function compactSql(value: unknown): string {
   return String(value).replace(/\s+/g, " ").trim();
