@@ -2643,7 +2643,7 @@ describe("RehearsalWorkspace", () => {
     expect(file.name).toBe("rehearsal-2026-06-29T00-00-00-000Z.webm");
   });
 
-  it("persists a fallback demo deck when rehearsal entry has no stored deck", async () => {
+  it("does not create a fallback deck when rehearsal entry has no stored deck", async () => {
     const fallbackDeck = createDemoDeck();
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher = vi.fn(
@@ -2651,51 +2651,27 @@ describe("RehearsalWorkspace", () => {
         const url = String(input);
         calls.push({ url, init });
 
-        if (!init) {
-          return new Response("missing", { status: 404 });
-        }
-
-        return jsonResponse({
-          projectId: fallbackDeck.projectId,
-          deck: fallbackDeck,
-          updatedAt: createdAt,
-          snapshot: null,
-        });
+        return new Response("missing", { status: 404 });
       },
     );
 
-    const deck = await fetchOrCreateRehearsalDeck({
-      fallbackDeck,
-      fetcher,
-    });
-
-    expect(deck.deckId).toBe(fallbackDeck.deckId);
-    expect(calls.map((call) => call.url)).toEqual([
-      `/api/v1/projects/${fallbackDeck.projectId}/deck`,
-      `/api/v1/projects/${fallbackDeck.projectId}/deck`,
+    await expect(fetchOrCreateRehearsalDeck({ fallbackDeck, fetcher })).rejects.toBeInstanceOf(
+      RehearsalFlowError,
+    );
+    expect(calls).toEqual([
+      { url: `/api/v1/projects/${fallbackDeck.projectId}/deck`, init: undefined },
     ]);
-    expect(calls[1]?.init).toMatchObject({
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-    });
-    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
-      deck: fallbackDeck,
-      snapshotReason: "deck-replaced",
-    });
   });
 
-  it("uses the fallback demo deck when rehearsal deck fetch is unauthorized", async () => {
+  it("does not use a fallback demo deck when rehearsal deck fetch is unauthorized", async () => {
     const fallbackDeck = createDemoDeck();
     const fetcher = vi.fn(
       async () => new Response("unauthorized", { status: 401 }),
     );
 
-    const deck = await fetchOrCreateRehearsalDeck({
-      fallbackDeck,
-      fetcher,
-    });
-
-    expect(deck.deckId).toBe(fallbackDeck.deckId);
+    await expect(fetchOrCreateRehearsalDeck({ fallbackDeck, fetcher })).rejects.toBeInstanceOf(
+      RehearsalFlowError,
+    );
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith(
       `/api/v1/projects/${fallbackDeck.projectId}/deck`,

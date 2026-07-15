@@ -365,7 +365,7 @@ export function EditableCanvas(props: {
       return;
     }
 
-    if (customShapeEditElementId) {
+    if (disableInteractions || customShapeEditElementId) {
       transformer.nodes([]);
       transformer.getLayer()?.batchDraw();
       return;
@@ -377,7 +377,7 @@ export function EditableCanvas(props: {
 
     transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [customShapeEditElementId, selectedElementIds, visibleElements]);
+  }, [customShapeEditElementId, disableInteractions, selectedElementIds, visibleElements]);
 
   useEffect(() => {
     if (insertTool !== "customShape") {
@@ -427,6 +427,7 @@ export function EditableCanvas(props: {
   }
 
   useCanvasKeyboardShortcuts({
+    enabled: !disableInteractions,
     customShapeEditDraft,
     customShapeInsertDraft,
     editingCustomShapeElement,
@@ -441,6 +442,7 @@ export function EditableCanvas(props: {
   });
 
   useCanvasBackgroundPointerCapture({
+    enabled: !disableInteractions,
     customShapeEditDraft,
     deck,
     editingElementId,
@@ -477,7 +479,12 @@ export function EditableCanvas(props: {
   });
 
   return (
-    <div className="konva-editor-stage" data-testid="editor-canvas-stage" ref={containerRef}>
+    <div
+      aria-readonly={disableInteractions}
+      className="konva-editor-stage"
+      data-testid="editor-canvas-stage"
+      ref={containerRef}
+    >
       <Stage
         className="konva-canvas-layer"
         height={deck.canvas.height * stageScale}
@@ -541,7 +548,7 @@ export function EditableCanvas(props: {
                 state={elementStates?.[element.elementId]}
               />
             ))}
-          {customShapeInsertDraft ? (
+          {!disableInteractions && customShapeInsertDraft ? (
             <CustomShapeInsertOverlay
               draft={customShapeInsertDraft}
               onClosePath={() => {
@@ -553,7 +560,7 @@ export function EditableCanvas(props: {
               }}
             />
           ) : null}
-          {draftElement ? (
+          {!disableInteractions && draftElement ? (
             <Rect
               dash={[10, 6]}
               fill="rgba(37, 99, 235, 0.08)"
@@ -594,7 +601,7 @@ export function EditableCanvas(props: {
           />
         </Layer>
       </Stage>
-      {editingElementId ? (
+      {!disableInteractions && editingElementId ? (
         <InlineTextEditorOverlay
           deck={deck}
           element={
@@ -607,12 +614,12 @@ export function EditableCanvas(props: {
           onFinishEditing={handleInlineTextEditingFinish}
         />
       ) : null}
-      {insertTool === "customShape" ? (
+      {!disableInteractions && insertTool === "customShape" ? (
         <div className="canvas-mode-hint">
           클릭으로 점 추가, 드래그로 곡선 손잡이 생성, 첫 점 클릭 또는 Enter로
           완료, Esc 취소
         </div>
-      ) : customShapeEditDraft ? (
+      ) : !disableInteractions && customShapeEditDraft ? (
         <div className="canvas-mode-hint">
           점을 드래그해 도형을 다듬고, 더블클릭으로 코너와 곡선을 전환합니다
         </div>

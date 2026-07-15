@@ -20,7 +20,6 @@ import {
   type LiveSttKeywordDetectedEvent,
   type LiveSttPartialTranscriptEvent,
   type LiveSttSlideAdvanceEvent,
-  type PutDeckResponse,
   type RehearsalReport,
   type RehearsalRunComparison,
   type RehearsalEvaluationSnapshot,
@@ -442,37 +441,6 @@ export async function fetchOrCreateRehearsalDeck(
   if (response.ok) {
     const payload = (await response.json()) as GetDeckResponse;
     return payload.deck;
-  }
-
-  if (response.status === 404 && options.fallbackDeck) {
-    const putResponse = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/deck`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        deck: options.fallbackDeck,
-        snapshotReason: "deck-replaced",
-      }),
-    });
-
-    if (!putResponse.ok) {
-      throw new RehearsalFlowError(
-        "deck",
-        await readErrorMessage(
-          putResponse,
-          "리허설 발표 자료를 초기화하지 못했습니다.",
-        ),
-      );
-    }
-
-    const payload = (await putResponse.json()) as PutDeckResponse;
-    return payload.deck;
-  }
-
-  if (
-    options.fallbackDeck &&
-    (response.status === 401 || response.status === 403)
-  ) {
-    return options.fallbackDeck;
   }
 
   throw new RehearsalFlowError(
