@@ -113,6 +113,56 @@ describe("processAiDeckStagedCoordinatorJob", () => {
     ]);
   });
 
+  it.each(["references-first", "references-only"] as const)(
+    "fails %s before source-grounding when no usable source exists",
+    async (referencePolicy) => {
+      const request = generateDeckRequestSchema.parse({
+        topic: "strict grounding",
+        referencePolicy,
+      });
+      const terminalError = {
+        code: "SOURCE_GROUNDING_REQUIRED",
+        message: "The selected reference policy requires usable grounding.",
+        failedStage: "reference-extract-file",
+        retryable: false,
+      };
+      const query = vi
+        .fn<QueryFunction>()
+        .mockResolvedValueOnce([
+          parentJobRow({ payload: { request } }),
+        ])
+        .mockResolvedValueOnce([
+          parentJobRow({
+            status: "failed",
+            message: "AI deck generation failed.",
+            payload: { request },
+            error: terminalError,
+          }),
+        ]);
+      const transaction = vi.fn(
+        async (work: (manager: { query: QueryFunction }) => unknown) =>
+          work({ query }),
+      );
+
+      const result = await processAiDeckStagedCoordinatorJob(
+        { transaction } as unknown as DataSource,
+        { jobId: "job-ai-deck-1", projectId: "project-a" },
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        error: terminalError,
+      });
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(compactSql(query.mock.calls[1]?.[0])).toContain("UPDATE jobs");
+      expect(
+        query.mock.calls.some((call) =>
+          compactSql(call[0]).includes("INSERT INTO ai_deck_generation_stages"),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("rejects coordinator payload fields beyond the ID-only contract", async () => {
     const transaction = vi.fn();
 
