@@ -42,6 +42,7 @@ const processors = vi.hoisted(() => ({
 }));
 
 const maintenance = vi.hoisted(() => ({
+  coordinator: vi.fn(async () => ({ scanned: 0, recovered: 0, removed: 0 })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
   reconcile: vi.fn(async () => ({ scanned: 0, requeued: 0, failed: 0 })),
 }));
@@ -87,6 +88,9 @@ vi.mock("./generate-deck/reference-extract-stage", () => ({
 }));
 vi.mock("./generate-deck/stage-dispatcher", () => ({
   dispatchAiDeckGenerationStages: maintenance.dispatch,
+}));
+vi.mock("./generate-deck/coordinator-failure-reconciler", () => ({
+  reconcileFailedAiDeckCoordinatorJobs: maintenance.coordinator,
 }));
 vi.mock("./generate-deck/stage-reconciler", () => ({
   reconcileExpiredAiDeckStageLeases: maintenance.reconcile,
@@ -191,6 +195,10 @@ describe("WorkerService queue subscriptions", () => {
         driver: "bullmq",
         redisUrl: configState.REDIS_URL,
       }),
+    );
+    expect(maintenance.coordinator).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ redisUrl: configState.REDIS_URL }),
     );
     expect(maintenance.reconcile).toHaveBeenCalled();
 
@@ -339,6 +347,7 @@ describe("WorkerService queue subscriptions", () => {
       expect(() => service.onModuleInit()).toThrow(/not implemented/i);
       expect(bullMq.queues).toEqual([]);
       expect(maintenance.dispatch).not.toHaveBeenCalled();
+      expect(maintenance.coordinator).not.toHaveBeenCalled();
       expect(maintenance.reconcile).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalledWith(
         expect.objectContaining({ event: "worker.ready" }),
