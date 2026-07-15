@@ -42,7 +42,7 @@ import {
   IconUpload,
   IconSparkles
 } from "@tabler/icons-react";
-import type { ChangeEvent, DragEvent } from "react";
+import type { ChangeEvent, DragEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { OrbitIconButton } from "../../design-system";
 import { createProject, deleteProject, uploadProjectAsset } from "../projects/ProjectAssetWorkspace";
@@ -65,7 +65,7 @@ export type PaletteOption = {
   palette: Required<PaletteOverride>;
 };
 
-type AiPptWizardState = {
+export type AiPptWizardState = {
   topic: string;
   purpose: string;
   context: string;
@@ -242,6 +242,31 @@ export const initialAiPptWizardState: AiPptWizardState = {
   mediaPolicy: "minimal",
   referencePolicy: "user-input-only"
 };
+
+const briefFieldNames = [
+  "topic",
+  "purpose",
+  "context",
+  "audience",
+  "presentationType",
+  "successCriteria",
+  "duration",
+  "slides"
+] as const;
+
+type BriefFieldName = (typeof briefFieldNames)[number];
+
+export function mergeAiPptBriefFormData(
+  state: AiPptWizardState,
+  formData: Pick<FormData, "get">
+) {
+  const nextState = { ...state };
+  for (const fieldName of briefFieldNames) {
+    const value = formData.get(fieldName);
+    if (typeof value === "string") nextState[fieldName] = value;
+  }
+  return nextState;
+}
 
 const generationStages = [
   "내용 구성",
@@ -434,6 +459,7 @@ export function AiPptMockupPage() {
   ].join("|");
   const loadedColorRequestKey = useRef("");
   const panelRef = useRef<HTMLElement>(null);
+  const briefFormRef = useRef<HTMLFormElement>(null);
   const previousStepRef = useRef<StepId>(currentStep);
   const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
   const selectedPalette =
@@ -613,7 +639,11 @@ export function AiPptMockupPage() {
       return;
     }
     if (currentStep === "brief") {
-      const validationMessage = getAiPptWizardValidationMessage(form, referenceFiles);
+      const nextForm = briefFormRef.current
+        ? mergeAiPptBriefFormData(form, new FormData(briefFormRef.current))
+        : form;
+      setForm(nextForm);
+      const validationMessage = getAiPptWizardValidationMessage(nextForm, referenceFiles);
       if (validationMessage) {
         setError(validationMessage);
         return;
@@ -868,6 +898,7 @@ export function AiPptMockupPage() {
               <BriefStep
                 briefMode={briefMode}
                 form={form}
+                formRef={briefFormRef}
                 onBriefModeChange={setBriefMode}
                 onChange={updateForm}
               />
@@ -951,11 +982,7 @@ export function AiPptMockupPage() {
         </button>
         <button
           className="ai-ppt-primary"
-          disabled={
-            currentStep === "preview" ||
-            isGenerating ||
-            (currentStep === "brief" && Boolean(getAiPptWizardValidationMessage(form)))
-          }
+          disabled={currentStep === "preview" || isGenerating}
           type="button"
           onClick={goNext}
         >
@@ -1023,6 +1050,7 @@ function QualityFailurePanel(props: {
 function BriefStep(props: {
   briefMode: "custom" | "generic";
   form: AiPptWizardState;
+  formRef: Ref<HTMLFormElement>;
   onBriefModeChange: (value: "custom" | "generic") => void;
   onChange: <K extends keyof AiPptWizardState>(key: K, value: AiPptWizardState[K]) => void;
 }) {
@@ -1050,16 +1078,21 @@ function BriefStep(props: {
           일반 초보자 관점으로 생성하며, 나중에 Brief를 추가할 수 있습니다.
         </p>
       ) : null}
-      <div className="ai-ppt-field-grid">
-        <TextField label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
-        <TextField label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
-        <TextField label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
-        <TextField label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
-        <TextField label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
-        <TextField label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
-        <TextField label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
-        <TextField label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
-      </div>
+      <form
+        ref={props.formRef}
+        aria-label="발표 Brief 입력"
+        className="ai-ppt-field-grid"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <TextField name="topic" label="발표 주제" placeholder={briefFieldPlaceholders.topic} value={props.form.topic} onChange={(value) => props.onChange("topic", value)} />
+        <TextField name="purpose" label="발표 목적" placeholder={briefFieldPlaceholders.purpose} value={props.form.purpose} onChange={(value) => props.onChange("purpose", value)} />
+        <TextField name="context" label="발표 맥락" placeholder={briefFieldPlaceholders.context} value={props.form.context} onChange={(value) => props.onChange("context", value)} />
+        <TextField name="audience" label="청중" placeholder={briefFieldPlaceholders.audience} value={props.form.audience} onChange={(value) => props.onChange("audience", value)} />
+        <TextField name="presentationType" label="발표 유형" placeholder={briefFieldPlaceholders.presentationType} value={props.form.presentationType} onChange={(value) => props.onChange("presentationType", value)} />
+        <TextField name="successCriteria" label="성공 기준" placeholder={briefFieldPlaceholders.successCriteria} value={props.form.successCriteria} onChange={(value) => props.onChange("successCriteria", value)} />
+        <TextField name="duration" label="발표 시간" placeholder={briefFieldPlaceholders.duration} value={props.form.duration} suffix="분" onChange={(value) => props.onChange("duration", value)} />
+        <TextField name="slides" label="슬라이드 수" placeholder={briefFieldPlaceholders.slides} value={props.form.slides} suffix="장" onChange={(value) => props.onChange("slides", value)} />
+      </form>
     </>
   );
 }
@@ -1723,6 +1756,7 @@ function PanelHeading(props: { kicker: string; title: string }) {
 
 function TextField(props: {
   label: string;
+  name: BriefFieldName;
   onChange: (value: string) => void;
   placeholder?: string;
   suffix?: string;
@@ -1733,6 +1767,7 @@ function TextField(props: {
       <span>{props.label}</span>
       <div>
         <input
+          name={props.name}
           placeholder={props.placeholder}
           value={props.value}
           onChange={(event) => props.onChange(event.target.value)}
