@@ -1441,7 +1441,6 @@ export function EditorShell(props: { projectId?: string }) {
   const slidePanelView = useEditorShellUiStore((state) => state.slidePanelView);
   const setSlidePanelView = useEditorShellUiStore((state) => state.setSlidePanelView);
   const showIds = useEditorShellUiStore((state) => state.showIds);
-  const setShowIds = useEditorShellUiStore((state) => state.setShowIds);
   const selectedKeywordId = useEditorShellUiStore((state) => state.selectedKeywordId);
   const setSelectedKeywordId = useEditorShellUiStore(
     (state) => state.setSelectedKeywordId
@@ -5694,18 +5693,6 @@ export function EditorShell(props: { projectId?: string }) {
                   <LayoutTemplate size={14} />
                   <span className="tool-button-label">템플릿</span>
                 </button>
-                <button
-                  aria-label="ID 표시"
-                  aria-pressed={showIds}
-                  className={`toolbar-toggle ${showIds ? "active" : ""}`}
-                  type="button"
-                  onClick={() => setShowIds((current) => !current)}
-                >
-                  <span className="toolbar-toggle-label">ID 표시</span>
-                  <span className="toolbar-toggle-track" aria-hidden="true">
-                    <span className="toolbar-toggle-thumb" />
-                  </span>
-                </button>
               </div>
             </div>
 
@@ -6188,17 +6175,6 @@ export function EditorShell(props: { projectId?: string }) {
       <div data-testid="editor-animations-debug" hidden>
         {JSON.stringify(currentSlide?.animations ?? [])}
       </div>
-
-      {isDev ? (
-        <button
-          className={`data-view-fab ${isDataViewOpen ? "active" : ""}`}
-          data-testid="editor-data-view-toggle"
-          type="button"
-          onClick={() => setIsDataViewOpen((current) => !current)}
-        >
-          Data View
-        </button>
-      ) : null}
 
       {isDev && isDataViewOpen ? (
         <section className="floating-dev-panel">
