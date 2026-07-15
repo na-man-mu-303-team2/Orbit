@@ -1,6 +1,7 @@
 import {
   generateDeckQueueName,
   generateDeckStagedCoordinatorJobName,
+  aiDeckResearchContentQueueName,
   referenceExtractQueueName,
 } from "@orbit/job-queue";
 import type { DataSource } from "typeorm";
@@ -84,6 +85,48 @@ describe("recoverAiDeckBullMqFinalFailure", () => {
       "project-a",
       "reference-extract-file",
       "file-a",
+    ]);
+  });
+
+  it("releases a queued planning dispatch marker after final transport failure", async () => {
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
+        return [{ job_id: "job-ai-deck-1", project_id: "project-a", status: "running" }];
+      }
+      if (compact.startsWith("UPDATE ai_deck_generation_stages")) {
+        return [
+          checkpointRow({
+            stage: "source-grounding",
+            shard_key: "",
+            dispatched_at: null,
+          }),
+        ];
+      }
+      throw new Error(`Unexpected query: ${compact}`);
+    });
+    const dataSource = transactionalDataSource(query);
+    const message = {
+      ...stageMessage(),
+      stage: "source-grounding",
+      shardKey: "",
+    };
+
+    await expect(
+      recoverAiDeckBullMqFinalFailure(dataSource, {
+        queueName: aiDeckResearchContentQueueName,
+        jobName: "source-grounding",
+        data: message,
+      }),
+    ).resolves.toEqual({
+      outcome: "stage-dispatch-released",
+      terminalJob: null,
+    });
+    expect(query.mock.calls[1]?.[1]?.slice(0, 4)).toEqual([
+      "job-ai-deck-1",
+      "project-a",
+      "source-grounding",
+      "",
     ]);
   });
 

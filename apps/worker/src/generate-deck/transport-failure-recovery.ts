@@ -1,7 +1,7 @@
 import {
+  aiDeckGenerationStageQueueName,
   generateDeckQueueName,
   generateDeckStagedCoordinatorJobName,
-  referenceExtractQueueName,
 } from "@orbit/job-queue";
 import {
   aiDeckGenerationStageMessageSchema,
@@ -69,18 +69,26 @@ export async function recoverAiDeckBullMqFinalFailure(
   ) {
     return failCoordinatorParent(dataSource, input.data);
   }
-  if (
-    input.queueName === referenceExtractQueueName &&
-    input.jobName === "reference-extract-file"
-  ) {
+  if (implementedStageNames.has(input.jobName)) {
     const message = aiDeckGenerationStageMessageSchema.parse(input.data);
-    if (message.stage !== "reference-extract-file") {
+    if (
+      message.stage !== input.jobName ||
+      input.queueName !== aiDeckGenerationStageQueueName(message.stage)
+    ) {
       return { outcome: "ignored", terminalJob: null };
     }
     return releaseStageDispatch(dataSource, message);
   }
   return { outcome: "ignored", terminalJob: null };
 }
+
+const implementedStageNames = new Set([
+  "reference-extract-file",
+  "source-grounding",
+  "content-planning",
+  "design-planning",
+  "layout-compile",
+]);
 
 async function failCoordinatorParent(
   dataSource: DataSource,

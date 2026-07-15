@@ -32,6 +32,20 @@ from app.ai.generate_deck import (
     ReferenceContext,
     generate_deck,
 )
+from app.ai.deck_generation.stage_runtime import (
+    ContentPlanningStageInput,
+    ContentPlanningStageResult,
+    DesignPlanningStageInput,
+    DesignPlanningStageResult,
+    LayoutCompileStageInput,
+    LayoutCompileStageResult,
+    SourceGroundingStageInput,
+    run_content_planning_stage,
+    run_design_planning_stage,
+    run_layout_compile_stage,
+    run_source_grounding_stage,
+)
+from app.ai.deck_generation.models import SourceGroundingResult
 from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     PptxDesignImportResult,
@@ -569,6 +583,73 @@ def generate_ai_deck(
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/source-grounding",
+    response_model=SourceGroundingResult,
+)
+def source_grounding_stage(
+    payload: SourceGroundingStageInput,
+    request: Request,
+) -> SourceGroundingResult:
+    config = _config(request)
+    try:
+        return run_source_grounding_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/content-planning",
+    response_model=ContentPlanningStageResult,
+)
+def content_planning_stage(
+    payload: ContentPlanningStageInput,
+    request: Request,
+) -> ContentPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_content_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/design-planning",
+    response_model=DesignPlanningStageResult,
+)
+def design_planning_stage(
+    payload: DesignPlanningStageInput,
+    request: Request,
+) -> DesignPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_design_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/layout-compile",
+    response_model=LayoutCompileStageResult,
+)
+def layout_compile_stage(
+    payload: LayoutCompileStageInput,
+) -> LayoutCompileStageResult:
+    return run_layout_compile_stage(payload)
 
 
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)

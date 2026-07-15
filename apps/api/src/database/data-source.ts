@@ -41,6 +41,8 @@ import { BackfillFocusedPracticeGoalSetRef2026071501000 } from "./migrations/202
 import { CreateAiDeckGenerationStages2026071502000 } from "./migrations/2026071502000-CreateAiDeckGenerationStages";
 import { AddRehearsalOwnership2026071503000 } from "./migrations/2026071503000-AddRehearsalOwnership";
 import { CreateAiDeckReferenceExtractionArtifacts2026071504000 } from "./migrations/2026071504000-CreateAiDeckReferenceExtractionArtifacts";
+import { CreateAiDeckPlanningArtifacts2026071601000 } from "./migrations/2026071601000-CreateAiDeckPlanningArtifacts";
+import { ExpandAiDeckStageDispatchRecovery2026071601100 } from "./migrations/2026071601100-ExpandAiDeckStageDispatchRecovery";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -93,7 +95,9 @@ export const databaseOptions: DataSourceOptions = {
     BackfillFocusedPracticeGoalSetRef2026071501000,
     CreateAiDeckGenerationStages2026071502000,
     AddRehearsalOwnership2026071503000,
-    CreateAiDeckReferenceExtractionArtifacts2026071504000
+    CreateAiDeckReferenceExtractionArtifacts2026071504000,
+    CreateAiDeckPlanningArtifacts2026071601000,
+    ExpandAiDeckStageDispatchRecovery2026071601100
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

@@ -63,7 +63,7 @@ describe("dispatchAiDeckGenerationStages", () => {
     },
   );
 
-  it("keeps the 338-2 source-grounding checkpoint undispatched", async () => {
+  it("dispatches the 338-2 source-grounding checkpoint", async () => {
     const sourceMessage: AiDeckGenerationStageMessage = {
       pipelineJobId: "job-ai-deck-1",
       projectId: "project-a",
@@ -74,6 +74,38 @@ describe("dispatchAiDeckGenerationStages", () => {
       recoverStaleDispatches: vi.fn(async () => 0),
       listUndispatched: vi.fn(async () => [
         { message: sourceMessage, attempt: 0 },
+      ]),
+      markDispatched: vi.fn(async () => ({})),
+    };
+    const enqueue = vi.fn(async () => ({
+      jobId: "job-ai-deck-1:source-grounding:",
+      state: "waiting" as const,
+    }));
+
+    await expect(
+      dispatchAiDeckGenerationStages(repository, {
+        driver: "bullmq",
+        redisUrl: "redis://localhost:6379",
+        enqueue,
+      }),
+    ).resolves.toEqual({ scanned: 1, dispatched: 1 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ message: sourceMessage }),
+    );
+    expect(repository.markDispatched).toHaveBeenCalledWith(sourceMessage, 0);
+  });
+
+  it("keeps later 338-3 stages undispatched", async () => {
+    const imageMessage: AiDeckGenerationStageMessage = {
+      pipelineJobId: "job-ai-deck-1",
+      projectId: "project-a",
+      stage: "image-slide",
+      shardKey: "slide-a",
+    };
+    const repository = {
+      recoverStaleDispatches: vi.fn(async () => 0),
+      listUndispatched: vi.fn(async () => [
+        { message: imageMessage, attempt: 0 },
       ]),
       markDispatched: vi.fn(),
     };
@@ -87,7 +119,6 @@ describe("dispatchAiDeckGenerationStages", () => {
       }),
     ).resolves.toEqual({ scanned: 1, dispatched: 0 });
     expect(enqueue).not.toHaveBeenCalled();
-    expect(repository.markDispatched).not.toHaveBeenCalled();
   });
 
   it("leaves a failed send undispatched and continues with the next row", async () => {

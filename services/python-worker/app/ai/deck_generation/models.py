@@ -501,6 +501,10 @@ class RawInput(BaseModel):
     research_attempts: int = 0
     relevant_web_source_count: int = 0
     official_web_source_count: int = 0
+    warning_codes: list[WarningCode] = Field(
+        default_factory=list,
+        alias="warningCodes",
+    )
     design_program_context: InternalDesignProgramContext = Field(
         default_factory=InternalDesignProgramContext,
     )

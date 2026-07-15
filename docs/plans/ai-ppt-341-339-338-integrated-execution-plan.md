@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 완료 · #338-0 완료·병합 · #338-1 구현 완료·병합 전 검증 중
+**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1 완료·병합 · #338-2 구현·로컬 검증 중
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -66,7 +66,7 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 | 338-4 | SQS transport adapter | 다섯 SQS queue URL key를 추가하고 `@aws-sdk/client-sqs`를 이용해 동일 stage message의 send/receive/delete/visibility 연장을 구현한다. 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. |
 | 338-5 | monolith 제거와 인계 | staged BullMQ 전체 회귀와 SQS adapter parity test를 통과한 뒤 Worker의 기존 장기 `generate-deck` handler와 `monolith` 실행 모드를 제거한다. 실제 AWS 리소스 전환은 후속 인프라 이슈로 인계한다. |
 
-338-1의 현재 실행 경계는 다음과 같다.
+338-1의 병합 기준 실행 경계는 다음과 같다.
 
 - `AI_DECK_EXECUTION_MODE=monolith`는 기존 `generate-deck` Job 이름과 request·DesignPack snapshot·image asset scope를 포함한 full-deck payload를 그대로 사용한다.
 - `AI_DECK_EXECUTION_MODE=bullmq`만 `generate-deck-staged-coordinator`에 `{ jobId, projectId }`를 보낸다. public `references`와 `referenceFileIds`는 각각 최대 10개다. coordinator는 DB 부모 payload에서 non-empty `references`를 우선하고, 비어 있을 때만 `referenceFileIds`를 사용해 `selectedReferenceFileIds`를 만든다. `referenceContext`로 covered된 file을 제외한 `uncoveredReferenceFileIds`에만 파일별 checkpoint를 생성한다.
@@ -74,6 +74,13 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - 338-1에서 실제 dispatch·consume하는 내부 stage는 `reference-extract-file`뿐이다. OCR skip 또는 policy join이 만든 `source-grounding` checkpoint는 durable하게 남지만 338-2 전에는 dispatch하지 않는다.
 - standalone reference extraction API와 기존 `reference-extract` 다중 파일 계약은 바꾸지 않는다. 파일별 OCR·artifact·checkpoint는 AI PPT staged 경로에만 적용한다.
 - 부모 실패 Job을 다시 시작하는 명시적 retry API는 338-1 범위가 아니며 338-3에서 `failedStage`와 shard invalidation 계약을 연결한다.
+
+338-2의 현재 구현 경계는 다음과 같다.
+
+- `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 Python 내부 endpoint와 BullMQ stage consumer로 독립 실행한다.
+- 각 stage의 큰 결과는 `ai_deck_planning_artifacts`에 저장하고 checkpoint에는 strict `{ planningArtifactId: uuid }`만 전달한다. tenant·pipeline·upstream stage identity를 조회 시 다시 검증한다.
+- `research-content`, `design-layout` dedicated Worker role을 활성화하고 OCR과 네 planning stage만 dispatcher·stale dispatch·expired lease·final transport recovery 대상으로 확장한다. 338-3 stage는 아직 dispatch하지 않는다.
+- `layout-compile` 이후 부모 Job은 progress 60의 `running`으로 유지하며 image·QA·publication은 338-3이 이어받는다. production 기본값 `monolith`와 `develop` 자동 배포 규칙은 변경하지 않는다.
 
 ## 3. 확정 계약과 실패 정책
 
@@ -157,7 +164,7 @@ uv run pytest
 - [x] 15분 stale queued dispatch의 bounded 복구와 `idx_ai_deck_generation_stages_stale_dispatch` migration·revert test
 - [x] `source-grounding` checkpoint가 생성되지만 338-1 dispatcher 대상에는 포함되지 않는 OCR-only 경계 test
 - [x] standalone `reference-extract`와 monolith GenerateDeck 회귀 test, migration `run → 검증 → revert → run`, 전체 build·lint·test·env·Compose 검증
-- [ ] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
+- [x] PR required CI 성공과 병합 전 최신 `develop` 기준 diff·계약 정합성 검토
 
 추가 필수 시나리오:
 
