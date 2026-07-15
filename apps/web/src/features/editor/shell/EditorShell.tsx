@@ -253,13 +253,43 @@ type EditorSessionDebugState =
   | { status: "error"; message: string };
 
 const defaultEditorStageScale = 0.44;
+const maximumEditorStageScale = 0.66;
 const compactEditorBreakpoint = 760;
 const compactEditorCanvasInset = 32;
+const fittedEditorCanvasHorizontalInset = 48;
+const fittedEditorCanvasVerticalInset = 64;
 
 export function getResponsiveEditorStageScale(
   canvasWidth: number,
-  viewportWidth: number | null
+  viewportWidth: number | null,
+  canvasHeight?: number,
+  viewportHeight?: number | null,
 ) {
+  if (
+    viewportWidth &&
+    viewportHeight &&
+    canvasWidth > 0 &&
+    canvasHeight &&
+    canvasHeight > 0
+  ) {
+    const availableWidth = Math.max(
+      0,
+      viewportWidth - fittedEditorCanvasHorizontalInset,
+    );
+    const availableHeight = Math.max(
+      0,
+      viewportHeight - fittedEditorCanvasVerticalInset,
+    );
+
+    return Math.min(
+      maximumEditorStageScale,
+      Math.max(
+        0.16,
+        Math.min(availableWidth / canvasWidth, availableHeight / canvasHeight),
+      ),
+    );
+  }
+
   if (!viewportWidth || viewportWidth > compactEditorBreakpoint || canvasWidth <= 0) {
     return defaultEditorStageScale;
   }
@@ -1799,15 +1829,64 @@ export function EditorShell(props: { projectId?: string }) {
     [deck, currentSlide]
   );
   const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
+  const [editorCanvasViewport, setEditorCanvasViewport] = useState<{
+    height: number;
+    width: number;
+  } | null>(null);
+  const editorCanvasViewportRef = useRef<HTMLDivElement | null>(null);
+  const wasCompactEditorLayoutRef = useRef(false);
   useEffect(() => {
     const syncEditorViewportWidth = () => setEditorViewportWidth(window.innerWidth);
     syncEditorViewportWidth();
     window.addEventListener("resize", syncEditorViewportWidth);
     return () => window.removeEventListener("resize", syncEditorViewportWidth);
   }, []);
+  useEffect(() => {
+    const canvasViewport = editorCanvasViewportRef.current;
+    if (!canvasViewport) {
+      return;
+    }
+
+    const syncCanvasViewport = () => {
+      setEditorCanvasViewport({
+        height: canvasViewport.clientHeight,
+        width: canvasViewport.clientWidth,
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(syncCanvasViewport);
+
+    syncCanvasViewport();
+    resizeObserver?.observe(canvasViewport);
+    window.addEventListener("resize", syncCanvasViewport);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncCanvasViewport);
+    };
+  }, []);
+  useEffect(() => {
+    if (editorViewportWidth === null) {
+      return;
+    }
+
+    const isCompactLayout = editorViewportWidth <= 860;
+    if (
+      isCompactLayout &&
+      !wasCompactEditorLayoutRef.current &&
+      isRightPanelOpen
+    ) {
+      setIsRightPanelOpen(false);
+    }
+    wasCompactEditorLayoutRef.current = isCompactLayout;
+  }, [editorViewportWidth, isRightPanelOpen, setIsRightPanelOpen]);
   const stageScale = getResponsiveEditorStageScale(
     deck.canvas.width,
-    editorViewportWidth
+    editorCanvasViewport?.width ?? editorViewportWidth,
+    deck.canvas.height,
+    editorCanvasViewport?.height,
   );
   const currentSlideAnimations = useMemo(
     () =>
@@ -5521,7 +5600,7 @@ export function EditorShell(props: { projectId?: string }) {
             type="button"
           >
             <FileText size={15} />
-            브리프
+            <span>브리프</span>
           </button>
           <button
             className="editor-context-top-button"
@@ -5529,7 +5608,7 @@ export function EditorShell(props: { projectId?: string }) {
             type="button"
           >
             <History size={15} />
-            버전
+            <span>버전</span>
           </button>
           <PresentationMenu
             activeStartAction={activePresentationAction}
@@ -5995,7 +6074,7 @@ export function EditorShell(props: { projectId?: string }) {
               : renderSelectionProperties(selectedElement, selectedElement ? currentSlide : null, "toolbar-properties")}
           </div>
 
-          <div className="canvas-scroll">
+          <div className="canvas-scroll" ref={editorCanvasViewportRef}>
             {currentSlide ? (
               <div className="konva-wrap">
                 <div

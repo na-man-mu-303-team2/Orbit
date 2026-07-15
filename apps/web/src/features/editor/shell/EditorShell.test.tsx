@@ -145,6 +145,11 @@ describe("editor shell", () => {
     expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
     expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
     expect(getResponsiveEditorStageScale(1920, null)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, 652, 1080, 600)).toBeCloseTo(
+      604 / 1920,
+      5,
+    );
+    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {

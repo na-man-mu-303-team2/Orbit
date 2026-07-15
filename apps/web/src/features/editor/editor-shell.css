@@ -6398,3 +6398,249 @@
     max-height: 32vh;
   }
 }
+
+/* Editor density and alignment audit fixes.
+ * Keep the document toolbar, slide rail, canvas, notes, and inspector on one
+ * shared grid so every working region starts and ends on the same lines. */
+@media (min-width: 861px) {
+  .orbit-shell .editor-panel,
+  .orbit-shell .editor-panel:has(.selection-quickbar) {
+    grid-template-rows: 66px minmax(0, 1fr) auto;
+    padding-top: 0;
+  }
+
+  .orbit-shell .stage-pane {
+    display: contents;
+  }
+
+  .orbit-shell .stage-top-controls,
+  .orbit-shell .stage-top-controls:has(.selection-quickbar) {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    height: auto;
+    inset: auto;
+    min-height: 66px;
+    padding: 6px 12px;
+    position: static;
+  }
+
+  .orbit-shell .stage-top-controls:has(> .selection-quickbar) {
+    min-height: 120px;
+  }
+
+  .orbit-shell .slides-pane {
+    grid-column: 1;
+    grid-row: 2 / 4;
+    margin-top: 0;
+  }
+
+  .orbit-shell .editor-panel:has(.selection-quickbar) .slides-pane,
+  .orbit-shell .editor-panel:has(.selection-quickbar) .ai-pane,
+  .orbit-shell .editor-panel:has(.selection-quickbar) .animation-side-pane {
+    margin-top: 0;
+  }
+
+  .orbit-shell .animation-side-pane {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    margin-top: 0;
+  }
+
+  .orbit-shell .stage-pane > .canvas-scroll {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 0;
+    padding: 24px;
+  }
+
+  .orbit-shell .stage-pane > .stage-speaker-notes-panel {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .orbit-shell .ai-pane {
+    grid-column: 3;
+    grid-row: 2 / 4;
+    margin-top: 0;
+  }
+
+  .orbit-shell .editor-panel.animation-panel-open .stage-pane > .canvas-scroll,
+  .orbit-shell .editor-panel.animation-panel-open .stage-pane > .stage-speaker-notes-panel {
+    grid-column: 3;
+  }
+
+  .orbit-shell .editor-panel.animation-panel-open .ai-pane {
+    grid-column: 4;
+  }
+
+  .orbit-shell .konva-wrap {
+    min-height: 100%;
+    place-items: center;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1279px) {
+  .orbit-shell .editor-document-title strong {
+    max-width: 260px;
+  }
+
+  .orbit-shell .editor-context-top-button span,
+  .orbit-shell .presence-avatar-trigger {
+    display: none;
+  }
+
+  .orbit-shell .top-actions {
+    flex: 0 0 auto;
+  }
+
+  .orbit-shell .share-top-button,
+  .orbit-shell .editor-rehearsal-button,
+  .orbit-shell .editor-present-button {
+    white-space: nowrap;
+  }
+
+  .orbit-shell .editor-panel {
+    grid-template-columns:
+      min(var(--slides-pane-width, 196px), 196px)
+      minmax(0, 1fr)
+      min(var(--right-pane-width, 280px), 280px);
+  }
+
+  .orbit-shell .editor-panel.right-panel-closed {
+    grid-template-columns:
+      min(var(--slides-pane-width, 196px), 196px)
+      minmax(0, 1fr)
+      var(--right-pane-collapsed-width, 52px);
+  }
+
+  .orbit-shell .editor-panel.animation-panel-open {
+    grid-template-columns:
+      min(var(--slides-pane-width, 196px), 196px)
+      min(var(--animation-pane-width, 280px), 280px)
+      minmax(0, 1fr)
+      min(var(--right-pane-width, 280px), 280px);
+  }
+
+  .orbit-shell .editor-panel.animation-panel-open.right-panel-closed {
+    grid-template-columns:
+      min(var(--slides-pane-width, 196px), 196px)
+      min(var(--animation-pane-width, 280px), 280px)
+      minmax(0, 1fr)
+      var(--right-pane-collapsed-width, 52px);
+  }
+}
+
+.orbit-shell .stage-speaker-notes-panel .script-panel-header {
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .orbit-shell .editor-panel,
+  .orbit-shell .editor-panel.right-panel-closed,
+  .orbit-shell .editor-panel:has(.selection-quickbar),
+  .orbit-shell .editor-panel.right-panel-closed:has(.selection-quickbar) {
+    padding-top: 66px;
+  }
+
+  .orbit-shell .editor-panel:has(> .stage-pane > .stage-top-controls > .selection-quickbar),
+  .orbit-shell .editor-panel.right-panel-closed:has(> .stage-pane > .stage-top-controls > .selection-quickbar) {
+    padding-top: 120px;
+  }
+
+  .orbit-shell .stage-pane {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .orbit-shell .canvas-scroll {
+    padding: 18px 14px;
+  }
+
+  .orbit-shell .konva-wrap {
+    min-height: 100%;
+    place-items: center;
+  }
+
+  .orbit-shell .editor-panel.right-panel-closed .ai-pane.collapsed {
+    background: var(--orbit-ds-canvas);
+    border: 1px solid var(--orbit-ds-border);
+    border-radius: var(--orbit-ds-radius-panel);
+    bottom: 70px;
+    box-shadow: 0 12px 28px rgba(31, 29, 61, 0.16);
+    display: grid;
+    height: 52px;
+    left: auto;
+    max-height: 52px;
+    min-height: 52px;
+    padding: 0;
+    position: fixed;
+    right: 12px;
+    width: 52px;
+    z-index: 32;
+  }
+
+  .orbit-shell .ai-pane.collapsed .collapsed-right-rail {
+    align-content: center;
+    gap: 0;
+    padding: 8px;
+  }
+
+  .orbit-shell .ai-pane.collapsed .collapsed-right-rail span {
+    display: none;
+  }
+
+  .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane.collapsed {
+    bottom: calc(min(240px, 34vh) + 16px);
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-rows: 44px minmax(0, 1fr);
+    max-height: min(360px, 42vh);
+    padding: 0 12px 12px;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .ai-header {
+    align-items: center;
+    display: flex;
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: center;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .ai-header h2 {
+    display: none;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .ai-header > div {
+    border: 0;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .right-panel-tabs {
+    grid-column: 1;
+    grid-row: 1;
+    order: initial;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .assistant-panel-slot {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .orbit-shell .ai-pane:not(.collapsed) .right-pane-resizer {
+    display: none;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 860px) {
+  .orbit-shell .stage-speaker-notes-panel.expanded .script-panel-header,
+  .orbit-shell .stage-speaker-notes-panel .script-panel-actions {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .orbit-shell .stage-speaker-notes-panel .script-panel-actions .script-panel-action {
+    width: auto;
+  }
+}
