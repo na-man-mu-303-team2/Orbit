@@ -81,6 +81,16 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
         provider_response: { output: "raw" },
       }),
     ).rejects.toThrow();
+    await expect(
+      write.repository.succeed(message, "worker-a:lease-token", 1, {
+        referenceExtractionArtifactId: "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      write.repository.ensureQueued(message, {
+        referenceExtractionArtifactId: "7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
+      }),
+    ).rejects.toThrow();
     expect(write.query).not.toHaveBeenCalled();
 
     const read = repositoryWithResponses([
@@ -220,6 +230,158 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("stages.dispatched_at IS NULL");
     expect(sql).toContain("stages.attempt = $5");
   });
+
+  it("releases only an active parent's queued dispatch marker after transport exhaustion", async () => {
+    const { query, repository } = repositoryWithResponses([
+      queuedRow({ dispatched_at: null }),
+    ]);
+    const referenceMessage = {
+      ...message,
+      stage: "reference-extract-file" as const,
+      shardKey: "file-a",
+    };
+
+    await expect(
+      repository.releaseDispatchedForTransportRetry(referenceMessage),
+    ).resolves.toMatchObject({ status: "queued", dispatchedAt: null });
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("jobs.project_id = $2");
+    expect(sql).toContain("jobs.status IN ('queued','running')");
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at IS NOT NULL");
+    expect(sql).toContain("dispatched_at = NULL");
+  });
+
+  it("recovers bounded stale queued dispatches for deterministic re-enqueue", async () => {
+    const { query, repository } = repositoryWithResponses([
+      queuedRow({ dispatched_at: null }),
+    ]);
+
+    await expect(repository.recoverStaleDispatches(25)).resolves.toBe(1);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at <= now() - interval '15 minutes'");
+    expect(sql).toContain("FOR UPDATE OF stages SKIP LOCKED");
+    expect(sql).toContain("LIMIT $1");
+    expect(sql).toContain("dispatched_at = NULL");
+    expect(query.mock.calls[0]?.[1]).toEqual([25]);
+  });
+
+  it("lists only undispatched OCR checkpoints with the validated parent project", async () => {
+    const { query, repository } = repositoryWithResponses([
+      {
+        ...queuedRow(),
+        project_id: "project-a",
+        stage: "reference-extract-file",
+        shard_key: "file-a",
+      },
+    ]);
+
+    await expect(repository.listUndispatched(25)).resolves.toEqual([
+      {
+        message: {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage: "reference-extract-file",
+          shardKey: "file-a",
+        },
+        attempt: 0,
+      },
+    ]);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at IS NULL");
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("jobs.project_id");
+    expect(sql).toContain("LIMIT $1");
+    expect(query.mock.calls[0]?.[1]).toEqual([25]);
+  });
+
+  it("lists only expired running OCR lease generations", async () => {
+    const { query, repository } = repositoryWithResponses([
+      {
+        ...runningRow(),
+        project_id: "project-a",
+        stage: "reference-extract-file",
+        shard_key: "file-a",
+        attempt: 4,
+      },
+    ]);
+
+    await expect(repository.listExpiredLeases(10)).resolves.toEqual([
+      {
+        message: {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage: "reference-extract-file",
+          shardKey: "file-a",
+        },
+        attempt: 4,
+      },
+    ]);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.status = 'running'");
+    expect(sql).toContain("stages.lease_expires_at <= now()");
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("LIMIT $1");
+  });
+
+  it.each([
+    [4, "queued", true],
+    [5, "failed", false],
+  ] as const)(
+    "reconciles expired attempt %i to %s without changing its generation",
+    async (attempt, status, retryable) => {
+      const row =
+        status === "queued"
+          ? queuedRow({ attempt })
+          : failedRow({
+              attempt,
+              error_json: {
+                code: "REFERENCE_EXTRACTION_LEASE_EXHAUSTED",
+                message: "Reference extraction lease expired.",
+                failedStage: "reference-extract-file",
+                retryable: false,
+              },
+            });
+      const { query, repository } = repositoryWithResponses([row]);
+      const retryError = {
+        code: "REFERENCE_EXTRACTION_LEASE_EXPIRED",
+        message: "Reference extraction lease expired.",
+        failedStage: "reference-extract-file" as const,
+        retryable: true as const,
+      };
+      const exhaustedError = {
+        code: "REFERENCE_EXTRACTION_LEASE_EXHAUSTED",
+        message: "Reference extraction lease expired.",
+        failedStage: "reference-extract-file" as const,
+        retryable: false as const,
+      };
+
+      await expect(
+        repository.reconcileExpiredLease(
+          { ...message, stage: "reference-extract-file", shardKey: "file-a" },
+          attempt,
+          retryError,
+          exhaustedError,
+        ),
+      ).resolves.toMatchObject({ status, attempt });
+
+      const sql = compactSql(query.mock.calls[0]?.[0]);
+      expect(sql).toContain("stages.attempt = $5");
+      expect(sql).toContain("stages.lease_expires_at <= now()");
+      expect(sql).toContain("dispatched_at = NULL");
+      expect(sql).toContain("lease_owner = NULL");
+      expect(query.mock.calls[0]?.[1]?.[attempt < 5 ? 5 : 6]).toMatchObject({
+        retryable,
+      });
+    },
+  );
 });
 
 function repositoryWithResponses(...responses: unknown[][]) {
@@ -261,7 +423,7 @@ function succeededRow() {
   });
 }
 
-function failedRow() {
+function failedRow(overrides: Record<string, unknown> = {}) {
   return checkpointRow({
     status: "failed",
     attempt: 1,
@@ -271,6 +433,7 @@ function failedRow() {
       failedStage: "content-planning",
       retryable: false,
     },
+    ...overrides,
   });
 }
 

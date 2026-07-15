@@ -216,9 +216,9 @@ export const generateDeckRequestSchema = z.object({
   savedDesignPack: savedDesignPackSelectionSchema.strict().optional(),
   visualPlanPolicy: generateDeckVisualPlanPolicySchema.optional(),
   referencePolicy: generateDeckReferencePolicySchema.optional(),
-  referenceFileIds: z.array(z.string().trim().min(1)).default([]),
+  referenceFileIds: z.array(z.string().trim().min(1)).max(10).default([]),
   officialAssetFileIds: z.array(z.string().trim().min(1)).optional(),
-  references: z.array(generateDeckReferenceSchema).default([]),
+  references: z.array(generateDeckReferenceSchema).max(10).default([]),
   referenceKeywords: z.array(generateDeckReferenceKeywordSchema).default([]),
   referenceContext: z.array(generateDeckReferenceContextSchema).default([]),
   coachingContext: z

@@ -53,6 +53,39 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
+  it("keeps monolith execution as the default and validates staged selectors", () => {
+    const defaults = loadOrbitConfig(validEnv, { service: "api" });
+    expect(defaults.AI_DECK_EXECUTION_MODE).toBe("monolith");
+    expect(defaults.AI_DECK_WORKER_QUEUE).toBe("all");
+
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          AI_DECK_EXECUTION_MODE: "bullmq",
+          AI_DECK_WORKER_QUEUE: "reference-extract",
+        },
+        { service: "worker" },
+      ),
+    ).toMatchObject({
+      AI_DECK_EXECUTION_MODE: "bullmq",
+      AI_DECK_WORKER_QUEUE: "reference-extract",
+    });
+
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_EXECUTION_MODE: "step-functions" },
+        { service: "api" },
+      ),
+    ).toThrow(/AI_DECK_EXECUTION_MODE/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_WORKER_QUEUE: "everything" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_WORKER_QUEUE/);
+  });
+
   it("parses coaching flags and exact project allowlists", () => {
     const config = loadOrbitConfig({ ...validEnv, ADAPTIVE_REHEARSAL_COACH_ENABLED: "true", FOCUSED_PRACTICE_ENABLED: "true", ADAPTIVE_COACHING_PROJECT_ALLOWLIST: "project-a,project-b" }, { service: "api" });
     expect(config.FOCUSED_PRACTICE_ENABLED).toBe(true);

@@ -166,11 +166,13 @@ describe("processReferenceExtractJob", () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
-      .mockResolvedValueOnce([
-        jobRow("failed", 10, null, {
-          code: "PYTHON_WORKER_EXTRACT_FAILED",
-          message: "bad parse"
-        })
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          10,
+          null,
+          params[5] as { code: string; message: string }
+        )
       ]);
     vi.stubGlobal(
       "fetch",
@@ -184,7 +186,10 @@ describe("processReferenceExtractJob", () => {
     );
 
     expect(job.status).toBe("failed");
-    expect(job.error?.message).toBe("bad parse");
+    expect(job.error?.message).toBe(
+      "Python worker reference extraction failed with status 500."
+    );
+    expect(job.error?.message).not.toContain("bad parse");
     expect(query).toHaveBeenCalledTimes(2);
   });
 });

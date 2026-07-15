@@ -19,9 +19,60 @@ export const aiDeckGenerationStageStatusSchema = z.enum([
   "failed",
 ]);
 
-// 338-0에는 stage artifact 저장소가 아직 없으므로 참조 field를 선점하지 않는다.
-// 각 stage가 artifact persistence를 소유하는 후속 PR에서 필요한 field만 추가한다.
-export const aiDeckGenerationStageReferenceSchema = z.object({}).strict();
+export const aiDeckGenerationStageEmptyReferenceSchema = z.object({}).strict();
+
+export const aiDeckReferenceExtractionResultReferenceSchema = z
+  .object({
+    referenceExtractionArtifactId: z.string().uuid(),
+  })
+  .strict();
+
+export const aiDeckGenerationStageReferenceSchema = z.union([
+  aiDeckGenerationStageEmptyReferenceSchema,
+  aiDeckReferenceExtractionResultReferenceSchema,
+]);
+
+export const aiDeckGenerationStageInputReferenceSchema = z
+  .object({
+    stage: aiDeckGenerationStageSchema,
+    reference: aiDeckGenerationStageReferenceSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !aiDeckGenerationStageEmptyReferenceSchema.safeParse(value.reference)
+        .success
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reference"],
+        message: `${value.stage} input references must be empty`,
+      });
+    }
+  });
+
+export const aiDeckGenerationStageResultReferenceSchema = z
+  .object({
+    stage: aiDeckGenerationStageSchema,
+    reference: aiDeckGenerationStageReferenceSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const isEmpty = aiDeckGenerationStageEmptyReferenceSchema.safeParse(
+      value.reference,
+    ).success;
+    const isReferenceExtractionResult =
+      value.stage === "reference-extract-file" &&
+      aiDeckReferenceExtractionResultReferenceSchema.safeParse(value.reference)
+        .success;
+    if (!isEmpty && !isReferenceExtractionResult) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reference"],
+        message: `${value.stage} result reference is not declared`,
+      });
+    }
+  });
 
 const transportIdSegmentSchema = z
   .string()
@@ -79,6 +130,9 @@ export type AiDeckGenerationStageStatus = z.infer<
 >;
 export type AiDeckGenerationStageReference = z.infer<
   typeof aiDeckGenerationStageReferenceSchema
+>;
+export type AiDeckReferenceExtractionResultReference = z.infer<
+  typeof aiDeckReferenceExtractionResultReferenceSchema
 >;
 export type AiDeckGenerationStageMessage = z.infer<
   typeof aiDeckGenerationStageMessageSchema

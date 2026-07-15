@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  aiDeckGenerationStageInputReferenceSchema,
   aiDeckGenerationStageReferenceSchema,
+  aiDeckGenerationStageResultReferenceSchema,
   aiDeckGenerationStageMessageSchema,
   aiDeckGenerationStageSchema,
 } from "./ai-deck-generation-stage.schema";
@@ -25,11 +27,40 @@ describe("aiDeckGenerationStageSchema", () => {
 });
 
 describe("aiDeckGenerationStageReferenceSchema", () => {
-  it("keeps the 338-0 reference allowlist empty until a stage owns artifact persistence", () => {
+  it("allows only the OCR artifact locator added with 338-1 persistence", () => {
+    const locator = {
+      referenceExtractionArtifactId: "8fa123d8-2869-4ca0-b9b5-fbb365b57625",
+    };
+
     expect(aiDeckGenerationStageReferenceSchema.parse({})).toEqual({});
+    expect(aiDeckGenerationStageReferenceSchema.parse(locator)).toEqual(locator);
+    expect(
+      aiDeckGenerationStageResultReferenceSchema.parse({
+        stage: "reference-extract-file",
+        reference: locator,
+      }),
+    ).toEqual({ stage: "reference-extract-file", reference: locator });
+    expect(
+      aiDeckGenerationStageResultReferenceSchema.safeParse({
+        stage: "content-planning",
+        reference: locator,
+      }).success,
+    ).toBe(false);
+    expect(
+      aiDeckGenerationStageInputReferenceSchema.safeParse({
+        stage: "reference-extract-file",
+        reference: locator,
+      }).success,
+    ).toBe(false);
 
     for (const nonEmptyReference of [
       { artifactKey: "ai-deck/job-1/content-plan.json" },
+      { referenceExtractionArtifactId: "not-a-uuid" },
+      {
+        referenceExtractionArtifactId:
+          "8fa123d8-2869-4ca0-b9b5-fbb365b57625",
+        fileId: "file-1",
+      },
       { content_base64: "ZmFrZQ==" },
       { provider_response: { output: "raw" } },
       { sourceText: "full user content" },
