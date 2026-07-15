@@ -107,12 +107,20 @@ export async function recoverAiDeckReferenceExtractionJoin(
 ): Promise<void> {
   const message = referenceStageMessage(rawMessage);
   await dataSource.transaction(async (manager) => {
-    const parent = await lockParent(manager, message);
-    if (parent.status === "succeeded" || parent.status === "failed") return;
-    const request = storedPayloadSchema.parse(parent.payload).request;
-    assertExpectedShard(request, message.shardKey);
-    await ensureReferenceExtractionJoin(manager, message, request);
+    await recoverAiDeckReferenceExtractionJoinInTransaction(manager, message);
   });
+}
+
+export async function recoverAiDeckReferenceExtractionJoinInTransaction(
+  db: QueryExecutor,
+  rawMessage: unknown,
+): Promise<void> {
+  const message = referenceStageMessage(rawMessage);
+  const parent = await lockParent(db, message);
+  if (parent.status === "succeeded" || parent.status === "failed") return;
+  const request = storedPayloadSchema.parse(parent.payload).request;
+  assertExpectedShard(request, message.shardKey);
+  await ensureReferenceExtractionJoin(db, message, request);
 }
 
 async function ensureReferenceExtractionJoin(

@@ -31,6 +31,9 @@ const claimedAttemptSchema = checkpointAttemptSchema.min(1);
 const retryableErrorSchema = jobErrorSchema.extend({
   retryable: z.literal(true),
 });
+const exhaustedErrorSchema = jobErrorSchema.extend({
+  retryable: z.literal(false),
+});
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const dispatchLimitSchema = z.number().int().min(1).max(500);
 
@@ -374,6 +377,78 @@ export class AiDeckGenerationStageCheckpointRepository {
       };
     });
   }
+
+  async listExpiredLeases(
+    rawLimit = 100,
+  ): Promise<DispatchableAiDeckGenerationStage[]> {
+    const limit = dispatchLimitSchema.parse(rawLimit);
+    const rows = await this.db.query(
+      `
+        SELECT stages.*, jobs.project_id
+        FROM ai_deck_generation_stages stages
+        JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+        WHERE jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.stage = 'reference-extract-file'
+          AND stages.status = 'running'
+          AND stages.lease_expires_at <= now()
+        ORDER BY stages.lease_expires_at, stages.pipeline_job_id, stages.shard_key
+        LIMIT $1
+      `,
+      [limit],
+    );
+    if (!Array.isArray(rows)) return [];
+    return rows.map((rawRow) => dispatchableFromRow(rawRow));
+  }
+
+  async reconcileExpiredLease(
+    rawMessage: unknown,
+    rawObservedAttempt: unknown,
+    rawRetryError: unknown,
+    rawExhaustedError: unknown,
+  ): Promise<AiDeckGenerationStageCheckpoint | null> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const observedAttempt = claimedAttemptSchema.parse(rawObservedAttempt);
+    const retryError = retryableErrorSchema.parse(rawRetryError);
+    const exhaustedError = exhaustedErrorSchema.parse(rawExhaustedError);
+    const rows = await this.db.query(
+      `
+        UPDATE ai_deck_generation_stages stages
+        SET status = CASE
+              WHEN stages.attempt < 5 THEN 'queued'
+              ELSE 'failed'
+            END,
+            result_ref_json = NULL,
+            error_json = CASE
+              WHEN stages.attempt < 5 THEN $6::jsonb
+              ELSE $7::jsonb
+            END,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            dispatched_at = NULL,
+            updated_at = now()
+        FROM jobs
+        WHERE jobs.job_id = stages.pipeline_job_id
+          AND jobs.project_id = $2
+          AND jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+          AND stages.pipeline_job_id = $1
+          AND stages.stage = $3
+          AND stages.shard_key = $4
+          AND stages.status = 'running'
+          AND stages.attempt = $5
+          AND stages.lease_expires_at <= now()
+        RETURNING stages.*
+      `,
+      messageParameters(
+        message,
+        observedAttempt,
+        retryError,
+        exhaustedError,
+      ),
+    );
+    return checkpointFromQuery(rows);
+  }
 }
 
 function messageParameters(
@@ -419,6 +494,21 @@ function checkpointFromQuery(
     dispatchedAt: optionalIso(row.dispatched_at),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+function dispatchableFromRow(
+  rawRow: unknown,
+): DispatchableAiDeckGenerationStage {
+  const row = dispatchableCheckpointRowSchema.parse(rawRow);
+  return {
+    message: aiDeckGenerationStageMessageSchema.parse({
+      pipelineJobId: row.pipeline_job_id,
+      projectId: row.project_id,
+      stage: row.stage,
+      shardKey: row.shard_key,
+    }),
+    attempt: row.attempt,
   };
 }
 
