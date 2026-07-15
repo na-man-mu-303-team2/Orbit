@@ -49,7 +49,12 @@ const maintenance = vi.hoisted(() => ({
     nextStart: 0,
   })),
   dispatch: vi.fn(async () => ({ scanned: 0, dispatched: 0 })),
-  reconcile: vi.fn(async () => ({ scanned: 0, requeued: 0, failed: 0 })),
+  reconcile: vi.fn(async () => ({
+    scanned: 0,
+    requeued: 0,
+    failed: 0,
+    terminalJobs: [] as Job[],
+  })),
 }));
 
 const transportRecovery = vi.hoisted(() => ({
@@ -233,6 +238,77 @@ describe("WorkerService queue subscriptions", () => {
       referenceHandler(bullJob("unknown-reference-job", {})),
     ).rejects.toThrow("Unsupported BullMQ job name");
     await service.onModuleDestroy();
+  });
+
+  it("logs a terminal lease reconciliation only after it commits", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    const terminalJob: Job = {
+      ...orbitJob("failed"),
+      result: { privateArtifact: "must-not-be-logged" },
+      error: {
+        code: "SOURCE_GROUNDING_REQUIRED",
+        message: "The selected reference policy requires usable grounding.",
+        failedStage: "reference-extract-file",
+        retryable: false,
+      },
+    };
+    let resolveReconciliation!: (result: {
+      scanned: number;
+      requeued: number;
+      failed: number;
+      terminalJobs: Job[];
+    }) => void;
+    maintenance.reconcile.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReconciliation = resolve;
+        }),
+    );
+    const { service, logger } = createService();
+
+    service.onModuleInit();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(maintenance.reconcile).toHaveBeenCalledTimes(1);
+    expect(
+      logger.error.mock.calls.filter(
+        ([fields]) =>
+          typeof fields === "object" &&
+          fields !== null &&
+          "event" in fields &&
+          fields.event === "job.failed",
+      ),
+    ).toEqual([]);
+
+    resolveReconciliation({
+      scanned: 1,
+      requeued: 0,
+      failed: 1,
+      terminalJobs: [terminalJob],
+    });
+    await service.onModuleDestroy();
+
+    expect(
+      logger.error.mock.calls.filter(
+        ([fields]) =>
+          typeof fields === "object" &&
+          fields !== null &&
+          "event" in fields &&
+          fields.event === "job.failed",
+      ),
+    ).toEqual([
+      [
+        {
+          event: "job.failed",
+          jobId: terminalJob.jobId,
+          jobType: terminalJob.type,
+          projectId: terminalJob.projectId,
+          status: terminalJob.status,
+          error: terminalJob.error,
+        },
+        "Job finished.",
+      ],
+    ]);
   });
 
   it("limits a dedicated reference worker to coordinator and OCR queues", async () => {

@@ -1,3 +1,4 @@
+import type { Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,7 +28,8 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
         async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
           work({ query: transactionQuery }),
       );
-      const recoverJoin = vi.fn(async () => undefined);
+      const terminalJobs = status === "failed" ? [failedParentJob()] : [];
+      const recoverJoin = vi.fn(async () => terminalJobs[0]);
       const dataSource = {
         query: outerQuery,
         transaction,
@@ -35,7 +37,7 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
 
       await expect(
         reconcileExpiredAiDeckStageLeases(dataSource, { recoverJoin }),
-      ).resolves.toEqual({ scanned: 1, requeued, failed });
+      ).resolves.toEqual({ scanned: 1, requeued, failed, terminalJobs });
 
       expect(compactSql(transactionQuery.mock.calls[0]?.[0])).toContain(
         "FOR UPDATE",
@@ -45,6 +47,26 @@ describe("reconcileExpiredAiDeckStageLeases", () => {
     },
   );
 });
+
+function failedParentJob(): Job {
+  return {
+    jobId: "job-ai-deck-1",
+    projectId: "project-a",
+    type: "ai-deck-generation",
+    status: "failed",
+    progress: 10,
+    message: "AI deck generation failed.",
+    result: null,
+    error: {
+      code: "SOURCE_GROUNDING_REQUIRED",
+      message: "The selected reference policy requires usable grounding.",
+      failedStage: "reference-extract-file",
+      retryable: false,
+    },
+    createdAt: "2026-07-15T00:00:00.000Z",
+    updatedAt: "2026-07-15T01:00:00.000Z",
+  };
+}
 
 function expiredRow(attempt: number) {
   return {
