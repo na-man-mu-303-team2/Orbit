@@ -20,7 +20,10 @@ export class CreateAiDeckReferenceExtractionArtifacts2026071503000
           OR (
             stage = 'reference-extract-file'
             AND jsonb_typeof(result_ref_json) = 'object'
-            AND jsonb_object_length(result_ref_json) = 1
+            AND result_ref_json = jsonb_build_object(
+              'referenceExtractionArtifactId',
+              result_ref_json ->> 'referenceExtractionArtifactId'
+            )
             AND jsonb_typeof(
               result_ref_json -> 'referenceExtractionArtifactId'
             ) = 'string'
