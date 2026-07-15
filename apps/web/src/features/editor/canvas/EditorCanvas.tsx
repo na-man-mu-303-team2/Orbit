@@ -45,6 +45,7 @@ import {
   ReadOnlySlideCanvas,
   type ElementPresentationState
 } from "../../slides/rendering";
+import { isEditorKeyboardCommandSuppressedTarget } from "../shell/editorKeyboardCommands";
 
 export { getRenderableSlideElements } from "../../slides/rendering";
 
@@ -171,26 +172,6 @@ export function getContextMenuPosition(args: {
       Math.max(viewportPadding, window.innerHeight - args.height - viewportPadding)
     )
   };
-}
-
-function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
-    );
-  }
-
-  return false;
 }
 
 export function getEditorImageValidationMessage(file: Pick<File, "name" | "size" | "type">) {
@@ -460,7 +441,7 @@ export function EditableCanvas(props: {
     customShapeInsertDraft,
     editingCustomShapeElement,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onCommitCustomShapeGeometry,
     onCreateCustomShape,
     onSetCustomShapeEditElementId,
@@ -475,7 +456,7 @@ export function EditableCanvas(props: {
     deck,
     editingElementId,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onClearSelection,
     onMarkTextBlurForClear: () => {
       pendingTextBlurActionRef.current = "clear-selection";
