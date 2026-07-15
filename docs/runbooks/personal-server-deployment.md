@@ -147,9 +147,9 @@ cd /var/www/orbit
 ./infra/scripts/deploy-personal-server.sh
 ```
 
-## 자동 배포
+## 수동 배포
 
-`develop`에 merge되면 `.github/workflows/deploy-personal-staging.yml`이 개인 서버 self-hosted runner에서 배포 wrapper를 실행한다.
+`.github/workflows/deploy-personal-staging.yml`은 `workflow_dispatch`로만 개인 서버 self-hosted runner의 배포 wrapper를 실행한다. `develop` merge는 자동 배포를 시작하지 않는다. #339 운영 gate를 복구하고 자동 배포 재개 조건을 별도로 확정하기 전까지 이 수동 실행 정책을 유지한다.
 
 ### GenerateDeck breaking contract cutover
 
@@ -188,6 +188,16 @@ exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts
 ```
 
 완전 자동 배포가 목표라면 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. 승인 단계를 두고 싶을 때만 environment protection rule을 추가한다.
+
+### 2026-07-15 운영 gate 사후 복구
+
+PR #365는 legacy queue/DB drain 증거 없이 merge되어 Actions run `29354750586`으로 배포됐고 해당 run에도 339-4 상태 출력이 없다. PR #371과 PR #380은 `personal-staging` required reviewer와 자동 배포 중단이 없는 상태에서 merge되어 각각 Actions run `29366409554`, `29388943867`로 배포됐다. 두 run은 서비스 교체와 health check에는 성공했지만 339-6의 ingress maintenance, `generate-deck` queue/DB drain, Web cache 무효화 증거를 남기지 않았다.
+
+사전 drain은 소급 증명할 수 없고 현재 0이라는 결과만으로 원 gate를 충족했다고 간주하지 않는다.
+
+339-4는 `pptx-import`, `ai-template-deck-generation` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 같은 type의 DB `queued`/`running`을 확인한다. 환경명·UTC 시각·배포 SHA를 함께 기록하고, 하나라도 0이 아니면 PR 3 호환 consumer를 복구하거나 명시적 데이터 remediation으로 terminal 처리한다. 완료 뒤 과거 사전 증거 부재에 대한 운영 책임자의 formal waiver를 #339에 남긴다.
+
+339-6은 `generate-deck` queue 전체 상태와 DB `ai-deck-generation`의 `queued`/`running`을 확인한다. ingress maintenance부터 drain, Web/API/Worker/Python worker 동시 교체, Web cache 무효화와 health check까지 통제된 재-cutover를 실제 완료하거나, 현재 상태·영향 감사를 근거로 운영 책임자가 formal waiver를 승인한다. 단순히 처리 방식을 결정한 기록만으로 #339를 종료하거나 #338을 시작하지 않는다.
 
 ## 검증
 

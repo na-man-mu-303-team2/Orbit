@@ -626,6 +626,10 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - GenerateDeck public request에는 `generationMode`, `design.engineVersion`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 없다. root request와 모든 중첩 request object는 strict하며 제거된 필드와 unknown field를 거부하고 ingress 호환 shim을 두지 않는다.
 - 이 breaking request 계약은 mixed-version rolling deployment를 허용하지 않는다. 배포 전에 generate-deck ingress를 중단하고 BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`와 DB `type = ai-deck-generation`의 `queued`/`running` Job이 모두 0임을 확인한 뒤 Web/API/Worker/Python worker를 같은 cutover window에 교체하고 Web cache를 무효화해야 한다. 이 증거가 없으면 production과 `develop` 자동 personal staging 배포를 모두 차단한다.
 - 이 계약을 도입하는 #339 PR 6은 `personal-staging` required reviewer 활성화 또는 자동 deploy workflow 중단이 확인되고, cutover 담당자·시간·maintenance 전환 방법이 PR 본문에 기록될 때까지 Draft로 유지한다. 이 merge gate를 충족한 뒤에만 Ready 전환과 merge를 허용한다. merge 후에는 queue/DB drain 증거를 확인한 뒤에만 대기 중인 deploy workflow를 승인한다.
+- 2026-07-15 감사에서 #339 PR 4·PR 6과 PR 8이 각 PR에 적용되는 운영 증거 없이 merge됐고 `personal-staging` 자동 배포까지 완료된 사실을 확인했다. 사전 drain을 소급 충족했다고 간주하지 않는다.
+- 운영 gate 복구가 끝날 때까지 `personal-staging`은 `workflow_dispatch` 수동 배포만 허용한다. 현재 queue/DB 수치나 처리 방식 결정만으로 과거 gate를 소급 충족하지 않는다.
+- 339-4 복구는 환경명·UTC 시각·배포 SHA를 포함한 legacy queue/DB late reconciliation, nonzero 잔여 항목의 PR 3 호환 consumer 복구 또는 명시적 데이터 remediation, 과거 사전 증거 부재에 대한 운영 책임자의 formal waiver를 모두 요구한다.
+- 339-6 복구는 ingress maintenance, `generate-deck` queue/DB drain, Web/API/Worker/Python worker 동시 교체와 Web cache 무효화를 포함한 통제된 재-cutover를 실제 완료하거나, 현재 상태·영향 감사를 근거로 운영 책임자가 formal waiver를 승인해야 한다. 실제 복구 결과 또는 formal waiver 전에는 #339를 닫거나 #338 구현을 시작하지 않는다.
 - 유효한 GenerateDeck request는 내부적으로 항상 `design-pack + program-v2`로 실행한다. `generationMode`와 engine은 public selector가 아니라 내부 상수다.
 - 요청의 `references`는 `{ fileId: string }[]`이며 비어 있으면 topic-only generation으로 처리한다.
 - 요청의 `referenceKeywords`는 `{ text: string }[]` 선택 필드이며 기본값은 `[]`이다. 참고자료 처리 결과의 주요 키워드를 전달할 때 사용한다.

@@ -1,9 +1,6 @@
 name: Deploy Personal Staging
 
 on:
-  push:
-    branches:
-      - develop
   workflow_dispatch:
 
 permissions:
