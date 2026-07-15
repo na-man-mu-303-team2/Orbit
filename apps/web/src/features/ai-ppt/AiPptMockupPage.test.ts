@@ -15,6 +15,7 @@ import {
   mediaPolicyOptions,
   miniSlideFontStyles,
   initialAiPptWizardState,
+  mergeAiPptBriefFormData,
   mergeReferenceFiles,
   pollJob,
   removeReferenceFileAt,
@@ -62,6 +63,30 @@ describe("AI PPT wizard payload", () => {
     expect(JSON.stringify(initialAiPptWizardState)).not.toContain(
       briefFieldPlaceholders.successCriteria
     );
+  });
+
+  it("merges visible Brief form values before validating the next step", () => {
+    const values = new Map<string, string>([
+      ["topic", "분할 정복으로 이해하는 Quick Sort"],
+      ["purpose", "Python 초급 학습자에게 분할 정복 설명"],
+      ["context", "알고리즘 기초 수업"],
+      ["audience", "초급 학습자"],
+      ["presentationType", "교육 발표"],
+      ["successCriteria", "Divide-Conquer-Combine 이해"],
+      ["duration", "5"],
+      ["slides", "5"]
+    ]);
+    const merged = mergeAiPptBriefFormData(initialAiPptWizardState, {
+      get: (name) => values.get(name) ?? null
+    });
+
+    expect(getAiPptWizardValidationMessage(merged)).toBe("");
+    expect(merged).toMatchObject({
+      topic: "분할 정복으로 이해하는 Quick Sort",
+      duration: "5",
+      slides: "5",
+      tone: initialAiPptWizardState.tone
+    });
   });
 
   it("parses quality-gate issues without treating them as a network error", () => {
