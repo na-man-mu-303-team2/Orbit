@@ -27,6 +27,44 @@ final result: passed
 
 ---
 
+# Presenter Notes Resize and Hide QA — 2026-07-15
+
+## Scope
+
+- Surface: production project editor at `http://localhost:5173/project/project_4c5368cf-d6d2-4454-9a3f-9ff2d31b384c`.
+- Goal: let the presenter-notes dock resize vertically, show its full timing guidance on first open, retain the user's later height, and use one consistent collapsed presentation.
+- Boundary: only production editor files were changed; mockup code, routes, assets, Deck data, and save contracts remain untouched.
+
+## Evidence and interaction checks
+
+- Before capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/38-speaker-notes-before.png`
+- Desktop expanded capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/42-speaker-notes-final.png`
+- Compact expanded capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/41-speaker-notes-resizable-expanded-860x900.png`
+- Unified drag-collapse capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/44-notes-drag-collapse-unified.png`
+- First open measured 360px and showed the bottom timing meter with no internal scroll (`contentClientHeight` and `contentScrollHeight` both 292px).
+- After keyboard resizing to 240px, button collapse and reopen restored exactly 240px instead of recalculating the initial height.
+- A downward drag past the threshold now produces the same 54px collapsed row, preview text, chevron, and accessible toggle as button collapse; no alternate restore handle remains.
+- `ArrowUp` and `ArrowDown` resize the focused separator; moving below the 120px keyboard minimum uses the same collapsed row.
+- At 860×900 the expanded panel remained 240px tall, page width matched the viewport, and the collapsed inspector action stayed above the notes panel without overlap.
+- After resizing the compact panel to 420px, the inspector action retained a measured 16px gap above it and page width still matched the 860px viewport.
+
+## Accessibility and design-system checks
+
+- The resize handle is a focusable horizontal separator with explicit label, orientation, min/max/current values, visible ORBIT focus treatment, and Tabler grip icon.
+- The shared collapsed row retains its labeled expand control, preview text, and visible focus treatment, so notes never become unreachable.
+- Editing disables resizing/hiding to protect an in-progress draft.
+- Canvas, Surface, Border, typography, focus, and hover styles use existing ORBIT semantic tokens.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
+
+final result: passed
+
+---
+
 ## Rehearsal Presenter Chrome Visibility (2026-07-15)
 
 - Source visual truth: `/tmp/orbit-rehearsal-ui-hide-before.jpg`, captured from the annotated `localhost:5173` rehearsal route.
@@ -365,5 +403,167 @@ At `720px`, tool labels collapse to accessible icon controls and the slide prope
 - Web suite: 133 files, 919 tests passed.
 - Web lint: passed.
 - `git diff --check`: passed.
+
+final result: passed
+
+---
+
+# ORBIT Production Editor Design QA
+
+## Scope
+
+- Source visual: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/05-reference-editor-1440x900.jpg`
+- Final implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/15-production-editor-final-1440x900.jpg`
+- Responsive evidence:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/12-production-editor-1180x800-reloaded.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/14-production-editor-860x900-fixed.jpg`
+- Inspector evidence:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/10-production-editor-design-panel-fixed.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/09-production-editor-notes-panel.jpg`
+- State: project editor loaded with the current five-slide production deck; AI coach is the default inspector tab.
+- Reference policy: `/mockup/editor` was opened only for visual comparison. No mockup source, route, style, component, constant, or asset is used by production code.
+
+## Full comparison
+
+The source and implementation were reviewed together at 1440×900. The implementation preserves the source hierarchy: compact document header, neutral rounded tool dock, 224px slide rail, flexible canvas workspace, 304px inspector, lilac selection states, outline icon family, secondary share/rehearsal actions, and a single black presentation action. Production-only presence, version, brief, Deck content, AI chat, validation, and save behavior remain intentionally functional instead of copying mockup-only content.
+
+Typography uses the existing ORBIT font stack and semantic scale. The canvas remains the ORBIT Surface while the slide retains its Deck theme. Borders, focus rings, active states, and status colors are mapped to ORBIT semantic tokens. Official production logo and Tabler outline icons are used; no mockup or replacement art assets are introduced.
+
+## Responsive and interaction checks
+
+- 1440×900: three regions align below the 54px tool dock with no overlap or inaccessible controls.
+- 1180×800: contextual labels compress while slide rail, canvas, inspector, and header actions remain reachable.
+- 860×900: the rail becomes 86px, slide addition remains available as an icon action, and the inspector becomes a bottom sheet capped below 46vh.
+- Top inspector tabs support ArrowLeft/ArrowRight keyboard movement.
+- Share uses the existing ORBIT dialog; Escape closes it and restores focus to the Share button.
+- Icon-only editor actions expose accessible labels and visible ORBIT focus rings.
+- AI coach Chat/Inspection, Design controls, and Notes content were opened and checked.
+- Desktop and responsive browser console error logs were empty.
+
+## Comparison history
+
+1. P2 layout: the first desktop pass applied tool-dock spacing twice, leaving an oversized gap above the workspace. Fixed by keeping the dock in the stage flow and offsetting only the adjacent slide, animation, and inspector panes.
+2. P2 responsiveness: the Design inspector inherited the horizontal quick-bar grid and clipped theme controls. Fixed with inspector-specific two-column field layout at matching specificity.
+3. P2 responsiveness: at 860px the presentation action wrapped below the logo and the slide title broke vertically in the 86px rail. Fixed by anchoring the presentation action inside the mobile header and hiding the redundant rail title while retaining the count in desktop layouts.
+4. Final same-input comparison found no remaining P0, P1, or P2 fidelity, behavior, accessibility, or responsiveness issue within the requested production-editor scope.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed; existing Vite chunk-size warnings only.
+- Mockup before/after SHA-256 manifests are identical.
+- `git diff -- apps/web/src/features/mockups apps/web/src/App.tsx` is empty.
+- Production editor/design-system scan contains no `features/mockups` or `lucide-react` import.
+
+final result: passed
+
+---
+
+# Speaker Notes Dock QA — 2026-07-15
+
+## Evidence
+
+- Source visual truth: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/18-google-slides-notes-reference-clear.jpg`
+- Desktop implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/19-orbit-notes-after-collapsed.jpg`
+- Expanded implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/20-orbit-notes-after-expanded.jpg`
+- Responsive implementation:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/21-orbit-notes-1180x800.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/22-orbit-notes-860x900.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/23-orbit-notes-860x900-expanded.jpg`
+- Primary viewport: 2048×1365, collapsed presenter-notes state.
+- Additional viewports: 1180×800 and 860×900.
+
+## Comparison
+
+The source and desktop implementation were opened in the same comparison input. Both place presenter notes as a low-emphasis horizontal strip directly below the slide canvas, separated by a single subtle border and outside the primary inspector hierarchy. ORBIT intentionally keeps its own label, current slide note preview, Pretendard typography, Tabler file icon, and semantic tokens instead of copying Google product chrome.
+
+The full view was sufficient to judge the strip's position, width, border, spacing, typography hierarchy, and relationship to the canvas. The expanded implementation screenshot provides focused evidence for the note text, AI refinement, edit action, keyword checkpoints, length meter, and internal scrolling; a separate cropped image was not required.
+
+## Required fidelity surfaces
+
+- Fonts and typography: ORBIT's existing editorial Korean type scale remains consistent; the note title is stronger than the single-line preview without competing with the slide.
+- Spacing and layout: the 54px collapsed dock attaches to the canvas bottom; expanded content is capped at 280px/34vh and scrolls internally.
+- Colors and tokens: Canvas, Surface, Ink, muted text, Lilac focus, and semantic borders use the canonical ORBIT tokens.
+- Image quality and assets: no new raster, SVG, CSS-art, or mockup asset was introduced; the existing official logo and Tabler icon remain intact.
+- Copy and content: dynamic presenter notes are previewed in the collapsed strip; the empty-state prompt is `발표자 노트를 추가하려면 클릭하세요.`
+
+## Interaction and accessibility
+
+- Collapsed and expanded states expose `aria-expanded`, `aria-controls`, and explicit expand/collapse labels.
+- Keyboard focus uses the ORBIT focus ring.
+- Editing automatically keeps the dock expanded; textarea, cancel, and save controls remain reachable.
+- AI refinement, checkpoints, length guidance, and existing save/patch behavior remain available.
+- At 860px the AI bottom sheet is offset above the notes dock in collapsed and expanded states, so neither surface becomes unreachable.
+- Desktop and responsive console error logs were empty.
+
+## Findings and comparison history
+
+- First same-state comparison found no actionable P0, P1, or P2 mismatch. The source's low-emphasis note-strip hierarchy is preserved while product-specific ORBIT content and controls remain intentionally different.
+- No post-comparison visual fix loop was required. Responsive captures confirmed there is no panel overlap or inaccessible note action.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
+
+final result: passed
+---
+
+# Production Editor Density and Responsive Layout QA — 2026-07-15
+
+## Audit scope and user goal
+
+- Surface: production project editor at `http://localhost:5173/project/project_4c5368cf-d6d2-4454-9a3f-9ff2d31b384c`.
+- Goal: keep the slide-editing task visually dominant while preserving fast access to the slide rail, document toolbar, AI/design inspector, and presenter notes without overlap, clipping, or avoidable empty regions.
+- Canonical system: `apps/web/src/design-system`; mockup code and assets remained read-only and unused.
+
+## Evidence
+
+- 1440×900 source capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/25-editor-density-before-1440x900.png`
+- 1440×900 final capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/37-editor-density-after-default-final.png`
+- 1180×800 source capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/26-editor-density-before-1180x800.png`
+- 1180×800 final capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/33-editor-density-after-1180x800-final.png`
+- 860×900 source capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/27-editor-density-before-860x900.png`
+- 860×900 final collapsed capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/28-editor-density-after-860x900-pass1.png`
+- 860×900 inspector-open capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/29-editor-density-after-860x900-inspector-open.png`
+- 720×900 final collapsed capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/34-editor-density-after-720x900.png`
+- 720×900 expanded-notes capture: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/36-editor-density-after-720x900-notes-final.png`
+
+The 1440, 1180, and 860 source/final images were opened in same-input comparison passes. The full views were sufficient to judge the region grid, canvas scale, clipping, inspector overlap, notes placement, and responsive hierarchy. Separate inspector-open and expanded-notes captures provide focused evidence for the two bottom surfaces.
+
+## Findings and comparison history
+
+1. P1 responsive clipping: at 1180px the fixed 0.44 stage scale produced an 845px slide inside a 652px canvas column, requiring horizontal scrolling and hiding the slide's right side behind the inspector. The stage now observes its real canvas viewport and fits both width and height, with a guarded 0.16–0.66 scale range. Final slide width is 656px inside a 704px canvas column after the medium-width rails are compacted.
+2. P1 mobile task obstruction: at 860px the inspector opened as a bottom sheet on entry, covered the lower slide and presenter notes, and hid the collapse action with the inspector header. Compact layouts now enter with the inspector collapsed, expose a 52px labeled tool action, and render a visible close control when the sheet is opened. The open sheet ends exactly where the notes dock begins.
+3. P2 region alignment and empty space: the tool dock was fixed independently while the slide rail and inspector received an extra 120px offset because `:has(.selection-quickbar)` also matched the hidden Design panel. The canvas and notes stopped mid-screen, leaving a large unused region below. Desktop regions now share one grid: dock row, flexible workspace row, and notes row; the rail and inspector span the same workspace plus notes height.
+4. P2 medium-width header wrapping: document actions wrapped into vertical two-line labels at 1180px. Presence is hidden at medium widths, contextual actions become accessible icon controls, and Share, Rehearsal, and Present remain single-line.
+5. P2 compact notes overlap: expanded notes stacked header actions and the collapsed inspector action overlapped the note body. At 481–860px the notes header keeps a single compact row, and the inspector action moves above the expanded dock.
+
+Post-fix comparisons found no remaining actionable P0, P1, or P2 layout, density, or responsive issue in the audited states.
+
+## Required fidelity surfaces
+
+- Typography: Pretendard, ORBIT UI sizes, weights, truncation, and Korean copy are unchanged; contextual labels are only visually hidden where their accessible button names remain intact.
+- Spacing and layout: desktop uses a shared 66px tool row, flexible centered canvas, and 54px notes row. Medium rails are capped at 196px and 280px. Compact layouts preserve the 86px thumbnail rail and use the full remaining width.
+- Colors and tokens: Canvas, Surface, Border, Ink, Lilac focus/active states, radii, and shadows continue to resolve through ORBIT semantic tokens.
+- Image and asset fidelity: Deck rendering, slide theme, thumbnails, official logo, and Tabler icons are unchanged. No new image, SVG, CSS-art, mockup asset, or placeholder was introduced.
+- Copy and content: document, toolbar, inspector, and presenter-note copy remains unchanged.
+
+## Interaction and accessibility verification
+
+- Presenter notes expand/collapse was exercised at 720px; expanded content and actions remain reachable with internal scrolling.
+- Compact inspector open/close was exercised at 860px; the open panel does not overlap the notes dock.
+- `AI 코치` and `디자인` keyboard navigation was exercised with ArrowRight and ArrowLeft; `aria-selected` followed focus.
+- The responsive icon actions retain explicit accessible names.
+- Browser console error log was empty in the final desktop state.
+- Measured page width matched viewport width at 1440, 1180, 860, and 720; audited canvas regions had no horizontal overflow after the fixes.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
 
 final result: passed

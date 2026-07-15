@@ -223,9 +223,14 @@ const dialogFocusableSelector = [
   '[tabindex]:not([tabindex="-1"])'
 ].join(",");
 
+export function isOrbitDialogDismissAllowed(closeDisabled = false) {
+  return !closeDisabled;
+}
+
 export function OrbitDialog(props: {
   children: ReactNode;
   className?: string;
+  closeDisabled?: boolean;
   description?: ReactNode;
   footer?: ReactNode;
   onClose: () => void;
@@ -237,7 +242,11 @@ export function OrbitDialog(props: {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(props.onClose);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  onCloseRef.current = props.onClose;
+  onCloseRef.current = () => {
+    if (isOrbitDialogDismissAllowed(props.closeDisabled)) {
+      props.onClose();
+    }
+  };
 
   useEffect(() => {
     if (!props.open) return;
@@ -290,7 +299,7 @@ export function OrbitDialog(props: {
     <div
       className="orbit-ds-dialog-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) props.onClose();
+        if (event.target === event.currentTarget) onCloseRef.current();
       }}
       role="presentation"
     >
@@ -308,7 +317,13 @@ export function OrbitDialog(props: {
             <h2 id={titleId}>{props.title}</h2>
             {props.description ? <p id={descriptionId}>{props.description}</p> : null}
           </div>
-          <OrbitIconButton aria-label="닫기" data-orbit-dialog-initial onClick={props.onClose} variant="plain">
+          <OrbitIconButton
+            aria-label="닫기"
+            data-orbit-dialog-initial
+            disabled={props.closeDisabled}
+            onClick={() => onCloseRef.current()}
+            variant="plain"
+          >
             <IconX aria-hidden="true" size={20} stroke={1.8} />
           </OrbitIconButton>
         </header>

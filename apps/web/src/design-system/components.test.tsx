@@ -9,7 +9,8 @@ import {
   OrbitIconButton,
   OrbitInput,
   OrbitStatus,
-  OrbitTabs
+  OrbitTabs,
+  isOrbitDialogDismissAllowed
 } from "./components";
 
 describe("ORBIT design-system primitives", () => {
@@ -94,5 +95,10 @@ describe("ORBIT design-system primitives", () => {
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain("프로젝트 권한을 관리합니다.");
     expect(html).toContain('role="status"');
+  });
+
+  it("blocks every dialog dismiss path while closing is disabled", () => {
+    expect(isOrbitDialogDismissAllowed(false)).toBe(true);
+    expect(isOrbitDialogDismissAllowed(true)).toBe(false);
   });
 });

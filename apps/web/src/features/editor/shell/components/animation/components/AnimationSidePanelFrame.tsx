@@ -1,5 +1,8 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Sparkles, X } from "lucide-react";
+import {
+  IconSparkles as Sparkles,
+  IconX as X
+} from "@tabler/icons-react";
 
 type AnimationSidePanelFrameProps = {
   children: ReactNode;

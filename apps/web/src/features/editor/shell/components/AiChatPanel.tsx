@@ -5,7 +5,7 @@ import type {
   DesignAgentProposal,
   Slide
 } from "@orbit/shared";
-import { ArrowUp } from "lucide-react";
+import { IconArrowUp as ArrowUp } from "@tabler/icons-react";
 import {
   useState,
   type Dispatch,
