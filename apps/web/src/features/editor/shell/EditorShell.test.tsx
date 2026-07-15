@@ -233,7 +233,7 @@ describe("editor shell", () => {
     );
   });
 
-  it("waits for every hidden slide stage instead of assuming two frames are enough", async () => {
+  it("waits beyond twelve frames for every hidden slide stage", async () => {
     const stageRefs = new Map<string, unknown>();
     let frame = 0;
 
@@ -243,13 +243,46 @@ describe("editor shell", () => {
         stageRefs,
         async () => {
           frame += 1;
-          if (frame === 2) stageRefs.set("slide_1", {});
-          if (frame === 4) stageRefs.set("slide_2", {});
+          if (frame === 18) stageRefs.set("slide_1", {});
+          if (frame === 48) stageRefs.set("slide_2", {});
         },
-        6
+        60
       )
     ).resolves.toBeUndefined();
-    expect(frame).toBe(4);
+    expect(frame).toBe(48);
+  });
+
+  it("times out when hidden slide stages never register", async () => {
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1"],
+        new Map(),
+        async () => {
+          frame += 1;
+        },
+        3
+      )
+    ).rejects.toThrow("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
+    expect(frame).toBe(3);
+  });
+
+  it("stops waiting when snapshot preparation is cancelled", async () => {
+    let frame = 0;
+
+    await expect(
+      waitForSlideRenderStages(
+        ["slide_1"],
+        new Map(),
+        async () => {
+          frame += 1;
+        },
+        90,
+        () => frame >= 2
+      )
+    ).rejects.toThrow("슬라이드 snapshot 준비가 취소되었습니다.");
+    expect(frame).toBe(2);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {

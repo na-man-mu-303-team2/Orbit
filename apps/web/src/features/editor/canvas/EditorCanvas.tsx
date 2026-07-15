@@ -15,7 +15,7 @@ import {
   Transformer as KonvaTransformer
 } from "react-konva";
 import type { ComponentType, MutableRefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CustomShapeInsertOverlay
 } from "./components/CustomShapeOverlays";
@@ -77,6 +77,40 @@ type CustomShapeEditDraft = {
   selectedNodeIndex: number | null;
 };
 
+function HiddenSlideRenderStage(props: {
+  deck: Deck;
+  slide: Slide;
+  stageRefs: MutableRefObject<Map<string, Konva.Stage>>;
+}) {
+  const { deck, slide, stageRefs } = props;
+  const registeredStageRef = useRef<Konva.Stage | null>(null);
+  const setStageRef = useCallback(
+    (stage: Konva.Stage | null) => {
+      const registeredStage = registeredStageRef.current;
+
+      if (stage) {
+        registeredStageRef.current = stage;
+        stageRefs.current.set(slide.slideId, stage);
+        return;
+      }
+
+      if (
+        registeredStage &&
+        stageRefs.current.get(slide.slideId) === registeredStage
+      ) {
+        stageRefs.current.delete(slide.slideId);
+      }
+
+      registeredStageRef.current = null;
+    },
+    [slide.slideId, stageRefs]
+  );
+
+  return (
+    <ReadOnlySlideCanvas deck={deck} slide={slide} stageRef={setStageRef} />
+  );
+}
+
 export function HiddenSlideRenderStages(props: {
   deck: Deck;
   stageRefs: MutableRefObject<Map<string, Konva.Stage>>;
@@ -98,17 +132,11 @@ export function HiddenSlideRenderStages(props: {
     >
       {deck.slides.map((slide) => {
         return (
-          <ReadOnlySlideCanvas
+          <HiddenSlideRenderStage
             deck={deck}
             key={slide.slideId}
             slide={slide}
-            stageRef={(stage: Konva.Stage | null) => {
-              if (stage) {
-                stageRefs.current.set(slide.slideId, stage);
-              } else {
-                stageRefs.current.delete(slide.slideId);
-              }
-            }}
+            stageRefs={stageRefs}
           />
         );
       })}

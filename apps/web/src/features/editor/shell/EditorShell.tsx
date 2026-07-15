@@ -596,10 +596,17 @@ export async function waitForSlideRenderStages(
   slideIds: readonly string[],
   stageRefs: ReadonlyMap<string, unknown>,
   waitForNextFrame: () => Promise<void> = waitForAnimationFrame,
-  maxFrames = 12
+  maxFrames = 90,
+  isCancelled: () => boolean = () => false
 ) {
   for (let frame = 0; frame < maxFrames; frame += 1) {
+    if (isCancelled()) {
+      throw new Error("슬라이드 snapshot 준비가 취소되었습니다.");
+    }
     await waitForNextFrame();
+    if (isCancelled()) {
+      throw new Error("슬라이드 snapshot 준비가 취소되었습니다.");
+    }
     if (slideIds.every((slideId) => stageRefs.has(slideId))) {
       return;
     }
@@ -1740,6 +1747,7 @@ function EditorRuntime(props: {
   const copiedElementRef = useRef<ElementClipboardState | null>(null);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const slideRenderStageRefs = useRef(new Map<string, Konva.Stage>());
+  const isEditorRuntimeMountedRef = useRef(true);
   const slideRenderQueueRef = useRef<Promise<void>>(Promise.resolve());
   const lastThumbnailDeckRef = useRef<Deck | null>(null);
   const slideThumbnailObjectUrlsRef = useRef(new Map<string, string>());
@@ -1748,6 +1756,14 @@ function EditorRuntime(props: {
   const [renderingDeck, setRenderingDeck] = useState<Deck | null>(null);
   const [slideThumbnailUrls, setSlideThumbnailUrls] = useState<Record<string, string>>({});
   const [ooxmlSyncJob, setOoxmlSyncJob] = useState<Job | null>(null);
+
+  useEffect(() => {
+    isEditorRuntimeMountedRef.current = true;
+    return () => {
+      isEditorRuntimeMountedRef.current = false;
+      slideRenderStageRefs.current.clear();
+    };
+  }, []);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -2417,7 +2433,10 @@ function EditorRuntime(props: {
         nextDeck.slides
           .filter((slide) => !targetSlideIds || targetSlideIds.has(slide.slideId))
           .map((slide) => slide.slideId),
-        slideRenderStageRefs.current
+        slideRenderStageRefs.current,
+        waitForAnimationFrame,
+        90,
+        () => !isEditorRuntimeMountedRef.current
       );
 
       for (let index = 0; index < nextDeck.slides.length; index += 1) {
@@ -2446,9 +2465,11 @@ function EditorRuntime(props: {
         files.set(slide.slideId, renderFile);
       }
     } finally {
-      flushSync(() => {
-        setRenderingDeck(null);
-      });
+      if (isEditorRuntimeMountedRef.current) {
+        flushSync(() => {
+          setRenderingDeck(null);
+        });
+      }
       slideRenderStageRefs.current.clear();
     }
 
@@ -2691,10 +2712,14 @@ function EditorRuntime(props: {
         });
         navigateToRehearsal(activeProjectId, snapshotPreparationId);
       } catch (error) {
-        setSaveState("error");
-        setSaveError("rehearsal-save-failed", toEditorErrorMessage(error));
+        if (isEditorRuntimeMountedRef.current) {
+          setSaveState("error");
+          setSaveError("rehearsal-save-failed", toEditorErrorMessage(error));
+        }
       } finally {
-        setActivePresentationAction(null);
+        if (isEditorRuntimeMountedRef.current) {
+          setActivePresentationAction(null);
+        }
       }
       return;
     }
