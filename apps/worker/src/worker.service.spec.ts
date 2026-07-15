@@ -38,7 +38,7 @@ const processors = vi.hoisted(() => ({
   generateDeck: vi.fn(async () => orbitJob("succeeded")),
   stagedCoordinator: vi.fn(async () => orbitJob("running")),
   referenceExtract: vi.fn(async () => orbitJob("succeeded", "reference-extract")),
-  referenceExtractStage: vi.fn(async () => undefined),
+  referenceExtractStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
 }));
 
 const maintenance = vi.hoisted(() => ({
@@ -156,6 +156,15 @@ describe("WorkerService queue subscriptions", () => {
   it("routes shared queues by job.name and logs staged work as progress", async () => {
     configState.AI_DECK_EXECUTION_MODE = "bullmq";
     const { service, logger } = createService();
+    processors.referenceExtractStage.mockResolvedValueOnce({
+      ...orbitJob("failed"),
+      error: {
+        code: "SOURCE_GROUNDING_REQUIRED",
+        message: "The selected reference policy requires usable grounding.",
+        failedStage: "reference-extract-file",
+        retryable: false,
+      },
+    });
     service.onModuleInit();
 
     const generateHandler = requiredHandler(generateDeckQueueName);
@@ -193,7 +202,14 @@ describe("WorkerService queue subscriptions", () => {
           "event" in fields &&
           fields.event === "job.progressed",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "job.failed",
+        error: expect.objectContaining({ code: "SOURCE_GROUNDING_REQUIRED" }),
+      }),
+      "Job finished.",
+    );
     expect(maintenance.dispatch).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

@@ -152,7 +152,7 @@ describe("processAiDeckReferenceExtractionStage", () => {
         }),
       );
 
-    await processAiDeckReferenceExtractionStage(
+    const result = await processAiDeckReferenceExtractionStage(
       dataSource,
       storage,
       "http://python-worker:8000",
@@ -160,6 +160,8 @@ describe("processAiDeckReferenceExtractionStage", () => {
       message,
       { fetchImpl },
     );
+
+    expect(result).toMatchObject({ status: "running", error: null });
 
     expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
       "projects/project-a/assets/file-a-brief.pdf",
@@ -275,7 +277,7 @@ describe("processAiDeckReferenceExtractionStage", () => {
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
       .mockResolvedValueOnce(Response.json({ files: [] }));
 
-    await processAiDeckReferenceExtractionStage(
+    const result = await processAiDeckReferenceExtractionStage(
       dataSource,
       storageStub(),
       "http://python-worker:8000",
@@ -283,6 +285,8 @@ describe("processAiDeckReferenceExtractionStage", () => {
       message,
       { fetchImpl },
     );
+
+    expect(result).toMatchObject({ status: "running", error: null });
 
     expect(
       transactionQuery.mock.calls.some((call) =>
@@ -320,7 +324,9 @@ describe("processAiDeckReferenceExtractionStage", () => {
             }),
           ];
         }
-        if (compact.startsWith("UPDATE jobs")) return [];
+        if (compact.startsWith("UPDATE jobs")) {
+          return [failedParentJobRow(parameters?.[2])];
+        }
         throw new Error(`Unexpected transaction query: ${compact}`);
       },
     );
@@ -334,7 +340,7 @@ describe("processAiDeckReferenceExtractionStage", () => {
     const storage = storageStub();
     const fetchImpl = vi.fn();
 
-    await processAiDeckReferenceExtractionStage(
+    const result = await processAiDeckReferenceExtractionStage(
       dataSource,
       storage,
       "http://python-worker:8000",
@@ -342,6 +348,11 @@ describe("processAiDeckReferenceExtractionStage", () => {
       message,
       { fetchImpl },
     );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: { code: "REFERENCE_ASSET_INVALID" },
+    });
 
     expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -388,6 +399,15 @@ function parentJobRow(
     error: null,
     created_at: "2026-07-15T01:00:00.000Z",
     updated_at: "2026-07-15T01:00:00.000Z",
+  };
+}
+
+function failedParentJobRow(error: unknown) {
+  return {
+    ...parentJobRow(),
+    status: "failed",
+    message: "AI deck generation failed.",
+    error,
   };
 }
 

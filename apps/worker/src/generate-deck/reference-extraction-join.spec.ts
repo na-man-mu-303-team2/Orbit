@@ -44,7 +44,7 @@ describe("completeAiDeckReferenceExtractionStage", () => {
   });
 
   it("stores a valid unusable result but fails a references-only parent", async () => {
-    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
         return [parentJobRow("references-only")];
@@ -64,12 +64,14 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       ) {
         return [];
       }
-      if (compact.startsWith("UPDATE jobs")) return [];
+      if (compact.startsWith("UPDATE jobs")) {
+        return [failedParentJobRow("references-only", parameters?.[2])];
+      }
       throw new Error(`Unexpected query: ${compact}`);
     });
     const dataSource = transactionalDataSource(query);
 
-    await completeAiDeckReferenceExtractionStage(dataSource, {
+    await expect(completeAiDeckReferenceExtractionStage(dataSource, {
       message,
       leaseOwner: "worker-a:7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
       attempt: 5,
@@ -80,6 +82,9 @@ describe("completeAiDeckReferenceExtractionStage", () => {
         failedStage: "reference-extract-file",
         retryable: false,
       },
+    })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "SOURCE_GROUNDING_REQUIRED" },
     });
 
     const parentFailure = query.mock.calls.find((call) =>
@@ -127,7 +132,7 @@ describe("completeAiDeckReferenceExtractionStage", () => {
     });
     const dataSource = transactionalDataSource(query);
 
-    await completeAiDeckReferenceExtractionStage(dataSource, {
+    await expect(completeAiDeckReferenceExtractionStage(dataSource, {
       message,
       leaseOwner: "worker-a:7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
       attempt: 5,
@@ -137,7 +142,7 @@ describe("completeAiDeckReferenceExtractionStage", () => {
         failedStage: "reference-extract-file",
         retryable: false,
       },
-    });
+    })).resolves.toMatchObject({ status: "running", error: null });
 
     expect(
       query.mock.calls.some((call) =>
@@ -150,7 +155,7 @@ describe("completeAiDeckReferenceExtractionStage", () => {
   });
 
   it("terminalizes active sibling checkpoints before a fatal parent failure", async () => {
-    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
         return [parentJobRow("references-first")];
@@ -167,7 +172,9 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       ) {
         return [{ stage: "reference-extract-file", shard_key: "file-b" }];
       }
-      if (compact.startsWith("UPDATE jobs")) return [];
+      if (compact.startsWith("UPDATE jobs")) {
+        return [failedParentJobRow("references-first", parameters?.[2])];
+      }
       throw new Error(`Unexpected query: ${compact}`);
     });
     const dataSource = transactionalDataSource(query);
@@ -178,12 +185,15 @@ describe("completeAiDeckReferenceExtractionStage", () => {
       retryable: false,
     };
 
-    await completeAiDeckReferenceExtractionStage(dataSource, {
+    await expect(completeAiDeckReferenceExtractionStage(dataSource, {
       message,
       leaseOwner: "worker-a:7dc4ed60-2d85-4f13-b3ca-c6bb4ed54f8a",
       attempt: 1,
       error: fatalError,
       fatalParent: true,
+    })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "REFERENCE_ASSET_INVALID" },
     });
 
     const calls = query.mock.calls.map((call) => compactSql(call[0]));
@@ -220,6 +230,8 @@ function parentJobRow(
     project_id: "project-a",
     type: "ai-deck-generation",
     status: "running",
+    progress: 10,
+    message: "running",
     payload: {
       request: {
         topic: "join",
@@ -228,6 +240,22 @@ function parentJobRow(
         ...requestOverrides,
       },
     },
+    result: null,
+    error: null,
+    created_at: "2026-07-15T01:00:00.000Z",
+    updated_at: "2026-07-15T01:00:00.000Z",
+  };
+}
+
+function failedParentJobRow(
+  referencePolicy: "references-first" | "references-only",
+  error: unknown,
+) {
+  return {
+    ...parentJobRow(referencePolicy),
+    status: "failed",
+    message: "AI deck generation failed.",
+    error,
   };
 }
 
