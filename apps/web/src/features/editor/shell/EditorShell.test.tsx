@@ -1,7 +1,11 @@
-import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
+import {
+  applyDeckPatch,
+  createDemoDeck,
+} from "@orbit/editor-core";
 import {
   createAddAnimationWithKeywordTriggerPatch,
   createDefaultAnimation,
+  createDuplicateSlidePatch,
   createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch
 } from "../../../../../../packages/editor-core/src/index";
@@ -26,24 +30,29 @@ import {
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  createSlideRailReorderPatch,
   createSemanticCueExtractionJob,
   createDistributeSelectionPatch,
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
+  getAddedSlideId,
   getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
   getResponsiveEditorStageScale,
   importPptxIntoEditor,
+  isSpeakerNotesDraftBoundToSlide,
   loadProjectDeck,
   mergeDeckIntoQueryCache,
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
   waitForSlideRenderStages,
+  resolveDeleteUndoToastOpenAfterPatch,
   resolveHistoryNavigation,
+  resolveSpeakerNotesDraftDispositionForSlideDelete,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
@@ -401,15 +410,18 @@ describe("editor shell", () => {
 
     const transition = resolveHistoryNavigation({
       currentDeck,
-      currentSlideIndex: 1,
-      stack: [{ deck: previousDeck, slideIndex: 999 }]
+      currentSlideId: currentDeck.slides[1]?.slideId ?? null,
+      stack: [{
+        deck: previousDeck,
+        slideId: previousDeck.slides.at(-1)?.slideId ?? null,
+      }]
     });
 
     expect(transition).toMatchObject({
-      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      currentEntry: { deck: currentDeck, slideId: currentDeck.slides[1]?.slideId },
       nextStack: [],
       targetEntry: { deck: previousDeck },
-      targetSlideIndex: previousDeck.slides.length - 1
+      targetSlideId: previousDeck.slides.at(-1)?.slideId,
     });
     expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
       "current"
@@ -420,7 +432,7 @@ describe("editor shell", () => {
     expect(
       resolveHistoryNavigation({
         currentDeck,
-        currentSlideIndex: 0,
+        currentSlideId: currentDeck.slides[0]?.slideId ?? null,
         stack: []
       })
     ).toBeNull();
@@ -430,18 +442,77 @@ describe("editor shell", () => {
     const previousDeck = createDemoDeck();
     const olderEntries = Array.from({ length: 50 }, (_, index) => ({
       deck: { ...previousDeck, title: `이전 편집 ${index}` },
-      slideIndex: index % previousDeck.slides.length
+      slideId: previousDeck.slides[index % previousDeck.slides.length]?.slideId ?? null,
     }));
 
     const history = appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideIndex: 1,
+      currentSlideId: previousDeck.slides[1]?.slideId ?? null,
       undoStack: olderEntries
     });
 
     expect(history).toHaveLength(50);
     expect(history[0]?.deck.title).toBe("이전 편집 1");
-    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
+    expect(history.at(-1)).toEqual({
+      deck: previousDeck,
+      slideId: previousDeck.slides[1]?.slideId,
+    });
+  });
+
+  it("keeps speaker notes drafts and history selection bound to slideId", () => {
+    const deck = createDemoDeck();
+    const selectedSlideId = deck.slides[1]!.slideId;
+    const reorderedIds = deck.slides.map((slide) => slide.slideId).reverse();
+    const reordered = applyDeckPatch(
+      deck,
+      createSlideRailReorderPatch(deck, reorderedIds),
+    );
+    expect(reordered.ok).toBe(true);
+    if (!reordered.ok) return;
+
+    expect(
+      isSpeakerNotesDraftBoundToSlide({
+        editSlideId: selectedSlideId,
+        selectedSlideId,
+      }),
+    ).toBe(true);
+    expect(
+      resolveHistoryNavigation({
+        currentDeck: reordered.deck,
+        currentSlideId: selectedSlideId,
+        stack: [{ deck, slideId: selectedSlideId }],
+      })?.targetSlideId,
+    ).toBe(selectedSlideId);
+  });
+
+  it("closes a stale delete undo toast after any successful patch", () => {
+    expect(
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: true,
+        currentOpen: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: false,
+        currentOpen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("discards dirty speaker notes only after the selected slide is deleted", () => {
+    expect(
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: "slide_1",
+        selectedSlideId: "slide_1",
+      }),
+    ).toBe("discard-after-delete");
+    expect(
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: "slide_2",
+        selectedSlideId: "slide_1",
+      }),
+    ).toBe("preserve");
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -604,7 +675,8 @@ describe("editor shell", () => {
 
     expect(html).toContain(deck.title);
     expect(html).toContain("차트");
-    expect(html).not.toContain("Data Contract");
+    expect(html).toContain("Data Contract");
+    expect(html).toContain('aria-label="슬라이드 목록"');
     expect(html).toContain("발표 메모");
     expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
     expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
@@ -1115,6 +1187,26 @@ describe("editor shell", () => {
         source: "user"
       })
     ).toEqual([firstSlide.slideId, secondSlide.slideId]);
+  });
+
+  it("invalidates a duplicate thumbnail and selects its new slideId", () => {
+    const deck = createDemoDeck();
+    const sourceSlide = deck.slides[0]!;
+    const patch = createDuplicateSlidePatch(deck, sourceSlide.slideId);
+    const duplicateSlideId = getAddedSlideId(patch);
+    const result = applyDeckPatch(deck, patch);
+
+    expect(duplicateSlideId).not.toBeNull();
+    expect(result.ok).toBe(true);
+    if (!result.ok || !duplicateSlideId) return;
+    const duplicate = result.deck.slides.find(
+      (slide) => slide.slideId === duplicateSlideId,
+    );
+    expect(duplicate).toMatchObject({
+      thumbnailUrl: "",
+      title: `${sourceSlide.title} 복사본`,
+    });
+    expect(getPatchThumbnailRefreshSlideIds(deck, patch)).toContain(duplicateSlideId);
   });
 
   it("rerenders only slides whose visual state changed", () => {
@@ -2484,6 +2576,10 @@ describe("editor shell", () => {
     expect(html).not.toContain("AI에게 메시지 보내기");
     expect(html).not.toContain("메모 편집");
     expect(html).not.toContain('aria-label="발표 메모 수정"');
+    expect(html).not.toContain("드래그하여 이동");
+    expect(html).not.toContain('aria-label="Opening 메뉴"');
+    expect(html).not.toContain(">복제<");
+    expect(html).not.toContain("슬라이드 추가");
   });
 
   it("Deck이 없을 때 편집자에게만 첫 슬라이드 생성 action을 노출한다", () => {

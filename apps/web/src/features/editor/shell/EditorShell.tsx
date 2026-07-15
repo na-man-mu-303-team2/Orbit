@@ -3,6 +3,7 @@ import {
   createAddElementPatch,
   createAddAnimationWithKeywordTriggerPatch,
   createAddSlidePatch,
+  createDuplicateSlidePatch,
   createKeyword,
   createDefaultAnimation,
   createDeleteAnimationPatch,
@@ -80,7 +81,6 @@ import {
   EmptyPanel,
   EditorStateNotice
 } from "./components/EditorStateNotice";
-import { IdBadge } from "./components/EditorIdBadge";
 import {
   ElementSummary,
   InfoCard,
@@ -92,8 +92,10 @@ import {
   KeywordList
 } from "./components/KeywordInspector";
 import { EditorSaveControl } from "./components/EditorSaveControl";
+import { EditorUndoToast } from "./components/EditorUndoToast";
 import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
 import { PresentationMenu } from "./components/PresentationMenu";
+import { SlideRail } from "./components/SlideRail";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -115,6 +117,11 @@ import {
 } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
+import {
+  buildSlideRailItems,
+  resolveSelectedSlideId,
+  resolveSelectedSlideIdAfterDelete,
+} from "./slideRailModel";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import { storePreparedRehearsalSlideSnapshots } from "../../rehearsal/rehearsalSlideSnapshots";
@@ -328,6 +335,31 @@ export function shouldPromptSpeakerNotesOverwrite(input: {
   );
 }
 
+export function isSpeakerNotesDraftBoundToSlide(input: {
+  editSlideId: string | null;
+  selectedSlideId: string | null;
+}) {
+  return Boolean(
+    input.editSlideId && input.selectedSlideId === input.editSlideId,
+  );
+}
+
+export function resolveSpeakerNotesDraftDispositionForSlideDelete(input: {
+  deletedSlideId: string;
+  selectedSlideId: string | null;
+}) {
+  return input.deletedSlideId === input.selectedSlideId
+    ? "discard-after-delete"
+    : "preserve";
+}
+
+export function resolveDeleteUndoToastOpenAfterPatch(input: {
+  commitSucceeded: boolean;
+  currentOpen: boolean;
+}) {
+  return input.commitSucceeded ? false : input.currentOpen;
+}
+
 export const danglingKeywordOccurrenceSaveMessage =
   "발표 메모 수정으로 기존 키워드 트리거 위치를 찾을 수 없습니다. 연결된 애니메이션 또는 다음 슬라이드 트리거를 새 위치에 다시 연결한 뒤 저장하세요.";
 
@@ -413,11 +445,11 @@ type ElementClipboardState = {
 };
 export type HistoryEntry = {
   deck: Deck;
-  slideIndex: number;
+  slideId: string | null;
 };
 export function resolveHistoryNavigation(args: {
   currentDeck: Deck;
-  currentSlideIndex: number;
+  currentSlideId: string | null;
   stack: HistoryEntry[];
 }) {
   const targetEntry = args.stack.at(-1);
@@ -429,25 +461,58 @@ export function resolveHistoryNavigation(args: {
   return {
     currentEntry: {
       deck: args.currentDeck,
-      slideIndex: args.currentSlideIndex
+      slideId: resolveSelectedSlideId(
+        args.currentDeck.slides,
+        args.currentSlideId,
+      ),
     },
     nextStack: args.stack.slice(0, -1),
     targetEntry,
-    targetSlideIndex: Math.max(
-      0,
-      Math.min(targetEntry.slideIndex, targetEntry.deck.slides.length - 1)
-    )
+    targetSlideId: resolveSelectedSlideId(
+      targetEntry.deck.slides,
+      targetEntry.slideId,
+    ),
   };
 }
 export function appendAppliedDesignProposalHistory(args: {
   currentDeck: Deck;
-  currentSlideIndex: number;
+  currentSlideId: string | null;
   undoStack: HistoryEntry[];
 }) {
   return [
     ...args.undoStack.slice(-49),
-    { deck: args.currentDeck, slideIndex: args.currentSlideIndex }
+    {
+      deck: args.currentDeck,
+      slideId: resolveSelectedSlideId(args.currentDeck.slides, args.currentSlideId),
+    }
   ];
+}
+
+export function createSlideRailReorderPatch(
+  deck: Deck,
+  orderedSlideIds: readonly string[],
+): DeckPatch {
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations: [
+      {
+        type: "reorder_slides",
+        slideOrders: orderedSlideIds.map((slideId, index) => ({
+          slideId,
+          order: index + 1,
+        })),
+      },
+    ],
+  };
+}
+
+export function getAddedSlideId(patch: DeckPatch) {
+  return (
+    patch.operations.find((operation) => operation.type === "add_slide")?.slide
+      .slideId ?? null
+  );
 }
 
 type ImageUploadTarget =
@@ -1575,7 +1640,9 @@ function EditorRuntime(props: {
   const canMutateDeck = capabilities.canMutateDeck;
   const isDev = import.meta.env.DEV;
   const queryClient = useQueryClient();
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [currentSlideId, setCurrentSlideId] = useState<string | null>(
+    props.initialDeck.slides[0]?.slideId ?? null,
+  );
   const resetProjectUiState = useEditorShellUiStore(
     (state) => state.resetProjectUiState
   );
@@ -1736,6 +1803,7 @@ function EditorRuntime(props: {
   >(null);
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+  const [isDeleteUndoToastOpen, setIsDeleteUndoToastOpen] = useState(false);
   const topbarRef = useRef<HTMLElement | null>(null);
   const hasExpandedSpeakerNotesPanelRef = useRef(false);
   const shouldMeasureInitialSpeakerNotesHeightRef = useRef(false);
@@ -2010,7 +2078,28 @@ function EditorRuntime(props: {
   const canStartPresentation =
     canOpenAudienceLink && !activePresentationAction;
   const hasSlides = deck.slides.length > 0;
-  const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const resolvedCurrentSlideId = resolveSelectedSlideId(
+    deck.slides,
+    currentSlideId,
+  );
+  const currentSlideIndex = resolvedCurrentSlideId
+    ? deck.slides.findIndex((slide) => slide.slideId === resolvedCurrentSlideId)
+    : -1;
+  const currentSlide =
+    currentSlideIndex >= 0 ? deck.slides[currentSlideIndex] ?? null : null;
+  const slideRailItems = useMemo(
+    () => buildSlideRailItems(deck.slides, resolvedCurrentSlideId),
+    [deck.slides, resolvedCurrentSlideId],
+  );
+  const slideRailThumbnailBackgrounds = useMemo(
+    () => Object.fromEntries(
+      deck.slides.map((slide) => [
+        slide.slideId,
+        buildSlideThumbBackground(slide, deck, slideThumbnailUrls[slide.slideId]),
+      ]),
+    ),
+    [deck, slideThumbnailUrls],
+  );
   const speakerNotesLengthGuidance = useMemo(
     () =>
       getSpeakerNotesLengthGuidance(
@@ -2380,7 +2469,7 @@ function EditorRuntime(props: {
     setUndoStack((current) =>
       appendAppliedDesignProposalHistory({
         currentDeck: previousDeck,
-        currentSlideIndex,
+        currentSlideId: resolvedCurrentSlideId,
         undoStack: current
       })
     );
@@ -3023,12 +3112,21 @@ function EditorRuntime(props: {
       return false;
     }
 
+    setIsDeleteUndoToastOpen((currentOpen) =>
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: true,
+        currentOpen,
+      }),
+    );
     applyOptimisticWorkingDeck(result.deck);
     setSaveState("auto-pending");
     setSaveError(null, null);
     setUndoStack((current) => [
       ...current.slice(-49),
-      { deck: baseDeck, slideIndex: currentSlideIndex }
+      {
+        deck: baseDeck,
+        slideId: resolveSelectedSlideId(baseDeck.slides, resolvedCurrentSlideId),
+      }
     ]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -3116,13 +3214,11 @@ function EditorRuntime(props: {
       if (extractedDeck) {
         queryClient.setQueryData(["deck", projectId], extractedDeck);
         markHydratedPersistedDeck(extractedDeck, setDeck);
-        const nextSlideIndex = selectedSlideId
-          ? extractedDeck.slides.findIndex(
-              (slide) => slide.slideId === selectedSlideId
-            )
-          : -1;
-        if (nextSlideIndex >= 0) {
-          setCurrentSlideIndex(nextSlideIndex);
+        if (
+          selectedSlideId &&
+          extractedDeck.slides.some((slide) => slide.slideId === selectedSlideId)
+        ) {
+          setCurrentSlideId(selectedSlideId);
         }
         setUndoStack([]);
         setRedoStack([]);
@@ -3199,29 +3295,32 @@ function EditorRuntime(props: {
 
   function handleUndo() {
     if (!canMutateDeck || undoStack.length === 0 || !confirmDiscardSpeakerNotesDraft()) {
-      return;
+      return false;
     }
 
     const transition = resolveHistoryNavigation({
       currentDeck: workingDeckRef.current,
-      currentSlideIndex,
+      currentSlideId: resolvedCurrentSlideId,
       stack: undoStack
     });
 
     if (!transition) {
-      return;
+      return false;
     }
 
     const previous = transition.targetEntry;
+    const targetSlide = previous.deck.slides.find(
+      (slide) => slide.slideId === transition.targetSlideId,
+    );
     resetSpeakerNotesEditState(
-      previous.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+      targetSlide?.speakerNotes ?? ""
     );
     replaceWorkingDeck(previous.deck);
     setUndoStack(transition.nextStack);
     setRedoStack((redoCurrent) => [...redoCurrent, transition.currentEntry]);
     setDeck(previous.deck);
     refreshChangedSlideThumbnails(previous.deck);
-    setCurrentSlideIndex(transition.targetSlideIndex);
+    setCurrentSlideId(transition.targetSlideId);
     setSelectedElementIds([]);
     clearSelectedKeyword();
     setEditingElementId(null);
@@ -3231,7 +3330,9 @@ function EditorRuntime(props: {
       mergeDeckIntoQueryCache(currentDeck, previous.deck)
     );
     setLastPatchLabel(`undo · v${previous.deck.version}`);
+    setIsDeleteUndoToastOpen(false);
     scheduleUndoRedoPersist("undo");
+    return true;
   }
 
   function handleRedo() {
@@ -3241,7 +3342,7 @@ function EditorRuntime(props: {
 
     const transition = resolveHistoryNavigation({
       currentDeck: workingDeckRef.current,
-      currentSlideIndex,
+      currentSlideId: resolvedCurrentSlideId,
       stack: redoStack
     });
 
@@ -3250,8 +3351,11 @@ function EditorRuntime(props: {
     }
 
     const next = transition.targetEntry;
+    const targetSlide = next.deck.slides.find(
+      (slide) => slide.slideId === transition.targetSlideId,
+    );
     resetSpeakerNotesEditState(
-      next.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? ""
+      targetSlide?.speakerNotes ?? ""
     );
     setRedoStack(transition.nextStack);
     setUndoStack((undoCurrent) => [
@@ -3261,7 +3365,7 @@ function EditorRuntime(props: {
     replaceWorkingDeck(next.deck);
     setDeck(next.deck);
     refreshChangedSlideThumbnails(next.deck);
-    setCurrentSlideIndex(transition.targetSlideIndex);
+    setCurrentSlideId(transition.targetSlideId);
     setSelectedElementIds([]);
     clearSelectedKeyword();
     setEditingElementId(null);
@@ -3534,8 +3638,8 @@ function EditorRuntime(props: {
     );
   }
 
-  function handleSelectSlideIndex(index: number) {
-    if (index === currentSlideIndex) {
+  function handleSelectSlide(slideId: string) {
+    if (slideId === resolvedCurrentSlideId) {
       return;
     }
 
@@ -3543,9 +3647,12 @@ function EditorRuntime(props: {
       return;
     }
 
-    resetSpeakerNotesEditState(deck.slides[index]?.speakerNotes ?? "");
+    const nextSlide = deck.slides.find((slide) => slide.slideId === slideId);
+    if (!nextSlide) return;
+
+    resetSpeakerNotesEditState(nextSlide.speakerNotes);
     setIsSpeakerNotesAssistantOpen(false);
-    setCurrentSlideIndex(index);
+    setCurrentSlideId(slideId);
   }
 
   function handleStartSpeakerNotesEdit() {
@@ -4064,7 +4171,7 @@ function EditorRuntime(props: {
             }),
           activeDeck
         );
-        handleSelectSlideIndex(targetSlideIndex);
+        handleSelectSlide(target.slideId);
         setSelectedElementIds([target.elementId]);
       } else {
         const elementId = createElementId(activeDeck);
@@ -4099,7 +4206,7 @@ function EditorRuntime(props: {
             }),
           activeDeck
         );
-        handleSelectSlideIndex(targetSlideIndex);
+        handleSelectSlide(target.slideId);
         setSelectedElementIds([elementId]);
         setEditingElementId(null);
         setInsertTool("select");
@@ -4157,7 +4264,7 @@ function EditorRuntime(props: {
 
       queryClient.setQueryData(["deck", projectId], importedDeck);
       markHydratedPersistedDeck(importedDeck, setDeck);
-      setCurrentSlideIndex(0);
+      setCurrentSlideId(importedDeck.slides[0]?.slideId ?? null);
       resetSpeakerNotesEditState(importedDeck.slides[0]?.speakerNotes ?? "");
       setUndoStack([]);
       setRedoStack([]);
@@ -4383,12 +4490,12 @@ function EditorRuntime(props: {
       return;
     }
 
-    let nextSlideIndex = workingDeckRef.current.slides.length;
+    let nextSlideId: string | null = null;
     resetSpeakerNotesEditState("");
     const committed = commitPatch((currentDeck) => {
       const slideId = createSlideId(currentDeck);
       const nextOrder = currentDeck.slides.length + 1;
-      nextSlideIndex = currentDeck.slides.length;
+      nextSlideId = slideId;
       return createAddSlidePatch(currentDeck, {
         slideId,
         order: nextOrder,
@@ -4434,8 +4541,82 @@ function EditorRuntime(props: {
       });
     });
     if (!committed) return;
-    setCurrentSlideIndex(nextSlideIndex);
+    setCurrentSlideId(nextSlideId);
     setSelectedElementIds([]);
+  }
+
+  function handleDuplicateSlide(slideId: string) {
+    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) return;
+
+    let duplicateSlideId: string | null = null;
+    const committed = commitPatch((currentDeck) => {
+      const patch = createDuplicateSlidePatch(currentDeck, slideId);
+      duplicateSlideId = getAddedSlideId(patch);
+      return patch;
+    });
+    if (!committed || !duplicateSlideId) return;
+
+    const duplicateSlide = workingDeckRef.current.slides.find(
+      (slide) => slide.slideId === duplicateSlideId,
+    );
+    setCurrentSlideId(duplicateSlideId);
+    resetSpeakerNotesEditState(duplicateSlide?.speakerNotes ?? "");
+    setSelectedElementIds([]);
+  }
+
+  function handleDeleteSlide(slideId: string) {
+    const activeDeck = workingDeckRef.current;
+    if (!canMutateDeck || activeDeck.slides.length <= 1) return;
+
+    const nextSelectedSlideId = resolveSelectedSlideIdAfterDelete({
+      deletedSlideId: slideId,
+      selectedSlideId: resolvedCurrentSlideId,
+      slides: activeDeck.slides,
+    });
+    const speakerNotesDraftDisposition =
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: slideId,
+        selectedSlideId: resolvedCurrentSlideId,
+      });
+
+    const committed = commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
+      source: "user",
+      operations: [{ type: "delete_slide", slideId }],
+    }));
+    if (!committed) return;
+
+    if (speakerNotesDraftDisposition === "discard-after-delete") {
+      const nextSlide = workingDeckRef.current.slides.find(
+        (slide) => slide.slideId === nextSelectedSlideId,
+      );
+      setCurrentSlideId(nextSelectedSlideId);
+      resetSpeakerNotesEditState(nextSlide?.speakerNotes ?? "");
+    }
+    setSelectedElementIds([]);
+    setIsDeleteUndoToastOpen(true);
+  }
+
+  function handleReorderSlides(orderedSlideIds: readonly string[]) {
+    if (!canMutateDeck) return;
+    commitPatch((currentDeck) =>
+      createSlideRailReorderPatch(currentDeck, orderedSlideIds),
+    );
+  }
+
+  function handleMoveSlide(slideId: string, direction: "down" | "up") {
+    if (!canMutateDeck) return;
+    const slideIds = workingDeckRef.current.slides.map((slide) => slide.slideId);
+    const sourceIndex = slideIds.indexOf(slideId);
+    const targetIndex = sourceIndex + (direction === "up" ? -1 : 1);
+    if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= slideIds.length) return;
+
+    const reordered = [...slideIds];
+    const [movedSlideId] = reordered.splice(sourceIndex, 1);
+    if (!movedSlideId) return;
+    reordered.splice(targetIndex, 0, movedSlideId);
+    handleReorderSlides(reordered);
   }
 
   function handleDeleteSelectedElement() {
@@ -5105,7 +5286,13 @@ function EditorRuntime(props: {
       return;
     }
 
-    if (!currentSlide || currentSlide.slideId !== speakerNotesEditSlideId) {
+    if (
+      !currentSlide ||
+      !isSpeakerNotesDraftBoundToSlide({
+        editSlideId: speakerNotesEditSlideId,
+        selectedSlideId: resolvedCurrentSlideId,
+      })
+    ) {
       resetSpeakerNotesEditState(currentNotes);
       return;
     }
@@ -5152,10 +5339,10 @@ function EditorRuntime(props: {
   ]);
 
   useEffect(() => {
-    if (currentSlideIndex > 0 && currentSlideIndex >= deck.slides.length) {
-      setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
+    if (resolvedCurrentSlideId !== currentSlideId) {
+      setCurrentSlideId(resolvedCurrentSlideId);
     }
-  }, [currentSlideIndex, deck.slides.length]);
+  }, [currentSlideId, resolvedCurrentSlideId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !canMutateDeck) {
@@ -5960,6 +6147,14 @@ function EditorRuntime(props: {
           {saveErrorMessage}
         </p>
       ) : null}
+      {canMutateDeck && isDeleteUndoToastOpen ? (
+        <EditorUndoToast
+          message="슬라이드가 삭제되었습니다"
+          onUndo={() => {
+            handleUndo();
+          }}
+        />
+      ) : null}
       {capabilities.canManageShare && isSharePanelOpen
         ? createPortal(
             <ShareAccessModal
@@ -6116,53 +6311,27 @@ function EditorRuntime(props: {
             </button>
           </div>
 
-          {isSlidesPaneCollapsed ? (
-            <div className="collapsed-slide-rail">
-              {deck.slides.map((slide, index) => (
-                <button
-                  className={`rail-slide-button ${
-                    index === currentSlideIndex ? "active" : ""
-                  }`}
-                  key={slide.slideId}
-                  type="button"
-                  title={slide.title || `슬라이드 ${index + 1}`}
-                  onClick={() => handleSelectSlideIndex(index)}
-                >
-                  {index + 1}
-                </button>
-              ))}
-            </div>
+          {hasSlides ? (
+            <SlideRail
+              canMutate={canMutateDeck}
+              canvasAspectRatio={`${deck.canvas.width} / ${deck.canvas.height}`}
+              collapsed={isSlidesPaneCollapsed}
+              items={slideRailItems}
+              showIds={showIds}
+              thumbnailBackgrounds={slideRailThumbnailBackgrounds}
+              viewMode={slidePanelView}
+              onDelete={handleDeleteSlide}
+              onDuplicate={handleDuplicateSlide}
+              onMove={handleMoveSlide}
+              onReorder={handleReorderSlides}
+              onSelect={handleSelectSlide}
+            />
           ) : (
             <div className={`slides-list ${slidePanelView}-view`}>
-              {hasSlides ? (
-                deck.slides.map((slide, index) => (
-                  <button
-                    className={`slide-item ${index === currentSlideIndex ? "active" : ""}`}
-                    key={slide.slideId}
-                    type="button"
-                    onClick={() => handleSelectSlideIndex(index)}
-                  >
-                    <span className="slide-number">{index + 1}</span>
-                    {showIds ? <IdBadge id={slide.slideId} /> : null}
-                    <span
-                      className="slide-thumb orbit-thumb"
-                      style={{
-                        aspectRatio: `${deck.canvas.width} / ${deck.canvas.height}`,
-                        background: buildSlideThumbBackground(
-                          slide,
-                          deck,
-                          slideThumbnailUrls[slide.slideId],
-                        )
-                      }}
-                    />
-                  </button>
-                ))
-              ) : (
-                <EmptyPanel
-                  title="슬라이드 없음"
-                  description="덱에 표시할 슬라이드가 없습니다. 새 슬라이드 또는 가져오기 기능이 연결되면 이 영역에 목록이 표시됩니다."
-                />
-              )}
+              <EmptyPanel
+                title="슬라이드 없음"
+                description="덱에 표시할 슬라이드가 없습니다. 새 슬라이드 또는 가져오기 기능이 연결되면 이 영역에 목록이 표시됩니다."
+              />
             </div>
           )}
 
@@ -6170,6 +6339,7 @@ function EditorRuntime(props: {
             <div className="side-footer">
               <div className="slide-view-switch" role="group" aria-label="슬라이드 보기 방식">
                 <button
+                  aria-pressed={slidePanelView === "thumbnail"}
                   className={slidePanelView === "thumbnail" ? "active" : ""}
                   type="button"
                   onClick={() => setSlidePanelView("thumbnail")}
@@ -6177,6 +6347,7 @@ function EditorRuntime(props: {
                   썸네일
                 </button>
                 <button
+                  aria-pressed={slidePanelView === "list"}
                   className={slidePanelView === "list" ? "active" : ""}
                   type="button"
                   onClick={() => setSlidePanelView("list")}
