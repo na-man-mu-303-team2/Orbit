@@ -20,9 +20,15 @@ import {
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
+  AiDeckSqsTransport,
+  type AiDeckSqsQueueName,
+  type AiDeckSqsQueueUrls,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
-import type { Job as OrbitJob } from "@orbit/shared";
+import type {
+  AiDeckGenerationStageMessage,
+  Job as OrbitJob,
+} from "@orbit/shared";
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { type Job as BullMqJob, Worker as BullMqWorker } from "bullmq";
@@ -42,6 +48,7 @@ import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
 import { reconcileExpiredAiDeckStageLeases } from "./generate-deck/stage-reconciler";
 import { processAiDeckStagedCoordinatorJob } from "./generate-deck/staged-coordinator";
+import { AiDeckSqsStageConsumer } from "./generate-deck/sqs-stage-consumer";
 import { recoverAiDeckBullMqFinalFailure } from "./generate-deck/transport-failure-recovery";
 import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
@@ -86,6 +93,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly workerId = `worker-${randomUUID()}`;
   private queueNames: string[] = [];
   private workers: BullMqWorker[] = [];
+  private sqsTransport: AiDeckSqsTransport | null = null;
+  private sqsConsumers: AiDeckSqsStageConsumer[] = [];
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
   private challengeQnaEvidenceCache: ChallengeQnaEvidenceCache | null = null;
   private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
@@ -106,9 +115,6 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     if (this.config.JOB_QUEUE_DRIVER === "sqs") {
       throw new Error("SqsJobQueue adapter is not implemented yet.");
     }
-    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
-      throw new Error("AI Deck SQS transport is not implemented yet.");
-    }
     if (
       this.config.AI_DECK_WORKER_QUEUE !== "all" &&
       ![
@@ -125,14 +131,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
     if (
       this.config.AI_DECK_WORKER_QUEUE !== "all" &&
-      this.config.AI_DECK_EXECUTION_MODE !== "bullmq"
+      this.config.AI_DECK_EXECUTION_MODE === "monolith"
     ) {
       throw new Error(
-        "Dedicated AI Deck worker roles are not implemented outside bullmq execution mode.",
+        "Dedicated AI Deck worker roles require staged execution mode.",
       );
     }
 
-    this.queueNames = this.aiDeckQueueNames();
+    this.queueNames = this.bullMqQueueNames();
     const storage = workerStorage();
     const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
@@ -419,7 +425,36 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       .filter(({ queueName }) => selectedQueues.has(queueName))
       .map(({ queueName, handler }) => this.createWorker(queueName, handler));
 
-    if (this.config.AI_DECK_EXECUTION_MODE === "bullmq") {
+    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
+      this.sqsTransport = new AiDeckSqsTransport({
+        region: this.config.AWS_REGION,
+        queueUrls: this.aiDeckSqsQueueUrls(),
+      });
+      this.sqsConsumers = this.aiDeckSqsQueueNames().map(
+        (queueName) =>
+          new AiDeckSqsStageConsumer(
+            this.sqsTransport!,
+            queueName,
+            (message) =>
+              this.processAiDeckSqsStage(message, storage, imageRuntime),
+            {
+              onError: (error, message) =>
+                this.logger.error(
+                  {
+                    event: "sqs.job.failed",
+                    queueName,
+                    ...(message ? jobPayloadFields(message) : {}),
+                    error: serializeLogError(error),
+                  },
+                  "SQS job failed.",
+                ),
+            },
+          ),
+      );
+      for (const consumer of this.sqsConsumers) consumer.start();
+    }
+
+    if (this.config.AI_DECK_EXECUTION_MODE !== "monolith") {
       const maintainAiDeckStages = () => {
         this.scheduleAiDeckStageMaintenance();
       };
@@ -434,6 +469,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         aiDeckExecutionMode: this.config.AI_DECK_EXECUTION_MODE,
         aiDeckWorkerQueue: this.config.AI_DECK_WORKER_QUEUE,
         queueNames: this.queueNames,
+        sqsQueueNames: this.aiDeckSqsQueueNames(),
       },
       "Worker ready.",
     );
@@ -442,8 +478,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy() {
     if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     if (this.aiDeckMaintenanceTimer) clearInterval(this.aiDeckMaintenanceTimer);
+    await Promise.all(this.sqsConsumers.map((consumer) => consumer.stop()));
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.aiDeckMaintenanceInFlight;
+    this.sqsTransport?.close();
     await this.transcriptCache?.close();
     await this.challengeQnaEvidenceCache?.close();
     this.logger.info(
@@ -689,8 +727,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       await dispatchAiDeckGenerationStages(repository, {
-        driver: "bullmq",
+        driver: this.config.AI_DECK_EXECUTION_MODE === "sqs" ? "sqs" : "bullmq",
         redisUrl: this.config.REDIS_URL,
+        ...(this.sqsTransport
+          ? {
+              enqueue: ({ message }) => this.sqsTransport!.send(message),
+            }
+          : {}),
         onError: (error, message) =>
           this.logger.error(
             {
@@ -757,7 +800,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private aiDeckQueueNames(): string[] {
+  private bullMqQueueNames(): string[] {
+    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
+      if (this.config.AI_DECK_WORKER_QUEUE === "all") {
+        return this.allQueueNames.filter(
+          (queueName) =>
+            ![
+              aiDeckResearchContentQueueName,
+              aiDeckDesignLayoutQueueName,
+              aiDeckImageQueueName,
+              aiDeckQaFinalizeQueueName,
+            ].includes(queueName),
+        );
+      }
+      return this.config.AI_DECK_WORKER_QUEUE === "reference-extract"
+        ? [generateDeckQueueName, referenceExtractQueueName]
+        : [];
+    }
     switch (this.config.AI_DECK_WORKER_QUEUE) {
       case "reference-extract":
         return [generateDeckQueueName, referenceExtractQueueName];
@@ -772,6 +831,99 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       default:
         return this.allQueueNames;
     }
+  }
+
+  private aiDeckSqsQueueNames(): AiDeckSqsQueueName[] {
+    if (this.config.AI_DECK_EXECUTION_MODE !== "sqs") return [];
+    switch (this.config.AI_DECK_WORKER_QUEUE) {
+      case "reference-extract":
+        return [referenceExtractQueueName];
+      case "research-content":
+        return [aiDeckResearchContentQueueName];
+      case "design-layout":
+        return [aiDeckDesignLayoutQueueName];
+      case "image":
+        return [aiDeckImageQueueName];
+      case "qa-finalize":
+        return [aiDeckQaFinalizeQueueName];
+      default:
+        return [
+          referenceExtractQueueName,
+          aiDeckResearchContentQueueName,
+          aiDeckDesignLayoutQueueName,
+          aiDeckImageQueueName,
+          aiDeckQaFinalizeQueueName,
+        ];
+    }
+  }
+
+  private aiDeckSqsQueueUrls(): AiDeckSqsQueueUrls {
+    return {
+      [referenceExtractQueueName]:
+        this.config.AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL!,
+      [aiDeckResearchContentQueueName]:
+        this.config.AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL!,
+      [aiDeckDesignLayoutQueueName]:
+        this.config.AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL!,
+      [aiDeckImageQueueName]: this.config.AI_DECK_SQS_IMAGE_QUEUE_URL!,
+      [aiDeckQaFinalizeQueueName]:
+        this.config.AI_DECK_SQS_QA_FINALIZE_QUEUE_URL!,
+    };
+  }
+
+  private async processAiDeckSqsStage(
+    message: AiDeckGenerationStageMessage,
+    storage: ReturnType<typeof workerStorage>,
+    imageRuntime: ReturnType<typeof createImageAssetRuntime>,
+  ): Promise<OrbitJob | void> {
+    this.logger.info(
+      { event: "sqs.job.started", ...jobPayloadFields(message) },
+      "SQS job started.",
+    );
+    let result: OrbitJob | void;
+    if (message.stage === "reference-extract-file") {
+      result = await processAiDeckReferenceExtractionStage(
+        this.dataSource,
+        storage,
+        this.config.PYTHON_WORKER_URL,
+        this.workerId,
+        message,
+      );
+    } else if (
+      message.stage === "source-grounding" ||
+      message.stage === "content-planning" ||
+      message.stage === "design-planning" ||
+      message.stage === "layout-compile"
+    ) {
+      result = await processAiDeckPlanningStage(
+        this.dataSource,
+        this.config.PYTHON_WORKER_URL,
+        this.workerId,
+        message,
+      );
+    } else {
+      result = await processAiDeckExecutionStage(
+        this.dataSource,
+        storage,
+        this.config.PYTHON_WORKER_URL,
+        this.workerId,
+        message,
+        imageRuntime,
+        {
+          eventLogger: (event, fields) =>
+            this.logger.info({ event, ...fields }, "AI PPT generation event."),
+        },
+      );
+    }
+    this.logger.info(
+      {
+        event: "sqs.job.processed",
+        ...jobPayloadFields(message),
+        status: result?.status,
+      },
+      "SQS job processed.",
+    );
+    return result;
   }
 }
 

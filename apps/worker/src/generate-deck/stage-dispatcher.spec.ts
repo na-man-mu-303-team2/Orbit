@@ -98,6 +98,33 @@ describe("dispatchAiDeckGenerationStages", () => {
     expect(repository.markDispatched).toHaveBeenCalledWith(sourceMessage, 0);
   });
 
+  it("marks a successful SQS send with the same checkpoint generation", async () => {
+    const repository = {
+      recoverStaleDispatches: vi.fn(async () => 0),
+      listUndispatched: vi.fn(async () => [
+        { message: referenceMessage, attempt: 3 },
+      ]),
+      markDispatched: vi.fn(async () => ({ status: "queued" })),
+    };
+    const enqueue = vi.fn(async () => ({
+      jobId: "sqs-message-1",
+      state: "waiting" as const,
+    }));
+
+    await expect(
+      dispatchAiDeckGenerationStages(repository, {
+        driver: "sqs",
+        redisUrl: "redis://localhost:6379",
+        enqueue,
+      }),
+    ).resolves.toEqual({ scanned: 1, dispatched: 1 });
+
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ driver: "sqs", message: referenceMessage }),
+    );
+    expect(repository.markDispatched).toHaveBeenCalledWith(referenceMessage, 3);
+  });
+
   it("dispatches 338-3 image checkpoints", async () => {
     const imageMessage: AiDeckGenerationStageMessage = {
       pipelineJobId: "job-ai-deck-1",

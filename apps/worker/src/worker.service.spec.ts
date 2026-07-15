@@ -24,6 +24,15 @@ const bullMq = vi.hoisted(() => ({
   handlers: new Map<string, (job: FakeBullJob) => Promise<unknown>>(),
 }));
 
+const sqs = vi.hoisted(() => ({
+  close: vi.fn(),
+  handlers: new Map<string, (message: unknown) => Promise<unknown>>(),
+  queueNames: [] as string[],
+  send: vi.fn(async () => ({ jobId: "sqs-message-1", state: "waiting" })),
+  start: vi.fn(),
+  stop: vi.fn(async () => undefined),
+}));
+
 const configState = vi.hoisted(() => ({
   JOB_QUEUE_DRIVER: "bullmq" as "bullmq" | "sqs",
   AI_DECK_EXECUTION_MODE: "monolith" as "monolith" | "bullmq" | "sqs",
@@ -37,6 +46,12 @@ const configState = vi.hoisted(() => ({
   PRIVATE_EVIDENCE_REDIS_URL: "redis://localhost:6380",
   PYTHON_WORKER_URL: "http://localhost:8000",
   REDIS_URL: "redis://localhost:6379",
+  AWS_REGION: "ap-northeast-2",
+  AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL: "https://sqs.example/reference",
+  AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL: "https://sqs.example/research",
+  AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL: "https://sqs.example/design",
+  AI_DECK_SQS_IMAGE_QUEUE_URL: "https://sqs.example/image",
+  AI_DECK_SQS_QA_FINALIZE_QUEUE_URL: "https://sqs.example/qa",
 }));
 
 const processors = vi.hoisted(() => ({
@@ -88,6 +103,32 @@ vi.mock("bullmq", () => ({
 
     close = bullMq.close;
     on = vi.fn();
+  },
+}));
+
+vi.mock("@orbit/job-queue", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@orbit/job-queue")>();
+  return {
+    ...actual,
+    AiDeckSqsTransport: class {
+      send = sqs.send;
+      close = sqs.close;
+    },
+  };
+});
+
+vi.mock("./generate-deck/sqs-stage-consumer", () => ({
+  AiDeckSqsStageConsumer: class {
+    constructor(
+      _transport: unknown,
+      queueName: string,
+      handler: (message: unknown) => Promise<unknown>,
+    ) {
+      sqs.queueNames.push(queueName);
+      sqs.handlers.set(queueName, handler);
+    }
+    start = sqs.start;
+    stop = sqs.stop;
   },
 }));
 
@@ -155,6 +196,8 @@ beforeEach(() => {
   configState.AI_DECK_WORKER_QUEUE = "all";
   bullMq.queues.length = 0;
   bullMq.handlers.clear();
+  sqs.queueNames.length = 0;
+  sqs.handlers.clear();
   vi.clearAllMocks();
   vi.spyOn(globalThis, "setInterval").mockReturnValue(1 as never);
   vi.spyOn(globalThis, "clearInterval").mockImplementation(() => undefined);
@@ -640,27 +683,59 @@ describe("WorkerService queue subscriptions", () => {
     await service.onModuleDestroy();
   });
 
-  it.each([
-    ["sqs", "all"],
-    ["monolith", "reference-extract"],
-  ] as const)(
-    "fails startup for an unavailable mode %s/%s",
-    (executionMode, workerQueue) => {
-      configState.AI_DECK_EXECUTION_MODE = executionMode;
-      configState.AI_DECK_WORKER_QUEUE = workerQueue;
-      const { service, logger } = createService();
+  it("routes SQS stage messages through the existing processor boundary", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "sqs";
+    configState.AI_DECK_WORKER_QUEUE = "all";
+    const { service } = createService();
 
-      expect(() => service.onModuleInit()).toThrow(/not implemented/i);
-      expect(bullMq.queues).toEqual([]);
-      expect(maintenance.dispatch).not.toHaveBeenCalled();
-      expect(maintenance.coordinator).not.toHaveBeenCalled();
-      expect(maintenance.reconcile).not.toHaveBeenCalled();
-      expect(logger.info).not.toHaveBeenCalledWith(
-        expect.objectContaining({ event: "worker.ready" }),
-        "Worker ready.",
-      );
-    },
-  );
+    service.onModuleInit();
+
+    expect(sqs.queueNames.sort()).toEqual(
+      [
+        referenceExtractQueueName,
+        aiDeckResearchContentQueueName,
+        aiDeckDesignLayoutQueueName,
+        aiDeckImageQueueName,
+        aiDeckQaFinalizeQueueName,
+      ].sort(),
+    );
+    expect(bullMq.queues).not.toContain(aiDeckResearchContentQueueName);
+    expect(bullMq.queues).not.toContain(aiDeckDesignLayoutQueueName);
+    await sqs.handlers.get(aiDeckResearchContentQueueName)?.({
+      pipelineJobId: "job-ai-deck-1",
+      projectId: "project-a",
+      stage: "content-planning",
+      shardKey: "",
+    });
+    expect(processors.planningStage).toHaveBeenCalledTimes(1);
+    expect(maintenance.dispatch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ driver: "sqs", enqueue: expect.any(Function) }),
+    );
+    await service.onModuleDestroy();
+  });
+
+  it("starts only the selected SQS queue for a dedicated staged role", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "sqs";
+    configState.AI_DECK_WORKER_QUEUE = "research-content";
+    const { service } = createService();
+
+    service.onModuleInit();
+
+    expect(sqs.queueNames).toEqual([aiDeckResearchContentQueueName]);
+    expect(bullMq.queues).toEqual([]);
+    await service.onModuleDestroy();
+  });
+
+  it("rejects dedicated roles only in monolith mode", () => {
+    configState.AI_DECK_EXECUTION_MODE = "monolith";
+    configState.AI_DECK_WORKER_QUEUE = "reference-extract";
+    const { service } = createService();
+
+    expect(() => service.onModuleInit()).toThrow(/staged execution mode/i);
+    expect(bullMq.queues).toEqual([]);
+    expect(sqs.queueNames).toEqual([]);
+  });
 });
 
 interface FakeBullJob {

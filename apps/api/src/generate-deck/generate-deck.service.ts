@@ -48,11 +48,7 @@ export class GenerateDeckService {
     private readonly savedDesignPacksService?: SavedDesignPacksService,
     @Optional()
     private readonly presentationBriefs?: PresentationBriefsService
-  ) {
-    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
-      throw new Error("AI Deck SQS transport is not implemented yet.");
-    }
-  }
+  ) {}
 
   async createJob(
     projectId: string,
@@ -165,9 +161,9 @@ export class GenerateDeckService {
   }
 
   async retryJob(projectId: string, jobId: string) {
-    if (this.config.AI_DECK_EXECUTION_MODE !== "bullmq") {
+    if (this.config.AI_DECK_EXECUTION_MODE === "monolith") {
       throw new ServiceUnavailableException(
-        "AI deck stage retry requires bullmq execution mode."
+        "AI deck stage retry requires staged execution mode."
       );
     }
     const retried = await this.jobsService.retryAiDeckGeneration(projectId, jobId);

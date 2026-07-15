@@ -67,8 +67,15 @@ describe("GenerateDeckService", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fails service startup while the AI Deck SQS adapter is unavailable", () => {
-    process.env.AI_DECK_EXECUTION_MODE = "sqs";
+  it("accepts SQS execution mode when all queue URLs are configured", () => {
+    Object.assign(process.env, {
+      AI_DECK_EXECUTION_MODE: "sqs",
+      AI_DECK_SQS_REFERENCE_EXTRACT_QUEUE_URL: "https://sqs.example/reference",
+      AI_DECK_SQS_RESEARCH_CONTENT_QUEUE_URL: "https://sqs.example/research",
+      AI_DECK_SQS_DESIGN_LAYOUT_QUEUE_URL: "https://sqs.example/design",
+      AI_DECK_SQS_IMAGE_QUEUE_URL: "https://sqs.example/image",
+      AI_DECK_SQS_QA_FINALIZE_QUEUE_URL: "https://sqs.example/qa",
+    });
 
     expect(
       () =>
@@ -77,7 +84,7 @@ describe("GenerateDeckService", () => {
           {} as ProjectsService,
           vi.fn(),
         ),
-    ).toThrow(/SQS.*not implemented/i);
+    ).not.toThrow();
   });
 
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
