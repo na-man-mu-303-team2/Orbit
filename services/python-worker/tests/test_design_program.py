@@ -987,7 +987,7 @@ def golden_slide_plans() -> list[SlidePlan]:
 
 
 def golden_content_plan() -> dict[str, Any]:
-    speaker_note_lengths = [143, 221, 221, 254, 254, 254, 254, 254, 220, 165]
+    speaker_note_lengths = [205, 315, 315, 363, 363, 363, 363, 362, 315, 236]
     visual_intent = {
         "emphasis": "",
         "mood": "",

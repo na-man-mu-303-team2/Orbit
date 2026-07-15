@@ -1335,10 +1335,10 @@ def test_design_pack_timing_allocates_eighty_percent_spoken_budget() -> None:
 
     assert raw_input.timing_plan.speaking_time_ratio == 0.8
     assert raw_input.timing_plan.target_spoken_seconds == 720
-    assert raw_input.timing_plan.target_total_chars == 3120
+    assert raw_input.timing_plan.target_total_chars == 4800
     assert sum(slide.target_seconds for slide in slide_plans) == 900
     assert sum(slide.target_spoken_seconds for slide in slide_plans) == 720
-    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) == 3120
+    assert sum(slide.target_speaker_notes_chars for slide in slide_plans) == 4800
     assert slide_plans[0].target_spoken_seconds < max(
         slide.target_spoken_seconds for slide in slide_plans[1:-1]
     )
@@ -2858,6 +2858,9 @@ def test_design_pack_repairs_only_remaining_short_speaker_notes() -> None:
             "공식 자료의 범위를 벗어난 추정은 포함하지 않습니다.",
             "각 근거가 결론에 미치는 영향을 차례로 구분합니다.",
             "발표를 마치며 확인할 후속 과제를 분명히 제시합니다.",
+            "청중이 비교할 수 있도록 현재 선택지의 차이를 구체적으로 설명합니다.",
+            "마지막 판단에서는 확인된 사실과 추가 검토가 필요한 부분을 나눕니다.",
+            "이 구분을 바탕으로 다음 논의에서 결정할 순서를 제안합니다.",
         ]
     )
     fake_client = FakeOpenAIClient(
@@ -3180,7 +3183,10 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
                 "교체형 설계는 제품 수명을 늘리고 전자 폐기물 감소에 기여합니다. "
                 "기존 모델의 판매 종료 일정은 새 규정의 적용 시점과 구분해 안내됐습니다. "
                 "제조사는 부품 접근성과 수리 가능성을 제품 설계 단계에서 함께 고려합니다. "
-                "소비자는 배터리 수명이 끝난 뒤에도 본체를 계속 사용할 수 있습니다."
+                "소비자는 배터리 수명이 끝난 뒤에도 본체를 계속 사용할 수 있습니다. "
+                "교체 절차가 명확하면 제품을 폐기하기 전에 수리 가능성을 먼저 검토할 수 있습니다. "
+                "부품 공급과 안내 문서는 실제 교체 가능성을 좌우하는 중요한 조건입니다. "
+                "제품 수명 연장 효과는 배터리뿐 아니라 본체와 주변 부품의 관리 방식에도 연결됩니다."
             ),
             authority="independent",
         )
@@ -3201,7 +3207,7 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
         ],
         source_refs=["web:verified"],
         target_seconds=60,
-        target_speaker_notes_chars=224,
+        target_speaker_notes_chars=320,
     )
     fake_client = FakeOpenAIClient(
         [
@@ -3217,7 +3223,7 @@ def test_short_speaker_note_repair_uses_distinct_verified_source_fallback() -> N
     )[0]
 
     actual_chars = len("".join(repaired.speaker_notes.split()))
-    assert round(224 * 0.9) <= actual_chars <= round(224 * 1.1)
+    assert round(320 * 0.9) <= actual_chars <= round(320 * 1.1)
     assert actual_chars >= round(raw_input.timing_plan.chars_per_minute * 0.75)
     assert "전자 폐기물" in repaired.speaker_notes
 
@@ -4700,10 +4706,7 @@ def test_generate_deck_design_pack_applies_v2_timing_media_reference_contract() 
     assert response.diagnostics.uploaded_source_count == 1
     assert response.diagnostics.web_source_count == 0
     assert response.diagnostics.repair_attempted is True
-    assert set(response.diagnostics.repair_reasons) & {
-        "SPEAKER_NOTES_SHORT",
-        "SPEAKER_NOTES_LONG",
-    }
+    assert "CONTENT_DUPLICATED" in response.diagnostics.repair_reasons
     assert response.diagnostics.unique_core_layout_count >= 4
     assert response.diagnostics.validation_issue_count == 0, json.dumps(
         response.validation.model_dump(by_alias=True),
@@ -6865,5 +6868,12 @@ def bounded_speaker_notes(order: int) -> str:
         f"{order}번째 장의 첫 기준이 현재 상황에 미치는 영향을 구체적으로 짚습니다. "
         f"{order}번째 장의 둘째 기준은 선택 가능한 행동과 예상 효과를 구분합니다. "
         f"{order}번째 장에서 관련 자료의 범위와 한계를 확인해 과도한 해석을 피합니다. "
-        f"{order}번째 장의 판단 기준을 마지막으로 명확히 정리합니다."
+        f"{order}번째 장의 판단 기준을 마지막으로 명확히 정리합니다. "
+        f"{order}번째 장의 배경에서는 이 결론이 필요한 이유를 먼저 확인합니다. "
+        f"{order}번째 장의 근거는 관찰된 사실과 해석을 나누어 전달합니다. "
+        f"{order}번째 장의 선택지는 각각의 장점과 제약을 함께 비교합니다. "
+        f"{order}번째 장의 기대 효과는 청중이 확인할 변화와 연결해 설명합니다. "
+        f"{order}번째 장의 남은 쟁점은 추가 검토가 필요한 순서대로 정리합니다. "
+        f"{order}번째 장을 마치며 다음 결정에서 사용할 기준을 다시 강조합니다. "
+        f"{order}번째 장의 결론이 실제 실행 과정에 미칠 영향도 함께 확인합니다."
     )
