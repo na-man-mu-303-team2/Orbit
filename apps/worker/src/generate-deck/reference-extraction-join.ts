@@ -2,7 +2,9 @@ import {
   aiDeckGenerationStageMessageSchema,
   generateDeckRequestSchema,
   jobErrorSchema,
+  jobSchema,
   type AiDeckGenerationStageMessage,
+  type Job,
   type JobError,
   type ReferenceExtractionFile,
 } from "@orbit/shared";
@@ -21,9 +23,13 @@ const parentRowSchema = z.object({
   project_id: z.string().min(1),
   type: z.literal("ai-deck-generation"),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
+  progress: z.number().int().min(0).max(100),
+  message: z.string(),
   payload: z.unknown(),
-  created_at: timestampSchema.optional(),
-  updated_at: timestampSchema.optional(),
+  result: z.record(z.unknown()).nullable(),
+  error: jobErrorSchema.nullable(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
 });
 const storedPayloadSchema = z.object({ request: generateDeckRequestSchema }).passthrough();
 const joinRowSchema = z.object({
@@ -51,14 +57,14 @@ export interface CompleteReferenceExtractionStageInput {
 export async function completeAiDeckReferenceExtractionStage(
   dataSource: DataSource,
   rawInput: CompleteReferenceExtractionStageInput,
-): Promise<void> {
+): Promise<Job> {
   const message = referenceStageMessage(rawInput.message);
   const error = rawInput.error ? jobErrorSchema.parse(rawInput.error) : undefined;
   if (!rawInput.extraction && !error) {
     throw new Error("Reference extraction completion requires a result or error.");
   }
 
-  await dataSource.transaction(async (manager) => {
+  return dataSource.transaction(async (manager) => {
     const parent = await lockParent(manager, message);
     if (parent.status === "succeeded" || parent.status === "failed") {
       throw new AiDeckStageFencingLostError();
@@ -94,44 +100,51 @@ export async function completeAiDeckReferenceExtractionStage(
     if (!completed) throw new AiDeckStageFencingLostError();
 
     if (rawInput.fatalParent) {
-      await failParent(manager, message, error ?? terminalSourceError());
-      return;
+      return failParent(manager, message, error ?? terminalSourceError());
     }
-    await ensureReferenceExtractionJoin(manager, message, request);
+    return (
+      (await ensureReferenceExtractionJoin(manager, message, request)) ??
+      parentJob(parent)
+    );
   });
 }
 
 export async function recoverAiDeckReferenceExtractionJoin(
   dataSource: DataSource,
   rawMessage: unknown,
-): Promise<void> {
+): Promise<Job> {
   const message = referenceStageMessage(rawMessage);
-  await dataSource.transaction(async (manager) => {
-    await recoverAiDeckReferenceExtractionJoinInTransaction(manager, message);
-  });
+  return dataSource.transaction((manager) =>
+    recoverAiDeckReferenceExtractionJoinInTransaction(manager, message),
+  );
 }
 
 export async function recoverAiDeckReferenceExtractionJoinInTransaction(
   db: QueryExecutor,
   rawMessage: unknown,
-): Promise<void> {
+): Promise<Job> {
   const message = referenceStageMessage(rawMessage);
   const parent = await lockParent(db, message);
-  if (parent.status === "succeeded" || parent.status === "failed") return;
+  if (parent.status === "succeeded" || parent.status === "failed") {
+    return parentJob(parent);
+  }
   const request = storedPayloadSchema.parse(parent.payload).request;
   assertExpectedShard(request, message.shardKey);
-  await ensureReferenceExtractionJoin(db, message, request);
+  return (
+    (await ensureReferenceExtractionJoin(db, message, request)) ??
+    parentJob(parent)
+  );
 }
 
 async function ensureReferenceExtractionJoin(
   db: QueryExecutor,
   message: AiDeckGenerationStageMessage,
   request: ReturnType<typeof generateDeckRequestSchema.parse>,
-): Promise<void> {
+): Promise<Job | null> {
   const plan = planAiDeckInitialStages(request);
   if (plan.uncoveredReferenceFileIds.length === 0) {
     await ensureSourceGrounding(db, message);
-    return;
+    return null;
   }
   const rows = await db.query(
     `
@@ -156,10 +169,10 @@ async function ensureReferenceExtractionJoin(
     states.length !== expected.size ||
     states.some((state) => !expected.has(state.shard_key))
   ) {
-    return;
+    return null;
   }
   if (states.some((state) => state.status === "queued" || state.status === "running")) {
-    return;
+    return null;
   }
 
   const coveredUsableCount = new Set(
@@ -175,10 +188,10 @@ async function ensureReferenceExtractionJoin(
     (plan.referencePolicy === "references-only" &&
       states.every((state) => state.usable));
   if (!canContinue) {
-    await failParent(db, message, terminalSourceError());
-    return;
+    return failParent(db, message, terminalSourceError());
   }
   await ensureSourceGrounding(db, message);
+  return null;
 }
 
 async function ensureSourceGrounding(
@@ -229,7 +242,7 @@ async function failParent(
   db: QueryExecutor,
   message: AiDeckGenerationStageMessage,
   rawError: JobError,
-): Promise<void> {
+): Promise<Job> {
   const error = jobErrorSchema.parse(rawError);
   await db.query(
     `
@@ -246,7 +259,7 @@ async function failParent(
     `,
     [message.pipelineJobId, error],
   );
-  await db.query(
+  const rows = await db.query(
     `
       UPDATE jobs
       SET status = 'failed',
@@ -257,9 +270,32 @@ async function failParent(
         AND project_id = $2
         AND type = 'ai-deck-generation'
         AND status IN ('queued','running')
+      RETURNING *
     `,
     [message.pipelineJobId, message.projectId, error],
   );
+  const raw = firstQueryRow(rows);
+  if (!raw) throw new Error("AI deck generation parent could not be failed.");
+  return parentJob(parentRowSchema.parse(raw));
+}
+
+function parentJob(parent: z.infer<typeof parentRowSchema>): Job {
+  return jobSchema.parse({
+    jobId: parent.job_id,
+    projectId: parent.project_id,
+    type: parent.type,
+    status: parent.status,
+    progress: parent.progress,
+    message: parent.message,
+    result: parent.result,
+    error: parent.error,
+    createdAt: isoTimestamp(parent.created_at),
+    updatedAt: isoTimestamp(parent.updated_at),
+  });
+}
+
+function isoTimestamp(value: z.infer<typeof timestampSchema>): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 function assertExpectedShard(

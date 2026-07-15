@@ -11,7 +11,7 @@ export interface AiDeckStageReconcilerOptions {
   recoverJoin?: (
     db: QueryExecutor,
     message: AiDeckGenerationStageMessage,
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   onError?: (error: unknown, message: AiDeckGenerationStageMessage) => void;
 }
 

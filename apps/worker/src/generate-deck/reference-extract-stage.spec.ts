@@ -315,6 +315,9 @@ describe("processAiDeckReferenceExtractionStage", () => {
         if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
           return [parentJobRow()];
         }
+        if (compact.startsWith("UPDATE jobs")) {
+          return [failedParentJobRow(parameters?.[2])];
+        }
         if (compact.includes("SET status = 'failed'")) {
           return [
             checkpointRow({
@@ -323,9 +326,6 @@ describe("processAiDeckReferenceExtractionStage", () => {
               error_json: parameters?.[6],
             }),
           ];
-        }
-        if (compact.startsWith("UPDATE jobs")) {
-          return [failedParentJobRow(parameters?.[2])];
         }
         throw new Error(`Unexpected transaction query: ${compact}`);
       },

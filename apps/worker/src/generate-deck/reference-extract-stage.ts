@@ -4,6 +4,7 @@ import {
   generateDeckRequestSchema,
   jobErrorSchema,
   type AiDeckGenerationStageMessage,
+  type Job,
   type JobError,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -57,7 +58,7 @@ export interface AiDeckReferenceExtractionStageOptions {
   recoverJoin?: (
     dataSource: DataSource,
     message: AiDeckGenerationStageMessage,
-  ) => Promise<void>;
+  ) => Promise<Job | void>;
 }
 
 export async function processAiDeckReferenceExtractionStage(
@@ -67,16 +68,15 @@ export async function processAiDeckReferenceExtractionStage(
   workerId: string,
   rawMessage: unknown,
   options: AiDeckReferenceExtractionStageOptions = {},
-): Promise<void> {
+): Promise<Job | void> {
   const message = referenceStageMessageSchema.parse(rawMessage);
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
   const claimed = await checkpoints.claim(message, workerId);
   if (!claimed) {
-    await (options.recoverJoin ?? recoverAiDeckReferenceExtractionJoin)(
+    return (options.recoverJoin ?? recoverAiDeckReferenceExtractionJoin)(
       dataSource,
       message,
     );
-    return;
   }
   if (!claimed.leaseOwner) throw new Error("Claimed stage is missing its lease owner.");
 
@@ -176,17 +176,16 @@ export async function processAiDeckReferenceExtractionStage(
         );
         return;
       }
-      await completeAiDeckReferenceExtractionStage(dataSource, {
+      return await completeAiDeckReferenceExtractionStage(dataSource, {
         message,
         leaseOwner: claimed.leaseOwner,
         attempt: claimed.attempt,
         extraction,
         error: { ...unusableError, retryable: false },
       });
-      return;
     }
 
-    await completeAiDeckReferenceExtractionStage(dataSource, {
+    return await completeAiDeckReferenceExtractionStage(dataSource, {
       message,
       leaseOwner: claimed.leaseOwner,
       attempt: claimed.attempt,
@@ -206,7 +205,7 @@ export async function processAiDeckReferenceExtractionStage(
       );
       return;
     }
-    await completeAiDeckReferenceExtractionStage(dataSource, {
+    return await completeAiDeckReferenceExtractionStage(dataSource, {
       message,
       leaseOwner: claimed.leaseOwner,
       attempt: claimed.attempt,
