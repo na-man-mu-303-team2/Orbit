@@ -113,6 +113,7 @@ export const rehearsalRunErrorSchema = z.object({
 export const rehearsalRunSchema = z.object({
   runId: z.string().min(1),
   projectId: z.string().min(1),
+  createdByUserId: z.string().min(1),
   deckId: z.string().min(1),
   audioFileId: z.string().min(1).nullable(),
   jobId: z.string().min(1).nullable(),

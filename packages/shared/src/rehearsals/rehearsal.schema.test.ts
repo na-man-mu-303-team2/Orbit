@@ -81,6 +81,7 @@ describe("rehearsalRunSchema", () => {
     const run = rehearsalRunSchema.parse({
       runId: "run_1",
       projectId: "project_demo_1",
+      createdByUserId: "user_demo_1",
       deckId: "deck_demo_1",
       audioFileId: "file_audio_1",
       jobId: "job_1",
@@ -92,6 +93,7 @@ describe("rehearsalRunSchema", () => {
     });
 
     expect(run.status).toBe("succeeded");
+    expect(run.createdByUserId).toBe("user_demo_1");
     expect(run.rawAudioDeletedAt).toBe("2026-06-29T00:00:10.000Z");
     expect(run.deckVersion).toBeNull();
     expect(run.evaluationSnapshot).toBeNull();
@@ -104,6 +106,7 @@ describe("rehearsalRunSchema", () => {
     const run = rehearsalRunSchema.parse({
       runId: "run_cancelled",
       projectId: "project_demo_1",
+      createdByUserId: "user_demo_1",
       deckId: "deck_demo_1",
       audioFileId: null,
       jobId: null,
@@ -115,6 +118,23 @@ describe("rehearsalRunSchema", () => {
     });
 
     expect(run.status).toBe("cancelled");
+  });
+
+  it("rejects a run response without its creator", () => {
+    const result = rehearsalRunSchema.safeParse({
+      runId: "run_without_creator",
+      projectId: "project_demo_1",
+      deckId: "deck_demo_1",
+      audioFileId: null,
+      jobId: null,
+      status: "created",
+      error: null,
+      rawAudioDeletedAt: null,
+      createdAt: "2026-06-29T00:00:00.000Z",
+      updatedAt: "2026-06-29T00:00:00.000Z"
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 
@@ -593,6 +613,7 @@ describe("getRehearsalReportResponseSchema", () => {
       run: {
         runId: "run_1",
         projectId: "project_demo_1",
+        createdByUserId: "user_demo_1",
         deckId: "deck_demo_1",
         audioFileId: "file_audio_1",
         jobId: "job_1",
