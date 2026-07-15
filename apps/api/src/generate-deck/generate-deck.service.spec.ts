@@ -35,6 +35,8 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
+  AI_DECK_EXECUTION_MODE: "monolith",
+  AI_DECK_WORKER_QUEUE: "all",
   STT_PROVIDER: "sherpa",
   LIVE_STT_PROVIDER: "sherpa",
   REPORT_STT_PROVIDER: "openai",
@@ -63,6 +65,19 @@ describe("GenerateDeckService", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("fails service startup while the AI Deck SQS adapter is unavailable", () => {
+    process.env.AI_DECK_EXECUTION_MODE = "sqs";
+
+    expect(
+      () =>
+        new GenerateDeckService(
+          {} as JobsService,
+          {} as ProjectsService,
+          vi.fn(),
+        ),
+    ).toThrow(/SQS.*not implemented/i);
   });
 
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
