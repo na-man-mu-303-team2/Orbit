@@ -334,7 +334,10 @@ test.describe("P0-3 slide rail persistence", () => {
       page,
       project.projectId,
     );
-    await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+    await page
+      .getByRole("status")
+      .getByRole("button", { name: "실행 취소", exact: true })
+      .click();
     await expectSuccessfulResponse(await undoPutResponsePromise);
 
     expect(probe.deckPuts).toHaveLength(1);
