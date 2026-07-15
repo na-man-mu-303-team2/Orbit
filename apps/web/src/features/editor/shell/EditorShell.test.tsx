@@ -50,7 +50,9 @@ import {
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
   waitForSlideRenderStages,
+  resolveDeleteUndoToastOpenAfterPatch,
   resolveHistoryNavigation,
+  resolveSpeakerNotesDraftDispositionForSlideDelete,
   requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
@@ -481,6 +483,36 @@ describe("editor shell", () => {
         stack: [{ deck, slideId: selectedSlideId }],
       })?.targetSlideId,
     ).toBe(selectedSlideId);
+  });
+
+  it("closes a stale delete undo toast after any successful patch", () => {
+    expect(
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: true,
+        currentOpen: true,
+      }),
+    ).toBe(false);
+    expect(
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: false,
+        currentOpen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("discards dirty speaker notes only after the selected slide is deleted", () => {
+    expect(
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: "slide_1",
+        selectedSlideId: "slide_1",
+      }),
+    ).toBe("discard-after-delete");
+    expect(
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: "slide_2",
+        selectedSlideId: "slide_1",
+      }),
+    ).toBe("preserve");
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

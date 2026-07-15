@@ -344,6 +344,22 @@ export function isSpeakerNotesDraftBoundToSlide(input: {
   );
 }
 
+export function resolveSpeakerNotesDraftDispositionForSlideDelete(input: {
+  deletedSlideId: string;
+  selectedSlideId: string | null;
+}) {
+  return input.deletedSlideId === input.selectedSlideId
+    ? "discard-after-delete"
+    : "preserve";
+}
+
+export function resolveDeleteUndoToastOpenAfterPatch(input: {
+  commitSucceeded: boolean;
+  currentOpen: boolean;
+}) {
+  return input.commitSucceeded ? false : input.currentOpen;
+}
+
 export const danglingKeywordOccurrenceSaveMessage =
   "발표 메모 수정으로 기존 키워드 트리거 위치를 찾을 수 없습니다. 연결된 애니메이션 또는 다음 슬라이드 트리거를 새 위치에 다시 연결한 뒤 저장하세요.";
 
@@ -3096,6 +3112,12 @@ function EditorRuntime(props: {
       return false;
     }
 
+    setIsDeleteUndoToastOpen((currentOpen) =>
+      resolveDeleteUndoToastOpenAfterPatch({
+        commitSucceeded: true,
+        currentOpen,
+      }),
+    );
     applyOptimisticWorkingDeck(result.deck);
     setSaveState("auto-pending");
     setSaveError(null, null);
@@ -4521,7 +4543,6 @@ function EditorRuntime(props: {
     if (!committed) return;
     setCurrentSlideId(nextSlideId);
     setSelectedElementIds([]);
-    setIsDeleteUndoToastOpen(false);
   }
 
   function handleDuplicateSlide(slideId: string) {
@@ -4541,7 +4562,6 @@ function EditorRuntime(props: {
     setCurrentSlideId(duplicateSlideId);
     resetSpeakerNotesEditState(duplicateSlide?.speakerNotes ?? "");
     setSelectedElementIds([]);
-    setIsDeleteUndoToastOpen(false);
   }
 
   function handleDeleteSlide(slideId: string) {
@@ -4553,12 +4573,11 @@ function EditorRuntime(props: {
       selectedSlideId: resolvedCurrentSlideId,
       slides: activeDeck.slides,
     });
-    if (
-      slideId === resolvedCurrentSlideId &&
-      !commitSpeakerNotesDraftIfDirty()
-    ) {
-      return;
-    }
+    const speakerNotesDraftDisposition =
+      resolveSpeakerNotesDraftDispositionForSlideDelete({
+        deletedSlideId: slideId,
+        selectedSlideId: resolvedCurrentSlideId,
+      });
 
     const committed = commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
@@ -4568,7 +4587,7 @@ function EditorRuntime(props: {
     }));
     if (!committed) return;
 
-    if (slideId === resolvedCurrentSlideId) {
+    if (speakerNotesDraftDisposition === "discard-after-delete") {
       const nextSlide = workingDeckRef.current.slides.find(
         (slide) => slide.slideId === nextSelectedSlideId,
       );
@@ -4581,10 +4600,9 @@ function EditorRuntime(props: {
 
   function handleReorderSlides(orderedSlideIds: readonly string[]) {
     if (!canMutateDeck) return;
-    const committed = commitPatch((currentDeck) =>
+    commitPatch((currentDeck) =>
       createSlideRailReorderPatch(currentDeck, orderedSlideIds),
     );
-    if (committed) setIsDeleteUndoToastOpen(false);
   }
 
   function handleMoveSlide(slideId: string, direction: "down" | "up") {
