@@ -22,7 +22,23 @@ describe("planAiDeckInitialStages", () => {
 
     expect(planAiDeckInitialStages(request)).toEqual({
       referencePolicy: "references-first",
-      referenceFileIds: ["file-a", "file-c"],
+      selectedReferenceFileIds: ["file-a", "file-b", "file-c"],
+      uncoveredReferenceFileIds: ["file-a", "file-c"],
+    });
+  });
+
+  it("uses public references as the canonical selector before referenceFileIds", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "selector parity",
+      referencePolicy: "references-only",
+      references: [{ fileId: "file-public" }, { fileId: "file-public" }],
+      referenceFileIds: ["file-internal"],
+    });
+
+    expect(planAiDeckInitialStages(request)).toEqual({
+      referencePolicy: "references-only",
+      selectedReferenceFileIds: ["file-public"],
+      uncoveredReferenceFileIds: ["file-public"],
     });
   });
 
@@ -37,7 +53,8 @@ describe("planAiDeckInitialStages", () => {
 
       expect(planAiDeckInitialStages(request)).toEqual({
         referencePolicy,
-        referenceFileIds: [],
+        selectedReferenceFileIds: ["file-a"],
+        uncoveredReferenceFileIds: [],
       });
     },
   );
@@ -113,6 +130,36 @@ describe("processAiDeckStagedCoordinatorJob", () => {
     ]);
   });
 
+  it("fans out references-only files selected through the public references field", async () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "public references",
+      referencePolicy: "references-only",
+      references: [{ fileId: "file-public" }],
+    });
+    const query = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([parentJobRow({ payload: { request } })])
+      .mockResolvedValueOnce([parentJobRow({ status: "running", progress: 10 })])
+      .mockResolvedValueOnce([checkpointRow("file-public")]);
+    const transaction = vi.fn(
+      async (work: (manager: { query: QueryFunction }) => unknown) =>
+        work({ query }),
+    );
+
+    const result = await processAiDeckStagedCoordinatorJob(
+      { transaction } as unknown as DataSource,
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+    );
+
+    expect(result.status).toBe("running");
+    expect(query.mock.calls[2]?.[1]?.slice(0, 4)).toEqual([
+      "job-ai-deck-1",
+      "project-a",
+      "reference-extract-file",
+      "file-public",
+    ]);
+  });
+
   it.each(["references-first", "references-only"] as const)(
     "fails %s before source-grounding when no usable source exists",
     async (referencePolicy) => {
@@ -162,6 +209,45 @@ describe("processAiDeckStagedCoordinatorJob", () => {
       ).toBe(false);
     },
   );
+
+  it("fails references-only when context exists without a selected reference", async () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "strict selector",
+      referencePolicy: "references-only",
+      referenceContext: [
+        { fileId: "context-only", content: "unselected context" },
+      ],
+    });
+    const terminalError = {
+      code: "SOURCE_GROUNDING_REQUIRED",
+      message: "The selected reference policy requires usable grounding.",
+      failedStage: "reference-extract-file",
+      retryable: false,
+    };
+    const query = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([parentJobRow({ payload: { request } })])
+      .mockResolvedValueOnce([
+        parentJobRow({
+          status: "failed",
+          message: "AI deck generation failed.",
+          payload: { request },
+          error: terminalError,
+        }),
+      ]);
+    const transaction = vi.fn(
+      async (work: (manager: { query: QueryFunction }) => unknown) =>
+        work({ query }),
+    );
+
+    const result = await processAiDeckStagedCoordinatorJob(
+      { transaction } as unknown as DataSource,
+      { jobId: "job-ai-deck-1", projectId: "project-a" },
+    );
+
+    expect(result).toMatchObject({ status: "failed", error: terminalError });
+    expect(query).toHaveBeenCalledTimes(2);
+  });
 
   it("rejects coordinator payload fields beyond the ID-only contract", async () => {
     const transaction = vi.fn();

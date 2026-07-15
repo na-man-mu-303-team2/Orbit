@@ -229,6 +229,73 @@ describe("processAiDeckReferenceExtractionStage", () => {
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
+  it("routes a non-retryable provider response through the research-first policy join", async () => {
+    const outerQuery = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("SET status = 'running'")) return [runningCheckpointRow()];
+      if (compact.includes("FROM project_assets assets")) {
+        return [assetRow("research-first")];
+      }
+      throw new Error(`Unexpected outer query: ${compact}`);
+    });
+    const transactionQuery = vi.fn(
+      async (sql: string, parameters?: unknown[]) => {
+        const compact = compactSql(sql);
+        if (compact.includes("FROM jobs") && compact.includes("FOR UPDATE")) {
+          return [parentJobRow("research-first")];
+        }
+        if (compact.includes("SET status = 'failed'")) {
+          return [
+            checkpointRow({
+              status: "failed",
+              attempt: 1,
+              error_json: parameters?.[6],
+            }),
+          ];
+        }
+        if (compact.includes("FROM ai_deck_generation_stages stages")) {
+          return [{ shard_key: "file-a", status: "failed", usable: false }];
+        }
+        if (compact.startsWith("INSERT INTO ai_deck_generation_stages")) {
+          return [sourceGroundingCheckpointRow()];
+        }
+        if (compact.startsWith("UPDATE jobs")) return [];
+        throw new Error(`Unexpected transaction query: ${compact}`);
+      },
+    );
+    const dataSource = {
+      query: outerQuery,
+      transaction: vi.fn(
+        async (work: (manager: { query: typeof transactionQuery }) => unknown) =>
+          work({ query: transactionQuery }),
+      ),
+    } as unknown as DataSource;
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+      .mockResolvedValueOnce(Response.json({ files: [] }));
+
+    await processAiDeckReferenceExtractionStage(
+      dataSource,
+      storageStub(),
+      "http://python-worker:8000",
+      "worker-a",
+      message,
+      { fetchImpl },
+    );
+
+    expect(
+      transactionQuery.mock.calls.some((call) =>
+        compactSql(call[0]).startsWith("INSERT INTO ai_deck_generation_stages"),
+      ),
+    ).toBe(true);
+    expect(
+      transactionQuery.mock.calls.some((call) =>
+        compactSql(call[0]).startsWith("UPDATE jobs"),
+      ),
+    ).toBe(false);
+  });
+
   it("fails an invalid project asset without calling Storage or Python", async () => {
     const outerQuery = vi.fn(async (sql: string, _parameters?: unknown[]) => {
       const compact = compactSql(sql);
@@ -300,7 +367,9 @@ function storageStub(): Pick<StoragePort, "getSignedReadUrl"> & {
   };
 }
 
-function parentJobRow() {
+function parentJobRow(
+  referencePolicy: "references-first" | "research-first" = "references-first",
+) {
   return {
     job_id: "job-ai-deck-1",
     project_id: "project-a",
@@ -311,7 +380,7 @@ function parentJobRow() {
     payload: {
       request: {
         topic: "staged OCR",
-        referencePolicy: "references-first",
+        referencePolicy,
         referenceFileIds: ["file-a"],
       },
     },
@@ -322,7 +391,9 @@ function parentJobRow() {
   };
 }
 
-function assetRow() {
+function assetRow(
+  referencePolicy: "references-first" | "research-first" = "references-first",
+) {
   return {
     file_id: "file-a",
     project_id: "project-a",
@@ -331,7 +402,7 @@ function assetRow() {
     mime_type: "application/pdf",
     purpose: "reference-material",
     status: "uploaded",
-    payload: parentJobRow().payload,
+    payload: parentJobRow(referencePolicy).payload,
   };
 }
 
