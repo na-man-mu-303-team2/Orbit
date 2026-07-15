@@ -1,19 +1,9 @@
 import {
-  ChevronDown,
-  MonitorPlay,
-  Share2,
-  Sparkles,
-  type LucideIcon
-} from "lucide-react";
-
-type PresentationMenuAction = "presentation" | "rehearsal" | "audience-link";
-
-type PresentationMenuItem = {
-  action: PresentationMenuAction;
-  icon: LucideIcon;
-  label: string;
-  meta: string;
-};
+  IconChevronDown,
+  IconLink,
+  IconMicrophone,
+  IconPlayerPlay
+} from "@tabler/icons-react";
 
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
@@ -24,27 +14,6 @@ type PresentationMenuProps = {
   onStartRehearsal: () => void;
   onToggle: () => void;
 };
-
-const presentationItems: PresentationMenuItem[] = [
-  {
-    action: "presentation",
-    icon: MonitorPlay,
-    label: "발표 시작",
-    meta: "발표용 화면 열기"
-  },
-  {
-    action: "rehearsal",
-    icon: Sparkles,
-    label: "리허설 시작",
-    meta: "발표 흐름 점검"
-  },
-  {
-    action: "audience-link",
-    icon: Share2,
-    label: "청중 링크·QR",
-    meta: "QR 코드 발급"
-  }
-];
 
 export function PresentationMenu(props: PresentationMenuProps) {
   const {
@@ -57,68 +26,61 @@ export function PresentationMenu(props: PresentationMenuProps) {
     onToggle
   } = props;
 
-  function handleSelect(action: PresentationMenuAction) {
-    if (action === "presentation") {
-      onStartPresentation();
-      return;
-    }
-
-    if (action === "rehearsal") {
-      onStartRehearsal();
-      return;
-    }
-
-    if (action === "audience-link") {
-      onOpenAudienceLink();
-    }
-  }
-
   return (
-    <div className="top-action-menu">
+    <>
       <button
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        className={`header-chip-button ${isOpen ? "active" : ""}`}
+        className="editor-rehearsal-button"
+        disabled={!canStartPresentation}
         type="button"
-        onClick={onToggle}
+        onClick={onStartRehearsal}
       >
-        프레젠테이션 <ChevronDown size={14} />
+        <IconMicrophone aria-hidden="true" size={16} />
+        {activeStartAction === "rehearsal" ? "준비 중" : "리허설"}
       </button>
-      {isOpen ? (
-        <div className="file-menu-popover action-popover" role="menu">
-          <div className="file-menu-list">
-            {presentationItems.map(({ action, icon: Icon, label, meta }) => {
-              const isStartAction =
-                action === "presentation" || action === "rehearsal";
-              const busyLabel =
-                action === "presentation"
-                  ? "발표 화면 준비 중..."
-                  : "리허설 준비 중...";
-
-              return (
-                <button
-                  className="file-menu-item"
-                  disabled={isStartAction && !canStartPresentation}
-                  key={label}
-                  role="menuitem"
-                  type="button"
-                  onClick={() => handleSelect(action)}
-                >
-                  <span className="file-menu-label">
-                    <Icon size={16} />
-                    {label}
-                  </span>
-                  <span className="file-menu-meta">
-                    <small>
-                      {activeStartAction === action ? busyLabel : meta}
-                    </small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+      <div className="top-action-menu">
+        <div className={`editor-presentation-split ${isOpen ? "active" : ""}`}>
+          <button
+            className="editor-present-button"
+            disabled={!canStartPresentation}
+            type="button"
+            onClick={onStartPresentation}
+          >
+            <IconPlayerPlay aria-hidden="true" size={16} />
+            {activeStartAction === "presentation" ? "준비 중" : "발표하기"}
+          </button>
+          <button
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+            aria-label="발표 메뉴 열기"
+            className="editor-present-menu-button"
+            disabled={!canStartPresentation}
+            type="button"
+            onClick={onToggle}
+          >
+            <IconChevronDown aria-hidden="true" size={14} />
+          </button>
         </div>
-      ) : null}
-    </div>
+        {isOpen ? (
+          <div className="file-menu-popover action-popover" role="menu">
+            <div className="file-menu-list">
+              <button
+                className="file-menu-item"
+                role="menuitem"
+                type="button"
+                onClick={onOpenAudienceLink}
+              >
+                <span className="file-menu-label">
+                  <IconLink aria-hidden="true" size={16} />
+                  청중 링크·QR
+                </span>
+                <span className="file-menu-meta">
+                  <small>QR 코드 발급</small>
+                </span>
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }

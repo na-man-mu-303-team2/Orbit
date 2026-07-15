@@ -24,7 +24,6 @@
 - `git diff --check`: passed.
 
 final result: passed
-
 ---
 
 ## Rehearsal Presenter Chrome Visibility (2026-07-15)
@@ -365,5 +364,109 @@ At `720px`, tool labels collapse to accessible icon controls and the slide prope
 - Web suite: 133 files, 919 tests passed.
 - Web lint: passed.
 - `git diff --check`: passed.
+
+final result: passed
+
+---
+
+# ORBIT Production Editor Design QA
+
+## Scope
+
+- Source visual: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/05-reference-editor-1440x900.jpg`
+- Final implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/15-production-editor-final-1440x900.jpg`
+- Responsive evidence:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/12-production-editor-1180x800-reloaded.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/14-production-editor-860x900-fixed.jpg`
+- Inspector evidence:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/10-production-editor-design-panel-fixed.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/09-production-editor-notes-panel.jpg`
+- State: project editor loaded with the current five-slide production deck; AI coach is the default inspector tab.
+- Reference policy: `/mockup/editor` was opened only for visual comparison. No mockup source, route, style, component, constant, or asset is used by production code.
+
+## Full comparison
+
+The source and implementation were reviewed together at 1440×900. The implementation preserves the source hierarchy: compact document header, neutral rounded tool dock, 224px slide rail, flexible canvas workspace, 304px inspector, lilac selection states, outline icon family, secondary share/rehearsal actions, and a single black presentation action. Production-only presence, version, brief, Deck content, AI chat, validation, and save behavior remain intentionally functional instead of copying mockup-only content.
+
+Typography uses the existing ORBIT font stack and semantic scale. The canvas remains the ORBIT Surface while the slide retains its Deck theme. Borders, focus rings, active states, and status colors are mapped to ORBIT semantic tokens. Official production logo and Tabler outline icons are used; no mockup or replacement art assets are introduced.
+
+## Responsive and interaction checks
+
+- 1440×900: three regions align below the 54px tool dock with no overlap or inaccessible controls.
+- 1180×800: contextual labels compress while slide rail, canvas, inspector, and header actions remain reachable.
+- 860×900: the rail becomes 86px, slide addition remains available as an icon action, and the inspector becomes a bottom sheet capped below 46vh.
+- Top inspector tabs support ArrowLeft/ArrowRight keyboard movement.
+- Share uses the existing ORBIT dialog; Escape closes it and restores focus to the Share button.
+- Icon-only editor actions expose accessible labels and visible ORBIT focus rings.
+- AI coach Chat/Inspection, Design controls, and Notes content were opened and checked.
+- Desktop and responsive browser console error logs were empty.
+
+## Comparison history
+
+1. P2 layout: the first desktop pass applied tool-dock spacing twice, leaving an oversized gap above the workspace. Fixed by keeping the dock in the stage flow and offsetting only the adjacent slide, animation, and inspector panes.
+2. P2 responsiveness: the Design inspector inherited the horizontal quick-bar grid and clipped theme controls. Fixed with inspector-specific two-column field layout at matching specificity.
+3. P2 responsiveness: at 860px the presentation action wrapped below the logo and the slide title broke vertically in the 86px rail. Fixed by anchoring the presentation action inside the mobile header and hiding the redundant rail title while retaining the count in desktop layouts.
+4. Final same-input comparison found no remaining P0, P1, or P2 fidelity, behavior, accessibility, or responsiveness issue within the requested production-editor scope.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed; existing Vite chunk-size warnings only.
+- Mockup before/after SHA-256 manifests are identical.
+- `git diff -- apps/web/src/features/mockups apps/web/src/App.tsx` is empty.
+- Production editor/design-system scan contains no `features/mockups` or `lucide-react` import.
+
+final result: passed
+
+---
+
+# Speaker Notes Dock QA — 2026-07-15
+
+## Evidence
+
+- Source visual truth: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/18-google-slides-notes-reference-clear.jpg`
+- Desktop implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/19-orbit-notes-after-collapsed.jpg`
+- Expanded implementation: `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/20-orbit-notes-after-expanded.jpg`
+- Responsive implementation:
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/21-orbit-notes-1180x800.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/22-orbit-notes-860x900.jpg`
+  - `/Users/donghyunkim/.codex/visualizations/2026/07/15/019f645b-15d4-7983-83f3-f3a0833922a3/23-orbit-notes-860x900-expanded.jpg`
+- Primary viewport: 2048×1365, collapsed presenter-notes state.
+- Additional viewports: 1180×800 and 860×900.
+
+## Comparison
+
+The source and desktop implementation were opened in the same comparison input. Both place presenter notes as a low-emphasis horizontal strip directly below the slide canvas, separated by a single subtle border and outside the primary inspector hierarchy. ORBIT intentionally keeps its own label, current slide note preview, Pretendard typography, Tabler file icon, and semantic tokens instead of copying Google product chrome.
+
+The full view was sufficient to judge the strip's position, width, border, spacing, typography hierarchy, and relationship to the canvas. The expanded implementation screenshot provides focused evidence for the note text, AI refinement, edit action, keyword checkpoints, length meter, and internal scrolling; a separate cropped image was not required.
+
+## Required fidelity surfaces
+
+- Fonts and typography: ORBIT's existing editorial Korean type scale remains consistent; the note title is stronger than the single-line preview without competing with the slide.
+- Spacing and layout: the 54px collapsed dock attaches to the canvas bottom; expanded content is capped at 280px/34vh and scrolls internally.
+- Colors and tokens: Canvas, Surface, Ink, muted text, Lilac focus, and semantic borders use the canonical ORBIT tokens.
+- Image quality and assets: no new raster, SVG, CSS-art, or mockup asset was introduced; the existing official logo and Tabler icon remain intact.
+- Copy and content: dynamic presenter notes are previewed in the collapsed strip; the empty-state prompt is `발표자 노트를 추가하려면 클릭하세요.`
+
+## Interaction and accessibility
+
+- Collapsed and expanded states expose `aria-expanded`, `aria-controls`, and explicit expand/collapse labels.
+- Keyboard focus uses the ORBIT focus ring.
+- Editing automatically keeps the dock expanded; textarea, cancel, and save controls remain reachable.
+- AI refinement, checkpoints, length guidance, and existing save/patch behavior remain available.
+- At 860px the AI bottom sheet is offset above the notes dock in collapsed and expanded states, so neither surface becomes unreachable.
+- Desktop and responsive console error logs were empty.
+
+## Findings and comparison history
+
+- First same-state comparison found no actionable P0, P1, or P2 mismatch. The source's low-emphasis note-strip hierarchy is preserved while product-specific ORBIT content and controls remain intentionally different.
+- No post-comparison visual fix loop was required. Responsive captures confirmed there is no panel overlap or inaccessible note action.
+
+## Automated verification
+
+- `pnpm --filter @orbit/web test`: 145 files, 1005 tests passed.
+- `pnpm --filter @orbit/web typecheck`: passed.
+- `pnpm --filter @orbit/web build`: passed with the existing Vite chunk-size warning only.
 
 final result: passed

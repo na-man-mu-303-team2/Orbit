@@ -1,6 +1,6 @@
 import type { Deck } from "@orbit/shared";
 import type Konva from "konva";
-import { X } from "lucide-react";
+import { IconX as X } from "@tabler/icons-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
 import { buildSlideBackgroundStyle } from "../../../slides/rendering/SlideBackground";

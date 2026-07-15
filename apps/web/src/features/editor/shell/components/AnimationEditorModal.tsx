@@ -1,5 +1,9 @@
 import type { DeckAnimation, Keyword, Slide, DeckElement } from "@orbit/shared";
-import { Plus, Trash2, X } from "lucide-react";
+import {
+  IconPlus as Plus,
+  IconTrash as Trash2,
+  IconX as X
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
