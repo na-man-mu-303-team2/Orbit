@@ -1,8 +1,17 @@
 import type { StoragePort } from "@orbit/storage";
-import { deckSchema, type Deck, type GenerateDeckJobResult } from "@orbit/shared";
+import {
+  deckSchema,
+  generateDeckResponseSchema,
+  type Deck,
+  type GenerateDeckJobResult
+} from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
+import { resolveGenerateDeckAssets } from "./generate-deck/asset-resolution";
+import { publishGenerateDeckResult } from "./generate-deck/publication";
+import { runRenderedVisualQuality } from "./generate-deck/rendered-visual-quality";
+import { runInitialSemanticQuality } from "./generate-deck/semantic-quality";
 
 const payload = {
   jobId: "job-1",
@@ -605,6 +614,7 @@ describe("processGenerateDeckJob", () => {
     expect(job.error?.code).toBe(
       "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
     );
+    expect(job.progress).toBe(90);
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
@@ -944,6 +954,7 @@ describe("processGenerateDeckJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.progress).toBe(90);
     expect(job.result).toMatchObject({
       deck: { deckId: deck.deckId },
       diagnostics: {
@@ -1050,6 +1061,7 @@ describe("processGenerateDeckJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_VALIDATION_BLOCKING");
+    expect(query.mock.calls[1]?.[1]?.[2]).toBe(75);
     expect(query).toHaveBeenCalledTimes(2);
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
@@ -1214,6 +1226,7 @@ describe("processGenerateDeckJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.progress).toBe(90);
     expect(job.result).toMatchObject({
       validation: {
         passed: false,
@@ -1253,6 +1266,7 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("failed");
+    expect(job.progress).toBe(15);
     expect(job.error?.message).toBe(responseBody);
     expect(job.error?.message).toContain(safeMessage);
     expect(job.error?.message).not.toContain("validation error");
@@ -1338,6 +1352,209 @@ describe("processGenerateDeckJob", () => {
     expect(pythonRequest).not.toHaveProperty("designReferences");
     expect(pythonRequest).not.toHaveProperty("templateBlueprintId");
     expect(timeoutSpy).toHaveBeenCalledWith(300_000);
+  });
+
+  it("keeps publication write errors on the existing invalid-response failure", async () => {
+    const deck = programV2Deck();
+    const progress: number[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("UPDATE jobs")) {
+        progress.push(params[2] as number);
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        throw new Error("deck write failed");
+      }
+      return [];
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) =>
+        String(input).endsWith("/ai/generate-deck")
+          ? generateDeckResponse(deck)
+          : visualPassResponse()
+      )
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.progress).toBe(75);
+    expect(job.error).toEqual({
+      code: "PYTHON_WORKER_GENERATE_DECK_INVALID_RESPONSE",
+      message: "deck write failed"
+    });
+    expect(progress).toEqual([15, 45, 65, 75, 95, 75]);
+  });
+
+  describe("queue-ready stage boundaries", () => {
+    it("resolves optional assets without mutating the input deck", async () => {
+      const deck = programV2DeckWithOptionalMedia();
+      const originalDeck = structuredClone(deck);
+      const fallbackDeck = programV2Deck();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => visualRepairResponse(fallbackDeck))
+      );
+
+      const outcome = await resolveGenerateDeckAssets({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: []
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome.deck).toEqual(fallbackDeck);
+      expect(outcome.warnings).toEqual([]);
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:8000/ai/repair-deck-visuals",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+
+    it("runs the bounded semantic repair without mutating the input deck", () => {
+      const deck = deckSchema.parse(
+        createDeck({
+          metadata: {
+            ...createDeck().metadata,
+            presentationProfile: "proposal"
+          }
+        })
+      );
+      const firstSlide = deck.slides[0];
+      if (!firstSlide.aiNotes) throw new Error("semantic fixture notes missing");
+      firstSlide.aiNotes.emphasisPoints = [
+        "고객 전환율을 높입니다",
+        "구매 여정을 단축합니다"
+      ];
+      firstSlide.aiNotes.sourceLedger = [
+        {
+          claim: "서버 지연 시간은 20ms입니다",
+          source: "report",
+          sourceType: "uploaded",
+          confidence: 0.9,
+          usedInSlideId: firstSlide.slideId
+        }
+      ];
+      const originalDeck = structuredClone(deck);
+
+      const outcome = runInitialSemanticQuality({
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome.warnings).toEqual([
+        "Semantic QA bounded repair applied once."
+      ]);
+      expect(outcome.deck.slides[0].aiNotes?.emphasisPoints).toEqual([
+        "고객 전환율을 높입니다"
+      ]);
+    });
+
+    it("runs one rendered visual repair through explicit callbacks", async () => {
+      const deck = programV2Deck();
+      const originalDeck = structuredClone(deck);
+      const repairedDeck = deckSchema.parse({
+        ...deck,
+        title: "Repaired stage candidate"
+      });
+      let reviewCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            reviewCount += 1;
+            return reviewCount === 1
+              ? visualFailureResponse("FOCAL_POINT_WEAK")
+              : visualPassResponse();
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            return visualRepairResponse(repairedDeck);
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+      const onRepairProgress = vi.fn(async () => undefined);
+      const emitEvent = vi.fn();
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress,
+        emitEvent
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 2,
+        repairAttempts: 1,
+        deck: { title: "Repaired stage candidate" }
+      });
+      expect(onRepairProgress).toHaveBeenCalledWith(1, 2);
+      expect(emitEvent).toHaveBeenCalledWith(
+        "ai-ppt.visual-repair.applied",
+        expect.objectContaining({ attempt: 1 })
+      );
+    });
+
+    it("reapplies the current publication upsert and Job result on recall", async () => {
+      const deck = programV2Deck();
+      const workerPayload = parsedGenerateDeckResponse(deck);
+      const query = dynamicJobQuery();
+      const emitEvent = vi.fn();
+      const publicationInput = {
+        dataSource: { query } as unknown as DataSource,
+        jobId: "job-1",
+        projectId: "project-a",
+        workerPayload,
+        deck,
+        warnings: workerPayload.warnings,
+        validation: workerPayload.validation,
+        diagnostics: workerPayload.diagnostics,
+        emitEvent
+      };
+
+      const first = await publishGenerateDeckResult(publicationInput);
+      const second = await publishGenerateDeckResult(publicationInput);
+
+      expect(first.status).toBe("succeeded");
+      expect(second.status).toBe("succeeded");
+      const deckWrites = query.mock.calls.filter(([sql]) =>
+        String(sql).includes("INSERT INTO decks")
+      );
+      expect(deckWrites).toHaveLength(2);
+      expect(deckWrites[0]?.[0]).toContain("ON CONFLICT (project_id)");
+      expect(
+        query.mock.calls.filter(([sql]) => String(sql).includes("UPDATE jobs"))
+      ).toHaveLength(2);
+      expect(emitEvent).toHaveBeenCalledTimes(2);
+      expect(first.result).toEqual(second.result);
+    });
   });
 });
 
@@ -1629,6 +1846,15 @@ function generateDeckResponse(deck: Deck) {
       diagnostics: diagnostics()
     })
   );
+}
+
+function parsedGenerateDeckResponse(deck: Deck) {
+  return generateDeckResponseSchema.parse({
+    deck,
+    warnings: [],
+    validation: validation(),
+    diagnostics: diagnostics()
+  });
 }
 
 function visualPassResponse() {
