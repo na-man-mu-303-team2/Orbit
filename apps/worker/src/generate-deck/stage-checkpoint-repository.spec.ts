@@ -220,6 +220,37 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     expect(sql).toContain("stages.dispatched_at IS NULL");
     expect(sql).toContain("stages.attempt = $5");
   });
+
+  it("lists only undispatched OCR checkpoints with the validated parent project", async () => {
+    const { query, repository } = repositoryWithResponses([
+      {
+        ...queuedRow(),
+        project_id: "project-a",
+        stage: "reference-extract-file",
+        shard_key: "file-a",
+      },
+    ]);
+
+    await expect(repository.listUndispatched(25)).resolves.toEqual([
+      {
+        message: {
+          pipelineJobId: "job-ai-deck-1",
+          projectId: "project-a",
+          stage: "reference-extract-file",
+          shardKey: "file-a",
+        },
+        attempt: 0,
+      },
+    ]);
+
+    const sql = compactSql(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("stages.status = 'queued'");
+    expect(sql).toContain("stages.dispatched_at IS NULL");
+    expect(sql).toContain("stages.stage = 'reference-extract-file'");
+    expect(sql).toContain("jobs.project_id");
+    expect(sql).toContain("LIMIT $1");
+    expect(query.mock.calls[0]?.[1]).toEqual([25]);
+  });
 });
 
 function repositoryWithResponses(...responses: unknown[][]) {
