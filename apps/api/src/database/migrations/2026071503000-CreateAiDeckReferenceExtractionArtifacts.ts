@@ -62,9 +62,21 @@ export class CreateAiDeckReferenceExtractionArtifacts2026071503000
         pipeline_job_id, usable, file_id
       )
     `);
+    await queryRunner.query(`
+      CREATE INDEX idx_ai_deck_generation_stages_stale_dispatch
+      ON ai_deck_generation_stages (
+        dispatched_at, pipeline_job_id, shard_key
+      )
+      WHERE stage = 'reference-extract-file'
+        AND status = 'queued'
+        AND dispatched_at IS NOT NULL
+    `);
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      DROP INDEX IF EXISTS idx_ai_deck_generation_stages_stale_dispatch
+    `);
     await queryRunner.query(`
       DROP INDEX IF EXISTS idx_ai_deck_reference_artifacts_pipeline_usable
     `);

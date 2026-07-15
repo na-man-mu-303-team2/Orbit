@@ -30,7 +30,9 @@ describe("CreateAiDeckReferenceExtractionArtifacts migration", () => {
     expect(sql).toContain(
       "CREATE INDEX idx_ai_deck_generation_stages_stale_dispatch",
     );
-    expect(sql).toContain("ON ai_deck_generation_stages (dispatched_at, pipeline_job_id, shard_key)");
+    expect(sql).toContain(
+      "ON ai_deck_generation_stages ( dispatched_at, pipeline_job_id, shard_key )",
+    );
     expect(sql).toContain(
       "WHERE stage = 'reference-extract-file' AND status = 'queued' AND dispatched_at IS NOT NULL",
     );
