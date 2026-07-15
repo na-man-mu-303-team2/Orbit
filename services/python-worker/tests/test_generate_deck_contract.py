@@ -4533,7 +4533,25 @@ def test_generate_deck_applies_brandlogy_style_pack_and_palette_override() -> No
     assert theme["palette"]["border"] == "#BAE6FD"
 
 
-def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
+def test_generate_deck_design_pack_applies_font_and_trace_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_art_director_context: dict[str, Any] = {}
+    create_design_program = design_planning_module.create_design_program
+
+    def capture_design_program_context(
+        context: Any,
+        slides: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> DeckDesignProgram:
+        captured_art_director_context["value"] = context
+        return create_design_program(context, slides, **kwargs)
+
+    monkeypatch.setattr(
+        design_planning_module,
+        "create_design_program",
+        capture_design_program_context,
+    )
     fake_client = FakeOpenAIClient(
         {
             "title": "Policy deck",
@@ -4554,9 +4572,22 @@ def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
             topic="Policy deck",
             referencePolicy="user-input-only",
             visualPlanPolicy={"mediaPolicy": "minimal"},
+            savedDesignPack={"id": "design_pack_1", "version": 3},
+            designProgramContext={
+                "savedDesignPreferences": {
+                    "palette": {"primary": "#123456"},
+                    "typography": {
+                        "headingFontFamily": "Gowun Dodum",
+                        "bodyFontFamily": "Gowun Dodum",
+                    },
+                    "layoutPreference": "varied",
+                }
+            },
             design={
                 "stylePackId": "brandlogy-modern",
                 "mediaPolicy": "minimal",
+                "layoutDiversity": "varied",
+                "paletteOverride": {"primary": "#123456"},
                 "fontOverride": {
                     "fontId": "gowun-dodum",
                     "name": "Gowun Dodum",
@@ -4578,9 +4609,24 @@ def test_generate_deck_design_pack_applies_font_and_trace_notes() -> None:
 
     theme = response.deck["theme"]
     ai_notes = response.deck["slides"][0]["aiNotes"]
+    art_director_context = captured_art_director_context["value"]
 
     assert theme["fontFamily"] == "Gowun Dodum"
     assert theme["typography"]["headingFontFamily"] == "Gowun Dodum"
+    assert theme["palette"]["primary"] == "#123456"
+    assert art_director_context.saved_design_preferences["layoutPreference"] == "varied"
+    assert (
+        art_director_context.model_dump(by_alias=True)["savedDesignPreferences"][
+            "layoutPreference"
+        ]
+        == "varied"
+    )
+    assert art_director_context.palette["primary"] == "#123456"
+    assert art_director_context.typography["headingFontFamily"] == "Gowun Dodum"
+    assert "Layout diversity: varied" in str(fake_client.requests[0]["input"])
+    assert response.deck["metadata"]["designProgramSnapshot"]["compositionIds"] == [
+        ai_notes["compositionPlan"]["compositionId"]
+    ]
     assert ai_notes["visualPlan"]["imageSourcePolicy"] == "minimal"
     assert ai_notes["visualPlan"]["imageNeeded"] is False
     assert ai_notes["sourceLedger"][0]["sourceType"] == "topic"
