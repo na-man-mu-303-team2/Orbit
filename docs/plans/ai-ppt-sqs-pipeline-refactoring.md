@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · 실행 전 (#339 완료 대기)
+**상태**: 확정 · #339 완료 · 338-0 실행 중
 
 **실행 이슈**: [#338 PPT 생성 - AI PPT stage Job·SQS 파이프라인 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
