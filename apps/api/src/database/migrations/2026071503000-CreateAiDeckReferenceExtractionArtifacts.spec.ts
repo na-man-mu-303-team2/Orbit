@@ -57,10 +57,16 @@ describe("CreateAiDeckReferenceExtractionArtifacts migration", () => {
 
     const sql = compactSql(queries.join("\n"));
     expect(sql).toContain(
+      "UPDATE ai_deck_generation_stages SET result_ref_json = NULL",
+    );
+    expect(sql).toContain(
       "DROP TABLE IF EXISTS ai_deck_reference_extraction_artifacts",
     );
     expect(sql).toContain(
       "result_ref_json IS NULL OR result_ref_json = '{}'::jsonb",
+    );
+    expect(sql.indexOf("SET result_ref_json = NULL")).toBeLessThan(
+      sql.indexOf("DROP TABLE IF EXISTS ai_deck_reference_extraction_artifacts"),
     );
   });
 });
