@@ -1,0 +1,23 @@
+.orbit-project-read-only-banner {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-panel);
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.orbit-project-read-only-banner > div {
+  display: grid;
+  gap: 4px;
+}
+
+.orbit-project-read-only-banner strong {
+  font-size: var(--orbit-ds-type-ui-small);
+}
+
+.orbit-project-read-only-banner span {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+}

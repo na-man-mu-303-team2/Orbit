@@ -1,7 +1,7 @@
 import type { DeckSnapshot } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
-import { snapshotLabel, snapshotTone } from "./DeckVersionHistoryPage";
+import { canRestoreSnapshot, snapshotLabel, snapshotTone } from "./DeckVersionHistoryPage";
 
 const snapshot: DeckSnapshot = {
   snapshotId: "snapshot_history_1",
@@ -13,6 +13,12 @@ const snapshot: DeckSnapshot = {
 };
 
 describe("DeckVersionHistoryPage", () => {
+  it("Viewer capability에서는 복원 action을 제공하지 않는다", () => {
+    expect(canRestoreSnapshot(false, snapshot, 3)).toBe(false);
+    expect(canRestoreSnapshot(true, snapshot, 3)).toBe(true);
+    expect(canRestoreSnapshot(true, snapshot, 1)).toBe(false);
+  });
+
   it("현재 덱 버전과 다른 최신 스냅샷을 현재 버전으로 표시하지 않는다", () => {
     expect(snapshotLabel(snapshot, 3)).toBe("자동 저장");
     expect(snapshotTone(snapshot, 3)).toBe("neutral");

@@ -7,9 +7,11 @@ import {
   App,
   deckRenderPayloadStorageKey,
   getProjectAccessRoleLabel,
+  getProjectRouteCapability,
   getAppNavigationItem,
   getRoute,
   shouldRenderAppFrame,
+  parseProjectAccessResponse,
   shouldWaitForAuthResolution
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
@@ -49,6 +51,39 @@ vi.mock("react-konva", () => {
   };
 });
 describe("App shell routing", () => {
+  it("모든 editor trust route를 같은 membership gate에 연결한다", () => {
+    expect(getProjectRouteCapability({ name: "project-editor", projectId: "project-1" })).toBe(
+      null,
+    );
+    expect(getProjectRouteCapability({ name: "project-brief", projectId: "project-1" })).toBe(
+      null,
+    );
+    expect(getProjectRouteCapability({ name: "project-history", projectId: "project-1" })).toBe(
+      null,
+    );
+    expect(getProjectRouteCapability({ name: "rehearsal", projectId: "project-1" })).toBe(
+      "canStartPersonalRehearsal",
+    );
+    expect(getProjectRouteCapability({ name: "presentation", projectId: "project-1" })).toBe(
+      "canCreatePresentationSession",
+    );
+  });
+
+  it("access 응답의 project가 직접 route와 다르면 fail closed 처리한다", () => {
+    expect(() =>
+      parseProjectAccessResponse("project-1", {
+        project: {
+          projectId: "project-other",
+          workspaceId: "workspace_demo_1",
+          title: "다른 프로젝트",
+          createdBy: "user_owner",
+          createdAt: "2026-07-16T00:00:00.000Z",
+        },
+        membership: { role: "owner", status: "accepted" },
+      }),
+    ).toThrow("Project access response mismatch");
+  });
+
   it("keeps the product navigation order and active state consistent", () => {
     const html = renderToStaticMarkup(
       <OrbitAppHeader

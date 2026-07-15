@@ -16,6 +16,10 @@ import {
   type OrbitStatusTone,
 } from "../../../design-system";
 import { fetchProjectDeck } from "../../rehearsal/keywords/keywordEditorApi";
+import {
+  ProjectReadOnlyBanner,
+  useProjectAccess,
+} from "../../projects/ProjectAccessContext";
 import { fetchDeckSnapshots, restoreDeckSnapshot } from "./deckSnapshotApi";
 import "./deck-version-history.css";
 
@@ -27,6 +31,7 @@ const reasonLabels: Record<DeckSnapshotReason, string> = {
 };
 
 export function DeckVersionHistoryPage(props: { projectId: string }) {
+  const { capabilities } = useProjectAccess(props.projectId);
   const queryClient = useQueryClient();
   const snapshotsQuery = useQuery({
     queryKey: ["deck-snapshots", props.projectId],
@@ -56,7 +61,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
   );
 
   async function restoreSelected() {
-    if (!selected) return;
+    if (!selected || !capabilities.canRestoreHistory) return;
     setRestoring(true);
     setError("");
     try {
@@ -96,6 +101,8 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
         <strong>버전 기록</strong>
       </div>
 
+      {!capabilities.canRestoreHistory ? <ProjectReadOnlyBanner /> : null}
+
       <section className="deck-history-heading">
         <div>
           <p className="orbit-ds-eyebrow">Version history</p>
@@ -133,9 +140,11 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
             <>
               <header>
                 <div><small>선택한 복원 지점</small><h2>버전 {selected.version} · {reasonLabels[selected.reason]}</h2></div>
-                <OrbitButton disabled={restoring || selected.version === currentVersion} icon={<IconRefresh size={18} />} onClick={() => setConfirming(true)}>
-                  {selected.version === currentVersion ? "현재 버전" : "이 버전 복원"}
-                </OrbitButton>
+                {capabilities.canRestoreHistory ? (
+                  <OrbitButton disabled={!canRestoreSnapshot(true, selected, currentVersion) || restoring} icon={<IconRefresh size={18} />} onClick={() => setConfirming(true)}>
+                    {selected.version === currentVersion ? "현재 버전" : "이 버전 복원"}
+                  </OrbitButton>
+                ) : null}
               </header>
               <div className="deck-history-version-card">
                 <span>{currentDeck?.title ?? "ORBIT PRESENTATION"}</span>
@@ -146,21 +155,23 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
                   <div><dt>덱 ID</dt><dd>{selected.deckId}</dd></div>
                 </dl>
               </div>
-              <footer><IconFileText aria-hidden="true" size={17} /><span>서버는 과거 버전의 메타데이터만 노출합니다. 복원하면 현재 작업은 유지된 채 선택한 버전이 에디터의 현재 덱이 됩니다.</span></footer>
+              <footer><IconFileText aria-hidden="true" size={17} /><span>{capabilities.canRestoreHistory ? "서버는 과거 버전의 메타데이터만 노출합니다. 복원하면 현재 작업은 유지된 채 선택한 버전이 에디터의 현재 덱이 됩니다." : "저장 기록과 버전 메타데이터를 확인할 수 있습니다. 보기 전용 권한에서는 복원할 수 없습니다."}</span></footer>
             </>
           ) : <div className="deck-history-empty"><IconHistory size={28} /><strong>확인할 버전을 선택하세요.</strong></div>}
         </section>
       </div>
 
-      <OrbitDialog
-        description={selected ? `버전 ${selected.version}의 내용으로 현재 덱을 복원합니다.` : undefined}
-        footer={<><OrbitButton onClick={() => setConfirming(false)} variant="secondary">취소</OrbitButton><OrbitButton disabled={restoring} onClick={() => void restoreSelected()}>{restoring ? "복원 중" : "복원하기"}</OrbitButton></>}
-        onClose={() => setConfirming(false)}
-        open={confirming}
-        title="이 버전을 복원할까요?"
-      >
-        <p className="deck-history-dialog-note">현재 작업은 사라지지 않고 복원 직전 상태로 보존됩니다.</p>
-      </OrbitDialog>
+      {capabilities.canRestoreHistory ? (
+        <OrbitDialog
+          description={selected ? `버전 ${selected.version}의 내용으로 현재 덱을 복원합니다.` : undefined}
+          footer={<><OrbitButton onClick={() => setConfirming(false)} variant="secondary">취소</OrbitButton><OrbitButton disabled={restoring} onClick={() => void restoreSelected()}>{restoring ? "복원 중" : "복원하기"}</OrbitButton></>}
+          onClose={() => setConfirming(false)}
+          open={confirming}
+          title="이 버전을 복원할까요?"
+        >
+          <p className="deck-history-dialog-note">현재 작업은 사라지지 않고 복원 직전 상태로 보존됩니다.</p>
+        </OrbitDialog>
+      ) : null}
     </div>
   );
 }
@@ -179,6 +190,14 @@ export function snapshotLabel(snapshot: DeckSnapshot, currentVersion?: number) {
   if (snapshot.version === currentVersion) return "현재 버전";
   if (snapshot.reason === "snapshot-restore") return "복원 지점";
   return "자동 저장";
+}
+
+export function canRestoreSnapshot(
+  canRestoreHistory: boolean,
+  snapshot: DeckSnapshot,
+  currentVersion?: number,
+) {
+  return canRestoreHistory && snapshot.version !== currentVersion;
 }
 
 function formatSnapshotDate(value: string) {

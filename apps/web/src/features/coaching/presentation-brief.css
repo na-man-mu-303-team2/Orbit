@@ -1,5 +1,6 @@
 .presentation-brief-page { min-height: calc(100vh - 76px); padding: 42px 44px 90px; }
 .presentation-brief-page > * { margin-inline: auto; max-width: 1260px; }
+.presentation-brief-page > .orbit-project-read-only-banner { margin-bottom: 24px; }
 .presentation-brief-breadcrumb { align-items: center; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 10px; margin-bottom: 46px; }
 .presentation-brief-breadcrumb a { align-items: center; color: var(--orbit-ds-text-muted); display: inline-flex; font-weight: 650; gap: 7px; text-decoration: none; }
 .presentation-brief-heading { align-items: end; display: flex; gap: 28px; justify-content: space-between; margin-bottom: 34px; }
@@ -9,6 +10,11 @@
 .presentation-brief-form,
 .presentation-lens-panel { background: var(--orbit-ds-canvas); border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); }
 .presentation-brief-form { display: grid; gap: 24px; padding: 28px; }
+.presentation-brief-read-only-field { border-bottom: 1px solid var(--orbit-ds-border); display: grid; gap: 8px; padding-bottom: 16px; }
+.presentation-brief-read-only-field:last-child { border-bottom: 0; padding-bottom: 0; }
+.presentation-brief-read-only-field > span { color: var(--orbit-ds-text-muted); line-height: 1.55; }
+.presentation-brief-read-only-empty { color: var(--orbit-ds-text-muted); }
+.presentation-brief-read-only-empty strong { color: var(--orbit-ds-ink); }
 .presentation-brief-choice { border: 0; margin: 0; padding: 0; }
 .presentation-brief-choice legend { font-size: var(--orbit-ds-type-ui); font-weight: 700; margin-bottom: 10px; }
 .presentation-brief-choice > div { display: flex; flex-wrap: wrap; gap: 8px; }
