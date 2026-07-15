@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · PR 8 로컬 검증 완료 · 자동 CI 및 배포 환경 운영 증거 대기
+**상태**: 확정 · PR 8 코드 검증 완료 · 배포 환경 운영 증거 대기
 
 **기준 브랜치**: 각 PR 시작 시점의 최신 `origin/develop`
 
@@ -832,11 +832,11 @@ uv run pytest
 | Saved DesignPack 선택 | API resolve → DB/queue snapshot, Worker `savedDesignPreferences` 전달, Python Art Director layout preference context, 최종 Deck palette/font와 선택된 composition의 snapshot/`aiNotes` 일관성 검증 | 로컬 통과 |
 | PPTX vector import | Python importer와 Worker의 editable element, mapping, render, source/current package 검증 | 로컬 통과 |
 | PPTX fallback import | Python fallback 생성과 Worker의 유효 Deck 저장 및 최종 `Job.result.warnings` 보존 검증 | 로컬 통과 |
-| imported Deck 편집·export | 실제 import → PUT/patch → sync → export → re-import DB integration fixture | 자동 CI `db-integration` 재검증 대기 |
+| imported Deck 편집·export | 실제 import → PUT/patch → sync → export → re-import DB integration fixture | required `db-integration` CI 통과 |
 | 일반 AI Deck export | Worker generic exporter와 Python `/ai/export-deck-pptx` 검증 | 로컬 통과 |
 | 과거 Job 단건 조회 | shared historical type parsing과 mocked legacy row의 `DbJobQueue.get` mapping 검증 | 로컬 통과 |
 
-로컬에서는 `pnpm build` 10/10, `pnpm lint` 17/17, `pnpm test` 17/17 task, `check-env`, Docker Compose config, `uv sync --locked`, Ruff, mypy와 Python 480개 테스트가 통과했다. 기본 Worker test에서 skip되는 OOXML DB integration 4개는 owner 없는 skip이 아니라 required `db-integration` CI가 `pnpm test:coaching:integration`으로 실행하는 항목이다. PR 8의 자동 CI가 이를 포함해 모두 통과해야 전체 검증을 완료 처리한다.
+로컬에서는 `pnpm build` 10/10, `pnpm lint` 17/17, `pnpm test` 17/17 task, `check-env`, Docker Compose config, `uv sync --locked`, Ruff, mypy와 Python 480개 테스트가 통과했다. 기본 Worker test에서 skip되는 OOXML DB integration 4개는 owner 없는 skip이 아니라 required `db-integration` CI가 `pnpm test:coaching:integration`으로 실행하는 항목이다. PR 8의 required 자동 CI인 `typescript`, `python`, `unit-contracts`, `db-integration`, `e2e`도 모두 통과했다.
 
 **미확보 운영 hard gate**
 
@@ -938,7 +938,7 @@ sequenceDiagram
 - [x] Worker의 asset resolution, semantic quality, rendered visual quality, publication 단계가 단독 테스트 가능하다.
 - [x] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환과 SQS transport adapter는 #338 범위로 명시되어 있다.
 - [x] `/ai/generate-deck` 공개 계약과 최종 Deck schema가 유지된다.
-- [ ] 전체 TypeScript/Python 검증이 통과한다.
+- [x] 전체 TypeScript/Python 검증이 통과한다.
 
 이 체크리스트 이후 #338에서는 다음 작업에만 집중할 수 있어야 한다.
 

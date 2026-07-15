@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 PR 8 로컬 검증 완료 · 자동 CI 및 운영 증거 대기
+**상태**: 확정 · #341 완료 · #339 PR 8 코드 검증 완료 · 운영 증거 대기
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -54,7 +54,7 @@ flowchart LR
 | 339-7B | Worker 후처리 분리 | asset resolution, semantic quality, rendered visual quality, publication을 모듈로 추출하고 processor에는 payload 검증과 Job lifecycle만 남긴다. 동작과 실패 정책은 아직 변경하지 않는다. |
 | 339-8 | #338 readiness 검증 | 전체 생성·PPTX round-trip·historical Job·reference extraction 회귀 행렬을 통과시키고, 339-4 legacy drain과 339-6 동시 cutover의 배포 환경 증거를 확인한 뒤 #339를 종료한다. |
 
-PR 8의 로컬 회귀 증거와 미확보 운영 hard gate는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. required 자동 CI와 339-4·339-6 배포 환경 증거가 모두 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
+PR 8의 로컬·required 자동 CI 회귀 증거와 미확보 운영 hard gate는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 339-4·339-6 배포 환경 증거가 모두 확보되기 전에는 #339를 열린 상태로 유지하고 #338 구현을 시작하지 않는다.
 
 ### #338 — stage Job, checkpoint와 queue adapter
 
