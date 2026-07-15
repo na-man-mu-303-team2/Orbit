@@ -6548,7 +6548,7 @@ function EditorRuntime(props: {
             {canMutateDeck ? <div className="editor-toolbar">
               {isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
                 <button
-                  aria-controls="editor-design-panel"
+                  aria-controls="editor-selection-inspector-pane"
                   aria-describedby="compact-selection-count"
                   aria-expanded={isRightPanelOpen && rightPanelView === "design"}
                   aria-label="선택 항목 속성 열기"
@@ -6755,6 +6755,7 @@ function EditorRuntime(props: {
         {canMutateDeck ? <aside
           className={`ai-pane ${isRightPanelOpen ? "" : "collapsed"}`}
           data-testid="editor-inspector-pane"
+          id="editor-selection-inspector-pane"
         >
           {isRightPanelOpen ? (
             <>
@@ -6919,6 +6920,7 @@ function EditorRuntime(props: {
           <aside
             className={`ai-pane viewer-selection-pane ${isRightPanelOpen ? "" : "collapsed"}`}
             data-testid="editor-inspector-pane"
+            id="editor-selection-inspector-pane"
           >
             {isRightPanelOpen ? (
               <>
