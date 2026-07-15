@@ -208,7 +208,7 @@ flowchart LR
     Q --> L
 ```
 
-`pipeline.py`만 전체 흐름을 조립한다. 하위 stage 모듈이 `pipeline.py`나 façade를 역으로 import하면 안 된다. mutable global state와 import 시점 side effect도 새 모듈로 옮기지 않는다.
+`pipeline.py`만 stage entrypoint를 실행 순서대로 호출하고 앞 단계 DTO를 다음 stage에 전달한다. 하위 모듈은 위 DAG 방향으로 upstream의 side-effect 없는 helper를 재사용할 수 있지만 다음 stage entrypoint를 대신 호출하거나 `pipeline.py`·façade를 역으로 import하면 안 된다. 공통 stage 데이터는 `models.py`의 Pydantic DTO를 사용하고 stage 의존에는 순환이 없어야 한다. 기존 bounded content-plan cache와 design-library registry는 각각 `content_planning.py`와 `design_planning.py`의 단일 private owner로 유지하며 새 mutable global이나 import side effect를 추가하지 않는다. 하위 디렉터리 이동 뒤에도 registry 경로는 `app/ai/design_library`를 명시적으로 가리켜야 한다.
 
 Python은 이미지 요구사항을 만드는 데까지만 책임진다. 실제 이미지 검색·생성·storage 저장·Deck element 적용은 현재 `apps/worker/src/image-asset-pipeline.ts`에 있고, semantic QA와 rendered visual review/repair 및 최종 Deck 저장은 `apps/worker/src/generate-deck.processor.ts`에 있다. #338에서 queue adapter를 바로 연결하려면 Python 분리와 함께 TypeScript 후처리도 아래 경계로 추출해야 한다.
 
@@ -696,7 +696,7 @@ uv run pytest tests/test_generate_deck_contract.py
 | `SourceGroundingResult` | 정규화된 첨부자료·웹 source, 인용 가능한 근거, warning | raw file/base64, API key 포함 |
 | `ContentPlan` | 발표 narrative, slide별 objective·copy·source link | layout 좌표와 provider client 포함 |
 | `DesignPlan` | DesignPack snapshot, palette/font, composition/visual intent, `slides[].backgroundMode`에서 파생한 background sequence | 최종 Deck element 직접 저장 |
-| `LayoutCompileResult` | 편집 가능한 slide/element 초안과 image requirement | QA 성공으로 간주 |
+| `LayoutCompileResult` | 편집 가능한 slide/element 초안 | image requirement 또는 QA 성공 상태 포함 |
 | `VisualRequirements` | slide/element별 image 검색·생성 요구사항 | asset 검색·생성·DB 저장 수행 |
 | `PythonQualityResult` | Python 내부 content/layout validation과 repair 결과 | rendered visual QA 또는 DB Job 상태 변경 |
 
@@ -708,14 +708,14 @@ uv run pytest tests/test_generate_deck_contract.py
 2. side effect 없는 normalization·selection helper를 각 소유 stage로 이동한다.
 3. source grounding을 추출하고 기존 fixture로 결과를 비교한다.
 4. content planning을 추출하고 source attribution 보존을 확인한다.
-5. design planning과 DesignPack 적용을 추출한다. #341의 background 정규화와 불변조건 테스트도 같은 module로 이동한다.
+5. design planning과 DesignPack 적용을 추출한다. `design_planning.py`는 기존 `design_program.py`의 #341 background 정규화를 호출해 normalized `DesignPlan` 불변조건을 보장하고, 회귀 테스트는 design stage 경계를 검증한다.
 6. layout compiler와 editable element 생성을 추출한다.
 7. image 요구 계획만 `visual_requirements.py`로 추출한다. 실제 asset 처리와 결과 적용은 Worker 소유로 유지한다.
 8. Python 내부 content/layout validation과 repair primitive만 `quality.py`로 추출한다. Worker의 semantic/rendered visual QA를 옮기지 않는다.
 9. warnings/validation/diagnostics 조립을 `diagnostics.py`로 추출한다.
 10. `pipeline.py`가 위 단계를 현재와 같은 순서로 동기 호출하도록 한다.
-11. `generate_deck.py`에는 공개 import, façade, 임시 re-export만 남긴다.
-12. 모든 call site 전환 후 임시 re-export를 제거한다.
+11. `generate_deck.py`에는 영구 호환 대상인 `GenerateDeckRequest`, `GenerateDeckResponse`, `ReferenceContext`, `DeckContentGenerationError`, `generate_deck` 공개 import와 façade만 남긴다.
+12. 내부 call site와 테스트를 stage module import로 전환한 뒤 private helper 임시 re-export를 제거한다.
 
 **commit 권장 단위**
 
@@ -750,11 +750,13 @@ uv run pytest
 
 **완료 기준**
 
-- `generate_deck.py`는 façade와 호환 import만 담당하며 orchestration 본문은 `pipeline.py`에 있다.
+- `generate_deck.py`는 `GenerateDeckRequest`, `GenerateDeckResponse`, `ReferenceContext`, `DeckContentGenerationError`, `generate_deck` 호환 import와 façade만 담당하며 orchestration 본문은 `pipeline.py`에 있다.
 - 각 Python stage는 명시적 Pydantic 입력·출력으로 단독 테스트할 수 있다.
 - 외부 provider 실패를 stage 함수 단위로 재현할 수 있다.
 - 활성 `program-v2` 결과에 의도한 기능 변경이 없다.
 - #338에서 Python stage 함수 주위에 queue adapter를 추가할 수 있고 함수 본문을 다시 분해할 필요가 없다.
+- 하위 stage 의존은 문서화한 upstream helper DAG만 따르고 역방향·순환 호출이 없으며, `pipeline.py`만 stage entrypoint의 동기 orchestration을 담당한다.
+- 이 PR에는 queue/checkpoint/retry 정책을 추가하지 않으며 Worker의 asset·semantic·rendered visual·publication 후처리를 옮기지 않는다.
 
 **롤백**: commit 단위로 façade import를 기존 위치로 되돌릴 수 있어야 한다. 대규모 squash 후 롤백만 가능한 구조로 만들지 않는다.
 
@@ -890,7 +892,7 @@ sequenceDiagram
 다음 항목이 모두 완료되어야 #338의 staged BullMQ/checkpoint 구현과 후속 SQS transport adapter 작업을 시작한다.
 
 - [ ] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
-- [ ] #341의 `slides[].backgroundMode` canonical 규칙과 회귀 테스트가 `design_planning.py`에 보존되어 있다.
+- [ ] `design_planning.py`가 기존 `design_program.py`의 #341 정규화를 호출하고 design stage 회귀 테스트가 `slides[].backgroundMode` canonical 규칙을 검증한다.
 - [ ] 일반 AI 생성 request가 `program-v2` 전용이며 `legacy`, `recipe-v1` 분기가 없다.
 - [ ] `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 일반 AI 생성 계약에 없고 내부 recipe-v1 `layoutVariant`·`slotPreset` selector도 없다.
 - [ ] DesignPack 기능과 기존 생성 품질 회귀 테스트가 통과한다.

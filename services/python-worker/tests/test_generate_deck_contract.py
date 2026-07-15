@@ -1,6 +1,7 @@
 import base64
 import json
 from copy import deepcopy
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,80 +14,98 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import app.main as api_module
-import app.ai.generate_deck as generate_deck_module
+import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
-from app.ai.design_program import DeckDesignProgram
-from app.ai.generate_deck import (
-    AgentOutput,
-    DeckContentGenerationError,
-    DeckGenerationOrchestrator,
-    GenerateDeckDiagnostics,
-    GenerateDeckRequest,
-    GenerateDeckResponse,
-    GeneratedDeckContentPlan,
-    GeneratedContentItem,
-    MediaIntent,
-    ReferenceContext,
-    SlidePlan,
-    SlideCountRange,
-    SourceRecord,
-    ValidationIssue,
-    ValidationResult,
-    VisualIntent,
+from app.ai.deck_generation.content_planning import (
     allocate_weighted_integers,
-    analyze_input,
-    apply_design_options,
     apply_timing_to_slide_plans,
     chars_per_minute_for_request,
     choose_slide_count,
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
     compact_program_v2_content_items,
-    deduplicate_speaker_notes_across_slides,
-    build_design_pack_content_manifest,
     content_plan_repair_reasons,
     deck_content_prompt,
     deck_content_response_format_for,
-    design_pack_locks_dark_canvas,
-    design_pack_source_ledgers,
-    detect_text_overlap_candidates,
-    generate_content_plan_with_llm,
-    generate_deck,
+    deduplicate_speaker_notes_across_slides,
     ensure_profile_closing_action,
-    initial_source_records,
-    is_text_overflowing,
-    is_short_label_text_box_too_narrow,
+    generate_content_plan_with_llm,
     merge_grounded_repair_notes,
     message_duplicates_content_items,
     normalize_design_pack_slide_title,
     normalize_program_v2_action_titles,
     normalize_structural_content_text,
-    remove_redundant_speaker_note_sentences,
-    presentation_profile_for_request,
     plan_presentation,
     plan_slides,
+    presentation_profile_for_request,
     presentation_rule_prompt,
-    refine_design_issues,
-    repeated_speaker_notes_slide_order,
-    repair_program_v2_text_element,
+    remove_redundant_speaker_note_sentences,
     repair_content_plan_with_llm,
     repair_reason_codes,
     repair_short_speaker_notes_with_llm,
+    repeated_speaker_notes_slide_order,
     slide_plans_from_generated_content,
+    speaker_note_fragments,
     speaker_notes_maximum_chars,
     speaker_notes_minimum_chars,
-    speaker_note_fragments,
-    text_color_for_background,
+)
+from app.ai.deck_generation.design_planning import (
+    apply_design_options,
     contrast_ratio,
+    design_pack_locks_dark_canvas,
+    text_color_for_background,
+)
+from app.ai.deck_generation.layout_compiler import (
+    build_design_pack_content_manifest,
+)
+from app.ai.deck_generation.models import (
+    AgentOutput,
+    DeckContentGenerationError,
+    GenerateDeckRequest,
+    GenerateDeckResponse,
+    GenerateDeckDiagnostics,
+    GeneratedContentItem,
+    GeneratedDeckContentPlan,
+    MediaIntent,
+    RawInput,
+    ReferenceContext,
+    SlideCountRange,
+    SlidePlan,
+    SourceRecord,
+    StylePromptContext,
+    ValidationIssue,
+    ValidationResult,
+    VisualIntent,
+)
+from app.ai.deck_generation.pipeline import (
+    DeckGenerationOrchestrator,
+    analyze_input,
+    generate_deck,
+)
+from app.ai.deck_generation.quality import (
+    detect_text_overlap_candidates,
+    is_short_label_text_box_too_narrow,
+    is_text_overflowing,
+    refine_design_issues,
+    repair_program_v2_text_element,
     review_text_overlap_candidates,
     validate_and_patch,
     validate_content,
     validate_design,
     validate_presentation,
+)
+from app.ai.deck_generation.source_grounding import (
+    design_pack_source_ledgers,
+    initial_source_records,
     web_source_id,
     web_sources_from_response,
 )
+from app.ai.design_program import DeckDesignProgram, DesignProgramError
 from tests.test_config import VALID_ENV
+
+
+def style_prompt_context(raw_input: RawInput) -> StylePromptContext:
+    return design_planning_module.resolve_style_prompt_context(raw_input)
 
 
 def test_program_v2_golden_request_contract() -> None:
@@ -391,7 +410,7 @@ def deterministic_art_director(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         )
 
-    monkeypatch.setattr(generate_deck_module, "create_design_program", create_program)
+    monkeypatch.setattr(design_planning_module, "create_design_program", create_program)
 
 
 def assert_validation_result_consistent(
@@ -674,7 +693,10 @@ def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
     assert rules[0] == "Presentation profile: product-launch"
     assert "release information" in rules[1]
     assert any("concrete next action" in rule for rule in rules)
-    assert "Presentation profile: product-launch" in deck_content_prompt(raw_input)
+    assert "Presentation profile: product-launch" in deck_content_prompt(
+        raw_input,
+        style_prompt_context(raw_input),
+    )
 
 
 def test_presentation_rule_prompt_controls_beat_scaling_and_agenda() -> None:
@@ -1717,12 +1739,17 @@ def test_content_prompt_separates_operational_and_grounded_numbers() -> None:
     )
 
     assert "Allowed factual numeric values from source records: (none)" in deck_content_prompt(
-        without_numbers
+        without_numbers,
+        style_prompt_context(without_numbers),
     )
     assert "Allowed factual numeric values from source records: 20" in deck_content_prompt(
-        with_numbers
+        with_numbers,
+        style_prompt_context(with_numbers),
     )
-    assert "operational instructions, not evidence" in deck_content_prompt(without_numbers)
+    assert "operational instructions, not evidence" in deck_content_prompt(
+        without_numbers,
+        style_prompt_context(without_numbers),
+    )
 
 
 def test_program_v2_compacts_comparison_items_without_losing_content() -> None:
@@ -2196,10 +2223,15 @@ def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
             slideCountRange={"min": 1, "max": 1},
         ),
         client=client,
+        current_date=date(2026, 7, 15),
     )
 
     web_requests = [request for request in client.requests if request.get("tools")]
     assert len(web_requests) == 2
+    assert all(
+        str(request["input"]).count("Current date: 2026-07-15") == 1
+        for request in web_requests
+    )
     assert "Diagnostic candidate URLs from the previous search" in str(
         web_requests[1]["input"]
     )
@@ -2684,6 +2716,7 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
 
     first = generate_content_plan_with_llm(
         raw_input,
+        style_prompt_context(raw_input),
         client=fake_client,
         model="gpt-test",
     )
@@ -2691,6 +2724,7 @@ def test_generate_content_plan_uses_cache_and_returns_copy() -> None:
     first.slides[0].title = "Mutated title"
     second = generate_content_plan_with_llm(
         raw_input,
+        style_prompt_context(raw_input),
         client=fake_client,
         model="gpt-test",
     )
@@ -2739,6 +2773,7 @@ def test_content_plan_repair_prompt_declares_non_whitespace_ranges() -> None:
         plan,
         [slide_plan],
         ["slide 1: speaker notes 4 chars below target 320"],
+        style_prompt_context(raw_input),
         client=fake_client,
     )
 
@@ -2784,7 +2819,11 @@ def test_research_first_content_plan_requires_verified_source_grounding() -> Non
     ]
     fake_client = FakeOpenAIClient(payload)
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     request = fake_client.requests[0]
@@ -3484,7 +3523,11 @@ def test_design_pack_repairs_exact_slide_count_once() -> None:
         )
     )
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     assert len(plan.slides) == 15
@@ -3529,6 +3572,7 @@ def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
     ):
         generate_content_plan_with_llm(
             raw_input,
+            style_prompt_context(raw_input),
             client=FakeOpenAIClient(payloads),
         )
 
@@ -3545,16 +3589,18 @@ def test_design_pack_reports_failed_exact_slide_count_repair() -> None:
         ],
     }
     fresh_client = FakeOpenAIClient(exact_payload)
+    fresh_raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="Create an exact deck.",
+            targetDurationMinutes=15,
+            slideCountRange={"min": 15, "max": 15},
+        )
+    )
     fresh_plan = generate_content_plan_with_llm(
-        analyze_input(
-            GenerateDeckRequest(
-                projectId="project_demo_1",
-                topic="ORBIT",
-                prompt="Create an exact deck.",
-                targetDurationMinutes=15,
-                slideCountRange={"min": 15, "max": 15},
-            )
-        ),
+        fresh_raw_input,
+        style_prompt_context(fresh_raw_input),
         client=fresh_client,
     )
 
@@ -3590,7 +3636,11 @@ def test_design_pack_repairs_exact_slide_count_overflow() -> None:
         )
     )
 
-    plan = generate_content_plan_with_llm(raw_input, client=fake_client)
+    plan = generate_content_plan_with_llm(
+        raw_input,
+        style_prompt_context(raw_input),
+        client=fake_client,
+    )
 
     assert plan is not None
     assert len(plan.slides) == 15
@@ -3678,6 +3728,19 @@ def test_generate_deck_endpoint_returns_deck_contract() -> None:
         slide["aiNotes"]["compositionPlan"]["compositionId"]
         for slide in deck["slides"]
     )
+
+
+def test_generate_deck_endpoint_rejects_removed_generation_mode() -> None:
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_strict_contract",
+            "topic": "Strict request contract",
+            "generationMode": "legacy",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_generate_deck_endpoint_supports_topic_only_generation() -> None:
@@ -4321,7 +4384,7 @@ def test_no_template_narrative_prompt_compacts_design_details() -> None:
         )
     )
 
-    prompt = deck_content_prompt(raw_input)
+    prompt = deck_content_prompt(raw_input, style_prompt_context(raw_input))
     design_line = next(line for line in prompt.splitlines() if line.startswith("Design prompt: "))
     compacted = design_line.removeprefix("Design prompt: ")
 
@@ -4407,7 +4470,7 @@ def test_generate_deck_includes_brandlogy_design_pack_prompt_and_brief() -> None
         )
     )
 
-    prompt = deck_content_prompt(raw_input)
+    prompt = deck_content_prompt(raw_input, style_prompt_context(raw_input))
 
     assert "Style pack override: brandlogy-modern" in prompt
     assert "Brandlogy Modern Design Pack" in prompt
@@ -5549,8 +5612,10 @@ def test_refiner_records_text_overlap_as_layout_issue() -> None:
         GenerateDeckRequest(projectId="project_demo_1", topic="ORBIT"),
         image_review_mode="off",
     )
+    raw_input = analyze_input(orchestrator.request)
 
     _, validation = orchestrator.run_refiner_agent(
+        raw_input,
         deck,
         ValidationResult(passed=True),
     )
@@ -5580,6 +5645,31 @@ def test_generate_deck_endpoint_requires_llm_for_reference_generation() -> None:
 
     assert response.status_code == 503
     assert "OPENAI_API_KEY" in response.json()["detail"]
+
+
+def test_generate_deck_endpoint_maps_design_provider_error_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_design_program(*_args: Any, **_kwargs: Any) -> DeckDesignProgram:
+        raise DesignProgramError("Art Director provider unavailable")
+
+    monkeypatch.setattr(
+        design_planning_module,
+        "create_design_program",
+        fail_design_program,
+    )
+
+    response = client().post(
+        "/ai/generate-deck",
+        json={
+            "projectId": "project_demo_1",
+            "topic": "Design provider failure",
+            "slideCountRange": {"min": 1, "max": 1},
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Art Director provider unavailable"
 
 
 def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
