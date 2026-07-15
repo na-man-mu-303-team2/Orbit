@@ -2581,9 +2581,12 @@
 
 .konva-wrap {
   display: grid;
-  place-items: start center;
-  min-width: 0;
+  height: max-content;
+  min-height: 100%;
+  min-width: 100%;
   overflow: visible;
+  place-items: center;
+  width: max-content;
 }
 
 .empty-panel,
@@ -5889,6 +5892,10 @@
   padding: 0 10px;
 }
 
+.orbit-shell .editor-toolbar.viewer-zoom-only {
+  justify-content: flex-end;
+}
+
 .orbit-shell .compact-selection-trigger {
   align-items: center;
   background: var(--orbit-ds-lilac-soft);
@@ -6686,9 +6693,8 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .konva-wrap {
-    align-items: start;
-    justify-items: center;
     min-height: 100%;
+    place-items: center;
   }
 }
 

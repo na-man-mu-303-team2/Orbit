@@ -94,6 +94,7 @@ import {
 import { EditorSaveControl } from "./components/EditorSaveControl";
 import { EditorUndoToast } from "./components/EditorUndoToast";
 import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
+import { EditorZoomControl } from "./components/EditorZoomControl";
 import { PresentationMenu } from "./components/PresentationMenu";
 import { SlideRail } from "./components/SlideRail";
 import {
@@ -120,12 +121,27 @@ import {
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import {
+  fitEditorZoomState,
+  maximumManualEditorZoom,
+  minimumManualEditorZoom,
+  persistProjectEditorZoom,
+  readProjectEditorZoom,
+  resolveEditorStageScale,
+  stepEditorZoom,
+  type EditorZoomState
+} from "./editorZoom";
+import {
+  isEditorKeyboardCommandSuppressedTarget,
+  resolveEditorKeyboardCommand
+} from "./editorKeyboardCommands";
+import {
   buildSlideRailItems,
   resolveSelectedSlideId,
   resolveSelectedSlideIdAfterDelete,
 } from "./slideRailModel";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
+import { createSelectionNudgePatch } from "./utils/selectionNudge";
 import { createThemeCascadePatch } from "./utils/themeCascadePatch";
 import {
   createSelectionInspectorModel,
@@ -146,6 +162,7 @@ export {
   shouldHydrateDeckFromQuery
 } from "./utils/deckState";
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
+export { getResponsiveEditorStageScale } from "./editorZoom";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
 import type {
   ApplyDesignAgentProposalResponse,
@@ -274,54 +291,10 @@ type EditorSessionDebugState =
     }
   | { status: "error"; message: string };
 
-const defaultEditorStageScale = 0.44;
-const maximumEditorStageScale = 0.66;
-const compactEditorBreakpoint = 760;
-const compactEditorCanvasInset = 32;
-const fittedEditorCanvasHorizontalInset = 48;
-const fittedEditorCanvasVerticalInset = 64;
-
-export function getResponsiveEditorStageScale(
-  canvasWidth: number,
-  viewportWidth: number | null,
-  canvasHeight?: number,
-  viewportHeight?: number | null,
-) {
-  if (
-    viewportWidth &&
-    viewportHeight &&
-    canvasWidth > 0 &&
-    canvasHeight &&
-    canvasHeight > 0
-  ) {
-    const availableWidth = Math.max(
-      0,
-      viewportWidth - fittedEditorCanvasHorizontalInset,
-    );
-    const availableHeight = Math.max(
-      0,
-      viewportHeight - fittedEditorCanvasVerticalInset,
-    );
-
-    return Math.min(
-      maximumEditorStageScale,
-      Math.max(
-        0.16,
-        Math.min(availableWidth / canvasWidth, availableHeight / canvasHeight),
-      ),
-    );
-  }
-
-  if (!viewportWidth || viewportWidth > compactEditorBreakpoint || canvasWidth <= 0) {
-    return defaultEditorStageScale;
-  }
-
-  const availableWidth = Math.max(0, viewportWidth - compactEditorCanvasInset);
-  return Math.min(
-    defaultEditorStageScale,
-    Math.max(0.16, availableWidth / canvasWidth)
-  );
-}
+type ProjectEditorZoomState = {
+  projectId: string;
+  zoom: EditorZoomState;
+};
 
 export function shouldPromptSpeakerNotesDraftDiscard(input: {
   draft: string;
@@ -1645,6 +1618,15 @@ function EditorRuntime(props: {
   const projectId = props.projectId;
   const capabilities = props.capabilities;
   const canMutateDeck = capabilities.canMutateDeck;
+  const [projectEditorZoom, setProjectEditorZoom] =
+    useState<ProjectEditorZoomState>(() => ({
+      projectId,
+      zoom: readProjectEditorZoom(projectId)
+    }));
+  const editorZoomState =
+    projectEditorZoom.projectId === projectId
+      ? projectEditorZoom.zoom
+      : fitEditorZoomState;
   const isDev = import.meta.env.DEV;
   const queryClient = useQueryClient();
   const [currentSlideId, setCurrentSlideId] = useState<string | null>(
@@ -1872,6 +1854,25 @@ function EditorRuntime(props: {
     setSpeakerNotesPanelHeight(defaultSpeakerNotesPanelHeight);
     speakerNotesPanelHeightRef.current = defaultSpeakerNotesPanelHeight;
   }, [projectId, resetProjectUiState]);
+
+  useEffect(() => {
+    setProjectEditorZoom((current) =>
+      current.projectId === projectId
+        ? current
+        : {
+            projectId,
+            zoom: readProjectEditorZoom(projectId)
+          }
+    );
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectEditorZoom.projectId !== projectId) {
+      return;
+    }
+
+    persistProjectEditorZoom(projectId, projectEditorZoom.zoom);
+  }, [projectEditorZoom, projectId]);
 
   useEffect(() => {
     if (
@@ -2199,12 +2200,45 @@ function EditorRuntime(props: {
     }
     wasCompactEditorLayoutRef.current = isCompactLayout;
   }, [editorViewportWidth, isRightPanelOpen, setIsRightPanelOpen]);
-  const stageScale = getResponsiveEditorStageScale(
+  const stageScale = resolveEditorStageScale(
+    editorZoomState,
     deck.canvas.width,
     editorCanvasViewport?.width ?? editorViewportWidth,
     deck.canvas.height,
     editorCanvasViewport?.height,
   );
+  const zoomPercent = Math.round(stageScale * 100);
+
+  function updateEditorZoom(zoom: EditorZoomState) {
+    setProjectEditorZoom({ projectId, zoom });
+  }
+
+  function handleEditorZoomStep(direction: "in" | "out") {
+    updateEditorZoom({
+      mode: "manual",
+      scale: stepEditorZoom(stageScale, direction)
+    });
+  }
+
+  useEffect(() => {
+    if (editorZoomState.mode !== "fit") {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      if (editorCanvasViewportRef.current) {
+        editorCanvasViewportRef.current.scrollLeft = 0;
+        editorCanvasViewportRef.current.scrollTop = 0;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [
+    editorCanvasViewport?.height,
+    editorCanvasViewport?.width,
+    editorZoomState.mode,
+    stageScale
+  ]);
   const currentSlideAnimations = useMemo(
     () =>
       currentSlide
@@ -5455,63 +5489,84 @@ function EditorRuntime(props: {
   }, [canMutateDeck, currentSlide, selectedElement]);
 
   useEffect(() => {
-    if (!canMutateDeck) return;
-
     function handleKeyDown(event: KeyboardEvent) {
-      const isEditableTarget = isKeyboardEditableTarget(event.target);
+      const command = resolveEditorKeyboardCommand({
+        altKey: event.altKey,
+        canMutateDeck,
+        canPaste: Boolean(copiedElementRef.current),
+        ctrlKey: event.ctrlKey,
+        defaultPrevented: event.defaultPrevented,
+        hasSelection: selectedElementIds.length > 0,
+        hasSingleSelection: selectedElementIds.length === 1,
+        isCustomShapeEditing: Boolean(customShapeEditElementId),
+        isInlineTextEditing: Boolean(editingElementId),
+        key: event.key,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        target: event.target
+      });
 
-      if (
-        !isEditableTarget &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "z"
-      ) {
+      if (command) {
         event.preventDefault();
-        if (event.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
+
+        switch (command.type) {
+          case "copy-selection":
+            handleCopySelectedElement();
+            return;
+          case "delete-selection":
+            handleDeleteSelectedElement();
+            return;
+          case "duplicate-selection":
+            handleDuplicateSelectedElement();
+            return;
+          case "navigate-slide": {
+            const targetIndex =
+              currentSlideIndex + (command.direction === "next" ? 1 : -1);
+            const targetSlide = deck.slides[targetIndex];
+            if (targetSlide) {
+              handleSelectSlide(targetSlide.slideId);
+            }
+            return;
+          }
+          case "nudge-selection": {
+            if (!currentSlide) {
+              return;
+            }
+
+            const patch = createSelectionNudgePatch({
+              deck: workingDeckRef.current,
+              deltaX: command.deltaX,
+              deltaY: command.deltaY,
+              selectedElementIds,
+              slideId: currentSlide.slideId
+            });
+            if (patch) {
+              commitPatch(patch);
+            }
+            return;
+          }
+          case "paste-selection":
+            handlePasteCopiedElement();
+            return;
+          case "redo":
+            handleRedo();
+            return;
+          case "save":
+            if (command.canExecute) {
+              void handleSaveDeck();
+            }
+            return;
+          case "undo":
+            handleUndo();
+            return;
         }
       }
 
       if (
-        !isEditableTarget &&
-        !isCustomShapeEditingSelection &&
-        (event.key === "Delete" || event.key === "Backspace")
+        event.defaultPrevented ||
+        isEditorKeyboardCommandSuppressedTarget(event.target)
       ) {
-        if (
-          selectedElementIds.length > 0 &&
-          (!editingElementId ||
-            selectedElementIds.length > 1 ||
-            editingElementId !== selectedElementId)
-        ) {
-          event.preventDefault();
-          handleDeleteSelectedElement();
-        }
-      }
-
-      if (
-        !isEditableTarget &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "d"
-      ) {
-        if (selectedElementIds.length === 1) {
-          event.preventDefault();
-          handleDuplicateSelectedElement();
-        }
-      }
-
-      if (!isEditableTarget && (event.metaKey || event.ctrlKey)) {
-        const normalizedKey = event.key.toLowerCase();
-
-        if (normalizedKey === "c" && selectedElement) {
-          event.preventDefault();
-          handleCopySelectedElement();
-        }
-
-        if (normalizedKey === "v" && copiedElementRef.current) {
-          event.preventDefault();
-          handlePasteCopiedElement();
-        }
+        return;
       }
 
       if (event.key === "Escape") {
@@ -5534,6 +5589,8 @@ function EditorRuntime(props: {
   }, [
     canMutateDeck,
     currentSlide,
+    currentSlideIndex,
+    customShapeEditElementId,
     deck,
     editingElementId,
     isCustomShapeEditingSelection,
@@ -6547,8 +6604,13 @@ function EditorRuntime(props: {
 
         <section className="stage-pane">
           <div className="stage-top-controls">
-            {canMutateDeck ? <div className="editor-toolbar">
-              {isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
+            <div
+              className={`editor-toolbar ${
+                canMutateDeck ? "" : "viewer-zoom-only"
+              }`}
+            >
+              {canMutateDeck ? <>
+                {isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
                 <button
                   aria-controls="editor-selection-inspector-pane"
                   aria-describedby="compact-selection-count"
@@ -6565,7 +6627,7 @@ function EditorRuntime(props: {
                   </span>
                 </button>
               ) : null}
-              <div className="tool-group">
+                <div className="tool-group">
                 <button
                   aria-label="실행 취소"
                   className="icon-button history-nav-button"
@@ -6667,13 +6729,28 @@ function EditorRuntime(props: {
                   <Sparkles size={14} />
                   <span className="tool-button-label">애니메이션</span>
                 </button>
-              </div>
-            </div> : null}
+                </div>
+              </> : null}
+              <EditorZoomControl
+                canZoomIn={stageScale < maximumManualEditorZoom}
+                canZoomOut={stageScale > minimumManualEditorZoom}
+                isFit={editorZoomState.mode === "fit"}
+                zoomPercent={zoomPercent}
+                onFit={() => updateEditorZoom({ mode: "fit" })}
+                onReset={() =>
+                  updateEditorZoom({ mode: "manual", scale: 1 })
+                }
+                onZoomIn={() => handleEditorZoomStep("in")}
+                onZoomOut={() => handleEditorZoomStep("out")}
+              />
+            </div>
           </div>
 
           <div
             aria-label="슬라이드 캔버스 작업 영역"
             className="canvas-scroll"
+            data-zoom-mode={editorZoomState.mode}
+            data-zoom-percent={zoomPercent}
             data-testid="editor-canvas-pane"
             ref={editorCanvasViewportRef}
             role="region"
@@ -7480,26 +7557,6 @@ function getContextMenuPosition(args: {
   };
 }
 
-
-function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
-    );
-  }
-
-  return false;
-}
 
 export function useLoadedImage(src: string) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);

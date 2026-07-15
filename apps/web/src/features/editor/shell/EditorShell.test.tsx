@@ -701,6 +701,12 @@ describe("editor shell", () => {
     expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
+    expect(html).toContain('aria-label="캔버스 확대/축소"');
+    expect(html).toContain('aria-label="캔버스 축소"');
+    expect(html).toContain('aria-label="캔버스 확대"');
+    expect(html).toContain('aria-label="캔버스에 맞추기"');
+    expect(html).toContain('aria-label="100%로 보기"');
+    expect(html).toContain('data-zoom-mode="fit"');
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
     expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
@@ -2644,6 +2650,10 @@ describe("editor shell", () => {
     expect(html).toContain("ORBIT 데모 흐름을 소개합니다");
     expect(html).toContain('aria-label="현재 선택"');
     expect(html).toContain("슬라이드의 정보를 보고 있습니다.");
+    expect(html).toContain('aria-label="캔버스 확대/축소"');
+    expect(html).toContain('aria-label="캔버스에 맞추기"');
+    expect(html).toContain('aria-label="100%로 보기"');
+    expect(html).toContain('data-zoom-mode="fit"');
     expect(html).not.toContain('aria-readonly="true"');
     const inspectorStart = html.indexOf('aria-label="현재 선택"');
     const inspectorEnd = html.indexOf("</section>", inspectorStart);
@@ -2662,6 +2672,7 @@ describe("editor shell", () => {
     expect(html).not.toContain('aria-label="Opening 메뉴"');
     expect(html).not.toContain(">복제<");
     expect(html).not.toContain("슬라이드 추가");
+    expect(html).not.toContain('aria-label="선택 도구"');
   });
 
   it("Deck이 없을 때 편집자에게만 첫 슬라이드 생성 action을 노출한다", () => {
