@@ -623,6 +623,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
+- `AI_DECK_EXECUTION_MODE`의 기본값은 `monolith`다. 338-1에서 `monolith`만 기존 동기 pipeline을 끝까지 실행해 완전한 Deck을 발행하며, opt-in `bullmq`는 staged coordinator와 파일별 OCR까지만 실행하고 `source-grounding` checkpoint에서 멈춘다. 따라서 338-1의 `bullmq` 결과를 완전한 Deck 생성 성공으로 취급하지 않는다. `sqs`는 아직 지원하지 않으며 API와 Worker 시작 시 즉시 거부한다.
 - GenerateDeck public request에는 `generationMode`, `design.engineVersion`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 없다. root request와 모든 중첩 request object는 strict하며 제거된 필드와 unknown field를 거부하고 ingress 호환 shim을 두지 않는다.
 - `develop` merge는 `.github/workflows/deploy-personal-staging.yml`을 통해 personal staging에 자동 배포한다. #339 때문에 이 workflow를 변경·중단하거나 `personal-staging` required reviewer를 추가하지 않는다. workflow는 run 실행 시점에 `git pull --ff-only origin develop`로 동기화한 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드·교체하고 API/root health check가 통과해야 성공한다.
 - #339 종료 증거는 자동 배포 run 성공, 서버에서 확인한 `git rev-parse HEAD`, 배포 후 BullMQ `pptx-import`, `ai-template-deck-generation`, `generate-deck` 전체 상태와 관련 DB Job의 `queued`/`running`을 읽기 전용으로 확인하고 GenerateDeck smoke를 실행한 결과다. workflow trigger SHA와 실제 서버 HEAD를 구분하며, 성공한 배포 run만으로 queue/DB가 0이었다고 주장하지 않는다. production의 ingress 중단, drain, 동시 교체와 cache invalidation은 별도 승인된 배포 계획에서 다룬다.
@@ -661,7 +662,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 - 생성 결과의 디자인은 새 배열 없이 기존 `deck.theme`, `slide.style`, `slide.elements`, chart props, `slide.animations`에 매핑한다.
 - Python worker는 source data가 없는 chart 숫자를 임의 생성하지 않는다. program-v2에서 숫자 근거가 없는 `chart` intent는 `feature-grid` 의미로 재분류해 native editable element로 구성하며 chart element를 만들지 않는다. 근거 있는 수치는 curated data composition의 editable text/shape로 표현한다.
 - `validation.designIssues`는 overflow, contrast, collision, safe area, density, placeholder media 같은 issue를 담는다. issue가 하나라도 있으면 `validation.passed=false`이며, repair 이후 blocking issue가 없으면 worker는 non-blocking issue를 `validation`에 남기고 Deck을 저장한다. validation issue 전체를 `warnings`에 일괄 중복하지 않는다. Python diagnostics가 명시적으로 승격한 issue·summary와 validation과 독립적으로 생성된 generation/provider/repair warning만 `warnings`에 기록한다.
-- worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation, diagnostics }`을 저장한다.
+- `monolith` worker는 Python 응답을 shared `generateDeckResponseSchema`와 `deckSchema`로 검증한 뒤 `decks`에 저장하고 job result에 `{ deckId, deck, warnings, validation, diagnostics }`을 저장한다.
 
 구현 위치:
 
@@ -1430,7 +1431,7 @@ historical `type` 값:
 - 성공 결과는 `result`, 실패 이유는 `error`에 넣는다.
 - `error`는 `{ code, message, failedStage?, retryable? } | null`이다. 기존 row는 두 optional field가 없어도 유효하다.
 - `failedStage`는 AI Deck 부모 Job의 실패 stage 요약이며 shard 식별자는 `ai_deck_generation_stages` checkpoint key에만 저장한다.
-- `retryable`은 부모 Job 실패 후 명시적 retry API를 허용할지 나타낸다. 자동 stage 재시도는 checkpoint의 `attempt < 5`로 별도 관리한다.
+- `retryable`은 부모 Job 실패 후 명시적 retry API를 허용할지 나타낸다. 자동 stage 재시도는 checkpoint의 `attempt < 5`로 별도 관리한다. 부모 Job 수동 retry API와 성공한 upstream checkpoint를 보존하는 재개 동작은 338-3 범위이며 338-1에는 공개 retry API가 없다.
 - `error`에는 provider raw response, token, cookie, 사용자 원문 등 민감하거나 과도한 데이터를 저장하지 않는다.
 
 구현 위치:
@@ -1439,24 +1440,42 @@ historical `type` 값:
 
 ### AI Deck 내부 stage와 checkpoint
 
+- 338-1의 staged BullMQ 경로는 opt-in OCR slice다. coordinator message는 strict `{ jobId, projectId }`만 담고 전체 request는 DB의 부모 `jobs.payload`에서 읽는다. `generate-deck` queue는 `job.name`의 `generate-deck`과 `generate-deck-staged-coordinator`, `reference-extract` queue는 `reference-extract`와 `reference-extract-file`을 구분해 기존 monolith/standalone OCR과 staged handler를 함께 안전하게 routing한다.
+- `AI_DECK_WORKER_QUEUE=all|reference-extract`만 338-1에서 실행 가능하다. `research-content`, `design-layout`, `image`, `qa-finalize` role과 `AI_DECK_EXECUTION_MODE=sqs`는 구현된 것처럼 healthy 상태를 보이지 않도록 Worker 시작 시 거부한다.
 - stage enum은 `reference-extract-file`, `source-grounding`, `content-planning`, `design-planning`, `layout-compile`, `image-slide`, `semantic-quality`, `rendered-visual-quality`, `publication`의 정확한 9개다.
 - queue envelope은 strict `{ pipelineJobId, projectId, stage, shardKey }`만 허용한다. binary, base64, 전체 Deck, provider raw response, 별도 checkpoint/asset ID는 금지한다.
 - `reference-extract-file`과 `image-slide`은 colon 없는 non-empty `shardKey`를 사용하고 나머지 singleton stage는 정확히 `""`를 사용한다. stage 전용 `pipelineJobId`에도 colon을 허용하지 않으며 일반 historical `Job.jobId` 계약은 좁히지 않는다.
 - BullMQ `opts.jobId`는 `${pipelineJobId}:${stage}:${shardKey}`로 만들어 정확히 세 segment를 유지한다. stage message에는 별도 `jobId` field를 넣지 않으며 SQS duplicate delivery는 DB checkpoint 전이로 제한한다.
 - repository는 parent row의 `jobs.job_id`, `jobs.project_id`, `jobs.type="ai-deck-generation"`을 envelope과 대조한다.
 - `ai_deck_generation_stages`는 `(pipeline_job_id, stage, shard_key)` UNIQUE checkpoint다. `pipeline_job_id`는 `jobs(job_id) ON DELETE CASCADE`, `shard_key`는 `NOT NULL DEFAULT ''`, `status`는 `queued | running | succeeded | failed`, `attempt`는 `0..5`다.
-- 338-0의 checkpoint reference allowlist는 비어 있다. `input_ref_json`은 정확히 `{}`, `result_ref_json`은 `null | {}`만 허용하고 repository schema와 DB CHECK가 모든 임의 field를 거부한다. 아직 stage artifact persistence가 없으므로 locator 이름을 선점하지 않으며, 338-1~3에서 각 stage가 별도 DB/Storage artifact를 소유하는 PR이 필요한 strict locator field만 함께 추가한다. 전체 Deck·content·binary/base64·provider raw response를 checkpoint에 저장하지 않는다.
+- `input_ref_json`은 모든 stage에서 정확히 `{}`만 허용한다. `result_ref_json`은 기본적으로 `null | {}`이며 `reference-extract-file` 성공 결과만 strict `{ referenceExtractionArtifactId: UUID }` locator를 허용한다. 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않는다.
+- `ai_deck_reference_extraction_artifacts`는 `(pipeline_job_id, file_id)` UNIQUE이며 `artifact_id` UUID를 primary key로 사용한다. `(pipeline_job_id, project_id)`는 부모 `jobs(job_id, project_id)`, `(project_id, file_id)`는 `project_assets(project_id, file_id)`, `(pipeline_job_id, stage, file_id)`는 해당 `ai_deck_generation_stages(pipeline_job_id, stage, shard_key)`를 각각 `ON DELETE CASCADE`로 참조한다. 같은 pipeline/file을 upsert할 때 기존 `artifact_id`를 바꾸지 않아 locator UUID가 안정적으로 유지된다.
+- 검증된 OCR 응답은 `usable=false`여도 artifact로 보존할 수 있다. transient/unusable 결과는 먼저 해당 shard만 재시도하고, 총 5번째 시도에도 unusable이면 `usable=false` artifact와 locator를 저장해 checkpoint를 `succeeded`로 끝낸 뒤 policy join이 부모의 계속/실패를 결정한다. provider raw response와 credential은 artifact나 Job error에 저장하지 않는다.
 - claim은 `queued -> running` 조건부 update에 성공한 consumer만 허용하며 이때만 `attempt`를 증가시킨다. stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 claim마다 새로 발급하고 `attempt`를 generation fencing token으로 함께 사용한다. claim이 반환한 `lease_owner`와 `attempt`가 모두 일치하고 lease가 만료되지 않은 heartbeat·성공·실패·retry release만 허용한다.
-- dispatcher는 조회 당시 `attempt`를 `markDispatched`에 전달하고 같은 queued generation일 때만 `dispatched_at`을 기록한다. 이전 send의 늦은 mark가 새 retry row를 전송 완료로 바꾸면 안 된다.
-- retry release와 expired lease 재큐잉은 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 전이하며 `attempt`는 유지한다. 실제 dispatcher와 expired-lease reconciler는 338-1에서 연결한다.
-- 338-0은 schema와 persistence 기반만 추가하며 기존 monolith 실행과 실패 정책을 바꾸지 않는다.
+- 338-1 dispatcher는 `reference-extract-file` checkpoint만 enqueue한다. enqueue 후 BullMQ `getState()`가 `waiting | delayed | prioritized`일 때만 조회 당시 `attempt`를 대조해 `dispatched_at`을 기록한다. `active | completed | failed | unknown`은 durable dispatch로 인정해 mark하지 않으며, 늦은 이전 send가 새 retry generation을 덮지 못한다. `source-grounding` checkpoint는 생성하되 338-2 consumer가 연결될 때까지 의도적으로 dispatch하지 않는다.
+- retryable failure는 현재 shard만 지수 backoff로 최대 총 5회 시도한다. DB lease는 10분, heartbeat는 60초다. retry release와 expired lease의 1~4번째 복구는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 전이하고 기존 `attempt`는 유지한다. 5번째 expired lease는 checkpoint를 `failed`로 끝내고 policy join이 부모의 계속/실패를 결정한다. dispatcher와 expired-lease reconciler는 Worker 시작 직후 한 번 실행한 뒤 주기적으로 실행한다.
+- coordinator는 reference policy를 root `referencePolicy`, `design.referencePolicy`, `brief.referencePolicy` 순으로 선택하고 `referenceFileIds`를 dedupe한 뒤 기존 `referenceContext`가 덮는 file은 fan-out에서 제외한다. Web의 인증된 `POST /api/v1/projects/:projectId/references/extractions` standalone OCR과 `referenceContext` 전달 경로는 338-3 전환 전까지 유지하며, 338-1 staged OCR은 해당 context가 이미 덮는 file을 다시 호출하지 않는다.
+- 별도 join stage는 만들지 않는다. 마지막 `reference-extract-file` child가 끝난 트랜잭션에서 예상 shard 전체와 artifact `usable`을 확인하고 `source-grounding` checkpoint를 멱등 생성한다. `references-only`는 선택한 모든 file이 usable이어야 하고, `references-first`는 기존 context와 새 artifact를 합쳐 usable source가 하나 이상이어야 한다. 이 strict grounding 조건을 만족하지 못하면 부모를 `SOURCE_GROUNDING_REQUIRED`, `retryable=false`로 terminal 처리한다. `research-first`는 uploaded grounding이 없어도 다음 checkpoint로 진행하며 실제 research 품질 정책은 338-2에서 적용한다.
+- 338-1 `bullmq` 부모 Job은 OCR join 후에도 `running`을 유지한다. `source-grounding` 이후 content/design/layout/image/QA/publication과 완전한 Deck 발행은 각각 338-2·338-3 범위이고, 그 전까지 production 기본값은 `monolith`다.
 
 구현 위치:
 
 - `packages/shared/src/jobs/ai-deck-generation-stage.schema.ts`
+- `packages/config/src/index.ts`
 - `packages/job-queue/src/index.ts`
+- `apps/api/src/generate-deck/generate-deck.service.ts`
 - `apps/api/src/database/migrations/2026071502000-CreateAiDeckGenerationStages.ts`
+- `apps/api/src/database/migrations/2026071503000-CreateAiDeckReferenceExtractionArtifacts.ts`
+- `apps/worker/src/worker.service.ts`
+- `apps/worker/src/reference-extract-python-client.ts`
+- `apps/worker/src/reference-extract.processor.ts`
+- `apps/worker/src/generate-deck/staged-coordinator.ts`
 - `apps/worker/src/generate-deck/stage-checkpoint-repository.ts`
+- `apps/worker/src/generate-deck/stage-dispatcher.ts`
+- `apps/worker/src/generate-deck/stage-reconciler.ts`
+- `apps/worker/src/generate-deck/reference-extract-stage.ts`
+- `apps/worker/src/generate-deck/reference-extraction-artifact-repository.ts`
+- `apps/worker/src/generate-deck/reference-extraction-join.ts`
 
 ## WebSocket 이벤트 구조
 
