@@ -18,6 +18,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     ).resolves.toEqual({
       scanned: 1,
       recovered: 1,
+      resumed: 0,
       removed: 1,
       nextStart: 0,
     });
@@ -50,6 +51,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     ).resolves.toEqual({
       scanned: 1,
       recovered: 0,
+      resumed: 0,
       removed: 0,
       nextStart: 0,
     });
@@ -73,6 +75,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     ).resolves.toEqual({
       scanned: 1,
       recovered: 0,
+      resumed: 0,
       removed: 0,
       nextStart: 0,
     });
@@ -81,25 +84,29 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     expect(unrelated.remove).not.toHaveBeenCalled();
   });
 
-  it("recovers a stalled coordinator that BullMQ failed before attempts were exhausted", async () => {
+  it("idempotently resumes a stalled coordinator whose DB transaction already committed", async () => {
     const stalled = failedCoordinatorJob({ attemptsMade: 1 });
     const queue = failedQueue(stalled);
-    const recover = vi.fn(async () => "coordinator-failed" as const);
+    const recover = vi.fn();
+    const resume = vi.fn(async () => runningParentJob());
 
     await expect(
       reconcileFailedAiDeckCoordinatorJobs({} as DataSource, {
         redisUrl: "redis://localhost:6379",
         queueFactory: () => queue,
         recover,
+        resume,
       }),
     ).resolves.toEqual({
       scanned: 1,
-      recovered: 1,
+      recovered: 0,
+      resumed: 1,
       removed: 1,
       nextStart: 0,
     });
 
-    expect(recover).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith(expect.anything(), stalled.data);
+    expect(recover).not.toHaveBeenCalled();
     expect(stalled.remove).toHaveBeenCalledTimes(1);
   });
 
@@ -124,6 +131,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     expect(first).toEqual({
       scanned: 100,
       recovered: 0,
+      resumed: 0,
       removed: 0,
       nextStart: 100,
     });
@@ -139,6 +147,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     ).resolves.toEqual({
       scanned: 1,
       recovered: 1,
+      resumed: 0,
       removed: 1,
       nextStart: 0,
     });
@@ -166,6 +175,7 @@ describe("reconcileFailedAiDeckCoordinatorJobs", () => {
     ).resolves.toEqual({
       scanned: 1,
       recovered: 1,
+      resumed: 0,
       removed: 1,
       nextStart: 0,
     });
@@ -181,6 +191,21 @@ function failedCoordinatorJob(overrides: Record<string, unknown> = {}) {
     opts: { attempts: 5 },
     remove: vi.fn(async () => undefined),
     ...overrides,
+  };
+}
+
+function runningParentJob() {
+  return {
+    jobId: "job-ai-deck-1",
+    projectId: "project-a",
+    type: "ai-deck-generation" as const,
+    status: "running" as const,
+    progress: 10,
+    message: "AI deck staged generation running.",
+    result: null,
+    error: null,
+    createdAt: "2026-07-15T01:00:00.000Z",
+    updatedAt: "2026-07-15T01:00:00.000Z",
   };
 }
 
