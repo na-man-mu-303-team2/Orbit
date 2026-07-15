@@ -32,6 +32,7 @@ import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
 import { reconcileExpiredAiDeckStageLeases } from "./generate-deck/stage-reconciler";
 import { processAiDeckStagedCoordinatorJob } from "./generate-deck/staged-coordinator";
+import { recoverAiDeckBullMqFinalFailure } from "./generate-deck/transport-failure-recovery";
 import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -471,6 +472,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       }
       return result;
     } catch (error) {
+      await this.recoverAiDeckTransportFailure(queueName, job);
       this.logger.error(
         {
           event: "job.failed",
@@ -481,6 +483,44 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         "Job failed.",
       );
       throw error;
+    }
+  }
+
+  private async recoverAiDeckTransportFailure(
+    queueName: string,
+    job: BullMqJob,
+  ): Promise<void> {
+    if (!isFinalBullMqAttempt(job)) return;
+    try {
+      const result = await recoverAiDeckBullMqFinalFailure(this.dataSource, {
+        queueName,
+        jobName: job.name,
+        data: job.data,
+      });
+      if (result === "ignored") return;
+      this.logger.warn(
+        {
+          event: "ai_deck.transport_failure.recovered",
+          queueName,
+          bullJobId: job.id,
+          attemptsMade: job.attemptsMade,
+          recovery: result,
+          ...jobPayloadFields(job.data),
+        },
+        "AI deck transport failure recovered.",
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          event: "ai_deck.transport_failure.recovery_failed",
+          queueName,
+          bullJobId: job.id,
+          attemptsMade: job.attemptsMade,
+          ...jobPayloadFields(job.data),
+          error: serializeLogError(error),
+        },
+        "AI deck transport failure recovery failed.",
+      );
     }
   }
 
@@ -550,6 +590,12 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       );
     }
   }
+}
+
+function isFinalBullMqAttempt(job: BullMqJob): boolean {
+  const configuredAttempts =
+    typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
+  return job.attemptsMade + 1 >= Math.max(1, configuredAttempts);
 }
 
 function jobPayloadFields(data: unknown) {
