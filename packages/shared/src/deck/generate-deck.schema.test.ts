@@ -6,7 +6,8 @@ import {
   generateDeckDiagnosticsSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
-  generateDeckResponseSchema
+  generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema
 } from "./generate-deck.schema";
 
 describe("generateDeckRequestSchema", () => {
@@ -352,6 +353,34 @@ describe("generateDeckRequestSchema", () => {
         slideCountRange: { min: 8, max: 5 }
       }).success
     ).toBe(false);
+  });
+});
+
+describe("generateDeckStoredJobPayloadSchema", () => {
+  it("accepts legacy payloads and records the requesting user for new jobs", () => {
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "legacy" },
+      }),
+    ).toMatchObject({ request: { topic: "legacy" } });
+
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        imageAssetScope: { userId: "user-a" },
+      }),
+    ).toMatchObject({ requestedByUserId: "user-a" });
+  });
+
+  it("rejects undeclared stored payload fields", () => {
+    expect(() =>
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        rawProviderResponse: { output: "private" },
+      }),
+    ).toThrow();
   });
 });
 

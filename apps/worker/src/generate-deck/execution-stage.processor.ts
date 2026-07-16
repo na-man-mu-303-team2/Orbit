@@ -1,12 +1,11 @@
 import {
   aiDeckGenerationStageMessageSchema,
   generateDeckJobResultSchema,
-  generateDeckRequestSchema,
   generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
-  savedDesignPackSnapshotSchema,
   type AiDeckGenerationStageMessage,
   type GenerateDeckResponse,
   type Job,
@@ -45,7 +44,10 @@ import {
   withHybridMediaBudgetIssue,
   withVisualIssues,
 } from "./semantic-quality";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import {
   compactDiagnostics,
   contractErrorDiagnostics,
@@ -60,16 +62,6 @@ const executionMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckExecutionStage(message.stage),
   { message: "AI deck execution stage required" },
 );
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-    imageAssetScope: z
-      .object({ userId: z.string().min(1) })
-      .strict()
-      .optional(),
-  })
-  .passthrough();
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
@@ -87,6 +79,7 @@ const parentJobRowSchema = z.object({
 export interface AiDeckExecutionStageProcessorOptions {
   heartbeatIntervalMs?: number;
   eventLogger?: AiDeckStageEventLogger;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
 }
 
 export async function processAiDeckExecutionStage(
@@ -104,8 +97,10 @@ export async function processAiDeckExecutionStage(
   }
   const message = { ...parsed, stage: parsed.stage };
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) return;
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) throw new Error("Claimed stage has no lease owner.");
   const startedAt = Date.now();
   emitStageEvent(
@@ -241,6 +236,20 @@ export async function processAiDeckExecutionStage(
     return result;
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
   }
 }
 
@@ -680,7 +689,7 @@ async function loadParentContext(
     [message.pipelineJobId, message.projectId],
   );
   const row = z.object({ payload: z.unknown() }).parse(firstQueryRow(rows));
-  return storedPayloadSchema.parse(row.payload);
+  return generateDeckStoredJobPayloadSchema.parse(row.payload);
 }
 
 function visualSlideIds(rawVisualRequirements: unknown): string[] {

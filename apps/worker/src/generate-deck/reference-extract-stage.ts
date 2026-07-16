@@ -1,7 +1,7 @@
 import {
   aiDeckGenerationStageMessageSchema,
   allowedAssetMimeTypes,
-  generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   type AiDeckGenerationStageMessage,
   type Job,
@@ -17,7 +17,10 @@ import {
   completeAiDeckReferenceExtractionStage,
   recoverAiDeckReferenceExtractionJoin,
 } from "./reference-extraction-join";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import { planAiDeckInitialStages } from "./staged-coordinator";
 
 type FetchLike = (
@@ -29,7 +32,6 @@ const referenceStageMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => message.stage === "reference-extract-file",
   { message: "reference-extract-file stage required" },
 );
-const storedPayloadSchema = z.object({ request: generateDeckRequestSchema }).passthrough();
 const assetRowSchema = z.object({
   file_id: z.string().min(1),
   project_id: z.string().min(1),
@@ -55,6 +57,7 @@ const referenceMimeTypes = new Set<string>(
 export interface AiDeckReferenceExtractionStageOptions {
   fetchImpl?: FetchLike;
   heartbeatIntervalMs?: number;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
   recoverJoin?: (
     dataSource: DataSource,
     message: AiDeckGenerationStageMessage,
@@ -71,13 +74,15 @@ export async function processAiDeckReferenceExtractionStage(
 ): Promise<Job | void> {
   const message = referenceStageMessageSchema.parse(rawMessage);
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) {
     return (options.recoverJoin ?? recoverAiDeckReferenceExtractionJoin)(
       dataSource,
       message,
     );
   }
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) throw new Error("Claimed stage is missing its lease owner.");
 
   const controller = new AbortController();
@@ -217,6 +222,20 @@ export async function processAiDeckReferenceExtractionStage(
   }
 }
 
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
+  }
+}
+
 interface ReferenceMaterialAsset {
   storageKey: string;
   originalName: string;
@@ -258,7 +277,7 @@ async function loadReferenceMaterialAsset(
     );
   }
   const row = assetRowSchema.parse(raw);
-  const request = storedPayloadSchema.parse(row.payload).request;
+  const request = generateDeckStoredJobPayloadSchema.parse(row.payload).request;
   if (
     row.file_id !== message.shardKey ||
     row.project_id !== message.projectId ||
