@@ -288,10 +288,10 @@ describe("public and authentication surfaces", () => {
         <LandingPage onNavigate={() => undefined} />
     );
 
-    expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
-    expect(html).toContain("생성");
-    expect(html).toContain("편집");
-    expect(html).toContain("리허설");
+    expect(html).toContain("생각을 발표로 바꾸는");
+    expect(html).toContain("가장 빠른 캔버스");
+    expect(html).toContain("AI 초안 생성");
+    expect(html).toContain("AI 리허설 피드백");
     expect(html).not.toContain("랜딩 페이지 메뉴");
     expect(html).not.toContain("무료로 시작하기");
     expect(html).not.toContain("무료로 발표 만들기");
