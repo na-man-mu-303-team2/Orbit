@@ -6582,6 +6582,359 @@ body.is-resizing-speaker-notes {
   width: 100%;
 }
 
+/* Editor bottom dock: presenter notes, one-slide practice, grounded Q&A, and
+ * creator-private practice history share the existing resizable notes area. */
+.orbit-shell .editor-bottom-dock-header {
+  align-items: stretch;
+  border-bottom: 1px solid var(--orbit-ds-border);
+  display: flex;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.orbit-shell .editor-bottom-dock.collapsed .editor-bottom-dock-header {
+  border-bottom: 0;
+  min-height: 53px;
+}
+
+.orbit-shell .editor-bottom-dock-tabs {
+  align-items: stretch;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.orbit-shell .editor-bottom-dock-tabs button,
+.orbit-shell .editor-bottom-dock-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--orbit-ds-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+}
+
+.orbit-shell .editor-bottom-dock-tabs button {
+  border-bottom: 2px solid transparent;
+  gap: 6px;
+  min-height: 42px;
+  padding: 0 13px;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-bottom-dock-tabs button:hover,
+.orbit-shell .editor-bottom-dock-tabs button:focus-visible,
+.orbit-shell .editor-bottom-dock-toggle:hover,
+.orbit-shell .editor-bottom-dock-toggle:focus-visible {
+  background: var(--orbit-ds-surface-soft);
+  color: var(--orbit-ds-text);
+  outline: none;
+}
+
+.orbit-shell .editor-bottom-dock-tabs button.active {
+  border-bottom-color: var(--orbit-ds-accent, #6d5dfc);
+  color: var(--orbit-ds-text);
+  font-weight: 700;
+}
+
+.orbit-shell .editor-bottom-dock-tabs button:disabled,
+.orbit-shell .editor-bottom-dock-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.orbit-shell .editor-bottom-dock-toggle {
+  justify-content: center;
+  margin-left: auto;
+  width: 42px;
+}
+
+.orbit-shell .editor-bottom-dock.expanded .editor-bottom-dock-toggle svg {
+  transform: rotate(180deg);
+}
+
+.orbit-shell .editor-bottom-dock-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.orbit-shell .editor-bottom-dock-content > [role="tabpanel"] {
+  min-height: 100%;
+}
+
+.orbit-shell .editor-bottom-dock-content > [hidden] {
+  display: none;
+}
+
+.orbit-shell .editor-bottom-dock-notes {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  max-width: none;
+  min-height: 100%;
+}
+
+.orbit-shell .editor-bottom-dock-notes > #speaker-notes-content {
+  min-height: 0;
+  overflow: visible;
+}
+
+.orbit-shell .editor-practice-panel,
+.orbit-shell .editor-question-guide-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 22px;
+}
+
+.orbit-shell .editor-practice-controls,
+.orbit-shell .editor-question-guide-header {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
+.orbit-shell .editor-practice-controls > div:first-child,
+.orbit-shell .editor-question-guide-header > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-controls p,
+.orbit-shell .editor-question-guide-header p,
+.orbit-shell .editor-practice-privacy,
+.orbit-shell .editor-practice-message {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-ui-small);
+  margin: 3px 0 0;
+}
+
+.orbit-shell .editor-practice-timer {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+
+.orbit-shell .editor-practice-start,
+.orbit-shell .editor-practice-stop,
+.orbit-shell .editor-question-guide-header button {
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 0 16px;
+}
+
+.orbit-shell .editor-practice-start,
+.orbit-shell .editor-question-guide-header button {
+  background: #6558e8;
+}
+
+.orbit-shell .editor-practice-stop {
+  background: #d64655;
+}
+
+.orbit-shell .editor-practice-start:disabled,
+.orbit-shell .editor-question-guide-header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.orbit-shell .editor-practice-consent {
+  align-items: flex-start;
+  color: var(--orbit-ds-text-muted);
+  display: flex;
+  font-size: var(--orbit-ds-type-ui-small);
+  gap: 8px;
+}
+
+.orbit-shell .editor-practice-transcript,
+.orbit-shell .editor-practice-result,
+.orbit-shell .editor-question-guide-content > article,
+.orbit-shell .editor-question-remediation {
+  background: var(--orbit-ds-surface-soft);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.orbit-shell .editor-practice-transcript {
+  line-height: 1.6;
+  min-height: 52px;
+}
+
+.orbit-shell .editor-practice-transcript .interim {
+  color: var(--orbit-ds-text-muted);
+  margin-left: 5px;
+}
+
+.orbit-shell .editor-practice-style {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.orbit-shell .editor-practice-style strong {
+  background: #ece9ff;
+  border-radius: 999px;
+  color: #5546d4;
+  flex: 0 0 auto;
+  padding: 4px 9px;
+}
+
+.orbit-shell .editor-practice-metrics,
+.orbit-shell .editor-practice-history article dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 12px 0 0;
+}
+
+.orbit-shell .editor-practice-metrics div,
+.orbit-shell .editor-practice-history article dl div {
+  display: grid;
+  gap: 2px;
+}
+
+.orbit-shell .editor-practice-metrics dt,
+.orbit-shell .editor-practice-history dt {
+  color: var(--orbit-ds-text-muted);
+  font-size: 11px;
+}
+
+.orbit-shell .editor-practice-metrics dd,
+.orbit-shell .editor-practice-history dd {
+  font-weight: 700;
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-fillers,
+.orbit-shell .editor-practice-quality,
+.orbit-shell .editor-question-caveat {
+  color: var(--orbit-ds-text-muted);
+  font-size: 12px;
+  margin: 10px 0 0;
+}
+
+.orbit-shell .editor-practice-history {
+  display: grid;
+  gap: 9px;
+  padding: 14px 18px 22px;
+}
+
+.orbit-shell .editor-practice-history article {
+  align-items: center;
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: 10px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr);
+  padding: 10px 12px;
+}
+
+.orbit-shell .editor-practice-history article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.orbit-shell .editor-practice-history article span {
+  color: var(--orbit-ds-text-muted);
+  font-size: 12px;
+}
+
+.orbit-shell .editor-practice-history article dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.orbit-shell .editor-question-stale {
+  background: #fff4d8;
+  border: 1px solid #e9ca74;
+  border-radius: 8px;
+  color: #765a13;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.orbit-shell .editor-question-guide-content {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(300px, 1.25fr);
+  min-height: 180px;
+}
+
+.orbit-shell .editor-question-guide-content nav {
+  display: grid;
+  gap: 7px;
+}
+
+.orbit-shell .editor-question-guide-content nav button {
+  background: transparent;
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: 9px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.orbit-shell .editor-question-guide-content nav button[aria-current="true"] {
+  background: #f0eeff;
+  border-color: #8d81ef;
+}
+
+.orbit-shell .editor-question-guide-content nav span {
+  color: #6558e8;
+  font-weight: 800;
+}
+
+.orbit-shell .editor-question-guide-content h4 {
+  margin: 0 0 12px;
+}
+
+.orbit-shell .editor-question-concepts {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.orbit-shell .editor-question-concepts span {
+  background: #e9f4ff;
+  border-radius: 999px;
+  color: #22639e;
+  padding: 4px 8px;
+}
+
+.orbit-shell .editor-question-guide-content details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.orbit-shell .editor-dock-empty {
+  color: var(--orbit-ds-text-muted);
+  margin: 0;
+  padding: 28px 18px;
+  text-align: center;
+}
+
+@media (max-width: 860px) {
+  .orbit-shell .editor-bottom-dock-tabs button { padding-inline: 9px; }
+  .orbit-shell .editor-bottom-dock-tabs button span { display: none; }
+  .orbit-shell .editor-practice-controls,
+  .orbit-shell .editor-question-guide-header { align-items: stretch; flex-wrap: wrap; }
+  .orbit-shell .editor-question-guide-content { grid-template-columns: 1fr; }
+  .orbit-shell .editor-practice-history article { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 860px) {
   .orbit-shell .editor-panel,
   .orbit-shell .editor-panel.right-panel-closed,

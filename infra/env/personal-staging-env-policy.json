@@ -265,6 +265,14 @@
       "source": "doppler-required",
       "delivery": "compose"
     },
+    "SLIDE_PRACTICE_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "SLIDE_QUESTION_GUIDES_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "STORAGE_DRIVER": {
       "source": "repo-default",
       "delivery": "compose"

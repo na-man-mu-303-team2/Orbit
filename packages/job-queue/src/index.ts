@@ -16,6 +16,7 @@ import {
   focusedPracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
+  slideQuestionGuideJobPayloadSchema,
   nowIso,
   type Deck,
   type DeckExportFormat,
@@ -58,6 +59,8 @@ export const challengeQnaGenerationQueueName = "challenge-qna-generation";
 export const challengeQnaGenerationJobName = "challenge-qna-generation";
 export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysis";
 export const challengeQnaAnswerAnalysisJobName = "challenge-qna-answer-analysis";
+export const slideQuestionGuideGenerationQueueName = "slide-question-guide-generation";
+export const slideQuestionGuideGenerationJobName = "slide-question-guide-generation";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const generateDeckStagedCoordinatorJobName =
@@ -144,6 +147,14 @@ export type EnqueueChallengeQnaGenerationJobInput = {
 export type EnqueueChallengeQnaAnswerAnalysisJobInput = {
   driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
   answerAttemptId: string;
+};
+
+export type EnqueueSlideQuestionGuideGenerationJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  guideId: string;
 };
 
 export interface GenerateDeckBullMqPayload {
@@ -459,6 +470,28 @@ export async function enqueueChallengeQnaAnswerAnalysisJob(input: EnqueueChallen
       jobId: input.jobId, projectId: input.projectId, answerAttemptId: input.answerAttemptId,
     }), canonicalJobOptions(input.jobId));
   } finally { await queue.close(); }
+}
+
+export async function enqueueSlideQuestionGuideGenerationJob(
+  input: EnqueueSlideQuestionGuideGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(slideQuestionGuideGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      slideQuestionGuideGenerationJobName,
+      slideQuestionGuideJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        guideId: input.guideId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
 }
 
 export async function enqueueDeckExportJob(

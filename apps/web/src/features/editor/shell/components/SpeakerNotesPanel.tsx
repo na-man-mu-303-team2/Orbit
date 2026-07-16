@@ -22,7 +22,7 @@ import {
 import { SpeakerNotesLengthMeter } from "./SpeakerNotesAssistantDialog";
 import type { getSpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
 
-export function SpeakerNotesPanel(props: {
+export type SpeakerNotesPanelProps = {
   contentRef: RefObject<HTMLDivElement | null>;
   currentSlide: Slide | null;
   draft: string;
@@ -54,24 +54,27 @@ export function SpeakerNotesPanel(props: {
   selectedKeywordUsage: KeywordUsageSummary | null;
   showIds: boolean;
   usageByKeywordId: Record<string, KeywordUsageSummary>;
-}) {
+  embedded?: boolean;
+};
+
+export function SpeakerNotesPanel(props: SpeakerNotesPanelProps) {
   const notesPreview = (props.currentSlide?.speakerNotes ?? "").trim();
 
   return (
     <section
       aria-labelledby="speaker-notes-title"
-      className={`script-panel stage-speaker-notes-panel ${
+      className={`script-panel ${props.embedded ? "editor-bottom-dock-notes" : "stage-speaker-notes-panel"} ${
         props.isExpanded ? "expanded" : "collapsed"
       } ${props.isEditing ? "editing" : ""} ${
         props.isResizing ? "is-resizing" : ""
       }`}
-      style={
+      style={props.embedded ? undefined :
         {
           "--speaker-notes-panel-height": `${props.height}px`
         } as CSSProperties
       }
     >
-      {props.isExpanded ? (
+      {props.isExpanded && !props.embedded ? (
         <button
           aria-disabled={props.isEditing}
           aria-label="발표 메모 높이 조절"

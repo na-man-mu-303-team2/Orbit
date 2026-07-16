@@ -28,6 +28,7 @@ export const historicalJobTypeSchema = z.enum([
   "focused-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
+  "slide-question-guide-generation",
   "private-audio-cleanup",
 ]);
 
@@ -41,6 +42,7 @@ export const internalCoachingJobTypeSchema = z.enum([
   "focused-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
+  "slide-question-guide-generation",
   "private-audio-cleanup",
 ]);
 

@@ -16,6 +16,7 @@ import {
   focusedPracticeAnalysisQueueName,
   challengeQnaGenerationQueueName,
   challengeQnaAnswerAnalysisQueueName,
+  slideQuestionGuideGenerationQueueName,
   aiDeckResearchContentQueueName,
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
@@ -67,6 +68,8 @@ import {
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
 import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
+import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
+import { deleteExpiredSlidePracticeData } from "./slide-practice-retention";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -85,6 +88,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     focusedPracticeAnalysisQueueName,
     challengeQnaGenerationQueueName,
     challengeQnaAnswerAnalysisQueueName,
+    slideQuestionGuideGenerationQueueName,
     aiDeckResearchContentQueueName,
     aiDeckDesignLayoutQueueName,
     aiDeckImageQueueName,
@@ -160,6 +164,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       void (async () => {
         await enqueueExpiredRehearsalAudioDeletions(this.dataSource);
         await reconcileStorageDeletionOutbox(this.dataSource, storage);
+        const deleted = await deleteExpiredSlidePracticeData(this.dataSource);
+        if (deleted.reportCount > 0 || deleted.baselineCount > 0) {
+          this.logger.info({
+            event: "slide_practice.retention_deleted",
+            reportCount: deleted.reportCount,
+            baselineCount: deleted.baselineCount,
+          }, "Expired slide practice data deleted.");
+        }
       })().catch(
         (error) => {
           this.logger.error(
@@ -460,6 +472,15 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.dataSource,
             storage,
             this.challengeQnaEvidenceCache!,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
+          ),
+      },
+      {
+        queueName: slideQuestionGuideGenerationQueueName,
+        handler: (job) =>
+          processSlideQuestionGuideGenerationJob(
+            this.dataSource,
             this.config.PYTHON_WORKER_URL,
             job.data,
           ),

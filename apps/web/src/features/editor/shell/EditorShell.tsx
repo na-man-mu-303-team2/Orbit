@@ -81,6 +81,7 @@ import {
   SpeakerNotesAssistantDialog
 } from "./components/SpeakerNotesAssistantDialog";
 import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
+import { EditorBottomDock } from "./components/EditorBottomDock";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
@@ -1396,7 +1397,20 @@ export function EditorShell(props: { projectId?: string }) {
             stageScale={stageScale}
           />
 
-          <SpeakerNotesPanel
+          <EditorBottomDock
+            currentSlide={currentSlide}
+            deck={deck}
+            flushPendingSaves={flushPendingSavesBeforeManualAction}
+            height={speakerNotesPanelHeight}
+            isExpanded={isSpeakerNotesPanelExpanded}
+            isResizing={isSpeakerNotesPanelResizing}
+            maxHeight={getSpeakerNotesPanelMaxHeight()}
+            minHeight={minSpeakerNotesPanelHeight}
+            onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
+            onResizeStart={handleSpeakerNotesResizeStart}
+            onTogglePanel={handleToggleSpeakerNotesPanel}
+            projectId={projectId}
+            notesPanel={<SpeakerNotesPanel
             contentRef={speakerNotesContentRef}
             currentSlide={currentSlide}
             draft={speakerNotesDraft}
@@ -1451,6 +1465,7 @@ export function EditorShell(props: { projectId?: string }) {
             selectedKeywordUsage={selectedKeywordUsage}
             showIds={showIds}
             usageByKeywordId={currentSlideKeywordUsage}
+          />}
           />
         </section>
 

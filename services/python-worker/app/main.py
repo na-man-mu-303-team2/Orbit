@@ -100,6 +100,7 @@ from app.audio.analysis.models import (
     unmeasured_silence_analysis,
 )
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -417,6 +418,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 app.include_router(challenge_qna_router)
+app.include_router(slide_question_guides_router)
 app.include_router(focused_practice_router)
 
 

@@ -410,7 +410,6 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
-
 ## ORBIT personal staging env source policy and safe Doppler sync
 
 - Context: 새 env key가 예시 파일에 추가돼도 Doppler key 생성과 개인 서버 Compose 전달은 별개여서, 운영자가 key를 하나씩 만들고 서버 배포 script를 다시 실행했다. 모든 예시 값을 Doppler에 일괄 복사하면 secret placeholder나 환경별 URL을 실제 값처럼 저장하고 기존 secret을 덮어쓸 위험이 있다.
@@ -422,3 +421,39 @@
 - Rationale: 일반 설정은 저장소의 검토 가능한 기본값으로 자동화하면서 secret 값의 출처와 변경 권한은 Doppler에 남긴다. 동기화가 기존 값을 수정하지 않고 하나의 Doppler 변경으로 처리되므로 webhook 재배포도 key 수만큼 반복되지 않는다. 개인 서버 runtime의 read-only Doppler token과 GitHub-hosted sync job의 `orbit / stg` 전용 read/write token을 분리하며, full 배포와 webhook 후속 배포는 같은 concurrency group에서 직렬화한다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `.github/workflows/environment-contract-ci.yml`, `infra/env/personal-staging-env-policy.json`, `infra/scripts/personal-staging-env.mjs`, `infra/scripts/personal-staging-env.test.mjs`, `infra/scripts/sync-personal-staging-doppler.mjs`, `infra/scripts/check-env.mjs`, `docker-compose.staging.yml`, `package.json`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 GitHub Environment `personal-staging`에 `DOPPLER_STG_SYNC_TOKEN`을 등록한다. 첫 `develop` push에서 key 이름만 출력되는지, sync job 성공 뒤 full 배포가 실행되는지, Doppler Webhook Logs와 `trigger_source=doppler-stg-secrets-update` 후속 실행이 직렬화되는지 확인하고 실제 값 또는 token은 로그에 남기지 않는다.
+
+## ORBIT editor one-slide practice privacy and retention
+
+- Context: 편집기에서 현재 슬라이드를 바로 연습하고 습관어와 목소리 스타일을 즉시 분석하되, 발표 음성과 전사 원문은 민감 데이터이며 기존 공식 리허설 리포트와 권한·수명주기가 다르다.
+- Options considered:
+  - raw audio와 transcript를 서버에 저장해 재분석한다.
+  - 모든 결과를 기존 `rehearsal_runs.report_json`에 합친다.
+  - 브라우저에서 원음과 전사를 일시 처리하고 파생 지표만 creator-private 전용 테이블에 저장한다.
+- Final decision: raw audio와 transcript는 브라우저 메모리에서만 처리하고 서버에는 저장하지 않는다. 파생 연습 보고서는 `slide_practice_reports`에 90일, user/device voice baseline은 `user_voice_baselines`에 180일 보관한다. 연습 보고서는 생성 사용자만 조회하고 공식 `RehearsalReport`와 분리한다.
+- Rationale: 즉시 피드백과 기록 비교를 제공하면서 민감한 원문 보존을 최소화하고 공식 리허설 계약을 흔들지 않는다.
+- Affected files: `packages/shared/src/slide-practice/**`, `apps/api/src/slide-practice/**`, `apps/web/src/features/editor/practice/**`, `apps/api/src/database/migrations/2026071701000-CreateSlidePracticeAndQuestionGuides.ts`, `docs/contracts.md`.
+- Follow-up review notes: worker의 주기적 retention cleanup은 구현했다. 사용자의 즉시 삭제 UI는 후속 운영 작업으로 남기고, 원음 보존이 필요해지면 별도 opt-in·암호화·삭제 정책 승인을 먼저 받는다.
+
+## ORBIT editor slide question guide canonical storage
+
+- Context: 현재 슬라이드의 예상 질문과 추천 답변은 project-private 원문이며, 공통 계약은 Question·AnswerGuide·발표 메모·참고자료 원문을 generic Job payload/result에 저장하지 못하게 한다.
+- Options considered:
+  - Job result에 질문과 추천 답변을 직접 넣는다.
+  - 질문 생성 전체를 브라우저에서 수행한다.
+  - Job은 `guideId` 같은 식별자만 운반하고 canonical 질문은 권한이 적용되는 전용 table에서 조회한다.
+- Final decision: `slide-question-guide-generation` Job payload/result는 bounded identifier와 상태 메타데이터만 가진다. 질문과 추천 답변은 `slide_question_guides`와 `slide_question_guide_items`에 저장하며 project read 권한 API를 통해서만 반환한다. 생성 시 deck version과 slide canonical hash를 고정하고, 같은 private guide row에 해당 버전의 최소 텍스트 snapshot을 저장한다. worker는 Presentation Brief에서 승인되고 file hash가 유지된 reference chunk만 strict Python/OpenAI provider 경계로 전달하며, 반환된 source ID·version·hash를 allowlist로 재검증한다. source가 바뀌면 stale failure로 처리하고 과거 guide 원문은 UI에서 숨긴다.
+- Rationale: 기존 Job privacy 계약을 지키고, 저장된 checkpoint보다 앞선 live deck patch를 worker가 잘못 읽는 경쟁 조건을 피하며, 승인되지 않은 참고자료나 덱 수정 전 질문이 최신 근거처럼 노출되는 것을 방지한다.
+- Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `packages/shared/src/jobs/job.schema.ts`, `packages/job-queue/src/index.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_guides.py`, `docs/contracts.md`.
+- Follow-up review notes: OpenAI model이나 prompt를 바꿀 때도 worker의 allowlisted source reference 검증과 insufficient remediation을 유지하고, `prompt_version`을 올려 별도 cache identity로 취급한다.
+
+## ORBIT editor practice rollout and transcription fallback
+
+- Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 외부 실시간 전사는 음성을 서버로 전송하므로 사용자의 명시적 동의와 독립적인 rollout 제어가 필요하다.
+- Options considered:
+  - 모든 브라우저에서 OpenAI Realtime을 기본 사용한다.
+  - 온디바이스 전사가 실패하면 연습 전체를 막는다.
+  - 온디바이스를 우선하고 동의 시에만 fallback하며, 전사가 없어도 PCM 음성 분석은 계속한다.
+- Final decision: `SLIDE_PRACTICE_ENABLED`와 `SLIDE_QUESTION_GUIDES_ENABLED`를 독립 runtime flag로 둔다. 온디바이스 Web Speech를 우선하고 사용자가 체크한 경우에만 OpenAI Realtime으로 fallback한다. 전사가 모두 실패하면 `stt-unavailable` 품질 reason을 남기고 음성 파생 측정만 계속한다.
+- Rationale: 개인정보 동의 경계를 명확히 하면서도 브라우저 capability 차이가 전체 연습 기능 중단으로 이어지지 않게 한다.
+- Affected files: `packages/config/src/index.ts`, `packages/shared/src/config/runtime-config.schema.ts`, `apps/api/src/runtime-config/runtime-config.controller.ts`, `apps/web/src/features/editor/shell/components/EditorBottomDock.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, environment examples, `docker-compose.yml`.
+- Follow-up review notes: staging에서 Chrome/Edge 언어팩 지원율, fallback 동의율, `quality.reason` 분포를 확인한 뒤 production flag를 활성화한다.

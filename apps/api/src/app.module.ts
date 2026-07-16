@@ -26,6 +26,8 @@ import { PresentationBriefsModule } from "./presentation-briefs/presentation-bri
 import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
 import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
 import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
+import { SlidePracticeModule } from "./slide-practice/slide-practice.module";
+import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-question-guides.module";
 
 @Module({
   imports: [
@@ -52,7 +54,9 @@ import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
     PresentationBriefsModule,
     PracticeGoalsModule,
     FocusedPracticeModule,
-    ChallengeQnaModule
+    ChallengeQnaModule,
+    SlidePracticeModule,
+    SlideQuestionGuidesModule
   ],
   providers: [RealtimeGateway]
 })

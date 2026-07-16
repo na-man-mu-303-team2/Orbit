@@ -55,3 +55,6 @@ export * from "./rehearsals/rehearsal-semantic-evidence.schema";
 export * from "./rehearsals/rehearsal-transcript-artifact.schema";
 export * from "./rehearsals/rehearsal.schema";
 export * from "./realtime/websocket.schema";
+export * from "./slide-practice/filler-policy";
+export * from "./slide-practice/slide-practice.schema";
+export * from "./slide-practice/slide-question-guide.schema";
