@@ -100,9 +100,9 @@ export function createDisplayMediaOptions(
     systemAudio: "exclude",
     video: {
       displaySurface: intent === "monitor" ? "monitor" : "browser",
-      frameRate: { ideal: 30, max: 30 },
-      height: { ideal: 1080, max: 1080 },
-      width: { ideal: 1920, max: 1920 },
+      frameRate: { ideal: 30, max: 60 },
+      height: { ideal: 3840 },
+      width: { ideal: 3840 },
     },
   };
 }
