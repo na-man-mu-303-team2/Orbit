@@ -12,7 +12,12 @@ describe("ActivityRunsController", () => {
         .mockRejectedValue(new ForbiddenException("Project editor permission required"))
     };
     const runs = { ensureCurrentRun: vi.fn() };
-    const controller = new ActivityRunsController(auth as never, projects as never, runs as never);
+    const controller = new ActivityRunsController(
+      auth as never,
+      projects as never,
+      runs as never,
+      {} as never
+    );
 
     await expect(
       controller.ensureCurrentRun(

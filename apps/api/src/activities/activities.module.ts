@@ -8,6 +8,8 @@ import { ActivityRunsService } from "./activity-runs.service";
 import { ActivityResponseRepository } from "./activity-response.repository";
 import { ActivityResponsesService } from "./activity-responses.service";
 import { AudienceActivityController } from "./audience-activity.controller";
+import { ActivityResultsRepository } from "./activity-results.repository";
+import { ActivityResultsService } from "./activity-results.service";
 
 @Module({
   imports: [AuthModule, ProjectsModule],
@@ -16,8 +18,10 @@ import { AudienceActivityController } from "./audience-activity.controller";
     ActivityRunRepository,
     ActivityRunsService,
     ActivityResponseRepository,
-    ActivityResponsesService
+    ActivityResponsesService,
+    ActivityResultsRepository,
+    ActivityResultsService
   ],
-  exports: [ActivityRunsService, ActivityResponsesService]
+  exports: [ActivityRunsService, ActivityResponsesService, ActivityResultsService]
 })
 export class ActivitiesModule {}

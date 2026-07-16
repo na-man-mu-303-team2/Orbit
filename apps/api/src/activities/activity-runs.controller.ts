@@ -1,4 +1,14 @@
-import { Body, Controller, Param, Patch, Post, Put, Req, UnauthorizedException } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  UnauthorizedException
+} from "@nestjs/common";
 import {
   ensureActivityRunRequestSchema,
   supersedeActivityRunRequestSchema,
@@ -11,6 +21,7 @@ import { AuthService } from "../auth/auth.service";
 import { parseRequest } from "../common/zod-request";
 import { ProjectsService } from "../projects/projects.service";
 import { ActivityRunsService } from "./activity-runs.service";
+import { ActivityResultsService } from "./activity-results.service";
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | false | undefined>;
@@ -21,7 +32,8 @@ export class ActivityRunsController {
   constructor(
     private readonly authService: AuthService,
     private readonly projectsService: ProjectsService,
-    private readonly activityRunsService: ActivityRunsService
+    private readonly activityRunsService: ActivityRunsService,
+    private readonly activityResultsService: ActivityResultsService
   ) {}
 
   @Put("activities/:activityId/current-run")
@@ -61,6 +73,17 @@ export class ActivityRunsController {
     const input = parseRequest(updateActivityRunStatusRequestSchema, body ?? {});
     await this.assertCanOperate(projectId, request);
     return this.activityRunsService.updateStatus(projectId, sessionId, runId, input);
+  }
+
+  @Get("activity-runs/:runId/results")
+  async getResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityResultsService.getPresenterResult(projectId, sessionId, runId);
   }
 
   private async assertCanOperate(projectId: string, request: SignedCookieRequest) {
