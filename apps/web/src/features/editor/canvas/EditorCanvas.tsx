@@ -41,6 +41,7 @@ import {
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
 import {
+  getHighlightOverlayElements,
   HighlightOverlay,
   ReadOnlySlideCanvas,
   type ElementPresentationState
@@ -366,6 +367,12 @@ export function EditableCanvas(props: {
         ) ?? null)
       : null;
   const validationHighlightElementIdSet = new Set(validationHighlightElementIds);
+  const validationHighlightElements = getHighlightOverlayElements({
+    activeHighlightElementIds: validationHighlightElementIdSet,
+    deck,
+    elementStates: elementStates ?? undefined,
+    slide
+  });
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -547,9 +554,7 @@ export function EditableCanvas(props: {
               }
             />
           ))}
-          {visibleElements
-            .filter((element) => validationHighlightElementIdSet.has(element.elementId))
-            .map((element) => (
+          {validationHighlightElements.map((element) => (
               <HighlightOverlay
                 element={element}
                 key={`validation-highlight-${element.elementId}`}

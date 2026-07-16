@@ -105,10 +105,7 @@ import {
   createInitialAiChatState
 } from "./components/AiChatPanel";
 import {
-  SelectionQuickBar,
-  createExpandTextWidthToFitFrame,
-  createShrinkToFitTextProps,
-  createSingleLineTextFit
+  SelectionQuickBar
 } from "./components/SelectionQuickBar";
 import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
 import { SelectionInspector } from "./components/SelectionInspector";
@@ -227,12 +224,13 @@ import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import orbitLogo from "../../../assets/orbit-logo.png";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
-import {
-  ValidationPanel,
-  type ValidationTextOverflowAction
-} from "../ai/quality/ValidationPanel";
-import type { EditorValidationItem } from "../ai/quality/editorValidation";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { createSafeTextOverflowRepair } from "../ai/quality/safeTextOverflowRepair";
+import {
+  presentEditorValidationItems,
+  type EditorValidationTargetView
+} from "../ai/quality/validationPresentation";
 import { SourceLedgerPanel } from "../ai/quality/SourceLedgerPanel";
 import {
   SemanticCueReviewPanel,
@@ -1753,6 +1751,7 @@ function EditorRuntime(props: {
   );
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
+  const [validationRepairStatus, setValidationRepairStatus] = useState("");
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
@@ -2143,8 +2142,16 @@ function EditorRuntime(props: {
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
   const editorValidationItems = useMemo(
-    () => getEditorValidationItems(deck, currentSlide ?? undefined),
-    [deck, currentSlide]
+    () => getEditorValidationItems(deck),
+    [deck]
+  );
+  const presentedEditorValidationItems = useMemo(
+    () => presentEditorValidationItems(deck, editorValidationItems),
+    [deck, editorValidationItems]
+  );
+  const safeTextOverflowRepair = useMemo(
+    () => createSafeTextOverflowRepair({ deck, items: editorValidationItems }),
+    [deck, editorValidationItems]
   );
   const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
   const [editorCanvasViewport, setEditorCanvasViewport] = useState<{
@@ -3502,177 +3509,63 @@ function EditorRuntime(props: {
     }
   }
 
-  function handleValidationTextOverflowAction(
-    item: EditorValidationItem,
-    action: ValidationTextOverflowAction
-  ) {
-    if (!currentSlide || !item.elementId) {
+  function handleValidationTargetFocus(target: EditorValidationTargetView) {
+    if (target.status !== "resolved" || !target.slideId) {
       return;
     }
 
-    const element = currentSlide.elements.find(
-      (candidate) => candidate.elementId === item.elementId
+    const activeDeck = workingDeckRef.current;
+    const nextSlide = activeDeck.slides.find(
+      (candidate) => candidate.slideId === target.slideId
     );
-
-    if (!element || element.type !== "text") {
+    if (!nextSlide) {
       return;
     }
 
-    setSelectedElementIds([element.elementId]);
-    const textFitContext = {
-      fontFamily:
-        element.props.fontFamily ??
-        currentSlide.style.fontFamily ??
-        deck.theme.typography.bodyFontFamily
-    };
-
-    if (action === "shrinkText") {
-      handleElementPropsChange(
-        currentSlide.slideId,
-        element.elementId,
-        createShrinkToFitTextProps(element, textFitContext)
-      );
-      return;
+    if (target.slideId !== resolvedCurrentSlideId) {
+      if (!confirmDiscardSpeakerNotesDraft()) {
+        setValidationHighlightElementIds([]);
+        return;
+      }
+      resetSpeakerNotesEditState(nextSlide.speakerNotes);
+      setIsSpeakerNotesAssistantOpen(false);
+      setCurrentSlideId(target.slideId);
     }
 
-    if (action === "singleLineTextBox") {
-      const fit = createSingleLineTextFit(element, textFitContext, {
-        maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
-        minFontSize: getSingleLineTextMinimumFontSize(element)
-      });
-      const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
-
-      commitPatch((currentDeck) => ({
-        deckId: currentDeck.deckId,
-        baseVersion: currentDeck.version,
-        source: "user",
-        operations: [
-          {
-            type: "update_element_props",
-            slideId: currentSlide.slideId,
-            elementId: element.elementId,
-            props: fit.props
-          },
-          {
-            type: "update_element_frame",
-            slideId: currentSlide.slideId,
-            elementId: element.elementId,
-            frame: normalizeElementFrameDraft(currentDeck.canvas, element, frame)
-          }
-        ]
-      }));
-      return;
-    }
-
-    const nextWidth = createExpandTextWidthToFitFrame(
-      element,
-      deck.canvas.width - element.x,
-      textFitContext
-    );
-
-    if (!nextWidth || nextWidth <= element.width) {
-      setLastPatchLabel("상자 넓히기 불가 · 줄바꿈 또는 높이 확인");
-      return;
-    }
-
-    handleElementFrameChange(currentSlide.slideId, element.elementId, {
-      width: nextWidth
-    });
+    setSelectedElementIds(target.elementIds);
+    setValidationHighlightElementIds(target.elementIds);
+    clearSelectedKeyword();
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setRightPanelView("ai");
+    setAiPanelView("tools");
+    setIsRightPanelOpen(true);
   }
 
-  function handleApplyAllValidationTextOverflow() {
-    if (!currentSlide) {
+  function handleSafeTextOverflowRepair(onlyElementIds?: readonly string[]) {
+    if (!capabilities.canUseAiMutations) {
       return;
     }
 
-    const autoFitIssuesByElementId = new Map<string, Set<EditorValidationItem["issue"]>>();
-    for (const item of editorValidationItems) {
-      if (!item.elementId || !isAutoFitTextValidationIssue(item)) continue;
-
-      const issues = autoFitIssuesByElementId.get(item.elementId) ?? new Set();
-      issues.add(item.issue);
-      autoFitIssuesByElementId.set(item.elementId, issues);
-    }
-    const fittedElements = currentSlide.elements
-      .filter(
-        (element): element is Extract<DeckElement, { type: "text" }> =>
-          element.type === "text" && autoFitIssuesByElementId.has(element.elementId)
-      );
-    const operations: DeckPatch["operations"] = [];
-
-    for (const element of fittedElements) {
-      const issues = autoFitIssuesByElementId.get(element.elementId);
-      const textFitContext = {
-        fontFamily:
-          element.props.fontFamily ??
-          currentSlide.style.fontFamily ??
-          deck.theme.typography.bodyFontFamily
-      };
-
-      if (
-        issues?.has("titleWrap") ||
-        issues?.has("labelWrap")
-      ) {
-        const fit = createSingleLineTextFit(element, textFitContext, {
-          maxWidth: getTextAutoFitMaxWidth(deck.canvas, element),
-          minFontSize: getSingleLineTextMinimumFontSize(element)
-        });
-        const frame = getCenteredTextAutoFitFrame(deck.canvas, element, fit.width);
-
-        if (!fit.fits && (issues?.has("labelWrap") || issues?.has("textOverflow"))) {
-          const props = createShrinkToFitTextProps(element, textFitContext);
-          if (hasTextPropsChange(element, props)) {
-            operations.push({
-              type: "update_element_props",
-              slideId: currentSlide.slideId,
-              elementId: element.elementId,
-              props
-            });
-          }
-          continue;
-        }
-
-        if (hasTextPropsChange(element, fit.props)) {
-          operations.push({
-            type: "update_element_props",
-            slideId: currentSlide.slideId,
-            elementId: element.elementId,
-            props: fit.props
-          });
-        }
-
-        if (frame.x !== element.x || frame.width !== element.width) {
-          operations.push({
-            type: "update_element_frame",
-            slideId: currentSlide.slideId,
-            elementId: element.elementId,
-            frame: normalizeElementFrameDraft(deck.canvas, element, frame)
-          });
-        }
-      } else {
-        const props = createShrinkToFitTextProps(element, textFitContext);
-        if (hasTextPropsChange(element, props)) {
-          operations.push({
-            type: "update_element_props" as const,
-            slideId: currentSlide.slideId,
-            elementId: element.elementId,
-            props
-          });
-        }
-      }
-    }
-
-    if (operations.length === 0) {
+    const activeDeck = workingDeckRef.current;
+    const result = createSafeTextOverflowRepair({
+      deck: activeDeck,
+      items: getEditorValidationItems(activeDeck),
+      onlyElementIds
+    });
+    if (!result.patch || result.repairedElementIds.length === 0) {
+      setValidationRepairStatus("안전 수정 가능한 텍스트 넘침이 없습니다.");
       return;
     }
 
-    setSelectedElementIds(fittedElements.map((element) => element.elementId));
-    commitPatch((currentDeck) => ({
-      deckId: currentDeck.deckId,
-      baseVersion: currentDeck.version,
-      source: "user",
-      operations
-    }));
+    const repairedCount = result.repairedElementIds.length;
+    setSelectedElementIds(result.repairedElementIds);
+    setValidationHighlightElementIds(result.repairedElementIds);
+    commitPatch(() => result.patch!);
+    setValidationRepairStatus(
+      `텍스트 넘침 ${repairedCount}개를 안전 수정했습니다. 실행 취소로 되돌릴 수 있습니다.`
+    );
   }
 
   function handleSlideStyleChange(
@@ -6959,10 +6852,13 @@ function EditorRuntime(props: {
                   >
                     <PptxImportQualityPanel state={pptxImportState} />
                     <ValidationPanel
-                      items={editorValidationItems}
-                      onApplyAllTextOverflow={handleApplyAllValidationTextOverflow}
+                      canRepair={capabilities.canUseAiMutations}
+                      items={presentedEditorValidationItems}
                       onHighlightElementIds={setValidationHighlightElementIds}
-                      onTextOverflowAction={handleValidationTextOverflowAction}
+                      onFocusTarget={handleValidationTargetFocus}
+                      onRepairTextOverflow={handleSafeTextOverflowRepair}
+                      repairableElementIds={safeTextOverflowRepair.repairedElementIds}
+                      repairStatus={validationRepairStatus}
                     />
                     <SourceLedgerPanel slide={currentSlide ?? null} />
                     <SemanticCueReviewPanel
@@ -7021,6 +6917,14 @@ function EditorRuntime(props: {
                   </div>
                 </div>
                 <div className="viewer-selection-pane-content">
+                  <ValidationPanel
+                    canRepair={false}
+                    items={presentedEditorValidationItems}
+                    onHighlightElementIds={setValidationHighlightElementIds}
+                    onFocusTarget={handleValidationTargetFocus}
+                    repairableElementIds={[]}
+                    repairStatus=""
+                  />
                   {renderCurrentSelectionInspector()}
                 </div>
               </>
@@ -7047,6 +6951,13 @@ function EditorRuntime(props: {
           visibleElements.map((element) => ({
             elementId: element.elementId,
             type: element.type,
+            role: element.role,
+            ...(element.type === "text"
+              ? {
+                  fontSize: element.props.fontSize,
+                  lineHeight: element.props.lineHeight
+                }
+              : {}),
             x: Math.round(element.x),
             y: Math.round(element.y),
             width: Math.round(element.width),
@@ -7054,6 +6965,13 @@ function EditorRuntime(props: {
             rotation: Math.round(element.rotation)
           }))
         )}
+      </div>
+      <div data-testid="editor-quality-debug" hidden>
+        {JSON.stringify({
+          currentSlideId: resolvedCurrentSlideId,
+          selectedElementIds,
+          validationHighlightElementIds
+        })}
       </div>
       <div data-testid="editor-slide-style-debug" hidden>
         {JSON.stringify(
@@ -7446,56 +7364,6 @@ function formatLastSavedAtLabel(lastSavedAt: string | null): string | null {
     second: "2-digit",
     hour12: false
   }).format(date);
-}
-
-function isAutoFitTextValidationIssue(item: EditorValidationItem) {
-  return (
-    item.issue === "textOverflow" ||
-    item.issue === "titleWrap" ||
-    item.issue === "labelWrap"
-  );
-}
-
-function hasTextPropsChange(
-  element: Extract<DeckElement, { type: "text" }>,
-  props: Record<string, unknown>
-) {
-  return Object.entries(props).some(
-    ([key, value]) =>
-      element.props[key as keyof typeof element.props] !== value
-  );
-}
-
-function getTextAutoFitMaxWidth(
-  canvas: DeckCanvas,
-  element: Extract<DeckElement, { type: "text" }>
-) {
-  return Math.max(element.width, canvas.width - 96);
-}
-
-function getCenteredTextAutoFitFrame(
-  canvas: DeckCanvas,
-  element: Extract<DeckElement, { type: "text" }>,
-  width: number
-) {
-  const maxWidth = getTextAutoFitMaxWidth(canvas, element);
-  const nextWidth = Math.min(Math.max(element.width, width), maxWidth);
-  const centerX = element.x + element.width / 2;
-  const minX = 48;
-  const maxX = Math.max(minX, canvas.width - minX - nextWidth);
-
-  return {
-    x: Math.min(maxX, Math.max(minX, centerX - nextWidth / 2)),
-    width: nextWidth
-  };
-}
-
-function getSingleLineTextMinimumFontSize(
-  element: Extract<DeckElement, { type: "text" }>
-) {
-  if (element.role === "title") return 32;
-  if (element.role === "subtitle") return 24;
-  return 20;
 }
 
 function getNextElementZIndex(elements: DeckElement[]) {
