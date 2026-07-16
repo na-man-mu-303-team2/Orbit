@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import * as argon2 from "argon2";
 import {
-  audienceAccessSessionSchema,
+  audiencePresentationAccessResponseSchema,
+  getAudiencePresentationPublicInfoResponseSchema,
   getCurrentPresentationSessionResponseSchema,
   listPresentationSessionsResponseSchema,
   presentationSessionResponseSchema,
-  presentationSessionWithAudienceUrlResponseSchema,
-  verifyAudienceAccessSessionResponseSchema
+  presentationSessionWithAudienceUrlResponseSchema
 } from "@orbit/shared";
 import type {
   CreatePresentationSessionRequest,
@@ -16,6 +16,7 @@ import type {
   UpdatePresentationSessionAccessRequest
 } from "@orbit/shared";
 import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import type { JoinAudiencePresentationRequest } from "@orbit/shared";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import {
@@ -142,22 +143,57 @@ export class PresentationSessionsService {
     return presentationSessionResponseSchema.parse({ session: this.toSession(row) });
   }
 
-  async getOpenSessionById(sessionId: string) {
-    const row = await this.repository.findAccessibleBySessionId(sessionId);
-    if (!row) throw new NotFoundException("Audience session not found");
-    return this.toLegacyAudienceSession(row);
+  async getAudiencePublicInfo(sessionId: string, now = new Date()) {
+    const row = await this.repository.findAudienceInfo(sessionId);
+    if (!row) throw new NotFoundException("Audience session unavailable");
+    const startsAt = new Date(row.starts_at).getTime();
+    const expiresAt = new Date(row.expires_at).getTime();
+    const availability =
+      row.status === "ended" || expiresAt <= now.getTime()
+        ? "closed"
+        : startsAt > now.getTime()
+          ? "scheduled"
+          : "open";
+    return getAudiencePresentationPublicInfoResponseSchema.parse({
+      session: {
+        sessionId: row.session_id,
+        title: row.project_title,
+        accessMode: row.access_mode,
+        startsAt: toIso(row.starts_at),
+        expiresAt: toIso(row.expires_at),
+        availability
+      }
+    });
   }
 
-  async verifyAudienceAccess(sessionId: string, passcode: string) {
+  async joinAudience(sessionId: string, input: JoinAudiencePresentationRequest) {
     const row = await this.repository.findAccessibleBySessionId(sessionId);
-    if (!row || !row.session_password_hash || row.access_mode !== "passcode") {
-      throw new NotFoundException("Invalid audience session or passcode");
+    if (!row || !row.deck_id) {
+      throw new UnauthorizedException("Invalid audience session or passcode");
     }
-    const valid = await argon2.verify(row.session_password_hash, passcode);
-    if (!valid) throw new UnauthorizedException("Invalid audience session or passcode");
-    return verifyAudienceAccessSessionResponseSchema.parse({
+    if (row.access_mode === "passcode") {
+      if (!row.session_password_hash || !input.passcode) {
+        throw new UnauthorizedException("Invalid audience session or passcode");
+      }
+      const valid = await argon2.verify(row.session_password_hash, input.passcode);
+      if (!valid) throw new UnauthorizedException("Invalid audience session or passcode");
+    } else if (input.passcode !== undefined) {
+      throw new UnauthorizedException("Invalid audience session or passcode");
+    }
+    return audiencePresentationAccessResponseSchema.parse({
       verified: true,
-      session: this.toLegacyAudienceSession(row)
+      session: this.toAudienceAccess(row)
+    });
+  }
+
+  async getAudienceAccess(sessionId: string, projectId: string) {
+    const row = await this.repository.findAccessibleBySessionId(sessionId);
+    if (!row || row.project_id !== projectId || !row.deck_id) {
+      throw new UnauthorizedException("Audience access required");
+    }
+    return audiencePresentationAccessResponseSchema.parse({
+      verified: true,
+      session: this.toAudienceAccess(row)
     });
   }
 
@@ -200,14 +236,17 @@ export class PresentationSessionsService {
     return `/audience/${encodeURIComponent(sessionId)}`;
   }
 
-  private toLegacyAudienceSession(row: PresentationSessionRow) {
-    return audienceAccessSessionSchema.parse({
+  private toAudienceAccess(row: PresentationSessionRow) {
+    if (!row.deck_id) throw new UnauthorizedException("Audience access required");
+    return {
       sessionId: row.session_id,
       projectId: row.project_id,
-      status: row.status === "ended" ? "closed" : "open",
-      createdAt: toIso(row.created_at),
-      expiresAt: toIso(row.expires_at)
-    });
+      deckId: row.deck_id,
+      accessMode: row.access_mode,
+      startsAt: toIso(row.starts_at),
+      expiresAt: toIso(row.expires_at),
+      activeActivityRunId: row.active_activity_run_id
+    };
   }
 }
 

@@ -43,6 +43,11 @@ function createService(overrides: Partial<PresentationSessionRepository> = {}) {
       closed_at: "2026-07-17T01:00:00.000Z",
       raw_responses_delete_after: "2026-10-15T01:00:00.000Z"
     }),
+    findAccessibleBySessionId: vi.fn().mockResolvedValue(sessionRow),
+    findAudienceInfo: vi.fn().mockResolvedValue({
+      ...sessionRow,
+      project_title: "ORBIT 발표"
+    }),
     ...overrides
   } as unknown as PresentationSessionRepository;
   const logger = { info: vi.fn() } as never;
@@ -102,5 +107,60 @@ describe("PresentationSessionsService", () => {
       "session_existing",
       expect.any(Date)
     );
+  });
+
+  it("allows a public audience session to join without a passcode", async () => {
+    const { service } = createService();
+
+    await expect(service.joinAudience("session_existing", {})).resolves.toMatchObject({
+      verified: true,
+      session: {
+        sessionId: "session_existing",
+        deckId: "deck_1",
+        accessMode: "public"
+      }
+    });
+  });
+
+  it("uses one generalized error for a closed session or invalid access", async () => {
+    const { service } = createService({
+      findAccessibleBySessionId: vi.fn().mockResolvedValue(null)
+    });
+
+    await expect(service.joinAudience("session_closed", {})).rejects.toMatchObject({
+      message: "Invalid audience session or passcode"
+    });
+  });
+
+  it("reports a future session as scheduled without exposing project identity", async () => {
+    const { service } = createService({
+      findAudienceInfo: vi.fn().mockResolvedValue({
+        ...sessionRow,
+        status: "draft",
+        project_title: "ORBIT 발표",
+        starts_at: "2026-07-18T00:00:00.000Z"
+      })
+    });
+
+    await expect(
+      service.getAudiencePublicInfo("session_existing", new Date("2026-07-17T00:00:00.000Z"))
+    ).resolves.toEqual({
+      session: {
+        sessionId: "session_existing",
+        title: "ORBIT 발표",
+        accessMode: "public",
+        startsAt: "2026-07-18T00:00:00.000Z",
+        expiresAt: "2026-07-31T00:00:00.000Z",
+        availability: "scheduled"
+      }
+    });
+  });
+
+  it("rejects an access cookie bound to another project", async () => {
+    const { service } = createService();
+
+    await expect(
+      service.getAudienceAccess("session_existing", "project_other")
+    ).rejects.toMatchObject({ message: "Audience access required" });
   });
 });

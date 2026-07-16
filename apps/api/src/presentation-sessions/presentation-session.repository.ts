@@ -33,6 +33,10 @@ export type StoredDeckIdentity = {
   version: number;
 };
 
+export type AudiencePresentationSessionRow = PresentationSessionRow & {
+  project_title: string;
+};
+
 type QueryExecutor = DataSource | EntityManager;
 
 const sessionColumns = `
@@ -101,6 +105,20 @@ export class PresentationSessionRepository {
           AND status = 'live'
           AND starts_at <= now()
           AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async findAudienceInfo(sessionId: string): Promise<AudiencePresentationSessionRow | null> {
+    const rows = await this.dataSource.query<AudiencePresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}, projects.title AS project_title
+        FROM presentation_sessions
+        INNER JOIN projects ON projects.project_id = presentation_sessions.project_id
+        WHERE session_id = $1
         LIMIT 1
       `,
       [sessionId]

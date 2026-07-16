@@ -202,6 +202,47 @@ export const verifyAudienceAccessSessionResponseSchema = z.object({
   session: audienceAccessSessionSchema,
 });
 
+export const audiencePresentationAvailabilitySchema = z.enum([
+  "scheduled",
+  "open",
+  "closed"
+]);
+
+export const audiencePresentationPublicInfoSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    title: z.string().trim().min(1).max(200),
+    accessMode: presentationAccessModeSchema,
+    startsAt: isoDateTimeSchema,
+    expiresAt: isoDateTimeSchema,
+    availability: audiencePresentationAvailabilitySchema
+  })
+  .strict();
+
+export const getAudiencePresentationPublicInfoResponseSchema = z
+  .object({ session: audiencePresentationPublicInfoSchema })
+  .strict();
+
+export const joinAudiencePresentationRequestSchema = z
+  .object({ passcode: z.string().regex(/^\d{4}$/).optional() })
+  .strict();
+
+export const audiencePresentationAccessSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    projectId: z.string().min(1),
+    deckId: deckIdSchema,
+    accessMode: presentationAccessModeSchema,
+    startsAt: isoDateTimeSchema,
+    expiresAt: isoDateTimeSchema,
+    activeActivityRunId: activityRunIdSchema.nullable()
+  })
+  .strict();
+
+export const audiencePresentationAccessResponseSchema = z
+  .object({ verified: z.literal(true), session: audiencePresentationAccessSchema })
+  .strict();
+
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;
 export type PresentationAccessMode = z.infer<
   typeof presentationAccessModeSchema
@@ -244,4 +285,13 @@ export type VerifyAudienceAccessSessionRequest = z.infer<
 >;
 export type VerifyAudienceAccessSessionResponse = z.infer<
   typeof verifyAudienceAccessSessionResponseSchema
+>;
+export type AudiencePresentationPublicInfo = z.infer<
+  typeof audiencePresentationPublicInfoSchema
+>;
+export type JoinAudiencePresentationRequest = z.infer<
+  typeof joinAudiencePresentationRequestSchema
+>;
+export type AudiencePresentationAccess = z.infer<
+  typeof audiencePresentationAccessSchema
 >;

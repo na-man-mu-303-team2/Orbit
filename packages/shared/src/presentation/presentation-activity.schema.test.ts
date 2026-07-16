@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPresentationSessionRequestSchema,
+  audiencePresentationAccessResponseSchema,
   getCurrentPresentationSessionResponseSchema,
   presentationSessionSchema,
   updatePresentationSessionAccessRequestSchema
@@ -106,5 +107,23 @@ describe("PresentationSession Activity contract", () => {
         accessMode: "public"
       }).success
     ).toBe(true);
+  });
+
+  it("keeps audience access identity out of the public response contract", () => {
+    expect(
+      audiencePresentationAccessResponseSchema.safeParse({
+        verified: true,
+        session: {
+          sessionId: "session_1",
+          projectId: "project_1",
+          deckId: "deck_1",
+          accessMode: "public",
+          startsAt: "2026-07-17T00:00:00.000Z",
+          expiresAt: "2026-07-31T00:00:00.000Z",
+          activeActivityRunId: null,
+          audienceId: "audience_private"
+        }
+      }).success
+    ).toBe(false);
   });
 });
