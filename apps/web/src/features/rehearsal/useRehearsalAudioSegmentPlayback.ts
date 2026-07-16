@@ -31,7 +31,6 @@ export function useRehearsalAudioSegmentPlayback(runId: string) {
     if (audioRef.current) return audioRef.current;
 
     const audio = new Audio();
-    audio.crossOrigin = "anonymous";
     audio.preload = "metadata";
     const finishPlayback = () => {
       activeEndSecondsRef.current = null;
