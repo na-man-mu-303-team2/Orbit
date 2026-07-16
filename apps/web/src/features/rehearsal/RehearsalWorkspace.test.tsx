@@ -170,6 +170,23 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps the audience controls inside the presenter topbar", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /main\.rehearsal-presenter-shell \{[^}]*grid-template-rows: auto minmax\(0, 1fr\);/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-presenter-shell \.rehearsal-presenter-topbar \{[^}]*height: auto;/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-display-toolbar\s*> \.audience-output-controls \{[^}]*padding: 0;/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-display-toolbar[\s\S]*?> \.audience-output-controls[\s\S]*?button \{[^}]*min-height: 34px;/,
+    );
+  });
+
   it("keeps rehearsal assistance mounted while hiding the annotated presenter chrome", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");

@@ -1,7 +1,8 @@
-.rehearsal-presenter-shell {
+main.rehearsal-presenter-shell {
   background: var(--orbit-ds-surface);
   color: var(--orbit-ds-ink);
   font-family: var(--orbit-ds-font-sans);
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -9,6 +10,7 @@
   background: color-mix(in srgb, var(--orbit-ds-canvas) 96%, transparent);
   border-bottom: 1px solid var(--orbit-ds-border);
   box-shadow: none;
+  height: auto;
   min-height: 68px;
   overflow: visible;
   padding: 10px 24px;
@@ -73,6 +75,45 @@
   background: var(--orbit-ds-ink, #0f172a);
   border-color: var(--orbit-ds-ink, #0f172a);
   color: var(--orbit-ds-canvas, #fff);
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls {
+  align-self: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  .audience-output-controls-row {
+  flex-wrap: nowrap;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  button {
+  min-height: 34px;
+  padding-inline: 10px;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  .audience-output-control-status {
+  font-size: 0.68rem;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .audience-output-advanced,
@@ -643,6 +684,19 @@
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
     grid-template-rows: var(--rehearsal-stage-block-size) 44px;
+  }
+
+  .rehearsal-presenter-shell
+    .rehearsal-display-toolbar
+    > .audience-output-controls {
+    width: 100%;
+  }
+
+  .rehearsal-presenter-shell
+    .rehearsal-display-toolbar
+    > .audience-output-controls
+    .audience-output-controls-row {
+    flex-wrap: wrap;
   }
 
   .rehearsal-completion-screen { padding: 28px 18px 54px; }
