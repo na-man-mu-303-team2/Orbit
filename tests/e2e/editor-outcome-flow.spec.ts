@@ -17,6 +17,7 @@ import {
   addAuthenticatedProjectMember,
   createAuthenticatedProject,
 } from "./authenticatedProject";
+import { createSnapshotSafeEditorDeck } from "./editorFixtures";
 
 const journeySteps = [
   "brief",
@@ -222,7 +223,7 @@ async function clickTwiceInSameTick(locator: Locator) {
 }
 
 function createValidationDeck(): Deck {
-  const deck = structuredClone(createDemoDeck());
+  const deck = createSnapshotSafeEditorDeck();
   const text = deck.slides[0]?.elements.find(
     (element: Deck["slides"][number]["elements"][number]) =>
       element.type === "text",
@@ -286,7 +287,7 @@ async function installSnapshotUploadRoutes(
         projectId,
         purpose: purposeByFileId.get(fileId),
         size: 4,
-        url: `/api/v1/projects/${projectId}/assets/${fileId}/content`,
+        url: `/api/v1/projects/${projectId}/rehearsal-slide-snapshots/${fileId}/content`,
       },
     });
   });
@@ -438,6 +439,107 @@ for (const role of ["owner", "editor"] as const) {
         .toBe(1);
     } finally {
       releasePatch();
+      await actor.context?.close();
+    }
+  });
+}
+
+for (const role of ["owner", "editor"] as const) {
+  test(`presentation outcome flow ${role} completes Brief, validation, rehearsal, and presentation once`, async ({
+    browser,
+    page: ownerPage,
+  }, testInfo) => {
+    await installNavigationRecorder(ownerPage);
+    const deck = createValidationDeck();
+    const { project } = await createAuthenticatedProject(ownerPage, {
+      deck,
+      label: `outcome-${role}-full-owner`,
+    });
+    const actor = await createOutcomeActor(browser, ownerPage, testInfo, {
+      label: `outcome-${role}-full-actor`,
+      projectId: project.projectId,
+      role,
+    });
+    if (actor.page !== ownerPage) {
+      await installNavigationRecorder(actor.page);
+    }
+    const snapshotRequests = await installSnapshotUploadRoutes(
+      actor.page,
+      project.projectId,
+      testInfo,
+    );
+    const probe = observeMutations(actor.page);
+
+    try {
+      await openEditor(actor.page, project.projectId);
+      await openJourney(actor.page);
+      await journeyAction(actor.page, "brief-edit").click();
+      await expect(actor.page).toHaveURL(`/project/${project.projectId}/brief`);
+      await actor.page
+        .getByLabel("발표 후 원하는 결과", { exact: true })
+        .fill("핵심 실행안에 대한 합의를 얻는다");
+      await actor.page
+        .getByRole("button", { name: "브리프 저장하고 계속", exact: true })
+        .click();
+      await expect(actor.page).toHaveURL(`/project/${project.projectId}`);
+      await expect
+        .poll(() => presentationBriefPuts(probe, project.projectId).length)
+        .toBe(1);
+
+      await openJourney(actor.page);
+      await journeyAction(actor.page, "validation-open").click();
+      await expect(
+        actor.page.getByTestId("editor-validation-panel"),
+      ).toBeVisible();
+      await expect(
+        actor.page.getByTestId("editor-validation-target").first(),
+      ).toBeVisible();
+
+      await applyPendingDeckChange(actor.page);
+      await openJourney(actor.page);
+      await clickTwiceInSameTick(journeyAction(actor.page, "rehearsal-start"));
+      await expect(actor.page).toHaveURL(
+        new RegExp(`/rehearsal/${project.projectId}\\?snapshotPreparationId=`),
+      );
+      await expect
+        .poll(
+          () =>
+            snapshotRequests.filter(
+              (request) => request.purpose === "rehearsal-slide-snapshot",
+            ).length,
+        )
+        .toBe(deck.slides.length);
+      await expect
+        .poll(() => projectDeckMutations(probe, project.projectId).length)
+        .toBe(1);
+      await expect
+        .poll(() =>
+          recordedNavigationCount(
+            actor.page,
+            `/rehearsal/${project.projectId}`,
+          ),
+        )
+        .toBe(1);
+
+      await actor.page.goBack();
+      await expect(actor.page).toHaveURL(`/project/${project.projectId}`);
+      await expect(actor.page.getByLabel("Presentation editor")).toBeVisible();
+      await openJourney(actor.page);
+      await clickTwiceInSameTick(
+        journeyAction(actor.page, "presentation-start"),
+      );
+      await expect(actor.page).toHaveURL(`/presentation/${project.projectId}`);
+      await expect(actor.page.getByLabel("발표 타이머")).toBeVisible();
+      await expect
+        .poll(() =>
+          recordedNavigationCount(
+            actor.page,
+            `/presentation/${project.projectId}`,
+          ),
+        )
+        .toBe(1);
+      expect(presentationSessionMutations(probe).length).toBeLessThanOrEqual(1);
+    } finally {
       await actor.context?.close();
     }
   });

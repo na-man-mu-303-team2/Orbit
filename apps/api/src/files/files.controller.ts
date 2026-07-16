@@ -116,7 +116,7 @@ export class FilesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await this.getCurrentUser(request);
-    const expectedPurpose = await this.resolveUploadPurposeForActor(
+    const allowedPurposes = await this.resolveUploadContentPurposesForActor(
       projectId,
       user.userId,
     );
@@ -125,8 +125,24 @@ export class FilesController {
       fileId,
       await readRequestBody(request),
       user.userId,
-      expectedPurpose,
+      allowedPurposes,
     );
+  }
+
+  private async resolveUploadContentPurposesForActor(
+    projectId: string,
+    userId: string,
+  ): Promise<readonly ("rehearsal-audio" | "rehearsal-slide-snapshot")[] | undefined> {
+    await this.projectsService.assertCanReadProject(projectId, userId);
+    try {
+      await this.projectsService.assertCanWriteProject(projectId, userId);
+      return undefined;
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        return ["rehearsal-audio", "rehearsal-slide-snapshot"];
+      }
+      throw error;
+    }
   }
 
   private async resolveUploadPurposeForActor(

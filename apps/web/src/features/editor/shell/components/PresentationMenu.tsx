@@ -4,6 +4,9 @@ import {
   IconMicrophone,
   IconPlayerPlay
 } from "@tabler/icons-react";
+import { useRef } from "react";
+
+import { usePopupMenuKeyboard } from "./usePopupMenuKeyboard";
 
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
@@ -27,6 +30,12 @@ export function PresentationMenu(props: PresentationMenuProps) {
     onStartRehearsal,
     onToggle
   } = props;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuKeyboard = usePopupMenuKeyboard({
+    getTrigger: () => triggerRef.current,
+    isOpen,
+    onClose: onToggle,
+  });
 
   return (
     <>
@@ -58,6 +67,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
             aria-label="발표 메뉴 열기"
             className="editor-present-menu-button"
             disabled={!canOpenAudienceLink}
+            ref={triggerRef}
             type="button"
             onClick={onToggle}
           >
@@ -65,7 +75,12 @@ export function PresentationMenu(props: PresentationMenuProps) {
           </button>
         </div>
         {isOpen ? (
-          <div className="file-menu-popover action-popover" role="menu">
+          <div
+            className="file-menu-popover action-popover"
+            ref={menuKeyboard.menuRef}
+            role="menu"
+            onKeyDown={menuKeyboard.onKeyDown}
+          >
             <div className="file-menu-list">
               <button
                 className="file-menu-item"

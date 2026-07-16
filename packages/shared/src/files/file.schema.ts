@@ -61,6 +61,11 @@ export const allowedRehearsalAudioMimeTypes = [
 ] as const;
 
 const rehearsalAudioMimeTypes = new Set<string>(allowedRehearsalAudioMimeTypes);
+const imageAssetMimeTypes = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 const documentAssetMimeTypes = new Set<string>(
   allowedAssetMimeTypes.filter((mimeType) => !rehearsalAudioMimeTypes.has(mimeType)),
@@ -110,6 +115,17 @@ export function createAssetUploadUrlRequestSchema(
         code: z.ZodIssueCode.custom,
         message: "design-asset is reserved for internal derived assets.",
         path: ["purpose"],
+      });
+    }
+
+    if (
+      value.purpose === "rehearsal-slide-snapshot" &&
+      !imageAssetMimeTypes.has(value.mimeType)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "rehearsal-slide-snapshot uploads require an image MIME type.",
+        path: ["mimeType"],
       });
     }
 

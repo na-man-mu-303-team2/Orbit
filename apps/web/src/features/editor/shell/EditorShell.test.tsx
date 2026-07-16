@@ -30,6 +30,8 @@ import {
   buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  canvasToBlob,
+  collectRehearsalSnapshotAssetUrls,
   createSlideRailReorderPatch,
   createSemanticCueExtractionJob,
   createDistributeSelectionPatch,
@@ -46,9 +48,12 @@ import {
   isSpeakerNotesDraftBoundToSlide,
   loadProjectDeck,
   mergeDeckIntoQueryCache,
+  MISSING_PROJECT_SAVE_MESSAGE,
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
+  requireLoadedRehearsalSnapshotAssets,
+  SnapshotPreparationError,
   waitForSlideRenderStages,
   resolveDeleteUndoToastOpenAfterPatch,
   resolveHistoryNavigation,
@@ -217,6 +222,12 @@ describe("editor shell", () => {
     );
   });
 
+  it("uses a readable missing-project save message", () => {
+    expect(MISSING_PROJECT_SAVE_MESSAGE).toBe(
+      "저장할 프로젝트를 찾지 못했습니다.",
+    );
+  });
+
   it("fits the editor canvas inside compact viewports", () => {
     expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
     expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
@@ -239,6 +250,36 @@ describe("editor shell", () => {
 
     expect(() => requireCompleteRehearsalSlideRender(deck, files)).toThrow(
       "모든 슬라이드 snapshot을 준비하지 못했습니다.",
+    );
+  });
+
+  it("includes an imported fallback thumbnail in rehearsal asset preflight", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    slide.elements = [];
+    slide.thumbnailUrl = "/files/imported-slide.png";
+    deck.metadata.sourceType = "import";
+
+    expect(collectRehearsalSnapshotAssetUrls(slide, deck)).toEqual([
+      "/files/imported-slide.png",
+    ]);
+  });
+
+  it("reports the exact number of missing rehearsal snapshot assets", () => {
+    expect(() => requireLoadedRehearsalSnapshotAssets(2)).toThrow(
+      "슬라이드 이미지 2개를 불러오지 못했습니다. 이미지 연결을 확인한 뒤 리허설을 다시 시작해 주세요.",
+    );
+  });
+
+  it("treats a null canvas blob as snapshot preparation failure", async () => {
+    const canvas = {
+      toBlob(callback: BlobCallback) {
+        callback(null);
+      },
+    } as HTMLCanvasElement;
+
+    await expect(canvasToBlob(canvas)).rejects.toBeInstanceOf(
+      SnapshotPreparationError,
     );
   });
 

@@ -29,6 +29,15 @@ import { ProjectAssetEntity } from "./project-asset.entity";
 export const STORAGE_PORT = Symbol("STORAGE_PORT");
 export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
 
+export function rehearsalSlideSnapshotContentPath(
+  projectId: string,
+  fileId: string,
+) {
+  return `/api/v1/projects/${encodeURIComponent(
+    projectId,
+  )}/rehearsal-slide-snapshots/${encodeURIComponent(fileId)}/content`;
+}
+
 const uploadUrlExpiresInSeconds = 15 * 60;
 const publicAssetContentPurposes = new Set<FilePurpose>([
   "thumbnail",
@@ -123,7 +132,7 @@ export class FilesService {
     fileId: string,
     body: Uint8Array,
     actorUserId: string,
-    expectedPurpose?: FilePurpose,
+    allowedPurposes?: readonly FilePurpose[],
   ): Promise<void> {
     await this.projectsService.getAccessibleProject(projectId);
 
@@ -137,7 +146,10 @@ export class FilesService {
 
     this.assertAssetBoundary(asset, projectId, actorUserId);
 
-    if (expectedPurpose && asset.purpose !== expectedPurpose) {
+    if (
+      allowedPurposes &&
+      !allowedPurposes.includes(asset.purpose as FilePurpose)
+    ) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
@@ -184,9 +196,7 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose &&
-        privateAudioPurposes.has(asset.purpose) &&
-        !creatorOwnedRehearsalPurposes.has(asset.purpose as FilePurpose))
+      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -197,9 +207,25 @@ export class FilesService {
 
     await this.verifyUploadedObject(asset);
 
+    let shouldSave = false;
     if (asset.status !== "uploaded") {
       asset.status = "uploaded";
       asset.uploadedAt = new Date();
+      shouldSave = true;
+    }
+
+    if (asset.purpose === "rehearsal-slide-snapshot") {
+      const contentUrl = rehearsalSlideSnapshotContentPath(
+        asset.projectId,
+        asset.fileId,
+      );
+      if (asset.url !== contentUrl) {
+        asset.url = contentUrl;
+        shouldSave = true;
+      }
+    }
+
+    if (shouldSave) {
       await this.assetsRepository.save(asset);
     }
 
@@ -235,11 +261,7 @@ export class FilesService {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
     }
 
-    if (
-      !purpose &&
-      privateAudioPurposes.has(asset.purpose) &&
-      !creatorOwnedRehearsalPurposes.has(asset.purpose as FilePurpose)
-    ) {
+    if (!purpose && privateAssetPurposes.has(asset.purpose)) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
@@ -343,12 +365,33 @@ export class FilesService {
     );
     const assetPurpose = filePurposeSchema.parse(asset.purpose);
 
-    if (
-      !publicAssetContentPurposes.has(assetPurpose) &&
-      !creatorOwnedRehearsalPurposes.has(assetPurpose)
-    ) {
+    if (!publicAssetContentPurposes.has(assetPurpose)) {
       throw new NotFoundException(`Asset content unavailable: ${fileId}`);
     }
+
+    return this.readAssetContent(asset);
+  }
+
+  async readRehearsalSlideSnapshotContent(
+    projectId: string,
+    fileId: string,
+    actorUserId: string,
+  ): Promise<{ body: Buffer; contentType: string }> {
+    const asset = await this.getUploadedAsset(
+      projectId,
+      fileId,
+      "rehearsal-slide-snapshot",
+      actorUserId,
+    );
+    if (!asset.mimeType.startsWith("image/")) {
+      throw new NotFoundException(`Asset not found: ${fileId}`);
+    }
+    return this.readAssetContent(asset);
+  }
+
+  private async readAssetContent(
+    asset: ProjectAssetEntity,
+  ): Promise<{ body: Buffer; contentType: string }> {
 
     const readUrl = this.uploadProxyOrigin
       ? this.createInternalObjectUrl(asset.storageKey)
@@ -357,7 +400,9 @@ export class FilesService {
     const response = await fetch(readUrl);
 
     if (!response.ok) {
-      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+      throw new NotFoundException(
+        `Asset content unavailable: ${asset.fileId}`,
+      );
     }
 
     return {

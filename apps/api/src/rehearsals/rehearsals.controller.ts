@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+} from "@nestjs/common";
+import type { Response } from "express";
 import { AuthService } from "../auth/auth.service";
 import {
   getCurrentUser,
@@ -34,6 +46,28 @@ export class RehearsalsController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     return this.rehearsalsService.createAudioUploadUrl(runId, user.userId, body);
+  }
+
+  @Get(
+    "api/v1/projects/:projectId/rehearsal-slide-snapshots/:fileId/content",
+  )
+  async readSlideSnapshotContent(
+    @Param("projectId") projectId: string,
+    @Param("fileId") fileId: string,
+    @Req() request: SignedCookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    const asset = await this.rehearsalsService.readSlideSnapshotContent(
+      projectId,
+      fileId,
+      user.userId,
+    );
+    response.setHeader("content-type", asset.contentType);
+    response.setHeader("cache-control", "private, no-store");
+    response.setHeader("x-content-type-options", "nosniff");
+    return new StreamableFile(asset.body);
   }
 
   @Post("api/v1/rehearsals/:runId/audio/complete")

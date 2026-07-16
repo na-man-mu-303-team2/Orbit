@@ -16,6 +16,7 @@ import {
   createAuthenticatedProject,
   requestAuthenticatedProjectAccess,
 } from "./authenticatedProject";
+import { createSnapshotSafeEditorDeck } from "./editorFixtures";
 
 const mutatingMethods = new Set(["DELETE", "PATCH", "POST", "PUT"]);
 
@@ -329,7 +330,9 @@ test.describe("P0-2 editor access and trust boundary", () => {
         page.getByRole("button", { name: "발표 메모 펼치기" }),
       ).toContainText(deck!.slides[0]!.speakerNotes);
       await expect(page.locator("[contenteditable='true']")).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "리허설" })).toBeVisible();
+      await expect(
+        page.getByTestId("presentation-journey-rehearsal-start"),
+      ).toBeVisible();
       for (const name of [
         "저장",
         "공유",
@@ -411,7 +414,7 @@ test.describe("P0-2 editor access and trust boundary", () => {
     page: ownerPage,
   }, testInfo) => {
     const { project } = await createAuthenticatedProject(ownerPage, {
-      deck: createDemoDeck(),
+      deck: createSnapshotSafeEditorDeck(),
       label: "trust-rehearsal-owner",
     });
     const { context, page } = await createIsolatedPage(browser, testInfo);
@@ -460,14 +463,14 @@ test.describe("P0-2 editor access and trust boundary", () => {
             projectId: project.projectId,
             purpose: uploadPurposeByFileId.get(fileId),
             size: 4,
-            url: `/api/v1/projects/${project.projectId}/assets/${fileId}/content`,
+            url: `/api/v1/projects/${project.projectId}/rehearsal-slide-snapshots/${fileId}/content`,
           },
         });
       });
       const probe = observeTrustBoundary(page);
 
       await page.goto(`/project/${project.projectId}`);
-      await page.getByRole("button", { name: "리허설" }).click();
+      await page.getByTestId("presentation-journey-rehearsal-start").click();
 
       await expect(page).toHaveURL(
         new RegExp(`/rehearsal/${project.projectId}\\?snapshotPreparationId=`),

@@ -204,16 +204,19 @@ describe("FilesService", () => {
       upload.fileId,
       Buffer.from("png"),
       demoIds.userId,
-      "rehearsal-slide-snapshot",
+      ["rehearsal-slide-snapshot"],
     );
-    await service.completeUpload(
+    const completed = await service.completeUpload(
       demoProject.projectId,
       { fileId: upload.fileId },
       demoIds.userId,
-      "rehearsal-slide-snapshot",
     );
 
     expect(assets[0].createdByUserId).toBe(demoIds.userId);
+    expect(completed.url).toBe(
+      `/api/v1/projects/${demoProject.projectId}/rehearsal-slide-snapshots/${upload.fileId}/content`,
+    );
+    expect(assets[0].url).toBe(completed.url);
     await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
     await expect(
       service.getUploadedAsset(
@@ -238,7 +241,66 @@ describe("FilesService", () => {
         undefined,
         demoIds.userId,
       ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readRehearsalSlideSnapshotContent(
+        demoProject.projectId,
+        upload.fileId,
+        demoIds.userId,
+      ),
     ).resolves.toMatchObject({ contentType: "image/png" });
+  });
+
+  it("rejects rehearsal audio through generic completion while preserving the dedicated command", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_rehearsal_audio_1",
+        projectId: demoProject.projectId,
+        createdByUserId: demoIds.userId,
+        storageKey:
+          "projects/project_demo_created/assets/file_rehearsal_audio_1/rehearsal.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "internal://rehearsal-audio",
+        purpose: "rehearsal-audio",
+        status: "pending",
+        createdAt: new Date(),
+        uploadedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      createStorage({
+        headObject: vi.fn(async () => ({
+          contentLength: 1024,
+          contentType: "audio/webm",
+        })),
+      }),
+    );
+
+    await expect(
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_rehearsal_audio_1" },
+        demoIds.userId,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.completeUpload(
+        demoProject.projectId,
+        { fileId: "file_rehearsal_audio_1" },
+        demoIds.userId,
+        "rehearsal-audio",
+      ),
+    ).resolves.toMatchObject({
+      fileId: "file_rehearsal_audio_1",
+      purpose: "rehearsal-audio",
+    });
   });
 
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {

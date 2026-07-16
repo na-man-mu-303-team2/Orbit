@@ -31,6 +31,8 @@ describe("PresentationMenu", () => {
       "disabled",
     );
     expect(html).toContain("청중 링크·QR");
+    expect(html).toContain('role="menu"');
+    expect(html).toContain('role="menuitem"');
   });
 
   it("청중 링크를 사용할 수 없으면 메뉴 버튼을 비활성화한다", () => {

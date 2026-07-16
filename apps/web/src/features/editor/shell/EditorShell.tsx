@@ -97,6 +97,7 @@ import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
 import { EditorZoomControl } from "./components/EditorZoomControl";
 import { PresentationMenu } from "./components/PresentationMenu";
 import { SlideRail } from "./components/SlideRail";
+import { usePopupMenuKeyboard } from "./components/usePopupMenuKeyboard";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -161,6 +162,8 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getResponsiveEditorStageScale } from "./editorZoom";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
+export const MISSING_PROJECT_SAVE_MESSAGE =
+  "저장할 프로젝트를 찾지 못했습니다.";
 import type {
   ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
@@ -679,11 +682,34 @@ function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
 
-async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
+export class SnapshotPreparationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SnapshotPreparationError";
+  }
+}
+
+export function requireLoadedRehearsalSnapshotAssets(
+  missingAssetCount: number,
+) {
+  if (missingAssetCount <= 0) return;
+  throw new SnapshotPreparationError(
+    `슬라이드 이미지 ${missingAssetCount}개를 불러오지 못했습니다. 이미지 연결을 확인한 뒤 리허설을 다시 시작해 주세요.`,
+  );
+}
+
+export async function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType = "image/png",
+) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
-        reject(new Error("슬라이드 이미지를 생성하지 못했습니다."));
+        reject(
+          new SnapshotPreparationError(
+            "슬라이드 이미지를 생성하지 못했습니다. 리허설을 다시 시작해 주세요.",
+          ),
+        );
         return;
       }
 
@@ -698,6 +724,7 @@ async function createSlideRenderFile(args: {
   stage: Konva.Stage;
   stageScale: number;
   slideNumber: number;
+  requireAssets?: boolean;
 }) {
   const pixelRatio = Math.max(1, 1 / args.stageScale);
   const stageCanvas = args.stage.toCanvas({
@@ -715,19 +742,20 @@ async function createSlideRenderFile(args: {
 
   context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
   context.fillRect(0, 0, canvas.width, canvas.height);
-  if (
-    args.slide.thumbnailUrl &&
-    getRenderableSlideElements(args.slide, args.deck.canvas).length === 0 &&
-    (args.deck.metadata.sourceType === "import" ||
-      args.deck.metadata.thumbnailSource === "import-render")
-  ) {
+  if (usesImportedSlideFallback(args.slide, args.deck)) {
     await drawSlideRenderFallbackImage(
       context,
       args.slide.thumbnailUrl,
       canvas,
+      args.requireAssets,
     );
   } else {
-    await drawSlideRenderBackgroundImage(context, args.slide, canvas);
+    await drawSlideRenderBackgroundImage(
+      context,
+      args.slide,
+      canvas,
+      args.requireAssets,
+    );
     context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
   }
 
@@ -761,9 +789,13 @@ async function drawSlideRenderFallbackImage(
   context: CanvasRenderingContext2D,
   imageUrl: string,
   canvas: HTMLCanvasElement,
+  requireAssets = false,
 ) {
   const image = await loadCanvasImage(imageUrl);
-  if (!image) return;
+  if (!image) {
+    if (requireAssets) requireLoadedRehearsalSnapshotAssets(1);
+    return;
+  }
 
   const frame = getBackgroundImageDrawFrame({
     canvasHeight: canvas.height,
@@ -778,7 +810,8 @@ async function drawSlideRenderFallbackImage(
 async function drawSlideRenderBackgroundImage(
   context: CanvasRenderingContext2D,
   slide: Slide,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  requireAssets = false,
 ) {
   const backgroundImage = slide.style.backgroundImage;
 
@@ -789,6 +822,7 @@ async function drawSlideRenderBackgroundImage(
   const image = await loadCanvasImage(backgroundImage.src);
 
   if (!image) {
+    if (requireAssets) requireLoadedRehearsalSnapshotAssets(1);
     return;
   }
 
@@ -814,13 +848,15 @@ async function loadCanvasImage(url: string) {
 
   return new Promise<HTMLImageElement | null>((resolve) => {
     const image = new window.Image();
+    const hasRenderableDimensions = () =>
+      image.naturalWidth > 0 && image.naturalHeight > 0;
 
     image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
+    image.onload = () => resolve(hasRenderableDimensions() ? image : null);
     image.onerror = () => resolve(null);
     image.src = resolveEditorAssetUrl(url);
 
-    if (image.complete && image.naturalWidth > 0) {
+    if (image.complete && hasRenderableDimensions()) {
       resolve(image);
     }
   });
@@ -866,19 +902,37 @@ async function loadImageAsset(url: string) {
 
   return new Promise<boolean>((resolve) => {
     const image = new window.Image();
+    const hasRenderableDimensions = () =>
+      image.naturalWidth > 0 && image.naturalHeight > 0;
 
-    image.onload = () => resolve(true);
+    image.onload = () => resolve(hasRenderableDimensions());
     image.onerror = () => resolve(false);
     image.src = resolveEditorAssetUrl(url);
 
-    if (image.complete && image.naturalWidth > 0) {
+    if (image.complete && hasRenderableDimensions()) {
       resolve(true);
     }
   });
 }
 
-function collectSlideAssetUrls(slide: Slide) {
+function usesImportedSlideFallback(slide: Slide, deck: Deck) {
+  return Boolean(
+    slide.thumbnailUrl &&
+      getRenderableSlideElements(slide, deck.canvas).length === 0 &&
+      (deck.metadata.sourceType === "import" ||
+        deck.metadata.thumbnailSource === "import-render"),
+  );
+}
+
+export function collectRehearsalSnapshotAssetUrls(
+  slide: Slide,
+  deck: Deck,
+) {
   const urls = new Set<string>();
+
+  if (usesImportedSlideFallback(slide, deck) && slide.thumbnailUrl) {
+    return [slide.thumbnailUrl];
+  }
 
   if (slide.style.backgroundImage?.src) {
     urls.add(slide.style.backgroundImage.src);
@@ -893,8 +947,8 @@ function collectSlideAssetUrls(slide: Slide) {
   return [...urls];
 }
 
-async function waitForSlideAssets(slide: Slide) {
-  const assetUrls = collectSlideAssetUrls(slide);
+async function waitForSlideAssets(slide: Slide, deck: Deck) {
+  const assetUrls = collectRehearsalSnapshotAssetUrls(slide, deck);
 
   const results = await Promise.all(assetUrls.map((url) => loadImageAsset(url)));
   return results.filter((result) => !result).length;
@@ -1778,6 +1832,12 @@ function EditorRuntime(props: {
   const [validationRepairStatus, setValidationRepairStatus] = useState("");
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
+  const fileMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const fileMenuKeyboard = usePopupMenuKeyboard({
+    getTrigger: () => fileMenuTriggerRef.current,
+    isOpen: activeTopMenu === "file",
+    onClose: () => setActiveTopMenu(null),
+  });
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const insertTool = useEditorShellUiStore((state) => state.insertTool);
   const setInsertTool = useEditorShellUiStore((state) => state.setInsertTool);
@@ -2639,7 +2699,8 @@ function EditorRuntime(props: {
 
   async function renderSlideFiles(
     sourceDeck: Deck,
-    slideIds?: readonly string[]
+    slideIds?: readonly string[],
+    options: { requireAssets?: boolean } = {},
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
@@ -2659,15 +2720,26 @@ function EditorRuntime(props: {
 
     const files = new Map<string, File>();
     let missingAssetCount = 0;
+    const targetSlides = nextDeck.slides.filter(
+      (slide) => !targetSlideIds || targetSlideIds.has(slide.slideId),
+    );
+    if (options.requireAssets) {
+      const missingCounts = await Promise.all(
+        targetSlides.map((slide) => waitForSlideAssets(slide, nextDeck)),
+      );
+      missingAssetCount = missingCounts.reduce(
+        (total, count) => total + count,
+        0,
+      );
+      requireLoadedRehearsalSnapshotAssets(missingAssetCount);
+    }
     slideRenderStageRefs.current.clear();
     flushSync(() => {
       setRenderingDeck(nextDeck);
     });
     try {
       await waitForSlideRenderStages(
-        nextDeck.slides
-          .filter((slide) => !targetSlideIds || targetSlideIds.has(slide.slideId))
-          .map((slide) => slide.slideId),
+        targetSlides.map((slide) => slide.slideId),
         slideRenderStageRefs.current,
         waitForAnimationFrame,
         90,
@@ -2680,7 +2752,9 @@ function EditorRuntime(props: {
           continue;
         }
 
-        missingAssetCount += await waitForSlideAssets(slide);
+        if (!options.requireAssets) {
+          missingAssetCount += await waitForSlideAssets(slide, nextDeck);
+        }
 
         await waitForAnimationFrame();
 
@@ -2696,6 +2770,7 @@ function EditorRuntime(props: {
           stage,
           stageScale: 1,
           slideNumber: slide.order || index + 1,
+          requireAssets: options.requireAssets,
         });
         files.set(slide.slideId, renderFile);
       }
@@ -2787,7 +2862,9 @@ function EditorRuntime(props: {
 
   async function uploadRehearsalSlideSnapshots(activeProjectId: string, sourceDeck: Deck) {
     return enqueueSlideRender(async () => {
-      const renderResult = await renderSlideFiles(sourceDeck);
+      const renderResult = await renderSlideFiles(sourceDeck, undefined, {
+        requireAssets: true,
+      });
       const snapshots: Array<{ fileId: string; slideId: string }> = [];
 
       for (const { file, slide } of requireCompleteRehearsalSlideRender(
@@ -2812,7 +2889,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", MISSING_PROJECT_SAVE_MESSAGE);
       return false;
     }
 
@@ -2914,11 +2991,11 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", MISSING_PROJECT_SAVE_MESSAGE);
       return {
         status: "blocked",
         reason: "save-error",
-        recoveryMessage: "저장할 프로젝트를 찾지 못했습니다. 새로고침해 주세요."
+        recoveryMessage: `${MISSING_PROJECT_SAVE_MESSAGE} 새로고침해 주세요.`
       };
     }
 
@@ -3141,7 +3218,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       throw withSaveErrorCode(
-        new Error("저장할 프로젝트를 찾지 못했습니다."),
+        new Error(MISSING_PROJECT_SAVE_MESSAGE),
         "missing-project"
       );
     }
@@ -3221,7 +3298,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       throw withSaveErrorCode(
-        new Error("??ν븷 ?꾨줈?앺듃瑜?李얠? 紐삵뻽?듬땲??"),
+        new Error(MISSING_PROJECT_SAVE_MESSAGE),
         "missing-project"
       );
     }
@@ -6185,6 +6262,7 @@ function EditorRuntime(props: {
                   aria-expanded={activeTopMenu === "file"}
                   aria-haspopup="menu"
                   className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
+                  ref={fileMenuTriggerRef}
                   type="button"
                   onClick={() =>
                     setActiveTopMenu((current) => (current === "file" ? null : "file"))
@@ -6196,7 +6274,12 @@ function EditorRuntime(props: {
             </div>
 
             {canMutateDeck && activeTopMenu === "file" ? (
-              <div className="file-menu-popover" role="menu">
+              <div
+                className="file-menu-popover"
+                ref={fileMenuKeyboard.menuRef}
+                role="menu"
+                onKeyDown={fileMenuKeyboard.onKeyDown}
+              >
                 <div className="file-menu-header">
                   <div>
                     <strong>{deck.title}</strong>

@@ -191,7 +191,7 @@ async function openSlideMenu(page: Page, title: string) {
 }
 
 function slideMenuAction(page: Page, name: string) {
-  return page.getByRole("button", { name, exact: true });
+  return page.getByRole("menuitem", { name, exact: true });
 }
 
 function slideOperationCount(
@@ -510,6 +510,25 @@ test.describe("P0-3 slide rail persistence", () => {
     });
     await menuButton.focus();
     await menuButton.press("Enter");
+    const menu = page.getByRole("menu", { name: "Data Contract 작업" });
+    await expect(menu).toBeVisible();
+    await expect(slideMenuAction(page, "복제")).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(slideMenuAction(page, "삭제")).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(slideMenuAction(page, "복제")).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(slideMenuAction(page, "삭제")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menuButton).toBeFocused();
+    await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+
+    await menuButton.press("Enter");
+    await expect(slideMenuAction(page, "복제")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(slideMenuAction(page, "위로 이동")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(slideMenuAction(page, "아래로 이동")).toBeFocused();
     const reorderResponsePromise = waitForUserPatchResponse(
       page,
       project.projectId,
@@ -530,6 +549,45 @@ test.describe("P0-3 slide rail persistence", () => {
     await page.reload();
     await expect(slideRail(page)).toBeVisible();
     await expectRailSlideOrder(page, expectedOrder);
+  });
+
+  test("focuses the next selected slide after keyboard menu deletion", async ({
+    page,
+  }) => {
+    const { project } = await createAuthenticatedProject(page, {
+      deck: createSlideRailDeck(),
+      label: "slide-rail-keyboard-delete-focus",
+    });
+    await page.goto(`/project/${project.projectId}`);
+    await expect(slideRail(page)).toBeVisible();
+
+    const selected = slideSelectionButton(page, "slide_2");
+    await selected.click();
+    await expect(selected).toHaveAttribute("aria-pressed", "true");
+    const menuButton = page.getByRole("button", {
+      name: "Data Contract 메뉴",
+      exact: true,
+    });
+    await menuButton.focus();
+    await menuButton.press("Enter");
+    await expect(slideMenuAction(page, "복제")).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(slideMenuAction(page, "삭제")).toBeFocused();
+
+    const deleteResponsePromise = waitForUserPatchResponse(
+      page,
+      project.projectId,
+      "delete_slide",
+    );
+    await page.keyboard.press("Enter");
+    await expectSuccessfulResponse(await deleteResponsePromise);
+
+    await expectRailSlideOrder(page, ["slide_1", "slide_3"]);
+    await expect(slideSelectionButton(page, "slide_3")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(slideSelectionButton(page, "slide_3")).toBeFocused();
   });
 
   test("lets a Viewer navigate the rail without exposing or sending mutations", async ({
