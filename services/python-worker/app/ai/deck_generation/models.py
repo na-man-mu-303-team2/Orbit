@@ -523,6 +523,15 @@ class RawInput(BaseModel):
         default_factory=list,
         alias="warningCodes",
     )
+    regeneration_instruction: str = Field(
+        default="",
+        alias="regenerationInstruction",
+        max_length=240,
+    )
+    previous_slide_titles: list[str] = Field(
+        default_factory=list,
+        alias="previousSlideTitles",
+    )
     design_program_context: InternalDesignProgramContext = Field(
         default_factory=InternalDesignProgramContext,
     )

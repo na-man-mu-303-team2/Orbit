@@ -841,10 +841,17 @@ export function AiPptMockupPage() {
         throw new Error(await readResponseText(response, "AI PPT 생성을 시작하지 못했습니다."));
       }
 
-      const data = (await response.json()) as { job: Job };
+      const data = (await response.json()) as {
+        job: Job;
+        storyReviewRequired: boolean;
+      };
       generationStarted = true;
       setJob(data.job);
       setStatus(getAiPptGenerationStatus(data.job));
+      if (data.storyReviewRequired) {
+        navigateToStoryPlan(project.projectId, data.job.jobId);
+        return;
+      }
       const completed = await pollJob(data.job.jobId, (current) => {
         setJob(current);
         setStatus(getAiPptGenerationStatus(current));
@@ -2609,6 +2616,15 @@ function getProjectTitle(topic: string) {
 
 function navigateToProject(projectId: string) {
   window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToStoryPlan(projectId: string, jobId: string) {
+  window.history.pushState(
+    {},
+    "",
+    `/project/${encodeURIComponent(projectId)}/story-plan/${encodeURIComponent(jobId)}`,
+  );
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

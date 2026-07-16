@@ -7,8 +7,8 @@ import {
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckRequestSchema,
+  generateDeckStartResponseSchema,
   generateDeckStoredJobPayloadSchema,
-  jobSchema,
   type DeckColorOptionsResponse
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
@@ -19,7 +19,6 @@ import {
   Optional,
   ServiceUnavailableException
 } from "@nestjs/common";
-import { z } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
@@ -27,11 +26,9 @@ import { ProjectsService } from "../projects/projects.service";
 import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
-const generateDeckJobResponseSchema = z.object({
-  job: jobSchema
-});
-
-type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
+type GenerateDeckJobResponse = ReturnType<
+  typeof generateDeckStartResponseSchema.parse
+>;
 @Injectable()
 export class GenerateDeckService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
@@ -72,6 +69,8 @@ export class GenerateDeckService {
           )
         : { request: parsedRequest };
     const request = resolved.request;
+    const storyReviewRequired =
+      this.config.AI_DECK_EXECUTION_MODE === "pg";
     await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const storedPayload = generateDeckStoredJobPayloadSchema.parse({
@@ -84,7 +83,8 @@ export class GenerateDeckService {
               userId
             }
           }
-        : {})
+        : {}),
+      storyReviewRequired
     });
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -117,7 +117,10 @@ export class GenerateDeckService {
       throw error;
     }
 
-    return generateDeckJobResponseSchema.parse({ job: queuedJob });
+    return generateDeckStartResponseSchema.parse({
+      job: queuedJob,
+      storyReviewRequired,
+    });
   }
 
   async createColorOptions(body: unknown): Promise<DeckColorOptionsResponse> {

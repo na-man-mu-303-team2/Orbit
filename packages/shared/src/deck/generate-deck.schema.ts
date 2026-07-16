@@ -244,7 +244,8 @@ export const generateDeckStoredJobPayloadSchema = z
       })
       .strict()
       .optional(),
-    requestedByUserId: z.string().trim().min(1).optional()
+    requestedByUserId: z.string().trim().min(1).optional(),
+    storyReviewRequired: z.boolean().default(false)
   })
   .strict();
 
