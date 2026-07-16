@@ -20,7 +20,7 @@
 | actual Chrome native 탭 캡처 | 통과 | native `getDisplayMedia()`, `displaySurface=browser`, audio 0, video 1 |
 | native 앱 창 캡처 | 통과 | 실제 앱 창 영상 표시, Chrome 공유 중지 후 최신 slide 복귀 |
 | native 전체 모니터 | 통과 | 개인정보 경고·명시적 확인 후 영상 표시, black 전환 시 capture indicator 종료 |
-| 물리 확장 디스플레이 `surface swap` | 환경 차단 | `getScreenDetails()`가 내장 Retina 1개만 반환; 실물 모니터 필요 |
+| 물리 확장 디스플레이 `surface swap` | 통과 | 3개 디스플레이 인식, 외부 화면 자동 배치, remote 탭 공유, remote close cleanup·최신 slide 복귀 |
 
 ## 자동 검증 시나리오
 
@@ -81,22 +81,20 @@ Vite 개발 서버 응답은 `Cross-Origin-Opener-Policy: same-origin`, `Cross-O
    - 발표자 노트·알림·개인정보 경고와 확인 전 `전체 화면 선택` disabled 확인
    - 명시적 확인 후 전체 모니터 영상 표시
    - `청중 화면 가리기` 후 검은 ORBIT surface와 Chrome capture indicator 종료 확인
-7. 실제 디스플레이 검색
-   - Window Management 권한 허용 후 내장 Retina 디스플레이 1개만 반환
-   - UI가 `추가 디스플레이를 찾지 못했습니다. 열린 창을 직접 옮겨주세요.` fallback을 표시
+7. 실제 디스플레이 검색과 자동 배치
+   - macOS 확장 모드에서 Window Management 권한 허용 후 `DELL U2720Q`, 현재 화면인 `DELL U2723QE`, 내장 Retina 디스플레이까지 3개를 반환
+   - 청중 출력으로 `DELL U2720Q`를 자동 선택하고 기존 창을 `슬라이드 전용 창`, 새 창을 `발표자 제어 창`으로 전환
+   - 새 창에서 `팝업 연결됨`과 기존 next/prev/timer/notes UI 유지 확인
+8. 실제 `surface swap` 공유와 종료
+   - `PresenterRemoteWindow`에서 사용자가 직접 `웹·실습 보여주기`를 눌러 Workspace 탭을 native picker로 선택
+   - 청중 화면이 실제 video인 `공유 중인 웹 또는 실습 화면`으로 전환되고 remote가 `웹·실습 화면 공유 중`으로 표시
+   - remote 창 종료 직후 Chrome capture indicator가 종료되고 청중 화면이 최신 `slide_1`로 복귀
 
 direct bridge가 두 방향 모두 성공했으므로 local loopback WebRTC fallback은 구현하지 않았다.
 
-## 남은 수동 확인 항목
+## 수동 확인 완료
 
-native 앱 창과 전체 모니터는 권한을 허용한 일반 Chrome 세션에서 통과했다. 현재 장비에는 물리 외부 모니터가 없어 실제 `surface swap` 배치만 남았다.
-
-물리 모니터를 macOS 확장 모드로 연결한 일반 Chrome 세션에서 다음을 확인한다.
-
-1. `화면 권한 요청` 후 외부 모니터가 목록에 나타나는지 확인한다.
-2. 외부 모니터를 청중 화면으로 선택하고 `슬라이드쇼 시작` 후 `PresenterRemoteWindow`가 내장 화면에 열리는지 확인한다.
-3. remote에서 탭·앱 창·전체 모니터 공유 후 청중 화면의 video 표시를 확인한다.
-4. remote를 닫으면 capture indicator가 종료되고 청중 화면이 최신 slide로 복귀하는지 확인한다.
+native 앱 창과 전체 모니터는 권한을 허용한 일반 Chrome 세션에서 통과했고, 물리 확장 디스플레이의 `surface swap`은 3개 디스플레이 환경에서 통과했다. Chrome picker와 `getDisplayMedia()`는 실제 사용자 클릭이 필요하므로 remote의 공유 버튼과 source 선택만 사용자가 직접 수행했고, 전후 DOM·창 역할·capture indicator·최신 slide 복귀는 Chrome 자동화로 확인했다. 남은 수동 확인 항목은 없다.
 
 ## 알려진 제약
 

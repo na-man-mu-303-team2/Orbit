@@ -1,12 +1,12 @@
 # 발표자 웹·실습 공유 1차 MVP 실행 계획
 
 **문서 유형:** Goal 실행용 Implementation Plan
-**상태:** Implemented — 물리 확장 디스플레이 surface swap 수동 QA 대기
+**상태:** Complete
 **작성일:** 2026-07-16
 **대상:** Chrome 데스크톱, 같은 노트북의 확장 디스플레이
 **관련 문서:** `docs/specs/presenter-screen.md`, `docs/specs/slide-window-auto-fullscreen.md`, `docs/plans/google-slides-presentation-display-implementation.md`, `docs/contracts.md`
 
-**실행 결과:** Tasks 1~8 구현과 unit/integration/E2E, Chromium 및 시스템 Chrome 검증을 완료했다. actual Chrome direct bridge 양방향, native 탭·앱 창·전체 모니터 캡처, Chrome 공유 중지와 black cleanup을 통과했다. 물리 확장 디스플레이가 없어 실제 `surface swap` 배치만 `docs/qa/presenter-screen-share-mvp.md`의 수동 체크리스트로 남겼다.
+**실행 결과:** Tasks 1~8 구현과 unit/integration/E2E, Chromium 및 시스템 Chrome 검증을 완료했다. actual Chrome direct bridge 양방향, native 탭·앱 창·전체 모니터 캡처, Chrome 공유 중지와 black cleanup을 통과했다. 물리 확장 디스플레이 3개 환경에서 실제 `surface swap`, `PresenterRemoteWindow` 탭 공유, remote 종료 후 capture 정리와 최신 slide 복귀까지 확인했다.
 
 ## 0. Goal 모드 실행 계약
 
@@ -554,7 +554,7 @@ black         -> black surface + small Orbit logo
 ## Checkpoint B. 두 출력 경로 기능 완료
 
 - [x] `slide-window` 탭/창 공유와 종료가 동작한다.
-- [ ] 자동 배치 `surface swap` 탭/창 공유와 종료가 동작한다.
+- [x] 자동 배치 `surface swap` 탭/창 공유와 종료가 동작한다.
 - [x] 두 경로 모두 black과 최신 슬라이드 복귀가 동작한다.
 - [x] track, popup, remote, receiver lifecycle 정리 테스트가 통과한다.
 - [x] 기존 presenter 관련 unit test 전체가 통과한다.
@@ -568,7 +568,7 @@ black         -> black surface + small Orbit logo
 - [x] Playwright mock stream으로 `slide-window`의 slide → screen-share → slide와 black 전환을 검증한다.
 - [x] Playwright로 surface swap remote → opener stream attach와 output command를 검증한다.
 - [x] audience HTML과 channel fixture에 private marker가 없음을 재검증한다.
-- [ ] 실제 시스템 Chrome에서 탭, 앱 창, 고급 전체 화면, Chrome 공유 중지, popup/remote 종료를 검증한다.
+- [x] 실제 시스템 Chrome에서 탭, 앱 창, 고급 전체 화면, Chrome 공유 중지, popup/remote 종료를 검증한다.
 - [x] 결과 문서에 Chrome/OS, 출력 경로, 성공/실패, 남은 제약을 기록한다.
 
 **Verification:**
@@ -592,7 +592,7 @@ black         -> black surface + small Orbit logo
 
 ## Checkpoint C. Goal 완료 gate
 
-- [ ] Goal 완료 정의의 모든 항목을 증거와 함께 확인했다.
+- [x] Goal 완료 정의의 모든 항목을 증거와 함께 확인했다.
 - [x] Chrome picker를 자동화하지 못한 항목은 `docs/qa/presenter-screen-share-mvp.md`의 실제 수동 결과가 있다.
 - [x] 기존 slide-window privacy assertion과 animation sync E2E가 통과한다.
 - [x] 전체 화면 경고를 우회하는 UI 경로가 없다.
