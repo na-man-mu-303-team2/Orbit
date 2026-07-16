@@ -129,6 +129,39 @@ export function getPatchThumbnailRefreshSlideIds(deck: Deck, patch: DeckPatch) {
   return refreshAll ? deck.slides.map((slide) => slide.slideId) : [...slideIds];
 }
 
+export function getDeckThumbnailRefreshSlideIds(
+  previousDeck: Deck | null,
+  nextDeck: Deck,
+) {
+  if (
+    !previousDeck ||
+    !isSameDeckIdentity(previousDeck, nextDeck) ||
+    JSON.stringify(previousDeck.canvas) !== JSON.stringify(nextDeck.canvas) ||
+    JSON.stringify(previousDeck.theme) !== JSON.stringify(nextDeck.theme) ||
+    previousDeck.metadata.sourceType !== nextDeck.metadata.sourceType ||
+    previousDeck.metadata.thumbnailSource !== nextDeck.metadata.thumbnailSource
+  ) {
+    return nextDeck.slides.map((slide) => slide.slideId);
+  }
+
+  const previousSlides = new Map(
+    previousDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+
+  return nextDeck.slides
+    .filter((slide) => {
+      const previousSlide = previousSlides.get(slide.slideId);
+      if (!previousSlide) return true;
+
+      return (
+        previousSlide.thumbnailUrl !== slide.thumbnailUrl ||
+        JSON.stringify(previousSlide.style) !== JSON.stringify(slide.style) ||
+        JSON.stringify(previousSlide.elements) !== JSON.stringify(slide.elements)
+      );
+    })
+    .map((slide) => slide.slideId);
+}
+
 export function mergeDeckIntoQueryCache(
   currentDeck: Deck | undefined,
   nextDeck: Deck

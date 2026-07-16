@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { IconCheck as Check } from "@tabler/icons-react";
 
 import { AnimationPanelSection } from "./AnimationPanelSection";
 import { supportedAnimationCards } from "../utils/animationUi";

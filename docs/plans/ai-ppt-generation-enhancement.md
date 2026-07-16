@@ -1,5 +1,8 @@
 # AI PPT 생성 고도화 기획서
 
+> [!IMPORTANT]
+> 이 문서는 과거 설계 이력을 보존한다. GenerateDeck의 legacy/template 유지와 public selector 계약은 후속 확정 계획인 #339 PR6의 `program-v2` 전용 계약이 대체한다.
+
 ## 1. 배경
 
 현재 서비스는 기존 `.pptx` 템플릿을 가져와 그 위에 내용을 덮어쓰는 방식에 가깝다.
@@ -720,7 +723,7 @@ border:
 - 슬라이드별 최소 element density 충족
 - title/body/caption 위계 유지
 - 금지 스타일 gradient/pastel 위반 없음
-- 흰 배경 요청 시 full canvas background와 slide.style background 모두 white
+- 흰 배경 요청 시 신규 AI 생성 결과의 slide.style.backgroundColor가 white이며 full canvas background element는 없음
 - design-pack 결과가 legacy preset signature만으로 끝나지 않음
 ```
 

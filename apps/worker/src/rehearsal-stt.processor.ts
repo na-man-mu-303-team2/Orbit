@@ -4,6 +4,7 @@ import {
   deckPatchSchema,
   deckSchema,
   rehearsalEvaluationSnapshotSchema,
+  rehearsalAnalyzeRequestSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
@@ -18,8 +19,15 @@ import {
   type SemanticFallbackReason
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { storeRehearsalTranscriptArtifacts } from "./rehearsal-transcript-artifacts";
+import {
+  derivePracticeGoalSet,
+  loadPracticeGoalRankingContext,
+  publishPracticeGoalSet
+} from "./practice-goal-derivation";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -53,9 +61,15 @@ const deckPatchRowSchema = z.object({
 
 const rehearsalRunInputRowSchema = z.object({
   run_id: z.string().min(1),
+  created_at: z.union([z.date(), z.string().min(1)]),
+  transcript_json_file_id: z.string().min(1).nullable(),
+  transcript_text_file_id: z.string().min(1).nullable(),
+  transcript_json_status: z.string().nullable(),
+  transcript_text_status: z.string().nullable(),
   meta_json: z.record(z.unknown()).nullable().optional(),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
-  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full")
+  semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
+  analysis_revision: z.number().int().nonnegative().default(0)
 });
 
 const transcribeSegmentSchema = z
@@ -175,15 +189,33 @@ export type RehearsalSemanticEvaluationBusinessEvent = {
   reasons?: SemanticFallbackReason[];
 };
 
+export type RehearsalTranscriptArtifactBusinessEvent = {
+  event:
+    | "rehearsal.transcript_artifacts.started"
+    | "rehearsal.transcript_artifacts.succeeded"
+    | "rehearsal.transcript_artifacts.failed";
+  projectId: string;
+  runId: string;
+  jobId: string;
+  artifactCount: 2;
+  errorCode?: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED";
+};
+
 export async function processRehearsalSttJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
+  storage: Pick<
+    StoragePort,
+    "getSignedReadUrl" | "headObject" | "putObject" | "removeObject"
+  >,
   pythonWorkerUrl: string,
   rawPayload: unknown,
   transcriptCache?: RehearsalTranscriptCache,
   onSemanticEvaluationEvent?: (
     event: RehearsalSemanticEvaluationBusinessEvent
-  ) => void
+  ) => void,
+  onTranscriptArtifactEvent?: (
+    event: RehearsalTranscriptArtifactBusinessEvent
+  ) => void,
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -283,9 +315,8 @@ export async function processRehearsalSttJob(
     });
 
     if (!response.ok) {
-      return failAfterDelete(
+      return failAndScheduleRawAudioDeletion(
         dataSource,
-        storage,
         asset,
         payload,
         30,
@@ -296,9 +327,8 @@ export async function processRehearsalSttJob(
 
     transcribePayload = transcribeResponseSchema.parse(await response.json());
   } catch (error) {
-    return failAfterDelete(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
-      storage,
       asset,
       payload,
       30,
@@ -308,6 +338,49 @@ export async function processRehearsalSttJob(
   }
 
   await progressJob(dataSource, payload.jobId, 65, "발화 지표 분석 중");
+
+  emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+    event: "rehearsal.transcript_artifacts.started",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    artifactCount: 2,
+  });
+  try {
+    await storeRehearsalTranscriptArtifacts(dataSource, storage, {
+      projectId: payload.projectId,
+      runId: payload.runId,
+      runCreatedAt: runInput.created_at,
+      transcriptJsonFileId: runInput.transcript_json_file_id,
+      transcriptTextFileId: runInput.transcript_text_file_id,
+      transcriptJsonStatus: runInput.transcript_json_status,
+      transcriptTextStatus: runInput.transcript_text_status,
+      transcription: transcribePayload,
+    });
+  } catch {
+    emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+      event: "rehearsal.transcript_artifacts.failed",
+      projectId: payload.projectId,
+      runId: payload.runId,
+      jobId: payload.jobId,
+      artifactCount: 2,
+      errorCode: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+    });
+    return failJobAndRun(
+      dataSource,
+      payload,
+      65,
+      "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+      "Rehearsal transcript artifact storage failed.",
+    );
+  }
+  emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+    event: "rehearsal.transcript_artifacts.succeeded",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    artifactCount: 2,
+  });
 
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
@@ -319,9 +392,8 @@ export async function processRehearsalSttJob(
       runMeta
     );
   } catch (error) {
-    return failAfterDelete(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
-      storage,
       asset,
       payload,
       65,
@@ -341,45 +413,26 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
 
-  let rawAudioDeletedAt: string;
-  try {
-    rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
-  } catch (error) {
-    return failJobAndRun(
-      dataSource,
-      payload,
-      85,
-      "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed."
-    );
-  }
-
   let report: RehearsalReport;
   try {
     report = buildRehearsalReport(
       payload,
       transcribePayload,
       analysis,
-      rawAudioDeletedAt,
+      new Date().toISOString(),
       deckContext,
       runMeta,
       semanticResult
     );
   } catch (error) {
-    return failJobAndRun(
+    return failAndScheduleRawAudioDeletion(
       dataSource,
+      asset,
       payload,
       85,
       "REHEARSAL_REPORT_INVALID",
-      error instanceof Error ? error.message : "Rehearsal report validation failed.",
-      { rawAudioDeletedAt }
+      error instanceof Error ? error.message : "Rehearsal report validation failed."
     );
-  }
-
-  try {
-    await transcriptCache?.set(payload.runId, transcribePayload.transcript);
-  } catch {
-    // 전사본 캐시 실패는 리포트 본문 생성을 막지 않는다.
   }
 
   try {
@@ -390,13 +443,36 @@ export async function processRehearsalSttJob(
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
   }
 
-  await updateRun(dataSource, payload, {
+  const completedRun = await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
-    rawAudioDeletedAt,
     rehearsalReport: report,
     transcriptRetained: report.transcriptRetained
   });
+
+  if (completedRun.evaluation_snapshot_json) {
+    const rankingContext = await loadPracticeGoalRankingContext({
+      executor: dataSource,
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      snapshot: completedRun.evaluation_snapshot_json
+    });
+    const goalSet = derivePracticeGoalSet({
+      projectId: payload.projectId,
+      sourceFullRunId: payload.runId,
+      sourceAnalysisRevision: completedRun.analysis_revision,
+      snapshot: completedRun.evaluation_snapshot_json,
+      report,
+      rankingContext
+    });
+    if (goalSet) {
+      await publishPracticeGoalSet(dataSource, goalSet, {
+        evaluatedFullRunId: payload.runId,
+        snapshot: completedRun.evaluation_snapshot_json,
+        report
+      });
+    }
+  }
 
   try {
     await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
@@ -404,13 +480,17 @@ export async function processRehearsalSttJob(
     // summary 업데이트 실패는 리포트 저장을 막지 않는다.
   }
 
-  return updateJob(dataSource, payload.jobId, {
+  const completedJob = await updateJob(dataSource, payload.jobId, {
     status: "succeeded",
     progress: 100,
     message: "리포트 생성 완료",
-    result: buildReportGenerationRecord(payload, transcribePayload, report, rawAudioDeletedAt),
+    result: buildReportGenerationRecord(payload, transcribePayload, report, null),
     error: null
   });
+
+  // Temporary: retain successful rehearsal recordings for follow-up audio analysis.
+  // await scheduleRawAudioDeletion(dataSource, asset);
+  return completedJob;
 }
 
 function buildRehearsalReport(
@@ -427,7 +507,7 @@ function buildRehearsalReport(
     runId: payload.runId,
     projectId: payload.projectId,
     deckId: payload.deckId,
-    transcriptRetained: false,
+    transcriptRetained: true,
     transcript: null,
     metrics: {
       durationSeconds: transcription.durationSeconds ?? 0,
@@ -465,7 +545,7 @@ function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
   transcription: z.infer<typeof transcribeResponseSchema>,
   report: RehearsalReport,
-  rawAudioDeletedAt: string
+  rawAudioDeletedAt: string | null
 ) {
   return {
     runId: payload.runId,
@@ -473,7 +553,6 @@ function buildReportGenerationRecord(
     deckId: payload.deckId,
     audioFileId: payload.audioFileId,
     transcriptRetained: report.transcriptRetained,
-    transcript: report.transcript,
     language: transcription.language,
     provider: transcription.provider,
     model: transcription.model,
@@ -493,19 +572,29 @@ async function analyzeTranscript(
   transcription: z.infer<typeof transcribeResponseSchema>,
   runMeta: RehearsalRunMeta
 ) {
+  const request = rehearsalAnalyzeRequestSchema.parse({
+    runId: payload.runId,
+    projectId: payload.projectId,
+    deckId: payload.deckId,
+    transcript: transcription.transcript,
+    durationSeconds: transcription.durationSeconds ?? 0,
+    segments: transcription.segments,
+    deckKeywords: deckContext.deckKeywords.map(
+      ({ keywordId, slideId, text, synonyms, abbreviations, required }) => ({
+        keywordId,
+        slideId,
+        text,
+        synonyms,
+        abbreviations,
+        required
+      })
+    ),
+    slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
+  });
   const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      runId: payload.runId,
-      projectId: payload.projectId,
-      deckId: payload.deckId,
-      transcript: transcription.transcript,
-      durationSeconds: transcription.durationSeconds ?? 0,
-      segments: transcription.segments,
-      deckKeywords: deckContext.deckKeywords,
-      slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
-    }),
+    body: JSON.stringify(request),
     signal: AbortSignal.timeout(120_000)
   });
 
@@ -900,6 +989,19 @@ function emitSemanticEvaluationEvent(
   }
 }
 
+function emitTranscriptArtifactEvent(
+  callback:
+    | ((event: RehearsalTranscriptArtifactBusinessEvent) => void)
+    | undefined,
+  event: RehearsalTranscriptArtifactBusinessEvent,
+) {
+  try {
+    callback?.(event);
+  } catch {
+    // Business event logging must not interrupt rehearsal processing.
+  }
+}
+
 async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPayload) {
   const rows = await dataSource.query(
     `
@@ -1113,18 +1215,27 @@ function buildSlideTimings(
   const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
   const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
   const timings: RehearsalReportSlideTiming[] = [];
+  const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
+  const recordingDurationSeconds = runMeta.recordingDurationSeconds;
+  const recordingEndedAt =
+    !Number.isNaN(firstEnteredAt) && recordingDurationSeconds !== null
+      ? firstEnteredAt + recordingDurationSeconds * 1000
+      : null;
 
   for (let index = 0; index < timeline.length; index += 1) {
     const entry = timeline[index];
     const nextEntry = timeline[index + 1];
-    if (!entry || !nextEntry) {
+    if (!entry) {
       continue;
     }
 
     const enteredAt = Date.parse(entry.enteredAt);
-    const exitedAt = Date.parse(nextEntry.enteredAt);
+    const exitedAt = nextEntry
+      ? Date.parse(nextEntry.enteredAt)
+      : recordingEndedAt;
     if (
       Number.isNaN(enteredAt) ||
+      exitedAt === null ||
       Number.isNaN(exitedAt) ||
       exitedAt <= enteredAt
     ) {
@@ -1200,48 +1311,40 @@ function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {
   return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
 }
 
-async function failAfterDelete(
+async function failAndScheduleRawAudioDeletion(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "removeObject">,
   asset: AudioAssetRow,
   payload: RehearsalSttPayload,
   progress: number,
   code: string,
   message: string
 ) {
-  try {
-    const rawAudioDeletedAt = await deleteRawAudio(dataSource, storage, asset);
-    return failJobAndRun(dataSource, payload, progress, code, message, {
-      rawAudioDeletedAt
-    });
-  } catch (error) {
-    return failJobAndRun(
-      dataSource,
-      payload,
-      progress,
-      "RAW_AUDIO_DELETE_FAILED",
-      error instanceof Error ? error.message : "Raw audio deletion failed."
-    );
-  }
+  const failedJob = await failJobAndRun(dataSource, payload, progress, code, message);
+  await scheduleRawAudioDeletion(dataSource, asset);
+  return failedJob;
 }
 
-async function deleteRawAudio(
-  dataSource: DataSource,
-  storage: Pick<StoragePort, "removeObject">,
-  asset: AudioAssetRow
-) {
-  await storage.removeObject(asset.storage_key);
-  const deletedAt = new Date().toISOString();
+async function scheduleRawAudioDeletion(dataSource: DataSource, asset: AudioAssetRow) {
+  const now = new Date().toISOString();
+  const storageKeyHash = createHash("sha256").update(asset.storage_key).digest("hex");
   await dataSource.query(
     `
-      UPDATE project_assets
-      SET status = 'deleted',
-          deleted_at = $3
-      WHERE file_id = $1 AND project_id = $2
+      INSERT INTO storage_deletion_outbox (
+        deletion_id, project_id, file_id, storage_key, storage_key_hash,
+        purpose, status, attempt_count, next_attempt_at, created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,'pending',0,$7,$7)
+      ON CONFLICT (storage_key_hash) DO NOTHING
     `,
-    [asset.file_id, asset.project_id, deletedAt]
+    [
+      `deletion_${storageKeyHash.slice(0, 32)}`,
+      asset.project_id,
+      asset.file_id,
+      asset.storage_key,
+      storageKeyHash,
+      asset.purpose,
+      now,
+    ],
   );
-  return deletedAt;
 }
 
 async function failJobAndRun(
@@ -1297,9 +1400,26 @@ async function updateRun(
           raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
           report_json = COALESCE($6::jsonb, report_json),
           transcript_retained = COALESCE($7::boolean, transcript_retained),
+          analysis_revision = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_revision
+            ELSE analysis_revision + 1
+          END,
+          analysis_finalized_at = CASE
+            WHEN $6::jsonb IS NULL THEN analysis_finalized_at
+            WHEN $9::boolean THEN now()
+            ELSE NULL
+          END,
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id, meta_json, evaluation_snapshot_json, semantic_evaluation_mode
+      RETURNING run_id, created_at, meta_json, evaluation_snapshot_json,
+                semantic_evaluation_mode, analysis_revision,
+                transcript_json_file_id, transcript_text_file_id,
+                (SELECT status FROM project_assets
+                 WHERE file_id = rehearsal_runs.transcript_json_file_id)
+                  AS transcript_json_status,
+                (SELECT status FROM project_assets
+                 WHERE file_id = rehearsal_runs.transcript_text_file_id)
+                  AS transcript_text_status
     `,
     [
       payload.runId,
@@ -1309,7 +1429,10 @@ async function updateRun(
       patch.rawAudioDeletedAt ?? null,
       patch.rehearsalReport ? JSON.stringify(patch.rehearsalReport) : null,
       patch.transcriptRetained ?? null,
-      payload.projectId
+      payload.projectId,
+      patch.rehearsalReport
+        ? !patch.rehearsalReport.semanticEvaluation.retryable
+        : false
     ]
   );
 

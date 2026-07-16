@@ -10,9 +10,7 @@ const payload = {
   jobId: "job-ooxml",
   projectId: "project-a",
   request: {
-    fileId: "file_template",
-    topic: "ORBIT",
-    prompt: "Use this template"
+    fileId: "file_template"
   }
 };
 
@@ -69,12 +67,15 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       return [];
     });
-    const fetchMock = vi.fn(async (input: string | URL) => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "http://storage.local/template.pptx") {
         return new Response("pptx-bytes");
       }
       if (url.endsWith("/ai/pptx-ooxml-generation")) {
+        const form = init?.body as FormData;
+        expect(Array.from(form.keys())).toEqual(["file_id", "file"]);
+        expect(form.get("file_id")).toBe("file_template");
         return new Response(JSON.stringify(workerResponse()));
       }
 
@@ -161,10 +162,17 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     const blueprint = insertedBlueprints[0] as {
+      sourceFileId: string;
+      sourcePackageFileId: string;
       currentPackageFileId: string;
       slides: Array<{ renderAssetFileId: string }>;
     };
+    expect(blueprint.sourceFileId).toBe("file_template");
+    expect(blueprint.sourcePackageFileId).toBe("file_template");
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
+    expect(blueprint.currentPackageFileId).not.toBe(
+      blueprint.sourcePackageFileId
+    );
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({
       deckId: "deck_ooxml_file_template",
@@ -247,19 +255,14 @@ describe("processPptxOoxmlGenerationJob", () => {
         })
       ])
     );
-    expect(deck.slides[0].elements).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          elementId: "el_slot_title",
-          type: "rect",
-          role: "title",
-          props: expect.objectContaining({
-            fill: "transparent",
-            stroke: "transparent"
-          })
-        })
-      ])
-    );
+    expect(deck.slides[0].elements).toEqual([]);
+    expect(job.result).toMatchObject({
+      warnings: [
+        expect.stringContaining(
+          "OOXML visual tree importer failed; python-pptx fallback used:"
+        )
+      ]
+    });
   });
 
   it("keeps resolved object fallback images as editable image elements", async () => {
@@ -378,6 +381,35 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_SOURCE_FAILED");
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each(["topic", "prompt", "extraField"])(
+    "rejects unsupported queue request field %s before source loading",
+    async (field) => {
+      const query = vi.fn(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          params[1] as "running" | "succeeded" | "failed",
+          params[2] as number,
+          params[4] as Record<string, unknown> | null,
+          params[5] as { code: string; message: string } | null
+        )
+      ]);
+      vi.stubGlobal("fetch", vi.fn());
+
+      const job = await processPptxOoxmlGenerationJob(
+        { query } as unknown as DataSource,
+        storage,
+        "http://localhost:8000",
+        {
+          ...payload,
+          request: { fileId: "file_template", [field]: "legacy value" }
+        }
+      );
+
+      expect(job.status).toBe("failed");
+      expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_PAYLOAD_INVALID");
+      expect(fetch).not.toHaveBeenCalled();
+    }
+  );
 });
 
 function workerResponse() {
@@ -562,6 +594,9 @@ function workerResponse() {
 
 function workerResponseWithUnresolvedFallback() {
   const response = workerResponse();
+  response.warnings = [
+    "OOXML visual tree importer failed; python-pptx fallback used: synthetic importer failure"
+  ];
   response.blueprint.slides[0].elements = [
     {
       elementId: "el_ooxml_1_slide_99_fallback_image",

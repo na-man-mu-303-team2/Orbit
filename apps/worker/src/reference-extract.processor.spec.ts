@@ -88,15 +88,91 @@ describe("processReferenceExtractJob", () => {
     });
   });
 
+  it("keeps ordered mixed results in a succeeded multi-file job", async () => {
+    const mixedPayload = {
+      ...payload,
+      files: [
+        payload.files[0],
+        {
+          fileId: "file-2",
+          originalName: "broken.docx",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          contentBase64: Buffer.from("broken").toString("base64")
+        }
+      ]
+    };
+    const extracted = [
+      {
+        projectId: "project-a",
+        referenceDocumentId: "file-1",
+        fileName: "sample.pdf",
+        kind: "pdf",
+        status: "succeeded",
+        rawText: "usable reference text"
+      },
+      {
+        projectId: "project-a",
+        referenceDocumentId: "file-2",
+        fileName: "broken.docx",
+        kind: "docx",
+        status: "failed",
+        message: "Document extraction failed."
+      }
+    ];
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow("succeeded", 100, params[4] as Record<string, unknown>, null)
+      ]);
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(JSON.stringify({ files: extracted }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processReferenceExtractJob(
+      { query } as unknown as DataSource,
+      "http://localhost:8000",
+      mixedPayload
+    );
+
+    expect(job.status).toBe("succeeded");
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((request.body as FormData).getAll("file_ids")).toEqual([
+      "file-1",
+      "file-2"
+    ]);
+    expect(job.result).toEqual({
+      files: [
+        expect.objectContaining({
+          fileId: "file-1",
+          mimeType: "application/pdf",
+          status: "succeeded",
+          usable: true
+        }),
+        expect.objectContaining({
+          fileId: "file-2",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          status: "failed",
+          usable: false
+        })
+      ]
+    });
+  });
+
   it("marks the DB job failed when documents parse fails", async () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
-      .mockResolvedValueOnce([
-        jobRow("failed", 10, null, {
-          code: "PYTHON_WORKER_EXTRACT_FAILED",
-          message: "bad parse"
-        })
+      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
+        jobRow(
+          "failed",
+          10,
+          null,
+          params[5] as { code: string; message: string }
+        )
       ]);
     vi.stubGlobal(
       "fetch",
@@ -110,7 +186,10 @@ describe("processReferenceExtractJob", () => {
     );
 
     expect(job.status).toBe("failed");
-    expect(job.error?.message).toBe("bad parse");
+    expect(job.error?.message).toBe(
+      "Python worker reference extraction failed with status 500."
+    );
+    expect(job.error?.message).not.toContain("bad parse");
     expect(query).toHaveBeenCalledTimes(2);
   });
 });

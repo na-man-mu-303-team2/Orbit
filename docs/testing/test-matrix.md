@@ -2,18 +2,22 @@
 
 이 문서는 기능 범위와 자동/수동 검증을 연결한다. PR에서는 이 표의 "검증 앵커"와 실제 테스트 결과를 함께 확인한다.
 
+이 문서의 `ORBIT-*` 값은 기존 기능과 테스트를 찾기 위한 레거시 식별자다. 현재 프로젝트는 Jira를 사용하지 않으며, 새 브랜치·커밋·PR·테스트에 Jira 이슈 키를 요구하지 않는다.
+
 ## Verification Policy
 
 | 시점 | 실행 항목 | 목적 |
 | --- | --- | --- |
 | docs-only PR | 변경 Markdown UTF-8 읽기 확인 | 구현과 무관한 PR에서 코드 테스트 미실행 사유를 PR 본문에 남김 |
-| automation-only PR | automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 수동으로 검증 |
-| app/API/shared/worker/compose/env/lockfile PR | TypeScript CI: `node infra/scripts/check-env.mjs`, `pnpm build`, `pnpm lint`, `pnpm test`; 수동: Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | merge 전 빠른 TypeScript 회귀는 자동 확인하고, Python/Compose 계층은 필요 시 수동 확인 |
-| `develop` push | TypeScript CI 자동 실행 | merge 후 base branch TypeScript 조합 검증 |
+| 모든 PR | Environment Contract CI: `node infra/scripts/check-env.mjs` | 환경 예시 파일의 키 누락·불일치·중복·필수값 공백을 빠르게 차단 |
+| automation-only PR | Environment Contract CI와 automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증 |
+| app/API/shared/worker/compose/env/lockfile PR | Environment Contract CI; TypeScript CI: `pnpm build`, `pnpm lint`, `pnpm test`; 수동: Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | 환경 계약과 빠른 TypeScript 회귀를 자동 확인하고, Python/Compose 계층은 필요 시 수동 확인 |
+| `develop` push | Environment Contract CI와 TypeScript CI 자동 실행, 환경 계약 성공 뒤 개인 서버 배포 | merge 후 환경 계약과 base branch TypeScript 조합 검증 |
+| Doppler `orbit / stg` 변경 | `Deploy Personal Staging`의 `environment-only` 실행, 서버 env preflight, Compose config, API/root health check | 유효한 secret 변경만 앱 컨테이너에 재적용하고 누락·공백이면 기존 컨테이너 유지 |
 | `main` push | 자동 CI 없음 | release branch 조합 검증은 필요 시 수동으로 실행 |
 | 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
 
-현재 GitHub Actions CI는 TypeScript 검증만 자동 실행한다. Python worker, Docker Compose, Playwright smoke처럼 환경 의존성이 큰 검증이 필요하면 로컬 또는 별도 실행 환경에서 실행하고 PR 본문에 결과를 남긴다.
+현재 GitHub Actions CI는 모든 PR의 Environment Contract CI와 변경 경로 기반 TypeScript CI를 자동 실행한다. Python worker, Docker Compose, Playwright smoke처럼 환경 의존성이 큰 검증이 필요하면 로컬 또는 별도 실행 환경에서 실행하고 PR 본문에 결과를 남긴다.
 
 ## PR Review Rule
 
@@ -24,7 +28,7 @@
 
 ## Milestone Matrix
 
-| 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
+| 레거시 기능 ID | 범위 | 주요 완료 기준 | 검증 앵커 |
 | --- | --- | --- | --- |
 | ORBIT-1 | 시작 준비 epic | 로컬 서비스, migration, 온디바이스 STT 기준 준비 | `pnpm build`, `pnpm lint`, Python pytest, Compose, STT 문서 review |
 | ORBIT-2 | 프로젝트 scaffold | workspace build/test, Compose 서비스 시작 | 수동 `pnpm build`, `pnpm test`, Python pytest, Compose 검증 |

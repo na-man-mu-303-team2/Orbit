@@ -19,6 +19,8 @@ function runFixture(
     deckVersion: null,
     evaluationSnapshot: null,
     semanticEvaluationMode: "full",
+    analysisRevision: 1,
+    analysisFinalizedAt: createdAt,
     status,
     error: null,
     createdAt,

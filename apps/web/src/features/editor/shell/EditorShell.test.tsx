@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
   EditorStateNotice,
+  appendAppliedDesignProposalHistory,
   applyDeckPatchAcknowledgement,
   buildSlideThumbnailPatch,
   buildPatchBatch,
@@ -30,17 +31,22 @@ import {
   exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
+  getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
   getEditorValidationItems,
+  getResponsiveEditorStageScale,
+  importPptxIntoEditor,
   mergeDeckIntoQueryCache,
+  parseDeckPatchPersistenceResponse,
+  putProjectDeck,
   resolveHistoryNavigation,
+  requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
   shouldPromptSpeakerNotesDraftDiscard,
   shouldPromptSpeakerNotesOverwrite,
-  shouldHydrateDeckFromQuery,
-  uploadAndImportPptxTemplate
+  shouldHydrateDeckFromQuery
 } from "./EditorShell";
 import {
   createExpandTextWidthToFitFrame,
@@ -133,6 +139,17 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 describe("editor shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("fits the editor canvas inside compact viewports", () => {
+    expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
+    expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, null)).toBe(0.44);
+    expect(getResponsiveEditorStageScale(1920, 652, 1080, 600)).toBeCloseTo(
+      604 / 1920,
+      5,
+    );
+    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -274,6 +291,24 @@ describe("editor shell", () => {
         stack: []
       })
     ).toBeNull();
+  });
+
+  it("keeps the pre-AI deck in undo history when a proposal is applied", () => {
+    const previousDeck = createDemoDeck();
+    const olderEntries = Array.from({ length: 50 }, (_, index) => ({
+      deck: { ...previousDeck, title: `이전 편집 ${index}` },
+      slideIndex: index % previousDeck.slides.length
+    }));
+
+    const history = appendAppliedDesignProposalHistory({
+      currentDeck: previousDeck,
+      currentSlideIndex: 1,
+      undoStack: olderEntries
+    });
+
+    expect(history).toHaveLength(50);
+    expect(history[0]?.deck.title).toBe("이전 편집 1");
+    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -435,18 +470,54 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(deck.title);
-    expect(html).toContain("Opening");
     expect(html).toContain("차트");
     expect(html).not.toContain("Data Contract");
     expect(html).toContain("발표 메모");
+    expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
+    expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
+    expect(html).not.toContain("메모 편집");
+    expect(html).toContain(deck.slides[0].speakerNotes);
+    expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
+    expect(html).toContain("발표 체크포인트");
+    expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
+    expect(html.indexOf("script-keyword-section")).toBeLessThan(
+      html.indexOf("speaker-notes-length-meter"),
+    );
+    expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
-    expect(html).toContain("AI 도구");
+    expect(html).toContain("AI 코치");
+    expect(html).toContain(">검사<");
+    expect(html).toContain(">디자인<");
+    expect(html).not.toContain('id="editor-notes-tab"');
+    expect(html).not.toContain("ID 표시");
+    expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
+    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain("파일");
+    expect(html).toContain("편집 중");
+    expect(html).toContain("공유");
+    expect(html).toContain("리허설");
+    expect(html).toContain("발표하기");
+    expect(html).toContain('aria-label="실행 취소"');
+    expect(html).toContain('aria-label="다시 실행"');
+    expect(html).toContain('aria-label="선택 도구"');
+    expect(html).toContain('aria-label="오른쪽 패널 접기"');
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
+    expect(html).toContain('id="editor-design-panel"');
+    expect(html).not.toContain('id="editor-notes-panel"');
+    expect(html).toContain("stage-speaker-notes-panel");
+    expect(html).toContain('aria-controls="speaker-notes-content"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-label="발표 메모 펼치기"');
+    expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
+    expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -490,8 +561,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('id="editor-semantic-cue-tab"');
-    expect(html).toContain('id="editor-semantic-cue-panel"');
+    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
     expect(html).toContain("발표 메시지");
     expect(html).toContain("AI로 전체 덱 다시 분석");
     expect(html).toContain("도입 효과");
@@ -545,14 +615,64 @@ describe("editor shell", () => {
     );
   });
 
-  it("uploads a PPTX file, creates an import job, and polls until completion", async () => {
+  it("emits the OOXML sync job returned by a full deck PUT", async () => {
+    const deck = createDemoDeck();
+    deck.projectId = "project-a";
+    const syncJob = jobPayload("queued", null, "pptx-ooxml-sync");
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("PUT");
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        baseVersion: deck.version,
+        deck: { deckId: deck.deckId },
+        snapshotReason: "deck-replaced"
+      });
+      return new Response(
+        JSON.stringify({
+          deck: { ...deck, version: deck.version + 1 },
+          snapshot: {
+            snapshotId: "snapshot_put_1",
+            projectId: deck.projectId,
+            deckId: deck.deckId,
+            version: deck.version + 1,
+            reason: "deck-replaced",
+            createdAt: "2026-07-10T00:00:00.000Z"
+          },
+          ooxmlSyncJob: syncJob,
+          updatedAt: "2026-07-10T00:00:00.000Z"
+        })
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const originalWindow = globalThis.window;
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { ...originalWindow, dispatchEvent });
+    let persisted: Deck;
+    try {
+      persisted = await putProjectDeck(deck.projectId, deck, {
+        baseVersion: deck.version
+      });
+    } finally {
+      vi.stubGlobal("window", originalWindow);
+    }
+
+    expect(persisted.version).toBe(deck.version + 1);
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect((dispatchEvent.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(syncJob);
+  });
+
+  it("runs the editor PPTX import through OOXML generation and matching Deck hydration", async () => {
     const file = new File(["pptx"], "template.pptx", {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
     const phases: string[] = [];
+    const requestedUrls: string[] = [];
+    const importedDeck = createDemoDeck();
+    importedDeck.deckId = "deck_ooxml_file_template";
+    const refetchDeck = vi.fn(async () => importedDeck);
     let jobPollCount = 0;
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      requestedUrls.push(url);
 
       if (url.endsWith("/assets/upload-url")) {
         expect(init?.method).toBe("POST");
@@ -599,22 +719,32 @@ describe("editor shell", () => {
         );
       }
 
-      if (url.endsWith("/pptx-imports")) {
+      if (url.endsWith("/pptx-ooxml-generations")) {
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_template" });
-        return new Response(JSON.stringify({ job: jobPayload("queued") }));
+        return new Response(
+          JSON.stringify({
+            job: jobPayload("queued", null, "pptx-ooxml-generation")
+          })
+        );
       }
 
       if (url.endsWith("/jobs/job-pptx")) {
         jobPollCount += 1;
         return new Response(
           JSON.stringify(
-            jobPayload(jobPollCount === 1 ? "running" : "succeeded", {
-              deckId: "deck_import_file_template",
-              templateId: "template_file_template",
-              qualityReport: qualityReport(),
-              warnings: ["pixel renderer unavailable"]
-            })
+            jobPayload(
+              jobPollCount === 1 ? "running" : "succeeded",
+              {
+                deckId: "deck_ooxml_file_template",
+                templateId: "template_file_template",
+                sourceFileId: "file_template",
+                currentPackageFileId: "file_current_package",
+                qualityReport: qualityReport(),
+                warnings: ["pixel renderer unavailable"]
+              },
+              "pptx-ooxml-generation"
+            )
           )
         );
       }
@@ -623,17 +753,49 @@ describe("editor shell", () => {
     });
 
     await expect(
-      uploadAndImportPptxTemplate("project-a", file, {
+      importPptxIntoEditor("project-a", file, {
         fetcher,
         onPhase: (phase) => phases.push(phase),
-        pollIntervalMs: 0
+        pollIntervalMs: 0,
+        refetchDeck
       })
     ).resolves.toMatchObject({
-      deckId: "deck_import_file_template",
-      templateId: "template_file_template"
+      importResult: {
+        deckId: "deck_ooxml_file_template",
+        templateId: "template_file_template",
+        sourceFileId: "file_template",
+        currentPackageFileId: "file_current_package"
+      },
+      importedDeck: { deckId: "deck_ooxml_file_template" }
     });
     expect(phases).toEqual(["uploading", "importing"]);
     expect(jobPollCount).toBe(2);
+    expect(refetchDeck).toHaveBeenCalledOnce();
+    expect(requestedUrls.some((url) => url.endsWith("/pptx-imports"))).toBe(false);
+  });
+
+  it("accepts only the refetched Deck identified by the OOXML generation result", () => {
+    const importedDeck = createDemoDeck();
+    importedDeck.deckId = "deck_ooxml_file_template";
+
+    expect(
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_ooxml_file_template" },
+        importedDeck
+      )
+    ).toBe(importedDeck);
+    expect(() =>
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_ooxml_file_template" },
+        undefined
+      )
+    ).toThrow("변환된 PPTX Deck을 불러오지 못했습니다.");
+    expect(() =>
+      requireMatchingPptxImportedDeck(
+        { deckId: "deck_other" },
+        importedDeck
+      )
+    ).toThrow("변환 결과와 불러온 PPTX Deck이 일치하지 않습니다.");
   });
 
   it("creates a PPTX export job and returns the exported asset result", async () => {
@@ -705,6 +867,7 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("http://assets.example.test/slide_1.png");
+    expect(html).toContain("aspect-ratio:1920 / 1080");
     expect(html).not.toContain("미리보기 준비됨");
   });
 
@@ -818,6 +981,27 @@ describe("editor shell", () => {
         source: "user"
       })
     ).toEqual([firstSlide.slideId, secondSlide.slideId]);
+  });
+
+  it("rerenders only slides whose visual state changed", () => {
+    const previousDeck = createDemoDeck();
+    const nextDeck = structuredClone(previousDeck);
+    nextDeck.version += 1;
+    nextDeck.slides[0]!.elements[0]!.x += 12;
+
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, nextDeck)).toEqual([
+      nextDeck.slides[0]!.slideId,
+    ]);
+
+    const versionOnlyDeck = structuredClone(previousDeck);
+    versionOnlyDeck.version += 1;
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, versionOnlyDeck)).toEqual([]);
+
+    const themeDeck = structuredClone(previousDeck);
+    themeDeck.theme.backgroundColor = "#111827";
+    expect(getDeckThumbnailRefreshSlideIds(previousDeck, themeDeck)).toEqual(
+      themeDeck.slides.map((slide) => slide.slideId),
+    );
   });
 
   it("keeps table quickbar edits in editable table props", () => {
@@ -1004,6 +1188,40 @@ describe("editor shell", () => {
         version: acknowledgement.version + 1
       })
     ).toThrow("acknowledgement version");
+  });
+
+  it("accepts both lightweight acknowledgements and legacy full deck responses", () => {
+    const deck = createDemoDeck();
+    const patch: DeckPatch = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [{ type: "update_deck", title: "호환 저장" }]
+    };
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: "2026-07-10T00:00:00.000Z"
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+
+    const acknowledgement = {
+      deckId: deck.deckId,
+      version: applied.deck.version,
+      changeRecord: applied.changeRecord,
+      updatedAt: applied.changeRecord.createdAt
+    };
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, acknowledgement).deck
+    ).toEqual(applied.deck);
+    expect(
+      parseDeckPatchPersistenceResponse(deck, patch, {
+        deck: applied.deck,
+        changeRecord: applied.changeRecord,
+        snapshot: null,
+        updatedAt: applied.changeRecord.createdAt
+      }).deck
+    ).toEqual(applied.deck);
+    expect(() => parseDeckPatchPersistenceResponse(deck, patch, {})).toThrow();
   });
 
   it("renders supported canvas object types without exposing grouped child labels", () => {
@@ -2094,7 +2312,6 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain("ORBIT Demo Deck");
-    expect(html).toContain("Opening");
     expect(html).toContain("불러오는 중");
     expect(html).not.toContain("덱을 불러오는 중");
   });
@@ -2165,7 +2382,11 @@ function editorTextElement(
 function jobPayload(
   status: "queued" | "running" | "succeeded",
   result: Record<string, unknown> | null = null,
-  type: "pptx-import" | "deck-export" = "pptx-import"
+  type:
+    | "pptx-import"
+    | "pptx-ooxml-generation"
+    | "pptx-ooxml-sync"
+    | "deck-export" = "pptx-import"
 ) {
   return {
     jobId: "job-pptx",

@@ -17,13 +17,17 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 필수 값이 없거나 빈 문자열이면 startup이 실패해야 하며 오류 메시지에는 누락된 env key가 포함되어야 한다.
 `APP_ENV=staging` 또는 `APP_ENV=production`에서는 localhost, 로컬 DB/Redis, 로컬 secret placeholder를 그대로 사용하지 않는다.
 
+모든 PR과 `develop` push에서는 `Environment Contract CI`가 세 환경 예시 파일의 key 집합, 필수 key, 중복 선언, 선언 형식, 허용되지 않은 빈 값을 검사한다. 선택 기능 또는 secret store에서 주입하는 값처럼 비어 있을 수 있는 key는 `infra/scripts/check-env.mjs`의 환경별 allowlist에 명시한다. 실제 개인 서버 값은 PR CI에 노출하지 않고, 배포 직전에 Doppler 환경에서 `infra/scripts/check-personal-staging-env.sh`로 존재 여부만 확인한다. Doppler `orbit / stg` 변경은 GitHub workflow dispatch를 통해 개인 서버의 앱 컨테이너에 자동 재적용하며, 필수값 누락·공백 또는 Compose 검증 실패 시 실행 중인 컨테이너를 교체하지 않는다.
+
 `API_JSON_BODY_LIMIT_BYTES`는 API의 JSON request body 최대 크기다. 기본값은 `5000000`이며, full deck 저장(`PUT /api/v1/projects/:projectId/deck`)처럼 checkpoint용 Deck JSON을 보내는 경로가 Express 기본값 100KB에 걸리지 않도록 명시한다.
 
 ## driver 값
 
 ```txt
 STORAGE_DRIVER=minio | s3
-JOB_QUEUE_DRIVER=bullmq | sqs
+JOB_QUEUE_DRIVER=bullmq
+AI_DECK_EXECUTION_MODE=monolith | bullmq
+AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize
 LIVE_STT_PROVIDER=sherpa
 LIVE_STT_ENGINE=openai-realtime | web-speech
 REPORT_STT_PROVIDER=openai | whisperx
@@ -31,7 +35,23 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
-현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. `JOB_QUEUE_DRIVER=sqs`는 AWS SQS adapter 구현 후 활성화한다.
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`와 AI Deck stage transport는 최종 운영 기준으로 `bullmq`를 유지한다. `JOB_QUEUE_DRIVER=sqs`는 지원하지 않으며 Worker startup이 실패한다.
+
+`AI_DECK_EXECUTION_MODE`의 코드 기본값과 로컬 `.env.example`은 `bullmq`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. 로컬 `docker-compose.yml`의 API와 Worker는 두 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 로컬 기본값 변경이 배포 환경을 자동 전환하지 않는다.
+
+338-3에서 지원하는 조합은 다음과 같다.
+
+| `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                            |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `monolith`               | `all`                  | 회귀 검증과 운영 rollback용 기존 full-deck 호환 경로를 실행한다. 제거 대상이 아니다.                                                  |
+| `bullmq`                 | `all`                  | 로컬 기본값. staged coordinator부터 OCR·planning·image·QA·publication 전체 queue, dispatcher와 reconciler를 실행한다.                |
+| `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
+| `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                             |
+| `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
+| `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
+| `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
+
+`AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이며 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
 
 ## 서버 로그
 
@@ -94,6 +114,24 @@ STT/AI provider는 목적별로 분리한다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
 Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 단일 파일 전사 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값이 `25000000`이다. `REPORT_STT_PROVIDER=whisperx`를 사용하려면 `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`를 설정한다.
+
+## Adaptive Rehearsal Coach
+
+```txt
+ADAPTIVE_REHEARSAL_COACH_ENABLED=false
+FOCUSED_PRACTICE_ENABLED=false
+CHALLENGE_QNA_ENABLED=false
+DEMO_COACHING_FIXTURE_ENABLED=false
+DEMO_FIXTURE_ENV_ALLOWLIST=local,test
+ADAPTIVE_COACHING_PROJECT_ALLOWLIST=project_demo_1
+PRIVATE_EVIDENCE_REDIS_URL=redis://localhost:6380
+COACHING_IDEMPOTENCY_HMAC_SECRET=
+COACHING_IDEMPOTENCY_HMAC_KEY_VERSION=1
+COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET=
+COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION=
+```
+
+Focused Practice나 Challenge Q&A를 켜려면 Adaptive core도 켜야 한다. project allowlist가 비어 있으면 모든 project를 거부하고 `*`는 전체 project를 허용한다. demo fixture는 environment allowlist와 demo marker가 함께 일치해야 하며 production에서는 활성화할 수 없다. private evidence Redis와 HMAC secret은 browser runtime config에 노출하지 않는다. production HMAC secret은 32자 이상이어야 하고, 이전 secret과 key version은 rotation 기간에만 함께 설정한다.
 
 ## Demo ID
 

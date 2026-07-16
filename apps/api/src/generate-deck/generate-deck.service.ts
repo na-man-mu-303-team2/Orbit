@@ -1,5 +1,6 @@
 import {
   enqueueGenerateDeckJob,
+  retryAiDeckStagedCoordinatorJob,
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
 import {
@@ -18,18 +19,18 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import { z } from "zod";
+import { parseRequest } from "../common/zod-request";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
+import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
 const generateDeckJobResponseSchema = z.object({
   job: jobSchema
 });
 
 type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
-const pptxMimeType =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
 @Injectable()
 export class GenerateDeckService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
@@ -42,30 +43,68 @@ export class GenerateDeckService {
       input: EnqueueGenerateDeckJobInput
     ) => Promise<void> = enqueueGenerateDeckJob,
     @Optional()
-    private readonly filesService?: FilesService
-  ) {}
+    private readonly filesService?: FilesService,
+    @Optional()
+    private readonly savedDesignPacksService?: SavedDesignPacksService,
+    @Optional()
+    private readonly presentationBriefs?: PresentationBriefsService
+  ) {
+    if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
+      throw new Error("AI Deck SQS transport is not implemented yet.");
+    }
+  }
 
   async createJob(
     projectId: string,
-    body: unknown
+    body: unknown,
+    userId?: string
   ): Promise<GenerateDeckJobResponse> {
     await this.projectsService.getAccessibleProject(projectId);
 
-    const request = generateDeckRequestSchema.parse(body);
-    await this.assertDesignReferences(projectId, request.designReferences);
+    const parsedRequest = parseRequest(generateDeckRequestSchema, body);
+    const resolved =
+      this.savedDesignPacksService && userId
+        ? await this.savedDesignPacksService.resolveGenerationRequest(
+            parsedRequest,
+            body,
+            userId
+          )
+        : { request: parsedRequest };
+    const request = resolved.request;
+    await this.assertCoachingContext(projectId, request.coachingContext);
+    await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
-      payload: { request }
+      payload: {
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId
+              }
+            }
+          : {})
+      }
     });
 
     try {
       await this.enqueueJob({
         driver: this.config.JOB_QUEUE_DRIVER,
+        executionMode: this.config.AI_DECK_EXECUTION_MODE,
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request
+        request,
+        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+        ...(userId
+          ? {
+              imageAssetScope: {
+                userId
+              }
+            }
+          : {})
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
@@ -125,24 +164,74 @@ export class GenerateDeckService {
     }
   }
 
-  private async assertDesignReferences(
+  async retryJob(projectId: string, jobId: string) {
+    if (this.config.AI_DECK_EXECUTION_MODE !== "bullmq") {
+      throw new ServiceUnavailableException(
+        "AI deck stage retry requires bullmq execution mode."
+      );
+    }
+    const retried = await this.jobsService.retryAiDeckGeneration(projectId, jobId);
+    if (retried.restartCoordinator) {
+      try {
+        await retryAiDeckStagedCoordinatorJob({
+          redisUrl: this.config.REDIS_URL,
+          jobId,
+          projectId
+        });
+      } catch (error) {
+        await this.jobsService.update(jobId, {
+          status: "failed",
+          message: "AI deck generation retry enqueue failed.",
+          error: {
+            code: "AI_DECK_COORDINATOR_RETRY_ENQUEUE_FAILED",
+            message: "AI deck staged coordinator retry could not be enqueued.",
+            failedStage: "reference-extract-file",
+            retryable: true
+          }
+        });
+        throw error;
+      }
+    }
+    return { job: retried.job };
+  }
+
+  private async assertOfficialAssets(
     projectId: string,
-    designReferences: Array<{ fileId: string }>
+    officialAssetFileIds: string[]
   ): Promise<void> {
-    if (designReferences.length === 0) return;
+    if (officialAssetFileIds.length === 0) return;
     if (!this.filesService) {
-      throw new BadRequestException("Design reference validation is unavailable.");
+      throw new BadRequestException("Official asset validation is unavailable.");
     }
 
-    for (const reference of designReferences) {
-      const asset = await this.filesService.getUploadedAsset(
-        projectId,
-        reference.fileId
-      );
-
-      if (asset.mimeType !== pptxMimeType) {
-        throw new BadRequestException("Design references must be uploaded PPTX files.");
+    for (const fileId of officialAssetFileIds) {
+      const asset = await this.filesService.getUploadedAsset(projectId, fileId);
+      if (!asset.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Official assets must be uploaded image files.");
       }
+    }
+  }
+
+  private async assertCoachingContext(
+    projectId: string,
+    context: ReturnType<typeof generateDeckRequestSchema.parse>["coachingContext"]
+  ) {
+    if (!context) return;
+    if (context.briefRef.mode === "generic") {
+      if (context.evaluatorLensRef.lensId !== "general-novice") {
+        throw new BadRequestException("Generic generation must use the general novice lens.");
+      }
+      return;
+    }
+    const brief = await this.presentationBriefs?.getCurrent(projectId);
+    if (
+      !brief ||
+      brief.briefId !== context.briefRef.briefId ||
+      brief.revision !== context.briefRef.revision ||
+      brief.evaluatorLensRef.lensId !== context.evaluatorLensRef.lensId ||
+      brief.evaluatorLensRef.revision !== context.evaluatorLensRef.revision
+    ) {
+      throw new BadRequestException("Brief generation context is no longer current.");
     }
   }
 }

@@ -19,7 +19,7 @@ vi.mock("ioredis", () => ({
 }));
 
 vi.mock("@orbit/config", () => ({
-  loadOrbitConfig: () => ({ REDIS_URL: "redis://localhost:6379" })
+  loadOrbitConfig: () => ({ PRIVATE_EVIDENCE_REDIS_URL: "redis://localhost:6380" })
 }));
 
 describe("RedisRehearsalTranscriptCache semantic evidence", () => {

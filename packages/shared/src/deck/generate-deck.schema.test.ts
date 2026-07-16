@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
+  generateDeckDiagnosticsSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
   generateDeckResponseSchema
@@ -16,7 +17,6 @@ describe("generateDeckRequestSchema", () => {
     });
 
     expect(request.targetDurationMinutes).toBe(10);
-    expect(request.generationMode).toBe("legacy");
     expect(request.slideCountRange).toEqual({ min: 5, max: 8 });
     expect(request.metadata).toEqual({
       audience: "general",
@@ -33,9 +33,31 @@ describe("generateDeckRequestSchema", () => {
       layoutDiversity: "stable"
     });
     expect(request.template).toBe("default");
-    expect(request.designReferences).toEqual([]);
     expect(request.referenceKeywords).toEqual([]);
     expect(request.referenceContext).toEqual([]);
+  });
+
+  it("rejects more than 10 referenceFileIds", () => {
+    const result = generateDeckRequestSchema.safeParse({
+      topic: "AI deck generation",
+      referenceFileIds: Array.from(
+        { length: 11 },
+        (_, index) => `file_${index + 1}`
+      )
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects more than 10 public references", () => {
+    const result = generateDeckRequestSchema.safeParse({
+      topic: "AI deck generation",
+      references: Array.from({ length: 11 }, (_, index) => ({
+        fileId: `file_${index + 1}`
+      }))
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts survey brief fields for AI PPT generation", () => {
@@ -58,6 +80,21 @@ describe("generateDeckRequestSchema", () => {
       successCriteria: "align on MVP scope",
       durationMinutes: 12,
       referencePolicy: "references-first"
+    });
+  });
+
+  it("accepts an optional saved design pack selection", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Reusable report",
+      savedDesignPack: {
+        id: "design_pack_user_1",
+        version: 3
+      }
+    });
+
+    expect(request.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 3
     });
   });
 
@@ -98,24 +135,47 @@ describe("generateDeckRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts design references separately from content references", () => {
-    const request = generateDeckRequestSchema.parse({
-      topic: "AI deck generation",
-      references: [{ fileId: "file_content" }],
-      designReferences: [{ fileId: "file_design" }]
-    });
-
-    expect(request.references).toEqual([{ fileId: "file_content" }]);
-    expect(request.designReferences).toEqual([{ fileId: "file_design" }]);
-  });
-
-  it("accepts only a template blueprint id for imported template semantics", () => {
-    const request = generateDeckRequestSchema.parse({
-      topic: "AI deck generation",
-      templateBlueprintId: "template_file_design"
-    });
-
-    expect(request.templateBlueprintId).toBe("template_file_design");
+  it.each([
+    ["legacy mode", { generationMode: "legacy" }],
+    ["design-pack mode", { generationMode: "design-pack" }],
+    ["recipe-v1 engine", { design: { engineVersion: "recipe-v1" } }],
+    ["program-v2 engine", { design: { engineVersion: "program-v2" } }],
+    ["design references", { designReferences: [{ fileId: "file_design" }] }],
+    ["template blueprint", { templateBlueprintId: "template_file_design" }],
+    ["slide preset", { design: { slidePresetId: "process-cards-horizontal-6" } }],
+    ["unknown root field", { unknownField: true }],
+    ["unknown nested field", { design: { unknownField: true } }],
+    ["blank reference file ID", { referenceFileIds: ["   "] }],
+    ["blank official asset file ID", { officialAssetFileIds: ["   "] }],
+    ["blank reference ID", { references: [{ fileId: "   " }] }],
+    [
+      "blank reference context content",
+      { referenceContext: [{ fileId: "file_1", content: "   " }] }
+    ],
+    [
+      "blank reference context source ID",
+      {
+        referenceContext: [
+          { fileId: "file_1", content: "content", sourceId: "   " }
+        ]
+      }
+    ],
+    [
+      "blank coaching brief ID",
+      {
+        coachingContext: {
+          briefRef: { mode: "briefed", briefId: "   ", revision: 1 },
+          evaluatorLensRef: { lensId: "general-novice", revision: 1 }
+        }
+      }
+    ]
+  ])("rejects deprecated or extra %s input", (_name, input) => {
+    expect(
+      generateDeckRequestSchema.safeParse({
+        topic: "AI deck generation",
+        ...input
+      }).success
+    ).toBe(false);
   });
 
   it("normalizes design direction defaults", () => {
@@ -149,7 +209,6 @@ describe("generateDeckRequestSchema", () => {
 
   it("accepts v2 design-pack font and policy options", () => {
     const request = generateDeckRequestSchema.parse({
-      generationMode: "design-pack",
       topic: "AI PPT generation",
       referencePolicy: "references-first",
       referenceFileIds: ["file_reference_1"],
@@ -182,17 +241,30 @@ describe("generateDeckRequestSchema", () => {
     expect(request.design.fontOverride?.overflowRisk).toBe("medium");
   });
 
-  it("accepts optional v2 design preset overrides", () => {
+  it("accepts an optional v2 style pack override", () => {
     const request = generateDeckRequestSchema.parse({
       topic: "AI deck generation",
       design: {
-        stylePackId: "teal-professional-process",
-        slidePresetId: "process-cards-horizontal-6"
+        stylePackId: "teal-professional-process"
       }
     });
 
     expect(request.design.stylePackId).toBe("teal-professional-process");
-    expect(request.design.slidePresetId).toBe("process-cards-horizontal-6");
+  });
+
+  it("accepts hybrid media without a public engine selector", () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "Splatoon Raiders launch",
+      design: {
+        mediaPolicy: "hybrid"
+      },
+      visualPlanPolicy: { mediaPolicy: "hybrid" },
+      officialAssetFileIds: ["file_official_1"]
+    });
+
+    expect(request.design.mediaPolicy).toBe("hybrid");
+    expect(request.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
+    expect(request.officialAssetFileIds).toEqual(["file_official_1"]);
   });
 
   it("accepts an optional design prompt", () => {
@@ -208,7 +280,6 @@ describe("generateDeckRequestSchema", () => {
 
   it("accepts design-pack color intent and hard design constraints", () => {
     const request = generateDeckRequestSchema.parse({
-      generationMode: "design-pack",
       topic: "AI deck generation",
       design: {
         stylePackId: "brandlogy-modern",
@@ -228,7 +299,6 @@ describe("generateDeckRequestSchema", () => {
       }
     });
 
-    expect(request.generationMode).toBe("design-pack");
     expect(request.design.colorIntent).toMatchObject({
       mood: "trustworthy",
       preferredHue: "blue",
@@ -282,6 +352,60 @@ describe("generateDeckRequestSchema", () => {
         slideCountRange: { min: 8, max: 5 }
       }).success
     ).toBe(false);
+  });
+});
+
+describe("generateDeckDiagnosticsSchema", () => {
+  it("defaults machine-readable warning codes without breaking old payloads", () => {
+    expect(generateDeckDiagnosticsSchema.parse({}).warningCodes).toEqual([]);
+  });
+
+  it("accepts unavailable rendered visual QA with warning codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        visualQaStatus: "unavailable",
+        warningCodes: ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+      }),
+    ).toMatchObject({
+      visualQaStatus: "unavailable",
+      warningCodes: ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+    });
+  });
+
+  it("accepts advisory rendered visual QA with affected slides", () => {
+    expect(generateDeckDiagnosticsSchema.parse({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    })).toMatchObject({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    });
+  });
+
+  it("accepts extensible uppercase codes and rejects user-facing warning text", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        warningCodes: ["FUTURE_DEGRADED_RESULT"],
+      }).warningCodes,
+    ).toEqual(["FUTURE_DEGRADED_RESULT"]);
+
+    for (const warningCode of [
+      "",
+      "   ",
+      "visual_qa_unavailable",
+      "VISUAL-QA",
+      "Visual QA unavailable",
+    ]) {
+      expect(
+        generateDeckDiagnosticsSchema.safeParse({
+          warningCodes: [warningCode],
+        }).success,
+      ).toBe(false);
+    }
   });
 });
 
@@ -602,10 +726,15 @@ describe("generateDeckResponseSchema", () => {
         repairReasons: [
           "SLIDE_COUNT_SHORT",
           "CONTENT_DUPLICATED",
+          "UNSUPPORTED_NUMERIC_CLAIM",
           "SPEAKER_NOTES_SHORT"
         ],
         uniqueCoreLayoutCount: 5,
-        validationIssueCount: 0
+        validationIssueCount: 0,
+        visualQaStatus: "passed",
+        visualReviewAttempts: 2,
+        visualRepairAttempts: 1,
+        visualIssueCodes: []
       }
     });
 
@@ -615,7 +744,10 @@ describe("generateDeckResponseSchema", () => {
       researchAttempts: 2,
       relevantWebSourceCount: 2,
       officialWebSourceCount: 1,
-      uniqueCoreLayoutCount: 5
+      uniqueCoreLayoutCount: 5,
+      visualQaStatus: "passed",
+      visualReviewAttempts: 2,
+      visualRepairAttempts: 1
     });
   });
 });

@@ -35,6 +35,7 @@ ENV_KEYS = {
     "AI_SLIDE_IMAGE_REVIEW_MODE",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
+    "AI_PPT_VISUAL_QA_MODEL",
     "OPENAI_TRANSCRIPTION_MODEL",
     "OPENAI_EMBEDDING_MODEL",
     "WHISPERX_API_URL",
@@ -101,6 +102,11 @@ class PythonWorkerConfig(BaseModel):
     )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(alias="OPENAI_MODEL", min_length=1)
+    ai_ppt_visual_qa_model: str | None = Field(
+        default=None,
+        alias="AI_PPT_VISUAL_QA_MODEL",
+        min_length=1,
+    )
     openai_transcription_model: str = Field(
         alias="OPENAI_TRANSCRIPTION_MODEL", min_length=1
     )

@@ -2,7 +2,9 @@ import {
   deckSchema,
   type AssetUploadUrlResponse,
   type Deck,
-  type Job
+  type Job,
+  type PresentationBrief,
+  type RehearsalFocusProfile
 } from "@orbit/shared";
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import type { PinoLogger } from "nestjs-pino";
@@ -10,8 +12,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
 import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
+import type { ProjectAssetEntity } from "../files/project-asset.entity";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
+import type { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import type { ProjectEntity } from "../projects/project.entity";
 import type {
@@ -176,6 +180,45 @@ describe("RehearsalsService", () => {
     );
   });
 
+  it("creates a rehearsal snapshot when a slide title and script are blank", async () => {
+    const deck = createDeck();
+    deck.slides[0]!.title = "   ";
+    deck.slides[0]!.speakerNotes = "";
+    const service = createService({ deck });
+
+    const result = await service.createRun("project-a", { deckId: "deck-a" });
+
+    expect(result.run.evaluationSnapshot?.slides[0]?.title).toBe("슬라이드 1");
+  });
+
+  it("binds uploaded slide snapshot assets to the immutable run snapshot", async () => {
+    const getUploadedAsset = vi.fn(
+      async () =>
+        ({
+          fileId: "file-slide-1",
+          projectId: "project-a",
+          purpose: "rehearsal-slide-snapshot",
+          status: "uploaded",
+          mimeType: "image/png"
+        }) as ProjectAssetEntity
+    );
+    const service = createService({ filesServicePatch: { getUploadedAsset } });
+
+    const result = await service.createRun("project-a", {
+      deckId: "deck-a",
+      slideSnapshots: [{ slideId: "slide_1", fileId: "file-slide-1" }]
+    });
+
+    expect(getUploadedAsset).toHaveBeenCalledWith(
+      "project-a",
+      "file-slide-1",
+      "rehearsal-slide-snapshot"
+    );
+    expect(result.run.evaluationSnapshot?.slides[0]?.thumbnailUrl).toBe(
+      "/api/v1/projects/project-a/assets/file-slide-1/content"
+    );
+  });
+
   it("keeps the evaluation snapshot immutable after the live deck changes", async () => {
     const mutableDeck = createDeck();
     const service = createService({ deck: mutableDeck });
@@ -221,6 +264,82 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("freezes adaptive Brief, Lens, deck hash, and evaluation criteria", async () => {
+    const brief = {
+      briefId: "brief_1",
+      projectId: "project-a",
+      revision: 1,
+      audience: "decision-maker",
+      purpose: "persuade",
+      evaluatorLensRef: { lensId: "decision-maker", revision: 1 },
+      targetDurationMinutes: 8,
+      desiredOutcome: "승인을 얻는다.",
+      requirements: [],
+      terminology: [],
+      challengeTopics: [],
+      approvedReferences: [],
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:00.000Z"
+    } as PresentationBrief;
+    const focusProfile = {
+      profileId: "focus_profile_1",
+      projectId: "project-a",
+      revision: 2,
+      items: [
+        {
+          focusItemId: "focus_item_1",
+          priority: 1,
+          kind: "semantic-coverage",
+          label: "고객 가치를 우선 확인한다.",
+          targetScope: {
+            type: "slide",
+            scopeId: "focus_scope_slide_1",
+            slideId: "slide_1"
+          }
+        }
+      ],
+      createdBy: "user-a",
+      updatedBy: "user-a",
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:00.000Z"
+    } as RehearsalFocusProfile;
+    const currentDeck = createDeck();
+    const service = createService({
+      presentationBrief: brief,
+      focusProfile,
+      deck: currentDeck
+    });
+
+    const response = await service.createRun("project-a", {
+      deckId: currentDeck.deckId,
+      expectedDeckVersion: currentDeck.version,
+      briefRef: { mode: "briefed", briefId: brief.briefId, expectedRevision: 1 },
+      evaluatorLensRef: brief.evaluatorLensRef,
+      sourceGoalSetId: null
+    });
+
+    expect(response.run.evaluationSnapshot?.deckContentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(response.run.evaluationSnapshot?.evaluationPlan?.briefRef).toEqual({
+      mode: "briefed",
+      briefId: "brief_1",
+      revision: 1
+    });
+    expect(response.run.evaluationSnapshot?.evaluationPlan?.criteria.length).toBeGreaterThan(0);
+    expect(response.run.evaluationSnapshot?.focusProfileSnapshot).toEqual({
+      profileRef: { profileId: "focus_profile_1", revision: 2 },
+      items: focusProfile.items
+    });
+
+    focusProfile.revision = 3;
+    focusProfile.items[0]!.label = "변경된 목표";
+    expect(response.run.evaluationSnapshot?.focusProfileSnapshot).toEqual({
+      profileRef: { profileId: "focus_profile_1", revision: 2 },
+      items: [
+        expect.objectContaining({ label: "고객 가치를 우선 확인한다." })
+      ]
+    });
+  });
+
   it("rejects run creation when the deckId does not match the project deck", async () => {
     const service = createService();
 
@@ -245,14 +364,15 @@ describe("RehearsalsService", () => {
       audioFileId: "file-audio",
       status: "uploading"
     });
-    expect(service.testFilesService.createUploadUrl).toHaveBeenCalledWith(
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).toHaveBeenCalledWith(
       "project-a",
       expect.objectContaining({
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
         purpose: "rehearsal-audio"
-      })
+      }),
+      expect.objectContaining({ runId: run.runId, createdAt: expect.any(Date) })
     );
   });
 
@@ -272,7 +392,7 @@ describe("RehearsalsService", () => {
       })
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(service.testFilesService.createUploadUrl).not.toHaveBeenCalled();
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).not.toHaveBeenCalled();
   });
 
   it("rejects rehearsal uploads above the implemented OpenAI report STT limit", async () => {
@@ -361,6 +481,7 @@ describe("RehearsalsService", () => {
     expect(result.run.runId).toBe(run.runId);
     expect((await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson)
       .toEqual({
+        recordingDurationSeconds: null,
         slideTimeline: [{ slideId: "slide_1", enteredAt: "2026-07-02T00:00:00.000Z" }],
         missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1" }],
         adviceEvents: [{ type: "pace-too-fast", at: "2026-07-02T00:00:30.000Z" }],
@@ -368,6 +489,20 @@ describe("RehearsalsService", () => {
         semanticCueDecisions: [],
         semanticCapabilityEvents: []
       });
+  });
+
+  it("preserves measured recording duration in rehearsal run meta", async () => {
+    const service = createService();
+    const run = await createRun(service);
+
+    await service.updateRunMeta(run.runId, {
+      recordingDurationSeconds: 90.25
+    });
+
+    expect(
+      (await service.testRehearsalRuns.findOne({ where: { runId: run.runId } }))?.metaJson
+        ?.recordingDurationSeconds
+    ).toBe(90.25);
   });
 
   it("cancels an unprocessed run and excludes it from default run lists", async () => {
@@ -627,13 +762,8 @@ describe("RehearsalsService", () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("attaches a retained transcript from Redis cache when the TTL is still alive", async () => {
-    const service = createService({
-      transcriptCache: {
-        get: vi.fn(async () => "발표 전사본"),
-        hasSemanticEvidence: vi.fn(async () => false)
-      }
-    });
+  it("never exposes the private transcript cache through report GET", async () => {
+    const service = createService();
     const run = await createRun(service);
     await saveRunPatch(service, run.runId, {
       status: "succeeded",
@@ -645,10 +775,9 @@ describe("RehearsalsService", () => {
     const result = await service.getReport(run.runId);
 
     expect(result.report).toMatchObject({
-      transcriptRetained: true,
-      transcript: "발표 전사본"
+      transcriptRetained: false,
+      transcript: null
     });
-    expect(service.testTranscriptCache.get).toHaveBeenCalledWith(run.runId);
   });
 
   it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
@@ -661,7 +790,6 @@ describe("RehearsalsService", () => {
       jobsService,
       enqueueSemanticEvaluationJob,
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -729,7 +857,6 @@ describe("RehearsalsService", () => {
     const service = createService({
       jobsService,
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -764,7 +891,6 @@ describe("RehearsalsService", () => {
         throw new Error("redis down");
       }),
       transcriptCache: {
-        get: vi.fn(async () => null),
         hasSemanticEvidence: vi.fn(async () => true)
       }
     });
@@ -872,16 +998,18 @@ function createService(
     filesServicePatch?: Partial<FilesService>;
     transcriptCache?: RehearsalTranscriptCache;
     deck?: Deck;
+    presentationBrief?: PresentationBrief | null;
+    focusProfile?: RehearsalFocusProfile | null;
   } = {}
 ) {
   const logger = createLogger();
-  const repository = createRunRepository();
+  const repository = createRunRepository(options.focusProfile ?? null);
   const transcriptCache = options.transcriptCache ?? {
-    get: vi.fn(async () => null),
     hasSemanticEvidence: vi.fn(async () => false)
   };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
+    createRehearsalAudioUploadUrl: vi.fn(async () => upload),
     completeUpload: vi.fn(async () => ({
       fileId: "file-audio",
       projectId: "project-a",
@@ -922,6 +1050,9 @@ function createService(
       }))
     } as unknown as DecksService,
     projectsService,
+    {
+      getCurrent: vi.fn(async () => options.presentationBrief ?? null)
+    } as unknown as PresentationBriefsService,
     filesService,
     options.jobsService ??
       ({
@@ -940,13 +1071,14 @@ function createService(
     },
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
+      createRehearsalAudioUploadUrl: ReturnType<typeof vi.fn>;
     },
     testLogger: logger,
     testTranscriptCache: transcriptCache
   });
 }
 
-function createRunRepository() {
+function createRunRepository(focusProfile: RehearsalFocusProfile | null = null) {
   const runs = new Map<string, RehearsalRunEntity>();
 
   return {
@@ -1030,6 +1162,21 @@ function createRunRepository() {
         .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 
       return [matching.slice(options.skip, options.skip + options.take), matching.length];
+    },
+    async query(sql: string) {
+      if (!sql.includes("FROM rehearsal_focus_profiles") || !focusProfile) {
+        return [];
+      }
+      return [{
+        profile_id: focusProfile.profileId,
+        project_id: focusProfile.projectId,
+        revision: focusProfile.revision,
+        items_json: structuredClone(focusProfile.items),
+        created_by: focusProfile.createdBy,
+        updated_by: focusProfile.updatedBy,
+        created_at: focusProfile.createdAt,
+        updated_at: focusProfile.updatedAt
+      }];
     }
   } as unknown as Repository<RehearsalRunEntity>;
 }

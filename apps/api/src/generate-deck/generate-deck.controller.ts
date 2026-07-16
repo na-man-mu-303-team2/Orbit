@@ -1,9 +1,6 @@
 import { Body, Controller, Param, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
-import {
-  getCurrentUser,
-  type SignedCookieRequest,
-} from "../auth/current-user";
+import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
 import { GenerateDeckService } from "./generate-deck.service";
 
@@ -23,6 +20,17 @@ export class GenerateDeckController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.generateDeckService.createJob(projectId, body);
+    return this.generateDeckService.createJob(projectId, body, user.userId);
+  }
+
+  @Post(":jobId/retry")
+  async retryJob(
+    @Param("projectId") projectId: string,
+    @Param("jobId") jobId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.generateDeckService.retryJob(projectId, jobId);
   }
 }

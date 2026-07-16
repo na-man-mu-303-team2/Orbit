@@ -1,5 +1,5 @@
 import type { Deck } from "@orbit/shared";
-import { Maximize2, X } from "lucide-react";
+import { IconMaximize as Maximize2, IconX as X } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import type { SlideRuntimeHighlight } from "../../slides/rendering";
 import { SlideshowRenderer } from "./SlideshowRenderer";

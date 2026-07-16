@@ -6,11 +6,14 @@ import { fetchLiveSttRuntimeConfig } from "./liveSttRuntimeConfig";
 describe("fetchLiveSttRuntimeConfig", () => {
   it("fetches the env-selected Live STT engine from runtime config", async () => {
     const fetcher = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ liveSttEngine: "web-speech" }))
+      new Response(JSON.stringify({ liveSttEngine: "web-speech", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false }))
     );
 
     await expect(fetchLiveSttRuntimeConfig(fetcher as never)).resolves.toEqual({
-      liveSttEngine: "web-speech"
+      liveSttEngine: "web-speech",
+      adaptiveRehearsalCoachEnabled: false,
+      focusedPracticeEnabled: false,
+      challengeQnaEnabled: false,
     });
     expect(fetcher).toHaveBeenCalledWith("/api/v1/runtime-config", {
       credentials: "include",
@@ -20,7 +23,7 @@ describe("fetchLiveSttRuntimeConfig", () => {
 
   it("fails closed when runtime config contains an unsupported engine", async () => {
     const fetcher = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ liveSttEngine: "sherpa" }))
+      new Response(JSON.stringify({ liveSttEngine: "sherpa", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false }))
     );
 
     await expect(fetchLiveSttRuntimeConfig(fetcher as never)).rejects.toMatchObject({

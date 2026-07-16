@@ -105,6 +105,7 @@ describe("PptAdvisorService", () => {
     const init = fetcher.mock.calls[0]?.[1] as RequestInit;
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("gpt-4.1-mini");
+    expect(body.instructions).toContain("Never tell the user to edit an unpublished draft");
     expect(body.text.format.name).toBe("ppt_advisor_response");
     expect(
       body.text.format.schema.properties.suggestions.items.anyOf.every(
@@ -137,6 +138,25 @@ describe("PptAdvisorService", () => {
       expect.objectContaining({ fallback: true }),
       expect.any(String),
     );
+  });
+
+  it("describes hybrid provider behavior without promising unavailable AI images", async () => {
+    vi.stubEnv("IMAGE_PROVIDER", "disabled");
+    const fetcher = vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError"));
+    const service = new PptAdvisorService(fetcher as never, createLogger());
+
+    const result = await service.advise(
+      {
+        ...request,
+        question: "hybrid 이미지 정책을 설명해줘",
+        design: { ...request.design, mediaPolicy: "hybrid" }
+      },
+      "user_1"
+    );
+
+    expect(result.answer).toContain("공식 이미지 검색은 사용할 수 있지만");
+    expect(result.answer).toContain("AI 이미지 provider는 현재 비활성화");
+    expect(result.answer).toContain("no-media composition");
   });
 
   it("falls back when provider returns an invalid typed value", async () => {

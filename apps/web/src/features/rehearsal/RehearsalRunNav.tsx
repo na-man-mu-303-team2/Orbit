@@ -21,6 +21,10 @@ export function RehearsalRunNav({
   loading,
 }: RehearsalRunNavProps) {
   const orderedRuns = sortRehearsalRunsByCreatedAt(runs);
+  const activeRunIndex = orderedRuns.findIndex(
+    (run) => run.runId === activeRunId,
+  );
+  const activeRun = activeRunIndex >= 0 ? orderedRuns[activeRunIndex] : null;
 
   return (
     <aside className="rehearsal-report-nav" aria-label="회차별 리포트">
@@ -31,27 +35,39 @@ export function RehearsalRunNav({
       ) : (
         <>
           <header className="rehearsal-report-nav-head">
-            <h2>리허설</h2>
+            <h2>전체 리포트 기록</h2>
+            <span>{runs.length}회</span>
           </header>
-          <ul className="rehearsal-report-nav-list">
-            {orderedRuns.map((run, i) => (
-              <li key={run.runId}>
-                <button
-                  type="button"
-                  className={`rehearsal-report-nav-item${run.runId === activeRunId ? " active" : ""}`}
-                  onClick={() =>
-                    navigateTo(getRehearsalReportPath(projectId, run.runId))
-                  }
-                >
-                  <strong>
-                    <CalendarDays size={15} />
-                    리허설 {i + 1}회차
-                  </strong>
-                  <span>{formatRunDate(run.createdAt)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {activeRun ? (
+            <div className="rehearsal-report-nav-current">
+              <span>현재 보고 있는 리포트</span>
+              <strong>리허설 {activeRunIndex + 1}회차</strong>
+              <small>{formatRunDate(activeRun.createdAt)}</small>
+            </div>
+          ) : null}
+
+          <details className="rehearsal-report-nav-history">
+            <summary>다른 회차 보기</summary>
+            <ul className="rehearsal-report-nav-list">
+              {orderedRuns.map((run, i) => (
+                <li key={run.runId}>
+                  <button
+                    type="button"
+                    className={`rehearsal-report-nav-item${run.runId === activeRunId ? " active" : ""}`}
+                    onClick={() =>
+                      navigateTo(getRehearsalReportPath(projectId, run.runId))
+                    }
+                  >
+                    <strong>
+                      <CalendarDays size={15} />
+                      리허설 {i + 1}회차
+                    </strong>
+                    <span>{formatRunDate(run.createdAt)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
 
           <header className="rehearsal-report-nav-head rehearsal-report-nav-head-disabled">
             <h2>실전</h2>

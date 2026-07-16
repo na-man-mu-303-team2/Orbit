@@ -1,8 +1,15 @@
-import type { Job } from "@orbit/shared";
+import type { EnqueueGenerateDeckJobInput } from "@orbit/job-queue";
+import {
+  generateDeckRequestSchema,
+  type Job,
+  type SavedDesignPackSnapshot
+} from "@orbit/shared";
+import { BadRequestException } from "@nestjs/common";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
 import type { ProjectsService } from "../projects/projects.service";
+import type { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 import { GenerateDeckService } from "./generate-deck.service";
 
 const validEnv = {
@@ -28,6 +35,8 @@ const validEnv = {
   S3_SECRET_ACCESS_KEY: "orbit-password",
   S3_FORCE_PATH_STYLE: "true",
   JOB_QUEUE_DRIVER: "bullmq",
+  AI_DECK_EXECUTION_MODE: "monolith",
+  AI_DECK_WORKER_QUEUE: "all",
   STT_PROVIDER: "sherpa",
   LIVE_STT_PROVIDER: "sherpa",
   REPORT_STT_PROVIDER: "openai",
@@ -56,6 +65,19 @@ describe("GenerateDeckService", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("fails service startup while the AI Deck SQS adapter is unavailable", () => {
+    process.env.AI_DECK_EXECUTION_MODE = "sqs";
+
+    expect(
+      () =>
+        new GenerateDeckService(
+          {} as JobsService,
+          {} as ProjectsService,
+          vi.fn(),
+        ),
+    ).toThrow(/SQS.*not implemented/i);
   });
 
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
@@ -140,6 +162,7 @@ describe("GenerateDeckService", () => {
     });
     expect(enqueueJob).toHaveBeenCalledWith({
       driver: "bullmq",
+      executionMode: "monolith",
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project_generated_1",
@@ -159,21 +182,17 @@ describe("GenerateDeckService", () => {
     });
   });
 
-  it("validates PPTX design references before enqueue", async () => {
-    const job: Job = {
-      jobId: "job-design",
-      projectId: "project_generated_1",
-      type: "ai-deck-generation",
-      status: "queued",
-      progress: 0,
-      message: "Job queued",
-      result: null,
-      error: null,
-      createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:00.000Z"
-    };
+  it.each([
+    { generationMode: "legacy" },
+    { generationMode: "design-pack" },
+    { design: { engineVersion: "recipe-v1" } },
+    { design: { engineVersion: "program-v2" } },
+    { design: { slidePresetId: "process-cards-horizontal-6" } },
+    { designReferences: [{ fileId: "file_design_1" }] },
+    { templateBlueprintId: "template_file_design_1" }
+  ])("rejects deprecated GenerateDeck fields before enqueue", async (field) => {
     const jobsService = {
-      create: vi.fn(async () => job),
+      create: vi.fn(),
       update: vi.fn()
     } as unknown as JobsService;
     const projectsService = {
@@ -185,40 +204,23 @@ describe("GenerateDeckService", () => {
         createdAt: "2026-06-27T00:00:00.000Z"
       }))
     } as unknown as ProjectsService;
-    const enqueueJob = vi.fn(async () => undefined);
-    const filesService = {
-      getUploadedAsset: vi.fn(async () => ({
-        fileId: "file_design_1",
-        projectId: "project_generated_1",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      }))
-    } as unknown as FilesService;
+    const enqueueJob = vi.fn();
 
-    await new GenerateDeckService(
-      jobsService,
-      projectsService,
-      enqueueJob,
-      filesService
-    ).createJob("project_generated_1", {
-      topic: "AI deck",
-      designReferences: [{ fileId: "file_design_1" }]
-    });
-
-    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
-      "project_generated_1",
-      "file_design_1"
-    );
-    expect(enqueueJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          designReferences: [{ fileId: "file_design_1" }]
-        })
+    await expect(
+      new GenerateDeckService(
+        jobsService,
+        projectsService,
+        enqueueJob
+      ).createJob("project_generated_1", {
+        topic: "AI deck",
+        ...field
       })
-    );
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
-  it("keeps design-pack generation mode in the queued worker payload", async () => {
+  it("keeps the program-v2-only contract in the DB and worker payloads", async () => {
     const job: Job = {
       jobId: "job-design-pack",
       projectId: "project_generated_1",
@@ -244,14 +246,15 @@ describe("GenerateDeckService", () => {
         createdAt: "2026-06-27T00:00:00.000Z"
       }))
     } as unknown as ProjectsService;
-    const enqueueJob = vi.fn(async () => undefined);
+    const enqueueJob = vi.fn(
+      async (_input: EnqueueGenerateDeckJobInput) => undefined,
+    );
 
     await new GenerateDeckService(
       jobsService,
       projectsService,
       enqueueJob
     ).createJob("project_generated_1", {
-      generationMode: "design-pack",
       topic: "AI deck",
       brief: {},
       slideCountRange: { min: 4, max: 4 },
@@ -265,7 +268,10 @@ describe("GenerateDeckService", () => {
       expect.objectContaining({
         payload: {
           request: expect.objectContaining({
-            generationMode: "design-pack"
+            slideCountRange: { min: 4, max: 4 },
+            design: expect.objectContaining({
+              stylePackId: "brandlogy-modern"
+            })
           })
         }
       })
@@ -273,14 +279,152 @@ describe("GenerateDeckService", () => {
     expect(enqueueJob).toHaveBeenCalledWith(
       expect.objectContaining({
         request: expect.objectContaining({
-          generationMode: "design-pack",
-          slideCountRange: { min: 4, max: 4 }
+          slideCountRange: { min: 4, max: 4 },
+          design: expect.objectContaining({
+            stylePackId: "brandlogy-modern"
+          })
         })
       })
     );
+    const storedRequest = vi.mocked(jobsService.create).mock.calls[0]![0]!
+      .payload?.request;
+    const queuedRequest = enqueueJob.mock.calls[0]![0].request;
+    for (const request of [storedRequest, queuedRequest]) {
+      expect(request).not.toHaveProperty("generationMode");
+      expect(request).not.toHaveProperty("design.engineVersion");
+      expect(request).not.toHaveProperty("design.slidePresetId");
+      expect(request).not.toHaveProperty("designReferences");
+      expect(request).not.toHaveProperty("templateBlueprintId");
+    }
   });
 
-  it("rejects non-PPTX design references", async () => {
+  it("stores and enqueues the resolved Saved Design Pack request and snapshot", async () => {
+    const job: Job = {
+      jobId: "job-saved-design-pack",
+      projectId: "project_generated_1",
+      type: "ai-deck-generation",
+      status: "queued",
+      progress: 0,
+      message: "Job queued",
+      result: null,
+      error: null,
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z"
+    };
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn()
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({
+        projectId: "project_generated_1",
+        workspaceId: "workspace_demo_1",
+        title: "Saved Design Pack deck",
+        createdBy: "user_1",
+        createdAt: "2026-07-15T00:00:00.000Z"
+      }))
+    } as unknown as ProjectsService;
+    const resolvedRequest = generateDeckRequestSchema.parse({
+      topic: "Saved Design Pack deck",
+      savedDesignPack: { id: "design_pack_1", version: 3 },
+      metadata: { tone: "confident" },
+      design: {
+        stylePackId: "brandlogy-modern",
+        paletteOverride: {
+          primary: "#123456",
+          background: "#FFFFFF"
+        },
+        layoutDiversity: "stable",
+        fontOverride: {
+          fontId: "pretendard",
+          name: "Pretendard",
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial",
+          weights: [400, 700],
+          supportsKorean: true,
+          pptxEmbeddable: true,
+          moodTags: ["professional"],
+          license: "SIL Open Font License",
+          sourceUrl: "https://github.com/orioncactus/pretendard"
+        }
+      }
+    });
+    const snapshot: SavedDesignPackSnapshot = {
+      id: "design_pack_1",
+      name: "Personal report",
+      version: 3,
+      baseStylePackId: "brandlogy-modern",
+      preferences: {
+        palette: { primary: "#123456", background: "#FFFFFF" },
+        typography: {
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+          fallbackFamily: "Arial",
+          titleSizeScale: 1,
+          bodySizeScale: 1,
+          lineHeight: 1.24
+        },
+        tone: "confident",
+        density: "low",
+        titleStyle: "action",
+        layoutPreference: "stable",
+        imageDensity: "low",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only",
+        qaStrictness: "standard"
+      }
+    };
+    const savedDesignPacksService = {
+      resolveGenerationRequest: vi.fn(async () => ({
+        request: resolvedRequest,
+        snapshot
+      }))
+    } as unknown as SavedDesignPacksService;
+    const enqueueJob = vi.fn(
+      async (_input: EnqueueGenerateDeckJobInput) => undefined,
+    );
+    const rawBody = {
+      topic: "Saved Design Pack deck",
+      savedDesignPack: { id: "design_pack_1", version: 3 }
+    };
+
+    await new GenerateDeckService(
+      jobsService,
+      projectsService,
+      enqueueJob,
+      undefined,
+      savedDesignPacksService
+    ).createJob("project_generated_1", rawBody, "user_1");
+
+    expect(
+      savedDesignPacksService.resolveGenerationRequest
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ savedDesignPack: rawBody.savedDesignPack }),
+      rawBody,
+      "user_1"
+    );
+    const expectedPayload = {
+      request: resolvedRequest,
+      designPackSnapshot: snapshot,
+      imageAssetScope: { userId: "user_1" }
+    };
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project_generated_1",
+      type: "ai-deck-generation",
+      payload: expectedPayload
+    });
+    expect(enqueueJob).toHaveBeenCalledWith({
+      driver: "bullmq",
+      executionMode: "monolith",
+      redisUrl: "redis://localhost:6379",
+      jobId: job.jobId,
+      projectId: "project_generated_1",
+      ...expectedPayload
+    });
+  });
+
+  it("rejects invalid official assets", async () => {
     const jobsService = {
       create: vi.fn(),
       update: vi.fn()
@@ -302,17 +446,18 @@ describe("GenerateDeckService", () => {
       }))
     } as unknown as FilesService;
 
+    const service = new GenerateDeckService(
+      jobsService,
+      projectsService,
+      vi.fn(async () => undefined),
+      filesService
+    );
     await expect(
-      new GenerateDeckService(
-        jobsService,
-        projectsService,
-        vi.fn(async () => undefined),
-        filesService
-      ).createJob("project_generated_1", {
+      service.createJob("project_generated_1", {
         topic: "AI deck",
-        designReferences: [{ fileId: "file_pdf" }]
+        officialAssetFileIds: ["file_pdf"]
       })
-    ).rejects.toThrow("Design references must be uploaded PPTX files.");
+    ).rejects.toThrow("Official assets must be uploaded image files.");
     expect(jobsService.create).not.toHaveBeenCalled();
   });
 

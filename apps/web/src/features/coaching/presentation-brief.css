@@ -1,0 +1,39 @@
+.presentation-brief-page { min-height: calc(100vh - 76px); padding: 42px 44px 90px; }
+.presentation-brief-page > * { margin-inline: auto; max-width: 1260px; }
+.presentation-brief-breadcrumb { align-items: center; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 10px; margin-bottom: 46px; }
+.presentation-brief-breadcrumb a { align-items: center; color: var(--orbit-ds-text-muted); display: inline-flex; font-weight: 650; gap: 7px; text-decoration: none; }
+.presentation-brief-heading { align-items: end; display: flex; gap: 28px; justify-content: space-between; margin-bottom: 34px; }
+.presentation-brief-heading h1 { font-size: clamp(42px, 4.5vw, 64px); font-weight: 640; letter-spacing: -.055em; line-height: 1.03; margin: 10px 0 0; }
+.presentation-brief-heading > div > p:last-child { color: var(--orbit-ds-text-muted); font-size: 16px; line-height: 1.65; margin: 18px 0 0; }
+.presentation-brief-layout { align-items: start; display: grid; gap: 20px; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .65fr); }
+.presentation-brief-form,
+.presentation-lens-panel { background: var(--orbit-ds-canvas); border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); }
+.presentation-brief-form { display: grid; gap: 24px; padding: 28px; }
+.presentation-brief-choice { border: 0; margin: 0; padding: 0; }
+.presentation-brief-choice legend { font-size: var(--orbit-ds-type-ui); font-weight: 700; margin-bottom: 10px; }
+.presentation-brief-choice > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.presentation-brief-choice button { align-items: center; background: white; border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: inline-flex; font-size: var(--orbit-ds-type-ui-small); gap: 6px; min-height: 40px; padding: 0 15px; }
+.presentation-brief-choice button[aria-pressed="true"] { background: var(--orbit-ds-ink); border-color: var(--orbit-ds-ink); color: white; }
+.presentation-brief-two-column { display: grid; gap: 16px; grid-template-columns: minmax(150px, .36fr) minmax(0, 1fr); }
+.presentation-lens-panel { align-content: start; display: grid; gap: 18px; padding: 24px; }
+.presentation-lens-panel > header { align-items: center; display: flex; gap: 13px; }
+.presentation-lens-panel > header > span { align-items: center; background: var(--orbit-ds-lilac); border-radius: 12px; display: flex; height: 52px; justify-content: center; width: 52px; }
+.presentation-lens-panel h2 { font-size: 20px; margin: 0; }
+.presentation-lens-panel header p { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); margin: 4px 0 0; }
+.presentation-lens-list { display: grid; gap: 8px; }
+.presentation-lens-list button { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 11px; color: var(--orbit-ds-ink); display: grid; gap: 4px 10px; grid-template-columns: 24px 1fr; padding: 14px; text-align: left; }
+.presentation-lens-list button[aria-pressed="true"] { background: var(--orbit-ds-lilac-soft); border-color: var(--orbit-ds-lilac-strong); }
+.presentation-lens-list button > span { align-items: center; border: 1px solid var(--orbit-ds-border-strong); border-radius: 50%; display: flex; grid-row: 1 / 3; height: 22px; justify-content: center; width: 22px; }
+.presentation-lens-list button[aria-pressed="true"] > span { background: var(--orbit-ds-lilac-strong); border-color: var(--orbit-ds-lilac-strong); color: white; }
+.presentation-lens-list small { color: var(--orbit-ds-text-muted); line-height: 1.45; }
+.presentation-brief-impact { align-items: flex-start; background: var(--orbit-ds-cream); border-radius: 12px; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 10px; line-height: 1.55; padding: 16px; }
+.presentation-brief-impact span { display: grid; gap: 3px; }
+.presentation-brief-error { background: var(--orbit-ds-danger-soft); border-radius: 10px; color: var(--orbit-ds-danger); font-size: var(--orbit-ds-type-ui-small); line-height: 1.5; margin: 0; padding: 13px; }
+.presentation-lens-panel .orbit-ds-button { width: 100%; }
+.presentation-brief-skip { color: var(--orbit-ds-ink); font-size: var(--orbit-ds-type-ui-small); font-weight: 700; text-align: center; text-decoration: none; }
+.presentation-brief-state { padding: 18vh 24px; text-align: center; }
+.presentation-brief-state svg { color: var(--orbit-ds-lilac-strong); }
+.presentation-brief-state h1 { font-size: 34px; letter-spacing: -.035em; margin: 22px 0; }
+.presentation-brief-state a { color: var(--orbit-ds-ink); }
+@media (max-width: 900px) { .presentation-brief-layout { grid-template-columns: 1fr; } .presentation-lens-panel { order: -1; } }
+@media (max-width: 680px) { .presentation-brief-page { padding: 28px 18px 64px; } .presentation-brief-heading { align-items: flex-start; flex-direction: column; } .presentation-brief-heading h1 { font-size: 39px; } .presentation-brief-form, .presentation-lens-panel { padding: 20px; } .presentation-brief-two-column { grid-template-columns: 1fr; } }

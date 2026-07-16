@@ -126,7 +126,7 @@ describe("ExtractService", () => {
     });
   });
 
-  it("uses provided fileIds for project asset backed extraction", async () => {
+  it("keeps multiple project assets and fileIds in one ordered job payload", async () => {
     const job: Job = {
       jobId: "job-2",
       projectId: "project-a",
@@ -152,34 +152,44 @@ describe("ExtractService", () => {
           mimetype:
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           buffer: Buffer.from("pptx")
+        },
+        {
+          originalname: "brief.pdf",
+          mimetype: "application/pdf",
+          buffer: Buffer.from("pdf")
         }
       ],
       "project-a",
-      ["file_design_1"]
+      ["file_design_1", "file_brief_2"]
     );
 
-    expect(jobsService.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: {
-          files: [
-            expect.objectContaining({
-              fileId: "file_design_1",
-              originalName: "design.pptx"
-            })
-          ]
-        }
-      })
-    );
-    expect(enqueueJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        files: [
-          expect.objectContaining({
-            fileId: "file_design_1",
-            originalName: "design.pptx"
-          })
-        ]
-      })
-    );
+    const files = [
+      {
+        fileId: "file_design_1",
+        originalName: "design.pptx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        contentBase64: Buffer.from("pptx").toString("base64")
+      },
+      {
+        fileId: "file_brief_2",
+        originalName: "brief.pdf",
+        mimeType: "application/pdf",
+        contentBase64: Buffer.from("pdf").toString("base64")
+      }
+    ];
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: "project-a",
+      type: "reference-extract",
+      payload: { files }
+    });
+    expect(enqueueJob).toHaveBeenCalledWith({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-2",
+      projectId: "project-a",
+      files
+    });
   });
 });
 

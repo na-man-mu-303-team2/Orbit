@@ -6,11 +6,11 @@ import {
   templateBlueprintIdSchema,
 } from "./template-blueprint.schema";
 
-export const pptxOoxmlGenerationRequestSchema = z.object({
-  fileId: z.string().min(1),
-  topic: z.string().trim().optional(),
-  prompt: z.string().trim().optional(),
-});
+export const pptxOoxmlGenerationRequestSchema = z
+  .object({
+    fileId: z.string().min(1),
+  })
+  .strict();
 
 export const pptxOoxmlGenerationJobResultSchema = z.object({
   deckId: deckIdSchema,

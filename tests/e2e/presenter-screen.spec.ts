@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import type { Deck } from "@orbit/shared";
+import { createAuthenticatedProject } from "./authenticatedProject";
 
 const presenterDeck = {
   deckId: "deck_demo_1",
@@ -110,10 +112,14 @@ test.describe("P1 presenter screen and slide window", () => {
   test("keeps the slide-only window synchronized without exposing presenter notes", async ({
     page
   }) => {
-    await routePresenterDeck(page);
+    const { project } = await createAuthenticatedProject(page, {
+      deck: presenterDeck as Deck,
+      label: "presenter-sync",
+    });
 
-    await page.goto("/rehearsal/project_demo_1");
-    await expect(page.getByRole("heading", { name: "리허설", exact: true })).toBeVisible();
+    await page.goto(`/rehearsal/${project.projectId}`);
+    await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
+    await expect(page.getByText("리허설 · 자동 따라가기")).toBeVisible();
     await expect(page.getByText("Presenter Window")).toBeVisible();
 
     const slideWindowPromise = page.waitForEvent("popup");
@@ -122,7 +128,7 @@ test.describe("P1 presenter screen and slide window", () => {
     await slideWindow.waitForLoadState();
 
     await expect(slideWindow.getByLabel("슬라이드 전용 창")).toBeVisible();
-    await expect(page.getByText(/발표 모니터/)).toBeVisible();
+    await expect(page.getByText("슬라이드 화면 연결됨")).toBeVisible();
     await expect(slideWindow.locator('[data-slide-id="slide_presenter_1"]')).toBeVisible();
     await expect
       .poll(async () => slideWindow.locator(".slideshow-renderer").getAttribute("data-slide-title"))
@@ -139,7 +145,7 @@ test.describe("P1 presenter screen and slide window", () => {
     expect(await slideWindow.content()).not.toContain("두 번째 슬라이드 대본도");
 
     await slideWindow.close();
-    await expect(page.getByText("슬라이드 창이 닫혔습니다. 다시 열 수 있습니다.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "슬라이드 창 다시 열기" })).toBeVisible();
 
     const reopenedWindowPromise = page.waitForEvent("popup");
     await page.getByRole("button", { name: "슬라이드 창 다시 열기" }).click();
@@ -203,30 +209,17 @@ test.describe("P1 presenter screen and slide window", () => {
         })
       });
     });
-    await routePresenterDeck(page);
+    const { project } = await createAuthenticatedProject(page, {
+      deck: presenterDeck as Deck,
+      label: "presenter-display-picker",
+    });
 
-    await page.goto("/rehearsal/project_demo_1");
-    const slideWindowPromise = page.waitForEvent("popup");
-    await page.getByRole("button", { name: "슬라이드 창 열기" }).click();
-    const slideWindow = await slideWindowPromise;
-    await slideWindow.waitForLoadState();
+    await page.goto(`/rehearsal/${project.projectId}`);
+    await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
+    await page.getByRole("button", { name: "프레젠테이션 옵션" }).click();
+    await page.getByRole("button", { name: "화면 권한 요청" }).click();
 
-    await expect(page.getByText("화면 선택 필요")).toBeVisible();
-    await expect(page.getByText("슬라이드 창을 띄울 화면을 선택하세요.")).toBeVisible();
-    await expect(page.getByRole("button", { name: /HDMI A/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /HDMI B/ })).toBeVisible();
-    await expect(slideWindow.locator('[data-slide-id="slide_presenter_1"]')).toBeVisible();
+    await expect(page.getByRole("radio", { name: /HDMI A/ })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /HDMI B/ })).toBeVisible();
   });
 });
-
-async function routePresenterDeck(page: Page) {
-  await page.route("**/api/v1/projects/project_demo_1/deck", async (route) => {
-    await route.fulfill({
-      json: {
-        projectId: "project_demo_1",
-        deck: presenterDeck,
-        updatedAt: "2026-07-02T00:00:00.000Z"
-      }
-    });
-  });
-}

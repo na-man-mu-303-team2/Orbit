@@ -27,6 +27,7 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([jobRow("running", 60, null, null)])
       .mockResolvedValueOnce([{ report_json: recoveredReport }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
