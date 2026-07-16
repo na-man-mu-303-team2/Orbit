@@ -56,6 +56,19 @@ describe("AudienceSessionsController", () => {
         response
       )
     ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      controller.join(
+        "session_1",
+        {},
+        {
+          headers: {
+            origin: config.WEB_ORIGIN,
+            "content-type": "application/jsonp"
+          }
+        } as never,
+        response
+      )
+    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
   });
 
   it("preserves the signed audience identity when rejoining the same session", async () => {

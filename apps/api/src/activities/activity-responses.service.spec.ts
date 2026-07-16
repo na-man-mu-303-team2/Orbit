@@ -51,7 +51,10 @@ const response = {
   updated_at: "2026-07-17T00:00:00.000Z"
 };
 
-function createService(overrides: Partial<ActivityResponseRepository> = {}) {
+function createService(
+  overrides: Partial<ActivityResponseRepository> = {},
+  audienceRateLimit?: { consumeResponseMutation: ReturnType<typeof vi.fn> }
+) {
   const manager = {} as never;
   const repository = {
     transaction: vi.fn(async (work) => work(manager)),
@@ -66,10 +69,40 @@ function createService(overrides: Partial<ActivityResponseRepository> = {}) {
     ...overrides
   } as unknown as ActivityResponseRepository;
   const logger = { info: vi.fn() } as never;
-  return { repository, service: new ActivityResponsesService(repository, logger) };
+  return {
+    repository,
+    service: new ActivityResponsesService(
+      repository,
+      logger,
+      undefined,
+      audienceRateLimit as never
+    )
+  };
 }
 
 describe("ActivityResponsesService", () => {
+  it("returns the fixed 429 before an excessive response mutation is stored", async () => {
+    const limitError = Object.assign(new Error("Too many audience requests"), {
+      status: 429
+    });
+    const audienceRateLimit = {
+      consumeResponseMutation: vi.fn().mockRejectedValue(limitError)
+    };
+    const { repository, service } = createService({}, audienceRateLimit);
+
+    await expect(
+      service.upsert("project_1", "session_1", "activity_1", "audience_1", {
+        clientMutationId: "mutation_1",
+        answers: [{ questionId: "question_rating", type: "rating", value: 5 }]
+      })
+    ).rejects.toBe(limitError);
+    expect(audienceRateLimit.consumeResponseMutation).toHaveBeenCalledWith(
+      "audience_1",
+      "activity_run_1"
+    );
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
   it("creates one response and increments the run response count", async () => {
     const { repository, service } = createService();
 

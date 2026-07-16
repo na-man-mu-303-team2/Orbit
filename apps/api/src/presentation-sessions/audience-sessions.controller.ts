@@ -21,6 +21,7 @@ import {
 import { PresentationSessionsService } from "./presentation-sessions.service";
 import {
   assertAudienceJsonSameOrigin,
+  getAudienceClientAddress,
   getUserAgent,
   requireAudienceIdentity,
   type SignedCookieRequest
@@ -51,7 +52,11 @@ export class AudienceSessionsController {
     const existingPayload = existing
       ? verifyAudienceAccessToken(this.config, existing, userAgent)
       : null;
-    const result = await this.presentationSessionsService.joinAudience(sessionId, input);
+    const result = await this.presentationSessionsService.joinAudience(
+      sessionId,
+      input,
+      getAudienceClientAddress(request)
+    );
     const audienceId =
       existingPayload?.sessionId === sessionId ? existingPayload.audienceId : undefined;
 

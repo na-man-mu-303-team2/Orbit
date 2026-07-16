@@ -15,7 +15,12 @@ import type {
   PresentationSessionWithAudienceUrlResponse,
   UpdatePresentationSessionAccessRequest
 } from "@orbit/shared";
-import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  Optional,
+  UnauthorizedException
+} from "@nestjs/common";
 import type { JoinAudiencePresentationRequest } from "@orbit/shared";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
@@ -23,6 +28,7 @@ import {
   PresentationSessionRepository,
   type PresentationSessionRow
 } from "./presentation-session.repository";
+import { AudienceRateLimitService } from "./audience-rate-limit.service";
 
 const defaultAccessDays = 14;
 
@@ -31,7 +37,8 @@ export class PresentationSessionsService {
   constructor(
     private readonly repository: PresentationSessionRepository,
     @InjectPinoLogger(PresentationSessionsService.name)
-    private readonly logger: PinoLogger
+    private readonly logger: PinoLogger,
+    @Optional() private readonly audienceRateLimit?: AudienceRateLimitService
   ) {}
 
   async create(
@@ -172,10 +179,17 @@ export class PresentationSessionsService {
     });
   }
 
-  async joinAudience(sessionId: string, input: JoinAudiencePresentationRequest) {
+  async joinAudience(
+    sessionId: string,
+    input: JoinAudiencePresentationRequest,
+    clientAddress = "unknown"
+  ) {
     const row = await this.repository.findAccessibleBySessionId(sessionId);
     if (!row || !row.deck_id) {
       throw new UnauthorizedException("Invalid audience session or passcode");
+    }
+    if (row.access_mode === "passcode") {
+      await this.audienceRateLimit?.consumeJoin(sessionId, clientAddress);
     }
     if (row.access_mode === "passcode") {
       if (!row.session_password_hash || !input.passcode) {

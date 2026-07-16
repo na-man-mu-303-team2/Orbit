@@ -18,6 +18,7 @@ import {
   validateActivityResponseInput
 } from "./activity-response-validator";
 import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
+import { AudienceRateLimitService } from "../presentation-sessions/audience-rate-limit.service";
 
 @Injectable()
 export class ActivityResponsesService {
@@ -25,7 +26,8 @@ export class ActivityResponsesService {
     private readonly repository: ActivityResponseRepository,
     @InjectPinoLogger(ActivityResponsesService.name)
     private readonly logger: PinoLogger,
-    @Optional() private readonly realtimePublisher?: ActivityRealtimePublisher
+    @Optional() private readonly realtimePublisher?: ActivityRealtimePublisher,
+    @Optional() private readonly audienceRateLimit?: AudienceRateLimitService
   ) {}
 
   async upsert(
@@ -38,6 +40,10 @@ export class ActivityResponsesService {
     const result = await this.repository.transaction(async (manager) => {
       const target = await this.repository.lockTarget(manager, projectId, sessionId, activityId);
       if (!target) throw new ConflictException("Activity is not open for responses");
+      await this.audienceRateLimit?.consumeResponseMutation(
+        audienceId,
+        target.activity_run_id
+      );
       const existing = await this.repository.findForAudience(
         manager,
         projectId,

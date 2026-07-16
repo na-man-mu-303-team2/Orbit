@@ -22,7 +22,8 @@ export function assertAudienceJsonSameOrigin(
   request: Request
 ): void {
   const contentType = getHeader(request, "content-type");
-  if (!contentType?.toLowerCase().startsWith("application/json")) {
+  const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
     throw new UnsupportedMediaTypeException("JSON content type required");
   }
   const origin = normalizeHttpOrigin(getHeader(request, "origin"));
@@ -49,6 +50,10 @@ export function requireAudienceIdentity(
 
 export function getUserAgent(request: Request): string {
   return getHeader(request, "user-agent") ?? "";
+}
+
+export function getAudienceClientAddress(request: Request): string {
+  return request.ip || request.socket?.remoteAddress || "unknown";
 }
 
 function getHeader(request: Request, name: string): string | undefined {
