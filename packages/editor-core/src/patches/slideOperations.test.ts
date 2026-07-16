@@ -13,6 +13,7 @@ describe("slide operation helpers", () => {
   it("creates an add_slide patch", () => {
     const deck = createDemoDeck();
     const patch = createAddSlidePatch(deck, {
+      kind: "content",
       slideId: "slide_3",
       order: 3,
       title: "New Slide",
