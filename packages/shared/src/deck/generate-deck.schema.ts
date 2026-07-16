@@ -379,6 +379,7 @@ export const generateDeckDiagnosticsSchema = z
     visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional(),
     visualIssueSlideOrders: z.array(z.number().int().positive()).optional()
   })
+  .strict()
   .default({});
 
 export const generateDeckResponseSchema = z.object({

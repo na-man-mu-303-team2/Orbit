@@ -767,7 +767,7 @@ class TemplateSelectionItem(BaseModel):
 
 
 class GenerateDeckDiagnostics(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     reference_policy: ReferencePolicy = Field(
         default="topic-only",
