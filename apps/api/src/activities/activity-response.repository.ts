@@ -61,6 +61,7 @@ export class ActivityResponseRepository {
         WHERE runs.project_id = $1 AND runs.session_id = $2 AND runs.activity_id = $3
           AND runs.is_current AND runs.status = 'open'
           AND sessions.status = 'live'
+          AND sessions.results_deleted_at IS NULL
           AND sessions.starts_at <= now() AND sessions.expires_at > now()
         FOR UPDATE OF runs
       `,

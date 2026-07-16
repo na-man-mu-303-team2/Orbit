@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -11,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   ensureActivityRunRequestSchema,
+  deletePresentationSessionResultsRequestSchema,
   moderateActivityTextRequestSchema,
   supersedeActivityRunRequestSchema,
   updateActivityRunStatusRequestSchema
@@ -52,6 +54,17 @@ export class ActivityRunsController {
     return this.activityRunsService.ensureCurrentRun(projectId, sessionId, activityId);
   }
 
+  @Get("activities/:activityId/current-run")
+  async getCurrentRun(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("activityId") activityId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityRunsService.getCurrentRun(projectId, sessionId, activityId);
+  }
+
   @Post("activity-runs/:runId/supersede")
   async supersede(
     @Param("projectId") projectId: string,
@@ -89,6 +102,36 @@ export class ActivityRunsController {
     return this.activityResultsService.getPresenterResult(projectId, sessionId, runId);
   }
 
+  @Get("results")
+  async getSessionResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityResultsService.getSessionArchive(projectId, sessionId);
+  }
+
+  @Delete("results")
+  async deleteSessionResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    const input = parseRequest(
+      deletePresentationSessionResultsRequestSchema,
+      body ?? {}
+    );
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertIsProjectOwner(projectId, user.userId);
+    return this.activityResultsService.deleteSessionResults(
+      projectId,
+      sessionId,
+      input
+    );
+  }
+
   @Get("activity-runs/:runId/public-results")
   async getPublicResults(
     @Param("projectId") projectId: string,
@@ -119,11 +162,16 @@ export class ActivityRunsController {
   }
 
   private async assertCanOperate(projectId: string, request: SignedCookieRequest) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+  }
+
+  private async getCurrentUser(request: SignedCookieRequest) {
     const value = request.signedCookies?.[authSessionCookieName];
     if (typeof value !== "string" || value.length === 0) {
       throw new UnauthorizedException("Authentication required");
     }
     const user = (await this.authService.me(value)).user;
-    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return user;
   }
 }

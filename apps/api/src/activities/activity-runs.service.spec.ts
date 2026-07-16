@@ -93,6 +93,7 @@ function createService(overrides: Partial<ActivityRunRepository> = {}) {
     transaction: vi.fn(async (work) => work(manager)),
     lockSessionDeck: vi.fn().mockResolvedValue(session),
     findCurrent: vi.fn().mockResolvedValue(run),
+    findCurrentForRead: vi.fn().mockResolvedValue(run),
     findById: vi.fn().mockResolvedValue(run),
     insert: vi.fn().mockResolvedValue(run),
     updateSnapshot: vi.fn().mockResolvedValue({ ...run, revision: run.revision + 1 }),
@@ -113,6 +114,30 @@ function createService(overrides: Partial<ActivityRunRepository> = {}) {
 }
 
 describe("ActivityRunsService", () => {
+  it("reads a current run without creating or locking a new run", async () => {
+    const { repository, service } = createService();
+
+    await expect(
+      service.getCurrentRun("project_1", "session_1", "activity_1")
+    ).resolves.toMatchObject({ run: { activityRunId: "activity_run_1" } });
+    expect(repository.findCurrentForRead).toHaveBeenCalledWith(
+      "project_1",
+      "session_1",
+      "activity_1"
+    );
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit null when an activity has no run", async () => {
+    const { service } = createService({
+      findCurrentForRead: vi.fn().mockResolvedValue(null)
+    });
+
+    await expect(
+      service.getCurrentRun("project_1", "session_1", "activity_missing")
+    ).resolves.toEqual({ run: null });
+  });
+
   it("creates the first run from the stored Deck definition", async () => {
     const { repository, service } = createService({
       findCurrent: vi.fn().mockResolvedValue(null)

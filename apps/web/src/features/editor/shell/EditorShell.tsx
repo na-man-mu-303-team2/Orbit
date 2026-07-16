@@ -1,6 +1,7 @@
 import {
   createDemoDeck,
   createUpdateActivityDefinitionPatch,
+  createUpdateActivityResultDefinitionPatch,
   getElementAnimations,
   deriveKeywordActionUsage,
   validateSlideAnimations
@@ -74,7 +75,10 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
-import { ActivitySlideInspector } from "../../activity-slides";
+import {
+  ActivityResultSlideInspector,
+  ActivitySlideInspector
+} from "../../activity-slides";
 import {
   type SemanticCueExtractionUiState
 } from "../semantic-cues/SemanticCueReviewPanel";
@@ -668,6 +672,8 @@ export function EditorShell(props: { projectId?: string }) {
   const handleAddChartElement = editorCanvasActions.addChartElement;
   const handleAddSlide = editorCanvasActions.addSlide;
   const handleAddActivitySlide = editorCanvasActions.addActivitySlide;
+  const handleAddActivityResultsSlide =
+    editorCanvasActions.addActivityResultsSlide;
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
@@ -1219,6 +1225,11 @@ export function EditorShell(props: { projectId?: string }) {
             setIsRightPanelOpen(true);
             setRightPanelView("design");
           }}
+          onAddActivityResultsSlide={() => {
+            if (!handleAddActivityResultsSlide()) return;
+            setIsRightPanelOpen(true);
+            setRightPanelView("design");
+          }}
           onAddSlide={handleAddSlide}
           onResizeStart={handleSlidesPaneResizeStart}
           onSelectSlide={handleSelectSlideIndex}
@@ -1481,6 +1492,27 @@ export function EditorShell(props: { projectId?: string }) {
                       activity
                     )
                   );
+                }}
+              />
+            ) : currentSlide?.kind === "activity-results" ? (
+              <ActivityResultSlideInspector
+                deck={deck}
+                projectId={deck.projectId}
+                slide={currentSlide}
+                onChange={(activityResult) => {
+                  commitPatch((currentDeck) =>
+                    createUpdateActivityResultDefinitionPatch(
+                      currentDeck,
+                      currentSlide.slideId,
+                      activityResult
+                    )
+                  );
+                }}
+                onSelectSourceSlide={(slideId) => {
+                  const index = deck.slides.findIndex(
+                    (slide) => slide.slideId === slideId
+                  );
+                  if (index >= 0) handleSelectSlideIndex(index);
                 }}
               />
             ) : <EditorSelectionProperties

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { activityIdSchema, activityRunIdSchema } from "./activity-id.schema";
 import { activityPresenterResultSchema, activityPublicResultSchema } from "./activity-results.schema";
+import { presentationSessionSchema } from "../presentation/presentation.schema";
 import {
   activityAnswerSchema,
   activityResponseSchema,
@@ -14,6 +15,36 @@ export const ensureActivityRunRequestSchema = z.object({}).strict();
 
 export const ensureActivityRunResponseSchema = z
   .object({ run: activityRunSchema })
+  .strict();
+
+export const getCurrentActivityRunResponseSchema = z
+  .object({ run: activityRunSchema.nullable() })
+  .strict();
+
+export const activitySessionResultAvailabilitySchema = z.enum([
+  "raw-retained",
+  "aggregate-only",
+  "results-deleted"
+]);
+
+export const activitySessionResultItemSchema = z
+  .object({
+    availability: activitySessionResultAvailabilitySchema,
+    result: activityPresenterResultSchema.nullable(),
+    run: activityRunSchema
+  })
+  .strict();
+
+export const getPresentationSessionResultsResponseSchema = z
+  .object({
+    activities: z.array(activitySessionResultItemSchema),
+    session: presentationSessionSchema,
+    sessionName: z.string().trim().min(1).max(120)
+  })
+  .strict();
+
+export const deletePresentationSessionResultsRequestSchema = z
+  .object({ confirmation: z.string().trim().min(1).max(120) })
   .strict();
 
 export const updateActivityRunStatusRequestSchema = z
@@ -102,4 +133,16 @@ export type GetAudienceActivityResponse = z.infer<
 >;
 export type GetAudienceActiveActivityResponse = z.infer<
   typeof getAudienceActiveActivityResponseSchema
+>;
+export type ActivitySessionResultAvailability = z.infer<
+  typeof activitySessionResultAvailabilitySchema
+>;
+export type ActivitySessionResultItem = z.infer<
+  typeof activitySessionResultItemSchema
+>;
+export type GetPresentationSessionResultsResponse = z.infer<
+  typeof getPresentationSessionResultsResponseSchema
+>;
+export type DeletePresentationSessionResultsRequest = z.infer<
+  typeof deletePresentationSessionResultsRequestSchema
 >;

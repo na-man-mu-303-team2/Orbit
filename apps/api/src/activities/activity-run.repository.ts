@@ -99,6 +99,23 @@ export class ActivityRunRepository {
     return rows[0] ?? null;
   }
 
+  async findCurrentForRead(
+    projectId: string,
+    sessionId: string,
+    activityId: string
+  ): Promise<ActivityRunRow | null> {
+    const rows = await this.dataSource.query<ActivityRunRow[]>(
+      `
+        SELECT ${runColumns}
+        FROM activity_runs
+        WHERE project_id = $1 AND session_id = $2 AND activity_id = $3 AND is_current
+        LIMIT 1
+      `,
+      [projectId, sessionId, activityId]
+    );
+    return rows[0] ?? null;
+  }
+
   async findById(
     manager: EntityManager,
     projectId: string,

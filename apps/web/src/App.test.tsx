@@ -231,6 +231,15 @@ describe("App shell routing", () => {
       name: "project-history",
       projectId: "project_demo_1"
     });
+    expect(
+      getRoute(
+        "/project/project_demo_1/presentation-sessions/session_demo_1/results",
+      ),
+    ).toEqual({
+      name: "activity-results",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+    });
   });
 
   it("parses presenter slide-window routes with an optional session id", () => {

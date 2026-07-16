@@ -17,6 +17,7 @@ export function SlideNavigatorPane(props: {
   deck: Deck;
   isCollapsed: boolean;
   onAddActivitySlide: (template: ActivityTemplate) => void;
+  onAddActivityResultsSlide: () => void;
   onAddSlide: () => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onSelectSlide: (index: number) => void;
@@ -29,6 +30,9 @@ export function SlideNavigatorPane(props: {
   const hasSlides = props.deck.slides.length > 0;
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const canAddActivity = canAddActivitySlide(props.deck);
+  const hasActivitySource = props.deck.slides.some(
+    (slide) => slide.kind === "activity"
+  );
 
   return (
     <aside className={`slides-pane ${props.isCollapsed ? "collapsed" : ""}`}>
@@ -155,6 +159,27 @@ export function SlideNavigatorPane(props: {
                     <span>{canAddActivity ? description : "와이드 16:9 필요"}</span>
                   </button>
                 ))}
+                <button
+                  disabled={!canAddActivity || !hasActivitySource}
+                  role="menuitem"
+                  title={
+                    !canAddActivity
+                      ? "참여 장표는 16:9 덱에서 사용할 수 있습니다."
+                      : hasActivitySource
+                        ? "연결 결과 장표 추가"
+                        : "먼저 참여 장표를 추가하세요."
+                  }
+                  type="button"
+                  onClick={() => {
+                    props.onAddActivityResultsSlide();
+                    setIsAddMenuOpen(false);
+                  }}
+                >
+                  <strong>연결 결과 장표</strong>
+                  <span>
+                    {hasActivitySource ? "참여 결과 연결" : "원본 참여 장표 필요"}
+                  </span>
+                </button>
               </div>
             ) : null}
           </div>

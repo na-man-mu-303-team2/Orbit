@@ -59,6 +59,7 @@ import { PresentationWorkspace } from "./features/presentation/PresentationWorks
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
+import { ActivityResultsPage } from "./features/activity-slides";
 
 export type Route =
   | { name: "design-system" }
@@ -71,6 +72,7 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
+  | { name: "activity-results"; projectId: string; sessionId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "audience-activity"; sessionId: string; activityId: string }
@@ -402,6 +404,17 @@ export function getRoute(pathname?: string, search?: string): Route {
       };
     }
 
+    const activityResultsMatch = normalized.match(
+      /^\/project\/([^/]+)\/presentation-sessions\/([^/]+)\/results$/,
+    );
+    if (activityResultsMatch) {
+      return {
+        name: "activity-results",
+        projectId: decodeURIComponent(activityResultsMatch[1]),
+        sessionId: decodeURIComponent(activityResultsMatch[2]),
+      };
+    }
+
     const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
     if (projectMatch) {
       return {
@@ -621,6 +634,16 @@ function renderRoute(route: Route, user?: AuthUser) {
     return (
       <ProjectAccessGate projectId={route.projectId}>
         <DeckVersionHistoryPage projectId={route.projectId} />
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "activity-results") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <ActivityResultsPage
+          projectId={route.projectId}
+          sessionId={route.sessionId}
+        />
       </ProjectAccessGate>
     );
   }

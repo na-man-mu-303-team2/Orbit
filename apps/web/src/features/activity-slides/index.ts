@@ -5,6 +5,10 @@ export {
 } from "./audience/AudienceSatisfactionPage";
 export { ActivitySlideInspector } from "./editor/ActivitySlideInspector";
 export {
+  ActivityResultSlideInspector,
+  findActivityResultSource
+} from "./editor/ActivityResultSlideInspector";
+export {
   ActivitySlidePreview,
   type ActivityPreviewRole
 } from "./editor/ActivitySlidePreview";
@@ -23,3 +27,13 @@ export {
   getActivityPrimaryCommand
 } from "./presenter/ActivityPresenterPanel";
 export type { ActivitySurfaceRole } from "./rendering";
+export {
+  ActivityResultArchiveDetail,
+  ActivityResultsPage
+} from "./results/ActivityResultsPage";
+export {
+  ActivityResultRuntime,
+  ActivityResultSlideRenderer,
+  getActivityResultRenderState,
+  type ActivityResultRenderState
+} from "./rendering/ActivityResultSlideRenderer";

@@ -1,6 +1,8 @@
 import {
   audiencePresentationAccessResponseSchema,
   ensureActivityRunResponseSchema,
+  getCurrentActivityRunResponseSchema,
+  getPresentationSessionResultsResponseSchema,
   getActivityPresenterResultResponseSchema,
   getActivityPublicResultResponseSchema,
   getAudienceActiveActivityResponseSchema,
@@ -23,6 +25,7 @@ import type {
   UpdateActivityRunStatusRequest,
   UpsertActivityResponseRequest
 } from "@orbit/shared";
+import type { DeletePresentationSessionResultsRequest } from "@orbit/shared";
 export const activityApi = {
   getCurrentSession(projectId: string, deckId: string) {
     return request(
@@ -57,6 +60,31 @@ export const activityApi = {
       presenterActivityUrl(projectId, sessionId, `activities/${segment(activityId)}/current-run`),
       jsonRequest("PUT", {}),
       ensureActivityRunResponseSchema
+    );
+  },
+  getCurrentRun(projectId: string, sessionId: string, activityId: string) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, `activities/${segment(activityId)}/current-run`),
+      undefined,
+      getCurrentActivityRunResponseSchema
+    );
+  },
+  getSessionResults(projectId: string, sessionId: string) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, "results"),
+      undefined,
+      getPresentationSessionResultsResponseSchema
+    );
+  },
+  deleteSessionResults(
+    projectId: string,
+    sessionId: string,
+    input: DeletePresentationSessionResultsRequest
+  ) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, "results"),
+      jsonRequest("DELETE", input),
+      getPresentationSessionResultsResponseSchema
     );
   },
   updateRunStatus(

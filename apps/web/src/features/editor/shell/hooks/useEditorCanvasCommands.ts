@@ -1,6 +1,7 @@
 import {
   createAddElementPatch,
   createAddSlidePatch,
+  createActivityResultsSlide,
   createActivitySlide,
   createElementId,
   createGroupedElementFramePatch,
@@ -260,6 +261,39 @@ export function useEditorCanvasCommands(args: {
     args.resetSpeakerNotesEditState("");
     const committed = args.commitPatch((currentDeck) => {
       const slide = createActivitySlide(currentDeck, template);
+      nextSlideIndex = currentDeck.slides.length;
+      return createAddSlidePatch(currentDeck, slide);
+    });
+    if (!committed) return false;
+
+    args.setCurrentSlideIndex(nextSlideIndex);
+    args.setSelectedElementIds([]);
+    args.setEditingElementId(null);
+    args.setCustomShapeEditElementId(null);
+    return true;
+  }
+
+  function addActivityResultsSlide(sourceActivityId?: string) {
+    if (!args.confirmDiscardSpeakerNotesDraft()) return false;
+    if (args.workingDeckRef.current.canvas.preset !== "wide-16-9") return false;
+
+    const source = [...args.workingDeckRef.current.slides]
+      .reverse()
+      .find(
+        (slide) =>
+          slide.kind === "activity" &&
+          (sourceActivityId === undefined ||
+            slide.activity.activityId === sourceActivityId)
+      );
+    if (!source || source.kind !== "activity") return false;
+
+    let nextSlideIndex = args.workingDeckRef.current.slides.length;
+    args.resetSpeakerNotesEditState("");
+    const committed = args.commitPatch((currentDeck) => {
+      const slide = createActivityResultsSlide(
+        currentDeck,
+        source.activity.activityId
+      );
       nextSlideIndex = currentDeck.slides.length;
       return createAddSlidePatch(currentDeck, slide);
     });
@@ -570,6 +604,7 @@ export function useEditorCanvasCommands(args: {
   return {
     actions: {
       addChartElement,
+      addActivityResultsSlide,
       addSlide,
       addActivitySlide,
       addTextElement,
