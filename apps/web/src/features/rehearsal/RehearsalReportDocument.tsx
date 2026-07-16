@@ -14,7 +14,6 @@ import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
 import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
-import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
@@ -54,6 +53,8 @@ type Props = {
   semanticRetryState?: SemanticRetryState;
   totalRunCount: number;
 };
+type ReportTab = "overview" | "slides";
+
 
 export function RehearsalReportDocument({
   deck,
@@ -66,6 +67,7 @@ export function RehearsalReportDocument({
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ReportTab>("overview");
 
   const coaching = report.coaching;
   const metrics = report.metrics;
@@ -132,17 +134,43 @@ export function RehearsalReportDocument({
         </button>
       </section>
 
-      {/* ── 1. AI summary ── */}
-      <div className="rrd-top-overview">
-        <RehearsalAiSummaryOverview report={report} />
-        {practiceGoalSummary}
+      <div className="rrd-analysis-tabs" role="tablist" aria-label="리허설 분석 유형">
+        <button
+          type="button"
+          id="rrd-tab-overview"
+          className={activeTab === "overview" ? "is-active" : undefined}
+          role="tab"
+          aria-controls="rrd-panel-overview"
+          aria-selected={activeTab === "overview"}
+          onClick={() => setActiveTab("overview")}
+        >
+          전체 분석
+        </button>
+        <button
+          type="button"
+          id="rrd-tab-slides"
+          className={activeTab === "slides" ? "is-active" : undefined}
+          role="tab"
+          aria-controls="rrd-panel-slides"
+          aria-selected={activeTab === "slides"}
+          onClick={() => setActiveTab("slides")}
+        >
+          슬라이드 분석
+        </button>
       </div>
 
-      <RehearsalSlideCoachingViewer
-        deck={reportDeck}
-        prevReports={prevReports}
-        report={report}
-      />
+      <div
+        id="rrd-panel-overview"
+        className="rrd-report-panel"
+        role="tabpanel"
+        aria-labelledby="rrd-tab-overview"
+        hidden={activeTab !== "overview"}
+      >
+        {/* ── 1. AI summary ── */}
+        <div className="rrd-top-overview">
+          <RehearsalAiSummaryOverview report={report} />
+          {practiceGoalSummary}
+        </div>
 
       {/* ── 2. 말버릇 ── */}
       <RehearsalHabitOverview prevReport={prevReport} report={report} />
@@ -183,14 +211,6 @@ export function RehearsalReportDocument({
         </div>
 
       </section>
-
-      <RehearsalSlideAnalysisOverview
-        deck={reportDeck}
-        formatDelta={fmtDelta}
-        formatDuration={fmt}
-        prevReports={prevReports}
-        report={report}
-      />
 
       {/* ── 5. 전체 코칭 ── */}
       {coaching && (
@@ -270,6 +290,23 @@ export function RehearsalReportDocument({
           )}
         </section>
       )}
+      </div>
+
+      <div
+        id="rrd-panel-slides"
+        className="rrd-report-panel"
+        role="tabpanel"
+        aria-labelledby="rrd-tab-slides"
+        hidden={activeTab !== "slides"}
+      >
+        <RehearsalSlideCoachingViewer
+          deck={reportDeck}
+          formatDelta={fmtDelta}
+          formatDuration={fmt}
+          prevReports={prevReports}
+          report={report}
+        />
+      </div>
 
     </div>
   );
