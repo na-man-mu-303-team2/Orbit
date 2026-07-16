@@ -122,6 +122,129 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     await expect(repository.claim(message, "worker-b")).resolves.toBeNull();
   });
 
+  it("fairly claims one queued checkpoint under a per-user transaction lock", async () => {
+    const managerQuery = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        {
+          requested_by_user_id: "user-b",
+          running_count: 0,
+          oldest_created_at: "2026-07-16T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ running_count: 0 }])
+      .mockResolvedValueOnce([
+        {
+          ...runningRow(),
+          project_id: "project-b",
+          requested_by_user_id: "user-b",
+        },
+      ]);
+    const transaction = vi.fn(async (callback) =>
+      callback({ query: managerQuery }),
+    );
+    const repository = new AiDeckGenerationStageCheckpointRepository({
+      query: vi.fn(),
+      transaction,
+    } as unknown as DataSource);
+
+    await expect(repository.claimNext("worker-a", 5)).resolves.toMatchObject({
+      requestedByUserId: "user-b",
+      message: {
+        pipelineJobId: "job-ai-deck-1",
+        projectId: "project-b",
+        stage: "content-planning",
+        shardKey: "",
+      },
+      checkpoint: { status: "running", attempt: 1 },
+    });
+
+    expect(transaction).toHaveBeenCalledTimes(1);
+    const candidatesSql = compactSql(managerQuery.mock.calls[0]?.[0]);
+    expect(candidatesSql).toContain(
+      "COALESCE(NULLIF(jobs.payload->>'requestedByUserId', ''), projects.created_by)",
+    );
+    expect(candidatesSql).toContain(
+      "ORDER BY running_count, oldest_created_at, requested_by_user_id",
+    );
+    const lockSql = compactSql(managerQuery.mock.calls[1]?.[0]);
+    expect(lockSql).toContain("pg_try_advisory_xact_lock");
+    const recountSql = compactSql(managerQuery.mock.calls[2]?.[0]);
+    expect(recountSql).toContain("stages.status = 'running'");
+    const claimSql = compactSql(managerQuery.mock.calls[3]?.[0]);
+    expect(claimSql).toContain("FOR UPDATE OF stages SKIP LOCKED");
+    expect(claimSql).toContain("LIMIT 1");
+    expect(claimSql).toContain("status = 'running'");
+    expect(claimSql).toContain("attempt = stages.attempt + 1");
+    expect(claimSql).toContain("lease_expires_at = now() + interval '10 minutes'");
+  });
+
+  it("leaves the sixth checkpoint queued when the requesting user already has five running", async () => {
+    const managerQuery = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        {
+          requested_by_user_id: "user-a",
+          running_count: 5,
+          oldest_created_at: "2026-07-16T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ running_count: 5 }]);
+    const repository = new AiDeckGenerationStageCheckpointRepository({
+      query: vi.fn(),
+      transaction: async (callback: (manager: { query: QueryFunction }) => unknown) =>
+        callback({ query: managerQuery }),
+    } as unknown as DataSource);
+
+    await expect(repository.claimNext("worker-b", 5)).resolves.toBeNull();
+    expect(managerQuery).toHaveBeenCalledTimes(3);
+    expect(
+      managerQuery.mock.calls.some(([sql]) =>
+        compactSql(sql).includes("UPDATE ai_deck_generation_stages"),
+      ),
+    ).toBe(false);
+  });
+
+  it("skips a user locked by another Worker replica and claims the next fair candidate", async () => {
+    const managerQuery = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        {
+          requested_by_user_id: "user-a",
+          running_count: 0,
+          oldest_created_at: "2026-07-16T00:00:00.000Z",
+        },
+        {
+          requested_by_user_id: "user-b",
+          running_count: 0,
+          oldest_created_at: "2026-07-16T00:00:01.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([{ acquired: false }])
+      .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ running_count: 0 }])
+      .mockResolvedValueOnce([
+        {
+          ...runningRow(),
+          project_id: "project-b",
+          requested_by_user_id: "user-b",
+        },
+      ]);
+    const repository = new AiDeckGenerationStageCheckpointRepository({
+      query: vi.fn(),
+      transaction: async (callback: (manager: { query: QueryFunction }) => unknown) =>
+        callback({ query: managerQuery }),
+    } as unknown as DataSource);
+
+    await expect(repository.claimNext("worker-b", 5)).resolves.toMatchObject({
+      requestedByUserId: "user-b",
+    });
+    expect(managerQuery.mock.calls[1]?.[1]).toEqual(["user-a"]);
+    expect(managerQuery.mock.calls[2]?.[1]).toEqual(["user-b"]);
+  });
+
   it("issues a unique lease token for every claim generation", async () => {
     const { query, repository } = repositoryWithResponses([runningRow()], []);
 

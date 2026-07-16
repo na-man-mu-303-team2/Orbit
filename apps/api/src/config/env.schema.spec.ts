@@ -57,6 +57,8 @@ describe("ORBIT env validation", () => {
     const defaults = loadOrbitConfig(validEnv, { service: "api" });
     expect(defaults.AI_DECK_EXECUTION_MODE).toBe("bullmq");
     expect(defaults.AI_DECK_WORKER_QUEUE).toBe("all");
+    expect(defaults.AI_DECK_WORKER_CONCURRENCY).toBe(5);
+    expect(defaults.AI_DECK_USER_CONCURRENCY).toBe(5);
 
     expect(
       loadOrbitConfig(
@@ -64,13 +66,24 @@ describe("ORBIT env validation", () => {
           ...validEnv,
           AI_DECK_EXECUTION_MODE: "bullmq",
           AI_DECK_WORKER_QUEUE: "reference-extract",
+          AI_DECK_WORKER_CONCURRENCY: "7",
+          AI_DECK_USER_CONCURRENCY: "4",
         },
         { service: "worker" },
       ),
     ).toMatchObject({
       AI_DECK_EXECUTION_MODE: "bullmq",
       AI_DECK_WORKER_QUEUE: "reference-extract",
+      AI_DECK_WORKER_CONCURRENCY: 7,
+      AI_DECK_USER_CONCURRENCY: 4,
     });
+
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_EXECUTION_MODE: "pg" },
+        { service: "worker" },
+      ).AI_DECK_EXECUTION_MODE,
+    ).toBe("pg");
 
     expect(() =>
       loadOrbitConfig(
@@ -84,6 +97,18 @@ describe("ORBIT env validation", () => {
         { service: "worker" },
       ),
     ).toThrow(/AI_DECK_WORKER_QUEUE/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_WORKER_CONCURRENCY: "0" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_WORKER_CONCURRENCY/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_USER_CONCURRENCY: "33" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_USER_CONCURRENCY/);
   });
 
   it("parses coaching flags and exact project allowlists", () => {
