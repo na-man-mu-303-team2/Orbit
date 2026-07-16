@@ -25,7 +25,10 @@ describe("processFocusedPracticeAnalysisJob", () => {
 
     expect(job.status).toBe("succeeded");
     expect(job.result).toEqual({ attemptId: "attempt-a", result: "passed" });
-    expect(removeObject).toHaveBeenCalledWith("private/focused.webm");
+    expect(removeObject).toHaveBeenCalledWith(
+      "private/focused.webm",
+      "focused-practice-audio",
+    );
     expect(query.mock.calls.some(([sql]) => String(sql).includes("cleanup_state = $4"))).toBe(true);
   });
 

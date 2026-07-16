@@ -91,7 +91,8 @@ AUTH_COOKIE_SECURE=false
 개인 서버용 Docker Compose override는 로컬 Redis, MinIO, Python worker를 기준으로 다음 런타임 값을 고정한다.
 
 - storage driver는 MinIO를 사용한다.
-- MinIO bucket은 staging local-default validation을 피하기 위해 `orbit-personal-staging`을 사용한다.
+- MinIO는 일반 파일용 `orbit-personal-staging`과 민감 오디오용 `orbit-personal-staging-private-audio` 버킷을 사용한다.
+- 일반 파일 버킷은 기존 `/assets/` 조회 흐름을 유지하고 private-audio 버킷에는 익명 정책을 설정하지 않는다.
 - queue driver는 BullMQ를 사용한다.
 - Live STT provider는 `sherpa`, browser Live STT engine은 `LIVE_STT_ENGINE`으로 `openai-realtime` 또는 `web-speech`를 선택한다. report STT provider는 Python worker의 현재 지원 범위에 맞춰 `openai`를 사용한다.
 - OCR provider는 Python worker 경로를 사용한다.

@@ -25,7 +25,7 @@
 | CPM 추세 | 목표 범위를 추정하지 않는다. `direction="neutral"`, `targetRange=null`인 설명형 추세로 최근 변화만 표시한다. |
 | pause | 1초 이상 segment gap인 v1을 유지한다. v2는 위치와 의도를 별도 축으로 추가하고, 근거가 없으면 `unknown`이다. |
 | Audio Clip | 실패·부분 전달 observation 중 실제 time range가 있는 항목에 최대 1개, 최대 12초의 Clip을 만든다. 프로젝트 Owner만 재생할 수 있다. |
-| Clip 보관 | 생성 시각부터 정확히 7일 보관한다. P0 DTO에는 보관기간 변경 입력을 두지 않는다. 30일 연장은 P1 승인 전까지 지원하지 않는다. |
+| Clip 보관 | 생성 시각부터 정확히 14일 보관한다. P0 DTO에는 보관기간 변경 입력을 두지 않는다. 30일 연장은 P1 승인 전까지 지원하지 않는다. |
 | URL 정책 | DB·Job·report·로그에는 object key, storage URL, Signed URL을 넣지 않는다. Owner 전용 API 응답에서만 15분 만료 Signed URL을 일회성으로 반환한다. |
 
 ## 2. 현재 계약과 목표 계약의 차이
@@ -39,7 +39,7 @@
 | filler | 표현별 count만 있고 발생 위치가 없다. | count는 유지하고 확인 가능한 occurrence에 segment/word time range와 정밀도를 붙인다. |
 | pause | segment gap 1초 이상인 v1 time range만 있다. | v1을 유지하고 위치·의도·근거 source가 있는 v2를 별도로 추가한다. |
 | slide timing | 연속 slide 진입 간격만 계산하며 마지막 slide를 생략한다. | 실제 `recordingDurationSeconds`가 있을 때만 마지막 slide 종료를 계산한다. |
-| Clip | 파생 Evidence Clip 계약이 없다. | 별도 private purpose, 12초 상한, 7일 TTL, Owner-only, 삭제 재시도 계약을 둔다. |
+| Clip | 파생 Evidence Clip 계약이 없다. | 별도 private purpose, 12초 상한, 14일 TTL, Owner-only, 삭제 재시도 계약을 둔다. |
 
 기존 public `RehearsalReport` 필드의 타입이나 의미를 바꾸지 않는다. Python 내부 DTO의 목표 상태는 `contractVersion: 2` 하나이며, 짧은 배포 호환 창이 끝나면 v1 adapter를 제거한다. public report는 additive field와 default를 사용해 legacy report를 계속 읽는다.
 
@@ -532,7 +532,7 @@ type RehearsalEvidenceClipRecord = {
     | "deleted"
     | "delete-exhausted";
   createdAt: string;
-  expiresAt: string; // createdAt + 정확히 7일
+  expiresAt: string; // createdAt + 정확히 14일
   deletedAt: string | null;
 };
 ```
@@ -605,7 +605,7 @@ type DeleteRehearsalEvidenceAudioResponse = {
 
 ### 8.4 조기 삭제·만료·재시도
 
-- Owner 조기 삭제, 7일 만료, project/run 삭제는 같은 삭제 경로를 사용한다.
+- Owner 조기 삭제, 14일 만료, project/run 삭제는 같은 삭제 경로를 사용한다.
 - 삭제는 기존 `storage_deletion_outbox`와 `storage-deletion-reconciler.ts`를 재사용한다. 두 번째 주기 삭제 loop를 만들지 않는다.
 - object 삭제 성공 후 `retentionState="deleted"`, `deletedAt`을 기록한다.
 - 실패하면 `delete-pending`으로 두고 최대 5회 idempotent retry한다.
@@ -735,7 +735,7 @@ legacy 처리:
 - 12,000ms는 허용하고 12,001ms는 거부한다.
 - observation당 Clip 최대 1개다.
 - time range 없음, generation 실패, storage 실패에서 report는 유지된다.
-- 생성일부터 7일 직전은 available, 정확히 7일은 expired다.
+- 생성일부터 14일 직전은 available, 정확히 14일은 expired다.
 - Owner 200, Editor 403, Viewer 403, audience 403, cross-project 404다.
 - Signed URL 만료는 15분 이하다.
 - 조기 DELETE는 이미 없는 Clip에도 200/deleted로 멱등 동작한다.

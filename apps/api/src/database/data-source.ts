@@ -44,6 +44,7 @@ import { CreateAiDeckPlanningArtifacts2026071601000 } from "./migrations/2026071
 import { ExpandAiDeckStageDispatchRecovery2026071601100 } from "./migrations/2026071601100-ExpandAiDeckStageDispatchRecovery";
 import { CreateAiDeckExecutionArtifacts2026071602000 } from "./migrations/2026071602000-CreateAiDeckExecutionArtifacts";
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
+import { SetEvidenceClipRetention14Days2026071604000 } from "./migrations/2026071604000-SetEvidenceClipRetention14Days";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -99,7 +100,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckPlanningArtifacts2026071601000,
     ExpandAiDeckStageDispatchRecovery2026071601100,
     CreateAiDeckExecutionArtifacts2026071602000,
-    AddRehearsalTranscriptArtifacts2026071603000
+    AddRehearsalTranscriptArtifacts2026071603000,
+    SetEvidenceClipRetention14Days2026071604000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

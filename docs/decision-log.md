@@ -410,3 +410,27 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
+
+## ORBIT purpose-routed private audio storage
+
+- Context: 서울 운영 환경에 `private-audio` 버킷과 14일 Lifecycle이 준비됐지만 API와 Worker는 단일 `S3_BUCKET`만 사용한다. 기존 오디오는 project-assets에 남아 있을 수 있고, 개인 Staging은 하나의 MinIO 버킷만 사용한다.
+- Options considered:
+  - 기존 단일 버킷을 유지하고 Prefix만 구분한다.
+  - DB에 physical bucket 컬럼을 추가하고 모든 객체 위치를 migration한다.
+  - 기존 `purpose`와 key namespace를 논리 라우팅 키로 사용해 새 private key와 기존 project-assets key를 모두 읽는다.
+- Final decision: `rehearsal-audio`, `focused-practice-audio`, `qna-answer-audio`는 `PRIVATE_AUDIO_STORAGE_ENABLED=true`일 때 별도 private-audio 버킷에 쓴다. 신규 key는 `raw/rehearsals/`, `raw/focused-practice/`, `raw/qna/` 아래에 생성하고, 이 namespace의 읽기·삭제도 private-audio로 보낸다. 기존 `projects/`와 `rehearsals/` key는 project-assets로 보낸다. 기능 플래그가 꺼져 있으면 신규 쓰기와 key 형식 모두 기존 project-assets 방식을 유지한다.
+- Rationale: 기존 `project_assets.purpose`와 deletion outbox의 `purpose`를 재사용하면 DB 위치 migration 없이 점진적으로 전환할 수 있다. key namespace 기반 호환 라우팅은 `ListBucket`이 없는 IAM에서도 존재 여부 probe 없이 기존 큐 작업과 롤백 경계를 보호한다.
+- Affected files: `packages/storage/src/**`, `packages/config/src/index.ts`, `apps/api/src/files/**`, `apps/worker/src/storage.ts`, private audio processor와 deletion reconciler, `.env*.example`, `docker-compose*.yml`, `infra/scripts/check-env.mjs`, 관련 문서.
+- Follow-up review notes: 개인 Staging은 하나의 MinIO 서버 안에 일반 자산과 private-audio 버킷을 만들고 private-audio에는 익명 정책을 허용하지 않는다. 운영에서는 flag를 끈 호환 배포 후 제한된 쓰기 검증을 거쳐 활성화한다. Evidence Clip 생성·재생 구현은 이 라우팅 PR의 E2E 범위가 아니다.
+
+## ORBIT Evidence Clip fourteen-day retention
+
+- Context: 운영 private-audio의 `evidence/` Lifecycle은 14일인데 기존 shared schema, fixture, DB 제약조건과 계약 문서는 Evidence Clip을 7일로 고정한다.
+- Options considered:
+  - AWS Lifecycle을 7일로 되돌린다.
+  - 애플리케이션 계약은 7일로 유지하고 실제 객체만 14일 남긴다.
+  - 계약과 DB를 14일로 올리고 기존 7일 행을 신규 migration에서 전환한다.
+- Final decision: Evidence Clip은 `retentionPolicyVersion=1`을 유지하면서 `retentionDays=14`로 변경한다. 기존 migration은 배포 이력으로 수정하지 않고 신규 migration이 기존 행의 `retention_days`와 `expires_at`, default와 두 CHECK constraint를 14일로 변경한다.
+- Rationale: 애플리케이션 만료 시각과 실제 객체 Lifecycle을 일치시키고, 이미 실행된 migration을 재작성하지 않아 staging과 후속 production의 schema 이력을 보존한다.
+- Affected files: `packages/shared/src/coaching/speech-evidence.schema.ts`, 공통 fixture, `apps/api/src/database/migrations/2026071604000-SetEvidenceClipRetention14Days.ts`, `apps/api/src/database/data-source.ts`, Evidence 계약·계획 문서.
+- Follow-up review notes: Evidence Clip producer가 연결되면 `evidence/` key, Owner-only playback, 정확히 14일 만료와 삭제 재시도를 별도 E2E로 검증한다.

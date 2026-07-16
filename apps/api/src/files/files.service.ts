@@ -28,6 +28,9 @@ import { ProjectAssetEntity } from "./project-asset.entity";
 
 export const STORAGE_PORT = Symbol("STORAGE_PORT");
 export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
+export const PRIVATE_AUDIO_STORAGE_ENABLED = Symbol(
+  "PRIVATE_AUDIO_STORAGE_ENABLED",
+);
 
 const uploadUrlExpiresInSeconds = 15 * 60;
 const publicAssetContentPurposes = new Set<FilePurpose>([
@@ -56,6 +59,9 @@ export class FilesService {
     @Optional()
     @Inject(UPLOAD_PROXY_ORIGIN)
     private readonly uploadProxyOrigin: string | null = null,
+    @Optional()
+    @Inject(PRIVATE_AUDIO_STORAGE_ENABLED)
+    private readonly privateAudioStorageEnabled = false,
   ) {}
 
   async createUploadUrl(
@@ -68,12 +74,18 @@ export class FilesService {
     const fileId = `file_${randomUUID()}`;
     const storageKey =
       storageKeyOverride ??
-      this.createStorageKey(project.projectId, fileId, input.originalName);
+      this.createStorageKey(
+        project.projectId,
+        fileId,
+        input.originalName,
+        input.purpose,
+      );
     const uploadUrl = await this.createUploadTarget({
       projectId: project.projectId,
       fileId,
       key: storageKey,
       contentType: input.mimeType,
+      purpose: input.purpose,
       expiresInSeconds: uploadUrlExpiresInSeconds,
       requestOrigin,
     });
@@ -114,7 +126,8 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(rehearsal.createdAt);
-    const storageKey = `rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    const prefix = this.privateAudioStorageEnabled ? "raw/rehearsals" : "rehearsals";
+    const storageKey = `${prefix}/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -237,7 +250,10 @@ export class FilesService {
   }
 
   private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
-    const head = await this.storage.headObject(asset.storageKey);
+    const head = await this.storage.headObject(
+      asset.storageKey,
+      filePurposeSchema.parse(asset.purpose),
+    );
 
     if (!head) {
       throw new NotFoundException(`Asset not found in storage: ${asset.fileId}`);
@@ -291,7 +307,10 @@ export class FilesService {
       throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
     }
 
-    await this.storage.removeObject(asset.storageKey);
+    await this.storage.removeObject(
+      asset.storageKey,
+      filePurposeSchema.parse(asset.purpose),
+    );
 
     const deletedAt = new Date();
     asset.status = "deleted";
@@ -328,7 +347,7 @@ export class FilesService {
 
     const readUrl = this.uploadProxyOrigin
       ? this.createInternalObjectUrl(asset.storageKey)
-      : await this.storage.getSignedReadUrl(asset.storageKey);
+      : await this.storage.getSignedReadUrl(asset.storageKey, assetPurpose);
 
     const response = await fetch(readUrl);
 
@@ -346,8 +365,23 @@ export class FilesService {
     projectId: string,
     fileId: string,
     originalName: string,
+    purpose: FilePurpose,
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    if (this.privateAudioStorageEnabled && purpose === "rehearsal-audio") {
+      return `raw/rehearsals/${projectId}/${fileId}/${safeName}`;
+    }
+    if (
+      this.privateAudioStorageEnabled &&
+      purpose === "focused-practice-audio"
+    ) {
+      return `raw/focused-practice/${projectId}/${fileId}/${safeName}`;
+    }
+    if (this.privateAudioStorageEnabled && purpose === "qna-answer-audio") {
+      return `raw/qna/${projectId}/${fileId}/${safeName}`;
+    }
+
     return `projects/${projectId}/assets/${fileId}-${safeName}`;
   }
 
@@ -357,6 +391,7 @@ export class FilesService {
     fileId: string;
     key: string;
     contentType: string;
+    purpose: FilePurpose;
     expiresInSeconds: number;
     requestOrigin?: string | null;
   }) {

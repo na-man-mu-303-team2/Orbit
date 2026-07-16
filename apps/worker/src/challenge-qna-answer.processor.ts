@@ -39,7 +39,10 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
     if (row.input_mode === "text") answerText = await evidenceCache.take(payload.answerAttemptId);
     else {
       if (!row.storage_key || !row.audio_file_id || !row.mime_type) throw new Error("ANSWER_EVIDENCE_UNAVAILABLE");
-      const storageUrl = await storage.getSignedReadUrl(row.storage_key);
+      const storageUrl = await storage.getSignedReadUrl(
+        row.storage_key,
+        "qna-answer-audio",
+      );
       const response = await fetch(new URL("/audio/transcribe-private",pythonWorkerUrl),{method:"POST",headers:{"content-type":"application/json"},signal:AbortSignal.timeout(120_000),body:JSON.stringify({runId:payload.answerAttemptId,projectId:payload.projectId,audio:{fileId:row.audio_file_id,storageUrl,mimeType:row.mime_type}})});
       if (!response.ok) throw new Error("TRANSCRIPTION_FAILED");
       answerText=z.object({transcript:z.string()}).passthrough().parse(await response.json()).transcript;
@@ -65,7 +68,7 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
 
 async function cleanupVoice(dataSource:DataSource,storage:Pick<StoragePort,"removeObject">,row:z.infer<typeof rowSchema>) {
   if (row.input_mode!=="voice"||!row.storage_key||!row.audio_file_id) return null;
-  try { await storage.removeObject(row.storage_key); const deletedAt=new Date().toISOString(); await dataSource.query(`UPDATE project_assets SET status='deleted',deleted_at=$3 WHERE project_id=$1 AND file_id=$2`,[row.project_id,row.audio_file_id,deletedAt]); return deletedAt; }
+  try { await storage.removeObject(row.storage_key,"qna-answer-audio"); const deletedAt=new Date().toISOString(); await dataSource.query(`UPDATE project_assets SET status='deleted',deleted_at=$3 WHERE project_id=$1 AND file_id=$2`,[row.project_id,row.audio_file_id,deletedAt]); return deletedAt; }
   catch { const hash=createHash("sha256").update(row.storage_key).digest("hex"); const now=new Date().toISOString(); await dataSource.query(`INSERT INTO storage_deletion_outbox (deletion_id,project_id,file_id,storage_key,storage_key_hash,purpose,status,attempt_count,next_attempt_at,created_at) VALUES ($1,$2,$3,$4,$5,'qna-answer-audio','pending',0,$6,$6) ON CONFLICT (storage_key_hash) DO NOTHING`,[`deletion_${hash.slice(0,32)}`,row.project_id,row.audio_file_id,row.storage_key,hash,now]); return null; }
 }
 function updateJob(ds:DataSource,id:string,status:"running"|"succeeded"|"failed",progress:number,message:string,result:Record<string,unknown>|null,error:{code:string;message:string}|null){return ds.query(`UPDATE jobs SET status=$2,progress=$3,message=$4,result=$5,error=$6,updated_at=now() WHERE job_id=$1 RETURNING *`,[id,status,progress,message,result,error]).then((rows)=>toJob(firstQueryRow(rows)));}

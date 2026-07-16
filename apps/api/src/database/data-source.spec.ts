@@ -55,4 +55,18 @@ describe("databaseOptions", () => {
       ),
     ).toBe(true);
   });
+
+  it("registers the fourteen-day evidence retention migration", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+
+    expect(
+      migrations.some(
+        (migration) =>
+          typeof migration === "function" &&
+          migration.name === "SetEvidenceClipRetention14Days2026071604000",
+      ),
+    ).toBe(true);
+  });
 });

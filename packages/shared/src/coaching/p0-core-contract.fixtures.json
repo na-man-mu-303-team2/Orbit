@@ -179,9 +179,9 @@
     "durationMs": 12000,
     "accessPolicy": "owner-only",
     "retentionPolicyVersion": 1,
-    "retentionDays": 7,
+    "retentionDays": 14,
     "state": "available",
-    "expiresAt": "2026-07-20T00:00:00.000Z",
+    "expiresAt": "2026-07-27T00:00:00.000Z",
     "deletedAt": null,
     "createdAt": "2026-07-13T00:00:00.000Z",
     "updatedAt": "2026-07-13T00:00:01.000Z"

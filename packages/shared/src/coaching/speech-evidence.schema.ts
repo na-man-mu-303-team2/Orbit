@@ -251,7 +251,7 @@ export const evidenceClipSchema = z
     durationMs: z.number().int().positive().max(12_000),
     accessPolicy: z.literal("owner-only"),
     retentionPolicyVersion: z.literal(1),
-    retentionDays: z.literal(7),
+    retentionDays: z.literal(14),
     state: z.enum(["available", "failed", "expired", "deleted"]),
     expiresAt: isoDateTimeSchema.nullable(),
     deletedAt: isoDateTimeSchema.nullable(),

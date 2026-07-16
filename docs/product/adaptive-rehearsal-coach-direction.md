@@ -1100,7 +1100,7 @@ AnswerGuide는 전체 모범 답안을 자유 생성하는 계약이 아니다. 
 - STT confidence는 provider가 실제 제공한 경우에만 사용한다. confidence가 없으면 값을 추정하지 않고 provider/language별 승인 정책을 명시한다.
 - pause v2는 위치와 분류 capability를 기록한다. 근거가 없으면 의도한 멈춤이나 말막힘으로 추정하지 않고 `unknown`으로 둔다.
 - Focused Practice에 SHA-256 문장 snapshot을 가진 `sentence` target을 추가한다. 30~60초는 권장 길이이며 기존 5분 hard maximum은 유지한다.
-- 문제 근거용 파생 Evidence Clip은 최대 12초, 기본 7일, Owner-only다. raw audio 즉시 삭제 정책은 유지하고, clip이 없어도 report는 bounded evidence로 완성한다.
+- 문제 근거용 파생 Evidence Clip은 최대 12초, 기본 14일, Owner-only다. raw audio 즉시 삭제 정책은 유지하고, clip이 없어도 report는 bounded evidence로 완성한다.
 - P0 Presenter Aid는 전체 script를 숨기고 남은 시간, keyword 최대 3개, 미해결 문제 최대 1개만 보여 준다.
 - 이 Evidence Clip은 Later 후보인 30~60초 모범 발화 audio가 아니다. 두 기능은 생성 목적, 접근 권한, 보존 정책을 분리한다.
 

@@ -1,4 +1,4 @@
-import { FilePurpose } from "@orbit/shared";
+import { privateAudioPurposes, type FilePurpose } from "@orbit/shared";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -20,6 +20,7 @@ export interface StorageUploadUrlInput {
   key: string;
   contentType: string;
   expiresInSeconds: number;
+  purpose?: FilePurpose;
 }
 
 export interface StorageUploadUrl {
@@ -46,9 +47,76 @@ export interface StorageHeadResult {
 export interface StoragePort {
   putObject(input: StoragePutInput): Promise<StorageObject>;
   createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl>;
-  getSignedReadUrl(key: string): Promise<string>;
-  removeObject(key: string): Promise<void>;
-  headObject(key: string): Promise<StorageHeadResult | null>;
+  getSignedReadUrl(key: string, purpose?: FilePurpose): Promise<string>;
+  removeObject(key: string, purpose?: FilePurpose): Promise<void>;
+  headObject(key: string, purpose?: FilePurpose): Promise<StorageHeadResult | null>;
+}
+
+export interface PurposeRoutedStorageOptions {
+  projectAssets: StoragePort;
+  privateAudio: StoragePort;
+  privateAudioWritesEnabled: boolean;
+}
+
+export class PurposeRoutedStorage implements StoragePort {
+  constructor(private readonly options: PurposeRoutedStorageOptions) {}
+
+  async putObject(input: StoragePutInput): Promise<StorageObject> {
+    return this.writeTarget(input.purpose).putObject(input);
+  }
+
+  async createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl> {
+    return this.writeTarget(input.purpose).createUploadUrl(input);
+  }
+
+  async getSignedReadUrl(key: string, purpose?: FilePurpose): Promise<string> {
+    return this.readTarget(key, purpose).getSignedReadUrl(key, purpose);
+  }
+
+  async headObject(
+    key: string,
+    purpose?: FilePurpose,
+  ): Promise<StorageHeadResult | null> {
+    return this.readTarget(key, purpose).headObject(key, purpose);
+  }
+
+  async removeObject(key: string, purpose?: FilePurpose): Promise<void> {
+    const target = this.readTarget(key, purpose);
+    await target.removeObject(key, purpose);
+  }
+
+  private writeTarget(purpose?: FilePurpose): StoragePort {
+    if (
+      isPrivateAudioPurpose(purpose) &&
+      this.options.privateAudioWritesEnabled
+    ) {
+      return this.options.privateAudio;
+    }
+
+    return this.options.projectAssets;
+  }
+
+  private readTarget(key: string, purpose?: FilePurpose): StoragePort {
+    if (!isPrivateAudioPurpose(purpose) || this.usesOnePhysicalBucket()) {
+      return this.options.projectAssets;
+    }
+
+    return isPrivateAudioKey(key)
+      ? this.options.privateAudio
+      : this.options.projectAssets;
+  }
+
+  private usesOnePhysicalBucket(): boolean {
+    return this.options.projectAssets === this.options.privateAudio;
+  }
+}
+
+function isPrivateAudioPurpose(purpose?: FilePurpose): boolean {
+  return purpose !== undefined && privateAudioPurposes.has(purpose);
+}
+
+function isPrivateAudioKey(key: string): boolean {
+  return key.startsWith("raw/") || key.startsWith("evidence/");
 }
 
 export interface S3CompatibleStorageOptions {

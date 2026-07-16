@@ -68,7 +68,9 @@ services:
       - |
         mc alias set local http://minio:9000 orbit orbit-password
         mc mb --ignore-existing local/orbit-local
+        mc mb --ignore-existing local/orbit-local-private-audio
         mc anonymous set download local/orbit-local
+        mc anonymous set none local/orbit-local-private-audio
 
   api:
     build:
@@ -88,6 +90,8 @@ services:
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
+      S3_PRIVATE_AUDIO_BUCKET: ${S3_PRIVATE_AUDIO_BUCKET:-orbit-local-private-audio}
+      PRIVATE_AUDIO_STORAGE_ENABLED: "${PRIVATE_AUDIO_STORAGE_ENABLED:-true}"
       PYTHON_WORKER_URL: http://python-worker:8000
       ADAPTIVE_REHEARSAL_COACH_ENABLED: "${ADAPTIVE_REHEARSAL_COACH_ENABLED:-true}"
       FOCUSED_PRACTICE_ENABLED: "${FOCUSED_PRACTICE_ENABLED:-true}"
@@ -124,6 +128,8 @@ services:
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
+      S3_PRIVATE_AUDIO_BUCKET: ${S3_PRIVATE_AUDIO_BUCKET:-orbit-local-private-audio}
+      PRIVATE_AUDIO_STORAGE_ENABLED: "${PRIVATE_AUDIO_STORAGE_ENABLED:-true}"
       PYTHON_WORKER_URL: http://python-worker:8000
       ADAPTIVE_REHEARSAL_COACH_ENABLED: ${ADAPTIVE_REHEARSAL_COACH_ENABLED:-false}
       FOCUSED_PRACTICE_ENABLED: ${FOCUSED_PRACTICE_ENABLED:-false}
@@ -138,8 +144,8 @@ services:
         condition: service_healthy
       private-evidence-redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   python-worker:
     build:

@@ -23,6 +23,31 @@ describe("workerStorage", () => {
     );
     expect(readUrl.searchParams.get("X-Amz-Signature")).toBeTruthy();
   });
+
+  it("routes enabled private-audio writes to the private MinIO bucket", async () => {
+    stubWorkerEnv({
+      S3_ENDPOINT: "http://minio:9000",
+      S3_PUBLIC_ENDPOINT: "http://localhost:9000",
+      S3_PRIVATE_AUDIO_BUCKET: "orbit-local-private-audio",
+      PRIVATE_AUDIO_STORAGE_ENABLED: "true",
+    });
+
+    const storage = workerStorage();
+    const uploadUrl = new URL(
+      (
+        await storage.createUploadUrl({
+          key: "raw/rehearsals/project-a/run-a/audio.ogg",
+          contentType: "audio/ogg",
+          expiresInSeconds: 900,
+          purpose: "rehearsal-audio",
+        })
+      ).url,
+    );
+
+    expect(uploadUrl.pathname).toBe(
+      "/orbit-local-private-audio/raw/rehearsals/project-a/run-a/audio.ogg",
+    );
+  });
 });
 
 function stubWorkerEnv(overrides: Record<string, string> = {}) {
@@ -44,6 +69,8 @@ function stubWorkerEnv(overrides: Record<string, string> = {}) {
     S3_ENDPOINT: "http://localhost:9000",
     S3_PUBLIC_ENDPOINT: "http://localhost:9000",
     S3_BUCKET: "orbit-local",
+    S3_PRIVATE_AUDIO_BUCKET: "orbit-local-private-audio",
+    PRIVATE_AUDIO_STORAGE_ENABLED: "false",
     S3_REGION: "ap-northeast-2",
     S3_ACCESS_KEY_ID: "orbit",
     S3_SECRET_ACCESS_KEY: "orbit-password",
