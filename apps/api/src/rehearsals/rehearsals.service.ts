@@ -184,6 +184,8 @@ export class RehearsalsService {
         projectId,
         deckId: request.deckId,
         audioFileId: null,
+        transcriptJsonFileId: null,
+        transcriptTextFileId: null,
         jobId: null,
         deckVersion: evaluationSnapshot?.deckVersion ?? null,
         evaluationSnapshot,
