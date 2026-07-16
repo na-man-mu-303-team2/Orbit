@@ -1,15 +1,23 @@
-import type { ActivitySessionResultItem } from "@orbit/shared";
-import { useQuery } from "@tanstack/react-query";
+import type { ActivitySessionResultItem, ProjectMemberRole } from "@orbit/shared";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconArrowLeft,
   IconChartBar,
   IconClock,
   IconPresentation,
-  IconRefresh
+  IconRefresh,
+  IconTrash
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { OrbitButton, OrbitEmptyState, OrbitStatus } from "../../../design-system";
+import {
+  OrbitButton,
+  OrbitDialog,
+  OrbitEmptyState,
+  OrbitField,
+  OrbitInput,
+  OrbitStatus
+} from "../../../design-system";
 import { activityApi } from "../api/activityApi";
 import { activityQueryKeys } from "../model/activityQueryKeys";
 import "./activity-results-page.css";
@@ -18,6 +26,7 @@ export function ActivityResultsPage(props: {
   projectId: string;
   sessionId: string;
 }) {
+  const queryClient = useQueryClient();
   const archive = useQuery({
     queryKey: activityQueryKeys.sessionResults(props.projectId, props.sessionId),
     queryFn: () => activityApi.getSessionResults(props.projectId, props.sessionId),
@@ -37,6 +46,27 @@ export function ActivityResultsPage(props: {
     retry: false
   });
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const access = useQuery({
+    queryKey: ["project-access-role", props.projectId],
+    queryFn: () => fetchProjectRole(props.projectId),
+    retry: false
+  });
+  const deleteResults = useMutation({
+    mutationFn: () =>
+      activityApi.deleteSessionResults(props.projectId, props.sessionId, {
+        confirmation: deleteConfirmation
+      }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(
+        activityQueryKeys.sessionResults(props.projectId, props.sessionId),
+        next
+      );
+      setDeleteDialogOpen(false);
+      setDeleteConfirmation("");
+    }
+  });
 
   useEffect(() => {
     if (
@@ -92,6 +122,19 @@ export function ActivityResultsPage(props: {
         <OrbitStatus tone={availabilityTone(selected?.availability)}>
           {availabilityLabel(selected?.availability)}
         </OrbitStatus>
+        {canDeleteSessionResults(
+          access.data ?? null,
+          archive.data.session.resultsDeletedAt
+        ) ? (
+          <OrbitButton
+            className="activity-results-delete-button"
+            icon={<IconTrash aria-hidden="true" size={17} />}
+            variant="quiet"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            이 세션 결과 영구 삭제
+          </OrbitButton>
+        ) : null}
       </header>
 
       <div className="activity-results-layout">
@@ -148,7 +191,17 @@ export function ActivityResultsPage(props: {
 
         <section aria-live="polite" className="activity-results-detail">
           {selected ? (
-            <ActivityResultArchiveDetail item={selected} />
+            <ActivityResultArchiveDetail
+              item={selected}
+              projectId={props.projectId}
+              sessionId={props.sessionId}
+              onUpdated={(next) => {
+                queryClient.setQueryData(
+                  activityQueryKeys.sessionResults(props.projectId, props.sessionId),
+                  next
+                );
+              }}
+            />
           ) : (
             <OrbitEmptyState
               description="왼쪽 목록에서 확인할 참여 장표를 선택하세요."
@@ -157,12 +210,61 @@ export function ActivityResultsPage(props: {
           )}
         </section>
       </div>
+      <OrbitDialog
+        open={deleteDialogOpen}
+        title="세션 결과를 영구 삭제할까요?"
+        description="모든 응답 원문과 집계를 즉시 삭제하며 복구할 수 없습니다. 계속하려면 아래 세션 이름을 정확히 입력하세요."
+        onClose={() => {
+          if (!deleteResults.isPending) setDeleteDialogOpen(false);
+        }}
+        closeDisabled={deleteResults.isPending}
+        footer={
+          <>
+            <OrbitButton
+              disabled={deleteResults.isPending}
+              variant="secondary"
+              onClick={() => setDeleteDialogOpen(false)}
+            >
+              취소
+            </OrbitButton>
+            <OrbitButton
+              disabled={
+                deleteResults.isPending ||
+                !isDeleteConfirmationValid(
+                  deleteConfirmation,
+                  archive.data.sessionName
+                )
+              }
+              onClick={() => deleteResults.mutate()}
+            >
+              {deleteResults.isPending ? "삭제 중" : "영구 삭제"}
+            </OrbitButton>
+          </>
+        }
+      >
+        <p className="activity-results-confirmation-name">{archive.data.sessionName}</p>
+        <OrbitField
+          id="activity-results-delete-confirmation"
+          label="세션 이름"
+          error={deleteResults.isError ? "영구 삭제에 실패했습니다. 다시 시도해 주세요." : undefined}
+        >
+          <OrbitInput
+            autoComplete="off"
+            data-orbit-dialog-initial
+            value={deleteConfirmation}
+            onChange={(event) => setDeleteConfirmation(event.currentTarget.value)}
+          />
+        </OrbitField>
+      </OrbitDialog>
     </main>
   );
 }
 
 export function ActivityResultArchiveDetail(props: {
   item: ActivitySessionResultItem;
+  onUpdated?: (next: Awaited<ReturnType<typeof activityApi.getSessionResults>>) => void;
+  projectId?: string;
+  sessionId?: string;
 }) {
   const { item } = props;
   if (item.availability === "results-deleted") {
@@ -235,12 +337,71 @@ export function ActivityResultArchiveDetail(props: {
               <li key={entry.entryId}>
                 <p>{entry.text}</p>
                 <span>{entry.displayName ?? "익명"} · {entry.moderationStatus}</span>
+                {props.projectId && props.sessionId ? (
+                  <ActivityTextModerationControls
+                    entry={entry}
+                    projectId={props.projectId}
+                    revision={item.result!.revision}
+                    sessionId={props.sessionId}
+                    onUpdated={props.onUpdated}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
         </section>
       ) : null}
     </article>
+  );
+}
+
+function ActivityTextModerationControls(props: {
+  entry: NonNullable<ActivitySessionResultItem["result"]>["textEntries"][number];
+  onUpdated?: (next: Awaited<ReturnType<typeof activityApi.getSessionResults>>) => void;
+  projectId: string;
+  revision: number;
+  sessionId: string;
+}) {
+  const queryClient = useQueryClient();
+  const moderation = useMutation({
+    mutationFn: (input: { moderationStatus?: "approved" | "hidden"; answered?: boolean }) =>
+      activityApi.moderateTextEntry(
+        props.projectId,
+        props.sessionId,
+        props.entry.entryId,
+        { ...input, expectedRevision: props.revision }
+      ),
+    onSuccess: async () => {
+      const next = await activityApi.getSessionResults(
+        props.projectId,
+        props.sessionId
+      );
+      queryClient.setQueryData(
+        activityQueryKeys.sessionResults(props.projectId, props.sessionId),
+        next
+      );
+      props.onUpdated?.(next);
+    }
+  });
+  return (
+    <div aria-label="주관식 응답 관리" className="activity-results-moderation-controls">
+      <OrbitButton
+        disabled={moderation.isPending}
+        variant="secondary"
+        onClick={() => moderation.mutate({ moderationStatus: "approved" })}
+      >승인</OrbitButton>
+      <OrbitButton
+        disabled={moderation.isPending}
+        variant="quiet"
+        onClick={() => moderation.mutate({ moderationStatus: "hidden" })}
+      >숨김</OrbitButton>
+      <OrbitButton
+        disabled={moderation.isPending}
+        variant="quiet"
+        onClick={() => moderation.mutate({ answered: props.entry.answeredAt === null })}
+      >{props.entry.answeredAt === null ? "답변 완료" : "답변 취소"}</OrbitButton>
+      {moderation.isError ? <span role="alert">상태 변경에 실패했습니다.</span> : null}
+    </div>
   );
 }
 
@@ -278,4 +439,31 @@ function availabilityTone(value: ActivitySessionResultItem["availability"] | und
   if (value === "results-deleted") return "warning" as const;
   if (value === "aggregate-only") return "info" as const;
   return "success" as const;
+}
+
+export function canDeleteSessionResults(
+  role: ProjectMemberRole | null,
+  resultsDeletedAt: string | null
+) {
+  return role === "owner" && resultsDeletedAt === null;
+}
+
+export function isDeleteConfirmationValid(value: string, sessionName: string) {
+  return value.trim() === sessionName;
+}
+
+async function fetchProjectRole(projectId: string): Promise<ProjectMemberRole | null> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
+    { credentials: "include" }
+  );
+  if (!response.ok) throw new Error("Project access unavailable");
+  const body = await response.json() as {
+    membership?: { role?: unknown; status?: unknown } | null;
+  };
+  const role = body.membership?.role;
+  return body.membership?.status === "accepted" &&
+    (role === "owner" || role === "editor" || role === "viewer")
+    ? role
+    : null;
 }

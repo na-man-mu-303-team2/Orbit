@@ -8,11 +8,13 @@ import {
   getActivityPresenterResultResponseSchema,
   getActivityPublicResultResponseSchema,
   getPresentationSessionResultsResponseSchema,
+  type DeletePresentationSessionResultsRequest,
   getAudienceActiveActivityResponseSchema,
   getAudienceActivityResponseSchema
 } from "@orbit/shared";
 import type { ActivityAnswer, ActivityPresenterResult, ActivityPublicResult } from "@orbit/shared";
-import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import { PresentationSessionsService } from "../presentation-sessions/presentation-sessions.service";
 
@@ -28,7 +30,10 @@ export class ActivityResultsService {
   constructor(
     private readonly repository: ActivityResultsRepository,
     @Optional()
-    private readonly presentationSessionsService?: PresentationSessionsService
+    private readonly presentationSessionsService?: PresentationSessionsService,
+    @InjectPinoLogger(ActivityResultsService.name)
+    @Optional()
+    private readonly logger?: PinoLogger
   ) {}
 
   async getSessionArchive(projectId: string, sessionId: string) {
@@ -62,9 +67,46 @@ export class ActivityResultsService {
     });
   }
 
+  async deleteSessionResults(
+    projectId: string,
+    sessionId: string,
+    input: DeletePresentationSessionResultsRequest
+  ) {
+    if (!this.presentationSessionsService) {
+      throw new NotFoundException("Presentation session service unavailable");
+    }
+    const session = await this.presentationSessionsService.getSessionForPresenter(
+      projectId,
+      sessionId
+    );
+    const sessionName = createSessionName(session.sessionId, session.createdAt);
+    if (input.confirmation.trim() !== sessionName) {
+      throw new ConflictException("Presentation session name confirmation does not match");
+    }
+    const deleted = await this.repository.transaction((manager) =>
+      this.repository.hardDeleteSessionResults(
+        manager,
+        projectId,
+        sessionId,
+        new Date()
+      )
+    );
+    if (!deleted) throw new NotFoundException("Presentation session not found");
+    this.logger?.info(
+      {
+        event: "activity_results.deleted",
+        projectId,
+        presentationSessionId: sessionId
+      },
+      "presentation session activity results permanently deleted"
+    );
+    return this.getSessionArchive(projectId, sessionId);
+  }
+
   async getPresenterResult(projectId: string, sessionId: string, runId: string) {
     const run = await this.repository.findRun(projectId, sessionId, runId);
     if (!run) throw new NotFoundException("Activity run not found");
+    if (run.results_deleted_at) throw new NotFoundException("Activity results deleted");
     return getActivityPresenterResultResponseSchema.parse({
       result: await this.buildPresenterResult(run)
     });
@@ -74,7 +116,10 @@ export class ActivityResultsService {
     const run = await this.repository.findRun(projectId, sessionId, runId);
     if (!run) throw new NotFoundException("Activity run not found");
     return getActivityPublicResultResponseSchema.parse({
-      result: run.status === "results" ? await this.buildPublicResult(run) : null
+      result:
+        !run.results_deleted_at && run.status === "results"
+          ? await this.buildPublicResult(run)
+          : null
     });
   }
 
@@ -85,7 +130,7 @@ export class ActivityResultsService {
     audienceId: string
   ) {
     const run = await this.repository.findCurrentRun(projectId, sessionId, activityId);
-    if (!run) throw new NotFoundException("Activity run not found");
+    if (!run || run.results_deleted_at) throw new NotFoundException("Activity run not found");
     return this.buildAudienceActivity(run, audienceId);
   }
 
@@ -96,7 +141,7 @@ export class ActivityResultsService {
   ) {
     const run = await this.repository.findActiveRun(projectId, sessionId);
     return getAudienceActiveActivityResponseSchema.parse({
-      activity: run ? await this.buildAudienceActivity(run, audienceId) : null
+      activity: run && !run.results_deleted_at ? await this.buildAudienceActivity(run, audienceId) : null
     });
   }
 

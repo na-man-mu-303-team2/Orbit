@@ -25,6 +25,7 @@ import type {
   UpdateActivityRunStatusRequest,
   UpsertActivityResponseRequest
 } from "@orbit/shared";
+import type { DeletePresentationSessionResultsRequest } from "@orbit/shared";
 export const activityApi = {
   getCurrentSession(projectId: string, deckId: string) {
     return request(
@@ -72,6 +73,17 @@ export const activityApi = {
     return request(
       presenterActivityUrl(projectId, sessionId, "results"),
       undefined,
+      getPresentationSessionResultsResponseSchema
+    );
+  },
+  deleteSessionResults(
+    projectId: string,
+    sessionId: string,
+    input: DeletePresentationSessionResultsRequest
+  ) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, "results"),
+      jsonRequest("DELETE", input),
       getPresentationSessionResultsResponseSchema
     );
   },

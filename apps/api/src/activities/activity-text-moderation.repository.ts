@@ -37,6 +37,7 @@ export class ActivityTextModerationRepository {
           ON sessions.project_id = runs.project_id
          AND sessions.session_id = runs.session_id
         WHERE entries.project_id = $1 AND runs.session_id = $2 AND entries.entry_id = $3
+          AND sessions.results_deleted_at IS NULL
         FOR UPDATE OF runs, entries
       `,
       [projectId, sessionId, entryId]

@@ -43,6 +43,10 @@ export const getPresentationSessionResultsResponseSchema = z
   })
   .strict();
 
+export const deletePresentationSessionResultsRequestSchema = z
+  .object({ confirmation: z.string().trim().min(1).max(120) })
+  .strict();
+
 export const updateActivityRunStatusRequestSchema = z
   .object({
     status: activityRuntimeStatusSchema,
@@ -138,4 +142,7 @@ export type ActivitySessionResultItem = z.infer<
 >;
 export type GetPresentationSessionResultsResponse = z.infer<
   typeof getPresentationSessionResultsResponseSchema
+>;
+export type DeletePresentationSessionResultsRequest = z.infer<
+  typeof deletePresentationSessionResultsRequestSchema
 >;

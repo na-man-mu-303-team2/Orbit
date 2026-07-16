@@ -24,6 +24,12 @@
   margin: 0 auto 28px;
 }
 
+.activity-results-delete-button {
+  grid-column: 2;
+  justify-self: end;
+  color: #b8443c;
+}
+
 .activity-results-header > a {
   grid-column: 1 / -1;
   align-items: center;
@@ -231,6 +237,31 @@
   font-size: 12px;
 }
 
+.activity-results-moderation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.activity-results-moderation-controls .orbit-ds-button {
+  min-height: 36px;
+}
+
+.activity-results-moderation-controls [role="alert"] {
+  flex-basis: 100%;
+  color: #b8443c;
+  font-size: 12px;
+}
+
+.activity-results-confirmation-name {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f7f5;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .activity-results-loading {
   display: grid;
   justify-items: center;
@@ -273,6 +304,11 @@
   .activity-results-header {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+
+  .activity-results-delete-button {
+    grid-column: 1;
+    justify-self: start;
   }
 
   .activity-results-layout {

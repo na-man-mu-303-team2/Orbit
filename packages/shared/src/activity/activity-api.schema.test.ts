@@ -7,6 +7,7 @@ import {
 import {
   getAudienceActiveActivityResponseSchema,
   getCurrentActivityRunResponseSchema,
+  deletePresentationSessionResultsRequestSchema,
   updateActivityRunStatusRequestSchema,
   upsertActivityResponseRequestSchema
 } from "./activity-api.schema";
@@ -102,5 +103,19 @@ describe("activity API boundary schemas", () => {
   it("represents an activity with no run explicitly", () => {
     expect(getCurrentActivityRunResponseSchema.safeParse({ run: null }).success).toBe(true);
     expect(getCurrentActivityRunResponseSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("requires an exact, strict hard-delete confirmation payload", () => {
+    expect(
+      deletePresentationSessionResultsRequestSchema.safeParse({
+        confirmation: "발표 세션 2026-07-17 abcdef12"
+      }).success
+    ).toBe(true);
+    expect(
+      deletePresentationSessionResultsRequestSchema.safeParse({
+        confirmation: "발표 세션 2026-07-17 abcdef12",
+        force: true
+      }).success
+    ).toBe(false);
   });
 });

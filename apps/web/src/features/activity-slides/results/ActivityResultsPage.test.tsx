@@ -5,9 +5,14 @@ import {
   type ActivitySessionResultItem
 } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
-import { ActivityResultArchiveDetail } from "./ActivityResultsPage";
+import {
+  ActivityResultArchiveDetail,
+  canDeleteSessionResults,
+  isDeleteConfirmationValid
+} from "./ActivityResultsPage";
 
 const source = createActivitySlide(createDemoDeck(), "pre-question");
 const run = activityRunSchema.parse({
@@ -86,5 +91,32 @@ describe("ActivityResultsPage detail states", () => {
     );
     expect(html).toContain("결과가 영구 삭제되었습니다");
     expect(html).toContain("복구할 수 없습니다");
+  });
+
+  it("shows keyboard moderation controls to editor surfaces", () => {
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <ActivityResultArchiveDetail
+          item={item("raw-retained")}
+          projectId="project_1"
+          sessionId="session_1"
+        />
+      </QueryClientProvider>
+    );
+    expect(html).toContain("승인");
+    expect(html).toContain("숨김");
+    expect(html).toContain("답변 완료");
+  });
+
+  it("shows hard delete only to owners before deletion", () => {
+    expect(canDeleteSessionResults("owner", null)).toBe(true);
+    expect(canDeleteSessionResults("editor", null)).toBe(false);
+    expect(canDeleteSessionResults("viewer", null)).toBe(false);
+    expect(canDeleteSessionResults("owner", "2026-07-17T00:00:00.000Z")).toBe(false);
+  });
+
+  it("requires the exact session name for destructive confirmation", () => {
+    expect(isDeleteConfirmationValid(" 발표 세션 1 ", "발표 세션 1")).toBe(true);
+    expect(isDeleteConfirmationValid("발표 세션", "발표 세션 1")).toBe(false);
   });
 });

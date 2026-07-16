@@ -75,11 +75,18 @@ function createService(
   status: typeof run.status | "closed" = "results",
   retention: "raw-retained" | "aggregate-only" | "results-deleted" = "raw-retained"
 ) {
+  let resultsDeleted = retention === "results-deleted";
+  const manager = {} as never;
   const repository = {
+    transaction: vi.fn(async (work) => work(manager)),
     findRun: vi.fn().mockResolvedValue({ ...run, status }),
     findCurrentRun: vi.fn().mockResolvedValue({ ...run, status }),
     findActiveRun: vi.fn().mockResolvedValue({ ...run, status }),
     listSessionRuns: vi.fn().mockResolvedValue([{ ...run, status }]),
+    hardDeleteSessionResults: vi.fn().mockImplementation(async () => {
+      resultsDeleted = true;
+      return true;
+    }),
     findOwnResponse: vi.fn().mockResolvedValue(responses[0]),
     listResponses: vi.fn().mockResolvedValue(responses),
     listTextEntries: vi.fn().mockResolvedValue([
@@ -104,7 +111,7 @@ function createService(
     ])
   } as unknown as ActivityResultsRepository;
   const presentationSessionsService = {
-    getSessionForPresenter: vi.fn().mockResolvedValue({
+    getSessionForPresenter: vi.fn().mockImplementation(async () => ({
       sessionId: "session_1",
       projectId: "project_1",
       deckId: "deck_1",
@@ -121,14 +128,21 @@ function createService(
       closedAt: "2026-07-17T00:20:00.000Z",
       rawResponsesDeleteAfter: "2026-10-15T00:20:00.000Z",
       rawResponsesDeletedAt: retention === "aggregate-only" ? "2026-10-15T00:20:00.000Z" : null,
-      resultsDeletedAt: retention === "results-deleted" ? "2026-07-17T00:21:00.000Z" : null,
+      resultsDeletedAt: resultsDeleted ? "2026-07-17T00:21:00.000Z" : null,
       createdAt: "2026-07-17T00:00:00.000Z",
       updatedAt: "2026-07-17T00:21:00.000Z"
-    })
+    }))
   };
+  const logger = { info: vi.fn() };
   return {
+    logger,
+    presentationSessionsService,
     repository,
-    service: new ActivityResultsService(repository, presentationSessionsService as never)
+    service: new ActivityResultsService(
+      repository,
+      presentationSessionsService as never,
+      logger as never
+    )
   };
 }
 
@@ -224,4 +238,51 @@ describe("ActivityResultsService", () => {
       });
     }
   );
+
+  it("requires the exact session name before permanent deletion", async () => {
+    const { repository, service } = createService();
+    await expect(
+      service.deleteSessionResults("project_1", "session_1", {
+        confirmation: "잘못된 이름"
+      })
+    ).rejects.toThrow("confirmation does not match");
+    expect(repository.hardDeleteSessionResults).not.toHaveBeenCalled();
+  });
+
+  it("permanently deletes a session and returns only the deleted state", async () => {
+    const { logger, repository, service } = createService();
+    const archive = await service.deleteSessionResults("project_1", "session_1", {
+      confirmation: "발표 세션 2026-07-17 ession_1"
+    });
+
+    expect(repository.hardDeleteSessionResults).toHaveBeenCalledWith(
+      expect.anything(),
+      "project_1",
+      "session_1",
+      expect.any(Date)
+    );
+    expect(archive.activities[0]).toMatchObject({
+      availability: "results-deleted",
+      result: null
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "activity_results.deleted" }),
+      expect.any(String)
+    );
+  });
+
+  it("returns no presenter or public result after deletion", async () => {
+    const { repository, service } = createService();
+    vi.mocked(repository.findRun).mockResolvedValue({
+      ...run,
+      results_deleted_at: "2026-07-17T00:21:00.000Z"
+    } as never);
+
+    await expect(
+      service.getPresenterResult("project_1", "session_1", "activity_run_1")
+    ).rejects.toThrow("Activity results deleted");
+    await expect(
+      service.getPublicResult("project_1", "session_1", "activity_run_1")
+    ).resolves.toEqual({ result: null });
+  });
 });
