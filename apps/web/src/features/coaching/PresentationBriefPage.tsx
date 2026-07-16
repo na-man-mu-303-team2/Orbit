@@ -24,6 +24,7 @@ import {
 import {
   fetchEvaluatorLenses,
   fetchPresentationBrief,
+  presentationBriefQueryKey,
   PresentationBriefConflictError,
   putPresentationBrief,
 } from "./presentationBriefApi";
@@ -59,7 +60,7 @@ export function PresentationBriefPage(props: { projectId: string }) {
   const { capabilities } = useProjectAccess(props.projectId);
   const queryClient = useQueryClient();
   const briefQuery = useQuery({
-    queryKey: ["presentation-brief", props.projectId],
+    queryKey: presentationBriefQueryKey(props.projectId),
     queryFn: () => fetchPresentationBrief(props.projectId),
     retry: false,
   });
@@ -136,7 +137,7 @@ export function PresentationBriefPage(props: { projectId: string }) {
         approvedReferenceFileIds: current?.approvedReferences.map((item) => item.fileId) ?? [],
       });
       hydratedRevision.current = saved.revision;
-      queryClient.setQueryData(["presentation-brief", props.projectId], saved);
+      queryClient.setQueryData(presentationBriefQueryKey(props.projectId), saved);
       setMessage(`브리프 ${saved.revision}차 저장 완료`);
       window.history.pushState({}, "", `/project/${encodeURIComponent(props.projectId)}`);
       window.dispatchEvent(new PopStateEvent("popstate"));

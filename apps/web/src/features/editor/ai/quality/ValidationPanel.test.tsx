@@ -47,6 +47,13 @@ function validationItem(
 }
 
 describe("ValidationPanel", () => {
+  it("accepts programmatic focus from the presentation journey", () => {
+    const html = renderPanel();
+
+    expect(html).toContain('data-testid="editor-validation-panel"');
+    expect(html).toContain('tabindex="-1"');
+  });
+
   it("renders a semantic target button without exposing raw identifiers", () => {
     const html = renderPanel({
       items: [validationItem()],

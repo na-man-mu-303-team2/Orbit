@@ -10,6 +10,10 @@ import {
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export function presentationBriefQueryKey(projectId: string) {
+  return ["presentation-brief", projectId] as const;
+}
+
 export async function fetchPresentationBrief(projectId: string, fetcher: Fetcher = fetch) {
   const response = await fetcher(
     `/api/v1/projects/${encodeURIComponent(projectId)}/presentation-brief`,

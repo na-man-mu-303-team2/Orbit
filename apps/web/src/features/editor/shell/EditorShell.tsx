@@ -224,6 +224,10 @@ import { io } from "socket.io-client";
 import type { Socket as ClientSocket } from "socket.io-client";
 import orbitLogo from "../../../assets/orbit-logo.png";
 import { AudienceLinkModal } from "../audience-link/AudienceLinkModal";
+import {
+  fetchPresentationBrief,
+  presentationBriefQueryKey
+} from "../../coaching/presentationBriefApi";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { createSafeTextOverflowRepair } from "../ai/quality/safeTextOverflowRepair";
@@ -237,6 +241,19 @@ import {
   type SemanticCueExtractionUiState
 } from "../semantic-cues/SemanticCueReviewPanel";
 import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReviewModel";
+import { PresentationJourneyPanel } from "../outcome/components/PresentationJourneyPanel";
+import {
+  createPresentationJourneyViewModel,
+  type PresentationJourneyAction,
+  type PresentationJourneySaveState
+} from "../outcome/presentationJourney";
+import {
+  createPresentationJourneyNavigationCoordinator,
+  type PresentationJourneyDestination,
+  type PresentationJourneyNavigationCoordinator,
+  type PresentationJourneyNavigationDependencies,
+  type PresentationJourneySaveOutcome
+} from "../outcome/presentationJourneyNavigation";
 import {
   SpeakerNotesAssistantDialog,
   SpeakerNotesLengthMeter,
@@ -1015,6 +1032,11 @@ function navigateToRehearsal(projectId: string, snapshotPreparationId?: string) 
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateToBrief(projectId: string) {
+  window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}/brief`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateToPresentation(projectId: string) {
   window.history.pushState({}, "", `/presentation/${encodeURIComponent(projectId)}`);
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -1647,7 +1669,9 @@ function EditorRuntime(props: {
   );
   const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionInspectorRef = useRef<HTMLElement | null>(null);
-  const [rightPanelView, setRightPanelView] = useState<"ai" | "design">("ai");
+  const [rightPanelView, setRightPanelView] = useState<
+    "journey" | "ai" | "design"
+  >("ai");
   const [aiPanelView, setAiPanelView] = useState<
     "chat" | "tools" | "semantic-cues"
   >("chat");
@@ -1789,8 +1813,30 @@ function EditorRuntime(props: {
   const [semanticCueExtractionState, setSemanticCueExtractionState] =
     useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
   const [activePresentationAction, setActivePresentationAction] = useState<
-    "presentation" | "rehearsal" | null
+    PresentationJourneyDestination | null
   >(null);
+  const [presentationJourneyStatus, setPresentationJourneyStatus] = useState("");
+  const presentationJourneyConflictRef = useRef(false);
+  const presentationJourneySnapshotRef = useRef<string | undefined>(undefined);
+  const presentationJourneyDependenciesRef =
+    useRef<PresentationJourneyNavigationDependencies | null>(null);
+  const presentationJourneyCoordinatorRef =
+    useRef<PresentationJourneyNavigationCoordinator | null>(null);
+  if (!presentationJourneyCoordinatorRef.current) {
+    presentationJourneyCoordinatorRef.current =
+      createPresentationJourneyNavigationCoordinator({
+        navigate: (destination) =>
+          presentationJourneyDependenciesRef.current?.navigate(destination),
+        prepare: (destination) =>
+          presentationJourneyDependenciesRef.current?.prepare?.(destination),
+        save: (destination) =>
+          presentationJourneyDependenciesRef.current?.save(destination) ?? {
+            status: "blocked",
+            reason: "save-error",
+            recoveryMessage: "발표 준비 상태를 확인한 뒤 다시 시도해 주세요."
+          }
+      });
+  }
   const [undoStack, setUndoStack] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const [isDeleteUndoToastOpen, setIsDeleteUndoToastOpen] = useState(false);
@@ -1833,6 +1879,11 @@ function EditorRuntime(props: {
     queryKey: ["deck", projectId],
     queryFn: () => fetchDeck(projectId),
     initialData: props.initialDeck,
+    retry: false
+  });
+  const presentationBriefQuery = useQuery({
+    queryKey: presentationBriefQueryKey(projectId),
+    queryFn: () => fetchPresentationBrief(projectId),
     retry: false
   });
 
@@ -2145,6 +2196,43 @@ function EditorRuntime(props: {
     () => getEditorValidationItems(deck),
     [deck]
   );
+  const presentationJourneyModel = useMemo(
+    () =>
+      createPresentationJourneyViewModel({
+        briefState: presentationBriefQuery.isPending
+          ? "loading"
+          : presentationBriefQuery.isError
+            ? "error"
+            : presentationBriefQuery.data
+              ? "ready"
+              : "missing",
+        capabilities,
+        quality: {
+          deckVersion: deck.version,
+          riskCount: editorValidationItems.filter(
+            (item) => item.severity === "risk"
+          ).length,
+          warningCount: editorValidationItems.filter(
+            (item) => item.severity === "warning"
+          ).length
+        },
+        saveState: toPresentationJourneySaveState(saveState)
+      }),
+    [
+      capabilities,
+      deck.version,
+      editorValidationItems,
+      presentationBriefQuery.data,
+      presentationBriefQuery.isError,
+      presentationBriefQuery.isPending,
+      saveState
+    ]
+  );
+  presentationJourneyDependenciesRef.current = {
+    navigate: navigateFromPresentationJourney,
+    prepare: preparePresentationJourneyDestination,
+    save: saveBeforePresentationJourneyNavigation
+  };
   const presentedEditorValidationItems = useMemo(
     () => presentEditorValidationItems(deck, editorValidationItems),
     [deck, editorValidationItems]
@@ -2810,72 +2898,47 @@ function EditorRuntime(props: {
     }
   }
 
-  async function handleStartPresentationAction(
-    destination: "presentation" | "rehearsal"
-  ) {
+  async function saveBeforePresentationJourneyNavigation(
+    destination: PresentationJourneyDestination
+  ): Promise<PresentationJourneySaveOutcome> {
     const activeProjectId = deckQuery.data?.projectId ?? projectId;
-
-    if (
-      (destination === "presentation" && !capabilities.canCreatePresentationSession) ||
-      (destination === "rehearsal" && !capabilities.canStartPersonalRehearsal)
-    ) {
-      return;
-    }
 
     if (isDeckLoading || !deckQuery.data) {
       setSaveState("auto-pending");
-      setSaveError(
-        "rehearsal-blocked",
-        destination === "presentation"
-          ? "발표 자료를 불러온 뒤 발표를 시작할 수 있습니다."
-          : "발표 자료를 불러온 뒤 리허설을 시작할 수 있습니다."
-      );
-      return;
-    }
-
-    if (activePresentationAction) {
-      return;
+      return {
+        status: "blocked",
+        reason: "save-error",
+        recoveryMessage: "발표 자료를 불러온 뒤 다시 시도해 주세요."
+      };
     }
 
     if (!activeProjectId) {
       setSaveState("error");
       setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
-      return;
-    }
-
-    if (destination === "rehearsal" && !canMutateDeck) {
-      setActivePresentationAction(destination);
-      setSaveError(null, null);
-      try {
-        const snapshots = await uploadRehearsalSlideSnapshots(
-          activeProjectId,
-          deckQuery.data
-        );
-        const snapshotPreparationId = storePreparedRehearsalSlideSnapshots({
-          deckId: deckQuery.data.deckId,
-          deckVersion: deckQuery.data.version,
-          projectId: activeProjectId,
-          snapshots
-        });
-        navigateToRehearsal(activeProjectId, snapshotPreparationId);
-      } catch (error) {
-        if (isEditorRuntimeMountedRef.current) {
-          setSaveState("error");
-          setSaveError("rehearsal-save-failed", toEditorErrorMessage(error));
-        }
-      } finally {
-        if (isEditorRuntimeMountedRef.current) {
-          setActivePresentationAction(null);
-        }
-      }
-      return;
-    }
-
-    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) {
-      return;
+      return {
+        status: "blocked",
+        reason: "save-error",
+        recoveryMessage: "저장할 프로젝트를 찾지 못했습니다. 새로고침해 주세요."
+      };
     }
 
     setActivePresentationAction(destination);
+    presentationJourneyConflictRef.current = false;
+    presentationJourneySnapshotRef.current = undefined;
+    setPresentationJourneyStatus("");
+
+    if (!canMutateDeck) {
+      return { status: "saved" };
+    }
+
+    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) {
+      return {
+        status: "blocked",
+        reason: "content-changed",
+        recoveryMessage: "발표 메모 편집을 마친 뒤 다시 시도해 주세요."
+      };
+    }
+
     setSaveState("manual-saving");
     setSaveError(null, null);
     setActiveTopMenu(null);
@@ -2891,62 +2954,170 @@ function EditorRuntime(props: {
         );
       }
 
+      if (presentationJourneyConflictRef.current) {
+        setSaveState("conflict-recovered");
+        return {
+          status: "blocked",
+          reason: "version-conflict",
+          recoveryMessage:
+            "최신 버전과 저장 충돌을 복구했습니다. 내용을 확인한 뒤 다시 시도해 주세요."
+        };
+      }
+
       if (
         !shouldApplyManualSaveResult({
           snapshotDeck: persistedDeck,
           currentDeck: workingDeckRef.current
         })
       ) {
-        throw new Error("리허설 준비 전에 편집 내용이 변경되었습니다. 저장 후 다시 시작해 주세요.");
-      }
-
-      let snapshotPreparationId: string | undefined;
-      if (destination === "rehearsal") {
-        const snapshots = await uploadRehearsalSlideSnapshots(
-          activeProjectId,
-          persistedDeck,
-        );
-        snapshotPreparationId = storePreparedRehearsalSlideSnapshots({
-          deckId: persistedDeck.deckId,
-          deckVersion: persistedDeck.version,
-          projectId: activeProjectId,
-          snapshots,
-        });
+        setSaveState("auto-pending");
+        return {
+          status: "blocked",
+          reason: "content-changed",
+          recoveryMessage:
+            "이동 준비 중 편집 내용이 변경되었습니다. 저장 후 다시 시도해 주세요."
+        };
       }
 
       applyPersistedDeck(persistedDeck);
       setLastSavedAt(new Date().toISOString());
-      setLastPatchLabel(
-        `${
-          destination === "presentation" ? "발표 화면 준비 완료" : "리허설 준비 완료"
-        } · v${persistedDeck.version}`
-      );
+      setLastPatchLabel(`발표 준비 저장 완료 · v${persistedDeck.version}`);
       setSaveState("manual-saved");
       setSaveError(null, null);
-      if (destination === "presentation") {
-        navigateToPresentation(activeProjectId);
-      } else {
-        navigateToRehearsal(activeProjectId, snapshotPreparationId);
-      }
+      return { status: "saved" };
     } catch (error) {
-      const message = toEditorErrorMessage(error);
+      const saveErrorCode =
+        (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ??
+        "rehearsal-save-failed";
+      const message =
+        saveErrorCode === "conflict-recovery-failed"
+          ? "최신 버전과 저장 충돌을 해결하지 못했습니다. 새로고침한 뒤 다시 시도해 주세요."
+          : "편집 내용을 저장하지 못했습니다. 다시 시도해 주세요.";
 
-      setLastPatchLabel(
-        `${destination === "presentation" ? "발표 준비 실패" : "리허설 준비 실패"} · ${message}`
-      );
+      setLastPatchLabel(`발표 준비 저장 실패 · ${message}`);
       setSaveState("error");
-      setSaveError("rehearsal-save-failed", message);
-    } finally {
-      setActivePresentationAction(null);
+      setSaveError(saveErrorCode, message);
+      throw new Error(message);
     }
   }
 
+  async function preparePresentationJourneyDestination(
+    destination: PresentationJourneyDestination
+  ) {
+    if (destination !== "rehearsal") {
+      return;
+    }
+
+    const activeProjectId = deckQuery.data?.projectId ?? projectId;
+    const sourceDeck = canMutateDeck
+      ? persistedBaseDeckRef.current ?? deckQuery.data
+      : deckQuery.data;
+    if (!activeProjectId || !sourceDeck) {
+      throw new Error("리허설 자료를 준비하지 못했습니다. 다시 불러와 주세요.");
+    }
+
+    const snapshots = await uploadRehearsalSlideSnapshots(
+      activeProjectId,
+      sourceDeck
+    );
+    presentationJourneySnapshotRef.current = storePreparedRehearsalSlideSnapshots({
+      deckId: sourceDeck.deckId,
+      deckVersion: sourceDeck.version,
+      projectId: activeProjectId,
+      snapshots
+    });
+  }
+
+  function navigateFromPresentationJourney(
+    destination: PresentationJourneyDestination
+  ) {
+    const activeProjectId = deckQuery.data?.projectId ?? projectId;
+    if (destination === "brief") {
+      navigateToBrief(activeProjectId);
+    } else if (destination === "rehearsal") {
+      navigateToRehearsal(
+        activeProjectId,
+        presentationJourneySnapshotRef.current
+      );
+    } else {
+      navigateToPresentation(activeProjectId);
+    }
+  }
+
+  async function handlePresentationJourneyNavigation(
+    destination: PresentationJourneyDestination
+  ) {
+    if (
+      (destination === "presentation" &&
+        !capabilities.canCreatePresentationSession) ||
+      (destination === "rehearsal" &&
+        !capabilities.canStartPersonalRehearsal) ||
+      (destination === "brief" &&
+        !capabilities.canEditBrief &&
+        !capabilities.canStartPersonalRehearsal)
+    ) {
+      return;
+    }
+
+    const result = await presentationJourneyCoordinatorRef.current?.navigate(
+      destination
+    );
+    if (!result || result.status === "ignored-duplicate") {
+      return;
+    }
+
+    if (result.status === "blocked") {
+      setPresentationJourneyStatus(result.recoveryMessage);
+      if (result.reason === "preparation-error") {
+        setSaveState("error");
+        setSaveError("rehearsal-save-failed", result.recoveryMessage);
+      }
+    }
+    setActivePresentationAction(null);
+  }
+
+  function handlePresentationJourneyAction(action: PresentationJourneyAction) {
+    if (action.id === "open-validation" || action.id === "focus-validation") {
+      setIsRightPanelOpen(true);
+      if (canMutateDeck) {
+        setRightPanelView("ai");
+        setAiPanelView("tools");
+      }
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>('[data-testid="editor-validation-panel"]')
+          ?.focus();
+      });
+      return;
+    }
+
+    const destination =
+      action.id === "edit-brief" || action.id === "view-brief"
+        ? "brief"
+        : action.id === "start-rehearsal"
+          ? "rehearsal"
+          : "presentation";
+    void handlePresentationJourneyNavigation(destination);
+  }
+
+  function handleOpenPresentationJourney() {
+    setIsRightPanelOpen(true);
+    if (canMutateDeck) {
+      setRightPanelView("journey");
+    }
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('[data-testid="presentation-journey-panel"]')
+        ?.focus();
+    });
+  }
+
   async function handleStartPresentation() {
-    await handleStartPresentationAction("presentation");
+    await handlePresentationJourneyNavigation("presentation");
   }
 
   async function handleStartRehearsal() {
-    await handleStartPresentationAction("rehearsal");
+    await handlePresentationJourneyNavigation("rehearsal");
   }
 
   async function flushPendingSavesBeforeManualAction() {
@@ -3008,6 +3179,7 @@ function EditorRuntime(props: {
         }
 
         recoveredConflict = true;
+        presentationJourneyConflictRef.current = true;
         persistedBaseDeckRef.current = latestDeck;
         buildResult = buildPatchBatch(latestDeck, batchInputs);
         persistedDeck = await appendProjectDeckPatchAck(
@@ -3304,7 +3476,7 @@ function EditorRuntime(props: {
       return;
     }
     event.preventDefault();
-    const views = ["ai", "design"] as const;
+    const views = ["journey", "ai", "design"] as const;
     const currentIndex = views.indexOf(rightPanelView);
     const direction = event.key === "ArrowRight" ? 1 : -1;
     const nextView = views[(currentIndex + direction + views.length) % views.length];
@@ -6136,13 +6308,13 @@ function EditorRuntime(props: {
             </span>
           ) : null}
           <button
-            aria-label="프레젠테이션 브리프 열기"
+            aria-label="발표 준비 경로 열기"
             className="editor-context-top-button"
-            onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }}
+            onClick={handleOpenPresentationJourney}
             type="button"
           >
             <FileText size={15} />
-            <span>브리프</span>
+            <span>발표 준비</span>
           </button>
           <button
             aria-label="버전 기록 열기"
@@ -6154,7 +6326,12 @@ function EditorRuntime(props: {
             <span>버전</span>
           </button>
           {capabilities.canCreatePresentationSession ? <PresentationMenu
-            activeStartAction={activePresentationAction}
+            activeStartAction={
+              activePresentationAction === "presentation" ||
+              activePresentationAction === "rehearsal"
+                ? activePresentationAction
+                : null
+            }
             canOpenAudienceLink={canOpenAudienceLink}
             canStartPresentation={canStartPresentation}
             isOpen={activeTopMenu === "presentation"}
@@ -6760,6 +6937,19 @@ function EditorRuntime(props: {
                 role="tablist"
               >
                 <button
+                  aria-controls="editor-journey-panel"
+                  aria-selected={rightPanelView === "journey"}
+                  className={rightPanelView === "journey" ? "active" : ""}
+                  id="editor-journey-tab"
+                  role="tab"
+                  tabIndex={rightPanelView === "journey" ? 0 : -1}
+                  type="button"
+                  onClick={() => setRightPanelView("journey")}
+                  onKeyDown={handleRightPanelTabKeyDown}
+                >
+                  발표 준비
+                </button>
+                <button
                   aria-controls="editor-ai-panel"
                   aria-selected={rightPanelView === "ai"}
                   className={rightPanelView === "ai" ? "active" : ""}
@@ -6787,6 +6977,20 @@ function EditorRuntime(props: {
                 </button>
               </div>
               <div className="assistant-panel-slot">
+                <div
+                  aria-labelledby="editor-journey-tab"
+                  className="assistant-panel-view editor-journey-panel"
+                  hidden={rightPanelView !== "journey"}
+                  id="editor-journey-panel"
+                  role="tabpanel"
+                >
+                  <PresentationJourneyPanel
+                    busy={activePresentationAction !== null}
+                    model={presentationJourneyModel}
+                    onAction={handlePresentationJourneyAction}
+                    statusMessage={presentationJourneyStatus}
+                  />
+                </div>
                 <div
                   aria-labelledby="editor-ai-tab"
                   className="assistant-panel-view editor-ai-coach-panel"
@@ -6883,6 +7087,14 @@ function EditorRuntime(props: {
           ) : (
             <div className="collapsed-right-rail">
               <button
+                aria-label="발표 준비 경로 열기"
+                className="compact-presentation-journey-button"
+                type="button"
+                onClick={handleOpenPresentationJourney}
+              >
+                <FileText aria-hidden="true" size={18} />
+              </button>
+              <button
                 aria-label="오른쪽 패널 펼치기"
                 className="collapse-right-pane-button"
                 type="button"
@@ -6917,6 +7129,12 @@ function EditorRuntime(props: {
                   </div>
                 </div>
                 <div className="viewer-selection-pane-content">
+                  <PresentationJourneyPanel
+                    busy={activePresentationAction !== null}
+                    model={presentationJourneyModel}
+                    onAction={handlePresentationJourneyAction}
+                    statusMessage={presentationJourneyStatus}
+                  />
                   <ValidationPanel
                     canRepair={false}
                     items={presentedEditorValidationItems}
@@ -6930,6 +7148,14 @@ function EditorRuntime(props: {
               </>
             ) : (
               <div className="collapsed-right-rail">
+                <button
+                  aria-label="발표 준비 경로 열기"
+                  className="compact-presentation-journey-button"
+                  type="button"
+                  onClick={handleOpenPresentationJourney}
+                >
+                  <FileText aria-hidden="true" size={18} />
+                </button>
                 <button
                   aria-label="오른쪽 패널 펼치기"
                   className="collapse-right-pane-button"
@@ -7271,6 +7497,16 @@ function pptxImportMenuMeta(state: PptxImportState) {
 
 function isSaveInFlight(saveState: SaveState) {
   return saveState === "auto-saving" || saveState === "manual-saving";
+}
+
+function toPresentationJourneySaveState(
+  saveState: SaveState
+): PresentationJourneySaveState {
+  if (saveState === "error") return "error";
+  if (saveState === "conflict-recovered") return "conflict";
+  if (saveState === "auto-pending") return "pending";
+  if (isSaveInFlight(saveState)) return "saving";
+  return "saved";
 }
 
 function getSaveErrorStatusLabel(saveErrorCode: SaveErrorCode | null) {
