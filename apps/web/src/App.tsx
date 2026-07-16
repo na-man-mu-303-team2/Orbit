@@ -2,6 +2,7 @@ import {
   deckSchema,
   demoIds,
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalSlideSpeakingRate,
   legacyRehearsalSilenceAnalysis,
   legacyRehearsalVolumeAnalysis,
   type Deck,
@@ -201,7 +202,12 @@ const reportMockupReport: RehearsalReport = {
   semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
   slideInsights: [
-    { slideId: "slide_1", fillerWordCount: 2, longSilenceCount: 1 },
+    {
+      slideId: "slide_1",
+      fillerWordCount: 2,
+      longSilenceCount: 1,
+      speakingRate: legacyRehearsalSlideSpeakingRate,
+    },
   ],
   qnaSummary: {
     questionCount: 0,

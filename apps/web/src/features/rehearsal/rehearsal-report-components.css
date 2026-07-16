@@ -264,6 +264,11 @@
 .rrd-timing-over-badge { background: rgba(185, 28, 28, 0.1); border-radius: 999px; color: #b91c1c; font-size: 0.82rem; font-weight: 800; padding: 4px 10px; }
 .rrd-cumulative-x-label { fill: var(--report-text-muted); font-size: 13px; font-weight: 800; }
 .rrd-timing-slide-target { color: var(--report-text-muted); font-size: 0.82rem; font-weight: 700; }
+.rrd-slide-speaking-rate { border-radius: 999px; font-size: 0.76rem; font-weight: 800; padding: 3px 9px; }
+.rrd-slide-speaking-rate.is-slower { background: rgba(37, 99, 235, 0.1); color: #1d4ed8; }
+.rrd-slide-speaking-rate.is-similar { background: rgba(22, 163, 74, 0.1); color: #15803d; }
+.rrd-slide-speaking-rate.is-faster { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.rrd-slide-speaking-rate.is-unmeasured { background: var(--report-panel-subtle); color: var(--report-text-muted); }
 
 .rrd-slide-analysis-head { align-items: flex-start; }
 .rrd-slide-analysis-heading { display: grid; flex: 1; gap: 3px; }

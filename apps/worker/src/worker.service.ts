@@ -221,6 +221,15 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
                 );
               }
             },
+            (event) => {
+              const level = event.event.endsWith(".unmeasured")
+                ? "warn"
+                : "info";
+              this.logger[level](
+                event,
+                "Rehearsal slide speaking rate analyzed.",
+              );
+            },
           ),
       },
       {

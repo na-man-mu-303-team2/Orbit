@@ -213,6 +213,117 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("키워드 커버리지");
   });
 
+  it("renders slide speaking pace as relative copy without rate units", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={deck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
+            { slideId: "slide_2", targetSeconds: 45, actualSeconds: 38 },
+          ],
+          slideInsights: [
+            {
+              slideId: "slide_1",
+              fillerWordCount: 0,
+              longSilenceCount: null,
+              speakingRate: {
+                metricDefinitionVersion: 1,
+                measurementState: "measured",
+                reasonCode: null,
+                charactersPerSecond: 3.1,
+                baselineCharactersPerSecond: 4,
+                relativeRateRatio: 0.775,
+                paceCategory: "slower",
+                activeSpeechSeconds: 10,
+                characterCount: 31,
+              },
+            },
+            {
+              slideId: "slide_2",
+              fillerWordCount: 0,
+              longSilenceCount: null,
+              speakingRate: {
+                metricDefinitionVersion: 1,
+                measurementState: "unmeasured",
+                reasonCode: "INSUFFICIENT_SLIDE_SPEECH",
+                charactersPerSecond: null,
+                baselineCharactersPerSecond: null,
+                relativeRateRatio: null,
+                paceCategory: null,
+                activeSpeechSeconds: 2.5,
+                characterCount: 8,
+              },
+            },
+          ],
+        })}
+        run={null}
+        runNumber={1}
+        totalRunCount={1}
+      />,
+    );
+
+    expect(html).toContain("전체 평균보다 느린 편");
+    expect(html).toContain("분석할 발화가 부족해요");
+    expect(html).not.toMatch(/WPM|CPM|CPS/);
+  });
+
+  it("maps similar and faster pace categories to presenter-facing copy", () => {
+    const measuredRate = {
+      metricDefinitionVersion: 1 as const,
+      measurementState: "measured" as const,
+      reasonCode: null,
+      baselineCharactersPerSecond: 4,
+      activeSpeechSeconds: 10,
+      characterCount: 40,
+    };
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={deck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
+            { slideId: "slide_2", targetSeconds: 45, actualSeconds: 38 },
+          ],
+          slideInsights: [
+            {
+              slideId: "slide_1",
+              fillerWordCount: 0,
+              longSilenceCount: null,
+              speakingRate: {
+                ...measuredRate,
+                charactersPerSecond: 4,
+                relativeRateRatio: 1,
+                paceCategory: "similar",
+              },
+            },
+            {
+              slideId: "slide_2",
+              fillerWordCount: 0,
+              longSilenceCount: null,
+              speakingRate: {
+                ...measuredRate,
+                charactersPerSecond: 5,
+                relativeRateRatio: 1.25,
+                paceCategory: "faster",
+              },
+            },
+          ],
+        })}
+        run={null}
+        runNumber={1}
+        totalRunCount={1}
+      />,
+    );
+
+    expect(html).toContain("전체 평균과 비슷");
+    expect(html).toContain("전체 평균보다 빠른 편");
+  });
+
   it("does not render removed semantic retry content in the report", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument

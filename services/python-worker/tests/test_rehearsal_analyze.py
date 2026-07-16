@@ -2,17 +2,23 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 import app.main as api_module
+import app.rehearsal as rehearsal_module
 from app.audio.analysis.models import RehearsalSilenceAnalysis
 from app.audio.transcribe import TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
     DeckKeyword,
     FillerWordDetail,
+    RehearsalCoachingResult,
     RehearsalMetricsResult,
     SlideTimelineEntry,
     analyze_rehearsal_metrics,
+    build_slide_speaking_rates,
+    classify_relative_pace,
+    count_speech_characters,
     generate_rehearsal_coaching,
 )
 from tests.test_config import VALID_ENV
@@ -61,6 +67,7 @@ def test_rehearsal_analyze_v1_request_uses_the_compatibility_fixture() -> None:
     )
 
     assert request.deck_keywords[0].required is True
+    assert request.language == "und"
 
 
 class FakeClient:
@@ -167,6 +174,172 @@ def test_analyze_rehearsal_metrics_builds_slide_insights_from_timeline() -> None
     assert metrics.slide_insights[1].slide_id == "slide_2"
     assert metrics.slide_insights[1].filler_word_count == 1
     assert metrics.slide_insights[1].long_silence_count == 0
+
+
+def test_count_speech_characters_normalizes_nfkc_and_ignores_spacing() -> None:
+    assert count_speech_characters("ＡＢＣ １２３, 가 나!") == 8
+
+
+def test_build_slide_speaking_rates_aggregates_repeated_slide_visits() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko-KR",
+        duration_seconds=15,
+        segments=[
+            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=4),
+            TranscriptSegment(
+                text="가나다라마바사아자차카타파하가나다라마바",
+                startSeconds=5,
+                endSeconds=9,
+            ),
+            TranscriptSegment(text="카타파하가나다라마바", startSeconds=10, endSeconds=14),
+        ],
+        slide_timeline=[
+            SlideTimelineEntry(slide_id="slide_1", entered_second=0),
+            SlideTimelineEntry(slide_id="slide_2", entered_second=5),
+            SlideTimelineEntry(slide_id="slide_1", entered_second=10),
+        ],
+    )
+
+    assert list(rates) == ["slide_1", "slide_2"]
+    assert rates["slide_1"].character_count == 20
+    assert rates["slide_1"].active_speech_seconds == 8
+    assert rates["slide_1"].pace_category == "slower"
+    assert rates["slide_2"].pace_category == "faster"
+
+
+def test_build_slide_speaking_rates_merges_overlapping_segment_intervals() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko",
+        duration_seconds=5,
+        segments=[
+            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=3),
+            TranscriptSegment(text="카타파하가나다라마바", startSeconds=2, endSeconds=5),
+        ],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert rates["slide_1"].measurement_state == "measured"
+    assert rates["slide_1"].active_speech_seconds == 5
+    assert rates["slide_1"].pace_category == "similar"
+
+
+def test_build_slide_speaking_rates_assigns_segment_by_midpoint() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko",
+        duration_seconds=8,
+        segments=[
+            TranscriptSegment(text="가나다라마바사아자차", startSeconds=2, endSeconds=6),
+        ],
+        slide_timeline=[
+            SlideTimelineEntry(slide_id="slide_1", entered_second=0),
+            SlideTimelineEntry(slide_id="slide_2", entered_second=4),
+        ],
+    )
+
+    assert rates["slide_1"].reason_code == "INSUFFICIENT_SLIDE_SPEECH"
+    assert rates["slide_2"].measurement_state == "measured"
+
+
+def test_build_slide_speaking_rates_applies_minimum_evidence_boundaries() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko-KR",
+        duration_seconds=9,
+        segments=[
+            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=3),
+            TranscriptSegment(
+                text="가나다라마바사아자차",
+                startSeconds=3,
+                endSeconds=5.999,
+            ),
+            TranscriptSegment(text="가나다라마바사아자", startSeconds=6, endSeconds=9),
+        ],
+        slide_timeline=[
+            SlideTimelineEntry(slide_id="exact", entered_second=0),
+            SlideTimelineEntry(slide_id="short", entered_second=3),
+            SlideTimelineEntry(slide_id="few", entered_second=6),
+        ],
+    )
+
+    assert rates["exact"].measurement_state == "measured"
+    assert rates["short"].reason_code == "INSUFFICIENT_SLIDE_SPEECH"
+    assert rates["short"].active_speech_seconds == 2.999
+    assert rates["few"].reason_code == "INSUFFICIENT_SLIDE_SPEECH"
+    assert rates["few"].character_count == 9
+
+
+def test_classify_relative_pace_includes_thresholds_in_similar() -> None:
+    assert classify_relative_pace(0.8499) == "slower"
+    assert classify_relative_pace(0.85) == "similar"
+    assert classify_relative_pace(1.15) == "similar"
+    assert classify_relative_pace(1.1501) == "faster"
+
+
+def test_build_slide_speaking_rates_marks_unsupported_language_unmeasured() -> None:
+    rates = build_slide_speaking_rates(
+        language="en-US",
+        duration_seconds=3,
+        segments=[
+            TranscriptSegment(text="tenletters", startSeconds=0, endSeconds=3),
+        ],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert rates["slide_1"].reason_code == "UNSUPPORTED_LANGUAGE"
+
+
+def test_build_slide_speaking_rates_requires_segment_timestamps() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko",
+        duration_seconds=3,
+        segments=[TranscriptSegment(text="가나다라마바사아자차")],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert rates["slide_1"].reason_code == "SEGMENT_TIMESTAMPS_UNAVAILABLE"
+
+
+def test_build_slide_speaking_rates_requires_baseline_characters() -> None:
+    rates = build_slide_speaking_rates(
+        language="ko",
+        duration_seconds=3,
+        segments=[TranscriptSegment(text="...!", startSeconds=0, endSeconds=3)],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert rates["slide_1"].reason_code == "BASELINE_UNAVAILABLE"
+
+
+def test_analyze_rehearsal_metrics_isolates_slide_speed_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_speaking_rate_analysis(**_kwargs: object) -> object:
+        raise ValueError("synthetic speaking rate failure")
+
+    monkeypatch.setattr(
+        rehearsal_module,
+        "build_slide_speaking_rates",
+        fail_speaking_rate_analysis,
+    )
+
+    metrics = analyze_rehearsal_metrics(
+        transcript="음 가나다라마바사아자차",
+        language="ko",
+        duration_seconds=3,
+        segments=[
+            TranscriptSegment(
+                text="음 가나다라마바사아자차",
+                startSeconds=0,
+                endSeconds=3,
+            ),
+        ],
+        deck_keywords=[],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert metrics.filler_word_count == 1
+    assert metrics.slide_insights[0].speaking_rate.reason_code == (
+        "BASELINE_UNAVAILABLE"
+    )
 
 
 def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> (
@@ -313,6 +486,47 @@ def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
         "다음 연습에서는 도입부를 더 짧게 연습하세요.",
     ]
     assert coaching.next_practice_focus == "도입부를 더 짧게 연습하세요."
+
+
+def test_rehearsal_analyze_endpoint_returns_slide_speaking_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_module,
+        "generate_rehearsal_coaching",
+        lambda **_kwargs: RehearsalCoachingResult(
+            status="succeeded",
+            summary="발표 흐름이 안정적입니다.",
+        ),
+    )
+    api_module.app.state.config = load_config(VALID_ENV)
+    client = TestClient(api_module.app)
+
+    response = client.post(
+        "/rehearsal/analyze",
+        json={
+            "runId": "run-1",
+            "projectId": "project-a",
+            "deckId": "deck-a",
+            "transcript": "가나다라마바사아자차",
+            "language": "ko-KR",
+            "durationSeconds": 3,
+            "segments": [
+                {
+                    "text": "가나다라마바사아자차",
+                    "startSeconds": 0,
+                    "endSeconds": 3,
+                }
+            ],
+            "deckKeywords": [],
+            "slideTimeline": [{"slideId": "slide_1", "enteredSecond": 0}],
+        },
+    )
+
+    assert response.status_code == 200
+    speaking_rate = response.json()["slideInsights"][0]["speakingRate"]
+    assert speaking_rate["measurementState"] == "measured"
+    assert speaking_rate["paceCategory"] == "similar"
 
 
 def test_rehearsal_analyze_endpoint_fails_when_coaching_is_unavailable() -> None:

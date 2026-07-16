@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { rehearsalSlideSpeakingRateSchema } from "../coaching/rehearsal-analyze.schema";
 import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
   beginRehearsalAudioUploadRequestSchema,
@@ -267,7 +268,22 @@ describe("rehearsalReportSchema", () => {
         { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
       ],
       slideInsights: [
-        { slideId: "slide_1", fillerWordCount: 2, longSilenceCount: 1 },
+        {
+          slideId: "slide_1",
+          fillerWordCount: 2,
+          longSilenceCount: 1,
+          speakingRate: {
+            metricDefinitionVersion: 1,
+            measurementState: "measured",
+            reasonCode: null,
+            charactersPerSecond: 4.62,
+            baselineCharactersPerSecond: 4.24,
+            relativeRateRatio: 1.0896,
+            paceCategory: "similar",
+            activeSpeechSeconds: 12.4,
+            characterCount: 57,
+          },
+        },
       ],
       qnaSummary: {
         questionCount: 1,
@@ -294,6 +310,7 @@ describe("rehearsalReportSchema", () => {
     expect(report.semanticCueDecisions[0]?.cueId).toBe("scue_1");
     expect(report.slideTimings[0]?.actualSeconds).toBe(52);
     expect(report.slideInsights[0]?.fillerWordCount).toBe(2);
+    expect(report.slideInsights[0]?.speakingRate.paceCategory).toBe("similar");
     expect(report.qnaSummary.questionCount).toBe(1);
     expect(report.aiSummary?.headline).toBe("도입부 핵심 메시지가 약했습니다.");
   });
@@ -403,6 +420,55 @@ describe("rehearsalReportSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("defaults legacy slide speaking rates to an unmeasured result", () => {
+    const report = rehearsalReportSchema.parse({
+      ...rehearsalReportFixture(),
+      slideInsights: [
+        { slideId: "slide_1", fillerWordCount: 0, longSilenceCount: null },
+      ],
+    });
+
+    expect(report.slideInsights[0]?.speakingRate).toEqual({
+      metricDefinitionVersion: 1,
+      measurementState: "unmeasured",
+      reasonCode: "LEGACY_REPORT",
+      charactersPerSecond: null,
+      baselineCharactersPerSecond: null,
+      relativeRateRatio: null,
+      paceCategory: null,
+      activeSpeechSeconds: 0,
+      characterCount: 0,
+    });
+  });
+
+  it("rejects invalid slide speaking rate invariants and non-finite values", () => {
+    const measuredWithReason = rehearsalSlideSpeakingRateSchema.safeParse({
+      metricDefinitionVersion: 1,
+      measurementState: "measured",
+      reasonCode: "BASELINE_UNAVAILABLE",
+      charactersPerSecond: 4.5,
+      baselineCharactersPerSecond: 4,
+      relativeRateRatio: 1.125,
+      paceCategory: "similar",
+      activeSpeechSeconds: 3,
+      characterCount: 14,
+    });
+    const nonFinite = rehearsalSlideSpeakingRateSchema.safeParse({
+      metricDefinitionVersion: 1,
+      measurementState: "measured",
+      reasonCode: null,
+      charactersPerSecond: Number.POSITIVE_INFINITY,
+      baselineCharactersPerSecond: 4,
+      relativeRateRatio: 1,
+      paceCategory: "similar",
+      activeSpeechSeconds: 3,
+      characterCount: 14,
+    });
+
+    expect(measuredWithReason.success).toBe(false);
+    expect(nonFinite.success).toBe(false);
   });
 
   it("rejects CPM values that contradict their measurement state", () => {

@@ -183,6 +183,7 @@ export function RehearsalReportDocument({
           <RehearsalSlideTimingOverview
             deck={reportDeck}
             formatDuration={fmt}
+            slideInsights={report.slideInsights}
             slideTimings={slideTimings}
           />
         </div>

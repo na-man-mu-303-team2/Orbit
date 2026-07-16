@@ -11,6 +11,60 @@ const positiveFiniteNumberSchema = z.number().finite().positive();
 const nullablePositiveFiniteNumberSchema =
   positiveFiniteNumberSchema.nullable();
 
+export const rehearsalSlideSpeakingRateReasonCodeSchema = z.enum([
+  "UNSUPPORTED_LANGUAGE",
+  "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+  "INSUFFICIENT_SLIDE_SPEECH",
+  "BASELINE_UNAVAILABLE",
+  "LEGACY_REPORT",
+]);
+
+const rehearsalSlideSpeakingRateEvidenceSchema = {
+  metricDefinitionVersion: z.literal(1),
+  activeSpeechSeconds: z.number().finite().nonnegative(),
+  characterCount: z.number().int().nonnegative(),
+};
+
+export const rehearsalSlideSpeakingRateSchema = z.discriminatedUnion(
+  "measurementState",
+  [
+    z
+      .object({
+        ...rehearsalSlideSpeakingRateEvidenceSchema,
+        measurementState: z.literal("measured"),
+        reasonCode: z.null(),
+        charactersPerSecond: z.number().finite().positive(),
+        baselineCharactersPerSecond: z.number().finite().positive(),
+        relativeRateRatio: z.number().finite().positive(),
+        paceCategory: z.enum(["slower", "similar", "faster"]),
+      })
+      .strict(),
+    z
+      .object({
+        ...rehearsalSlideSpeakingRateEvidenceSchema,
+        measurementState: z.literal("unmeasured"),
+        reasonCode: rehearsalSlideSpeakingRateReasonCodeSchema,
+        charactersPerSecond: z.null(),
+        baselineCharactersPerSecond: z.null(),
+        relativeRateRatio: z.null(),
+        paceCategory: z.null(),
+      })
+      .strict(),
+  ],
+);
+
+export const legacyRehearsalSlideSpeakingRate = {
+  metricDefinitionVersion: 1 as const,
+  measurementState: "unmeasured" as const,
+  reasonCode: "LEGACY_REPORT" as const,
+  charactersPerSecond: null,
+  baselineCharactersPerSecond: null,
+  relativeRateRatio: null,
+  paceCategory: null,
+  activeSpeechSeconds: 0,
+  characterCount: 0,
+};
+
 export const approvedSttNormalizationProfileIds: readonly string[] = [];
 
 export const normalizedSttConfidenceSchema = z
@@ -341,6 +395,9 @@ const slideInsightSchema = z
     slideId: coachingIdSchema,
     fillerWordCount: z.number().int().nonnegative().nullable(),
     longSilenceCount: z.number().int().nonnegative().nullable(),
+    speakingRate: rehearsalSlideSpeakingRateSchema.default(
+      legacyRehearsalSlideSpeakingRate,
+    ),
   })
   .strict();
 
@@ -651,6 +708,7 @@ export const rehearsalAnalyzeRequestV1Schema = z
     projectId: coachingIdSchema,
     deckId: coachingIdSchema,
     transcript: z.string(),
+    language: boundedTextSchema.default("und"),
     durationSeconds: z.number().finite().nonnegative(),
     segments: z.array(rehearsalAnalyzeTranscriptSegmentV1Schema),
     deckKeywords: z.array(rehearsalAnalyzeDeckKeywordV1Schema),

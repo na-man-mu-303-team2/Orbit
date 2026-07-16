@@ -6,6 +6,8 @@ import {
   rehearsalAudioProcessingResponseSchema,
   rehearsalEvaluationSnapshotSchema,
   rehearsalAnalyzeRequestSchema,
+  legacyRehearsalSlideSpeakingRate,
+  rehearsalSlideSpeakingRateSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
@@ -98,6 +100,9 @@ const analyzeSlideInsightSchema = z
     slideId: z.string().min(1),
     fillerWordCount: z.number().int().nonnegative(),
     longSilenceCount: z.number().int().nonnegative().nullable(),
+    speakingRate: rehearsalSlideSpeakingRateSchema.default(
+      legacyRehearsalSlideSpeakingRate,
+    ),
   })
   .strict();
 
@@ -180,6 +185,55 @@ export type RehearsalSilenceAnalysisBusinessEvent = {
   }>;
 };
 
+export type RehearsalSlideSpeakingRateBusinessEvent = {
+  event:
+    | "rehearsal.slide_speaking_rate.completed"
+    | "rehearsal.slide_speaking_rate.unmeasured";
+  projectId: string;
+  runId: string;
+  jobId: string;
+  measuredSlideCount: number;
+  slowerSlideCount: number;
+  similarSlideCount: number;
+  fasterSlideCount: number;
+  unmeasuredSlideCount: number;
+};
+
+function buildSlideSpeakingRateBusinessEvent(
+  payload: RehearsalSttPayload,
+  slideInsights: z.infer<typeof analyzeResponseSchema>["slideInsights"],
+): RehearsalSlideSpeakingRateBusinessEvent {
+  const counts = {
+    measuredSlideCount: 0,
+    slowerSlideCount: 0,
+    similarSlideCount: 0,
+    fasterSlideCount: 0,
+    unmeasuredSlideCount: 0,
+  };
+  slideInsights.forEach(({ speakingRate }) => {
+    if (speakingRate.measurementState === "unmeasured") {
+      counts.unmeasuredSlideCount += 1;
+      return;
+    }
+
+    counts.measuredSlideCount += 1;
+    if (speakingRate.paceCategory === "slower") counts.slowerSlideCount += 1;
+    if (speakingRate.paceCategory === "similar") counts.similarSlideCount += 1;
+    if (speakingRate.paceCategory === "faster") counts.fasterSlideCount += 1;
+  });
+
+  return {
+    event:
+      counts.measuredSlideCount > 0
+        ? "rehearsal.slide_speaking_rate.completed"
+        : "rehearsal.slide_speaking_rate.unmeasured",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    ...counts,
+  };
+}
+
 export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
@@ -191,6 +245,9 @@ export async function processRehearsalSttJob(
   ) => void,
   onSilenceAnalysisEvent?: (
     event: RehearsalSilenceAnalysisBusinessEvent,
+  ) => void,
+  onSlideSpeakingRateEvent?: (
+    event: RehearsalSlideSpeakingRateBusinessEvent,
   ) => void,
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
@@ -346,6 +403,9 @@ export async function processRehearsalSttJob(
       deckContext,
       audioProcessingResponse,
       runMeta,
+    );
+    onSlideSpeakingRateEvent?.(
+      buildSlideSpeakingRateBusinessEvent(payload, analysis.slideInsights),
     );
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
@@ -549,6 +609,7 @@ async function analyzeTranscript(
     projectId: payload.projectId,
     deckId: payload.deckId,
     transcript: transcription.transcript,
+    language: transcription.language,
     durationSeconds: transcription.durationSeconds ?? 0,
     segments: transcription.segments,
     deckKeywords: deckContext.deckKeywords.map(

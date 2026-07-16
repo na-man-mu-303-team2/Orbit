@@ -225,6 +225,24 @@ describe("processRehearsalSttJob", () => {
               missedKeywords: [
                 { slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" },
               ],
+              slideInsights: [
+                {
+                  slideId: "slide_1",
+                  fillerWordCount: 1,
+                  longSilenceCount: 1,
+                  speakingRate: {
+                    metricDefinitionVersion: 1,
+                    measurementState: "measured",
+                    reasonCode: null,
+                    charactersPerSecond: 4.62,
+                    baselineCharactersPerSecond: 4.24,
+                    relativeRateRatio: 1.0896,
+                    paceCategory: "similar",
+                    activeSpeechSeconds: 12.4,
+                    characterCount: 57,
+                  },
+                },
+              ],
               aiSummary: {
                 headline: "도입부 핵심 메시지가 약했습니다.",
                 paragraphs: [
@@ -238,6 +256,7 @@ describe("processRehearsalSttJob", () => {
         ),
     );
     const silenceEvents = vi.fn();
+    const speakingRateEvents = vi.fn();
 
     const job = await processRehearsalSttJob(
       { query } as unknown as DataSource,
@@ -247,6 +266,7 @@ describe("processRehearsalSttJob", () => {
       undefined,
       undefined,
       silenceEvents,
+      speakingRateEvents,
     );
 
     expect(job.status).toBe("succeeded");
@@ -273,6 +293,23 @@ describe("processRehearsalSttJob", () => {
       reasonCode: null,
       segments: silenceAnalysisFixture.segments,
     });
+    expect(speakingRateEvents).toHaveBeenCalledWith({
+      event: "rehearsal.slide_speaking_rate.completed",
+      projectId: "project-a",
+      runId: "run-a",
+      jobId: "job-1",
+      measuredSlideCount: 1,
+      slowerSlideCount: 0,
+      similarSlideCount: 1,
+      fasterSlideCount: 0,
+      unmeasuredSlideCount: 0,
+    });
+    const analyzeRequest = JSON.parse(
+      String(
+        (vi.mocked(fetch).mock.calls[1]?.[1] as RequestInit | undefined)?.body,
+      ),
+    );
+    expect(analyzeRequest.language).toBe("ko-KR");
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
       expect.arrayContaining([
@@ -295,6 +332,10 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining(
           '"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]',
         ),
+        expect.stringContaining(
+          '"speakingRate":{"metricDefinitionVersion":1',
+        ),
+        expect.stringContaining('"paceCategory":"similar"'),
         false,
       ]),
     );

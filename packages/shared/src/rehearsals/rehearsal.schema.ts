@@ -22,6 +22,10 @@ import {
   evaluatorLensRefSchema,
 } from "../coaching/coaching-common.schema";
 import {
+  legacyRehearsalSlideSpeakingRate,
+  rehearsalSlideSpeakingRateSchema,
+} from "../coaching/rehearsal-analyze.schema";
+import {
   criterionResultSchema,
   measurementStateSchema,
   reportObservationSchema,
@@ -298,6 +302,9 @@ export const rehearsalReportSlideInsightSchema = z
     slideId: deckSlideIdSchema,
     fillerWordCount: z.number().int().nonnegative().nullable(),
     longSilenceCount: z.number().int().nonnegative().nullable(),
+    speakingRate: rehearsalSlideSpeakingRateSchema.default(
+      legacyRehearsalSlideSpeakingRate,
+    ),
   })
   .strict();
 
@@ -795,6 +802,7 @@ function normalizeLegacyRehearsalReport(value: unknown): unknown {
       const insight = { ...(value as Record<string, unknown>) };
       delete insight.pauseCount;
       insight.longSilenceCount ??= null;
+      insight.speakingRate ??= legacyRehearsalSlideSpeakingRate;
       return insight;
     });
   }

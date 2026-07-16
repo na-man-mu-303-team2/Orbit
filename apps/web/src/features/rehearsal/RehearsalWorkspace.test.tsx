@@ -5,6 +5,7 @@ import {
   createKeywordOccurrenceId,
   createRehearsalEvaluationSnapshot,
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalSlideSpeakingRate,
   legacyRehearsalSilenceAnalysis,
   legacyRehearsalVolumeAnalysis,
   type Job,
@@ -1429,21 +1430,25 @@ describe("RehearsalWorkspace", () => {
               slideId: slide1!.slideId,
               fillerWordCount: 2,
               longSilenceCount: 1,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
             },
             {
               slideId: slide2!.slideId,
               fillerWordCount: 1,
               longSilenceCount: 0,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
             },
             {
               slideId: slide3!.slideId,
               fillerWordCount: 0,
               longSilenceCount: 1,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
             },
             {
               slideId: slide4!.slideId,
               fillerWordCount: 3,
               longSilenceCount: 0,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
             },
           ],
         })}
@@ -3251,7 +3256,12 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],
     slideInsights: [
-      { slideId: "slide_1", fillerWordCount: 2, longSilenceCount: 1 },
+      {
+        slideId: "slide_1",
+        fillerWordCount: 2,
+        longSilenceCount: 1,
+        speakingRate: legacyRehearsalSlideSpeakingRate,
+      },
     ],
     qnaSummary: {
       questionCount: 0,
