@@ -6157,12 +6157,6 @@ export function RehearsalReportPage(props: {
         />
 
         <section className="rehearsal-report-document" aria-live="polite">
-          {shouldLoadPracticeGoalSummary(run) ? (
-            <PracticeGoalSummary
-              projectId={props.projectId}
-              sourceFullRunId={props.runId}
-            />
-          ) : null}
           {status === "loading" ? (
             <RehearsalReportLoadingShell />
           ) : report ? (
@@ -6176,6 +6170,14 @@ export function RehearsalReportPage(props: {
               totalRunCount={allSucceededRuns.length}
               prevReports={prevReports}
               semanticRetryState={semanticRetryState}
+              practiceGoalSummary={
+                shouldLoadPracticeGoalSummary(run) ? (
+                  <PracticeGoalSummary
+                    projectId={props.projectId}
+                    sourceFullRunId={props.runId}
+                  />
+                ) : null
+              }
             />
           ) : (
             <div

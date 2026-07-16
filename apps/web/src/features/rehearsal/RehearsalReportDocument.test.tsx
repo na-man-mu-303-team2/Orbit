@@ -11,6 +11,37 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
+  it("places AI feedback and priority practice goals in the shared top overview", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={deck}
+        practiceGoalSummary={(
+          <section className="practice-report-summary">priority practice goals</section>
+        )}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture()}
+        run={null}
+        runNumber={9}
+        totalRunCount={9}
+      />
+    );
+
+    expect(html).toMatch(
+      /rrd-top-overview[\s\S]*rrd-ai-card[\s\S]*practice-report-summary/,
+    );
+    expect(html.indexOf("rrd-top-overview")).toBeLessThan(
+      html.indexOf("rrd-habit-panel"),
+    );
+    expect(html).toContain("rrd-slide-coaching");
+    expect(html.indexOf("rrd-top-overview")).toBeLessThan(
+      html.indexOf("rrd-slide-coaching"),
+    );
+    expect(html.indexOf("rrd-slide-coaching")).toBeLessThan(
+      html.indexOf("rrd-habit-panel"),
+    );
+  });
+
   it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument

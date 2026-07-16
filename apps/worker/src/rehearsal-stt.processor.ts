@@ -421,7 +421,8 @@ export async function processRehearsalSttJob(
     error: null
   });
 
-  await scheduleRawAudioDeletion(dataSource, asset);
+  // Temporary: retain successful rehearsal recordings for follow-up audio analysis.
+  // await scheduleRawAudioDeletion(dataSource, asset);
   return completedJob;
 }
 

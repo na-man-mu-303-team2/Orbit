@@ -485,10 +485,15 @@ describe("image asset pipeline", () => {
   });
 
   it("keeps resolving later slides when one image provider call is exhausted", async () => {
+    const onFallback = vi.fn();
     const generate = vi
       .fn<GeneratedImageProvider["generate"]>()
-      .mockRejectedValueOnce(new Error("provider exhausted"))
-      .mockRejectedValueOnce(new Error("provider exhausted"))
+      .mockRejectedValueOnce(
+        new Error("OpenAI image generation failed with status 429")
+      )
+      .mockRejectedValueOnce(
+        new Error("OpenAI image generation failed with status 429")
+      )
       .mockResolvedValueOnce({
         body: pngHeader(1280, 720),
         mimeType: "image/png",
@@ -539,7 +544,11 @@ describe("image asset pipeline", () => {
         maxPerDeck: 4,
         maxPerUserPerDay: 30
       },
-      { userId: "user_1" }
+      { userId: "user_1" },
+      undefined,
+      [],
+      undefined,
+      onFallback
     );
 
     expect(generate).toHaveBeenCalledTimes(3);
@@ -554,7 +563,14 @@ describe("image asset pipeline", () => {
       )
     ).toBe(true);
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("provider exhausted");
+    expect(result.warnings[0]).toContain("status 429");
+    expect(onFallback).toHaveBeenCalledWith({
+      reasonCode: "OPENAI_IMAGE_HTTP_ERROR",
+      name: "Error",
+      provider: "openai",
+      providerHttpStatus: 429,
+      providerRequestId: undefined
+    });
   });
 
   it("re-resolves only the visual repair slide set", async () => {

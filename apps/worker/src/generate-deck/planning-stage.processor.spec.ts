@@ -116,6 +116,7 @@ describe("processAiDeckPlanningStage", () => {
   });
 
   it("releases retryable provider failures and signals BullMQ retry", async () => {
+    const eventLogger = vi.fn();
     const query = vi.fn(async (sql: string) => {
       const compact = compactSql(sql);
       if (
@@ -152,13 +153,27 @@ describe("processAiDeckPlanningStage", () => {
         {
           fetchImpl: async () =>
             jsonResponse({ detail: "LLM provider unavailable" }, 503),
+          eventLogger,
         },
       ),
     ).rejects.toThrow("AI_DECK_STAGE_RETRY");
     expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(eventLogger).toHaveBeenCalledWith(
+      "ai-ppt.stage.attempt-failed",
+      expect.objectContaining({
+        stage: "source-grounding",
+        shardKey: "",
+        attempt: 1,
+        terminal: false,
+        error: expect.objectContaining({
+          reasonCode: "PLANNING_FAILURE_UNCLASSIFIED",
+        }),
+      }),
+    );
   });
 
   it("fails the checkpoint and parent for terminal Art Director output", async () => {
+    const eventLogger = vi.fn();
     const message = { ...sourceMessage, stage: "design-planning" as const };
     const contentPayload = {
       rawInput: { topic: "Safe topic" },
@@ -216,9 +231,20 @@ describe("processAiDeckPlanningStage", () => {
               },
               503,
             ),
+          eventLogger,
         },
       ),
     ).resolves.toMatchObject({ status: "failed", error: terminalError });
+    expect(eventLogger).toHaveBeenCalledWith(
+      "ai-ppt.stage.failed",
+      expect.objectContaining({
+        stage: "design-planning",
+        terminal: true,
+        error: expect.objectContaining({
+          reasonCode: "ART_DIRECTOR_INVALID_RESPONSE",
+        }),
+      }),
+    );
   });
 
   it("fans out one image checkpoint per visual requirement after layout", async () => {

@@ -63,3 +63,18 @@ LOG_PRETTY=false | true
 - presigned URL처럼 접근 권한을 담은 URL
 
 필요하면 `fileId`, `audioFileId`, `jobId`, `projectId`, `runId`, `fileCount`, `mimeType`처럼 추적 가능한 메타데이터만 남긴다.
+
+## AI PPT stage 진단 로그
+
+BullMQ 기반 AI PPT stage는 `ai-ppt.stage.started`, `ai-ppt.stage.succeeded`,
+`ai-ppt.stage.attempt-failed`, `ai-ppt.stage.failed` 이벤트를 사용한다. 재시도 예정
+실패는 `warn`, checkpoint와 parent Job에 반영된 최종 실패는 `error`로 기록한다.
+이미지 provider 실패가 placeholder fallback으로 흡수되면
+`ai-ppt.image-asset.fallback`을 `warn`으로 기록한다.
+
+각 이벤트는 `pipelineJobId`, `projectId`, `stage`, `shardKey`, `workerId`,
+`attempt`, `maxAttempts`, `durationMs`를 공통으로 사용한다. 실패 진단의 `error`에는
+allowlist `code`, `reasonCode`, `name`, HTTP status, provider, provider request ID,
+retry-after, 저장소 내부 첫 stack frame, message fingerprint와 안전한 issue code만 허용한다.
+prompt, 사용자 입력, provider response body, 전체 message/stack, Deck JSON, 이미지
+base64, signed URL은 AI PPT stage 로그에도 남기지 않는다.
