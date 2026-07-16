@@ -4,6 +4,7 @@ import {
   activityRunSchema,
   deckSchema,
   ensureActivityRunResponseSchema,
+  getCurrentActivityRunResponseSchema,
   supersedeActivityRunResponseSchema,
   updateActivityRunStatusResponseSchema
 } from "@orbit/shared";
@@ -73,6 +74,17 @@ export class ActivityRunsService {
       return this.syncDefinition(manager, current, source, fingerprint);
     });
     return ensureActivityRunResponseSchema.parse({ run: this.toRun(run) });
+  }
+
+  async getCurrentRun(projectId: string, sessionId: string, activityId: string) {
+    const run = await this.repository.findCurrentForRead(
+      projectId,
+      sessionId,
+      activityId
+    );
+    return getCurrentActivityRunResponseSchema.parse({
+      run: run ? this.toRun(run) : null
+    });
   }
 
   async supersede(

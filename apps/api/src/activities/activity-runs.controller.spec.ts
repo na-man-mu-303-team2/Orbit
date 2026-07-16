@@ -4,6 +4,33 @@ import { describe, expect, it, vi } from "vitest";
 import { ActivityRunsController } from "./activity-runs.controller";
 
 describe("ActivityRunsController", () => {
+  it("reads the current run through the editor permission boundary", async () => {
+    const auth = { me: vi.fn().mockResolvedValue({ user: { userId: "editor_1" } }) };
+    const projects = { assertCanWriteProject: vi.fn().mockResolvedValue(undefined) };
+    const runs = { getCurrentRun: vi.fn().mockResolvedValue({ run: null }) };
+    const controller = new ActivityRunsController(
+      auth as never,
+      projects as never,
+      runs as never,
+      {} as never,
+      {} as never
+    );
+
+    await expect(
+      controller.getCurrentRun(
+        "project_1",
+        "session_1",
+        "activity_1",
+        { signedCookies: { orbit_session: "signed" } } as never
+      )
+    ).resolves.toEqual({ run: null });
+    expect(runs.getCurrentRun).toHaveBeenCalledWith(
+      "project_1",
+      "session_1",
+      "activity_1"
+    );
+  });
+
   it("rejects viewer access to presenter Activity commands", async () => {
     const auth = { me: vi.fn().mockResolvedValue({ user: { userId: "viewer_1" } }) };
     const projects = {

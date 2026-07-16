@@ -6,6 +6,7 @@ import {
 } from "./activity-results.schema";
 import {
   getAudienceActiveActivityResponseSchema,
+  getCurrentActivityRunResponseSchema,
   updateActivityRunStatusRequestSchema,
   upsertActivityResponseRequestSchema
 } from "./activity-api.schema";
@@ -96,5 +97,10 @@ describe("activity API boundary schemas", () => {
     expect(
       getAudienceActiveActivityResponseSchema.safeParse({}).success
     ).toBe(false);
+  });
+
+  it("represents an activity with no run explicitly", () => {
+    expect(getCurrentActivityRunResponseSchema.safeParse({ run: null }).success).toBe(true);
+    expect(getCurrentActivityRunResponseSchema.safeParse({}).success).toBe(false);
   });
 });

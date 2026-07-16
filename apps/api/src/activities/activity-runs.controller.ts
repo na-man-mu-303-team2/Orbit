@@ -52,6 +52,17 @@ export class ActivityRunsController {
     return this.activityRunsService.ensureCurrentRun(projectId, sessionId, activityId);
   }
 
+  @Get("activities/:activityId/current-run")
+  async getCurrentRun(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("activityId") activityId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityRunsService.getCurrentRun(projectId, sessionId, activityId);
+  }
+
   @Post("activity-runs/:runId/supersede")
   async supersede(
     @Param("projectId") projectId: string,

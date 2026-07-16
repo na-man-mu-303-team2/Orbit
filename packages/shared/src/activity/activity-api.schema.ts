@@ -16,6 +16,10 @@ export const ensureActivityRunResponseSchema = z
   .object({ run: activityRunSchema })
   .strict();
 
+export const getCurrentActivityRunResponseSchema = z
+  .object({ run: activityRunSchema.nullable() })
+  .strict();
+
 export const updateActivityRunStatusRequestSchema = z
   .object({
     status: activityRuntimeStatusSchema,

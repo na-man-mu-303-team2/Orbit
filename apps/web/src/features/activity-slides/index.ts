@@ -27,3 +27,9 @@ export {
   getActivityPrimaryCommand
 } from "./presenter/ActivityPresenterPanel";
 export type { ActivitySurfaceRole } from "./rendering";
+export {
+  ActivityResultRuntime,
+  ActivityResultSlideRenderer,
+  getActivityResultRenderState,
+  type ActivityResultRenderState
+} from "./rendering/ActivityResultSlideRenderer";
