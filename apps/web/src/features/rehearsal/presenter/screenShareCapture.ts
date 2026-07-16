@@ -59,7 +59,7 @@ export function createScreenShareCapturePort(
       if (typeof browserPort.getDisplayMedia !== "function") {
         throw new ScreenShareCaptureError(
           "unsupported",
-          "이 브라우저는 웹·실습 공유를 지원하지 않습니다.",
+          "이 브라우저는 화면 공유를 지원하지 않습니다.",
         );
       }
 
@@ -78,7 +78,7 @@ export function createScreenShareCapturePort(
         stopMediaStream(stream);
         throw new ScreenShareCaptureError(
           "monitor-not-allowed",
-          "기본 공유에서는 Chrome 탭 또는 앱 창을 선택해주세요.",
+          "기본 공유에서는 브라우저의 탭 또는 앱 창을 선택해주세요.",
         );
       }
 
@@ -130,13 +130,13 @@ export function mapScreenShareCaptureError(
   if (name === "NotReadableError") {
     return new ScreenShareCaptureError(
       "not-readable",
-      "선택한 화면을 캡처할 수 없습니다.",
+      "선택한 화면을 공유할 수 없습니다.",
     );
   }
 
   return new ScreenShareCaptureError(
     "capture-failed",
-    "웹·실습 공유를 시작하지 못했습니다.",
+    "화면 공유를 시작하지 못했습니다.",
   );
 }
 
