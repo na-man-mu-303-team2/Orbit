@@ -22,6 +22,10 @@ const bullMq = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
   queues: [] as string[],
   handlers: new Map<string, (job: FakeBullJob) => Promise<unknown>>(),
+  failedHandlers: new Map<
+    string,
+    (job: FakeBullJob | undefined, error: Error) => void
+  >(),
 }));
 
 const configState = vi.hoisted(() => ({
@@ -48,8 +52,12 @@ const processors = vi.hoisted(() => ({
   referenceExtractStage: vi.fn<() => Promise<Job | void>>(
     async () => undefined,
   ),
-  planningStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
-  executionStage: vi.fn<() => Promise<Job | void>>(async () => undefined),
+  planningStage: vi.fn<(...args: unknown[]) => Promise<Job | void>>(
+    async () => undefined,
+  ),
+  executionStage: vi.fn<(...args: unknown[]) => Promise<Job | void>>(
+    async () => undefined,
+  ),
 }));
 
 const maintenance = vi.hoisted(() => ({
@@ -78,16 +86,27 @@ const transportRecovery = vi.hoisted(() => ({
 
 vi.mock("bullmq", () => ({
   Worker: class {
+    readonly queueName: string;
+
     constructor(
       queueName: string,
       handler: (job: FakeBullJob) => Promise<unknown>,
     ) {
+      this.queueName = queueName;
       bullMq.queues.push(queueName);
       bullMq.handlers.set(queueName, handler);
     }
 
     close = bullMq.close;
-    on = vi.fn();
+    on = vi.fn(
+      (
+        event: string,
+        handler: (job: FakeBullJob | undefined, error: Error) => void,
+      ) => {
+        if (event === "failed")
+          bullMq.failedHandlers.set(this.queueName, handler);
+      },
+    );
   },
 }));
 
@@ -155,6 +174,7 @@ beforeEach(() => {
   configState.AI_DECK_WORKER_QUEUE = "all";
   bullMq.queues.length = 0;
   bullMq.handlers.clear();
+  bullMq.failedHandlers.clear();
   vi.clearAllMocks();
   vi.spyOn(globalThis, "setInterval").mockReturnValue(1 as never);
   vi.spyOn(globalThis, "clearInterval").mockImplementation(() => undefined);
@@ -418,7 +438,7 @@ describe("WorkerService queue subscriptions", () => {
     async (role, queueName, stage) => {
       configState.AI_DECK_EXECUTION_MODE = "bullmq";
       configState.AI_DECK_WORKER_QUEUE = role;
-      const { service } = createService();
+      const { service, logger } = createService();
 
       service.onModuleInit();
 
@@ -432,9 +452,66 @@ describe("WorkerService queue subscriptions", () => {
         }),
       );
       expect(processors.planningStage).toHaveBeenCalledTimes(1);
+      const options = processors.planningStage.mock.calls[0]?.[4] as {
+        eventLogger: (event: string, fields: Record<string, unknown>) => void;
+      };
+      options.eventLogger("ai-ppt.stage.attempt-failed", { terminal: false });
+      options.eventLogger("ai-ppt.stage.failed", { terminal: true });
+      options.eventLogger("ai-ppt.stage.succeeded", {});
+      expect(logger.warn).toHaveBeenCalledWith(
+        { event: "ai-ppt.stage.attempt-failed", terminal: false },
+        "AI PPT generation event.",
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        { event: "ai-ppt.stage.failed", terminal: true },
+        "AI PPT generation event.",
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        { event: "ai-ppt.stage.succeeded" },
+        "AI PPT generation event.",
+      );
       await service.onModuleDestroy();
     },
   );
+
+  it("logs AI deck retry signals as warn without serializing the signal error", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "bullmq";
+    configState.AI_DECK_WORKER_QUEUE = "research-content";
+    const retrySignal = Object.assign(new Error("AI_DECK_STAGE_RETRY"), {
+      name: "AiDeckStageRetrySignal",
+    });
+    processors.planningStage.mockRejectedValueOnce(retrySignal);
+    const { service, logger } = createService();
+    service.onModuleInit();
+    const job = bullJob("content-planning", {
+      pipelineJobId: "job-ai-deck-1",
+      projectId: "project-a",
+      stage: "content-planning",
+      shardKey: "",
+    });
+
+    await expect(
+      requiredHandler(aiDeckResearchContentQueueName)(job),
+    ).rejects.toBe(retrySignal);
+    bullMq.failedHandlers.get(aiDeckResearchContentQueueName)?.(
+      job,
+      retrySignal,
+    );
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "bullmq.job.retry-scheduled",
+        pipelineJobId: "job-ai-deck-1",
+        stage: "content-planning",
+      }),
+      "BullMQ job retry scheduled.",
+    );
+    expect(logger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "bullmq.job.failed" }),
+      "BullMQ job failed.",
+    );
+    await service.onModuleDestroy();
+  });
 
   it.each([
     ["image", aiDeckImageQueueName, "image-slide", "slide-1"],
@@ -456,6 +533,13 @@ describe("WorkerService queue subscriptions", () => {
         }),
       );
       expect(processors.executionStage).toHaveBeenCalledTimes(1);
+      expect(
+        (
+          processors.executionStage.mock.calls[0]?.[6] as {
+            eventLogger?: unknown;
+          }
+        ).eventLogger,
+      ).toEqual(expect.any(Function));
       await service.onModuleDestroy();
     },
   );

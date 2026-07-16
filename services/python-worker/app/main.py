@@ -129,6 +129,63 @@ class HealthResponse(BaseModel):
     checked_at: datetime
 
 
+def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, object]:
+    message = str(error)
+    if "SOURCE_GROUNDING_REQUIRED" in message:
+        reason_code = "SOURCE_GROUNDING_REQUIRED"
+    elif message.startswith("LLM deck content generation failed:"):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif message.startswith("LLM returned empty deck content."):
+        reason_code = "CONTENT_LLM_EMPTY_RESPONSE"
+    elif message.startswith("LLM returned invalid deck content:"):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith(
+        (
+            "LLM content plan reused content item IDs:",
+            "LLM content plan referenced unavailable source IDs:",
+            "UNSUPPORTED_NUMERIC_CLAIM:",
+            "LLM returned fewer slides than the requested minimum",
+        )
+    ):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith("LLM slide count repair failed:"):
+        reason_code = "CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED"
+    elif message.startswith(
+        (
+            "OPENAI_API_KEY is required for prompt or reference-based deck generation.",
+            "LLM deck content generation is required for prompt or reference-based decks.",
+        )
+    ):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif "Art Director could not create a valid design plan" in message:
+        reason_code = "ART_DIRECTOR_INVALID_RESPONSE"
+    elif "Art Director" in message and "unavailable" in message:
+        reason_code = "ART_DIRECTOR_UNAVAILABLE"
+    else:
+        reason_code = "PLANNING_FAILURE_UNCLASSIFIED"
+
+    detail: dict[str, object] = {"reasonCode": reason_code}
+    if reason_code.startswith(("CONTENT_LLM_", "ART_DIRECTOR_")):
+        detail["provider"] = "openai"
+    provider_error: BaseException | None = error.__cause__
+    for _ in range(3):
+        if provider_error is None:
+            break
+        provider_status = getattr(provider_error, "status_code", None)
+        if isinstance(provider_status, int) and 100 <= provider_status <= 599:
+            detail["providerHttpStatus"] = provider_status
+        provider_request_id = getattr(provider_error, "request_id", None)
+        if (
+            isinstance(provider_request_id, str)
+            and 0 < len(provider_request_id) <= 256
+        ):
+            detail["providerRequestId"] = provider_request_id
+        if "providerHttpStatus" in detail and "providerRequestId" in detail:
+            break
+        provider_error = provider_error.__cause__
+    return detail
+
+
 class ReferenceExtractRequest(BaseModel):
     file_id: str = Field(alias="fileId")
     project_id: str = Field(alias="projectId")
@@ -601,7 +658,9 @@ def source_grounding_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
@@ -620,7 +679,9 @@ def content_planning_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
@@ -639,7 +700,9 @@ def design_planning_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
