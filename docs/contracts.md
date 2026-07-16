@@ -1009,11 +1009,18 @@ Implementation locations:
 - `pptx-import`
 - `reference-material`
 - `rehearsal-audio`
+- `rehearsal-transcript-json`
+- `rehearsal-transcript-text`
 - `export-result`
 - `report-result`
 - `thumbnail`
 - `rehearsal-slide-snapshot`
 - `design-asset`
+
+`rehearsal-transcript-json`과 `rehearsal-transcript-text`는 리허설 처리 과정에서만
+생성하는 Owner 전용 내부 자산이다. 공통 업로드, 일반 자산 목록 및 공개 content
+API에서는 노출하지 않는다. `rehearsal_runs.transcript_json_file_id`와
+`rehearsal_runs.transcript_text_file_id`가 각 `project_assets.file_id`를 참조한다.
 
 결정 사항:
 

@@ -1,7 +1,7 @@
 import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
-  privateAudioPurposes,
+  ownerOnlyFilePurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -182,7 +182,7 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+      (!expectedPurpose && ownerOnlyFilePurposes.has(asset.purpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -229,7 +229,7 @@ export class FilesService {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
     }
 
-    if (!purpose && privateAudioPurposes.has(asset.purpose)) {
+    if (!purpose && ownerOnlyFilePurposes.has(asset.purpose)) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
@@ -310,7 +310,7 @@ export class FilesService {
     });
 
     return assets
-      .filter((asset) => !privateAudioPurposes.has(asset.purpose))
+      .filter((asset) => !ownerOnlyFilePurposes.has(asset.purpose))
       .map((asset) => this.toUploadedFile(asset));
   }
 
