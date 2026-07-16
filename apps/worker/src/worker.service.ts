@@ -214,6 +214,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
                 "Rehearsal semantic evaluation updated.",
               );
             },
+            (event) => {
+              const level = event.event.endsWith(".failed") ? "error" : "info";
+              this.logger[level](event, "Rehearsal transcript artifacts updated.");
+            },
           ),
       },
       {
