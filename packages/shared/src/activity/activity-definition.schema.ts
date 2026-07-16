@@ -169,6 +169,20 @@ export const activityDefinitionSchema = z
     }
   });
 
+export const activityResultLayoutSchema = z.enum([
+  "summary",
+  "chart",
+  "approved-text"
+]);
+
+export const activityResultDefinitionSchema = z
+  .object({
+    sourceActivityId: activityIdSchema,
+    display: z.literal("live"),
+    layout: activityResultLayoutSchema
+  })
+  .strict();
+
 export type ActivityTemplate = z.infer<typeof activityTemplateSchema>;
 export type ActivityQuestionType = z.infer<typeof activityQuestionTypeSchema>;
 export type ActivityOption = z.infer<typeof activityOptionSchema>;
@@ -186,3 +200,7 @@ export type FreeTextActivityQuestion = z.infer<
 >;
 export type ActivityQuestion = z.infer<typeof activityQuestionSchema>;
 export type ActivityDefinition = z.infer<typeof activityDefinitionSchema>;
+export type ActivityResultLayout = z.infer<typeof activityResultLayoutSchema>;
+export type ActivityResultDefinition = z.infer<
+  typeof activityResultDefinitionSchema
+>;
