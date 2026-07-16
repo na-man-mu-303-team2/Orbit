@@ -960,6 +960,10 @@ def unsupported_numeric_claim_reasons(
     globally_supported_values = {
         value for record in records.values() for value in numeric_values(record.content)
     }
+    one_month_schedule = any(
+        re.search(r"(?:한\s*달|1\s*개월)", record.content)
+        for record in records.values()
+    )
     reasons: list[str] = []
     for slide in slide_plans:
         source_ids = slide.source_refs or default_source_refs(raw_input, slide.order)
@@ -981,6 +985,11 @@ def unsupported_numeric_claim_reasons(
             len(slide.content_items),
             slide.order,
         )
+        if one_month_schedule:
+            structural_values.update(
+                match.group(1)
+                for match in re.finditer(r"(?<![\w])([1-4])\s*주차", claim_text)
+            )
         unsupported = sorted(
             numeric_values(claim_text)
             - supported_values

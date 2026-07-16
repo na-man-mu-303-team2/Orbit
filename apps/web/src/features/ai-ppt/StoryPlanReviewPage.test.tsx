@@ -151,18 +151,26 @@ describe("StoryPlanReviewView", () => {
   });
 
   it.each([
-    ["cancelled", "생성이 취소되었습니다."],
-    ["failed", "구성을 만들지 못했습니다."],
-  ] as const)("renders the terminal %s state without a plan", (status, copy) => {
+    ["cancelled", "생성이 취소되었습니다.", null],
+    ["failed", "구성을 만들지 못했습니다.", "이야기 구성을 만들지 못했습니다."],
+  ] as const)("renders the terminal %s state without a plan", (status, copy, errorMessage) => {
     const html = renderToStaticMarkup(
       <StoryPlanReviewView
         {...callbacks}
         activeTab="outline"
-        response={{ ...response, status, plan: null }}
+        response={{
+          ...response,
+          status,
+          plan: null,
+          error: errorMessage
+            ? { code: "PYTHON_WORKER_PLANNING_FAILED", message: errorMessage }
+            : null,
+        }}
         scriptDrafts={{}}
       />,
     );
 
     expect(html).toContain(copy);
+    if (errorMessage) expect(html).toContain(errorMessage);
   });
 });

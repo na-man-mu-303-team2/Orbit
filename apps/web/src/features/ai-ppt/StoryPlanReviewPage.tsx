@@ -312,6 +312,7 @@ export function StoryPlanReviewView(props: {
     return (
       <StoryPlanLoading
         busy={props.busy}
+        error={props.response.error?.message}
         onCancel={
           props.response.status === "planning" ? props.onCancel : undefined
         }

@@ -1826,6 +1826,7 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="정성 비교 연구",
+            prompt="한 달 시범사업을 계획합니다.",
             slideCountRange={"min": 1, "max": 1},
         )
     )
@@ -1849,6 +1850,8 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         return content_plan_repair_reasons([slide], raw_input=raw_input)
 
     assert not any("unsupported numeric claim" in reason for reason in reasons_for("관점 2개를 비교합니다"))
+    assert not any("unsupported numeric claim" in reason for reason in reasons_for("4주차에 결과를 검토합니다"))
+    assert "slide 1: unsupported numeric claim values 5" in reasons_for("5주차에 결과를 검토합니다")
     assert "slide 1: unsupported numeric claim values 2" in reasons_for("효과가 2% 증가합니다")
 
 
