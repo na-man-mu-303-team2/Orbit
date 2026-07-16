@@ -282,6 +282,7 @@ describe("processGenerateDeckJob", () => {
   it("publishes a program-v2 deck only after rendered visual QA passes", async () => {
     const deck = programV2DeckWithOptionalMedia();
     const trace: string[] = [];
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
     let generatedAsset:
       | { file_id: string; storage_key: string; mime_type: string }
       | undefined;
@@ -322,7 +323,16 @@ describe("processGenerateDeckJob", () => {
       const url = String(input);
       if (url.endsWith("/ai/generate-deck")) {
         trace.push("python.generate");
-        return generateDeckResponse(deck);
+        return generateDeckResponse(deck, {
+          referencePolicy: "research-first",
+          researchQuality: "partial",
+          researchIssueCodes: ["independent-missing"],
+          researchAttempts: 3,
+          relevantWebSourceCount: 1,
+          officialWebSourceCount: 1,
+          independentWebSourceCount: 0,
+          researchFactCoverageSatisfied: true
+        });
       }
       if (url === "http://storage.local/generated.png") {
         return new Response(image);
@@ -372,7 +382,10 @@ describe("processGenerateDeckJob", () => {
         maxPerDeck: 4,
         maxPerUserPerDay: 20
       },
-      (event) => trace.push(`event:${event}`)
+      (event, fields) => {
+        trace.push(`event:${event}`);
+        events.push({ event, fields });
+      }
     );
 
     expect(job.status).toBe("succeeded");
@@ -395,6 +408,7 @@ describe("processGenerateDeckJob", () => {
     expect(trace).toEqual([
       "job:running:15",
       "python.generate",
+      "event:ai-ppt.web-research.completed",
       "event:ai-ppt.design-program.created",
       "event:ai-ppt.composition.completed",
       "job:running:45",
@@ -411,6 +425,20 @@ describe("processGenerateDeckJob", () => {
       "event:ai-ppt.deck.published",
       "job:succeeded:100"
     ]);
+    expect(events).toContainEqual({
+      event: "ai-ppt.web-research.completed",
+      fields: {
+        jobId: "job-1",
+        projectId: "project-a",
+        quality: "partial",
+        issueCodes: ["independent-missing"],
+        attempts: 3,
+        relevantSourceCount: 1,
+        officialSourceCount: 1,
+        independentSourceCount: 0,
+        factCoverageSatisfied: true
+      }
+    });
   });
 
   it("embeds stored image assets only in the visual review request", async () => {
@@ -2070,13 +2098,16 @@ function designProgramSnapshot() {
   };
 }
 
-function generateDeckResponse(deck: Deck) {
+function generateDeckResponse(
+  deck: Deck,
+  diagnosticOverrides: Record<string, unknown> = {}
+) {
   return new Response(
     JSON.stringify({
       deck,
       warnings: [],
       validation: validation(),
-      diagnostics: diagnostics()
+      diagnostics: diagnostics(diagnosticOverrides)
     })
   );
 }

@@ -356,8 +356,34 @@ describe("generateDeckRequestSchema", () => {
 });
 
 describe("generateDeckDiagnosticsSchema", () => {
-  it("defaults machine-readable warning codes without breaking old payloads", () => {
-    expect(generateDeckDiagnosticsSchema.parse({}).warningCodes).toEqual([]);
+  it("defaults research diagnostics without breaking old payloads", () => {
+    expect(generateDeckDiagnosticsSchema.parse({})).toMatchObject({
+      researchQuality: "not-run",
+      researchIssueCodes: [],
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false,
+      warningCodes: []
+    });
+  });
+
+  it("accepts a partial research result with safe limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        researchQuality: "partial",
+        researchIssueCodes: ["independent-missing", "fact-coverage"],
+        relevantWebSourceCount: 1,
+        officialWebSourceCount: 1,
+        independentWebSourceCount: 0,
+        researchFactCoverageSatisfied: false
+      })
+    ).toMatchObject({
+      researchQuality: "partial",
+      researchIssueCodes: ["independent-missing", "fact-coverage"],
+      relevantWebSourceCount: 1,
+      officialWebSourceCount: 1,
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false
+    });
   });
 
   it("accepts unavailable rendered visual QA with warning codes", () => {
