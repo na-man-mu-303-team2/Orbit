@@ -39,54 +39,63 @@ export const criterionRefSchema = z
   })
   .strict();
 
-export const focusedPracticeTargetScopeSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("slide"),
-      scopeId: coachingIdSchema,
-      slideId: coachingIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("sentence"),
-      scopeId: coachingIdSchema,
-      slideId: coachingIdSchema,
-      sentenceIndex: z.number().int().nonnegative(),
-      textSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("slide-range"),
-      scopeId: coachingIdSchema,
-      startSlideId: coachingIdSchema,
-      endSlideId: coachingIdSchema,
-    })
-    .strict(),
-  z.object({ type: z.literal("opening"), scopeId: coachingIdSchema }).strict(),
-  z.object({ type: z.literal("closing"), scopeId: coachingIdSchema }).strict(),
-]).superRefine((scope, context) => {
-  if (
-    scope.type === "slide-range" &&
-    scope.startSlideId === scope.endSlideId
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "slide-range must include at least two distinct slides.",
-      path: ["endSlideId"],
-    });
-  }
-});
+export const focusedPracticeTargetScopeSchema = z
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("slide"),
+        scopeId: coachingIdSchema,
+        slideId: coachingIdSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("sentence"),
+        scopeId: coachingIdSchema,
+        slideId: coachingIdSchema,
+        sentenceIndex: z.number().int().nonnegative(),
+        textSnapshotHash: z.string().regex(/^[a-f0-9]{64}$/i),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("slide-range"),
+        scopeId: coachingIdSchema,
+        startSlideId: coachingIdSchema,
+        endSlideId: coachingIdSchema,
+      })
+      .strict(),
+    z
+      .object({ type: z.literal("opening"), scopeId: coachingIdSchema })
+      .strict(),
+    z
+      .object({ type: z.literal("closing"), scopeId: coachingIdSchema })
+      .strict(),
+  ])
+  .superRefine((scope, context) => {
+    if (
+      scope.type === "slide-range" &&
+      scope.startSlideId === scope.endSlideId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "slide-range must include at least two distinct slides.",
+        path: ["endSlideId"],
+      });
+    }
+  });
 
 export const boundedObservationSchema = z.discriminatedUnion("kind", [
   z
-    .object({ kind: z.literal("duration-seconds"), value: z.number().nonnegative() })
+    .object({
+      kind: z.literal("duration-seconds"),
+      value: z.number().nonnegative(),
+    })
     .strict(),
   z
     .object({
       kind: z.literal("count"),
-      metric: z.enum(["filler-word-count", "pause-count"]),
+      metric: z.enum(["filler-word-count", "long-silence-count"]),
       value: z.number().int().nonnegative(),
     })
     .strict(),
@@ -101,12 +110,15 @@ export const boundedObservationSchema = z.discriminatedUnion("kind", [
 
 export const boundedThresholdSchema = z.discriminatedUnion("kind", [
   z
-    .object({ kind: z.literal("max-duration-seconds"), value: z.number().positive() })
+    .object({
+      kind: z.literal("max-duration-seconds"),
+      value: z.number().positive(),
+    })
     .strict(),
   z
     .object({
       kind: z.literal("max-count"),
-      metric: z.enum(["filler-word-count", "pause-count"]),
+      metric: z.enum(["filler-word-count", "long-silence-count"]),
       value: z.number().int().nonnegative(),
     })
     .strict(),

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   rehearsalAudioProcessingResponseSchema,
-  rehearsalVolumeAnalysisSchema
+  rehearsalSilenceAnalysisSchema,
+  rehearsalVolumeAnalysisSchema,
 } from "./rehearsal-audio-analysis.schema";
 import { rehearsalReportSchema } from "./rehearsal.schema";
 
@@ -20,9 +21,35 @@ const measuredVolumeAnalysis = {
       startSeconds: 8.1,
       endSeconds: 10.2,
       durationSeconds: 2.1,
-      meanDeviationDb: -7.4
-    }
-  ]
+      meanDeviationDb: -7.4,
+    },
+  ],
+} as const;
+
+const measuredSilenceAnalysis = {
+  metricDefinitionVersion: 1,
+  measurementState: "measured",
+  reasonCode: null,
+  detector: "silero-vad",
+  detectorVersion: "6.2.1",
+  speechThreshold: 0.5,
+  minimumSilenceMs: 250,
+  longSilenceMs: 1000,
+  analysisWindowStartSeconds: 0.42,
+  analysisWindowEndSeconds: 28.31,
+  totalSilenceSeconds: 1.34,
+  silenceRatio: 0.0481,
+  longSilenceCount: 1,
+  detectedSegmentCount: 1,
+  segmentsTruncated: false,
+  segments: [
+    {
+      category: "long",
+      startSeconds: 8.12,
+      endSeconds: 9.46,
+      durationSeconds: 1.34,
+    },
+  ],
 } as const;
 
 describe("rehearsal volume analysis contract", () => {
@@ -37,10 +64,40 @@ describe("rehearsal volume analysis contract", () => {
       model: "large-v3",
       durationSeconds: 30.2,
       segments: [],
-      volumeAnalysis: measuredVolumeAnalysis
+      volumeAnalysis: measuredVolumeAnalysis,
+      silenceAnalysis: measuredSilenceAnalysis,
     });
 
     expect(response.volumeAnalysis.measurementState).toBe("measured");
+    expect(response.silenceAnalysis.longSilenceCount).toBe(1);
+  });
+
+  it("enforces silence measurement and category invariants", () => {
+    expect(
+      rehearsalSilenceAnalysisSchema.safeParse({
+        ...measuredSilenceAnalysis,
+        speechThreshold: 0.6,
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalSilenceAnalysisSchema.safeParse({
+        ...measuredSilenceAnalysis,
+        segments: [
+          {
+            category: "brief",
+            startSeconds: 8.12,
+            endSeconds: 9.46,
+            durationSeconds: 1.34,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      rehearsalSilenceAnalysisSchema.safeParse({
+        ...measuredSilenceAnalysis,
+        totalSilenceSeconds: Number.POSITIVE_INFINITY,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects inconsistent measured and unmeasured states", () => {
@@ -48,14 +105,14 @@ describe("rehearsal volume analysis contract", () => {
       rehearsalVolumeAnalysisSchema.safeParse({
         ...measuredVolumeAnalysis,
         measurementState: "unmeasured",
-        reasonCode: "ANALYSIS_FAILED"
-      }).success
+        reasonCode: "ANALYSIS_FAILED",
+      }).success,
     ).toBe(false);
     expect(
       rehearsalVolumeAnalysisSchema.safeParse({
         ...measuredVolumeAnalysis,
-        averageDbfs: Number.NaN
-      }).success
+        averageDbfs: Number.NaN,
+      }).success,
     ).toBe(false);
   });
 
@@ -69,10 +126,10 @@ describe("rehearsal volume analysis contract", () => {
             startSeconds: 5,
             endSeconds: 4,
             durationSeconds: 1,
-            meanDeviationDb: 8
-          }
-        ]
-      }).success
+            meanDeviationDb: 8,
+          },
+        ],
+      }).success,
     ).toBe(false);
   });
 
@@ -89,15 +146,19 @@ describe("rehearsal volume analysis contract", () => {
         wordsPerMinute: 100,
         fillerWordCount: 0,
         pauseCount: 0,
-        keywordCoverage: 1
+        keywordCoverage: 1,
       },
       coaching: null,
-      generatedAt: "2026-07-16T00:00:00.000Z"
+      generatedAt: "2026-07-16T00:00:00.000Z",
     });
 
     expect(report.volumeAnalysis).toMatchObject({
       measurementState: "unmeasured",
-      reasonCode: "LEGACY_REPORT"
+      reasonCode: "LEGACY_REPORT",
+    });
+    expect(report.silenceAnalysis).toMatchObject({
+      measurementState: "unmeasured",
+      reasonCode: "LEGACY_REPORT",
     });
   });
 });

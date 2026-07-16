@@ -95,6 +95,10 @@ from app.audio.processing import (
     RehearsalAudioProcessingResponse,
     process_rehearsal_audio,
 )
+from app.audio.analysis.models import (
+    RehearsalSilenceAnalysis,
+    unmeasured_silence_analysis,
+)
 from app.challenge_qna import router as challenge_qna_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
@@ -230,6 +234,13 @@ class RehearsalAnalyzeRequest(BaseModel):
         default_factory=list,
         alias="slideTimeline",
     )
+    silence_analysis: RehearsalSilenceAnalysis = Field(
+        default_factory=lambda: unmeasured_silence_analysis(
+            "LEGACY_REPORT",
+            detector_version="unavailable",
+        ),
+        alias="silenceAnalysis",
+    )
 
 
 class RehearsalCoachingResponse(BaseModel):
@@ -258,12 +269,6 @@ class RehearsalFillerWordDetailResponse(BaseModel):
     count: int = Field(ge=0)
 
 
-class RehearsalPauseDetailResponse(BaseModel):
-    start_second: float = Field(alias="startSecond", ge=0)
-    end_second: float = Field(alias="endSecond", ge=0)
-    duration_seconds: float = Field(alias="durationSeconds", ge=0)
-
-
 class RehearsalMissedKeywordResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     keyword_id: str = Field(alias="keywordId")
@@ -273,14 +278,14 @@ class RehearsalMissedKeywordResponse(BaseModel):
 class RehearsalSlideInsightResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     filler_word_count: int = Field(alias="fillerWordCount", ge=0)
-    pause_count: int = Field(alias="pauseCount", ge=0)
+    long_silence_count: int | None = Field(alias="longSilenceCount", ge=0)
 
 
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
     filler_word_count: int = Field(alias="fillerWordCount")
-    pause_count: int = Field(alias="pauseCount")
+    long_silence_count: int | None = Field(alias="longSilenceCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
     speed_samples: list[RehearsalSpeedSampleResponse] = Field(
         default_factory=list,
@@ -289,10 +294,6 @@ class RehearsalAnalyzeResponse(BaseModel):
     filler_word_details: list[RehearsalFillerWordDetailResponse] = Field(
         default_factory=list,
         alias="fillerWordDetails",
-    )
-    pause_details: list[RehearsalPauseDetailResponse] = Field(
-        default_factory=list,
-        alias="pauseDetails",
     )
     missed_keywords: list[RehearsalMissedKeywordResponse] = Field(
         default_factory=list,
@@ -796,6 +797,7 @@ def analyze_rehearsal(
             )
             for entry in payload.slide_timeline
         ],
+        silence_analysis=payload.silence_analysis,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
@@ -820,7 +822,7 @@ def analyze_rehearsal(
         runId=payload.run_id,
         wordsPerMinute=metrics.words_per_minute,
         fillerWordCount=metrics.filler_word_count,
-        pauseCount=metrics.pause_count,
+        longSilenceCount=metrics.long_silence_count,
         keywordCoverage=metrics.keyword_coverage,
         speedSamples=[
             RehearsalSpeedSampleResponse(
@@ -837,14 +839,6 @@ def analyze_rehearsal(
             )
             for detail in metrics.filler_word_details
         ],
-        pauseDetails=[
-            RehearsalPauseDetailResponse(
-                startSecond=detail.start_second,
-                endSecond=detail.end_second,
-                durationSeconds=detail.duration_seconds,
-            )
-            for detail in metrics.pause_details
-        ],
         missedKeywords=[
             RehearsalMissedKeywordResponse(
                 slideId=keyword.slide_id,
@@ -857,7 +851,7 @@ def analyze_rehearsal(
             RehearsalSlideInsightResponse(
                 slideId=insight.slide_id,
                 fillerWordCount=insight.filler_word_count,
-                pauseCount=insight.pause_count,
+                longSilenceCount=insight.long_silence_count,
             )
             for insight in metrics.slide_insights
         ],
@@ -916,14 +910,20 @@ class RehearsalProgressCommentResponse(BaseModel):
     comment: str | None = None
 
 
-@app.post("/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse)
+@app.post(
+    "/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse
+)
 def rehearsal_progress_comment(
     payload: RehearsalProgressCommentRequest,
     request: Request,
 ) -> RehearsalProgressCommentResponse:
     config = _config(request)
     run_series = [
-        RunSeriesEntry(run_id=e.run_id, created_at=e.created_at, duration_seconds=e.duration_seconds)
+        RunSeriesEntry(
+            run_id=e.run_id,
+            created_at=e.created_at,
+            duration_seconds=e.duration_seconds,
+        )
         for e in payload.run_series
     ]
     comment = generate_progress_comment(
@@ -931,7 +931,9 @@ def rehearsal_progress_comment(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
-    return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
+    return RehearsalProgressCommentResponse(
+        projectId=payload.project_id, comment=comment
+    )
 
 
 def _remap_import_asset_ids(

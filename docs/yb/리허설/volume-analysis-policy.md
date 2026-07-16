@@ -6,7 +6,7 @@
 
 ## 입력과 처리 경계
 
-- `/audio/transcribe`가 원본 음성을 한 번 읽어 STT와 음량 분석에 같은 `AudioContent`를 전달한다.
+- `/audio/transcribe`가 원본 음성을 한 번 읽고 PyAV로 한 번 디코딩한다. STT는 `AudioContent`, 음량과 침묵 분석은 같은 `DecodedAudio`를 사용한다.
 - `/audio/transcribe-private`는 집중 연습과 Q&A를 위한 STT 전용 경로로 유지한다.
 - PyAV가 mono float32 16kHz PCM으로 디코딩하고 librosa RMS와 NumPy 통계로 분석한다.
 - 원본 bytes, waveform, 전체 프레임 RMS, signed URL은 저장하거나 로그에 남기지 않는다.
@@ -32,6 +32,6 @@
 ## 제외 범위
 
 - 절대적인 적정 음량 판정
-- 음성 기반 멈춤·발화 속도·강세·pitch·떨림 분석
+- 발화 속도·강세·pitch·떨림 분석
 - UI 표시와 PracticeGoal 생성
 - 문제 구간 오디오 Clip 생성 및 재생

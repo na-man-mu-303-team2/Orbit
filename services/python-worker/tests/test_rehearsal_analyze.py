@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import app.main as api_module
+from app.audio.analysis.models import RehearsalSilenceAnalysis
 from app.audio.transcribe import TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
@@ -66,7 +67,40 @@ class FakeClient:
     responses = FakeResponses()
 
 
-def test_analyze_rehearsal_metrics_counts_pauses_fillers_and_keywords() -> None:
+def _measured_silence_analysis(
+    segments: list[tuple[float, float]],
+) -> RehearsalSilenceAnalysis:
+    total_silence_seconds = sum(end - start for start, end in segments)
+    window_end = max(end for _start, end in segments) + 1
+    return RehearsalSilenceAnalysis(
+        metricDefinitionVersion=1,
+        measurementState="measured",
+        reasonCode=None,
+        detector="silero-vad",
+        detectorVersion="test-vad",
+        speechThreshold=0.5,
+        minimumSilenceMs=250,
+        longSilenceMs=1000,
+        analysisWindowStartSeconds=0,
+        analysisWindowEndSeconds=window_end,
+        totalSilenceSeconds=total_silence_seconds,
+        silenceRatio=total_silence_seconds / window_end,
+        longSilenceCount=sum(end - start >= 1 for start, end in segments),
+        detectedSegmentCount=len(segments),
+        segmentsTruncated=False,
+        segments=[
+            {
+                "category": "long" if end - start >= 1 else "brief",
+                "startSeconds": start,
+                "endSeconds": end,
+                "durationSeconds": end - start,
+            }
+            for start, end in segments
+        ],
+    )
+
+
+def test_analyze_rehearsal_metrics_counts_silences_fillers_and_keywords() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="음 오늘은 ORBIT 실시간 피드백을 설명합니다",
         duration_seconds=30,
@@ -78,11 +112,12 @@ def test_analyze_rehearsal_metrics_counts_pauses_fillers_and_keywords() -> None:
             DeckKeyword(text="ORBIT", synonyms=["오르빗"]),
             DeckKeyword(text="실시간 피드백"),
         ],
+        silence_analysis=_measured_silence_analysis([(2.0, 3.5)]),
     )
 
     assert metrics.words_per_minute == 12
     assert metrics.filler_word_count == 1
-    assert metrics.pause_count == 1
+    assert metrics.long_silence_count == 1
     assert metrics.keyword_coverage == 1
 
 
@@ -98,11 +133,12 @@ def test_analyze_rehearsal_metrics_builds_safe_report_details() -> None:
             DeckKeyword(keyword_id="kw_1", slide_id="slide_1", text="ORBIT"),
             DeckKeyword(keyword_id="kw_2", slide_id="slide_1", text="리포트"),
         ],
+        silence_analysis=_measured_silence_analysis([(2.0, 3.5)]),
     )
 
     assert metrics.speed_samples[0].words_per_minute == 90
     assert metrics.filler_word_details == [FillerWordDetail(word="음", count=1)]
-    assert metrics.pause_details[0].duration_seconds == 1.5
+    assert metrics.long_silence_count == 1
     assert metrics.missed_keywords[0].keyword_id == "kw_2"
     assert metrics.keyword_coverage == 0.5
 
@@ -121,18 +157,21 @@ def test_analyze_rehearsal_metrics_builds_slide_insights_from_timeline() -> None
             SlideTimelineEntry(slide_id="slide_1", entered_second=0),
             SlideTimelineEntry(slide_id="slide_2", entered_second=4),
         ],
+        silence_analysis=_measured_silence_analysis([(3.0, 4.5)]),
     )
 
     assert len(metrics.slide_insights) == 2
     assert metrics.slide_insights[0].slide_id == "slide_1"
     assert metrics.slide_insights[0].filler_word_count == 1
-    assert metrics.slide_insights[0].pause_count == 1
+    assert metrics.slide_insights[0].long_silence_count == 1
     assert metrics.slide_insights[1].slide_id == "slide_2"
     assert metrics.slide_insights[1].filler_word_count == 1
-    assert metrics.slide_insights[1].pause_count == 0
+    assert metrics.slide_insights[1].long_silence_count == 0
 
 
-def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> None:
+def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_missing() -> (
+    None
+):
     metrics = analyze_rehearsal_metrics(
         transcript="하나 둘 셋 넷 다섯 여섯",
         duration_seconds=0,
@@ -146,7 +185,9 @@ def test_analyze_rehearsal_metrics_uses_segment_duration_when_total_duration_is_
     assert metrics.words_per_minute == 12
 
 
-def test_analyze_rehearsal_metrics_does_not_inflate_speed_without_duration_data() -> None:
+def test_analyze_rehearsal_metrics_does_not_inflate_speed_without_duration_data() -> (
+    None
+):
     metrics = analyze_rehearsal_metrics(
         transcript="하나 둘 셋 넷 다섯 여섯",
         duration_seconds=0,
@@ -219,7 +260,7 @@ def test_analyze_rehearsal_metrics_does_not_count_non_filler_substrings() -> Non
     assert metrics.filler_word_details == []
 
 
-def test_analyze_rehearsal_metrics_records_long_silence_details() -> None:
+def test_analyze_rehearsal_metrics_uses_vad_silence_instead_of_segment_gaps() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="첫 문장 다음 문장",
         duration_seconds=10,
@@ -228,15 +269,13 @@ def test_analyze_rehearsal_metrics_records_long_silence_details() -> None:
             TranscriptSegment(text="다음 문장", startSeconds=4.25, endSeconds=5.25),
         ],
         deck_keywords=[],
+        silence_analysis=_measured_silence_analysis([(2.0, 3.0), (6.0, 6.5)]),
     )
 
-    assert metrics.pause_count == 1
-    assert metrics.pause_details[0].start_second == 1.5
-    assert metrics.pause_details[0].end_second == 4.25
-    assert metrics.pause_details[0].duration_seconds == 2.75
+    assert metrics.long_silence_count == 1
 
 
-def test_analyze_rehearsal_metrics_sorts_segments_before_counting_pauses() -> None:
+def test_analyze_rehearsal_metrics_does_not_derive_silence_from_segment_gaps() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="하나 둘 셋",
         duration_seconds=5,
@@ -249,25 +288,7 @@ def test_analyze_rehearsal_metrics_sorts_segments_before_counting_pauses() -> No
         deck_keywords=[],
     )
 
-    assert metrics.pause_count == 1
-    assert metrics.pause_details[0].start_second == 1.5
-    assert metrics.pause_details[0].end_second == 2.9
-    assert metrics.pause_details[0].duration_seconds == 1.4
-
-
-def test_analyze_rehearsal_metrics_ignores_short_segment_gaps() -> None:
-    metrics = analyze_rehearsal_metrics(
-        transcript="하나 둘",
-        duration_seconds=3,
-        segments=[
-            TranscriptSegment(text="하나", startSeconds=0, endSeconds=1),
-            TranscriptSegment(text="둘", startSeconds=1.9, endSeconds=3),
-        ],
-        deck_keywords=[],
-    )
-
-    assert metrics.pause_count == 0
-    assert metrics.pause_details == []
+    assert metrics.long_silence_count is None
 
 
 def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
@@ -276,7 +297,7 @@ def test_generate_rehearsal_coaching_parses_structured_llm_response() -> None:
         metrics=RehearsalMetricsResult(
             words_per_minute=120,
             filler_word_count=1,
-            pause_count=0,
+            long_silence_count=0,
             keyword_coverage=1,
         ),
         client=FakeClient(),

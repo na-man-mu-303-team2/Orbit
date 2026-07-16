@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.audio.analysis.models import RehearsalSilenceAnalysis
 from app.audio.transcribe import TranscriptSegment
 
 FILLER_WORDS = {
@@ -37,8 +38,6 @@ FILLER_PHRASES = {
     ("kind", "of"): "kind of",
     ("sort", "of"): "sort of",
 }
-
-LONG_PAUSE_THRESHOLD_SECONDS = 1.0
 
 PROGRESS_COMMENT_INSTRUCTIONS = """
 You are a Korean presentation rehearsal coach for ORBIT.
@@ -132,13 +131,6 @@ class FillerWordDetail:
 
 
 @dataclass(frozen=True)
-class PauseDetail:
-    start_second: float
-    end_second: float
-    duration_seconds: float
-
-
-@dataclass(frozen=True)
 class SlideTimelineEntry:
     slide_id: str
     entered_second: float
@@ -155,7 +147,7 @@ class MissedKeywordDetail:
 class SlideInsight:
     slide_id: str
     filler_word_count: int
-    pause_count: int
+    long_silence_count: int | None
 
 
 @dataclass(frozen=True)
@@ -168,11 +160,10 @@ class KeywordAnalysis:
 class RehearsalMetricsResult:
     words_per_minute: float
     filler_word_count: int
-    pause_count: int
+    long_silence_count: int | None
     keyword_coverage: float
     speed_samples: list[SpeedSample] = field(default_factory=list)
     filler_word_details: list[FillerWordDetail] = field(default_factory=list)
-    pause_details: list[PauseDetail] = field(default_factory=list)
     missed_keywords: list[MissedKeywordDetail] = field(default_factory=list)
     slide_insights: list[SlideInsight] = field(default_factory=list)
 
@@ -196,6 +187,7 @@ def analyze_rehearsal_metrics(
     segments: list[TranscriptSegment],
     deck_keywords: list[DeckKeyword],
     slide_timeline: list[SlideTimelineEntry] | None = None,
+    silence_analysis: RehearsalSilenceAnalysis | None = None,
 ) -> RehearsalMetricsResult:
     # TODO: 현재 산식은 MVP 휴리스틱이므로, 문서화된 리허설 평가 기준에 맞춰 재검토한다.
     words = transcript_words(transcript)
@@ -204,23 +196,28 @@ def analyze_rehearsal_metrics(
         segments,
     )
     keyword_result = analyze_keywords(transcript, deck_keywords)
-    pause_details = find_pause_details(segments)
+    long_silence_count = (
+        silence_analysis.long_silence_count
+        if silence_analysis is not None
+        and silence_analysis.measurement_state == "measured"
+        else None
+    )
     return RehearsalMetricsResult(
         words_per_minute=calculate_words_per_minute(
             len(words),
             speaking_duration_seconds,
         ),
         filler_word_count=count_filler_words(words),
-        pause_count=len(pause_details),
+        long_silence_count=long_silence_count,
         keyword_coverage=keyword_result.coverage,
         speed_samples=build_speed_samples(segments),
         filler_word_details=count_filler_word_details(words),
-        pause_details=pause_details,
         missed_keywords=keyword_result.missed,
         slide_insights=build_slide_insights(
             duration_seconds,
             segments,
             slide_timeline or [],
+            silence_analysis,
         ),
     )
 
@@ -262,7 +259,7 @@ def generate_rehearsal_coaching(
                 "Metrics:\n"
                 f"- wordsPerMinute: {metrics.words_per_minute}\n"
                 f"- fillerWordCount: {metrics.filler_word_count}\n"
-                f"- pauseCount: {metrics.pause_count}\n"
+                f"- longSilenceCount: {metrics.long_silence_count}\n"
                 f"- keywordCoverage: {metrics.keyword_coverage}\n"
             ),
             text=COACHING_RESPONSE_FORMAT,
@@ -328,6 +325,7 @@ def generate_progress_comment(
         if not api_key:
             return None
         from openai import OpenAI
+
         api_client = OpenAI(api_key=api_key)
 
     lines = "\n".join(
@@ -440,33 +438,9 @@ def canonical_filler_word(word: str) -> str | None:
     return None
 
 
-def count_pauses(segments: list[TranscriptSegment]) -> int:
-    return len(find_pause_details(segments))
-
-
-def find_pause_details(segments: list[TranscriptSegment]) -> list[PauseDetail]:
-    pauses: list[PauseDetail] = []
-    previous_end: float | None = None
-
-    for start_seconds, end_seconds in valid_timed_segments(segments):
-        if (
-            previous_end is not None
-            and start_seconds - previous_end >= LONG_PAUSE_THRESHOLD_SECONDS
-        ):
-            pauses.append(
-                PauseDetail(
-                    start_second=round(previous_end, 2),
-                    end_second=round(start_seconds, 2),
-                    duration_seconds=round(start_seconds - previous_end, 2),
-                )
-            )
-
-        previous_end = end_seconds if previous_end is None else max(previous_end, end_seconds)
-
-    return pauses
-
-
-def valid_timed_segments(segments: list[TranscriptSegment]) -> list[tuple[float, float]]:
+def valid_timed_segments(
+    segments: list[TranscriptSegment],
+) -> list[tuple[float, float]]:
     timed_segments: list[tuple[float, float]] = []
     for segment in segments:
         if segment.start_seconds is None or segment.end_seconds is None:
@@ -496,6 +470,7 @@ def build_slide_insights(
     duration_seconds: float,
     segments: list[TranscriptSegment],
     slide_timeline: list[SlideTimelineEntry],
+    silence_analysis: RehearsalSilenceAnalysis | None = None,
 ) -> list[SlideInsight]:
     timeline = normalize_slide_timeline(slide_timeline)
     if not timeline:
@@ -505,7 +480,12 @@ def build_slide_insights(
     if analysis_end_second <= 0:
         return []
 
-    pause_details = find_pause_details(segments)
+    long_silence_segments = (
+        [segment for segment in silence_analysis.segments if segment.category == "long"]
+        if silence_analysis is not None
+        and silence_analysis.measurement_state == "measured"
+        else None
+    )
     insights: list[SlideInsight] = []
 
     for index, entry in enumerate(timeline):
@@ -521,22 +501,26 @@ def build_slide_insights(
             if segment_belongs_to_window(segment, entry.entered_second, window_end):
                 slide_words.extend(transcript_words(segment.text))
 
-        pause_count = sum(
-            1
-            for pause in pause_details
-            if interval_midpoint_in_window(
-                pause.start_second,
-                pause.end_second,
-                entry.entered_second,
-                window_end,
+        long_silence_count = (
+            sum(
+                1
+                for silence in long_silence_segments
+                if interval_midpoint_in_window(
+                    silence.start_seconds,
+                    silence.end_seconds,
+                    entry.entered_second,
+                    window_end,
+                )
             )
+            if long_silence_segments is not None
+            else None
         )
 
         insights.append(
             SlideInsight(
                 slide_id=entry.slide_id,
                 filler_word_count=count_filler_words(slide_words),
-                pause_count=pause_count,
+                long_silence_count=long_silence_count,
             )
         )
 
@@ -623,7 +607,9 @@ def analyze_keywords(
                 )
             )
 
-    return KeywordAnalysis(coverage=round(matched / len(deck_keywords), 4), missed=missed)
+    return KeywordAnalysis(
+        coverage=round(matched / len(deck_keywords), 4), missed=missed
+    )
 
 
 def build_speed_samples(segments: list[TranscriptSegment]) -> list[SpeedSample]:

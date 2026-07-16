@@ -6,7 +6,7 @@ export const rehearsalVolumeAnalysisReasonCodeSchema = z.enum([
   "EMPTY_AUDIO",
   "INSUFFICIENT_ACTIVE_AUDIO",
   "ANALYSIS_FAILED",
-  "LEGACY_REPORT"
+  "LEGACY_REPORT",
 ]);
 
 export const rehearsalVolumeIssueSegmentSchema = z
@@ -15,7 +15,7 @@ export const rehearsalVolumeIssueSegmentSchema = z
     startSeconds: z.number().finite().nonnegative(),
     endSeconds: z.number().finite().nonnegative(),
     durationSeconds: z.number().finite().positive(),
-    meanDeviationDb: z.number().finite()
+    meanDeviationDb: z.number().finite(),
   })
   .strict()
   .superRefine((segment, context) => {
@@ -27,7 +27,7 @@ export const rehearsalVolumeIssueSegmentSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "volume issue duration must match its time range.",
-        path: ["durationSeconds"]
+        path: ["durationSeconds"],
       });
     }
   });
@@ -41,7 +41,7 @@ export const rehearsalVolumeAnalysisSchema = z
     baselineDbfs: z.number().finite().nullable(),
     variationDb: z.number().finite().nonnegative().nullable(),
     activeRatio: z.number().finite().min(0).max(1).nullable(),
-    issueSegments: z.array(rehearsalVolumeIssueSegmentSchema).max(100)
+    issueSegments: z.array(rehearsalVolumeIssueSegmentSchema).max(100),
   })
   .strict()
   .superRefine((analysis, context) => {
@@ -49,16 +49,17 @@ export const rehearsalVolumeAnalysisSchema = z
       analysis.averageDbfs,
       analysis.baselineDbfs,
       analysis.variationDb,
-      analysis.activeRatio
+      analysis.activeRatio,
     ];
     if (
       analysis.measurementState === "measured" &&
-      (analysis.reasonCode !== null || metricValues.some((value) => value === null))
+      (analysis.reasonCode !== null ||
+        metricValues.some((value) => value === null))
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "measured volume analysis requires all metric values.",
-        path: ["measurementState"]
+        path: ["measurementState"],
       });
     }
     if (
@@ -70,7 +71,7 @@ export const rehearsalVolumeAnalysisSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "unmeasured volume analysis requires a reason only.",
-        path: ["measurementState"]
+        path: ["measurementState"],
       });
     }
   });
@@ -83,14 +84,215 @@ export const legacyRehearsalVolumeAnalysis = {
   baselineDbfs: null,
   variationDb: null,
   activeRatio: null,
-  issueSegments: []
+  issueSegments: [],
+};
+
+export const rehearsalSilenceAnalysisReasonCodeSchema = z.enum([
+  "AUDIO_DECODE_FAILED",
+  "NO_AUDIO_STREAM",
+  "EMPTY_AUDIO",
+  "INSUFFICIENT_SPEECH",
+  "VAD_INITIALIZATION_FAILED",
+  "ANALYSIS_FAILED",
+  "LEGACY_REPORT",
+]);
+
+export const rehearsalSilenceSegmentSchema = z
+  .object({
+    category: z.enum(["brief", "long"]),
+    startSeconds: z.number().finite().nonnegative(),
+    endSeconds: z.number().finite().nonnegative(),
+    durationSeconds: z.number().finite().min(0.25),
+  })
+  .strict()
+  .superRefine((segment, context) => {
+    const expectedDuration = segment.endSeconds - segment.startSeconds;
+    if (
+      expectedDuration <= 0 ||
+      Math.abs(segment.durationSeconds - expectedDuration) > 0.002
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "silence duration must match its time range.",
+        path: ["durationSeconds"],
+      });
+    }
+    if (segment.durationSeconds >= 1 !== (segment.category === "long")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "silence category must match its duration.",
+        path: ["category"],
+      });
+    }
+  });
+
+export const rehearsalSilenceAnalysisSchema = z
+  .object({
+    metricDefinitionVersion: z.literal(1),
+    measurementState: z.enum(["measured", "unmeasured"]),
+    reasonCode: rehearsalSilenceAnalysisReasonCodeSchema.nullable(),
+    detector: z.literal("silero-vad"),
+    detectorVersion: z.string().min(1),
+    speechThreshold: z.literal(0.5),
+    minimumSilenceMs: z.literal(250),
+    longSilenceMs: z.literal(1000),
+    analysisWindowStartSeconds: z.number().finite().nonnegative().nullable(),
+    analysisWindowEndSeconds: z.number().finite().nonnegative().nullable(),
+    totalSilenceSeconds: z.number().finite().nonnegative().nullable(),
+    silenceRatio: z.number().finite().min(0).max(1).nullable(),
+    longSilenceCount: z.number().int().nonnegative().nullable(),
+    detectedSegmentCount: z.number().int().nonnegative().nullable(),
+    segmentsTruncated: z.boolean(),
+    segments: z.array(rehearsalSilenceSegmentSchema).max(1000),
+  })
+  .strict()
+  .superRefine((analysis, context) => {
+    const metricValues = [
+      analysis.analysisWindowStartSeconds,
+      analysis.analysisWindowEndSeconds,
+      analysis.totalSilenceSeconds,
+      analysis.silenceRatio,
+      analysis.longSilenceCount,
+      analysis.detectedSegmentCount,
+    ];
+    if (analysis.measurementState === "measured") {
+      if (
+        analysis.reasonCode !== null ||
+        metricValues.some((value) => value === null)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "measured silence analysis requires all metric values.",
+          path: ["measurementState"],
+        });
+        return;
+      }
+      if (
+        analysis.analysisWindowEndSeconds! <=
+        analysis.analysisWindowStartSeconds!
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "silence analysis window must be positive.",
+          path: ["analysisWindowEndSeconds"],
+        });
+      }
+      if (analysis.detectedSegmentCount! < analysis.segments.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "detected segment count cannot be smaller than output.",
+          path: ["detectedSegmentCount"],
+        });
+      }
+      if (
+        analysis.segmentsTruncated !==
+        analysis.detectedSegmentCount! > analysis.segments.length
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "silence truncation flag must match segment counts.",
+          path: ["segmentsTruncated"],
+        });
+      }
+      const returnedLongCount = analysis.segments.filter(
+        (segment) => segment.category === "long",
+      ).length;
+      if (
+        !analysis.segmentsTruncated &&
+        analysis.longSilenceCount !== returnedLongCount
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "long silence count must match segments.",
+          path: ["longSilenceCount"],
+        });
+      }
+      let previousStart = -Infinity;
+      analysis.segments.forEach((segment, index) => {
+        if (
+          segment.startSeconds < analysis.analysisWindowStartSeconds! ||
+          segment.endSeconds > analysis.analysisWindowEndSeconds!
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "silence segments must stay inside the analysis window.",
+            path: ["segments", index],
+          });
+        }
+        if (segment.startSeconds < previousStart) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "silence segments must be ordered by start time.",
+            path: ["segments", index, "startSeconds"],
+          });
+        }
+        previousStart = segment.startSeconds;
+      });
+      if (!analysis.segmentsTruncated) {
+        const returnedTotal = analysis.segments.reduce(
+          (total, segment) => total + segment.durationSeconds,
+          0,
+        );
+        if (Math.abs(analysis.totalSilenceSeconds! - returnedTotal) > 0.002) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "total silence must match returned segments.",
+            path: ["totalSilenceSeconds"],
+          });
+        }
+      }
+      const windowSeconds =
+        analysis.analysisWindowEndSeconds! -
+        analysis.analysisWindowStartSeconds!;
+      const expectedRatio = analysis.totalSilenceSeconds! / windowSeconds;
+      if (Math.abs(analysis.silenceRatio! - expectedRatio) > 0.0001) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "silence ratio must match total silence and analysis window.",
+          path: ["silenceRatio"],
+        });
+      }
+      return;
+    }
+    if (
+      analysis.reasonCode === null ||
+      metricValues.some((value) => value !== null) ||
+      analysis.segments.length > 0 ||
+      analysis.segmentsTruncated
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unmeasured silence analysis requires a reason only.",
+        path: ["measurementState"],
+      });
+    }
+  });
+
+export const legacyRehearsalSilenceAnalysis = {
+  metricDefinitionVersion: 1 as const,
+  measurementState: "unmeasured" as const,
+  reasonCode: "LEGACY_REPORT" as const,
+  detector: "silero-vad" as const,
+  detectorVersion: "unavailable",
+  speechThreshold: 0.5 as const,
+  minimumSilenceMs: 250 as const,
+  longSilenceMs: 1000 as const,
+  analysisWindowStartSeconds: null,
+  analysisWindowEndSeconds: null,
+  totalSilenceSeconds: null,
+  silenceRatio: null,
+  longSilenceCount: null,
+  detectedSegmentCount: null,
+  segmentsTruncated: false,
+  segments: [],
 };
 
 export const audioTranscribeSegmentSchema = z
   .object({
     text: z.string(),
     startSeconds: z.number().finite().nonnegative().nullable().optional(),
-    endSeconds: z.number().finite().nonnegative().nullable().optional()
+    endSeconds: z.number().finite().nonnegative().nullable().optional(),
   })
   .strict();
 
@@ -104,13 +306,14 @@ export const audioTranscribeResponseSchema = z
     provider: z.string(),
     model: z.string(),
     durationSeconds: z.number().finite().nonnegative().nullable().optional(),
-    segments: z.array(audioTranscribeSegmentSchema)
+    segments: z.array(audioTranscribeSegmentSchema),
   })
   .strict();
 
 export const rehearsalAudioProcessingResponseSchema =
   audioTranscribeResponseSchema.extend({
-    volumeAnalysis: rehearsalVolumeAnalysisSchema
+    volumeAnalysis: rehearsalVolumeAnalysisSchema,
+    silenceAnalysis: rehearsalSilenceAnalysisSchema,
   });
 
 export type RehearsalVolumeAnalysis = z.infer<
@@ -119,7 +322,15 @@ export type RehearsalVolumeAnalysis = z.infer<
 export type RehearsalVolumeIssueSegment = z.infer<
   typeof rehearsalVolumeIssueSegmentSchema
 >;
-export type AudioTranscribeResponse = z.infer<typeof audioTranscribeResponseSchema>;
+export type RehearsalSilenceAnalysis = z.infer<
+  typeof rehearsalSilenceAnalysisSchema
+>;
+export type RehearsalSilenceSegment = z.infer<
+  typeof rehearsalSilenceSegmentSchema
+>;
+export type AudioTranscribeResponse = z.infer<
+  typeof audioTranscribeResponseSchema
+>;
 export type RehearsalAudioProcessingResponse = z.infer<
   typeof rehearsalAudioProcessingResponseSchema
 >;

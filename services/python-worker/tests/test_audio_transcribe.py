@@ -10,7 +10,10 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.audio import processing
-from app.audio.analysis.models import unmeasured_volume_analysis
+from app.audio.analysis.models import (
+    unmeasured_silence_analysis,
+    unmeasured_volume_analysis,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscriptionError,
@@ -106,15 +109,21 @@ def test_rehearsal_processing_loads_once_and_shares_audio_content(
         load_count += 1
         return audio_content
 
-    def fake_analyze_volume_safely(audio: AudioContent):
+    def fake_analyze_audio_safely(audio: AudioContent, _detector: object):
         analyzed_audio.append(audio)
-        return unmeasured_volume_analysis("ANALYSIS_FAILED")
+        return (
+            unmeasured_volume_analysis("ANALYSIS_FAILED"),
+            unmeasured_silence_analysis(
+                "ANALYSIS_FAILED",
+                detector_version="test-vad",
+            ),
+        )
 
     monkeypatch.setattr(processing, "load_audio_content", fake_load_audio_content)
     monkeypatch.setattr(
         processing,
-        "analyze_volume_safely",
-        fake_analyze_volume_safely,
+        "analyze_audio_safely",
+        fake_analyze_audio_safely,
     )
 
     response = processing.process_rehearsal_audio(_request(audio_path), provider)
@@ -123,6 +132,7 @@ def test_rehearsal_processing_loads_once_and_shares_audio_content(
     assert provider.last_audio is audio_content
     assert analyzed_audio == [audio_content]
     assert response.volume_analysis.reason_code == "ANALYSIS_FAILED"
+    assert response.silence_analysis.reason_code == "ANALYSIS_FAILED"
 
 
 def test_audio_reference_accepts_flac_mime_type(tmp_path: Path) -> None:
@@ -641,6 +651,25 @@ def test_audio_transcribe_endpoint_uses_injected_provider(
         "activeRatio": None,
         "issueSegments": [],
     }
+    silence_analysis = response.json()["silenceAnalysis"]
+    assert silence_analysis == {
+        "metricDefinitionVersion": 1,
+        "measurementState": "unmeasured",
+        "reasonCode": "AUDIO_DECODE_FAILED",
+        "detector": "silero-vad",
+        "detectorVersion": silence_analysis["detectorVersion"],
+        "speechThreshold": 0.5,
+        "minimumSilenceMs": 250,
+        "longSilenceMs": 1000,
+        "analysisWindowStartSeconds": None,
+        "analysisWindowEndSeconds": None,
+        "totalSilenceSeconds": None,
+        "silenceRatio": None,
+        "longSilenceCount": None,
+        "detectedSegmentCount": None,
+        "segmentsTruncated": False,
+        "segments": [],
+    }
     assert response.json()["segments"] == [
         {
             "text": "발표 키워드를 확인했습니다",
@@ -685,6 +714,7 @@ def test_private_audio_transcribe_endpoint_does_not_run_volume_analysis(
     assert response.status_code == 200
     assert response.json()["transcript"] == "집중 연습 전사입니다"
     assert "volumeAnalysis" not in response.json()
+    assert "silenceAnalysis" not in response.json()
 
 
 def _request(audio_path: Path) -> AudioTranscribeRequest:

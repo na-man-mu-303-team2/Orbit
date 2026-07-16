@@ -21,27 +21,43 @@ export class PracticeGoalsService {
     private readonly projects: ProjectsService,
   ) {}
 
-  async getPlan(projectId: string, sourceFullRunId: string, actorUserId: string) {
+  async getPlan(
+    projectId: string,
+    sourceFullRunId: string,
+    actorUserId: string,
+  ) {
     await this.projects.assertCanReadProject(projectId, actorUserId);
-    const run = firstRow(await this.dataSource.query(
-      `SELECT status, analysis_revision, analysis_finalized_at
+    const run = firstRow(
+      await this.dataSource.query(
+        `SELECT status, analysis_revision, analysis_finalized_at
        FROM rehearsal_runs WHERE project_id = $1 AND run_id = $2`,
-      [projectId, sourceFullRunId],
-    ));
+        [projectId, sourceFullRunId],
+      ),
+    );
     if (!run) {
-      return practicePlanResponseSchema.parse({ status: "error", sourceFullRunId, code: "SOURCE_NOT_FOUND" });
+      return practicePlanResponseSchema.parse({
+        status: "error",
+        sourceFullRunId,
+        code: "SOURCE_NOT_FOUND",
+      });
     }
     if (run.status === "failed" || run.status === "cancelled") {
-      return practicePlanResponseSchema.parse({ status: "error", sourceFullRunId, code: "SOURCE_FAILED" });
+      return practicePlanResponseSchema.parse({
+        status: "error",
+        sourceFullRunId,
+        code: "SOURCE_FAILED",
+      });
     }
 
-    const setRow = firstRow(await this.dataSource.query(
-      `SELECT sets.* FROM practice_goal_heads heads
+    const setRow = firstRow(
+      await this.dataSource.query(
+        `SELECT sets.* FROM practice_goal_heads heads
        JOIN practice_goal_sets sets ON sets.project_id = heads.project_id
         AND sets.goal_set_id = heads.current_goal_set_id
        WHERE heads.project_id = $1 AND heads.source_full_run_id = $2`,
-      [projectId, sourceFullRunId],
-    ));
+        [projectId, sourceFullRunId],
+      ),
+    );
     if (!setRow) {
       return practicePlanResponseSchema.parse({
         status: run.status === "succeeded" ? "no-goal" : "processing",
@@ -49,14 +65,21 @@ export class PracticeGoalsService {
       });
     }
     if (setRow.analysis_state === "partial") {
-      return practicePlanResponseSchema.parse({ status: "processing", sourceFullRunId });
+      return practicePlanResponseSchema.parse({
+        status: "processing",
+        sourceFullRunId,
+      });
     }
 
     const goalRows = await this.dataSource.query(
       `SELECT * FROM practice_goals WHERE project_id = $1 AND goal_set_id = $2 ORDER BY priority ASC`,
       [projectId, setRow.goal_set_id],
     );
-    const goals = (Array.isArray(goalRows) ? goalRows : []).map(toGoal);
+    const goals = (Array.isArray(goalRows) ? goalRows : [])
+      .filter((row): row is Record<string, unknown> =>
+        Boolean(row && typeof row === "object" && !isLegacyPauseGoalRow(row)),
+      )
+      .map((row, index) => toGoal({ ...row, priority: index + 1 }));
     const goalSet = practiceGoalSetSchema.parse({
       goalSetId: setRow.goal_set_id,
       projectId,
@@ -71,7 +94,10 @@ export class PracticeGoalsService {
       createdAt: toIso(setRow.created_at),
     });
     if (goals.length === 0) {
-      return practicePlanResponseSchema.parse({ status: "no-goal", sourceFullRunId });
+      return practicePlanResponseSchema.parse({
+        status: "no-goal",
+        sourceFullRunId,
+      });
     }
 
     const historyRows = await this.dataSource.query(
@@ -116,7 +142,8 @@ export class PracticeGoalsService {
           lastSeenAt: goal.createdAt,
         },
         canStartFocusedPractice:
-          goal.recommendedPracticeMode === "focused" && goal.measurementState === "measured",
+          goal.recommendedPracticeMode === "focused" &&
+          goal.measurementState === "measured",
         unavailableReason:
           goal.recommendedPracticeMode === "full-run-only"
             ? "FULL_RUN_ONLY"
@@ -148,6 +175,20 @@ function toGoal(row: Record<string, unknown>): PracticeGoal {
     measurementState: row.measurement_state,
     createdAt: toIso(row.created_at),
   });
+}
+
+function isLegacyPauseGoalRow(row: object) {
+  const evidenceRefs = (row as Record<string, unknown>).evidence_refs_json;
+  return (
+    Array.isArray(evidenceRefs) &&
+    evidenceRefs.some(
+      (evidence) =>
+        evidence &&
+        typeof evidence === "object" &&
+        !Array.isArray(evidence) &&
+        (evidence as Record<string, unknown>).metric === "pause-count",
+    )
+  );
 }
 
 function historyByComparableRuns(goals: PracticeGoal[], rows: unknown[]) {
@@ -195,18 +236,22 @@ function historyByComparableRuns(goals: PracticeGoal[], rows: unknown[]) {
     const hasPreviousOccurrence = previousComparableRuns.some(
       (run) => run.state === "problem",
     );
-    const label = comparableRuns.length >= 3 && hasPreviousOccurrence
-      ? "persistent"
-      : isRecentTwice
-        ? "recent-twice"
-        : "current";
+    const label =
+      comparableRuns.length >= 3 && hasPreviousOccurrence
+        ? "persistent"
+        : isRecentTwice
+          ? "recent-twice"
+          : "current";
 
-    return [goal.patternKey, {
-      label,
-      occurrenceCount,
-      comparableRunCount: previousComparableRuns.length,
-      lastSeenAt: goal.createdAt,
-    }] as const;
+    return [
+      goal.patternKey,
+      {
+        label,
+        occurrenceCount,
+        comparableRunCount: previousComparableRuns.length,
+        lastSeenAt: goal.createdAt,
+      },
+    ] as const;
   });
   return new Map(histories);
 }
@@ -238,9 +283,10 @@ function groupHistoryRuns(rows: unknown[]): ComparableRun[] {
     grouped.set(row.run_id, current);
   }
   return [...grouped.values()]
-    .sort((left, right) =>
-      right.createdAt.localeCompare(left.createdAt) ||
-      right.runId.localeCompare(left.runId),
+    .sort(
+      (left, right) =>
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.runId.localeCompare(left.runId),
     )
     .slice(0, 5);
 }
@@ -249,11 +295,13 @@ function criterionForGoal(
   snapshot: RehearsalEvaluationSnapshot,
   goal: PracticeGoal,
 ) {
-  return snapshot.evaluationPlan?.criteria.find(
-    (criterion) =>
-      criterion.criterionId === goal.criterionRef.criterionId &&
-      criterion.revision === goal.criterionRef.revision,
-  ) ?? null;
+  return (
+    snapshot.evaluationPlan?.criteria.find(
+      (criterion) =>
+        criterion.criterionId === goal.criterionRef.criterionId &&
+        criterion.revision === goal.criterionRef.revision,
+    ) ?? null
+  );
 }
 
 function comparableCriterionSources(
@@ -286,11 +334,13 @@ function metricDefinitionVersion(
 ) {
   const versions = snapshot.evaluationPlan?.metricDefinitionVersions;
   if (!versions) return null;
-  if (criterion.measurement.type === "semantic-coverage") return versions.semantic;
-  if (criterion.measurement.type === "max-duration-seconds") return versions.timing;
+  if (criterion.measurement.type === "semantic-coverage")
+    return versions.semantic;
+  if (criterion.measurement.type === "max-duration-seconds")
+    return versions.timing;
   return criterion.measurement.metric === "filler-word-count"
     ? versions.filler
-    : versions.pause;
+    : versions.silence;
 }
 
 type CriterionProblemState = "problem" | "passed" | "unmeasured";
@@ -306,9 +356,16 @@ function criterionProblemState(
         criterion.scope.type === "slide" &&
         criterion.scope.slideId === outcome.slideId &&
         criterion.criterionId ===
-          `criterion_cue_${outcome.cueId}_r${outcome.cueRevision}`.slice(0, 128),
+          `criterion_cue_${outcome.cueId}_r${outcome.cueRevision}`.slice(
+            0,
+            128,
+          ),
     );
-    if (!outcome || outcome.status === "unmeasured" || outcome.status === "excluded") {
+    if (
+      !outcome ||
+      outcome.status === "unmeasured" ||
+      outcome.status === "excluded"
+    ) {
       return "unmeasured";
     }
     const contradicted = report.semanticCueDecisions.some(
@@ -349,17 +406,15 @@ function countMeasurementValue(
   if (scope.type === "run") {
     return metric === "filler-word-count"
       ? report.metrics.fillerWordCount
-      : report.metrics.pauseCount;
+      : report.metrics.longSilenceCount;
   }
   if (scope.type !== "slide") return null;
   const slideId = scope.slideId;
-  const insight = report.slideInsights.find(
-    (item) => item.slideId === slideId,
-  );
+  const insight = report.slideInsights.find((item) => item.slideId === slideId);
   if (!insight) return null;
   return metric === "filler-word-count"
     ? insight.fillerWordCount
-    : insight.pauseCount;
+    : insight.longSilenceCount;
 }
 
 function defaultHistory(goal: PracticeGoal) {
@@ -377,7 +432,7 @@ function sameJson(left: unknown, right: unknown) {
 
 function firstRow(rows: unknown): Record<string, unknown> | undefined {
   return Array.isArray(rows) && rows[0] && typeof rows[0] === "object"
-    ? rows[0] as Record<string, unknown>
+    ? (rows[0] as Record<string, unknown>)
     : undefined;
 }
 

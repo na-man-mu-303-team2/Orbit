@@ -13,7 +13,7 @@ import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
-import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
+import { RehearsalSilenceOverview } from "./RehearsalSilenceOverview";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
@@ -34,7 +34,9 @@ function fmtDelta(diff: number) {
   const sign = diff >= 0 ? "+" : "−";
   const m = Math.floor(abs / 60);
   const s = abs % 60;
-  return m > 0 ? `${sign}${m}분 ${s.toString().padStart(2, "0")}초` : `${sign}${s}초`;
+  return m > 0
+    ? `${sign}${m}분 ${s.toString().padStart(2, "0")}초`
+    : `${sign}${s}초`;
 }
 
 function formatDate(iso: string) {
@@ -74,14 +76,16 @@ export function RehearsalReportDocument({
     if (!deck) return deck;
 
     const snapshots = new Map(
-      run?.evaluationSnapshot?.slides.map((slide) => [slide.slideId, slide]) ?? [],
+      run?.evaluationSnapshot?.slides.map((slide) => [slide.slideId, slide]) ??
+        [],
     );
     return {
       ...deck,
       slides: deck.slides.map((slide) => ({
         ...slide,
         estimatedSeconds:
-          snapshots.get(slide.slideId)?.estimatedSeconds ?? slide.estimatedSeconds,
+          snapshots.get(slide.slideId)?.estimatedSeconds ??
+          slide.estimatedSeconds,
         order: snapshots.get(slide.slideId)?.order ?? slide.order,
         title: snapshots.get(slide.slideId)?.title ?? slide.title,
         thumbnailUrl: snapshots.get(slide.slideId)?.thumbnailUrl ?? "",
@@ -105,8 +109,7 @@ export function RehearsalReportDocument({
     Date.now() - Date.parse(report.generatedAt) < TRANSCRIPT_WINDOW_MS;
   const minutesLeft = transcriptAvailable
     ? Math.ceil(
-        (TRANSCRIPT_WINDOW_MS -
-          (Date.now() - Date.parse(report.generatedAt))) /
+        (TRANSCRIPT_WINDOW_MS - (Date.now() - Date.parse(report.generatedAt))) /
           60000,
       )
     : 0;
@@ -125,7 +128,9 @@ export function RehearsalReportDocument({
         <button
           type="button"
           className="rrd-hero-action"
-          onClick={() => navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)}
+          onClick={() =>
+            navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)
+          }
         >
           <Mic size={15} />
           바로 다시 리허설
@@ -147,8 +152,8 @@ export function RehearsalReportDocument({
       {/* ── 2. 말버릇 ── */}
       <RehearsalHabitOverview prevReport={prevReport} report={report} />
 
-      {/* ── 3. 음성 타임라인 / 긴 멈춤 ── */}
-      <RehearsalPauseOverview
+      {/* ── 3. 음성 타임라인 / 긴 침묵 ── */}
+      <RehearsalSilenceOverview
         deck={deck}
         formatDuration={fmt}
         report={report}
@@ -181,7 +186,6 @@ export function RehearsalReportDocument({
             slideTimings={slideTimings}
           />
         </div>
-
       </section>
 
       <RehearsalSlideAnalysisOverview
@@ -259,7 +263,11 @@ export function RehearsalReportDocument({
                 onClick={() => setTranscriptOpen((value) => !value)}
                 aria-expanded={transcriptOpen}
               >
-                {transcriptOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                {transcriptOpen ? (
+                  <ChevronUp size={16} />
+                ) : (
+                  <ChevronDown size={16} />
+                )}
                 {transcriptOpen ? "접기" : "펼치기"}
               </button>
             </div>
@@ -270,7 +278,6 @@ export function RehearsalReportDocument({
           )}
         </section>
       )}
-
     </div>
   );
 }

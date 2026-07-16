@@ -342,13 +342,13 @@ Web에는 `report.transcriptRetained === true`이고 `report.transcript !== null
 
 ## 7. 음량 분석 구현에 미치는 영향
 
-리허설 `/audio/transcribe`는 원본 음성을 `load_audio_content()`로 한 번 읽고, 같은 `AudioContent`를 STT와 음량 분석 모듈에 전달한다. 오케스트레이션은 `process_rehearsal_audio()`가 담당한다.
+리허설 `/audio/transcribe`는 원본 음성을 `load_audio_content()`로 한 번 읽는다. STT는 같은 `AudioContent`를 사용하고, 음량 분석과 Silero VAD 침묵 분석은 PyAV로 한 번 만든 `DecodedAudio`를 공유한다. 오케스트레이션은 `process_rehearsal_audio()`가 담당한다.
 
 ```python
 audio_content = load_audio_content(payload.audio)
 
 provider_transcription = transcribe_audio_content(audio_content, provider)
-volume_analysis = analyze_volume_safely(audio_content)
+volume_analysis, silence_analysis = analyze_audio_safely(audio_content)
 
 return RehearsalAudioProcessingResponse(
     **build_audio_transcribe_response(
@@ -356,16 +356,18 @@ return RehearsalAudioProcessingResponse(
         provider_transcription,
     ).model_dump(),
     volumeAnalysis=volume_analysis,
+    silenceAnalysis=silence_analysis,
 )
 ```
 
 이 방식의 장점은 다음과 같다.
 
 - Object Storage 다운로드 1회
-- STT와 음량 분석이 같은 원본 바이트 사용
+- STT와 음향 분석이 같은 원본 바이트 사용
+- 음량과 침묵 분석이 같은 16kHz 파형 사용
 - signed URL 재발급 불필요
 - 별도 raw audio 복제 불필요
-- 음량 분석 실패가 STT 성공을 막지 않음
+- 음량 또는 침묵 분석 실패가 STT 성공을 막지 않음
 - `/audio/transcribe-private`는 기존 STT 전용 동작 유지
 
 다만 음량 분석 구현 전에 다음 정책을 확정해야 한다.
@@ -402,9 +404,10 @@ return RehearsalAudioProcessingResponse(
 
 ### 4단계: 음량 분석 연결
 
-- `/audio/transcribe`에서 내려받은 `AudioContent`를 STT와 음량 분석이 재사용한다.
+- `/audio/transcribe`에서 내려받은 `AudioContent`를 STT가 사용하고, 한 번 디코딩한 `DecodedAudio`를 음량과 침묵 분석이 재사용한다.
 - 음량 분석 실패는 `unmeasured`로 변환해 STT 성공을 막지 않는다.
 - `report_json.volumeAnalysis`는 shared schema로 검증한다.
+- `report_json.silenceAnalysis`는 shared schema로 검증한다.
 - 원본 음성 URL이나 바이트, waveform, 프레임별 RMS는 report와 로그에 저장하지 않는다.
 
 ## 9. 결론

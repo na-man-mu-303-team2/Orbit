@@ -201,6 +201,26 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
                 "Rehearsal semantic evaluation updated.",
               );
             },
+            (event) => {
+              const { segments, ...summary } = event;
+              const level =
+                event.measurementState === "measured" ? "info" : "warn";
+              this.logger[level](
+                summary,
+                "Rehearsal silence analysis completed.",
+              );
+              if (this.config.APP_ENV === "local" && segments.length > 0) {
+                this.logger.debug(
+                  {
+                    event: "rehearsal.silence_analysis.segments",
+                    runId: event.runId,
+                    jobId: event.jobId,
+                    segments,
+                  },
+                  "Rehearsal silence segments detected.",
+                );
+              }
+            },
           ),
       },
       {

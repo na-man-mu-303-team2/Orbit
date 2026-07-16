@@ -3,34 +3,33 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
   allowedRehearsalAudioMimeTypes,
-  assetUploadUrlResponseSchema
+  assetUploadUrlResponseSchema,
 } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 import {
   deckKeywordIdSchema,
   deckSemanticCueIdSchema,
-  deckSlideIdSchema
+  deckSlideIdSchema,
 } from "../deck/id.schema";
 import { keywordSchema } from "../deck/deck.schema";
 import {
   semanticCueImportanceSchema,
-  semanticCueSchema
+  semanticCueSchema,
 } from "../deck/semantic-cue.schema";
 import {
   briefRefSchema,
   coachingIdSchema,
-  evaluatorLensRefSchema
+  evaluatorLensRefSchema,
 } from "../coaching/coaching-common.schema";
 import {
   criterionResultSchema,
   measurementStateSchema,
-  reportObservationSchema
+  reportObservationSchema,
 } from "../coaching/evaluation-criterion.schema";
 import { rehearsalEvaluationPlanSchema } from "../coaching/evaluator-lens.schema";
 import { practiceVerificationSummarySchema } from "../coaching/focused-practice.schema";
 import { coachingActionSchema } from "../coaching/practice-goal.schema";
 import { rehearsalFocusProfileSnapshotSchema } from "../coaching/rehearsal-focus-profile.schema";
-import { rehearsalAnalyzePauseV2DetailSchema } from "../coaching/rehearsal-analyze.schema";
 import {
   rehearsalReportAnalysisCapabilitiesSchema,
   rehearsalReportMeasurementsSchema,
@@ -38,8 +37,10 @@ import {
   speechRateMeasurementSchema,
 } from "../coaching/speech-evidence.schema";
 import {
+  legacyRehearsalSilenceAnalysis,
   legacyRehearsalVolumeAnalysis,
-  rehearsalVolumeAnalysisSchema
+  rehearsalSilenceAnalysisSchema,
+  rehearsalVolumeAnalysisSchema,
 } from "./rehearsal-audio-analysis.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
@@ -48,12 +49,12 @@ export const rehearsalRunStatusSchema = z.enum([
   "processing",
   "succeeded",
   "failed",
-  "cancelled"
+  "cancelled",
 ]);
 
 export const rehearsalSemanticEvaluationModeSchema = z.enum([
   "full",
-  "delivery-only"
+  "delivery-only",
 ]);
 
 export const rehearsalEvaluationSnapshotKeywordSchema = keywordSchema
@@ -62,7 +63,7 @@ export const rehearsalEvaluationSnapshotKeywordSchema = keywordSchema
     text: true,
     synonyms: true,
     abbreviations: true,
-    required: true
+    required: true,
   })
   .strict();
 
@@ -74,7 +75,7 @@ export const rehearsalEvaluationSnapshotSlideSchema = z
     estimatedSeconds: z.number().int().positive(),
     thumbnailUrl: z.string().default(""),
     keywords: z.array(rehearsalEvaluationSnapshotKeywordSchema),
-    semanticCues: z.array(semanticCueSchema)
+    semanticCues: z.array(semanticCueSchema),
   })
   .strict()
   .superRefine((slide, context) => {
@@ -83,7 +84,7 @@ export const rehearsalEvaluationSnapshotSlideSchema = z
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "snapshot semantic cue must reference its containing slide.",
-          path: ["semanticCues", cueIndex, "slideId"]
+          path: ["semanticCues", cueIndex, "slideId"],
         });
       }
 
@@ -91,7 +92,7 @@ export const rehearsalEvaluationSnapshotSlideSchema = z
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "snapshot semantic cue must be approved or excluded.",
-          path: ["semanticCues", cueIndex, "reviewStatus"]
+          path: ["semanticCues", cueIndex, "reviewStatus"],
         });
       }
     });
@@ -101,17 +102,23 @@ export const rehearsalEvaluationSnapshotSchema = z
   .object({
     deckId: z.string().trim().min(1),
     deckVersion: z.number().int().positive(),
-    deckContentHash: z.string().regex(/^[a-f0-9]{64}$/i).nullable().default(null),
+    deckContentHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/i)
+      .nullable()
+      .default(null),
     evaluationPlan: rehearsalEvaluationPlanSchema.nullable().default(null),
-    focusProfileSnapshot: rehearsalFocusProfileSnapshotSchema.nullable().default(null),
+    focusProfileSnapshot: rehearsalFocusProfileSnapshotSchema
+      .nullable()
+      .default(null),
     capturedAt: isoDateTimeSchema,
-    slides: z.array(rehearsalEvaluationSnapshotSlideSchema)
+    slides: z.array(rehearsalEvaluationSnapshotSlideSchema),
   })
   .strict();
 
 export const rehearsalRunErrorSchema = z.object({
   code: z.string().min(1),
-  message: z.string().min(1)
+  message: z.string().min(1),
 });
 
 export const rehearsalRunSchema = z.object({
@@ -122,52 +129,49 @@ export const rehearsalRunSchema = z.object({
   jobId: z.string().min(1).nullable(),
   status: rehearsalRunStatusSchema,
   deckVersion: z.number().int().positive().nullable().default(null),
-  evaluationSnapshot: rehearsalEvaluationSnapshotSchema.nullable().default(null),
+  evaluationSnapshot: rehearsalEvaluationSnapshotSchema
+    .nullable()
+    .default(null),
   semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full"),
   analysisRevision: z.number().int().nonnegative().default(0),
   analysisFinalizedAt: isoDateTimeSchema.nullable().default(null),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
-  updatedAt: isoDateTimeSchema
+  updatedAt: isoDateTimeSchema,
 });
 
 const legacyReportMeasurements = {
   duration: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
   },
   charactersPerMinute: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
   },
   wordsPerMinute: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
   },
   fillerWordCount: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
   },
-  pauseV1: {
+  longSilenceCount: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
-  },
-  pauseV2: {
-    measurementState: "unmeasured" as const,
-    metricDefinitionVersion: 2,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
   },
   keywordCoverage: {
     measurementState: "unmeasured" as const,
     metricDefinitionVersion: 1,
-    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const
-  }
+    reasonCode: "LEGACY_MEASUREMENT_STATE_UNKNOWN" as const,
+  },
 };
 
 const legacyReportSttQualityGate = {
@@ -176,7 +180,7 @@ const legacyReportSttQualityGate = {
   reasonCode: "LEGACY_QUALITY_GATE_UNKNOWN" as const,
   confidence: null,
   threshold: null,
-  policyId: null
+  policyId: null,
 };
 
 const legacyReportAnalysisCapabilities = {
@@ -184,37 +188,42 @@ const legacyReportAnalysisCapabilities = {
   providerDuration: { state: "unavailable" as const, source: "none" as const },
   segmentTimestamps: { state: "unavailable" as const, source: "none" as const },
   sttConfidence: { state: "unavailable" as const, source: "none" as const },
-  sentenceBoundaries: { state: "unavailable" as const, source: "none" as const },
-  pauseIntentClassification: {
+  sentenceBoundaries: {
     state: "unavailable" as const,
-    source: "none" as const
-  }
+    source: "none" as const,
+  },
 };
 
 export const legacyRehearsalReportMetricsDefaults = {
   charactersPerMinute: null,
+  longSilenceCount: null,
   measurements: legacyReportMeasurements,
   sttQualityGate: legacyReportSttQualityGate,
-  analysisCapabilities: legacyReportAnalysisCapabilities
+  analysisCapabilities: legacyReportAnalysisCapabilities,
 };
 
 export const rehearsalReportMetricsSchema = z
   .object({
     durationSeconds: z.number().nonnegative(),
-    charactersPerMinute: z.number().finite().nonnegative().nullable().default(null),
+    charactersPerMinute: z
+      .number()
+      .finite()
+      .nonnegative()
+      .nullable()
+      .default(null),
     wordsPerMinute: z.number().nonnegative(),
     speechRate: speechRateMeasurementSchema.optional(),
     fillerWordCount: z.number().int().nonnegative(),
-    pauseCount: z.number().int().nonnegative(),
+    longSilenceCount: z.number().int().nonnegative().nullable().default(null),
     keywordCoverage: z.number().min(0).max(1),
     measurements: rehearsalReportMeasurementsSchema.default(
-      legacyRehearsalReportMetricsDefaults.measurements
+      legacyRehearsalReportMetricsDefaults.measurements,
     ),
     sttQualityGate: rehearsalReportSttQualityGateSchema.default(
-      legacyRehearsalReportMetricsDefaults.sttQualityGate
+      legacyRehearsalReportMetricsDefaults.sttQualityGate,
     ),
     analysisCapabilities: rehearsalReportAnalysisCapabilitiesSchema.default(
-      legacyRehearsalReportMetricsDefaults.analysisCapabilities
+      legacyRehearsalReportMetricsDefaults.analysisCapabilities,
     ),
     keywordCoverageMeasurement: z
       .object({
@@ -224,12 +233,12 @@ export const rehearsalReportMetricsSchema = z
             "no-keywords",
             "stt-unavailable",
             "transcript-incomplete",
-            "low-transcription-confidence"
+            "low-transcription-confidence",
           ])
-          .optional()
+          .optional(),
       })
       .strict()
-      .default({ state: "measured" })
+      .default({ state: "measured" }),
   })
   .strict()
   .superRefine((metrics, context) => {
@@ -239,7 +248,16 @@ export const rehearsalReportMetricsSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "characters per minute must match its measurement state.",
-        path: ["charactersPerMinute"]
+        path: ["charactersPerMinute"],
+      });
+    }
+    const silenceMeasured =
+      metrics.measurements.longSilenceCount.measurementState === "measured";
+    if (silenceMeasured !== (metrics.longSilenceCount !== null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "long silence count must match its measurement state.",
+        path: ["longSilenceCount"],
       });
     }
   });
@@ -248,22 +266,14 @@ export const rehearsalReportSpeedSampleSchema = z
   .object({
     startSecond: z.number().nonnegative(),
     endSecond: z.number().nonnegative(),
-    wordsPerMinute: z.number().nonnegative()
+    wordsPerMinute: z.number().nonnegative(),
   })
   .strict();
 
 export const rehearsalReportFillerWordDetailSchema = z
   .object({
     word: z.string().trim().min(1),
-    count: z.number().int().nonnegative()
-  })
-  .strict();
-
-export const rehearsalReportPauseDetailSchema = z
-  .object({
-    startSecond: z.number().nonnegative(),
-    endSecond: z.number().nonnegative(),
-    durationSeconds: z.number().nonnegative()
+    count: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -271,7 +281,7 @@ export const rehearsalReportMissedKeywordSchema = z
   .object({
     slideId: deckSlideIdSchema,
     keywordId: deckKeywordIdSchema,
-    text: z.string().trim().min(1)
+    text: z.string().trim().min(1),
   })
   .strict();
 
@@ -279,22 +289,22 @@ export const rehearsalReportSlideTimingSchema = z
   .object({
     slideId: deckSlideIdSchema,
     targetSeconds: z.number().nonnegative(),
-    actualSeconds: z.number().nonnegative()
+    actualSeconds: z.number().nonnegative(),
   })
   .strict();
 
 export const rehearsalReportSlideInsightSchema = z
   .object({
     slideId: deckSlideIdSchema,
-    fillerWordCount: z.number().int().nonnegative(),
-    pauseCount: z.number().int().nonnegative()
+    fillerWordCount: z.number().int().nonnegative().nullable(),
+    longSilenceCount: z.number().int().nonnegative().nullable(),
   })
   .strict();
 
 export const rehearsalReportQnaTopicSchema = z
   .object({
     topic: z.string().trim().min(1),
-    slideId: deckSlideIdSchema.optional()
+    slideId: deckSlideIdSchema.optional(),
   })
   .strict();
 
@@ -302,14 +312,14 @@ export const rehearsalReportQnaSummarySchema = z
   .object({
     questionCount: z.number().int().nonnegative(),
     questionSummary: z.string().default(""),
-    unclearTopics: z.array(rehearsalReportQnaTopicSchema).default([])
+    unclearTopics: z.array(rehearsalReportQnaTopicSchema).default([]),
   })
   .strict();
 
 export const rehearsalReportAiSummarySchema = z
   .object({
     headline: z.string().trim().min(1),
-    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3),
   })
   .strict();
 
@@ -319,14 +329,14 @@ export const rehearsalReportCoachingSchema = z.object({
   strengths: z.array(z.string()).default([]),
   improvements: z.array(z.string()).default([]),
   nextPracticeFocus: z.string().default(""),
-  message: z.string().default("")
+  message: z.string().default(""),
 });
 
 export const rehearsalUtteranceOutcomeKindSchema = z.enum([
   "covered",
   "paraphrased",
   "ad-lib",
-  "missed"
+  "missed",
 ]);
 
 export const rehearsalUtteranceOutcomeSchema = z
@@ -337,7 +347,7 @@ export const rehearsalUtteranceOutcomeSchema = z
     text: z.string().trim().min(1).max(600).optional(),
     similarity: z.number().min(-1).max(1).optional(),
     lexicalOverlap: z.number().min(0).max(1).optional(),
-    at: isoDateTimeSchema.optional()
+    at: isoDateTimeSchema.optional(),
   })
   .strict();
 
@@ -345,13 +355,13 @@ export const semanticCueDecisionLabelSchema = z.enum([
   "covered",
   "partial",
   "not_covered",
-  "contradicted"
+  "contradicted",
 ]);
 
 export const semanticCueNliProviderSchema = z.enum([
   "browser-transformersjs",
   "browser-onnx",
-  "mock"
+  "mock",
 ]);
 
 export const semanticCapabilitySchema = z.enum([
@@ -361,13 +371,13 @@ export const semanticCapabilitySchema = z.enum([
   "nli",
   "server_evaluation",
   "cue_freshness",
-  "transcript_evidence"
+  "transcript_evidence",
 ]);
 
 export const semanticCapabilityStateSchema = z.enum([
   "available",
   "degraded",
-  "unavailable"
+  "unavailable",
 ]);
 
 export const semanticMeasurementModeSchema = z.enum(["full", "basic", "none"]);
@@ -391,14 +401,14 @@ export const semanticFallbackReasonSchema = z.enum([
   "evaluation_not_run",
   "evaluation_snapshot_mismatch",
   "queue_dropped",
-  "needs_confirmation"
+  "needs_confirmation",
 ]);
 
 export const semanticCueMatchedBySchema = z.enum([
   "lexical",
   "alias",
   "embedding",
-  "nli"
+  "nli",
 ]);
 
 const dedupedSemanticCueIdsSchema = z
@@ -419,7 +429,7 @@ export const semanticCapabilityEventSchema = z
     cueIds: dedupedSemanticCueIdsSchema,
     provider: z.string().trim().min(1).max(160).optional(),
     latencyMs: z.number().finite().nonnegative().optional(),
-    at: isoDateTimeSchema
+    at: isoDateTimeSchema,
   })
   .strict()
   .superRefine((event, context) => {
@@ -427,7 +437,7 @@ export const semanticCapabilityEventSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "degraded or unavailable capability events require a reason.",
-        path: ["reason"]
+        path: ["reason"],
       });
     }
 
@@ -435,7 +445,7 @@ export const semanticCapabilityEventSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "available recovery capability events require fromState.",
-        path: ["fromState"]
+        path: ["fromState"],
       });
     }
   });
@@ -461,7 +471,7 @@ export const rehearsalSemanticCueDecisionSchema = z
     provider: semanticCueNliProviderSchema.optional(),
     modelId: z.string().trim().min(1).max(160).optional(),
     reasonCodes: z.array(z.string().trim().min(1).max(80)).min(1).max(12),
-    at: isoDateTimeSchema.optional()
+    at: isoDateTimeSchema.optional(),
   })
   .strict()
   .superRefine((decision, context) => {
@@ -469,7 +479,7 @@ export const rehearsalSemanticCueDecisionSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "fallbackUsed decisions require fallbackReason.",
-        path: ["fallbackReason"]
+        path: ["fallbackReason"],
       });
     }
   });
@@ -479,7 +489,7 @@ export const rehearsalSemanticCueOutcomeStatusSchema = z.enum([
   "partial",
   "missed",
   "unmeasured",
-  "excluded"
+  "excluded",
 ]);
 
 export const rehearsalSemanticCueOutcomeMatchedBySchema = z.enum([
@@ -487,7 +497,7 @@ export const rehearsalSemanticCueOutcomeMatchedBySchema = z.enum([
   "alias",
   "embedding",
   "nli",
-  "post_run_semantic"
+  "post_run_semantic",
 ]);
 
 const normalizedEvidenceExcerptSchema = z
@@ -514,24 +524,25 @@ export const rehearsalSemanticCueOutcomeSchema = z
       .object({
         excerpt: normalizedEvidenceExcerptSchema,
         startMs: z.number().finite().nonnegative(),
-        endMs: z.number().finite().nonnegative()
+        endMs: z.number().finite().nonnegative(),
       })
       .strict()
       .optional(),
     coveredConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
     missingConcepts: z.array(z.string().trim().min(1).max(120)).max(24),
-    feedback: z.string().trim().min(1).max(300).optional()
+    feedback: z.string().trim().min(1).max(300).optional(),
   })
   .strict()
   .superRefine((outcome, context) => {
     if (
       outcome.status === "unmeasured" &&
-      (outcome.measurementMode !== "none" || outcome.unmeasuredReason === undefined)
+      (outcome.measurementMode !== "none" ||
+        outcome.unmeasuredReason === undefined)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "unmeasured outcomes require mode none and unmeasuredReason.",
-        path: ["unmeasuredReason"]
+        path: ["unmeasuredReason"],
       });
     }
 
@@ -541,8 +552,9 @@ export const rehearsalSemanticCueOutcomeSchema = z
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "excluded outcomes require mode none and cannot include evidence.",
-        path: ["status"]
+        message:
+          "excluded outcomes require mode none and cannot include evidence.",
+        path: ["status"],
       });
     }
 
@@ -550,7 +562,7 @@ export const rehearsalSemanticCueOutcomeSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "missed outcomes require full measurement mode.",
-        path: ["measurementMode"]
+        path: ["measurementMode"],
       });
     }
 
@@ -558,7 +570,7 @@ export const rehearsalSemanticCueOutcomeSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "fallbackUsed outcomes require fallbackReason.",
-        path: ["fallbackReason"]
+        path: ["fallbackReason"],
       });
     }
 
@@ -569,8 +581,9 @@ export const rehearsalSemanticCueOutcomeSchema = z
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "basic measurement mode only supports covered or partial outcomes.",
-        path: ["status"]
+        message:
+          "basic measurement mode only supports covered or partial outcomes.",
+        path: ["status"],
       });
     }
   });
@@ -580,11 +593,11 @@ export const rehearsalSemanticEvaluationSchema = z
     state: z.enum(["succeeded", "partial", "unavailable"]),
     measurementMode: semanticMeasurementModeSchema,
     reasons: z.array(semanticFallbackReasonSchema).max(20),
-    retryable: z.boolean()
+    retryable: z.boolean(),
   })
   .strict();
 
-export const rehearsalReportSchema = z
+const rehearsalReportObjectSchema = z
   .object({
     reportId: z.string().min(1),
     runId: z.string().min(1),
@@ -593,13 +606,16 @@ export const rehearsalReportSchema = z
     transcriptRetained: z.boolean(),
     transcript: z.string().nullable(),
     volumeAnalysis: rehearsalVolumeAnalysisSchema.default(
-      legacyRehearsalVolumeAnalysis
+      legacyRehearsalVolumeAnalysis,
+    ),
+    silenceAnalysis: rehearsalSilenceAnalysisSchema.default(
+      legacyRehearsalSilenceAnalysis,
     ),
     metrics: rehearsalReportMetricsSchema,
     speedSamples: z.array(rehearsalReportSpeedSampleSchema).default([]),
-    fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),
-    pauseDetails: z.array(rehearsalReportPauseDetailSchema).default([]),
-    pauseV2Details: z.array(rehearsalAnalyzePauseV2DetailSchema).default([]),
+    fillerWordDetails: z
+      .array(rehearsalReportFillerWordDetailSchema)
+      .default([]),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
@@ -609,7 +625,7 @@ export const rehearsalReportSchema = z
       state: "unavailable",
       measurementMode: "none",
       reasons: ["evaluation_not_run"],
-      retryable: false
+      retryable: false,
     }),
     semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema).default([]),
     slideTimings: z.array(rehearsalReportSlideTimingSchema).default([]),
@@ -617,11 +633,11 @@ export const rehearsalReportSchema = z
     qnaSummary: rehearsalReportQnaSummarySchema.default({
       questionCount: 0,
       questionSummary: "",
-      unclearTopics: []
+      unclearTopics: [],
     }),
     aiSummary: rehearsalReportAiSummarySchema.nullable().optional(),
     coaching: rehearsalReportCoachingSchema.nullable(),
-    generatedAt: isoDateTimeSchema
+    generatedAt: isoDateTimeSchema,
   })
   .strict()
   .superRefine((report, context) => {
@@ -629,7 +645,44 @@ export const rehearsalReportSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "transcript must be null when transcriptRetained is false.",
-        path: ["transcript"]
+        path: ["transcript"],
+      });
+    }
+
+    const silenceMeasured =
+      report.silenceAnalysis.measurementState === "measured";
+    if (
+      silenceMeasured !==
+      (report.metrics.measurements.longSilenceCount.measurementState ===
+        "measured")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "silence analysis and long silence measurement state must match.",
+        path: ["metrics", "measurements", "longSilenceCount"],
+      });
+    }
+    if (
+      silenceMeasured &&
+      report.metrics.longSilenceCount !==
+        report.silenceAnalysis.longSilenceCount
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "long silence count must match silence analysis.",
+        path: ["metrics", "longSilenceCount"],
+      });
+    }
+    if (
+      !silenceMeasured &&
+      report.slideInsights.some((insight) => insight.longSilenceCount !== null)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "unmeasured silence analysis requires unmeasured slide silence counts.",
+        path: ["slideInsights"],
       });
     }
 
@@ -638,9 +691,7 @@ export const rehearsalReportSchema = z
         "charactersPerMinute",
         "wordsPerMinute",
         "fillerWordCount",
-        "pauseV1",
-        "pauseV2",
-        "keywordCoverage"
+        "keywordCoverage",
       ] as const;
       dependentMetrics.forEach((metric) => {
         const measurement = report.metrics.measurements[metric];
@@ -652,7 +703,7 @@ export const rehearsalReportSchema = z
             code: z.ZodIssueCode.custom,
             message:
               "failed STT quality gate requires unmeasured dependent metrics.",
-            path: ["metrics", "measurements", metric]
+            path: ["metrics", "measurements", metric],
           });
         }
       });
@@ -664,30 +715,92 @@ export const rehearsalReportSchema = z
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "failed STT quality gate requires unmeasured keyword coverage.",
-          path: ["metrics", "keywordCoverageMeasurement"]
+          message:
+            "failed STT quality gate requires unmeasured keyword coverage.",
+          path: ["metrics", "keywordCoverageMeasurement"],
         });
       }
 
       const dependentDetails = [
         ["speedSamples", report.speedSamples],
         ["fillerWordDetails", report.fillerWordDetails],
-        ["pauseDetails", report.pauseDetails],
-        ["pauseV2Details", report.pauseV2Details],
         ["missedKeywords", report.missedKeywords],
-        ["slideInsights", report.slideInsights]
       ] as const;
       dependentDetails.forEach(([field, details]) => {
         if (details.length > 0) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "failed STT quality gate requires empty dependent evidence.",
-            path: [field]
+            message:
+              "failed STT quality gate requires empty dependent evidence.",
+            path: [field],
           });
         }
       });
+      if (
+        report.slideInsights.some((insight) => insight.fillerWordCount !== null)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "failed STT quality gate requires unmeasured slide fillers.",
+          path: ["slideInsights"],
+        });
+      }
     }
   });
+
+export const rehearsalReportSchema = z.preprocess(
+  normalizeLegacyRehearsalReport,
+  rehearsalReportObjectSchema,
+);
+
+function normalizeLegacyRehearsalReport(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+
+  const report = { ...(value as Record<string, unknown>) };
+  delete report.pauseDetails;
+  delete report.pauseV2Details;
+  report.silenceAnalysis ??= legacyRehearsalSilenceAnalysis;
+
+  if (report.metrics && typeof report.metrics === "object") {
+    const metrics = { ...(report.metrics as Record<string, unknown>) };
+    delete metrics.pauseCount;
+    metrics.longSilenceCount ??= null;
+    if (metrics.measurements && typeof metrics.measurements === "object") {
+      const measurements = {
+        ...(metrics.measurements as Record<string, unknown>),
+      };
+      delete measurements.pauseV1;
+      delete measurements.pauseV2;
+      measurements.longSilenceCount ??=
+        legacyReportMeasurements.longSilenceCount;
+      metrics.measurements = measurements;
+    }
+    if (
+      metrics.analysisCapabilities &&
+      typeof metrics.analysisCapabilities === "object"
+    ) {
+      const capabilities = {
+        ...(metrics.analysisCapabilities as Record<string, unknown>),
+      };
+      delete capabilities.pauseIntentClassification;
+      metrics.analysisCapabilities = capabilities;
+    }
+    report.metrics = metrics;
+  }
+
+  if (Array.isArray(report.slideInsights)) {
+    report.slideInsights = report.slideInsights.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        return value;
+      const insight = { ...(value as Record<string, unknown>) };
+      delete insight.pauseCount;
+      insight.longSilenceCount ??= null;
+      return insight;
+    });
+  }
+
+  return report;
+}
 
 export const createRehearsalRunRequestSchema = z
   .object({
@@ -701,13 +814,14 @@ export const createRehearsalRunRequestSchema = z
         z
           .object({
             slideId: deckSlideIdSchema,
-            fileId: z.string().trim().min(1)
+            fileId: z.string().trim().min(1),
           })
-          .strict()
+          .strict(),
       )
       .max(200)
       .optional(),
-    semanticEvaluationMode: rehearsalSemanticEvaluationModeSchema.default("full")
+    semanticEvaluationMode:
+      rehearsalSemanticEvaluationModeSchema.default("full"),
   })
   .strict()
   .superRefine((request, context) => {
@@ -717,7 +831,7 @@ export const createRehearsalRunRequestSchema = z
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "slideSnapshots must contain at most one asset per slide.",
-          path: ["slideSnapshots", index, "slideId"]
+          path: ["slideSnapshots", index, "slideId"],
         });
       }
       seenSlideIds.add(snapshot.slideId);
@@ -726,34 +840,38 @@ export const createRehearsalRunRequestSchema = z
     const adaptiveFields = [
       request.briefRef,
       request.evaluatorLensRef,
-      request.sourceGoalSetId
+      request.sourceGoalSetId,
     ];
-    const suppliedCount = adaptiveFields.filter((value) => value !== undefined).length;
+    const suppliedCount = adaptiveFields.filter(
+      (value) => value !== undefined,
+    ).length;
     if (
       suppliedCount > 0 &&
-      (suppliedCount < adaptiveFields.length || request.expectedDeckVersion === undefined)
+      (suppliedCount < adaptiveFields.length ||
+        request.expectedDeckVersion === undefined)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "adaptive rehearsal evaluation context must be supplied as a complete set.",
-        path: ["briefRef"]
+        message:
+          "adaptive rehearsal evaluation context must be supplied as a complete set.",
+        path: ["briefRef"],
       });
     }
   });
 
 export const createRehearsalRunResponseSchema = z.object({
-  run: rehearsalRunSchema
+  run: rehearsalRunSchema,
 });
 
 export const createRehearsalAudioUploadUrlRequestSchema = z.object({
   originalName: z.string().trim().min(1).max(255),
   mimeType: z.enum(allowedRehearsalAudioMimeTypes),
-  size: z.number().int().positive()
+  size: z.number().int().positive(),
 });
 
 export const createRehearsalAudioUploadUrlResponseSchema = z.object({
   run: rehearsalRunSchema,
-  upload: assetUploadUrlResponseSchema
+  upload: assetUploadUrlResponseSchema,
 });
 
 export const rehearsalRecordingDurationSecondsSchema = z
@@ -765,7 +883,7 @@ export const rehearsalRecordingDurationSecondsSchema = z
 
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1),
-  recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema
+  recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
 });
 
 export const rehearsalAudioSha256Schema = z
@@ -777,14 +895,14 @@ export const beginRehearsalAudioUploadRequestSchema = z
     codec: z.literal("flac"),
     sampleRate: z.literal(16000),
     channels: z.literal(1),
-    chunkDurationMs: z.literal(30000)
+    chunkDurationMs: z.literal(30000),
   })
   .strict();
 
 export const uploadRehearsalAudioChunkParamsSchema = z
   .object({
     runId: z.string().min(1),
-    index: z.coerce.number().int().nonnegative()
+    index: z.coerce.number().int().nonnegative(),
   })
   .strict();
 
@@ -797,13 +915,13 @@ export const completeRehearsalAudioChunkUploadRequestSchema = z
     totalDurationMs: z.number().int().positive(),
     totalSizeBytes: z.number().int().positive(),
     sha256: rehearsalAudioSha256Schema,
-    recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema
+    recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
   })
   .strict();
 
 export const completeRehearsalAudioUploadResponseSchema = z.object({
   run: rehearsalRunSchema,
-  job: jobSchema
+  job: jobSchema,
 });
 
 export const rehearsalRunMetaSchema = z
@@ -814,9 +932,9 @@ export const rehearsalRunMetaSchema = z
         z
           .object({
             slideId: deckSlideIdSchema,
-            enteredAt: isoDateTimeSchema
+            enteredAt: isoDateTimeSchema,
           })
-          .strict()
+          .strict(),
       )
       .default([]),
     missedKeywords: z
@@ -824,9 +942,9 @@ export const rehearsalRunMetaSchema = z
         z
           .object({
             slideId: deckSlideIdSchema,
-            keywordId: deckKeywordIdSchema
+            keywordId: deckKeywordIdSchema,
           })
-          .strict()
+          .strict(),
       )
       .default([]),
     adviceEvents: z
@@ -834,21 +952,19 @@ export const rehearsalRunMetaSchema = z
         z
           .object({
             type: z.string().trim().min(1),
-            at: isoDateTimeSchema
+            at: isoDateTimeSchema,
           })
-          .strict()
+          .strict(),
       )
       .default([]),
-    utteranceOutcomes: z
-      .array(rehearsalUtteranceOutcomeSchema)
-      .default([]),
+    utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
       .array(rehearsalSemanticCueDecisionSchema)
       .default([]),
     semanticCapabilityEvents: z
       .array(semanticCapabilityEventSchema)
       .max(100)
-      .default([])
+      .default([]),
   })
   // Run meta stores bounded report facts only. It may include approved ad-lib
   // snippets, but must not accept full transcript, speaker notes, or raw audio.
@@ -857,24 +973,24 @@ export const rehearsalRunMetaSchema = z
 export const updateRehearsalRunMetaRequestSchema = rehearsalRunMetaSchema;
 
 export const updateRehearsalRunMetaResponseSchema = z.object({
-  run: rehearsalRunSchema
+  run: rehearsalRunSchema,
 });
 
 export const getRehearsalRunResponseSchema = z.object({
-  run: rehearsalRunSchema
+  run: rehearsalRunSchema,
 });
 
 export const cancelRehearsalRunResponseSchema = z.object({
-  run: rehearsalRunSchema
+  run: rehearsalRunSchema,
 });
 
 export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
-  job: jobSchema
+  job: jobSchema,
 });
 
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
-  report: rehearsalReportSchema.nullable()
+  report: rehearsalReportSchema.nullable(),
 });
 
 export const rehearsalComparisonIssueSchema = z
@@ -885,7 +1001,7 @@ export const rehearsalComparisonIssueSchema = z
     cueRevision: z.number().int().positive().optional(),
     label: z.string().trim().min(1).max(120),
     severity: z.enum(["high", "medium", "low"]),
-    reason: z.string().trim().min(1).max(300)
+    reason: z.string().trim().min(1).max(300),
   })
   .strict();
 
@@ -893,11 +1009,83 @@ export const rehearsalRunComparisonSchema = z
   .object({
     currentRunId: z.string().min(1),
     previousRunId: z.string().min(1).nullable(),
+    silenceComparison: z
+      .object({
+        state: z.enum(["comparable", "unavailable"]),
+        metricDefinitionVersion: z.number().int().positive().nullable(),
+        currentLongSilenceCount: z.number().int().nonnegative().nullable(),
+        previousLongSilenceCount: z.number().int().nonnegative().nullable(),
+        longSilenceCountDelta: z.number().int().nullable(),
+        currentTotalSilenceSeconds: z
+          .number()
+          .finite()
+          .nonnegative()
+          .nullable(),
+        previousTotalSilenceSeconds: z
+          .number()
+          .finite()
+          .nonnegative()
+          .nullable(),
+        totalSilenceSecondsDelta: z.number().finite().nullable(),
+        reasonCode: z
+          .enum([
+            "FIRST_RUN",
+            "CURRENT_UNMEASURED",
+            "PREVIOUS_UNMEASURED",
+            "VERSION_MISMATCH",
+            "LEGACY_COMPARISON",
+          ])
+          .nullable(),
+      })
+      .strict()
+      .superRefine((comparison, context) => {
+        const values = [
+          comparison.metricDefinitionVersion,
+          comparison.currentLongSilenceCount,
+          comparison.previousLongSilenceCount,
+          comparison.longSilenceCountDelta,
+          comparison.currentTotalSilenceSeconds,
+          comparison.previousTotalSilenceSeconds,
+          comparison.totalSilenceSecondsDelta,
+        ];
+        if (
+          comparison.state === "comparable" &&
+          (comparison.reasonCode !== null ||
+            values.some((value) => value === null))
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "comparable silence results require both measurements.",
+            path: ["state"],
+          });
+        }
+        if (
+          comparison.state === "unavailable" &&
+          comparison.reasonCode === null
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "unavailable silence comparison requires a reason.",
+            path: ["reasonCode"],
+          });
+        }
+      })
+      .default({
+        state: "unavailable",
+        metricDefinitionVersion: null,
+        currentLongSilenceCount: null,
+        previousLongSilenceCount: null,
+        longSilenceCountDelta: null,
+        currentTotalSilenceSeconds: null,
+        previousTotalSilenceSeconds: null,
+        totalSilenceSecondsDelta: null,
+        reasonCode: "LEGACY_COMPARISON",
+      }),
     improved: z.array(rehearsalComparisonIssueSchema).max(500),
     repeated: z.array(rehearsalComparisonIssueSchema).max(500),
     newIssues: z.array(rehearsalComparisonIssueSchema).max(500),
     incomparable: z.array(rehearsalComparisonIssueSchema).max(500),
-    briefing: z.array(rehearsalComparisonIssueSchema).max(3)
+    briefing: z.array(rehearsalComparisonIssueSchema).max(3),
   })
   .strict();
 
@@ -912,7 +1100,7 @@ export const trendMetricSchema = z.enum([
   "timing-balance",
   "semantic-coverage",
   "volume-consistency",
-  "pronunciation-confidence"
+  "pronunciation-confidence",
 ]);
 
 export const trendSeriesPointSchema = z
@@ -931,9 +1119,9 @@ export const trendSeriesPointSchema = z
         "SCOPE_CHANGED",
         "METRIC_DEFINITION_CHANGED",
         "LENS_CHANGED",
-        "TARGET_CHANGED"
+        "TARGET_CHANGED",
       ])
-      .nullable()
+      .nullable(),
   })
   .strict()
   .superRefine((point, context) => {
@@ -941,18 +1129,21 @@ export const trendSeriesPointSchema = z
     if (isMeasured !== (point.value !== null)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "measured trend points require a value and unmeasured points must omit it.",
-        path: ["value"]
+        message:
+          "measured trend points require a value and unmeasured points must omit it.",
+        path: ["value"],
       });
     }
 
     const requiresReason =
-      point.measurementState === "unmeasured" || point.comparability === "incomparable";
+      point.measurementState === "unmeasured" ||
+      point.comparability === "incomparable";
     if (requiresReason !== (point.reasonCode !== null)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "unmeasured or incomparable trend points require a reason code.",
-        path: ["reasonCode"]
+        message:
+          "unmeasured or incomparable trend points require a reason code.",
+        path: ["reasonCode"],
       });
     }
   });
@@ -960,12 +1151,12 @@ export const trendSeriesPointSchema = z
 export const trendTargetRangeSchema = z
   .object({
     minimum: z.number().finite().nonnegative(),
-    maximum: z.number().finite().nonnegative()
+    maximum: z.number().finite().nonnegative(),
   })
   .strict()
   .refine((range) => range.maximum >= range.minimum, {
     message: "trend target range maximum must not be less than its minimum.",
-    path: ["maximum"]
+    path: ["maximum"],
   });
 
 export const trendSeriesSchema = z
@@ -979,17 +1170,17 @@ export const trendSeriesSchema = z
       "seconds",
       "characters-per-minute",
       "words-per-minute",
-      "ratio"
+      "ratio",
     ]),
     direction: z.enum([
       "lower-is-better",
       "higher-is-better",
       "target-range",
-      "neutral"
+      "neutral",
     ]),
     targetRange: trendTargetRangeSchema.nullable(),
     points: z.array(trendSeriesPointSchema).max(5),
-    calculatedAt: isoDateTimeSchema
+    calculatedAt: isoDateTimeSchema,
   })
   .strict()
   .superRefine((series, context) => {
@@ -998,33 +1189,69 @@ export const trendSeriesSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "trend series run IDs must be unique.",
-        path: ["points"]
+        path: ["points"],
       });
     }
 
     const expectedPresentation = {
-      "filler-word-count": { unit: "count", direction: "lower-is-better", hasRange: false },
-      "duration-seconds": { unit: "seconds", direction: "target-range", hasRange: true },
-      "characters-per-minute": { unit: "characters-per-minute", direction: "neutral", hasRange: false },
-      "words-per-minute": { unit: "words-per-minute", direction: "target-range", hasRange: true },
-      "timing-balance": { unit: "ratio", direction: "higher-is-better", hasRange: false },
-      "semantic-coverage": { unit: "ratio", direction: "higher-is-better", hasRange: false },
-      "volume-consistency": { unit: "ratio", direction: "higher-is-better", hasRange: false },
-      "pronunciation-confidence": { unit: "ratio", direction: "higher-is-better", hasRange: false }
+      "filler-word-count": {
+        unit: "count",
+        direction: "lower-is-better",
+        hasRange: false,
+      },
+      "duration-seconds": {
+        unit: "seconds",
+        direction: "target-range",
+        hasRange: true,
+      },
+      "characters-per-minute": {
+        unit: "characters-per-minute",
+        direction: "neutral",
+        hasRange: false,
+      },
+      "words-per-minute": {
+        unit: "words-per-minute",
+        direction: "target-range",
+        hasRange: true,
+      },
+      "timing-balance": {
+        unit: "ratio",
+        direction: "higher-is-better",
+        hasRange: false,
+      },
+      "semantic-coverage": {
+        unit: "ratio",
+        direction: "higher-is-better",
+        hasRange: false,
+      },
+      "volume-consistency": {
+        unit: "ratio",
+        direction: "higher-is-better",
+        hasRange: false,
+      },
+      "pronunciation-confidence": {
+        unit: "ratio",
+        direction: "higher-is-better",
+        hasRange: false,
+      },
     } as const;
     const expected = expectedPresentation[series.metric];
-    if (series.unit !== expected.unit || series.direction !== expected.direction) {
+    if (
+      series.unit !== expected.unit ||
+      series.direction !== expected.direction
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "trend metric must use its canonical unit and direction.",
-        path: ["metric"]
+        path: ["metric"],
       });
     }
     if ((series.targetRange !== null) !== expected.hasRange) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "target-range metrics require a target range and other metrics must omit it.",
-        path: ["targetRange"]
+        message:
+          "target-range metrics require a target range and other metrics must omit it.",
+        path: ["targetRange"],
       });
     }
   });
@@ -1032,7 +1259,7 @@ export const trendSeriesSchema = z
 export const coachingReadinessSchema = z.enum([
   "ready",
   "needs-practice",
-  "unmeasured"
+  "unmeasured",
 ]);
 
 export const reportTimelineEventSchema = z
@@ -1043,12 +1270,12 @@ export const reportTimelineEventSchema = z
     slideId: coachingIdSchema.nullable(),
     startMs: z.number().int().nonnegative(),
     endMs: z.number().int().nonnegative(),
-    severity: z.enum(["high", "medium", "low"])
+    severity: z.enum(["high", "medium", "low"]),
   })
   .strict()
   .refine((event) => event.endMs >= event.startMs, {
     message: "timeline event must not end before it starts.",
-    path: ["endMs"]
+    path: ["endMs"],
   });
 
 export const qnaAssessmentSchema = z
@@ -1057,7 +1284,7 @@ export const qnaAssessmentSchema = z
     projectId: coachingIdSchema,
     sourceFullRunId: coachingIdSchema,
     criterionResults: z.array(criterionResultSchema).max(24),
-    assessedAt: isoDateTimeSchema
+    assessedAt: isoDateTimeSchema,
   })
   .strict();
 
@@ -1067,12 +1294,17 @@ export const nextPracticePlanSchema = z
       .array(
         z
           .object({
-            order: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-            action: coachingActionSchema
+            order: z.union([
+              z.literal(1),
+              z.literal(2),
+              z.literal(3),
+              z.literal(4),
+            ]),
+            action: coachingActionSchema,
           })
-          .strict()
+          .strict(),
       )
-      .max(4)
+      .max(4),
   })
   .strict()
   .superRefine((plan, context) => {
@@ -1080,8 +1312,9 @@ export const nextPracticePlanSchema = z
       if (step.order !== index + 1) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "next-practice plan steps must be ordered contiguously from one.",
-          path: ["steps", index, "order"]
+          message:
+            "next-practice plan steps must be ordered contiguously from one.",
+          path: ["steps", index, "order"],
         });
       }
     });
@@ -1102,7 +1335,7 @@ export const coachingReportViewSchema = z
     timelineEvents: z.array(reportTimelineEventSchema).max(500),
     qnaAssessment: qnaAssessmentSchema.nullable(),
     nextPracticePlan: nextPracticePlanSchema,
-    generatedAt: isoDateTimeSchema
+    generatedAt: isoDateTimeSchema,
   })
   .strict()
   .superRefine((view, context) => {
@@ -1112,35 +1345,39 @@ export const coachingReportViewSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "coaching report observation IDs must be unique.",
-        path: ["observations"]
+        path: ["observations"],
       });
     }
 
     const validateResultObservation = (
       result: z.infer<typeof criterionResultSchema>,
-      path: Array<string | number>
+      path: Array<string | number>,
     ) => {
       if (!result.observationId) return;
       const observation = view.observations.find(
-        (item) => item.observationId === result.observationId
+        (item) => item.observationId === result.observationId,
       );
       if (!observation) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "criterion result observation must exist in the report view.",
-          path: [...path, "observationId"]
+          message:
+            "criterion result observation must exist in the report view.",
+          path: [...path, "observationId"],
         });
         return;
       }
       const sameCriterion =
-        observation.criterionRef.criterionId === result.criterionRef.criterionId &&
+        observation.criterionRef.criterionId ===
+          result.criterionRef.criterionId &&
         observation.criterionRef.revision === result.criterionRef.revision;
-      const sameScope = JSON.stringify(observation.scope) === JSON.stringify(result.scope);
+      const sameScope =
+        JSON.stringify(observation.scope) === JSON.stringify(result.scope);
       if (!sameCriterion || !sameScope) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "criterion result observation must use the same criterion and scope.",
-          path: [...path, "observationId"]
+          message:
+            "criterion result observation must use the same criterion and scope.",
+          path: [...path, "observationId"],
         });
       }
     };
@@ -1152,34 +1389,36 @@ export const coachingReportViewSchema = z
     const validateAction = (
       action: z.infer<typeof coachingActionSchema>,
       path: Array<string | number>,
-      requireEvidence: boolean
+      requireEvidence: boolean,
     ) => {
       if (action.target.projectId !== view.projectId) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "coaching action must belong to the report project.",
-          path: [...path, "target", "projectId"]
+          path: [...path, "target", "projectId"],
         });
       }
       if (requireEvidence && action.observationIds.length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Top coaching actions require at least one observation.",
-          path: [...path, "observationIds"]
+          path: [...path, "observationIds"],
         });
       }
       action.observationIds.forEach((observationId, observationIndex) => {
         const observation = view.observations.find(
-          (item) => item.observationId === observationId
+          (item) => item.observationId === observationId,
         );
         const matchesCriterion =
-          observation?.criterionRef.criterionId === action.criterionRef.criterionId &&
+          observation?.criterionRef.criterionId ===
+            action.criterionRef.criterionId &&
           observation?.criterionRef.revision === action.criterionRef.revision;
         if (!observation || !matchesCriterion) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "coaching action observations must exist and use the action criterion.",
-            path: [...path, "observationIds", observationIndex]
+            message:
+              "coaching action observations must exist and use the action criterion.",
+            path: [...path, "observationIds", observationIndex],
           });
         }
       });
@@ -1194,7 +1433,7 @@ export const coachingReportViewSchema = z
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "trend series must belong to the report project.",
-          path: ["trendSeries", index, "projectId"]
+          path: ["trendSeries", index, "projectId"],
         });
       }
     });
@@ -1203,14 +1442,19 @@ export const coachingReportViewSchema = z
       if (!observationIdSet.has(event.observationId)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "timeline events must reference an observation in the report view.",
-          path: ["timelineEvents", index, "observationId"]
+          message:
+            "timeline events must reference an observation in the report view.",
+          path: ["timelineEvents", index, "observationId"],
         });
       }
     });
 
     view.nextPracticePlan.steps.forEach((step, index) => {
-      validateAction(step.action, ["nextPracticePlan", "steps", index, "action"], false);
+      validateAction(
+        step.action,
+        ["nextPracticePlan", "steps", index, "action"],
+        false,
+      );
     });
 
     if (view.qnaAssessment) {
@@ -1220,12 +1464,17 @@ export const coachingReportViewSchema = z
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Q&A assessment must belong to the report project and source run.",
-          path: ["qnaAssessment"]
+          message:
+            "Q&A assessment must belong to the report project and source run.",
+          path: ["qnaAssessment"],
         });
       }
       view.qnaAssessment.criterionResults.forEach((result, index) => {
-        validateResultObservation(result, ["qnaAssessment", "criterionResults", index]);
+        validateResultObservation(result, [
+          "qnaAssessment",
+          "criterionResults",
+          index,
+        ]);
       });
     }
 
@@ -1236,8 +1485,9 @@ export const coachingReportViewSchema = z
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "practice verification must belong to the report project and run.",
-        path: ["practiceVerification"]
+        message:
+          "practice verification must belong to the report project and run.",
+        path: ["practiceVerification"],
       });
     }
   });
@@ -1251,13 +1501,21 @@ export type RehearsalEvaluationSnapshot = z.infer<
 >;
 export type RehearsalRunError = z.infer<typeof rehearsalRunErrorSchema>;
 export type RehearsalRun = z.infer<typeof rehearsalRunSchema>;
-export type RehearsalReportMetrics = z.infer<typeof rehearsalReportMetricsSchema>;
-export type RehearsalReportAiSummary = z.infer<typeof rehearsalReportAiSummarySchema>;
-export type RehearsalReportCoaching = z.infer<typeof rehearsalReportCoachingSchema>;
+export type RehearsalReportMetrics = z.infer<
+  typeof rehearsalReportMetricsSchema
+>;
+export type RehearsalReportAiSummary = z.infer<
+  typeof rehearsalReportAiSummarySchema
+>;
+export type RehearsalReportCoaching = z.infer<
+  typeof rehearsalReportCoachingSchema
+>;
 export type RehearsalReportSlideTiming = z.infer<
   typeof rehearsalReportSlideTimingSchema
 >;
-export type RehearsalReportQnaSummary = z.infer<typeof rehearsalReportQnaSummarySchema>;
+export type RehearsalReportQnaSummary = z.infer<
+  typeof rehearsalReportQnaSummarySchema
+>;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
 export type RehearsalSemanticCueDecision = z.infer<
   typeof rehearsalSemanticCueDecisionSchema
@@ -1281,8 +1539,12 @@ export type RehearsalSemanticCueOutcome = z.infer<
 export type RehearsalSemanticEvaluation = z.infer<
   typeof rehearsalSemanticEvaluationSchema
 >;
-export type CreateRehearsalRunRequest = z.infer<typeof createRehearsalRunRequestSchema>;
-export type CreateRehearsalRunResponse = z.infer<typeof createRehearsalRunResponseSchema>;
+export type CreateRehearsalRunRequest = z.infer<
+  typeof createRehearsalRunRequestSchema
+>;
+export type CreateRehearsalRunResponse = z.infer<
+  typeof createRehearsalRunResponseSchema
+>;
 export type CreateRehearsalAudioUploadUrlRequest = z.infer<
   typeof createRehearsalAudioUploadUrlRequestSchema
 >;
@@ -1320,7 +1582,9 @@ export type UpdateRehearsalRunMetaRequest = z.infer<
 export type UpdateRehearsalRunMetaResponse = z.infer<
   typeof updateRehearsalRunMetaResponseSchema
 >;
-export type GetRehearsalReportResponse = z.infer<typeof getRehearsalReportResponseSchema>;
+export type GetRehearsalReportResponse = z.infer<
+  typeof getRehearsalReportResponseSchema
+>;
 export type RetryRehearsalSemanticEvaluationResponse = z.infer<
   typeof retryRehearsalSemanticEvaluationResponseSchema
 >;
@@ -1343,13 +1607,13 @@ export type CoachingReportView = z.infer<typeof coachingReportViewSchema>;
 export const runDurationPointSchema = z.object({
   runId: z.string().min(1),
   createdAt: isoDateTimeSchema,
-  durationSeconds: z.number().nonnegative()
+  durationSeconds: z.number().nonnegative(),
 });
 
 export const slideAvgTimingSchema = z.object({
   slideId: deckSlideIdSchema,
   avgSeconds: z.number().nonnegative(),
-  sampleCount: z.number().int().nonnegative()
+  sampleCount: z.number().int().nonnegative(),
 });
 
 export const rehearsalProjectSummarySchema = z.object({
@@ -1357,14 +1621,18 @@ export const rehearsalProjectSummarySchema = z.object({
   runCount: z.number().int().nonnegative(),
   runDurationSeries: z.array(runDurationPointSchema).default([]),
   slideAvgTimings: z.array(slideAvgTimingSchema).default([]),
-  progressComment: z.string().nullable()
+  progressComment: z.string().nullable(),
 });
 
 export const getRehearsalProjectSummaryResponseSchema = z.object({
-  summary: rehearsalProjectSummarySchema.nullable()
+  summary: rehearsalProjectSummarySchema.nullable(),
 });
 
 export type RunDurationPoint = z.infer<typeof runDurationPointSchema>;
 export type SlideAvgTiming = z.infer<typeof slideAvgTimingSchema>;
-export type RehearsalProjectSummary = z.infer<typeof rehearsalProjectSummarySchema>;
-export type GetRehearsalProjectSummaryResponse = z.infer<typeof getRehearsalProjectSummaryResponseSchema>;
+export type RehearsalProjectSummary = z.infer<
+  typeof rehearsalProjectSummarySchema
+>;
+export type GetRehearsalProjectSummaryResponse = z.infer<
+  typeof getRehearsalProjectSummaryResponseSchema
+>;
