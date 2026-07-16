@@ -1320,7 +1320,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).not.toContain("18초회");
   });
 
-  it("shows slide priorities and paginates the detailed problem cards", () => {
+  it("integrates slide priority sorting into the slide analysis viewer", () => {
     const baseDeck = createDemoDeck();
     const deck = {
       ...baseDeck,
@@ -1377,13 +1377,13 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain(`슬라이드 ${slide1!.order} · ${slide1!.title}`);
-    expect(html).toContain(`슬라이드 ${slide2!.order} · ${slide2!.title}`);
-    expect(html).toContain(`슬라이드 ${slide3!.order} · ${slide3!.title}`);
-    expect(html).toContain("먼저 볼 장표");
-    expect(html).toContain(slide4!.title);
-    expect(html).toContain("1 / 2");
-    expect(html).toContain("다음");
+    expect(html).toContain("슬라이드별 분석");
+    expect(html).toContain("우선순위가 높은 장표부터 확인하세요.");
+    expect(html).toContain("우선순위순");
+    expect(html).toContain(slide1!.title);
+    expect(html).toContain("개선 필요");
+    expect(html).toContain("놓친 핵심 메시지");
+    expect(html).toContain("참고 시간");
   });
 
   it("renders a report loading shell before report data is ready", () => {
@@ -1463,7 +1463,7 @@ describe("RehearsalWorkspace", () => {
       />,
     );
 
-    expect(html).toContain("장표별 분석");
+    expect(html).toContain("슬라이드별 분석");
     expect(html).toContain("0분 52초");
   });
 
