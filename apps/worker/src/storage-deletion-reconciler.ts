@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import { filePurposeSchema } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 
 type DeletionRow = {
@@ -6,6 +7,7 @@ type DeletionRow = {
   project_id: string;
   file_id: string;
   storage_key: string;
+  purpose: string;
   attempt_count: number;
 };
 
@@ -25,7 +27,7 @@ export async function reconcileStorageDeletionOutbox(
         LIMIT $1
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING deletion_id, project_id, file_id, storage_key, attempt_count
+      RETURNING deletion_id, project_id, file_id, storage_key, purpose, attempt_count
     `,
     [batchSize],
   );
@@ -33,7 +35,10 @@ export async function reconcileStorageDeletionOutbox(
     const row = raw as DeletionRow;
     if (!row.storage_key) continue;
     try {
-      await storage.removeObject(row.storage_key);
+      await storage.removeObject(
+        row.storage_key,
+        filePurposeSchema.parse(row.purpose),
+      );
       const deletedAt = new Date().toISOString();
       await dataSource.transaction(async (manager) => {
         await manager.query(

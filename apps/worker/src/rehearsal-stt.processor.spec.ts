@@ -184,7 +184,10 @@ describe("processRehearsalSttJob", () => {
       "http://localhost:8000/rehearsal/analyze",
       expect.objectContaining({ method: "POST" })
     );
-    expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      assetRow.storage_key,
+      "rehearsal-audio",
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
       expect.arrayContaining([
@@ -840,7 +843,7 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
-  it("marks the job failed before scheduling raw audio cleanup when STT fails", async () => {
+  it("schedules deletion retry when STT and immediate cleanup both fail", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -857,6 +860,9 @@ describe("processRehearsalSttJob", () => {
       ])
       .mockResolvedValueOnce([]);
     const storage = createStorage();
+    vi.mocked(storage.removeObject).mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("bad audio", { status: 500 }))
@@ -871,14 +877,17 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PYTHON_WORKER_STT_FAILED");
-    expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      assetRow.storage_key,
+      "rehearsal-audio",
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO storage_deletion_outbox"),
-      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key]),
     );
   });
 
-  it("marks the job failed before scheduling raw audio cleanup when analysis fails", async () => {
+  it("deletes raw audio immediately when analysis fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -927,14 +936,18 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PYTHON_WORKER_ANALYZE_FAILED");
-    expect(storage.removeObject).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
-      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      assetRow.storage_key,
+      "rehearsal-audio",
     );
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO storage_deletion_outbox")
+      )
+    ).toBe(false);
   });
 
-  it("preserves a successful analysis without scheduling cleanup", async () => {
+  it("deletes raw audio after a successful analysis without scheduling cleanup", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -989,6 +1002,10 @@ describe("processRehearsalSttJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      assetRow.storage_key,
+      "rehearsal-audio",
+    );
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO storage_deletion_outbox")
@@ -996,7 +1013,7 @@ describe("processRehearsalSttJob", () => {
     ).toBe(false);
   });
 
-  it("marks the job failed before scheduling cleanup when report validation fails", async () => {
+  it("deletes raw audio immediately when report validation fails", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -1057,11 +1074,15 @@ describe("processRehearsalSttJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("REHEARSAL_REPORT_INVALID");
-    expect(storage.removeObject).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
-      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      assetRow.storage_key,
+      "rehearsal-audio",
     );
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO storage_deletion_outbox")
+      )
+    ).toBe(false);
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE rehearsal_runs"),
       expect.arrayContaining([

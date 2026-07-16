@@ -25,6 +25,9 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 
 ```txt
 STORAGE_DRIVER=minio | s3
+S3_BUCKET=<project-assets bucket>
+S3_PRIVATE_AUDIO_BUCKET=<private-audio bucket>
+PRIVATE_AUDIO_STORAGE_ENABLED=true | false
 JOB_QUEUE_DRIVER=bullmq
 AI_DECK_EXECUTION_MODE=monolith | bullmq
 AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize

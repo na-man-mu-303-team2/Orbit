@@ -230,6 +230,8 @@ export const orbitEnvSchema = z.object({
   S3_ENDPOINT: optionalString,
   S3_PUBLIC_ENDPOINT: optionalString,
   S3_BUCKET: requiredString("S3_BUCKET"),
+  S3_PRIVATE_AUDIO_BUCKET: optionalString,
+  PRIVATE_AUDIO_STORAGE_ENABLED: booleanStringSchema.default(false),
   S3_REGION: requiredString("S3_REGION"),
   S3_ACCESS_KEY_ID: optionalString,
   S3_SECRET_ACCESS_KEY: optionalString,
@@ -331,6 +333,27 @@ export const orbitEnvSchema = z.object({
         });
       }
     }
+  }
+
+  if (value.PRIVATE_AUDIO_STORAGE_ENABLED && !value.S3_PRIVATE_AUDIO_BUCKET) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["S3_PRIVATE_AUDIO_BUCKET"],
+      message:
+        "S3_PRIVATE_AUDIO_BUCKET is required when private audio storage is enabled"
+    });
+  }
+
+  if (
+    value.PRIVATE_AUDIO_STORAGE_ENABLED &&
+    value.S3_PRIVATE_AUDIO_BUCKET === value.S3_BUCKET
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["S3_PRIVATE_AUDIO_BUCKET"],
+      message:
+        "S3_PRIVATE_AUDIO_BUCKET must differ from S3_BUCKET when private audio storage is enabled"
+    });
   }
 
   if (remoteEnvSet.has(value.APP_ENV)) {

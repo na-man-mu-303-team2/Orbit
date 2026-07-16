@@ -97,6 +97,7 @@ function createService(
   options: {
     uploadProxyOrigin?: string | null;
     storagePatch?: Partial<StoragePort>;
+    privateAudioStorageEnabled?: boolean;
   } = {},
 ) {
   const { assets, repository } = createAssetRepository();
@@ -111,6 +112,7 @@ function createService(
       projectsService as ProjectsService,
       storage,
       options.uploadProxyOrigin,
+      options.privateAudioStorageEnabled,
     ),
   };
 }
@@ -158,9 +160,10 @@ describe("FilesService", () => {
   });
 
   it("creates a rehearsal audio key from the Seoul run date", async () => {
-    const { assets, service, storage } = createService({
-      getAccessibleProject: vi.fn(async () => demoProject),
-    });
+    const { assets, service, storage } = createService(
+      { getAccessibleProject: vi.fn(async () => demoProject) },
+      { privateAudioStorageEnabled: true },
+    );
 
     await service.createRehearsalAudioUploadUrl(
       demoProject.projectId,
@@ -175,14 +178,53 @@ describe("FilesService", () => {
 
     expect(storage.createUploadUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        key: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
         contentType: "audio/ogg",
+        purpose: "rehearsal-audio",
       }),
     );
     expect(assets[0]).toMatchObject({
       purpose: "rehearsal-audio",
-      storageKey: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+      storageKey: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
     });
+  });
+
+  it.each([
+    ["focused-practice-audio", "focused-practice"],
+    ["qna-answer-audio", "qna"],
+  ] as const)("routes %s objects below raw/%s", async (purpose, prefix) => {
+    const { assets, service } = createService(
+      { getAccessibleProject: vi.fn(async () => demoProject) },
+      { privateAudioStorageEnabled: true },
+    );
+
+    const upload = await service.createUploadUrl(demoProject.projectId, {
+      originalName: "recording.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+      purpose,
+    });
+
+    expect(assets[0].storageKey).toBe(
+      `raw/${prefix}/${demoProject.projectId}/${upload.fileId}/recording.webm`,
+    );
+  });
+
+  it("keeps the legacy project-assets key while private-audio writes are disabled", async () => {
+    const { assets, service } = createService({
+      getAccessibleProject: vi.fn(async () => demoProject),
+    });
+
+    await service.createUploadUrl(demoProject.projectId, {
+      originalName: "recording.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+      purpose: "focused-practice-audio",
+    });
+
+    expect(assets[0].storageKey).toMatch(
+      /^projects\/project_demo_created\/assets\/file_.+-recording\.webm$/,
+    );
   });
 
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {
@@ -767,6 +809,7 @@ describe("FilesService", () => {
 
     expect(storage.removeObject).toHaveBeenCalledWith(
       "projects/project_demo_created/assets/file_audio_1/rehearsal.webm",
+      "rehearsal-audio",
     );
     expect(new Date(deletedAt).toISOString()).toBe(deletedAt);
     expect(assets[0]).toMatchObject({

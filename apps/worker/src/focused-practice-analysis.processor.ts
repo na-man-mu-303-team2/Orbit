@@ -46,7 +46,10 @@ export async function processFocusedPracticeAnalysisJob(
   await dataSource.query(`UPDATE focused_practice_attempts SET status = 'processing' WHERE attempt_id = $1 AND status = 'queued'`, [payload.attemptId]);
 
   try {
-    const storageUrl = await storage.getSignedReadUrl(row.storage_key);
+    const storageUrl = await storage.getSignedReadUrl(
+      row.storage_key,
+      "focused-practice-audio",
+    );
     const transcribe = await fetch(new URL("/audio/transcribe-private", pythonWorkerUrl), {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -79,7 +82,7 @@ export async function processFocusedPracticeAnalysisJob(
       ? "needs-retry" : result.outcomes.some((item) => item.outcome === "unmeasured") ? "unmeasured" : "passed";
     let deletedAt: string | null = null;
     try {
-      await storage.removeObject(row.storage_key);
+      await storage.removeObject(row.storage_key, "focused-practice-audio");
       deletedAt = new Date().toISOString();
       await dataSource.query(`UPDATE project_assets SET status = 'deleted', deleted_at = $3 WHERE project_id = $1 AND file_id = $2`, [payload.projectId, row.audio_file_id, deletedAt]);
     } catch {
@@ -110,7 +113,7 @@ export async function processFocusedPracticeAnalysisJob(
     let cleanupState = "deleted";
     let deletedAt: string | null = null;
     try {
-      await storage.removeObject(row.storage_key);
+      await storage.removeObject(row.storage_key, "focused-practice-audio");
       deletedAt = new Date().toISOString();
       await dataSource.query(`UPDATE project_assets SET status = 'deleted', deleted_at = $3 WHERE project_id = $1 AND file_id = $2`, [payload.projectId, row.audio_file_id, deletedAt]);
     } catch {

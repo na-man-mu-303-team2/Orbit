@@ -21,6 +21,8 @@ const validEnv = {
   S3_ENDPOINT: "http://localhost:9000",
   S3_PUBLIC_ENDPOINT: "http://localhost:9000",
   S3_BUCKET: "orbit-local",
+  S3_PRIVATE_AUDIO_BUCKET: "orbit-local-private-audio",
+  PRIVATE_AUDIO_STORAGE_ENABLED: "false",
   S3_REGION: "ap-northeast-2",
   S3_ACCESS_KEY_ID: "orbit",
   S3_SECRET_ACCESS_KEY: "orbit-password",
@@ -53,6 +55,33 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
+  it("requires a distinct private-audio bucket when routed writes are enabled", () => {
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          PRIVATE_AUDIO_STORAGE_ENABLED: "true",
+        },
+        { service: "api" },
+      ),
+    ).toMatchObject({
+      S3_BUCKET: "orbit-local",
+      S3_PRIVATE_AUDIO_BUCKET: "orbit-local-private-audio",
+      PRIVATE_AUDIO_STORAGE_ENABLED: true,
+    });
+
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          S3_PRIVATE_AUDIO_BUCKET: "orbit-local",
+          PRIVATE_AUDIO_STORAGE_ENABLED: "true",
+        },
+        { service: "api" },
+      ),
+    ).toThrow(/S3_PRIVATE_AUDIO_BUCKET must differ/);
+  });
+
   it("uses staged BullMQ execution by default and validates staged selectors", () => {
     const defaults = loadOrbitConfig(validEnv, { service: "api" });
     expect(defaults.AI_DECK_EXECUTION_MODE).toBe("bullmq");

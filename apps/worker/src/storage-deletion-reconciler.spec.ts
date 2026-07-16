@@ -11,6 +11,7 @@ describe("storage deletion reconciler", () => {
         project_id: "project-a",
         file_id: "file-a",
         storage_key: "private/secret-object",
+        purpose: "rehearsal-audio",
         attempt_count: 4,
       }] : []);
     const dataSource = { query } as unknown as DataSource;
@@ -30,6 +31,7 @@ describe("storage deletion reconciler", () => {
       project_id: "project-a",
       file_id: "file-a",
       storage_key: "private/object",
+      purpose: "focused-practice-audio",
       attempt_count: 0,
     }]);
     const managerQuery = vi.fn(async (_sql: string, _parameters?: unknown[]) => []);
@@ -38,8 +40,13 @@ describe("storage deletion reconciler", () => {
       transaction: vi.fn(async (callback: (manager: { query: typeof managerQuery }) => unknown) => callback({ query: managerQuery })),
     } as unknown as DataSource;
 
-    await reconcileStorageDeletionOutbox(dataSource, { removeObject: vi.fn(async () => undefined) });
+    const removeObject = vi.fn(async () => undefined);
+    await reconcileStorageDeletionOutbox(dataSource, { removeObject });
 
+    expect(removeObject).toHaveBeenCalledWith(
+      "private/object",
+      "focused-practice-audio",
+    );
     expect(managerQuery.mock.calls[2]?.[0]).toContain("storage_key = NULL");
   });
 });
