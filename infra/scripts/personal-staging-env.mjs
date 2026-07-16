@@ -80,16 +80,59 @@ export function readPersonalStagingPolicy(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+export function parseComposeEnvironmentKeys(content) {
+  const keys = new Set();
+  let environmentIndent = null;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (environmentIndent !== null && indent <= environmentIndent) {
+      environmentIndent = null;
+    }
+
+    if (
+      /^(?:environment|x-orbit-env):(?:\s+&[A-Za-z0-9_-]+)?$/.test(line)
+    ) {
+      environmentIndent = indent;
+      continue;
+    }
+
+    if (environmentIndent === null) {
+      continue;
+    }
+
+    const declaration = /^([A-Z][A-Z0-9_]*):\s*(.+)$/.exec(line);
+    if (!declaration) {
+      continue;
+    }
+
+    const [, key, rawValue] = declaration;
+    const value = rawValue.trim();
+    const quotedValue = /^(?:"([^"]*)"|'([^']*)')$/.exec(value);
+    const interpolation = /^\$\{([A-Z][A-Z0-9_]*)(?::?[-+?][^}]*)?\}$/.exec(
+      quotedValue ? (quotedValue[1] ?? quotedValue[2]) : value,
+    );
+
+    if (interpolation?.[1] === key) {
+      keys.add(key);
+    }
+  }
+
+  return keys;
+}
+
 export function collectComposeEnvironmentKeys(files) {
   const keys = new Set();
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf8");
-    for (const line of content.split(/\r?\n/)) {
-      const match = /^\s{2,}([A-Z][A-Z0-9_]*):(?:\s|$)/.exec(line);
-      if (match) {
-        keys.add(match[1]);
-      }
+    for (const key of parseComposeEnvironmentKeys(content)) {
+      keys.add(key);
     }
   }
 

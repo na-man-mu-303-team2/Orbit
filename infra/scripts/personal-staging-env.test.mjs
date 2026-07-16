@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   decodeEnvValue,
+  parseComposeEnvironmentKeys,
   parseEnvFileContent,
   selectDopplerChanges,
   validatePersonalStagingPolicy,
@@ -88,6 +89,27 @@ test("policy rejects unsafe defaults and Compose delivery mismatches", () => {
       "infra/env/personal-staging-env-policy.json delivery does not match Compose for env key: CODE_DEFAULT",
     ],
   );
+});
+
+test("Compose delivery requires same-key interpolation in environment mappings", () => {
+  const keys = parseComposeEnvironmentKeys(`
+services:
+  api:
+    environment:
+      HARD_CODED: redis://private-evidence-redis:6379
+      SELF_INTERPOLATED: \${SELF_INTERPOLATED:?}
+      OTHER_INTERPOLATION: \${SOURCE_VALUE:?}
+    build:
+      args:
+        BUILD_ONLY: \${BUILD_ONLY:?}
+x-orbit-env: &orbit-env
+  QUOTED_INTERPOLATION: "\${QUOTED_INTERPOLATION:-enabled}"
+`);
+
+  assert.deepEqual([...keys].sort(), [
+    "QUOTED_INTERPOLATION",
+    "SELF_INTERPOLATED",
+  ]);
 });
 
 test("sync selection never overwrites existing keys or creates manual values", () => {
