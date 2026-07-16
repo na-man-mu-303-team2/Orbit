@@ -84,9 +84,21 @@ describe("compareCriterionSources", () => {
     const snapshot = evaluationSnapshot(criterion);
     const planWithoutCriterion = withPlan(snapshot, { criteria: [] });
 
-    expect(result(snapshot, criterion, planWithoutCriterion, criterion)).toEqual({
+    expect(
+      result(snapshot, criterion, planWithoutCriterion, criterion),
+    ).toEqual({
       comparable: false,
       reasonCode: "CRITERION_CHANGED",
+    });
+  });
+
+  it("compares long silence criteria with the silence metric version", () => {
+    const criterion = longSilenceCriterion();
+    const snapshot = evaluationSnapshot(criterion);
+
+    expect(result(snapshot, criterion, snapshot, criterion)).toEqual({
+      comparable: true,
+      reasonCode: null,
     });
   });
 });
@@ -140,20 +152,16 @@ function evaluationSnapshot(
     metricDefinitionVersions: {
       timing: 1,
       filler: 1,
-      pause: 1,
+      silence: 1,
       semantic: 1,
     },
     approvedReferences: [],
     practiceGoalSetRef: null,
   });
-  return createRehearsalEvaluationSnapshot(
-    deck,
-    "2026-07-13T00:00:00.000Z",
-    {
-      deckContentHash: "a".repeat(64),
-      evaluationPlan,
-    },
-  );
+  return createRehearsalEvaluationSnapshot(deck, "2026-07-13T00:00:00.000Z", {
+    deckContentHash: "a".repeat(64),
+    evaluationPlan,
+  });
 }
 
 function timingCriterion(): EvaluationCriterion {
@@ -168,11 +176,28 @@ function timingCriterion(): EvaluationCriterion {
   };
 }
 
+function longSilenceCriterion(): EvaluationCriterion {
+  return {
+    criterionId: "criterion_silence_1",
+    revision: 1,
+    category: "delivery",
+    source: "system",
+    scope: { type: "run" },
+    label: "긴 침묵 없이 발표",
+    measurement: {
+      type: "max-count",
+      metric: "long-silence-count",
+      maximum: 0,
+    },
+  };
+}
+
 function withPlan(
   snapshot: RehearsalEvaluationSnapshot,
   patch: Partial<NonNullable<RehearsalEvaluationSnapshot["evaluationPlan"]>>,
 ): RehearsalEvaluationSnapshot {
-  if (!snapshot.evaluationPlan) throw new Error("evaluation plan fixture is missing");
+  if (!snapshot.evaluationPlan)
+    throw new Error("evaluation plan fixture is missing");
   return {
     ...snapshot,
     evaluationPlan: rehearsalEvaluationPlanSchema.parse({

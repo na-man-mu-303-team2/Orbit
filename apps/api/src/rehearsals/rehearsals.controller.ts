@@ -148,6 +148,15 @@ export class RehearsalsController {
     return this.rehearsalsService.getReport(runId, user.userId);
   }
 
+  @Get("api/v1/rehearsals/:runId/audio/playback-url")
+  async getAudioPlaybackUrl(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.rehearsalsService.getAudioPlaybackUrl(runId, user.userId);
+  }
+
   @Get("api/v1/projects/:projectId/rehearsal-summary")
   async getSummary(
     @Param("projectId") projectId: string,

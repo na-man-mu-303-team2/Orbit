@@ -6,7 +6,8 @@ import {
   generateDeckDiagnosticsSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
-  generateDeckResponseSchema
+  generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema
 } from "./generate-deck.schema";
 
 describe("generateDeckRequestSchema", () => {
@@ -355,9 +356,80 @@ describe("generateDeckRequestSchema", () => {
   });
 });
 
+describe("generateDeckStoredJobPayloadSchema", () => {
+  it("accepts legacy payloads and records the requesting user for new jobs", () => {
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "legacy" },
+      }),
+    ).toMatchObject({ request: { topic: "legacy" } });
+
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        imageAssetScope: { userId: "user-a" },
+      }),
+    ).toMatchObject({ requestedByUserId: "user-a" });
+  });
+
+  it("rejects undeclared stored payload fields", () => {
+    expect(() =>
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        rawProviderResponse: { output: "private" },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("generateDeckDiagnosticsSchema", () => {
-  it("defaults machine-readable warning codes without breaking old payloads", () => {
-    expect(generateDeckDiagnosticsSchema.parse({}).warningCodes).toEqual([]);
+  it("defaults research diagnostics without breaking old payloads", () => {
+    expect(generateDeckDiagnosticsSchema.parse({})).toMatchObject({
+      researchQuality: "not-run",
+      researchIssueCodes: [],
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false,
+      warningCodes: []
+    });
+  });
+
+  it("accepts a partial research result with safe limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        researchQuality: "partial",
+        researchIssueCodes: ["independent-missing", "fact-coverage"],
+        relevantWebSourceCount: 1,
+        officialWebSourceCount: 1,
+        independentWebSourceCount: 0,
+        researchFactCoverageSatisfied: false
+      })
+    ).toMatchObject({
+      researchQuality: "partial",
+      researchIssueCodes: ["independent-missing", "fact-coverage"],
+      relevantWebSourceCount: 1,
+      officialWebSourceCount: 1,
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false
+    });
+  });
+
+  it("rejects unknown research limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchIssueCodes: ["provider stack trace"]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects unknown diagnostics fields instead of stripping them", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchQuality: "partial",
+        providerResponse: { raw: true }
+      }).success
+    ).toBe(false);
   });
 
   it("accepts unavailable rendered visual QA with warning codes", () => {
@@ -369,6 +441,20 @@ describe("generateDeckDiagnosticsSchema", () => {
     ).toMatchObject({
       visualQaStatus: "unavailable",
       warningCodes: ["GENERATE_DECK_VISUAL_QA_UNAVAILABLE"],
+    });
+  });
+
+  it("accepts advisory rendered visual QA with affected slides", () => {
+    expect(generateDeckDiagnosticsSchema.parse({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    })).toMatchObject({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
     });
   });
 

@@ -1,7 +1,6 @@
 import {
-  generateDeckRequestSchema,
   generateDeckResponseSchema,
-  savedDesignPackSnapshotSchema,
+  generateDeckStoredJobPayloadSchema,
   type Job,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -19,17 +18,12 @@ import {
 
 export type { GenerateDeckEventLogger } from "./generate-deck/pipeline";
 
-const generateDeckPayloadSchema = z.object({
-  jobId: z.string().min(1),
-  projectId: z.string().min(1),
-  request: generateDeckRequestSchema,
-  designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  imageAssetScope: z
-    .object({
-      userId: z.string().min(1),
-    })
-    .optional(),
-});
+const generateDeckPayloadSchema = generateDeckStoredJobPayloadSchema
+  .extend({
+    jobId: z.string().min(1),
+    projectId: z.string().min(1),
+  })
+  .strict();
 
 const generateDeckTimeoutMs = 300_000;
 

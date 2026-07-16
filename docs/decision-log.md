@@ -196,7 +196,7 @@
 
 ## ORBIT-228 personal server runtime override policy
 
-- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, SQS, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
+- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
 - Options considered:
   - Doppler `stg` 값을 개인 서버 토폴로지에 맞춰 수동으로 계속 관리한다.
   - staging 예시 값을 그대로 사용하고 실패 항목을 runbook troubleshooting으로만 설명한다.
@@ -386,3 +386,39 @@
 - Rationale: 실제 전체 녹음 시간을 별도 canonical transport로 보존하면 duration resolver와 마지막 slide timing이 같은 근거를 사용하고, 배포 전 저장된 Run meta와 기존 complete 요청은 `null` default로 계속 읽을 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.test.ts`, `apps/web/src/features/rehearsal/speech/p3RehearsalSession.test.ts`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: Web/API producer는 legacy와 chunk upload 모두 실제 recorder 경과시간을 보내고 Run meta 저장 성공 뒤에만 분석 Job을 enqueue한다. P1 worker sender는 Run meta 값을 `recordingDurationSeconds`로 전달하고 STT Provider 값은 `providerDurationSeconds`에만 둔다.
+
+## ORBIT environment contract CI and personal staging deployment gate
+
+- Context: 기존 환경 검증은 TypeScript CI 내부에서 예시 파일의 key 존재와 집합만 비교했다. 허용되지 않은 빈 값·중복·잘못된 선언 형식을 잡지 못했고, `develop` push의 개인 서버 배포 workflow도 CI 결과와 독립적으로 시작했다.
+- Options considered:
+  - 기존 TypeScript CI 안에서만 `check-env.mjs`를 강화하고 배포 workflow는 그대로 둔다.
+  - 별도 Environment Contract CI를 모든 PR과 `develop` push에서 실행하고 성공한 `develop` run만 개인 서버 배포를 시작한다.
+  - 실제 Doppler 값을 PR CI에 전달해 한 번에 검사한다.
+- Final decision: 환경 계약을 의존성 설치가 없는 별도 `environment-contract` job으로 분리한다. 예시 파일은 key 누락·집합 불일치·중복·형식 오류·환경별로 허용되지 않은 빈 값을 검사한다. 실제 개인 서버 값은 secret을 출력하지 않는 배포 전 Bash preflight로 검사한다. `develop` push의 자동 배포는 같은 workflow의 후속 `needs` job이 reusable deploy workflow를 호출해 검증한 `github.sha`를 wrapper에 전달하고, 서버의 실제 `develop` HEAD가 다르면 build 전에 거부한다. 상위 workflow concurrency는 PR run만 `cancel-in-progress`하고 `develop` push run은 취소하지 않는다.
+- Rationale: PR에는 실제 secret을 노출하지 않으면서 환경 계약 오류를 빠르게 확인하고, merge 뒤에도 환경 검증 실패나 검증되지 않은 최신 commit이 서비스 교체까지 진행되는 것을 막는다. PR 검증은 최신 commit만 남기되, `develop` 배포가 build·migration·service 교체 도중 새 push 때문에 중간 취소되는 것은 방지한다. 수동 배포는 CI를 우회할 수 있지만 동일한 서버 환경 preflight와 Compose interpolation 검증은 반드시 거친다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/typescript-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/check-env.mjs`, `infra/scripts/check-personal-staging-env.sh`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR의 `environment-contract` check가 생성되면 GitHub `main dev protect` ruleset에 required status check로 등록해야 merge 차단이 활성화된다. PR merge 전에 개인 서버의 `/usr/local/sbin/orbit-deploy-personal-staging` wrapper를 runbook의 mode와 SHA 전달 버전으로 갱신하고, 첫 자동 배포에서 환경 오류가 key 이름만 출력되는지와 검증 SHA·서버 HEAD 일치를 확인한다.
+
+## ORBIT personal staging Doppler environment-only redeploy
+
+- Context: 개인 서버 컨테이너는 Doppler 값을 시작 시 읽으므로 `orbit / stg` secret만 수정·삭제하면 실행 중인 프로세스에는 반영되지 않는다. 기존 `develop` 전체 배포를 다시 실행하면 불필요한 image build가 발생하고, 필수값 삭제나 잘못된 값이 서비스 교체 뒤에 발견될 수 있다.
+- Options considered:
+  - Doppler 변경마다 기존 `full` build/migration 배포를 다시 실행한다.
+  - 서명 검증 relay service를 추가해 GitHub App installation token을 동적으로 발급한다.
+  - Doppler Webhook이 최소 권한 fine-grained token으로 기존 workflow의 `environment-only` mode를 직접 dispatch한다.
+- Final decision: personal staging에만 직접 workflow dispatch를 사용한다. `environment-only` mode는 현재 `develop` SHA와 서버 HEAD 일치, 필수값·Compose 검증, 기존 이미지의 Node/Python runtime schema 검증을 모두 통과한 뒤에만 앱 컨테이너 네 개를 `--no-build --force-recreate`한다. 전체 코드 배포는 기존 `full` mode와 Environment Contract CI gate를 유지한다.
+- Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
+
+## ORBIT personal staging env source policy and safe Doppler sync
+
+- Context: 새 env key가 예시 파일에 추가돼도 Doppler key 생성과 개인 서버 Compose 전달은 별개여서, 운영자가 key를 하나씩 만들고 서버 배포 script를 다시 실행했다. 모든 예시 값을 Doppler에 일괄 복사하면 secret placeholder나 환경별 URL을 실제 값처럼 저장하고 기존 secret을 덮어쓸 위험이 있다.
+- Options considered:
+  - `.env.staging.example` 전체를 매번 Doppler에 bulk upload한다.
+  - 새 key를 계속 수동 등록하고 서버 배포 script를 직접 실행한다.
+  - 각 key의 source와 개인 서버 delivery를 정책 파일로 분류하고, 누락된 안전한 일반 설정만 추가한 뒤 기존 webhook으로 재배포한다.
+- Final decision: `infra/env/personal-staging-env-policy.json`에서 모든 staging key를 `repo-default`, `doppler-optional`, `doppler-required`와 `compose`, `code-default` 조합으로 분류한다. Environment Contract CI는 정책 누락·추가 key·안전하지 않은 repo default·Compose 전달 불일치를 차단한다. `develop` full 배포는 GitHub Environment의 config-scoped `DOPPLER_STG_SYNC_TOKEN`으로 기존 값을 덮어쓰지 않고 누락된 `repo-default` + `compose` key만 한 번에 추가한 뒤 개인 서버를 배포한다. 환경별 값과 secret은 자동 생성하지 않고 누락 시 배포를 차단한다.
+- Rationale: 일반 설정은 저장소의 검토 가능한 기본값으로 자동화하면서 secret 값의 출처와 변경 권한은 Doppler에 남긴다. 동기화가 기존 값을 수정하지 않고 하나의 Doppler 변경으로 처리되므로 webhook 재배포도 key 수만큼 반복되지 않는다. 개인 서버 runtime의 read-only Doppler token과 GitHub-hosted sync job의 `orbit / stg` 전용 read/write token을 분리하며, full 배포와 webhook 후속 배포는 같은 concurrency group에서 직렬화한다.
+- Affected files: `.github/workflows/deploy-personal-staging.yml`, `.github/workflows/environment-contract-ci.yml`, `infra/env/personal-staging-env-policy.json`, `infra/scripts/personal-staging-env.mjs`, `infra/scripts/personal-staging-env.test.mjs`, `infra/scripts/sync-personal-staging-doppler.mjs`, `infra/scripts/check-env.mjs`, `docker-compose.staging.yml`, `package.json`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
+- Follow-up review notes: merge 전에 GitHub Environment `personal-staging`에 `DOPPLER_STG_SYNC_TOKEN`을 등록한다. 첫 `develop` push에서 key 이름만 출력되는지, sync job 성공 뒤 full 배포가 실행되는지, Doppler Webhook Logs와 `trigger_source=doppler-stg-secrets-update` 후속 실행이 직렬화되는지 확인하고 실제 값 또는 token은 로그에 남기지 않는다.

@@ -9,6 +9,8 @@ export type PresenterHighlightState = {
   elementId: string;
 };
 
+export type AudienceOutputMode = "slide" | "screen-share" | "black";
+
 export type PresenterTimingState = {
   canStartLiveStt: boolean;
   currentSlideElapsedSeconds: number;
@@ -34,6 +36,7 @@ export type PresenterSpeechState = {
 };
 
 export type PresenterSlideshowState = {
+  audienceOutputMode: AudienceOutputMode;
   highlights: PresenterHighlightState[];
   slideId: string;
   slideIndex: number;
@@ -55,6 +58,7 @@ export function createPresenterSlideshowState(
   const firstSlide = deck.slides[0];
 
   return {
+    audienceOutputMode: "slide",
     highlights: [],
     slideId: firstSlide?.slideId ?? "",
     slideIndex: 0,

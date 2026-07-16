@@ -2,12 +2,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import json
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ai.color_options import (
     DeckColorOptionsRequest,
@@ -91,6 +91,14 @@ from app.audio.transcribe import (
     to_http_exception,
     transcribe_rehearsal_audio,
 )
+from app.audio.processing import (
+    RehearsalAudioProcessingResponse,
+    process_rehearsal_audio,
+)
+from app.audio.analysis.models import (
+    RehearsalSilenceAnalysis,
+    unmeasured_silence_analysis,
+)
 from app.challenge_qna import router as challenge_qna_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
@@ -127,6 +135,63 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     app: str
     checked_at: datetime
+
+
+def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, object]:
+    message = str(error)
+    if "SOURCE_GROUNDING_REQUIRED" in message:
+        reason_code = "SOURCE_GROUNDING_REQUIRED"
+    elif message.startswith("LLM deck content generation failed:"):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif message.startswith("LLM returned empty deck content."):
+        reason_code = "CONTENT_LLM_EMPTY_RESPONSE"
+    elif message.startswith("LLM returned invalid deck content:"):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith(
+        (
+            "LLM content plan reused content item IDs:",
+            "LLM content plan referenced unavailable source IDs:",
+            "UNSUPPORTED_NUMERIC_CLAIM:",
+            "LLM returned fewer slides than the requested minimum",
+        )
+    ):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith("LLM slide count repair failed:"):
+        reason_code = "CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED"
+    elif message.startswith(
+        (
+            "OPENAI_API_KEY is required for prompt or reference-based deck generation.",
+            "LLM deck content generation is required for prompt or reference-based decks.",
+        )
+    ):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif "Art Director could not create a valid design plan" in message:
+        reason_code = "ART_DIRECTOR_INVALID_RESPONSE"
+    elif "Art Director" in message and "unavailable" in message:
+        reason_code = "ART_DIRECTOR_UNAVAILABLE"
+    else:
+        reason_code = "PLANNING_FAILURE_UNCLASSIFIED"
+
+    detail: dict[str, object] = {"reasonCode": reason_code}
+    if reason_code.startswith(("CONTENT_LLM_", "ART_DIRECTOR_")):
+        detail["provider"] = "openai"
+    provider_error: BaseException | None = error.__cause__
+    for _ in range(3):
+        if provider_error is None:
+            break
+        provider_status = getattr(provider_error, "status_code", None)
+        if isinstance(provider_status, int) and 100 <= provider_status <= 599:
+            detail["providerHttpStatus"] = provider_status
+        provider_request_id = getattr(provider_error, "request_id", None)
+        if (
+            isinstance(provider_request_id, str)
+            and 0 < len(provider_request_id) <= 256
+        ):
+            detail["providerRequestId"] = provider_request_id
+        if "providerHttpStatus" in detail and "providerRequestId" in detail:
+            break
+        provider_error = provider_error.__cause__
+    return detail
 
 
 class ReferenceExtractRequest(BaseModel):
@@ -216,6 +281,7 @@ class RehearsalAnalyzeRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
     transcript: str
+    language: str = Field(default="und", min_length=1, max_length=128)
     duration_seconds: float = Field(alias="durationSeconds", ge=0)
     segments: list[TranscriptSegment] = Field(default_factory=list)
     deck_keywords: list[DeckKeywordRequest] = Field(
@@ -225,6 +291,13 @@ class RehearsalAnalyzeRequest(BaseModel):
     slide_timeline: list[RehearsalSlideTimelineEntryRequest] = Field(
         default_factory=list,
         alias="slideTimeline",
+    )
+    silence_analysis: RehearsalSilenceAnalysis = Field(
+        default_factory=lambda: unmeasured_silence_analysis(
+            "LEGACY_REPORT",
+            detector_version="unavailable",
+        ),
+        alias="silenceAnalysis",
     )
 
 
@@ -254,29 +327,67 @@ class RehearsalFillerWordDetailResponse(BaseModel):
     count: int = Field(ge=0)
 
 
-class RehearsalPauseDetailResponse(BaseModel):
-    start_second: float = Field(alias="startSecond", ge=0)
-    end_second: float = Field(alias="endSecond", ge=0)
-    duration_seconds: float = Field(alias="durationSeconds", ge=0)
-
-
 class RehearsalMissedKeywordResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     keyword_id: str = Field(alias="keywordId")
     text: str
 
 
+class RehearsalSlideSpeakingRateResponse(BaseModel):
+    metric_definition_version: Literal[1] = Field(alias="metricDefinitionVersion")
+    measurement_state: Literal["measured", "unmeasured"] = Field(
+        alias="measurementState"
+    )
+    reason_code: Literal[
+        "UNSUPPORTED_LANGUAGE",
+        "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+        "INSUFFICIENT_SLIDE_SPEECH",
+        "BASELINE_UNAVAILABLE",
+        "LEGACY_REPORT",
+    ] | None = Field(alias="reasonCode")
+    characters_per_second: float | None = Field(
+        alias="charactersPerSecond",
+        gt=0,
+    )
+    baseline_characters_per_second: float | None = Field(
+        alias="baselineCharactersPerSecond",
+        gt=0,
+    )
+    relative_rate_ratio: float | None = Field(alias="relativeRateRatio", gt=0)
+    pace_category: Literal["slower", "similar", "faster"] | None = Field(
+        alias="paceCategory"
+    )
+    active_speech_seconds: float = Field(alias="activeSpeechSeconds", ge=0)
+    character_count: int = Field(alias="characterCount", ge=0)
+
+    @model_validator(mode="after")
+    def validate_measurement_state(self) -> Self:
+        values = (
+            self.characters_per_second,
+            self.baseline_characters_per_second,
+            self.relative_rate_ratio,
+            self.pace_category,
+        )
+        if self.measurement_state == "measured":
+            if self.reason_code is not None or any(value is None for value in values):
+                raise ValueError("Measured speaking rate requires all values.")
+        elif self.reason_code is None or any(value is not None for value in values):
+            raise ValueError("Unmeasured speaking rate requires only a reason code.")
+        return self
+
+
 class RehearsalSlideInsightResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     filler_word_count: int = Field(alias="fillerWordCount", ge=0)
-    pause_count: int = Field(alias="pauseCount", ge=0)
+    long_silence_count: int | None = Field(alias="longSilenceCount", ge=0)
+    speaking_rate: RehearsalSlideSpeakingRateResponse = Field(alias="speakingRate")
 
 
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
     filler_word_count: int = Field(alias="fillerWordCount")
-    pause_count: int = Field(alias="pauseCount")
+    long_silence_count: int | None = Field(alias="longSilenceCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
     speed_samples: list[RehearsalSpeedSampleResponse] = Field(
         default_factory=list,
@@ -285,10 +396,6 @@ class RehearsalAnalyzeResponse(BaseModel):
     filler_word_details: list[RehearsalFillerWordDetailResponse] = Field(
         default_factory=list,
         alias="fillerWordDetails",
-    )
-    pause_details: list[RehearsalPauseDetailResponse] = Field(
-        default_factory=list,
-        alias="pauseDetails",
     )
     missed_keywords: list[RehearsalMissedKeywordResponse] = Field(
         default_factory=list,
@@ -553,14 +660,24 @@ async def sync_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 @app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
-def transcribe_audio(
+def transcribe_private_audio_endpoint(
     payload: AudioTranscribeRequest,
     provider: ReportSttProviderDependency,
 ) -> AudioTranscribeResponse:
     try:
         return transcribe_rehearsal_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post("/audio/transcribe", response_model=RehearsalAudioProcessingResponse)
+def process_rehearsal_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> RehearsalAudioProcessingResponse:
+    try:
+        return process_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
 
@@ -601,7 +718,9 @@ def source_grounding_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
@@ -620,7 +739,9 @@ def content_planning_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
@@ -639,7 +760,9 @@ def design_planning_stage(
             api_key=config.openai_api_key,
         )
     except DeckContentGenerationError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post(
@@ -772,6 +895,7 @@ def analyze_rehearsal(
     ]
     metrics = analyze_rehearsal_metrics(
         transcript=payload.transcript,
+        language=payload.language,
         duration_seconds=payload.duration_seconds,
         segments=payload.segments,
         deck_keywords=deck_keywords,
@@ -782,6 +906,7 @@ def analyze_rehearsal(
             )
             for entry in payload.slide_timeline
         ],
+        silence_analysis=payload.silence_analysis,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
@@ -806,7 +931,7 @@ def analyze_rehearsal(
         runId=payload.run_id,
         wordsPerMinute=metrics.words_per_minute,
         fillerWordCount=metrics.filler_word_count,
-        pauseCount=metrics.pause_count,
+        longSilenceCount=metrics.long_silence_count,
         keywordCoverage=metrics.keyword_coverage,
         speedSamples=[
             RehearsalSpeedSampleResponse(
@@ -823,14 +948,6 @@ def analyze_rehearsal(
             )
             for detail in metrics.filler_word_details
         ],
-        pauseDetails=[
-            RehearsalPauseDetailResponse(
-                startSecond=detail.start_second,
-                endSecond=detail.end_second,
-                durationSeconds=detail.duration_seconds,
-            )
-            for detail in metrics.pause_details
-        ],
         missedKeywords=[
             RehearsalMissedKeywordResponse(
                 slideId=keyword.slide_id,
@@ -843,7 +960,24 @@ def analyze_rehearsal(
             RehearsalSlideInsightResponse(
                 slideId=insight.slide_id,
                 fillerWordCount=insight.filler_word_count,
-                pauseCount=insight.pause_count,
+                longSilenceCount=insight.long_silence_count,
+                speakingRate=RehearsalSlideSpeakingRateResponse(
+                    metricDefinitionVersion=(
+                        insight.speaking_rate.metric_definition_version
+                    ),
+                    measurementState=insight.speaking_rate.measurement_state,
+                    reasonCode=insight.speaking_rate.reason_code,
+                    charactersPerSecond=(
+                        insight.speaking_rate.characters_per_second
+                    ),
+                    baselineCharactersPerSecond=(
+                        insight.speaking_rate.baseline_characters_per_second
+                    ),
+                    relativeRateRatio=insight.speaking_rate.relative_rate_ratio,
+                    paceCategory=insight.speaking_rate.pace_category,
+                    activeSpeechSeconds=insight.speaking_rate.active_speech_seconds,
+                    characterCount=insight.speaking_rate.character_count,
+                ),
             )
             for insight in metrics.slide_insights
         ],
@@ -902,14 +1036,20 @@ class RehearsalProgressCommentResponse(BaseModel):
     comment: str | None = None
 
 
-@app.post("/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse)
+@app.post(
+    "/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse
+)
 def rehearsal_progress_comment(
     payload: RehearsalProgressCommentRequest,
     request: Request,
 ) -> RehearsalProgressCommentResponse:
     config = _config(request)
     run_series = [
-        RunSeriesEntry(run_id=e.run_id, created_at=e.created_at, duration_seconds=e.duration_seconds)
+        RunSeriesEntry(
+            run_id=e.run_id,
+            created_at=e.created_at,
+            duration_seconds=e.duration_seconds,
+        )
         for e in payload.run_series
     ]
     comment = generate_progress_comment(
@@ -917,7 +1057,9 @@ def rehearsal_progress_comment(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
-    return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
+    return RehearsalProgressCommentResponse(
+        projectId=payload.project_id, comment=comment
+    )
 
 
 def _remap_import_asset_ids(

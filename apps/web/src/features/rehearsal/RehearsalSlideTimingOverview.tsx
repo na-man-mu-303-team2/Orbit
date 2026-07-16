@@ -6,8 +6,12 @@ import { resolveEditorAssetUrl } from "../editor/shared/editorAssetUrl";
 type Props = {
   deck: Deck | null;
   formatDuration: (totalSeconds: number) => string;
+  slideInsights: RehearsalReport["slideInsights"];
   slideTimings: RehearsalReport["slideTimings"];
 };
+
+type SlideSpeakingRate =
+  RehearsalReport["slideInsights"][number]["speakingRate"];
 
 type SlideDurationPoint = RehearsalReport["slideTimings"][number] & {
   cumulativeActualSeconds: number;
@@ -36,6 +40,19 @@ function formatAxis(totalSeconds: number) {
     return `${seconds}초`;
   }
   return `${minutes}분 ${seconds.toString().padStart(2, "0")}초`;
+}
+
+function speakingRateLabel(speakingRate: SlideSpeakingRate | undefined) {
+  if (!speakingRate || speakingRate.measurementState === "unmeasured") {
+    return "분석할 발화가 부족해요";
+  }
+  if (speakingRate.paceCategory === "slower") {
+    return "전체 평균보다 느린 편";
+  }
+  if (speakingRate.paceCategory === "faster") {
+    return "전체 평균보다 빠른 편";
+  }
+  return "전체 평균과 비슷";
 }
 
 function roundedTopBarPath(
@@ -161,6 +178,7 @@ function buildSlideTimingChartModel(slideDurationSeries: SlideDurationPoint[]) {
 export function RehearsalSlideTimingOverview({
   deck,
   formatDuration,
+  slideInsights,
   slideTimings,
 }: Props) {
   const gradientId = useId();
@@ -172,6 +190,16 @@ export function RehearsalSlideTimingOverview({
   const chart = useMemo(
     () => buildSlideTimingChartModel(slideDurationSeries),
     [slideDurationSeries],
+  );
+  const speakingRateBySlideId = useMemo(
+    () =>
+      new Map(
+        slideInsights.map((insight) => [
+          insight.slideId,
+          insight.speakingRate,
+        ]),
+      ),
+    [slideInsights],
   );
   const overCount = slideDurationSeries.filter((item) => item.isOver).length;
   const actualGradientId = `${gradientId}-actual`;
@@ -335,6 +363,16 @@ export function RehearsalSlideTimingOverview({
                   </span>
                   <span className="rrd-timing-slide-target">
                     권장 {formatDuration(point.targetSeconds)}
+                  </span>
+                  <span
+                    className={`rrd-slide-speaking-rate is-${
+                      speakingRateBySlideId.get(point.slideId)?.paceCategory ??
+                      "unmeasured"
+                    }`}
+                  >
+                    {speakingRateLabel(
+                      speakingRateBySlideId.get(point.slideId),
+                    )}
                   </span>
                   <em className="rrd-cumulative-slide-total">
                     누적 {formatDuration(point.cumulativeActualSeconds)}

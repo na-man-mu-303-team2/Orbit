@@ -1,5 +1,21 @@
 # ORBIT mockup-to-production design QA
 
+## AI Deck Story Review — 시안 3 (2026-07-16)
+
+- Source visual truth: current task attachment `codex-clipboard-28cf4a8d-d18b-4153-8ce6-48ede150c5a9.png`, 1680×941.
+- Production surface: `/project/:projectId/story-plan/:jobId` and `apps/web/src/features/ai-ppt/StoryPlanReviewPage.tsx`.
+- The source and implementation were opened together at 1680×941 after the final spacing and status-icon pass. The production screen preserves the source hierarchy: title and metadata, three underline tabs, six-row story flow, source-state badges, factual-verification warning, and fixed approval rail.
+- The current `OrbitAppHeader`, Pretendard, `OrbitTabs`, `OrbitButton`, `OrbitStatus`, `OrbitDialog`, `OrbitTextarea`, and Tabler icons are reused. Header navigation labels intentionally follow the current product shell rather than copying the reference-only labels.
+- At 390×844, metadata and story rows stack vertically, the three-tab list remains keyboard-operable in one horizontal row without a visible native scrollbar, Korean headings break only between words, and the sticky action rail does not hide the final warning or actions.
+- Browser interaction checks: `ArrowRight` moved selection from `전체 이야기 흐름` to `근거와 참고자료`; the primary action retained button focus; the final mobile scroll kept warning content fully above the action rail.
+- Source labels are limited to `참고자료 연결`, `일부 확인 필요`, and `참고자료 없음`. The UI does not claim that facts are “검증됨”, does not predict Visual QA, and describes repair reasons only as automatic adjustments.
+- Temporary visual-QA harness files and viewport overrides were removed after comparison; no mock asset or prototype route is tracked.
+- Web lint/typecheck passed. Web production build passed with only the existing Vite chunk-size advisory. Web suite: 150 files, 1035 tests passed.
+
+final result: passed
+
+---
+
 ## Rehearsal Script and Decorative Gauge Visibility (2026-07-15)
 
 - Source visual truth: `/tmp/orbit-rehearsal-script-timer-before.jpg`, captured from the annotated `localhost:5175` rehearsal route.

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AiDeckPlanningArtifactRepository } from "./planning-artifact-repository";
+import { createTestDeck } from "./test-deck.fixture";
 
 const message = {
   pipelineJobId: "job-ai-deck-1",
@@ -65,6 +66,46 @@ describe("AiDeckPlanningArtifactRepository", () => {
     ]);
   });
 
+  it.each([
+    ["image-slide", "slide-1"],
+    ["semantic-quality", ""],
+  ] as const)(
+    "allows %s to read its layout artifact",
+    async (stage, shardKey) => {
+      const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => [
+        layoutArtifactRow(),
+      ]);
+      const repository = new AiDeckPlanningArtifactRepository({ query });
+
+      await expect(
+        repository.get(
+          { ...message, stage, shardKey },
+          { planningArtifactId: artifactId },
+          "layout-compile",
+        ),
+      ).resolves.toMatchObject({ stage: "layout-compile" });
+      expect(query.mock.calls[0]?.[1]).toEqual([
+        artifactId,
+        message.pipelineJobId,
+        message.projectId,
+        "layout-compile",
+      ]);
+    },
+  );
+
+  it("keeps execution stages outside the planning artifact write boundary", async () => {
+    const query = vi.fn();
+    const repository = new AiDeckPlanningArtifactRepository({ query });
+
+    await expect(
+      repository.upsert(
+        { ...message, stage: "image-slide", shardKey: "slide-1" },
+        payload,
+      ),
+    ).rejects.toThrow("Planning artifacts require a planning stage");
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("rejects missing artifacts and mismatched stored identities", async () => {
     const missing = new AiDeckPlanningArtifactRepository({
       query: vi.fn(async () => []),
@@ -104,4 +145,26 @@ function artifactRow(overrides: Record<string, unknown> = {}) {
     updated_at: "2026-07-16T00:00:00.000Z",
     ...overrides,
   };
+}
+
+function layoutArtifactRow() {
+  return artifactRow({
+    stage: "layout-compile",
+    payload_json: {
+      layoutResult: {},
+      visualRequirements: {},
+      workerPayload: {
+        deck: createTestDeck(message.projectId),
+        warnings: [],
+        validation: {
+          passed: true,
+          layoutIssues: [],
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: [],
+        },
+        diagnostics: {},
+      },
+    },
+  });
 }

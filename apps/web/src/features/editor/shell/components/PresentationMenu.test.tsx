@@ -11,8 +11,9 @@ describe("PresentationMenu", () => {
     const html = renderToStaticMarkup(
       <PresentationMenu
         activeStartAction="presentation"
+        canCreatePresentationSession
         canOpenAudienceLink
-        canStartPresentation={false}
+        canStartPersonalRehearsal
         isOpen
         onOpenAudienceLink={vi.fn()}
         onStartPresentation={vi.fn()}
@@ -38,8 +39,9 @@ describe("PresentationMenu", () => {
   it("청중 링크를 사용할 수 없으면 메뉴 버튼을 비활성화한다", () => {
     const html = renderToStaticMarkup(
       <PresentationMenu
+        canCreatePresentationSession
         canOpenAudienceLink={false}
-        canStartPresentation={false}
+        canStartPersonalRehearsal
         isOpen={false}
         onOpenAudienceLink={vi.fn()}
         onStartPresentation={vi.fn()}
@@ -57,8 +59,9 @@ describe("PresentationMenu", () => {
     const html = renderToStaticMarkup(
       <PresentationMenu
         activeStartAction="rehearsal"
+        canCreatePresentationSession
         canOpenAudienceLink
-        canStartPresentation={false}
+        canStartPersonalRehearsal
         isOpen={false}
         onOpenAudienceLink={vi.fn()}
         onStartPresentation={vi.fn()}

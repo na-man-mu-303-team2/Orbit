@@ -1,0 +1,329 @@
+{
+  "version": 1,
+  "variables": {
+    "ADAPTIVE_COACHING_PROJECT_ALLOWLIST": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "ADAPTIVE_REHEARSAL_COACH_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "AI_DECK_EXECUTION_MODE": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "AI_DECK_USER_CONCURRENCY": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "AI_DECK_WORKER_CONCURRENCY": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "AI_DECK_WORKER_QUEUE": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "AI_PPT_VISUAL_QA_MODEL": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "AI_SLIDE_IMAGE_REVIEW_MODE": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "API_BASE_URL": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "API_JSON_BODY_LIMIT_BYTES": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "API_PORT": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "APP_ENV": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "AUTH_COOKIE_SECURE": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "AWS_ACCESS_KEY_ID": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "AWS_REGION": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "AWS_SECRET_ACCESS_KEY": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "CHALLENGE_QNA_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "COACHING_IDEMPOTENCY_HMAC_KEY_VERSION": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "COACHING_IDEMPOTENCY_HMAC_SECRET": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "COOKIE_SECRET": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DATABASE_URL": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DEMO_COACHING_FIXTURE_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "DEMO_DECK_ID": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DEMO_FIXTURE_ENV_ALLOWLIST": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "DEMO_PROJECT_ID": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DEMO_SESSION_ID": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DEMO_USER_ID": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "DEMO_WORKSPACE_ID": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "FOCUSED_PRACTICE_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "IMAGE_MAX_PER_DECK": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "IMAGE_MAX_PER_USER_PER_DAY": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "IMAGE_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "JOB_QUEUE_DRIVER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "LIVE_STT_ENGINE": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "LIVE_STT_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "LLM_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "LOG_LEVEL": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "LOG_PRETTY": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "NODE_ENV": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "OCR_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "OPENAI_API_KEY": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "OPENAI_EMBEDDING_MODEL": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "OPENAI_IMAGE_MODEL": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "OPENAI_MODEL": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "OPENAI_REALTIME_TRANSCRIPTION_DELAY": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "OPENAI_REALTIME_TRANSCRIPTION_MODEL": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "OPENAI_TRANSCRIPTION_MODEL": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "ORBIT_PPTX_OOXML_VECTOR_IMPORT": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "PRIVATE_EVIDENCE_REDIS_URL": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "PUBLIC_IMAGE_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "PYTHON_WORKER_PORT": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "PYTHON_WORKER_URL": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "REDIS_URL": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "REHEARSAL_AUDIO_MAX_BYTES": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "REPORT_STT_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "S3_ACCESS_KEY_ID": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "S3_BUCKET": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "S3_ENDPOINT": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "S3_FORCE_PATH_STYLE": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "S3_PUBLIC_ENDPOINT": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "S3_REGION": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "S3_SECRET_ACCESS_KEY": {
+      "source": "doppler-optional",
+      "delivery": "compose"
+    },
+    "SESSION_SECRET": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "STORAGE_DRIVER": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "TEXTRACT_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "TRANSCRIBE_LANGUAGE_CODE": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
+    "VITE_SEMANTIC_CUE_NLI_BENCHMARK_DEVICE": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "VITE_SEMANTIC_CUE_NLI_BENCHMARK_PASSED": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "VITE_SEMANTIC_CUE_NLI_ENABLED": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "VITE_SEMANTIC_CUE_NLI_MODEL_ID": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "VITE_SEMANTIC_CUE_NLI_PROVIDER": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "WEB_ORIGIN": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "WEB_PORT": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    },
+    "WHISPERX_API_KEY": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "WHISPERX_API_URL": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "WHISPERX_MODEL": {
+      "source": "doppler-optional",
+      "delivery": "code-default"
+    },
+    "WHISPERX_TIMEOUT_MS": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
+    "WORKER_PORT": {
+      "source": "doppler-required",
+      "delivery": "compose"
+    }
+  }
+}

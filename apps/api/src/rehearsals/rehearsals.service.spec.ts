@@ -390,7 +390,7 @@ describe("RehearsalsService", () => {
       audioFileId: "file-audio",
       status: "uploading"
     });
-    expect(service.testFilesService.createUploadUrl).toHaveBeenCalledWith(
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).toHaveBeenCalledWith(
       "project-a",
       expect.objectContaining({
         originalName: "rehearsal.webm",
@@ -398,7 +398,8 @@ describe("RehearsalsService", () => {
         size: 1024,
         purpose: "rehearsal-audio"
       }),
-      actorUserId
+      actorUserId,
+      expect.objectContaining({ runId: run.runId, createdAt: expect.any(Date) })
     );
   });
 
@@ -418,7 +419,7 @@ describe("RehearsalsService", () => {
       })
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(service.testFilesService.createUploadUrl).not.toHaveBeenCalled();
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).not.toHaveBeenCalled();
   });
 
   it("rejects rehearsal uploads above the implemented OpenAI report STT limit", async () => {
@@ -448,8 +449,12 @@ describe("RehearsalsService", () => {
       runId: run.runId,
       status: "processing",
       audioFileId: "file-audio",
-      jobId: "job-1"
+      jobId: "job-1",
+      rawAudioDeleteDeadlineAt: expect.any(String),
     });
+    expect(
+      Date.parse(result.run.rawAudioDeleteDeadlineAt ?? "") - Date.now(),
+    ).toBeGreaterThan(13 * 24 * 60 * 60 * 1000);
     expect(result.job).toEqual(job);
     expect(enqueueJob).toHaveBeenCalledWith({
       driver: "bullmq",
@@ -880,6 +885,68 @@ describe("RehearsalsService", () => {
     });
   });
 
+  it("creates a bounded playback URL without logging it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-16T00:00:00.000Z"));
+    try {
+      const createPrivateAudioReadUrl = vi.fn(
+        async () => "https://storage.example.com/audio?signature=short-lived",
+      );
+      const service = createService({
+        filesServicePatch: { createPrivateAudioReadUrl },
+      });
+      const run = await createRun(service);
+      await saveRunPatch(service, run.runId, {
+        audioFileId: "file-audio",
+        status: "succeeded",
+        rawAudioDeletedAt: null,
+        rawAudioDeleteDeadlineAt: new Date("2026-07-30T00:00:00.000Z"),
+      });
+
+      const result = await service.getAudioPlaybackUrl(run.runId, actorUserId);
+
+      expect(result).toEqual({
+        playbackUrl: "https://storage.example.com/audio?signature=short-lived",
+        expiresAt: "2026-07-16T00:15:00.000Z",
+        retentionExpiresAt: "2026-07-30T00:00:00.000Z",
+      });
+      expect(createPrivateAudioReadUrl).toHaveBeenCalledWith(
+        "project-a",
+        "file-audio",
+        "rehearsal-audio",
+        900,
+        actorUserId,
+      );
+      const infoCalls = (service.testLogger.info as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(JSON.stringify(infoCalls)).not.toContain("signature=short-lived");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects expired rehearsal audio before issuing a signed URL", async () => {
+    const createPrivateAudioReadUrl = vi.fn();
+    const service = createService({
+      filesServicePatch: { createPrivateAudioReadUrl },
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      audioFileId: "file-audio",
+      status: "succeeded",
+      rawAudioDeletedAt: null,
+      rawAudioDeleteDeadlineAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+
+    await expect(
+      service.getAudioPlaybackUrl(run.runId, actorUserId),
+    ).rejects.toMatchObject({
+      status: 410,
+      response: { code: "REHEARSAL_AUDIO_EXPIRED" },
+    });
+    expect(createPrivateAudioReadUrl).not.toHaveBeenCalled();
+  });
+
   it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
     const enqueueSemanticEvaluationJob = vi.fn(async () => undefined);
     const jobsService = {
@@ -1109,6 +1176,7 @@ function createService(
   };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
+    createRehearsalAudioUploadUrl: vi.fn(async () => upload),
     completeUpload: vi.fn(async () => ({
       fileId: "file-audio",
       projectId: "project-a",
@@ -1126,6 +1194,9 @@ function createService(
       status: "uploaded"
     })),
     deleteUploadedAsset: vi.fn(async () => rawAudioDeletedAt),
+    createPrivateAudioReadUrl: vi.fn(
+      async () => "https://storage.example.com/audio?signature=short-lived",
+    ),
     ...options.filesServicePatch
   } as unknown as FilesService;
   const projectsService = {
@@ -1178,6 +1249,7 @@ function createService(
     },
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
+      createRehearsalAudioUploadUrl: ReturnType<typeof vi.fn>;
     },
     testLogger: logger,
     testTranscriptCache: transcriptCache

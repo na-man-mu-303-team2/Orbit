@@ -61,6 +61,9 @@ describe("App shell routing", () => {
     expect(getProjectRouteCapability({ name: "project-history", projectId: "project-1" })).toBe(
       null,
     );
+    expect(getProjectRouteCapability({ name: "story-plan-review", projectId: "project-1", jobId: "job-1" })).toBe(
+      "canUseAiMutations",
+    );
     expect(getProjectRouteCapability({ name: "rehearsal", projectId: "project-1" })).toBe(
       "canStartPersonalRehearsal",
     );
@@ -250,6 +253,14 @@ describe("App shell routing", () => {
     expect(getRoute("/project/project_demo_1/history")).toEqual({
       name: "project-history",
       projectId: "project_demo_1"
+    });
+  });
+
+  it("matches Story Review before the generic project route", () => {
+    expect(getRoute("/project/project_demo_1/story-plan/job-1")).toEqual({
+      name: "story-plan-review",
+      projectId: "project_demo_1",
+      jobId: "job-1",
     });
   });
 

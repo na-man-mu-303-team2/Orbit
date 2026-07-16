@@ -38,6 +38,10 @@ def generate_deck_diagnostics(
         researchAttempts=raw_input.research_attempts,
         relevantWebSourceCount=raw_input.relevant_web_source_count,
         officialWebSourceCount=raw_input.official_web_source_count,
+        independentWebSourceCount=raw_input.independent_web_source_count,
+        researchQuality=raw_input.research_quality,
+        researchIssueCodes=raw_input.research_issue_codes,
+        researchFactCoverageSatisfied=raw_input.research_fact_coverage_satisfied,
         repairAttempted=raw_input.repair_attempted,
         repairReasons=raw_input.repair_reason_codes,
         uniqueCoreLayoutCount=unique_core_layout_count,
@@ -52,7 +56,10 @@ def generation_warnings(
     validation: ValidationResult,
 ) -> list[str]:
     warnings: list[str] = []
-    if not raw_input.references:
+    if (
+        not raw_input.references
+        and raw_input.brief.reference_policy in {"topic-only", "user-input-only"}
+    ):
         warnings.append("참고자료 없이 topic-only generation으로 생성했습니다.")
     if raw_input.min_slide_count <= generated_slide_count < raw_input.max_slide_count:
         warnings.append(

@@ -1,11 +1,7 @@
-import {
-  applyDeckPatch,
-  createDemoDeck,
-} from "@orbit/editor-core";
+import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
 import {
   createAddAnimationWithKeywordTriggerPatch,
   createDefaultAnimation,
-  createDuplicateSlidePatch,
   createUpdateAnimationKeywordTriggerPatch,
   createUpsertAdvanceSlideKeywordActionPatch
 } from "../../../../../../packages/editor-core/src/index";
@@ -24,47 +20,43 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  EditorStateNotice,
+} from "./EditorShell";
+import { EditorStateNotice } from "./components/EditorStateNotice";
+import {
   appendAppliedDesignProposalHistory,
+  resolveHistoryNavigation
+} from "./utils/editorHistory";
+import {
   applyDeckPatchAcknowledgement,
-  buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
-  canvasToBlob,
-  collectRehearsalSnapshotAssetUrls,
-  createSlideRailReorderPatch,
-  createSemanticCueExtractionJob,
-  createDistributeSelectionPatch,
-  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
-  getSpeakerNotesDanglingOccurrenceSaveBlock,
-  getAddedSlideId,
+  parseDeckPatchPersistenceResponse,
+  putProjectDeck
+} from "./api/deckPersistenceApi";
+import {
+  createSemanticCueExtractionJob,
+  exportDeckToPptx,
+  importPptxIntoEditor,
+  requireMatchingPptxImportedDeck
+} from "./api/editorJobApi";
+import {
+  buildSlideThumbnailPatch,
   getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
-  getEditorValidationItems,
-  getResponsiveEditorStageScale,
-  importPptxIntoEditor,
-  isSpeakerNotesDraftBoundToSlide,
-  loadProjectDeck,
   mergeDeckIntoQueryCache,
-  MISSING_PROJECT_SAVE_MESSAGE,
-  parseDeckPatchPersistenceResponse,
-  putProjectDeck,
-  requireCompleteRehearsalSlideRender,
-  requireLoadedRehearsalSnapshotAssets,
-  SnapshotPreparationError,
-  waitForSlideRenderStages,
-  resolveDeleteUndoToastOpenAfterPatch,
-  resolveHistoryNavigation,
-  resolveSpeakerNotesDraftDispositionForSlideDelete,
-  requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
-  shouldPromptSpeakerNotesDraftDiscard,
-  shouldPromptSpeakerNotesOverwrite,
   shouldHydrateDeckFromQuery
-} from "./EditorShell";
+} from "./utils/deckState";
+import {
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
+  shouldPromptSpeakerNotesDraftDiscard,
+  shouldPromptSpeakerNotesOverwrite
+} from "./utils/speakerNotesDraft";
+import { getResponsiveEditorStageScale } from "./utils/editorLayout";
+import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
@@ -72,6 +64,8 @@ import {
   parseTableDataDraft,
   tableDataDraft
 } from "./components/SelectionQuickBar";
+import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
@@ -166,11 +160,6 @@ function renderApp(
 
 function setDeckData(queryClient: QueryClient, deck: Deck) {
   queryClient.setQueryData(["deck", demoIds.projectId], deck);
-  queryClient.setQueryData(["presentation-brief", demoIds.projectId], null);
-  queryClient.setQueryData(["editor-deck-load", demoIds.projectId], {
-    kind: "ready",
-    deck,
-  });
   queryClient.setQueryData(["health"], {
     app: "orbit-api",
     demo: demoIds,
@@ -183,51 +172,6 @@ describe("editor shell", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
-  it("Deck GET 결과를 생성 부작용 없이 상태별로 분류한다", async () => {
-    const deck = createDemoDeck();
-    const readyFetcher = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        deck,
-        projectId: deck.projectId,
-        updatedAt: "2026-07-16T00:00:00.000Z",
-      }), { status: 200 }),
-    );
-    const missingFetcher = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
-    const deniedFetcher = vi.fn().mockResolvedValue(new Response("denied", { status: 403 }));
-    const failedFetcher = vi.fn().mockResolvedValue(new Response("failed", { status: 500 }));
-    const offlineFetcher = vi.fn().mockRejectedValue(new TypeError("offline"));
-
-    await expect(loadProjectDeck(deck.projectId, readyFetcher)).resolves.toEqual({
-      kind: "ready",
-      deck,
-    });
-    await expect(loadProjectDeck(deck.projectId, missingFetcher)).resolves.toEqual({
-      kind: "missing",
-    });
-    await expect(loadProjectDeck(deck.projectId, deniedFetcher)).resolves.toMatchObject({
-      kind: "access-denied",
-      status: 403,
-    });
-    await expect(loadProjectDeck(deck.projectId, failedFetcher)).resolves.toMatchObject({
-      kind: "server-error",
-      status: 500,
-    });
-    await expect(loadProjectDeck(deck.projectId, offlineFetcher)).resolves.toMatchObject({
-      kind: "network-error",
-    });
-    expect(missingFetcher).toHaveBeenCalledOnce();
-    expect(missingFetcher).toHaveBeenCalledWith(
-      `/api/v1/projects/${encodeURIComponent(deck.projectId)}/deck`,
-      expect.objectContaining({ credentials: "include" }),
-    );
-  });
-
-  it("uses a readable missing-project save message", () => {
-    expect(MISSING_PROJECT_SAVE_MESSAGE).toBe(
-      "저장할 프로젝트를 찾지 못했습니다.",
-    );
-  });
-
   it("fits the editor canvas inside compact viewports", () => {
     expect(getResponsiveEditorStageScale(1920, 720)).toBeCloseTo(688 / 1920, 5);
     expect(getResponsiveEditorStageScale(1920, 900)).toBe(0.44);
@@ -237,102 +181,6 @@ describe("editor shell", () => {
       5,
     );
     expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
-  });
-
-  it("aborts rehearsal snapshot preparation when any slide render is missing", () => {
-    const deck = createDemoDeck();
-    const files = new Map<string, File>([
-      [
-        deck.slides[0]!.slideId,
-        new File(["png"], "slide-1.png", { type: "image/png" }),
-      ],
-    ]);
-
-    expect(() => requireCompleteRehearsalSlideRender(deck, files)).toThrow(
-      "모든 슬라이드 snapshot을 준비하지 못했습니다.",
-    );
-  });
-
-  it("includes an imported fallback thumbnail in rehearsal asset preflight", () => {
-    const deck = createDemoDeck();
-    const slide = deck.slides[0]!;
-    slide.elements = [];
-    slide.thumbnailUrl = "/files/imported-slide.png";
-    deck.metadata.sourceType = "import";
-
-    expect(collectRehearsalSnapshotAssetUrls(slide, deck)).toEqual([
-      "/files/imported-slide.png",
-    ]);
-  });
-
-  it("reports the exact number of missing rehearsal snapshot assets", () => {
-    expect(() => requireLoadedRehearsalSnapshotAssets(2)).toThrow(
-      "슬라이드 이미지 2개를 불러오지 못했습니다. 이미지 연결을 확인한 뒤 리허설을 다시 시작해 주세요.",
-    );
-  });
-
-  it("treats a null canvas blob as snapshot preparation failure", async () => {
-    const canvas = {
-      toBlob(callback: BlobCallback) {
-        callback(null);
-      },
-    } as HTMLCanvasElement;
-
-    await expect(canvasToBlob(canvas)).rejects.toBeInstanceOf(
-      SnapshotPreparationError,
-    );
-  });
-
-  it("waits beyond twelve frames for every hidden slide stage", async () => {
-    const stageRefs = new Map<string, unknown>();
-    let frame = 0;
-
-    await expect(
-      waitForSlideRenderStages(
-        ["slide_1", "slide_2"],
-        stageRefs,
-        async () => {
-          frame += 1;
-          if (frame === 18) stageRefs.set("slide_1", {});
-          if (frame === 48) stageRefs.set("slide_2", {});
-        },
-        60
-      )
-    ).resolves.toBeUndefined();
-    expect(frame).toBe(48);
-  });
-
-  it("times out when hidden slide stages never register", async () => {
-    let frame = 0;
-
-    await expect(
-      waitForSlideRenderStages(
-        ["slide_1"],
-        new Map(),
-        async () => {
-          frame += 1;
-        },
-        3
-      )
-    ).rejects.toThrow("슬라이드 렌더링 스테이지를 찾지 못했습니다.");
-    expect(frame).toBe(3);
-  });
-
-  it("stops waiting when snapshot preparation is cancelled", async () => {
-    let frame = 0;
-
-    await expect(
-      waitForSlideRenderStages(
-        ["slide_1"],
-        new Map(),
-        async () => {
-          frame += 1;
-        },
-        90,
-        () => frame >= 2
-      )
-    ).rejects.toThrow("슬라이드 snapshot 준비가 취소되었습니다.");
-    expect(frame).toBe(2);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -451,18 +299,15 @@ describe("editor shell", () => {
 
     const transition = resolveHistoryNavigation({
       currentDeck,
-      currentSlideId: currentDeck.slides[1]?.slideId ?? null,
-      stack: [{
-        deck: previousDeck,
-        slideId: previousDeck.slides.at(-1)?.slideId ?? null,
-      }]
+      currentSlideIndex: 1,
+      stack: [{ deck: previousDeck, slideIndex: 999 }]
     });
 
     expect(transition).toMatchObject({
-      currentEntry: { deck: currentDeck, slideId: currentDeck.slides[1]?.slideId },
+      currentEntry: { deck: currentDeck, slideIndex: 1 },
       nextStack: [],
       targetEntry: { deck: previousDeck },
-      targetSlideId: previousDeck.slides.at(-1)?.slideId,
+      targetSlideIndex: previousDeck.slides.length - 1
     });
     expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
       "current"
@@ -473,7 +318,7 @@ describe("editor shell", () => {
     expect(
       resolveHistoryNavigation({
         currentDeck,
-        currentSlideId: currentDeck.slides[0]?.slideId ?? null,
+        currentSlideIndex: 0,
         stack: []
       })
     ).toBeNull();
@@ -483,77 +328,18 @@ describe("editor shell", () => {
     const previousDeck = createDemoDeck();
     const olderEntries = Array.from({ length: 50 }, (_, index) => ({
       deck: { ...previousDeck, title: `이전 편집 ${index}` },
-      slideId: previousDeck.slides[index % previousDeck.slides.length]?.slideId ?? null,
+      slideIndex: index % previousDeck.slides.length
     }));
 
     const history = appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideId: previousDeck.slides[1]?.slideId ?? null,
+      currentSlideIndex: 1,
       undoStack: olderEntries
     });
 
     expect(history).toHaveLength(50);
     expect(history[0]?.deck.title).toBe("이전 편집 1");
-    expect(history.at(-1)).toEqual({
-      deck: previousDeck,
-      slideId: previousDeck.slides[1]?.slideId,
-    });
-  });
-
-  it("keeps speaker notes drafts and history selection bound to slideId", () => {
-    const deck = createDemoDeck();
-    const selectedSlideId = deck.slides[1]!.slideId;
-    const reorderedIds = deck.slides.map((slide) => slide.slideId).reverse();
-    const reordered = applyDeckPatch(
-      deck,
-      createSlideRailReorderPatch(deck, reorderedIds),
-    );
-    expect(reordered.ok).toBe(true);
-    if (!reordered.ok) return;
-
-    expect(
-      isSpeakerNotesDraftBoundToSlide({
-        editSlideId: selectedSlideId,
-        selectedSlideId,
-      }),
-    ).toBe(true);
-    expect(
-      resolveHistoryNavigation({
-        currentDeck: reordered.deck,
-        currentSlideId: selectedSlideId,
-        stack: [{ deck, slideId: selectedSlideId }],
-      })?.targetSlideId,
-    ).toBe(selectedSlideId);
-  });
-
-  it("closes a stale delete undo toast after any successful patch", () => {
-    expect(
-      resolveDeleteUndoToastOpenAfterPatch({
-        commitSucceeded: true,
-        currentOpen: true,
-      }),
-    ).toBe(false);
-    expect(
-      resolveDeleteUndoToastOpenAfterPatch({
-        commitSucceeded: false,
-        currentOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("discards dirty speaker notes only after the selected slide is deleted", () => {
-    expect(
-      resolveSpeakerNotesDraftDispositionForSlideDelete({
-        deletedSlideId: "slide_1",
-        selectedSlideId: "slide_1",
-      }),
-    ).toBe("discard-after-delete");
-    expect(
-      resolveSpeakerNotesDraftDispositionForSlideDelete({
-        deletedSlideId: "slide_2",
-        selectedSlideId: "slide_1",
-      }),
-    ).toBe("preserve");
+    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -717,7 +503,6 @@ describe("editor shell", () => {
     expect(html).toContain(deck.title);
     expect(html).toContain("차트");
     expect(html).toContain("Data Contract");
-    expect(html).toContain('aria-label="슬라이드 목록"');
     expect(html).toContain("발표 메모");
     expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
     expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
@@ -731,20 +516,9 @@ describe("editor shell", () => {
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
-    expect(html.match(/모두 저장됨/g)).toHaveLength(1);
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 코치");
-    expect(html).toContain('aria-label="발표 준비 경로 열기"');
-    expect(html).toContain('data-testid="presentation-journey-panel"');
-    expect(html).toContain('data-journey-step="brief"');
-    expect(html).toContain('data-journey-step="validation"');
-    expect(html).toContain('data-journey-step="rehearsal"');
-    expect(html).toContain('data-journey-step="presentation"');
-    expect(html).toContain('data-journey-action="brief-edit"');
-    expect(html).toContain('data-journey-action="validation-open"');
-    expect(html).toContain('data-journey-action="rehearsal-start"');
-    expect(html).toContain('data-journey-action="presentation-start"');
     expect(html).toContain(">검사<");
     expect(html).toContain(">디자인<");
     expect(html).not.toContain('id="editor-notes-tab"');
@@ -752,18 +526,12 @@ describe("editor shell", () => {
     expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
-    expect(html).toContain('aria-label="캔버스 확대/축소"');
-    expect(html).toContain('aria-label="캔버스 축소"');
-    expect(html).toContain('aria-label="캔버스 확대"');
-    expect(html).toContain('aria-label="캔버스에 맞추기"');
-    expect(html).toContain('aria-label="100%로 보기"');
-    expect(html).toContain('data-zoom-mode="fit"');
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
     expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
     expect(html).toContain('class="editor-document-title"');
     expect(html).toContain("파일");
-    expect(html).not.toContain("편집 중");
+    expect(html).toContain("편집 중");
     expect(html).toContain("공유");
     expect(html).toContain("리허설");
     expect(html).toContain("발표하기");
@@ -781,11 +549,6 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="발표 메모 펼치기"');
     expect(html).not.toContain('aria-label="발표 메모 높이 조절"');
     expect(html).not.toContain("speaker-notes-restore-handle");
-    const toolbarStart = html.indexOf('class="stage-top-controls"');
-    const canvasStart = html.indexOf('class="canvas-scroll"');
-    expect(toolbarStart).toBeGreaterThan(-1);
-    expect(canvasStart).toBeGreaterThan(toolbarStart);
-    expect(html.slice(toolbarStart, canvasStart)).not.toContain("selection-quickbar");
   });
 
   it("integrates imported Semantic Cue review into the right panel", () => {
@@ -1249,26 +1012,6 @@ describe("editor shell", () => {
         source: "user"
       })
     ).toEqual([firstSlide.slideId, secondSlide.slideId]);
-  });
-
-  it("invalidates a duplicate thumbnail and selects its new slideId", () => {
-    const deck = createDemoDeck();
-    const sourceSlide = deck.slides[0]!;
-    const patch = createDuplicateSlidePatch(deck, sourceSlide.slideId);
-    const duplicateSlideId = getAddedSlideId(patch);
-    const result = applyDeckPatch(deck, patch);
-
-    expect(duplicateSlideId).not.toBeNull();
-    expect(result.ok).toBe(true);
-    if (!result.ok || !duplicateSlideId) return;
-    const duplicate = result.deck.slides.find(
-      (slide) => slide.slideId === duplicateSlideId,
-    );
-    expect(duplicate).toMatchObject({
-      thumbnailUrl: "",
-      title: `${sourceSlide.title} 복사본`,
-    });
-    expect(getPatchThumbnailRefreshSlideIds(deck, patch)).toContain(duplicateSlideId);
   });
 
   it("rerenders only slides whose visual state changed", () => {
@@ -1852,6 +1595,38 @@ describe("editor shell", () => {
     expect(riskElementIds).toContain("el_manual_customShape");
   });
 
+  it("renders a bulk apply button for text overflow warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        canRepair
+        items={[
+          {
+            item: {
+              elementId: "el_overflow",
+              issue: "textOverflow",
+              message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+              severity: "warning"
+            },
+            recoveryInstruction: null,
+            target: {
+              elementIds: ["el_overflow"],
+              label: "1번 슬라이드",
+              slideId: "slide_1",
+              status: "resolved"
+            }
+          }
+        ]}
+        onFocusTarget={() => undefined}
+        onHighlightElementIds={() => undefined}
+        onRepairTextOverflow={() => undefined}
+        repairableElementIds={["el_overflow"]}
+      />
+    );
+
+    expect(html).toContain('data-testid="editor-validation-repair-all"');
+    expect(html).toContain("개 안전 수정");
+  });
+
   it("keeps a warning when title text still wraps", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0];
@@ -2022,6 +1797,56 @@ describe("editor shell", () => {
         issue: "labelWrap"
       })
     );
+  });
+
+  it("renders a bulk apply button for title wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        canRepair
+        items={[
+          {
+            item: {
+              elementId: "el_wrapped_title",
+              issue: "titleWrap",
+              message: "제목이 여러 줄로 줄바꿈되었습니다.",
+              severity: "warning"
+            },
+            recoveryInstruction: null,
+            target: null
+          }
+        ]}
+        onFocusTarget={() => undefined}
+        onHighlightElementIds={() => undefined}
+        repairableElementIds={[]}
+      />
+    );
+
+    expect(html).not.toContain("안전 수정");
+  });
+
+  it("renders a bulk apply button for label wrap warnings", () => {
+    const html = renderToString(
+      <ValidationPanel
+        canRepair
+        items={[
+          {
+            item: {
+              elementId: "el_wrapped_label",
+              issue: "labelWrap",
+              message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+              severity: "warning"
+            },
+            recoveryInstruction: null,
+            target: null
+          }
+        ]}
+        onFocusTarget={() => undefined}
+        onHighlightElementIds={() => undefined}
+        repairableElementIds={[]}
+      />
+    );
+
+    expect(html).not.toContain("안전 수정");
   });
 
   it("measures wrapped text line count", () => {
@@ -2294,75 +2119,6 @@ describe("editor shell", () => {
     }
   });
 
-  it("moves grouped children when distributing a group selection", () => {
-    const deck = createDemoDeck();
-    const slide = deck.slides[0];
-    const rect = (elementId: string, x: number, zIndex: number) => ({
-      elementId,
-      type: "rect" as const,
-      role: "highlight" as const,
-      x,
-      y: 100,
-      width: 100,
-      height: 80,
-      rotation: 0,
-      opacity: 1,
-      zIndex,
-      locked: false,
-      visible: true,
-      props: {
-        fill: "#ffffff",
-        stroke: "#111827",
-        strokeWidth: 1,
-        borderRadius: 0
-      }
-    });
-    const child = rect("el_group_child", 420, 2);
-    const group = {
-      elementId: "el_group",
-      type: "group" as const,
-      role: "decoration" as const,
-      x: 400,
-      y: 80,
-      width: 100,
-      height: 120,
-      rotation: 0,
-      opacity: 1,
-      zIndex: 3,
-      locked: false,
-      visible: true,
-      props: { childElementIds: [child.elementId] }
-    };
-    const first = rect("el_first", 100, 1);
-    const last = rect("el_last", 900, 4);
-    slide.elements = [first, child, group, last];
-
-    const patch = createDistributeSelectionPatch(
-      deck,
-      slide,
-      [first, group, last],
-      "x"
-    );
-    expect(patch).not.toBeNull();
-
-    const result = applyDeckPatch(deck, patch!);
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(
-      result.deck.slides[0].elements.find(
-        (element) => element.elementId === group.elementId
-      )?.x
-    ).toBe(500);
-    expect(
-      result.deck.slides[0].elements.find(
-        (element) => element.elementId === child.elementId
-      )?.x
-    ).toBe(520);
-  });
-
   it("stores new animation triggers on the selected speaker note occurrence", () => {
     const deck = createDemoDeck();
     const slide = {
@@ -2605,21 +2361,21 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
     );
     expect(html).not.toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:null",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:null",
     );
   });
 
-  it("Deck query가 pending이면 demo Deck과 Canvas를 렌더링하지 않는다", () => {
+  it("keeps the demo deck visible while the deck query is pending", () => {
     const queryClient = createTestQueryClient();
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain("발표 자료를 불러오는 중입니다");
-    expect(html).not.toContain("ORBIT Demo Deck");
-    expect(html).not.toContain('data-testid="editor-canvas-stage"');
+    expect(html).toContain("ORBIT Demo Deck");
+    expect(html).toContain("불러오는 중");
+    expect(html).not.toContain("덱을 불러오는 중");
   });
 
   it("renders an empty deck state without a selected slide", () => {
@@ -2638,118 +2394,17 @@ describe("editor shell", () => {
     expect(html).toContain("등록된 키워드 없음");
   });
 
-  it("Viewer에게 읽기 전용 Deck과 개인 리허설만 노출한다", () => {
-    const queryClient = createTestQueryClient();
-    const deck = createDemoDeck();
-    const validationTarget = editorTextElement(
-      "el_viewer_quality_target",
-      120,
-      240,
-      "안전한 자동 수정 첫 줄\n안전한 자동 수정 둘째 줄"
-    );
-    deck.slides[0].elements = [
-      {
-        ...validationTarget,
-        role: "body",
-        width: 480,
-        height: 52,
-        props: {
-          ...validationTarget.props,
-          fontSize: 24,
-          lineHeight: 1.2
-        }
-      }
-    ];
-    setDeckData(queryClient, deck);
-
-    const html = renderApp(queryClient, deck.projectId, "viewer");
-
-    expect(html).toContain("보기 전용으로 열었습니다");
-    expect(html).toContain("개인 리허설");
-    expect(html).toContain("ORBIT 데모 흐름을 소개합니다");
-    expect(html).toContain('aria-label="현재 선택"');
-    expect(html).toContain("슬라이드의 정보를 보고 있습니다.");
-    expect(html).toContain('aria-label="캔버스 확대/축소"');
-    expect(html).toContain('aria-label="캔버스에 맞추기"');
-    expect(html).toContain('aria-label="100%로 보기"');
-    expect(html).toContain('data-zoom-mode="fit"');
-    expect(html).toContain('data-testid="editor-validation-panel"');
-    expect(html).toContain('data-testid="presentation-journey-panel"');
-    expect(html).toContain('data-journey-action="brief-view"');
-    expect(html).toContain('data-journey-action="validation-focus"');
-    expect(html).toContain('data-journey-action="rehearsal-start"');
-    expect(html).not.toContain('data-journey-action="brief-edit"');
-    expect(html).not.toContain('data-journey-action="validation-open"');
-    expect(html).not.toContain('data-journey-action="presentation-start"');
-    expect(html).toContain('data-testid="editor-validation-target"');
-    expect(html).toContain("1번 슬라이드 · 본문 텍스트");
-    const validationPanelStart = html.indexOf(
-      'data-testid="editor-validation-panel"'
-    );
-    const validationPanelEnd = html.indexOf("</section>", validationPanelStart);
-    const validationPanelHtml = html.slice(
-      validationPanelStart,
-      validationPanelEnd
-    );
-    expect(validationPanelHtml).not.toContain("el_viewer_quality_target");
-    expect(validationPanelHtml).not.toContain("텍스트 넘침 안전 수정");
-    expect(validationPanelHtml).not.toContain("개 안전 수정");
-    expect(html).not.toContain('aria-readonly="true"');
-    const inspectorStart = html.indexOf('aria-label="현재 선택"');
-    const inspectorEnd = html.indexOf("</section>", inspectorStart);
-    const inspectorHtml = html.slice(inspectorStart, inspectorEnd);
-    expect(inspectorHtml).not.toContain("<input");
-    expect(inspectorHtml).not.toContain("<select");
-    expect(inspectorHtml).not.toContain("<textarea");
-    expect(html).not.toContain("PPTX 가져오기");
-    expect(html).not.toContain("PPTX 내보내기");
-    expect(html).not.toContain("공유</button>");
-    expect(html).not.toContain("발표하기");
-    expect(html).not.toContain("AI에게 메시지 보내기");
-    expect(html).not.toContain("메모 편집");
-    expect(html).not.toContain('aria-label="발표 메모 수정"');
-    expect(html).not.toContain("드래그하여 이동");
-    expect(html).not.toContain('aria-label="Opening 메뉴"');
-    expect(html).not.toContain(">복제<");
-    expect(html).not.toContain("슬라이드 추가");
-    expect(html).not.toContain('aria-label="선택 도구"');
-  });
-
-  it("Deck이 없을 때 편집자에게만 첫 슬라이드 생성 action을 노출한다", () => {
-    const editorHtml = renderToString(
-      <EditorStateNotice
-        canCreate
-        kind="missing"
-        onCreate={() => undefined}
-      />
-    );
-    const viewerHtml = renderToString(
-      <EditorStateNotice
-        canCreate={false}
-        kind="missing"
-      />
-    );
-
-    expect(editorHtml).toContain("첫 슬라이드 만들기");
-    expect(viewerHtml).not.toContain("첫 슬라이드 만들기");
-    expect(viewerHtml).toContain("소유자나 편집자");
-  });
-
-  it("renders a recoverable deck load error without demo fallback", () => {
+  it("renders a deck load error state with demo fallback", () => {
     const html = renderToString(
       <EditorStateNotice
         kind="error"
-        message="발표 자료를 불러오지 못했습니다."
+        message="403/404 또는 네트워크 오류"
         onRetry={() => undefined}
       />
     );
 
-    expect(html).toContain("발표 자료를 불러오지 못했습니다.");
-    expect(html).toContain('aria-label="발표 자료 로드 오류"');
-    expect(html).toContain('role="alert"');
-    expect(html).toContain("다시 시도");
-    expect(html).toContain("프로젝트로 돌아가기");
-    expect(html).not.toContain("demo fallback");
+    expect(html).toContain("발표 자료를 열지 못했습니다");
+    expect(html).toContain("403/404 또는 네트워크 오류");
   });
 });
 

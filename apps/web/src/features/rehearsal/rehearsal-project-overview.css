@@ -266,7 +266,7 @@
 
 /* Project report content sections share the same readable canvas as the hero. */
 body .rehearsal-report-page .report-overview-panel {
-  align-items: stretch;
+  align-items: center;
   gap: 24px;
   padding: 44px clamp(20px, 4vw, 56px) 72px;
 }

@@ -12,7 +12,10 @@ import {
   deckCompositionIdSchema
 } from "./composition.schema";
 import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
-import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
+import {
+  savedDesignPackSelectionSchema,
+  savedDesignPackSnapshotSchema
+} from "./saved-design-pack.schema";
 import { themeColorSchema } from "./theme.schema";
 
 export const generateDeckTemplateSchema = z.enum([
@@ -231,6 +234,21 @@ export const generateDeckRequestSchema = z.object({
     .default(null)
 }).strict();
 
+export const generateDeckStoredJobPayloadSchema = z
+  .object({
+    request: generateDeckRequestSchema,
+    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
+    imageAssetScope: z
+      .object({
+        userId: z.string().trim().min(1)
+      })
+      .strict()
+      .optional(),
+    requestedByUserId: z.string().trim().min(1).optional(),
+    storyReviewRequired: z.boolean().default(false)
+  })
+  .strict();
+
 export const deckColorOptionRequestSchema = z.object({
   topic: z.string().trim().min(1),
   colorMood: z.string().trim().default(""),
@@ -335,6 +353,23 @@ export const generateDeckWarningCodeSchema = z
   .string()
   .regex(/^[A-Z][A-Z0-9_]*$/);
 
+export const generateDeckResearchQualitySchema = z.enum([
+  "not-run",
+  "complete",
+  "partial",
+  "unavailable"
+]);
+
+export const generateDeckResearchIssueCodeSchema = z.enum([
+  "provider-unavailable",
+  "provider-call-failed",
+  "no-citations",
+  "vetting-failed",
+  "official-missing",
+  "independent-missing",
+  "fact-coverage"
+]);
+
 export const generateDeckDiagnosticsSchema = z
   .object({
     referencePolicy: generateDeckReferencePolicySchema.default("topic-only"),
@@ -343,18 +378,26 @@ export const generateDeckDiagnosticsSchema = z
     researchAttempts: z.number().int().nonnegative().default(0),
     relevantWebSourceCount: z.number().int().nonnegative().default(0),
     officialWebSourceCount: z.number().int().nonnegative().default(0),
+    independentWebSourceCount: z.number().int().nonnegative().default(0),
+    researchQuality: generateDeckResearchQualitySchema.default("not-run"),
+    researchIssueCodes: z
+      .array(generateDeckResearchIssueCodeSchema)
+      .default([]),
+    researchFactCoverageSatisfied: z.boolean().default(false),
     repairAttempted: z.boolean().default(false),
     repairReasons: z.array(generateDeckRepairReasonSchema).default([]),
     uniqueCoreLayoutCount: z.number().int().nonnegative().default(0),
     validationIssueCount: z.number().int().nonnegative().default(0),
     warningCodes: z.array(generateDeckWarningCodeSchema).default([]),
     visualQaStatus: z
-      .enum(["not-run", "passed", "failed", "unavailable"])
+      .enum(["not-run", "passed", "advisory", "failed", "unavailable"])
       .optional(),
     visualReviewAttempts: z.number().int().nonnegative().optional(),
     visualRepairAttempts: z.number().int().nonnegative().optional(),
-    visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional()
+    visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional(),
+    visualIssueSlideOrders: z.array(z.number().int().positive()).optional()
   })
+  .strict()
   .default({});
 
 export const generateDeckResponseSchema = z.object({
@@ -426,6 +469,9 @@ export type GenerateDeckSlideCountRange = z.infer<
   typeof generateDeckSlideCountRangeSchema
 >;
 export type GenerateDeckRequest = z.infer<typeof generateDeckRequestSchema>;
+export type GenerateDeckStoredJobPayload = z.infer<
+  typeof generateDeckStoredJobPayloadSchema
+>;
 export type DeckColorOptionRequest = z.infer<typeof deckColorOptionRequestSchema>;
 export type DeckColorOption = z.infer<typeof deckColorOptionSchema>;
 export type DeckColorOptionsResponse = z.infer<
@@ -442,6 +488,12 @@ export type GenerateDeckDiagnostics = z.infer<
 >;
 export type GenerateDeckWarningCode = z.infer<
   typeof generateDeckWarningCodeSchema
+>;
+export type GenerateDeckResearchQuality = z.infer<
+  typeof generateDeckResearchQualitySchema
+>;
+export type GenerateDeckResearchIssueCode = z.infer<
+  typeof generateDeckResearchIssueCodeSchema
 >;
 export type GenerateDeckVisualIssueCode = z.infer<
   typeof generateDeckVisualIssueCodeSchema

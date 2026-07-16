@@ -30,6 +30,12 @@ export class RehearsalRunEntity {
   @Column({ name: "audio_file_id", nullable: true, type: "text" })
   audioFileId!: string | null;
 
+  @Column({ name: "transcript_json_file_id", nullable: true, type: "text" })
+  transcriptJsonFileId!: string | null;
+
+  @Column({ name: "transcript_text_file_id", nullable: true, type: "text" })
+  transcriptTextFileId!: string | null;
+
   @Column({ name: "job_id", nullable: true, type: "text" })
   jobId!: string | null;
 
@@ -65,6 +71,13 @@ export class RehearsalRunEntity {
 
   @Column({ name: "raw_audio_deleted_at", nullable: true, type: "timestamptz" })
   rawAudioDeletedAt!: Date | null;
+
+  @Column({
+    name: "raw_audio_delete_deadline_at",
+    nullable: true,
+    type: "timestamptz",
+  })
+  rawAudioDeleteDeadlineAt!: Date | null;
 
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

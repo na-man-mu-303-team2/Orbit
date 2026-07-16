@@ -1,6 +1,7 @@
 import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
+  ownerOnlyFilePurposes,
   privateAudioPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
@@ -39,6 +40,7 @@ export function rehearsalSlideSnapshotContentPath(
 }
 
 const uploadUrlExpiresInSeconds = 15 * 60;
+const maximumPrivateAudioReadUrlExpiresInSeconds = 15 * 60;
 const publicAssetContentPurposes = new Set<FilePurpose>([
   "thumbnail",
   "pptx-import",
@@ -52,7 +54,7 @@ const creatorOwnedRehearsalPurposes = new Set<FilePurpose>([
   "rehearsal-slide-snapshot",
 ]);
 const privateAssetPurposes = new Set<string>([
-  ...privateAudioPurposes,
+  ...ownerOnlyFilePurposes,
   ...creatorOwnedRehearsalPurposes,
 ]);
 
@@ -79,14 +81,13 @@ export class FilesService {
     input: AssetUploadUrlRequest,
     actorUserId: string,
     requestOrigin?: string | null,
+    storageKeyOverride?: string,
   ): Promise<AssetUploadUrlResponse> {
     const project = await this.projectsService.getAccessibleProject(projectId);
     const fileId = `file_${randomUUID()}`;
-    const storageKey = this.createStorageKey(
-      project.projectId,
-      fileId,
-      input.originalName,
-    );
+    const storageKey =
+      storageKeyOverride ??
+      this.createStorageKey(project.projectId, fileId, input.originalName);
     const uploadUrl = await this.createUploadTarget({
       projectId: project.projectId,
       fileId,
@@ -124,6 +125,24 @@ export class FilesService {
       expiresAt: uploadUrl.expiresAt,
       purpose: input.purpose,
     });
+  }
+
+  async createRehearsalAudioUploadUrl(
+    projectId: string,
+    input: AssetUploadUrlRequest,
+    actorUserId: string,
+    rehearsal: { runId: string; createdAt: Date },
+  ): Promise<AssetUploadUrlResponse> {
+    const extension = rehearsalAudioExtension(input.mimeType);
+    const date = formatAsiaSeoulDate(rehearsal.createdAt);
+    const storageKey = `rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    return this.createUploadUrl(
+      projectId,
+      input,
+      actorUserId,
+      undefined,
+      storageKey,
+    );
   }
 
   // local MinIO 모드에서 브라우저가 보낸 binary를 실제 storage object로 저장한다.
@@ -196,7 +215,9 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+      (!expectedPurpose &&
+        ownerOnlyFilePurposes.has(asset.purpose) &&
+        asset.purpose !== "rehearsal-slide-snapshot")
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -266,6 +287,33 @@ export class FilesService {
     }
 
     return asset;
+  }
+
+  async createPrivateAudioReadUrl(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+    expiresInSeconds: number,
+    actorUserId: string,
+  ): Promise<string> {
+    if (!privateAudioPurposes.has(purpose)) {
+      throw new BadRequestException("Private audio purpose is required.");
+    }
+    if (
+      !Number.isInteger(expiresInSeconds) ||
+      expiresInSeconds < 1 ||
+      expiresInSeconds > maximumPrivateAudioReadUrlExpiresInSeconds
+    ) {
+      throw new BadRequestException("Private audio read URL expiry is invalid.");
+    }
+
+    const asset = await this.getUploadedAsset(
+      projectId,
+      fileId,
+      purpose,
+      actorUserId,
+    );
+    return this.storage.getSignedReadUrl(asset.storageKey, expiresInSeconds);
   }
 
   private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
@@ -392,7 +440,6 @@ export class FilesService {
   private async readAssetContent(
     asset: ProjectAssetEntity,
   ): Promise<{ body: Buffer; contentType: string }> {
-
     const readUrl = this.uploadProxyOrigin
       ? this.createInternalObjectUrl(asset.storageKey)
       : await this.storage.getSignedReadUrl(asset.storageKey);
@@ -515,4 +562,34 @@ export class FilesService {
       createdAt: asset.createdAt.toISOString(),
     });
   }
+}
+
+function formatAsiaSeoulDate(value: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const readPart = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value;
+  return `${readPart("year")}-${readPart("month")}-${readPart("day")}`;
+}
+
+function rehearsalAudioExtension(mimeType: string): string {
+  const extensions: Record<string, string> = {
+    "audio/webm": "webm",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mp4": "m4a",
+    "video/mp4": "m4a",
+    "audio/ogg": "ogg",
+    "audio/mp3": "mp3",
+    "audio/mpeg": "mp3",
+    "audio/mpga": "mp3",
+    "audio/flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+  };
+  return extensions[mimeType] ?? "webm";
 }

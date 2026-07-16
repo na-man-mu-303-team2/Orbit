@@ -162,6 +162,20 @@ describe("AI Deck staged BullMQ transport", () => {
     );
   });
 
+  it("does not open or enqueue an AI BullMQ job in PostgreSQL mode", async () => {
+    await enqueueGenerateDeckJob({
+      driver: "bullmq",
+      executionMode: "pg",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-ai-deck-pg-1",
+      projectId: "project-a",
+      request: generateDeckRequestSchema.parse({ topic: "PostgreSQL" }),
+    });
+
+    expect(queueMock.Queue).not.toHaveBeenCalled();
+    expect(queueMock.add).not.toHaveBeenCalled();
+  });
+
   it("removes a failed coordinator entry before explicit retry", async () => {
     const remove = vi.fn(async () => undefined);
     queueMock.getJob.mockResolvedValueOnce({

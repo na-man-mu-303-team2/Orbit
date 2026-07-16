@@ -10,8 +10,9 @@ import { usePopupMenuKeyboard } from "./usePopupMenuKeyboard";
 
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
+  canCreatePresentationSession: boolean;
   canOpenAudienceLink: boolean;
-  canStartPresentation: boolean;
+  canStartPersonalRehearsal: boolean;
   isOpen: boolean;
   onOpenAudienceLink: () => void;
   onStartPresentation: () => void;
@@ -22,8 +23,9 @@ type PresentationMenuProps = {
 export function PresentationMenu(props: PresentationMenuProps) {
   const {
     activeStartAction = null,
+    canCreatePresentationSession,
     canOpenAudienceLink,
-    canStartPresentation,
+    canStartPersonalRehearsal,
     isOpen,
     onOpenAudienceLink,
     onStartPresentation,
@@ -43,18 +45,18 @@ export function PresentationMenu(props: PresentationMenuProps) {
         aria-busy={activeStartAction === "rehearsal"}
         aria-live="polite"
         className="editor-rehearsal-button"
-        disabled={!canStartPresentation}
+        disabled={!canStartPersonalRehearsal || activeStartAction !== null}
         type="button"
         onClick={onStartRehearsal}
       >
         <IconMicrophone aria-hidden="true" size={16} />
         {activeStartAction === "rehearsal" ? "준비 중" : "리허설"}
       </button>
-      <div className="top-action-menu">
+      {canCreatePresentationSession ? <div className="top-action-menu">
         <div className={`editor-presentation-split ${isOpen ? "active" : ""}`}>
           <button
             className="editor-present-button"
-            disabled={!canStartPresentation}
+            disabled={!canOpenAudienceLink || activeStartAction !== null}
             type="button"
             onClick={onStartPresentation}
           >
@@ -99,7 +101,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
             </div>
           </div>
         ) : null}
-      </div>
+      </div> : null}
     </>
   );
 }

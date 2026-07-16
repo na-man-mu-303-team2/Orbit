@@ -63,3 +63,30 @@ LOG_PRETTY=false | true
 - presigned URL처럼 접근 권한을 담은 URL
 
 필요하면 `fileId`, `audioFileId`, `jobId`, `projectId`, `runId`, `fileCount`, `mimeType`처럼 추적 가능한 메타데이터만 남긴다.
+
+## AI PPT stage 진단 로그
+
+AI PPT stage는 transport와 관계없이 `ai-ppt.stage.started`, `ai-ppt.stage.succeeded`,
+`ai-ppt.stage.attempt-failed`, `ai-ppt.stage.failed` 이벤트를 사용한다. 재시도 예정
+실패는 `warn`, checkpoint와 parent Job에 반영된 최종 실패는 `error`로 기록한다.
+이미지 provider 실패가 placeholder fallback으로 흡수되면
+`ai-ppt.image-asset.fallback`을 `warn`으로 기록한다.
+
+각 이벤트는 `pipelineJobId`, `projectId`, `stage`, `shardKey`, `workerId`,
+`attempt`, `maxAttempts`, `durationMs`를 공통으로 사용한다. 실패 진단의 `error`에는
+allowlist `code`, `reasonCode`, `name`, HTTP status, provider, provider request ID,
+retry-after, 저장소 내부 첫 stack frame, message fingerprint와 안전한 issue code만 허용한다.
+prompt, 사용자 입력, provider response body, 전체 message/stack, Deck JSON, 이미지
+base64, signed URL은 AI PPT stage 로그에도 남기지 않는다.
+
+PostgreSQL transport의 bootstrap·runner 경계는 `ai_deck.postgres_initialized`,
+`ai_deck.postgres_initialization_failed`, `ai-ppt.stage.retry-scheduled`,
+`ai-ppt.stage.runner-failed`를 사용한다. 로그에는 checkpoint identity와 안전하게
+직렬화한 오류만 기록하고 부모 Job payload, source, OCR, content, provider 응답은 기록하지 않는다.
+
+Story Review 변경 경계는 `ai_ppt.story_review.approved`,
+`ai_ppt.story_review.regeneration_requested`,
+`ai_ppt.story_review.cancelled`를 `info`로 기록한다. 공통 필드는 `jobId`와
+`projectId`만 사용하고 regeneration instruction, outline, slide content, speaker notes,
+source metadata, OCR와 provider 응답은 기록하지 않는다. 재제안 실패는 기존
+`ai-ppt.stage.attempt-failed` 또는 `ai-ppt.stage.failed`의 안전한 진단 계약을 재사용한다.

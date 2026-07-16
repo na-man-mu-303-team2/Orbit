@@ -50,8 +50,20 @@ class SourceGroundingStageInput(StageModel):
     request: GenerateDeckRequest
 
 
+class RegenerationContext(StageModel):
+    instruction: str = Field(default="", max_length=240)
+    previous_slide_titles: list[str] = Field(
+        default_factory=list,
+        alias="previousSlideTitles",
+    )
+
+
 class ContentPlanningStageInput(StageModel):
     grounding_result: SourceGroundingResult = Field(alias="groundingResult")
+    regeneration_context: RegenerationContext | None = Field(
+        default=None,
+        alias="regenerationContext",
+    )
 
 
 class ContentPlanningStageResult(StageModel):
@@ -106,6 +118,15 @@ def run_content_planning_stage(
     api_key: str | None = None,
 ) -> ContentPlanningStageResult:
     raw_input = stage_input.grounding_result.raw_input.model_copy(deep=True)
+    if stage_input.regeneration_context is not None:
+        raw_input = raw_input.model_copy(
+            update={
+                "regeneration_instruction": stage_input.regeneration_context.instruction,
+                "previous_slide_titles": list(
+                    stage_input.regeneration_context.previous_slide_titles
+                ),
+            }
+        )
     content_plan = plan_content(
         raw_input,
         resolve_style_prompt_context(raw_input),

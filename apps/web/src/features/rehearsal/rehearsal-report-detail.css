@@ -4,8 +4,31 @@
 .rrd-root .rrd-hero-title { font-size: clamp(34px,3.5vw,48px); letter-spacing: -.05em; line-height: 1; margin: 8px 0 0; }
 .rrd-root .rrd-hero-date { color: var(--orbit-ds-text-muted); display: block; font-size: var(--orbit-ds-type-ui-small); margin-top: 10px; }
 .rrd-root .rrd-hero-action { align-items: center; background: white; border: 1px solid rgba(9,9,9,.14); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: flex; font-weight: 700; gap: 7px; min-height: 42px; padding: 0 16px; }
+.rrd-analysis-tabs { align-items: center; border-bottom: 1px solid var(--orbit-ds-border); display: flex; gap: 28px; padding: 0 4px; }
+.rrd-analysis-tabs button { background: transparent; border: 0; color: var(--orbit-ds-text-muted); cursor: pointer; font: inherit; font-size: 16px; font-weight: 750; margin-bottom: -1px; padding: 14px 2px 13px; position: relative; }
+.rrd-analysis-tabs button::after { background: var(--orbit-ds-ink); border-radius: 999px; bottom: 0; content: ""; height: 3px; left: 0; opacity: 0; position: absolute; transform: scaleX(.5); transition: opacity 160ms ease, transform 160ms ease; width: 100%; }
+.rrd-analysis-tabs button:hover { color: var(--orbit-ds-ink); }
+.rrd-analysis-tabs button:focus-visible { border-radius: 4px; outline: 2px solid var(--orbit-ds-lilac-strong); outline-offset: 3px; }
+.rrd-analysis-tabs button.is-active { color: var(--orbit-ds-ink); }
+.rrd-analysis-tabs button.is-active::after { opacity: 1; transform: scaleX(1); }
+.rrd-report-panel { display: grid; gap: 18px; }
+.rrd-report-panel[hidden] { display: none; }
 .rrd-root .rrd-card { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 14px; box-shadow: none; margin: 0; padding: 22px; }
 .rrd-root .rrd-ai-card { background: var(--orbit-ds-lilac-soft); border-color: #ded3ff; }
+.rrd-top-overview { align-items: stretch; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rrd-top-overview > .rrd-card,
+.rrd-top-overview > .practice-report-summary { box-sizing: border-box; height: 100%; margin: 0; min-width: 0; }
+.rrd-top-overview > .practice-report-summary { background: white; padding: 22px; }
+.rrd-top-overview > .practice-report-summary > header { align-items: flex-start; gap: 16px; }
+.rrd-top-overview > .practice-report-summary h2 { font-size: 20px; }
+.rrd-top-overview > .practice-report-summary ol { margin-top: 18px; }
+.rrd-top-overview > .practice-report-summary li { gap: 12px; grid-template-columns: 28px minmax(0, 1fr) max-content; padding: 16px 0; }
+.rrd-top-overview > .practice-report-summary .practice-goal-result { align-items: flex-end; flex: 0 0 auto; grid-column: 3; justify-self: end; min-width: max-content; }
+.rrd-top-overview > .practice-report-summary .orbit-ds-status { white-space: nowrap; }
+.rrd-top-overview > .practice-report-summary .practice-pass-marks { flex-wrap: nowrap; }
+.rrd-top-overview > .practice-report-summary .practice-pass-marks > span { flex: 0 0 34px; }
+.rrd-top-overview .rrd-ai-insights { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rrd-top-overview .rrd-ai-insight { gap: 10px; padding: 14px; }
 .rrd-root .rrd-card-head { align-items: center; border-bottom: 1px solid var(--orbit-ds-border); display: flex; gap: 9px; margin-bottom: 18px; padding-bottom: 14px; }
 .rrd-root .rrd-card-head h2 { font-size: 20px; margin: 0; }
 .rrd-root .rrd-summary-block, .rrd-root .rrd-overview-metric, .rrd-root .rrd-utterance-group, .rrd-root .rrd-coaching-focus { border-radius: 10px; }
@@ -127,4 +150,8 @@ body .rehearsal-report-page .rehearsal-report-nav-empty {
     border-right: 0;
     padding: 18px;
   }
+}
+
+@media (max-width: 980px) {
+  .rrd-top-overview { grid-template-columns: 1fr; }
 }

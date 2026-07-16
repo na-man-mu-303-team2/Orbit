@@ -17,15 +17,25 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 필수 값이 없거나 빈 문자열이면 startup이 실패해야 하며 오류 메시지에는 누락된 env key가 포함되어야 한다.
 `APP_ENV=staging` 또는 `APP_ENV=production`에서는 localhost, 로컬 DB/Redis, 로컬 secret placeholder를 그대로 사용하지 않는다.
 
+모든 PR과 `develop` push에서는 `Environment Contract CI`가 세 환경 예시 파일의 key 집합, 필수 key, 중복 선언, 선언 형식, 허용되지 않은 빈 값을 검사한다. 선택 기능 또는 secret store에서 주입하는 값처럼 비어 있을 수 있는 key는 `infra/scripts/check-env.mjs`의 환경별 allowlist에 명시한다. 실제 개인 서버 값은 PR CI에 노출하지 않고, 배포 직전에 Doppler 환경에서 `infra/scripts/check-personal-staging-env.sh`로 존재 여부만 확인한다. Doppler `orbit / stg` 변경은 GitHub workflow dispatch를 통해 개인 서버의 앱 컨테이너에 자동 재적용하며, 필수값 누락·공백 또는 Compose 검증 실패 시 실행 중인 컨테이너를 교체하지 않는다.
+
+개인 서버의 key source와 전달 방식은 `infra/env/personal-staging-env-policy.json`에 명시한다. `repo-default`는 저장소에 커밋할 수 있는 일반 설정, `doppler-optional`은 운영자 override, `doppler-required`는 환경별 값 또는 secret이다. `delivery=compose`인 key는 `docker-compose.yml` 또는 `docker-compose.staging.yml`에 명시적으로 전달되어야 하고, `delivery=code-default`는 개인 서버에서 runtime 기본값을 사용한다. PR CI는 예시 파일의 모든 key가 정책에 정확히 한 번 분류됐는지와 Compose 전달 선언이 정책과 일치하는지 함께 검사한다.
+
+`develop` push의 full 배포는 개인 서버를 변경하기 전에 GitHub Environment `personal-staging`의 `DOPPLER_STG_SYNC_TOKEN`으로 `pnpm env:sync:stg:apply`를 실행한다. 이 token은 Doppler `orbit / stg` config에만 read/write 권한을 가진 별도 service token이어야 하며 개인 서버 runtime의 read-only token과 분리한다. 동기화는 Doppler에 없는 `repo-default` + `delivery=compose` key만 `.env.staging.example`의 일반 설정값으로 한 번에 추가하고, 기존 key와 `doppler-required` 및 `doppler-optional` 값은 갱신하거나 자동 생성하지 않는다. 필수 수동 값이 없으면 full 배포를 시작하지 않는다.
+
+`pnpm env:sync:stg`는 같은 정책을 Doppler 값 대신 key 이름만 읽어 확인하는 로컬 dry-run이다. 자동 동기화가 Doppler를 변경하면 기존 webhook의 `environment-only` 요청은 full 배포와 같은 concurrency group에서 후속 실행된다. 새 key가 없으면 Doppler 변경과 webhook 요청도 발생하지 않는다.
+
 `API_JSON_BODY_LIMIT_BYTES`는 API의 JSON request body 최대 크기다. 기본값은 `5000000`이며, full deck 저장(`PUT /api/v1/projects/:projectId/deck`)처럼 checkpoint용 Deck JSON을 보내는 경로가 Express 기본값 100KB에 걸리지 않도록 명시한다.
 
 ## driver 값
 
 ```txt
 STORAGE_DRIVER=minio | s3
-JOB_QUEUE_DRIVER=bullmq | sqs
-AI_DECK_EXECUTION_MODE=monolith | bullmq | sqs
+JOB_QUEUE_DRIVER=bullmq
+AI_DECK_EXECUTION_MODE=monolith | bullmq | pg
 AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize
+AI_DECK_WORKER_CONCURRENCY=1..32
+AI_DECK_USER_CONCURRENCY=1..32
 LIVE_STT_PROVIDER=sherpa
 LIVE_STT_ENGINE=openai-realtime | web-speech
 REPORT_STT_PROVIDER=openai | whisperx
@@ -33,23 +43,24 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
-현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`는 AI Deck 이외의 Job도 제어하므로 #338 작업 중에도 `bullmq`로 유지한다. `JOB_QUEUE_DRIVER=sqs`는 adapter가 아직 없어 Worker startup이 실패한다.
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 다른 비동기 Job의 transport로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. AI Deck stage transport는 `AI_DECK_EXECUTION_MODE`가 별도로 결정한다. `JOB_QUEUE_DRIVER=sqs`는 지원하지 않으며 Worker startup이 실패한다.
 
-`AI_DECK_EXECUTION_MODE`의 코드 기본값과 로컬 `.env.example`은 `bullmq`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. 로컬 `docker-compose.yml`의 API와 Worker는 두 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 로컬 기본값 변경이 배포 환경을 자동 전환하지 않는다.
+`AI_DECK_EXECUTION_MODE`의 코드 fallback은 `bullmq`지만 로컬 `.env.example`의 명시적 기본값은 `pg`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. `AI_DECK_WORKER_CONCURRENCY`와 `AI_DECK_USER_CONCURRENCY`는 각각 5가 기본값이며 `pg`에서만 AI Deck 실행 상한으로 사용한다. 로컬 `docker-compose.yml`의 API와 Worker는 이 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 코드 배포가 staging·production을 `pg`로 자동 전환하지 않는다.
 
-338-3에서 지원하는 조합은 다음과 같다.
+현재 지원하는 조합은 다음과 같다.
 
 | `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                            |
 | ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `monolith`               | `all`                  | 338-5 제거 전 회귀·rollback용 기존 full-deck 경로를 실행한다.                                                                        |
-| `bullmq`                 | `all`                  | 로컬 기본값. staged coordinator부터 OCR·planning·image·QA·publication 전체 queue, dispatcher와 reconciler를 실행한다.                |
+| `monolith`               | `all`                  | 회귀 검증과 운영 rollback용 기존 full-deck 호환 경로를 실행한다. 제거 대상이 아니다.                                                  |
+| `bullmq`                 | `all`                  | rollback용 staged 경로다. coordinator부터 OCR·planning·image·QA·publication 전체 queue, dispatcher와 reconciler를 실행한다.          |
 | `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
 | `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                             |
 | `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
 | `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
 | `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
+| `pg`                     | `all`                  | 로컬 기본값. `ai_deck_generation_stages`를 직접 claim한다. AI Deck BullMQ coordinator·stage queue는 enqueue/consume하지 않고 process 전체 5개, 사용자 전체 5개 기본 상한을 적용한다. |
 
-`AI_DECK_EXECUTION_MODE=sqs`는 schema에는 후속 adapter 계약을 위해 남아 있지만 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
+`AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이며 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용되고 `pg`는 `all`만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
 
 ## 서버 로그
 

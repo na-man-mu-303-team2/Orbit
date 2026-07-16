@@ -65,6 +65,18 @@ describe("RehearsalsController", () => {
     expect(file).toBeDefined();
   });
 
+  it("passes the authenticated actor to the audio playback ownership boundary", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.getAudioPlaybackUrl("run-1", signedRequest());
+
+    expect(projectsService.assertCanReadProject).not.toHaveBeenCalled();
+    expect(rehearsalsService.getAudioPlaybackUrl).toHaveBeenCalledWith(
+      "run-1",
+      "user-1",
+    );
+  });
+
   it("requires project read permission before returning a run comparison", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
@@ -145,6 +157,11 @@ function createController() {
     readSlideSnapshotContent: vi.fn(async () => ({
       body: Buffer.from("png"),
       contentType: "image/png",
+    })),
+    getAudioPlaybackUrl: vi.fn(async () => ({
+      playbackUrl: "https://storage.example.com/audio?signature=short-lived",
+      expiresAt: "2026-07-16T00:15:00.000Z",
+      retentionExpiresAt: "2026-07-30T00:00:00.000Z",
     })),
   };
 
