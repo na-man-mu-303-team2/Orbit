@@ -306,6 +306,20 @@ def test_generate_deck_diagnostics_accept_visual_qa_unavailable_warning() -> Non
     ]
 
 
+def test_generate_deck_diagnostics_accept_visual_qa_advisory_warning() -> None:
+    diagnostics = GenerateDeckDiagnostics.model_validate(
+        {
+            "visualQaStatus": "advisory",
+            "visualIssueCodes": ["BALANCE_WEAK"],
+            "visualIssueSlideOrders": [1, 2, 3],
+            "warningCodes": ["GENERATE_DECK_VISUAL_ADVISORY"],
+        }
+    ).model_dump(by_alias=True)
+
+    assert diagnostics["visualQaStatus"] == "advisory"
+    assert diagnostics["visualIssueSlideOrders"] == [1, 2, 3]
+
+
 @pytest.mark.parametrize(
     "warning_code",
     ["", "   ", "visual_qa_unavailable", "VISUAL-QA", "Visual QA unavailable"],

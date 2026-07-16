@@ -997,6 +997,21 @@
 .ai-ppt-quality-failure p { font-size: var(--orbit-ds-type-ui-small); line-height: 1.45; margin: 0; }
 .ai-ppt-quality-failure button { justify-self: start; }
 
+.ai-ppt-visual-advisory {
+  background: var(--orbit-ds-warning-soft);
+  border-left: 4px solid var(--orbit-ds-warning);
+  color: var(--orbit-ds-text);
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 16px;
+}
+
+.ai-ppt-visual-advisory ul { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+.ai-ppt-visual-advisory li,
+.ai-ppt-visual-advisory p { font-size: var(--orbit-ds-type-ui-small); line-height: 1.45; margin: 0; }
+.ai-ppt-visual-advisory button { justify-self: start; }
+
 .ai-ppt-footer {
   align-items: center;
   display: flex;

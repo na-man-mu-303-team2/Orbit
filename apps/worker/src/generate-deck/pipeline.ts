@@ -28,6 +28,7 @@ import {
 } from "./publication";
 import {
   RenderedVisualQualityUnavailableError,
+  renderedVisualQualityDiagnostics,
   runRenderedVisualQuality,
 } from "./rendered-visual-quality";
 import {
@@ -375,11 +376,7 @@ export async function processGenerateDeckPipeline(input: {
     validation = visualOutcome.validation;
     imageWarnings.push(...visualOutcome.warnings);
     diagnostics = {
-      ...diagnostics,
-      visualQaStatus: visualOutcome.passed ? "passed" : "failed",
-      visualReviewAttempts: visualOutcome.reviewAttempts,
-      visualRepairAttempts: visualOutcome.repairAttempts,
-      visualIssueCodes: visualOutcome.issues.map((issue) => issue.code),
+      ...renderedVisualQualityDiagnostics(visualOutcome, diagnostics),
       validationIssueCount: allValidationIssues(validation).length,
     };
     if (!visualOutcome.passed) {

@@ -7,6 +7,7 @@ import {
   buildReferenceGrounding,
   briefFieldPlaceholders,
   getAiPptGenerationStatus,
+  getAiPptVisualAdvisory,
   filesFromFileList,
   getApprovedBriefReferenceFileIds,
   getAiPptWizardValidationMessage,
@@ -189,6 +190,34 @@ describe("AI PPT wizard payload", () => {
     };
 
     expect(getAiPptGenerationStatus(job)).toBe("6/7 시각 품질 보정");
+  });
+
+  it("exposes advisory issue codes and affected slides for user confirmation", () => {
+    const job: Job = {
+      jobId: "job_visual_advisory",
+      projectId: "project_visual_advisory",
+      type: "ai-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "completed",
+      result: {
+        diagnostics: {
+          visualQaStatus: "advisory",
+          visualIssueCodes: ["BALANCE_WEAK"],
+          visualIssueSlideOrders: [1, 2, 3],
+          warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+        }
+      },
+      error: null,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:01.000Z"
+    };
+
+    expect(getAiPptVisualAdvisory(job)).toEqual({
+      projectId: "project_visual_advisory",
+      issueCodes: ["BALANCE_WEAK"],
+      slideOrders: [1, 2, 3]
+    });
   });
 
   it.each([
@@ -888,6 +917,9 @@ describe("AI PPT wizard payload", () => {
     const failureIndex = submitGeneration.indexOf(
       'if (completed.status === "failed")'
     );
+    const advisoryIndex = submitGeneration.indexOf(
+      "const advisory = getAiPptVisualAdvisory(completed);"
+    );
     const navigateIndex = submitGeneration.indexOf(
       "navigateToProject(project.projectId);"
     );
@@ -898,6 +930,7 @@ describe("AI PPT wizard payload", () => {
     expect(payloadBuilderIndex).toBeGreaterThan(endpointIndex);
     expect(pollIndex).toBeGreaterThan(payloadBuilderIndex);
     expect(failureIndex).toBeGreaterThan(pollIndex);
-    expect(navigateIndex).toBeGreaterThan(failureIndex);
+    expect(advisoryIndex).toBeGreaterThan(failureIndex);
+    expect(navigateIndex).toBeGreaterThan(advisoryIndex);
   });
 });

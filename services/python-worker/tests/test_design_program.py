@@ -845,6 +845,7 @@ def test_program_v2_golden_pipeline_contract() -> None:
         "visualReviewAttempts": 0,
         "visualRepairAttempts": 0,
         "visualIssueCodes": [],
+        "visualIssueSlideOrders": [],
         "warningCodes": [],
     }
 

@@ -372,6 +372,20 @@ describe("generateDeckDiagnosticsSchema", () => {
     });
   });
 
+  it("accepts advisory rendered visual QA with affected slides", () => {
+    expect(generateDeckDiagnosticsSchema.parse({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    })).toMatchObject({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    });
+  });
+
   it("accepts extensible uppercase codes and rejects user-facing warning text", () => {
     expect(
       generateDeckDiagnosticsSchema.parse({
