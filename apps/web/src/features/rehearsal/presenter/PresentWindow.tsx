@@ -6,7 +6,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ReactNode, Ref } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 import "../../presentation/orbit-live-presentation.css";
 import { AudienceOutputRenderer } from "./AudienceOutputRenderer";
@@ -28,6 +28,7 @@ import {
   parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
+  type ScreenShareEndedReason,
 } from "./presentationChannel";
 
 export type PresentWindowSnapshot = {
@@ -109,6 +110,8 @@ export function PresentWindowReceiver(props: {
   const [audienceStream, setAudienceStream] = useState<MediaStream | null>(null);
   const channelRef = useRef<ChannelLike | null>(null);
   const streamBridgeRef = useRef<AudienceStreamBridgeRegistration | null>(null);
+  const snapshotRef = useRef<PresentWindowSnapshot | null>(initialSnapshot);
+  const screenShareFailureHandledRef = useRef(false);
   const hasSnapshotRef = useRef(Boolean(initialSnapshot));
   const lastPresenterSeenAtRef = useRef<number | null>(
     initialSnapshot ? Date.now() : null,
@@ -116,6 +119,7 @@ export function PresentWindowReceiver(props: {
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
+    snapshotRef.current = initialSnapshot;
     hasSnapshotRef.current = Boolean(initialSnapshot);
     lastPresenterSeenAtRef.current = initialSnapshot ? Date.now() : null;
     setIsPresenterStale(false);
@@ -160,6 +164,7 @@ export function PresentWindowReceiver(props: {
 
       setSnapshot((current) => {
         const next = applyPresentWindowMessage(current, message);
+        snapshotRef.current = next;
         hasSnapshotRef.current = Boolean(next);
         return next;
       });
@@ -202,23 +207,34 @@ export function PresentWindowReceiver(props: {
     setAudienceStream(null);
   }, [snapshot?.state.audienceOutputMode]);
 
-  const handleStreamMissing = () => {
-    setSnapshot((current) =>
-      current?.state.audienceOutputMode === "screen-share"
-        ? {
-            ...current,
-            state: { ...current.state, audienceOutputMode: "slide" },
-          }
-        : current,
-    );
-    streamBridgeRef.current?.detach();
-    channelRef.current?.postMessage(
-      createScreenShareEndedMessage({
-        identity,
-        reason: "stream-missing",
-      }),
-    );
-  };
+  useEffect(() => {
+    if (snapshot?.state.audienceOutputMode === "screen-share") {
+      screenShareFailureHandledRef.current = false;
+    }
+  }, [audienceStream, snapshot?.state.audienceOutputMode]);
+
+  const handleScreenShareFailure = useCallback(
+    (reason: ScreenShareEndedReason) => {
+      if (screenShareFailureHandledRef.current) return;
+      const recovered = applyPresentWindowScreenShareFailure(
+        snapshotRef.current,
+      );
+      if (!recovered) return;
+
+      screenShareFailureHandledRef.current = true;
+      snapshotRef.current = recovered;
+      setSnapshot(recovered);
+      streamBridgeRef.current?.detach();
+      setAudienceStream(null);
+      channelRef.current?.postMessage(
+        createScreenShareEndedMessage({
+          identity,
+          reason,
+        }),
+      );
+    },
+    [identity.deckId, identity.sessionId],
+  );
 
   if (channelError) {
     return (
@@ -253,7 +269,7 @@ export function PresentWindowReceiver(props: {
       onNextStep={onNextStep}
       onPreviousSlide={onPreviousSlide}
       onReconnectPresenter={onReconnectPresenter}
-      onStreamMissing={handleStreamMissing}
+      onScreenShareFailure={handleScreenShareFailure}
       snapshot={snapshot}
       stream={audienceStream}
     />
@@ -270,7 +286,7 @@ export function PresentWindowContent(props: {
   onNextStep?: () => void;
   onPreviousSlide?: () => void;
   onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
-  onStreamMissing?: () => void;
+  onScreenShareFailure?: (reason: ScreenShareEndedReason) => void;
   snapshot: PresentWindowSnapshot;
   stream?: MediaStream | null;
   viewport?: ViewportSize;
@@ -284,7 +300,7 @@ export function PresentWindowContent(props: {
     onNextStep,
     onPreviousSlide,
     onReconnectPresenter,
-    onStreamMissing,
+    onScreenShareFailure,
     snapshot,
     stream = null,
   } = props;
@@ -339,7 +355,7 @@ export function PresentWindowContent(props: {
       >
         <AudienceOutputRenderer
           deck={snapshot.deck}
-          onStreamMissing={onStreamMissing}
+          onScreenShareFailure={onScreenShareFailure}
           scale={scale}
           state={snapshot.state}
           stream={stream}
@@ -447,6 +463,19 @@ export function applyPresentWindowMessage(
   }
 
   return current;
+}
+
+export function applyPresentWindowScreenShareFailure(
+  current: PresentWindowSnapshot | null,
+): PresentWindowSnapshot | null {
+  if (current?.state.audienceOutputMode !== "screen-share") {
+    return null;
+  }
+
+  return {
+    ...current,
+    state: { ...current.state, audienceOutputMode: "slide" },
+  };
 }
 
 export function getSlideWindowScale(deck: Deck, viewport = readViewportSize()) {

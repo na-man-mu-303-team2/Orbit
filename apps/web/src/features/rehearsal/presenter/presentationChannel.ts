@@ -96,6 +96,7 @@ export type PresenterCommandMessage = {
 };
 
 export type ScreenShareEndedReason =
+  | "playback-failed"
   | "track-ended"
   | "stream-missing"
   | "receiver-reset";
@@ -637,6 +638,7 @@ function isScreenShareEndedReason(
   value: unknown,
 ): value is ScreenShareEndedReason {
   return (
+    value === "playback-failed" ||
     value === "track-ended" ||
     value === "stream-missing" ||
     value === "receiver-reset"

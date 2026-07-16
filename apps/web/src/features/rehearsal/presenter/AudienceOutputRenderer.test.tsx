@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
@@ -10,6 +12,10 @@ import { createPresenterSlideshowState } from "./presenterStateStore";
 vi.mock("./SlideshowRenderer", () => ({
   SlideshowRenderer: () => <div>Slideshow Renderer</div>,
 }));
+
+const audienceOutputRendererSourcePath = fileURLToPath(
+  new URL("./AudienceOutputRenderer.tsx", import.meta.url),
+);
 
 describe("AudienceOutputRenderer", () => {
   it("keeps the existing slide renderer for slide output", () => {
@@ -135,7 +141,16 @@ describe("AudienceOutputRenderer", () => {
     await Promise.resolve();
     vi.runAllTimers();
 
-    expect(onPlaybackFailed).toHaveBeenCalledOnce();
+    expect(onPlaybackFailed).toHaveBeenCalledWith("playback-failed");
     vi.useRealTimers();
+  });
+
+  it("does not restart the stream-missing timeout when only the callback changes", () => {
+    const source = fs.readFileSync(audienceOutputRendererSourcePath, "utf8");
+
+    expect(source).toContain("screenShareFailureRef.current");
+    expect(source).toContain(
+      "[state.audienceOutputMode, stream]",
+    );
   });
 });

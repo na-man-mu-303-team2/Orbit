@@ -1,6 +1,7 @@
 import type { Deck } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
+import type { ScreenShareEndedReason } from "./presentationChannel";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 
@@ -8,7 +9,7 @@ export const audienceStreamWaitTimeoutMs = 5000;
 
 export function AudienceOutputRenderer(props: {
   deck: Deck;
-  onStreamMissing?: () => void;
+  onScreenShareFailure?: (reason: ScreenShareEndedReason) => void;
   scale: number;
   state: PresenterSlideshowState;
   stream?: MediaStream | null;
@@ -16,21 +17,23 @@ export function AudienceOutputRenderer(props: {
 }) {
   const {
     deck,
-    onStreamMissing,
+    onScreenShareFailure,
     scale,
     state,
     stream = null,
     triggerAnimationIds,
   } = props;
+  const screenShareFailureRef = useRef(onScreenShareFailure);
+  screenShareFailureRef.current = onScreenShareFailure;
 
   useEffect(() => {
     if (state.audienceOutputMode !== "screen-share" || stream) return;
     const timeoutId = window.setTimeout(
-      () => onStreamMissing?.(),
+      () => screenShareFailureRef.current?.("stream-missing"),
       audienceStreamWaitTimeoutMs,
     );
     return () => window.clearTimeout(timeoutId);
-  }, [onStreamMissing, state.audienceOutputMode, stream]);
+  }, [state.audienceOutputMode, stream]);
 
   if (state.audienceOutputMode === "black") {
     return (
@@ -42,7 +45,12 @@ export function AudienceOutputRenderer(props: {
 
   if (state.audienceOutputMode === "screen-share") {
     return stream ? (
-      <AudienceScreenShareVideo stream={stream} />
+      <AudienceScreenShareVideo
+        onPlaybackFailed={(reason) =>
+          screenShareFailureRef.current?.(reason)
+        }
+        stream={stream}
+      />
     ) : (
       <section
         aria-label="공유 화면 연결 중"
@@ -67,15 +75,21 @@ export function AudienceOutputRenderer(props: {
   );
 }
 
-export function AudienceScreenShareVideo(props: { stream: MediaStream }) {
+export function AudienceScreenShareVideo(props: {
+  onPlaybackFailed?: (reason: "playback-failed") => void;
+  stream: MediaStream;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackFailureRef = useRef(props.onPlaybackFailed);
+  playbackFailureRef.current = props.onPlaybackFailed;
   const [playbackFailed, setPlaybackFailed] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    return attachAudienceVideoStream(video, props.stream, () => {
+    return attachAudienceVideoStream(video, props.stream, (reason) => {
       setPlaybackFailed(true);
+      playbackFailureRef.current?.(reason);
     });
   }, [props.stream]);
 
@@ -105,7 +119,7 @@ export function attachAudienceVideoStream(
     "muted" | "play" | "readyState" | "srcObject"
   >,
   stream: MediaStream,
-  onPlaybackFailed?: () => void,
+  onPlaybackFailed?: (reason: "playback-failed") => void,
 ) {
   let failureTimer: ReturnType<typeof setTimeout> | undefined;
   video.srcObject = stream;
@@ -113,7 +127,7 @@ export function attachAudienceVideoStream(
   void video.play().catch(() => {
     failureTimer = setTimeout(() => {
       if (video.srcObject === stream && video.readyState < 2) {
-        onPlaybackFailed?.();
+        onPlaybackFailed?.("playback-failed");
       }
     }, 1000);
   });

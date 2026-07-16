@@ -384,6 +384,15 @@ describe("presentationChannel", () => {
         reason: "permission-denied",
       }),
     ).toBe(false);
+    expect(
+      parsePresentationChannelMessage(
+        createScreenShareEndedMessage({
+          identity,
+          reason: "playback-failed",
+          sentAt: 93,
+        }),
+      ),
+    ).not.toBeNull();
   });
 
   it("rejects presenter state messages with an unknown audience mode", () => {
