@@ -13,16 +13,13 @@ import {
   shouldWaitForAuthResolution
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-  submitOrbitAuth
-} from "./features/auth/OrbitAuthPage";
+import { OrbitAuthPage, submitOrbitAuth } from "./features/auth/AuthPage";
+import { LandingPage } from "./features/landing/LandingPage";
 import { authMeQueryKey } from "./features/auth/auth-session";
 import {
   OrbitProjectExplorer,
   OrbitWorkspaceHome
-} from "./features/projects/OrbitProjectHub";
+} from "./features/projects/ProjectHub";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -286,16 +283,18 @@ describe("App shell routing", () => {
 });
 
 describe("public and authentication surfaces", () => {
-  it("renders the public landing conversion path without unsupported auth actions", () => {
+  it("renders the public landing product overview without signup CTAs", () => {
     const html = renderToStaticMarkup(
-      <OrbitPublicLandingPage onNavigate={() => undefined} />
+        <LandingPage onNavigate={() => undefined} />
     );
 
     expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
-    expect(html).toContain("무료로 발표 만들기");
     expect(html).toContain("생성");
     expect(html).toContain("편집");
     expect(html).toContain("리허설");
+    expect(html).not.toContain("랜딩 페이지 메뉴");
+    expect(html).not.toContain("무료로 시작하기");
+    expect(html).not.toContain("무료로 발표 만들기");
     expect(html).not.toContain("Google");
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });

@@ -1,20 +1,7 @@
-import {
-  IconArrowLeft,
-  IconArrowRight,
-  IconCheck,
-  IconEdit,
-  IconEye,
-  IconEyeOff,
-  IconFileText,
-  IconMicrophone,
-  IconPresentation,
-  IconSparkles,
-  IconUpload
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconEdit, IconEye, IconEyeOff, IconMicrophone, IconPresentation, IconSparkles } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent, type ReactNode } from "react";
 import orbitLogo from "../../assets/orbit-logo.png";
-import rehearsalEditorialImage from "../../assets/rehearsal-editorial.png";
 import {
   OrbitButton,
   OrbitField,
@@ -24,85 +11,6 @@ import {
 import "./orbit-auth-page.css";
 
 type Navigate = (path: string) => void;
-
-export function OrbitPublicLandingPage(props: { onNavigate: Navigate }) {
-  function scrollToFlow() {
-    document.getElementById("orbit-public-flow")?.scrollIntoView({ behavior: "smooth" });
-  }
-
-  return (
-    <div className="orbit-public-page">
-      <header className="orbit-public-header">
-        <button aria-label="ORBIT 공개 화면" onClick={() => window.scrollTo(0, 0)} type="button">
-          <img alt="ORBIT" src={orbitLogo} />
-        </button>
-        <nav aria-label="공개 메뉴">
-          <button onClick={scrollToFlow} type="button">제품</button>
-          <button onClick={scrollToFlow} type="button">활용 방법</button>
-          <button onClick={scrollToFlow} type="button">리허설</button>
-          <button onClick={scrollToFlow} type="button">템플릿</button>
-        </nav>
-        <div>
-          <button onClick={() => props.onNavigate("/login")} type="button">로그인</button>
-          <OrbitButton onClick={() => props.onNavigate("/signup")}>무료로 시작</OrbitButton>
-        </div>
-      </header>
-
-      <main>
-        <section className="orbit-public-hero">
-          <div className="orbit-public-copy">
-            <p className="orbit-ds-eyebrow">AI PRESENTATION WORKSPACE</p>
-            <h1>생각을 발표로 바꾸는 가장 빠른 캔버스</h1>
-            <p>아이디어 정리부터 슬라이드 생성, 리허설과 피드백까지 ORBIT이 발표의 전 과정을 함께합니다.</p>
-            <div className="orbit-public-actions">
-              <OrbitButton icon={<IconArrowRight aria-hidden="true" size={18} />} onClick={() => props.onNavigate("/signup")}>무료로 발표 만들기</OrbitButton>
-            </div>
-          </div>
-          <ProductStage />
-        </section>
-
-        <section className="orbit-public-process" id="orbit-public-flow">
-          <ProcessStep icon={<IconSparkles aria-hidden="true" size={24} />} number="1" title="생성">아이디어를 정리하고 슬라이드 초안을 만들어요.</ProcessStep>
-          <ProcessStep icon={<IconEdit aria-hidden="true" size={24} />} number="2" title="편집">문장과 디자인을 다듬어 나만의 발표로 완성해요.</ProcessStep>
-          <ProcessStep icon={<IconMicrophone aria-hidden="true" size={24} />} number="3" title="리허설">발표를 연습하고 AI 피드백으로 더 자신 있게 발표해요.</ProcessStep>
-        </section>
-
-        <section className="orbit-public-support">
-          <article className="orbit-public-support-card lime">
-            <div>
-              <IconUpload aria-hidden="true" size={30} stroke={1.6} />
-              <h2>자료만 올리면 초안부터 시작</h2>
-              <p>PDF, DOCX, PPTX, 이미지를 올리면 AI가 핵심을 추출해 구성을 제안합니다.</p>
-              <button onClick={() => props.onNavigate("/signup")} type="button">자료로 시작 <IconArrowRight aria-hidden="true" size={18} /></button>
-            </div>
-            <div aria-label="지원 파일 예시" className="orbit-public-file-stack">
-              <IconFileText aria-hidden="true" size={28} />
-              <span>제품 전략 보고서.pdf</span>
-              <small>2.4MB · 분석 준비됨</small>
-            </div>
-          </article>
-          <article className="orbit-public-support-card cream">
-            <div className="orbit-public-support-copy">
-              <IconMicrophone aria-hidden="true" size={30} stroke={1.6} />
-              <h2>발표 흐름까지 연습</h2>
-              <p>발음, 속도, 구성에 대한 AI 피드백으로 완성도를 높여보세요.</p>
-              <button onClick={() => props.onNavigate("/signup")} type="button">리허설 보기 <IconArrowRight aria-hidden="true" size={18} /></button>
-            </div>
-            <img alt="노트북으로 ORBIT 리허설 피드백을 확인하는 발표자" src={rehearsalEditorialImage} />
-          </article>
-        </section>
-
-        <section className="orbit-public-final">
-          <span>더 빠르고 완성도 높은 발표를 시작하세요.</span>
-          <div>
-            <OrbitButton onClick={() => props.onNavigate("/login")} variant="secondary">로그인</OrbitButton>
-            <OrbitButton icon={<IconArrowRight aria-hidden="true" size={18} />} onClick={() => props.onNavigate("/signup")}>무료로 시작</OrbitButton>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
-}
 
 export function OrbitAuthPage(props: {
   isAuthenticated: boolean;
@@ -184,25 +92,6 @@ export function OrbitAuthPage(props: {
       </main>
     </div>
   );
-}
-
-function ProductStage() {
-  return (
-    <section aria-label="ORBIT 제품 미리보기" className="orbit-public-stage">
-      <div className="orbit-public-stage-flow"><span><IconSparkles aria-hidden="true" size={18} />AI 아이디어 정리</span><IconArrowRight aria-hidden="true" size={18} /><span><IconPresentation aria-hidden="true" size={18} />슬라이드 자동 생성</span><IconArrowRight aria-hidden="true" size={18} /><span><IconMicrophone aria-hidden="true" size={18} />리허설 &amp; 피드백</span></div>
-      <div className="orbit-public-product-preview" onDragStart={(event) => event.preventDefault()}>
-        <header><img alt="ORBIT" src={orbitLogo} /><IconFileText aria-hidden="true" size={16} /></header>
-        <aside><strong>AI 아이디어 정리</strong><small>핵심 메시지</small><p>고객 가치와 시장 성장에 집중합니다.</p><small>발표 개요</small><ol><li>시장 변화</li><li>제품 전략</li><li>실행 계획</li></ol></aside>
-        <aside aria-label="슬라이드 목록" className="orbit-public-preview-slides">{[1, 2, 3, 4, 5].map((slide) => <span key={slide}>{slide}</span>)}</aside>
-        <section><span>2026.07.10</span><h2>2026 하반기<br />제품 전략</h2><p>고객 가치 중심의 성장 가속화</p><div><b>15%<small>시장 점유율</small></b><b>30%<small>ARR 성장</small></b></div></section>
-        <aside><strong>리허설</strong><small>발표 시간</small><b>05:23</b><progress max="10" value="5" /><strong>AI 피드백</strong><p>도입부가 명확해요.</p><p>핵심 수치를 강조하세요.</p></aside>
-      </div>
-    </section>
-  );
-}
-
-function ProcessStep(props: { children: ReactNode; icon: ReactNode; number: string; title: string }) {
-  return <article><span>{props.icon}</span><div><strong>{props.number}. {props.title}</strong><p>{props.children}</p></div></article>;
 }
 
 function AuthBenefit(props: { children: ReactNode; icon: ReactNode; title: string }) {

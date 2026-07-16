@@ -23,16 +23,14 @@ import {
 } from "./components/OrbitAppHeader";
 import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
 import { OrbitButton, OrbitEmptyState } from "./design-system";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-} from "./features/auth/OrbitAuthPage";
+import { OrbitAuthPage } from "./features/auth/AuthPage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
   markAuthLoggedOut,
   type AuthUser,
 } from "./features/auth/auth-session";
+import { LandingPage } from "./features/landing/LandingPage";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
@@ -43,10 +41,7 @@ import {
   OrbitMockupFlow,
   type OrbitMockupScreen,
 } from "./features/mockups/OrbitMockupFlow";
-import {
-  OrbitProjectExplorer,
-  OrbitWorkspaceHome,
-} from "./features/projects/OrbitProjectHub";
+import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -512,7 +507,7 @@ export function App() {
   }
 
   if (route.name === "home" && !auth.data) {
-    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+    return <LandingPage onNavigate={navigateTo} />;
   }
 
   if (!shouldRenderAppFrame(route)) {
