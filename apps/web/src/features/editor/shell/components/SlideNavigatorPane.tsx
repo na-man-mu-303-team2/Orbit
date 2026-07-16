@@ -1,10 +1,11 @@
-import type { Deck } from "@orbit/shared";
+import type { ActivityTemplate, Deck } from "@orbit/shared";
 import {
+  IconChevronUp as ChevronUp,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
   IconLayoutSidebarLeftExpand as PanelLeftOpen,
   IconPlus as Plus
 } from "@tabler/icons-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import type { SlidePanelView } from "../editorShellUiStore";
 import { buildSlideThumbBackground } from "../utils/editorLayout";
@@ -15,6 +16,7 @@ export function SlideNavigatorPane(props: {
   currentSlideIndex: number;
   deck: Deck;
   isCollapsed: boolean;
+  onAddActivitySlide: (template: ActivityTemplate) => void;
   onAddSlide: () => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onSelectSlide: (index: number) => void;
@@ -25,6 +27,8 @@ export function SlideNavigatorPane(props: {
   view: SlidePanelView;
 }) {
   const hasSlides = props.deck.slides.length > 0;
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const canAddActivity = canAddActivitySlide(props.deck);
 
   return (
     <aside className={`slides-pane ${props.isCollapsed ? "collapsed" : ""}`}>
@@ -114,10 +118,39 @@ export function SlideNavigatorPane(props: {
               목록
             </button>
           </div>
-          <button className="add-slide-button" type="button" onClick={props.onAddSlide}>
-            <Plus aria-hidden="true" size={17} />
-            슬라이드 추가
-          </button>
+          <div className="add-slide-split">
+            <button className="add-slide-button" type="button" onClick={props.onAddSlide}>
+              <Plus aria-hidden="true" size={17} />
+              슬라이드 추가
+            </button>
+            <button
+              aria-expanded={isAddMenuOpen}
+              aria-haspopup="menu"
+              aria-label="추가할 슬라이드 유형 선택"
+              className="add-slide-menu-button"
+              type="button"
+              onClick={() => setIsAddMenuOpen((current) => !current)}
+            >
+              <ChevronUp aria-hidden="true" size={16} />
+            </button>
+            {isAddMenuOpen ? (
+              <div className="add-slide-menu" role="menu">
+                <button
+                  disabled={!canAddActivity}
+                  role="menuitem"
+                  title={canAddActivity ? "만족도 조사 추가" : "참여 장표는 16:9 덱에서 사용할 수 있습니다."}
+                  type="button"
+                  onClick={() => {
+                    props.onAddActivitySlide("satisfaction");
+                    setIsAddMenuOpen(false);
+                  }}
+                >
+                  <strong>만족도 조사</strong>
+                  <span>{canAddActivity ? "5점 척도와 주관식" : "와이드 16:9 필요"}</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -129,4 +162,8 @@ export function SlideNavigatorPane(props: {
       />
     </aside>
   );
+}
+
+export function canAddActivitySlide(deck: Pick<Deck, "canvas">): boolean {
+  return deck.canvas.preset === "wide-16-9";
 }

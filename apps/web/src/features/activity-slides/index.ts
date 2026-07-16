@@ -1,4 +1,9 @@
 export { activityApi } from "./api/activityApi";
+export { ActivitySlideInspector } from "./editor/ActivitySlideInspector";
+export {
+  ActivitySlidePreview,
+  type ActivityPreviewRole
+} from "./editor/ActivitySlidePreview";
 export { activityQueryKeys } from "./model/activityQueryKeys";
 export {
   acceptActivityRevision,
