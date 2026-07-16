@@ -67,6 +67,8 @@ describe("RuntimeConfigController", () => {
       adaptiveRehearsalCoachEnabled: false,
       focusedPracticeEnabled: false,
       challengeQnaEnabled: false,
+      slidePracticeEnabled: false,
+      slideQuestionGuidesEnabled: false,
     });
   });
 });
