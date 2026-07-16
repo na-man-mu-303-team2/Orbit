@@ -117,6 +117,23 @@
   margin-top: clamp(4px, 0.9cqw, 12px);
 }
 
+.activity-choice-preview {
+  display: grid;
+  gap: clamp(2px, 0.45cqw, 6px);
+  margin-top: clamp(4px, 0.9cqw, 12px);
+}
+
+.activity-choice-preview i {
+  background: #f2f2ed;
+  border-radius: clamp(3px, 0.55cqw, 8px);
+  font-size: clamp(6px, 0.9cqw, 14px);
+  font-style: normal;
+  overflow: hidden;
+  padding: clamp(2px, 0.35cqw, 5px) clamp(4px, 0.65cqw, 9px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .activity-slide-preview > button,
 .activity-presenter-preview-status {
   align-self: end;
@@ -168,7 +185,8 @@
 
 .activity-slide-inspector input[type="text"],
 .activity-slide-inspector input:not([type]),
-.activity-slide-inspector textarea {
+.activity-slide-inspector textarea,
+.activity-slide-inspector select {
   background: white;
   border: 1px solid #d9d9d3;
   border-radius: 8px;
@@ -179,6 +197,64 @@
   padding: 9px 10px;
   resize: vertical;
   width: 100%;
+}
+
+.activity-question-editor {
+  border: 1px solid #deded7;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.activity-question-editor-heading,
+.activity-question-editor-heading > div,
+.activity-option-editor label > span {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.activity-question-editor-heading {
+  justify-content: space-between;
+}
+
+.activity-question-editor button,
+.activity-inspector-questions > button {
+  background: white;
+  border: 1px solid #d9d9d3;
+  border-radius: 7px;
+  color: #343434;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.activity-question-editor button:disabled,
+.activity-inspector-questions > button:disabled {
+  opacity: 0.45;
+}
+
+.activity-question-type-label {
+  color: #6c6c65;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.activity-rating-label-editor,
+.activity-option-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-rating-label-editor {
+  grid-template-columns: 1fr 1fr;
+}
+
+.activity-option-editor label > span input {
+  flex: 1;
+  min-width: 0;
 }
 
 .activity-inspector-questions {

@@ -35,7 +35,13 @@ export function ActivitySlidePreview(props: {
                 </div>
               ) : question.type === "free-text" ? (
                 <div aria-hidden="true" className="activity-text-preview" />
-              ) : null}
+              ) : (
+                <div aria-hidden="true" className="activity-choice-preview">
+                  {question.options.slice(0, 4).map((option) => (
+                    <i key={option.optionId}>{option.label}</i>
+                  ))}
+                </div>
+              )}
             </div>
           </article>
         ))}
