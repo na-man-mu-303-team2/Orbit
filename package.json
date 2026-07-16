@@ -16,6 +16,8 @@
     "db:migration:revert": "pnpm --filter @orbit/api migration:revert",
     "db:migration:run": "pnpm --filter @orbit/api migration:run",
     "demo:coaching:reset": "pnpm --filter @orbit/api demo:coaching:reset",
+    "env:sync:stg": "node infra/scripts/sync-personal-staging-doppler.mjs",
+    "env:sync:stg:apply": "node infra/scripts/sync-personal-staging-doppler.mjs --apply",
     "test:coaching:migrations": "bash infra/scripts/test-adaptive-coaching-migrations.sh",
     "test:coaching:integration": "bash infra/scripts/test-adaptive-coaching-integration.sh",
     "test:coaching:e2e": "pnpm --filter @orbit/shared build && pnpm --filter @orbit/editor-core build && pnpm test:smoke --grep \"adaptive coaching\"",
@@ -26,6 +28,7 @@
     "py:sync": "cd services/python-worker && uv sync",
     "py:test": "cd services/python-worker && uv run pytest",
     "test": "turbo run test",
+    "test:env-contract": "node --test infra/scripts/personal-staging-env.test.mjs",
     "test:nli-browser": "node infra/scripts/run-semantic-cue-nli-browser-benchmark.mjs",
     "test:smoke": "playwright test",
     "typecheck": "turbo run typecheck"
