@@ -11,6 +11,18 @@ describe("deckExportRequestSchema", () => {
 
     expect(request).toEqual({ format: "pptx" });
   });
+
+  it("accepts one optional presentation session for static Activity results", () => {
+    expect(
+      deckExportRequestSchema.parse({ presentationSessionId: "session_1" }),
+    ).toEqual({ format: "pptx", presentationSessionId: "session_1" });
+    expect(
+      deckExportRequestSchema.safeParse({
+        presentationSessionId: "session_1",
+        rawResponse: "forbidden",
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("deckExportJobResultSchema", () => {

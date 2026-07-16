@@ -188,6 +188,7 @@ export interface DeckExportBullMqPayload {
   projectId: string;
   deck: Deck;
   format: DeckExportFormat;
+  presentationSessionId?: string;
 }
 
 export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
@@ -491,6 +492,9 @@ export async function enqueueDeckExportJob(
       projectId: input.projectId,
       deck: deckSchema.parse(input.deck),
       format: deckExportFormatSchema.parse(input.format),
+      ...(input.presentationSessionId
+        ? { presentationSessionId: input.presentationSessionId }
+        : {}),
     } satisfies DeckExportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
