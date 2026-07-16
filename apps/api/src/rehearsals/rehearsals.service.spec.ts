@@ -364,14 +364,15 @@ describe("RehearsalsService", () => {
       audioFileId: "file-audio",
       status: "uploading"
     });
-    expect(service.testFilesService.createUploadUrl).toHaveBeenCalledWith(
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).toHaveBeenCalledWith(
       "project-a",
       expect.objectContaining({
         originalName: "rehearsal.webm",
         mimeType: "audio/webm",
         size: 1024,
         purpose: "rehearsal-audio"
-      })
+      }),
+      expect.objectContaining({ runId: run.runId, createdAt: expect.any(Date) })
     );
   });
 
@@ -391,7 +392,7 @@ describe("RehearsalsService", () => {
       })
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(service.testFilesService.createUploadUrl).not.toHaveBeenCalled();
+    expect(service.testFilesService.createRehearsalAudioUploadUrl).not.toHaveBeenCalled();
   });
 
   it("rejects rehearsal uploads above the implemented OpenAI report STT limit", async () => {
@@ -1008,6 +1009,7 @@ function createService(
   };
   const filesService = {
     createUploadUrl: vi.fn(async () => upload),
+    createRehearsalAudioUploadUrl: vi.fn(async () => upload),
     completeUpload: vi.fn(async () => ({
       fileId: "file-audio",
       projectId: "project-a",
@@ -1069,6 +1071,7 @@ function createService(
     },
     testFilesService: filesService as FilesService & {
       createUploadUrl: ReturnType<typeof vi.fn>;
+      createRehearsalAudioUploadUrl: ReturnType<typeof vi.fn>;
     },
     testLogger: logger,
     testTranscriptCache: transcriptCache
