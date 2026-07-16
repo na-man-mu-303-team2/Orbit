@@ -87,6 +87,20 @@ export async function processGenerateDeckPipeline(input: {
     );
     const emitEvent = (event: string, fields: Record<string, unknown>) =>
       emitGenerateDeckEvent(input.eventLogger, event, fields);
+    const research = input.workerPayload.diagnostics;
+    if (research.researchQuality !== "not-run") {
+      emitEvent("ai-ppt.web-research.completed", {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        quality: research.researchQuality,
+        issueCodes: research.researchIssueCodes,
+        attempts: research.researchAttempts,
+        relevantSourceCount: research.relevantWebSourceCount,
+        officialSourceCount: research.officialWebSourceCount,
+        independentSourceCount: research.independentWebSourceCount,
+        factCoverageSatisfied: research.researchFactCoverageSatisfied,
+      });
+    }
     emitEvent("ai-ppt.design-program.created", {
       jobId: input.jobId,
       projectId: input.projectId,
