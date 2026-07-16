@@ -8,6 +8,7 @@ import {
   createPresenterRemoteReadyMessage,
   createPresenterRemoteSnapshotMessage,
   createPresenterRemoteStateMessage,
+  createScreenShareEndedMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createSlideWindowDeckSnapshot,
@@ -125,6 +126,7 @@ describe("presentationChannel", () => {
       type: "presenter-snapshot",
       triggerAnimationIds: ["anim_image_zoom_in"],
       state: {
+        audienceOutputMode: "slide",
         slideId: "slide_p0_1",
         stepIndex: 1,
         highlights: [{ elementId: "el_body", active: true }],
@@ -337,6 +339,63 @@ describe("presentationChannel", () => {
       isPresentationChannelMessage({
         ...message,
         command: { action: "timer-finish" },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates audience output commands and rejects unknown modes", () => {
+    const message = createPresenterCommandMessage({
+      command: { action: "set-audience-output", mode: "screen-share" },
+      identity,
+      sentAt: 91,
+    });
+
+    expect(isPresentationChannelMessage(message)).toBe(true);
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        command: { action: "set-audience-output", mode: "notes" },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates screen share lifecycle messages without capture data", () => {
+    const message = createScreenShareEndedMessage({
+      identity,
+      reason: "track-ended",
+      sentAt: 92,
+    });
+    const serialized = JSON.stringify(message);
+
+    expect(isPresentationChannelMessage(message)).toBe(true);
+    expect(matchesPresentationChannelIdentity(message, identity)).toBe(true);
+    expect(serialized).not.toContain("MediaStream");
+    expect(serialized).not.toContain('"stream"');
+    expect(serialized).not.toContain('"tracks"');
+    expect(serialized).not.toContain('"label"');
+    expect(serialized).not.toContain("speakerNotes");
+    expect(serialized).not.toContain("transcript");
+    expect(serialized).not.toContain("rawAudio");
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        reason: "permission-denied",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects presenter state messages with an unknown audience mode", () => {
+    const message = createPresenterStateMessage({
+      identity,
+      sentAt: 93,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: [],
+    });
+
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        state: { ...message.state, audienceOutputMode: "notes" },
       }),
     ).toBe(false);
   });

@@ -2398,6 +2398,7 @@ export function RehearsalWorkspace(props: {
     () =>
       currentSlide
         ? {
+            audienceOutputMode: "slide" as const,
             highlights: [],
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,

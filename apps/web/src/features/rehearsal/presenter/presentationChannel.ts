@@ -1,5 +1,8 @@
 import type { Deck } from "@orbit/shared";
-import type { PresenterSlideshowState } from "./presenterStateStore";
+import type {
+  AudienceOutputMode,
+  PresenterSlideshowState,
+} from "./presenterStateStore";
 
 export const presentationChannelPrefix = "orbit:presenter-screen";
 
@@ -79,6 +82,7 @@ export type PresenterRemoteCommand =
   | { action: "goto"; slideIndex: number; stepIndex?: number }
   | { action: "next-step" }
   | { action: "prev" }
+  | { action: "set-audience-output"; mode: AudienceOutputMode }
   | { action: "timer-pause" }
   | { action: "timer-reset" }
   | { action: "timer-start" };
@@ -91,6 +95,19 @@ export type PresenterCommandMessage = {
   type: "presenter-command";
 };
 
+export type ScreenShareEndedReason =
+  | "track-ended"
+  | "stream-missing"
+  | "receiver-reset";
+
+export type ScreenShareEndedMessage = {
+  deckId: string;
+  reason: ScreenShareEndedReason;
+  sentAt: number;
+  sessionId: string;
+  type: "screen-share-ended";
+};
+
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
@@ -101,7 +118,8 @@ export type PresentationChannelMessage =
   | SlideWindowHeartbeatMessage
   | PresenterRemoteReadyMessage
   | PresenterRemoteHeartbeatMessage
-  | PresenterCommandMessage;
+  | PresenterCommandMessage
+  | ScreenShareEndedMessage;
 
 export function createPresentationSessionId() {
   if (
@@ -223,6 +241,8 @@ export function isPresentationChannelMessage(
       return true;
     case "presenter-command":
       return isPresenterRemoteCommand(value.command);
+    case "screen-share-ended":
+      return isScreenShareEndedReason(value.reason);
     default:
       return false;
   }
@@ -387,6 +407,20 @@ export function createPresenterCommandMessage(args: {
   };
 }
 
+export function createScreenShareEndedMessage(args: {
+  identity: PresentationChannelIdentity;
+  reason: ScreenShareEndedReason;
+  sentAt?: number;
+}): ScreenShareEndedMessage {
+  return {
+    deckId: args.identity.deckId,
+    reason: args.reason,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    type: "screen-share-ended",
+  };
+}
+
 function isPresenterSlideshowState(
   value: unknown,
 ): value is PresenterSlideshowState {
@@ -395,6 +429,7 @@ function isPresenterSlideshowState(
   }
 
   return (
+    isAudienceOutputMode(value.audienceOutputMode) &&
     typeof value.slideId === "string" &&
     typeof value.slideIndex === "number" &&
     typeof value.stepIndex === "number" &&
@@ -568,10 +603,28 @@ function isPresenterRemoteCommand(
     return true;
   }
 
+  if (value.action === "set-audience-output") {
+    return isAudienceOutputMode(value.mode);
+  }
+
   return (
     value.action === "goto" &&
     isNonNegativeInteger(value.slideIndex) &&
     (value.stepIndex === undefined || isNonNegativeInteger(value.stepIndex))
+  );
+}
+
+function isAudienceOutputMode(value: unknown): value is AudienceOutputMode {
+  return value === "slide" || value === "screen-share" || value === "black";
+}
+
+function isScreenShareEndedReason(
+  value: unknown,
+): value is ScreenShareEndedReason {
+  return (
+    value === "track-ended" ||
+    value === "stream-missing" ||
+    value === "receiver-reset"
   );
 }
 
