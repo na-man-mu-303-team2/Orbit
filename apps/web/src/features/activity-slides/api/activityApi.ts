@@ -2,6 +2,7 @@ import {
   audiencePresentationAccessResponseSchema,
   ensureActivityRunResponseSchema,
   getActivityPresenterResultResponseSchema,
+  getActivityPublicResultResponseSchema,
   getAudienceActiveActivityResponseSchema,
   getAudienceActivityResponseSchema,
   getAudiencePresentationPublicInfoResponseSchema,
@@ -85,6 +86,13 @@ export const activityApi = {
       presenterActivityUrl(projectId, sessionId, `activity-runs/${segment(runId)}/results`),
       undefined,
       getActivityPresenterResultResponseSchema
+    );
+  },
+  getPublicResult(projectId: string, sessionId: string, runId: string) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, `activity-runs/${segment(runId)}/public-results`),
+      undefined,
+      getActivityPublicResultResponseSchema
     );
   },
   getAudiencePublicInfo(sessionId: string) {

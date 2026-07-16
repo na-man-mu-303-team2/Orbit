@@ -86,6 +86,17 @@ export class ActivityRunsController {
     return this.activityResultsService.getPresenterResult(projectId, sessionId, runId);
   }
 
+  @Get("activity-runs/:runId/public-results")
+  async getPublicResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityResultsService.getPublicResult(projectId, sessionId, runId);
+  }
+
   private async assertCanOperate(projectId: string, request: SignedCookieRequest) {
     const value = request.signedCookies?.[authSessionCookieName];
     if (typeof value !== "string" || value.length === 0) {

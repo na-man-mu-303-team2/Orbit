@@ -5,6 +5,8 @@ export const activityQueryKeys = {
     ["activity-slides", "session-list", projectId, deckId] as const,
   presenterResult: (projectId: string, sessionId: string, runId: string) =>
     ["activity-slides", "presenter-result", projectId, sessionId, runId] as const,
+  publicResult: (projectId: string, sessionId: string, runId: string) =>
+    ["activity-slides", "public-result", projectId, sessionId, runId] as const,
   audienceAccess: (sessionId: string) =>
     ["activity-slides", "audience-access", sessionId] as const,
   audienceActiveActivity: (sessionId: string) =>

@@ -1,0 +1,57 @@
+.activity-presenter-panel {
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.activity-presenter-panel-heading {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.activity-presenter-panel-heading > div { display: grid; gap: 3px; min-width: 0; }
+.activity-presenter-panel-heading div > span { color: #626b00; font-size: 0.64rem; font-weight: 950; letter-spacing: 0.1em; }
+.activity-presenter-panel-heading div > strong { color: #0f172a; font-size: 0.95rem; overflow-wrap: anywhere; }
+
+.activity-presenter-status {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 900;
+  padding: 4px 8px;
+}
+
+.activity-presenter-status--draft { background: #f1f5f9; color: #475569; }
+.activity-presenter-status--open { background: #ecfccb; color: #3f6212; }
+.activity-presenter-status--closed { background: #fff7ed; color: #9a3412; }
+.activity-presenter-status--results { background: #f3e8ff; color: #6b21a8; }
+
+.activity-presenter-metrics { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+.activity-presenter-metrics > div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px; display: grid; gap: 3px; grid-template-columns: 22px 1fr; padding: 9px; }
+.activity-presenter-metrics svg { color: #64748b; grid-row: 1 / span 2; }
+.activity-presenter-metrics span { color: #64748b; font-size: 0.67rem; font-weight: 850; }
+.activity-presenter-metrics strong { color: #0f172a; font-size: 1.25rem; }
+
+.activity-presenter-panel > a { align-items: center; color: #4f46e5; display: inline-flex; font-size: 0.75rem; font-weight: 850; gap: 5px; overflow-wrap: anywhere; }
+.activity-presenter-error { color: #b45309; font-size: 0.72rem; font-weight: 750; line-height: 1.4; margin: 0; }
+
+.activity-presenter-primary-command {
+  align-items: center;
+  background: #dff23f;
+  border: 1px solid #cadb38;
+  border-radius: 7px;
+  color: #171717;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 950;
+  gap: 7px;
+  justify-content: center;
+  min-height: 40px;
+}
+
+.activity-presenter-primary-command:disabled { cursor: wait; opacity: 0.55; }

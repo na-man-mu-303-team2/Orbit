@@ -106,3 +106,26 @@ export type ActivityPublicResult = z.infer<typeof activityPublicResultSchema>;
 export type ActivityEditorSummary = z.infer<
   typeof activityEditorSummarySchema
 >;
+
+export function createAudienceActivityProjection(
+  result: ActivityPresenterResult
+): ActivityPublicResult | null {
+  if (result.status !== "results") return null;
+
+  return activityPublicResultSchema.parse({
+    activityRunId: result.activityRunId,
+    activityId: result.activityId,
+    status: result.status,
+    revision: result.revision,
+    responseCount: result.responseCount,
+    aggregates: result.aggregates,
+    approvedTextEntries: result.textEntries
+      .filter((entry) => entry.moderationStatus === "approved")
+      .map((entry) => ({
+        entryId: entry.entryId,
+        questionId: entry.questionId,
+        text: entry.text,
+        answered: entry.answeredAt !== null
+      }))
+  });
+}
