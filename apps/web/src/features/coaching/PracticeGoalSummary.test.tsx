@@ -16,7 +16,7 @@ describe("PracticeGoalSummary", () => {
     const html = render({ status: "processing", sourceFullRunId: "run-a" });
 
     expect(html).toContain("연습 계획 준비 중");
-    expect(html).toContain("연습 계획 열기");
+    expect(html).toContain("연습하기");
     expect(html).toContain("/rehearsal/project-a/plan/run-a");
   });
 
@@ -24,7 +24,7 @@ describe("PracticeGoalSummary", () => {
     const html = render({ status: "no-goal", sourceFullRunId: "run-a" });
 
     expect(html).toContain("지금 바로 반복할 목표가 없어요");
-    expect(html).toContain("연습 계획 열기");
+    expect(html).toContain("연습하기");
     expect(html).toContain("/rehearsal/project-a/plan/run-a");
   });
 });
