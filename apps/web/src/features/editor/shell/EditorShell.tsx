@@ -679,11 +679,34 @@ function getSlideRenderBackgroundColor(slide: Slide, deck: Deck) {
   return slide.style.backgroundColor ?? deck.theme.backgroundColor;
 }
 
-async function canvasToBlob(canvas: HTMLCanvasElement, mimeType = "image/png") {
+export class SnapshotPreparationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SnapshotPreparationError";
+  }
+}
+
+export function requireLoadedRehearsalSnapshotAssets(
+  missingAssetCount: number,
+) {
+  if (missingAssetCount <= 0) return;
+  throw new SnapshotPreparationError(
+    `슬라이드 이미지 ${missingAssetCount}개를 불러오지 못했습니다. 이미지 연결을 확인한 뒤 리허설을 다시 시작해 주세요.`,
+  );
+}
+
+export async function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType = "image/png",
+) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
-        reject(new Error("슬라이드 이미지를 생성하지 못했습니다."));
+        reject(
+          new SnapshotPreparationError(
+            "슬라이드 이미지를 생성하지 못했습니다. 리허설을 다시 시작해 주세요.",
+          ),
+        );
         return;
       }
 
@@ -698,6 +721,7 @@ async function createSlideRenderFile(args: {
   stage: Konva.Stage;
   stageScale: number;
   slideNumber: number;
+  requireAssets?: boolean;
 }) {
   const pixelRatio = Math.max(1, 1 / args.stageScale);
   const stageCanvas = args.stage.toCanvas({
@@ -715,19 +739,20 @@ async function createSlideRenderFile(args: {
 
   context.fillStyle = getSlideRenderBackgroundColor(args.slide, args.deck);
   context.fillRect(0, 0, canvas.width, canvas.height);
-  if (
-    args.slide.thumbnailUrl &&
-    getRenderableSlideElements(args.slide, args.deck.canvas).length === 0 &&
-    (args.deck.metadata.sourceType === "import" ||
-      args.deck.metadata.thumbnailSource === "import-render")
-  ) {
+  if (usesImportedSlideFallback(args.slide, args.deck)) {
     await drawSlideRenderFallbackImage(
       context,
       args.slide.thumbnailUrl,
       canvas,
+      args.requireAssets,
     );
   } else {
-    await drawSlideRenderBackgroundImage(context, args.slide, canvas);
+    await drawSlideRenderBackgroundImage(
+      context,
+      args.slide,
+      canvas,
+      args.requireAssets,
+    );
     context.drawImage(stageCanvas, 0, 0, canvas.width, canvas.height);
   }
 
@@ -761,9 +786,13 @@ async function drawSlideRenderFallbackImage(
   context: CanvasRenderingContext2D,
   imageUrl: string,
   canvas: HTMLCanvasElement,
+  requireAssets = false,
 ) {
   const image = await loadCanvasImage(imageUrl);
-  if (!image) return;
+  if (!image) {
+    if (requireAssets) requireLoadedRehearsalSnapshotAssets(1);
+    return;
+  }
 
   const frame = getBackgroundImageDrawFrame({
     canvasHeight: canvas.height,
@@ -778,7 +807,8 @@ async function drawSlideRenderFallbackImage(
 async function drawSlideRenderBackgroundImage(
   context: CanvasRenderingContext2D,
   slide: Slide,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  requireAssets = false,
 ) {
   const backgroundImage = slide.style.backgroundImage;
 
@@ -789,6 +819,7 @@ async function drawSlideRenderBackgroundImage(
   const image = await loadCanvasImage(backgroundImage.src);
 
   if (!image) {
+    if (requireAssets) requireLoadedRehearsalSnapshotAssets(1);
     return;
   }
 
@@ -877,8 +908,24 @@ async function loadImageAsset(url: string) {
   });
 }
 
-function collectSlideAssetUrls(slide: Slide) {
+function usesImportedSlideFallback(slide: Slide, deck: Deck) {
+  return Boolean(
+    slide.thumbnailUrl &&
+      getRenderableSlideElements(slide, deck.canvas).length === 0 &&
+      (deck.metadata.sourceType === "import" ||
+        deck.metadata.thumbnailSource === "import-render"),
+  );
+}
+
+export function collectRehearsalSnapshotAssetUrls(
+  slide: Slide,
+  deck: Deck,
+) {
   const urls = new Set<string>();
+
+  if (usesImportedSlideFallback(slide, deck) && slide.thumbnailUrl) {
+    return [slide.thumbnailUrl];
+  }
 
   if (slide.style.backgroundImage?.src) {
     urls.add(slide.style.backgroundImage.src);
@@ -893,8 +940,8 @@ function collectSlideAssetUrls(slide: Slide) {
   return [...urls];
 }
 
-async function waitForSlideAssets(slide: Slide) {
-  const assetUrls = collectSlideAssetUrls(slide);
+async function waitForSlideAssets(slide: Slide, deck: Deck) {
+  const assetUrls = collectRehearsalSnapshotAssetUrls(slide, deck);
 
   const results = await Promise.all(assetUrls.map((url) => loadImageAsset(url)));
   return results.filter((result) => !result).length;
@@ -2639,7 +2686,8 @@ function EditorRuntime(props: {
 
   async function renderSlideFiles(
     sourceDeck: Deck,
-    slideIds?: readonly string[]
+    slideIds?: readonly string[],
+    options: { requireAssets?: boolean } = {},
   ) {
     if (sourceDeck.slides.length === 0) {
       return {
@@ -2659,15 +2707,26 @@ function EditorRuntime(props: {
 
     const files = new Map<string, File>();
     let missingAssetCount = 0;
+    const targetSlides = nextDeck.slides.filter(
+      (slide) => !targetSlideIds || targetSlideIds.has(slide.slideId),
+    );
+    if (options.requireAssets) {
+      const missingCounts = await Promise.all(
+        targetSlides.map((slide) => waitForSlideAssets(slide, nextDeck)),
+      );
+      missingAssetCount = missingCounts.reduce(
+        (total, count) => total + count,
+        0,
+      );
+      requireLoadedRehearsalSnapshotAssets(missingAssetCount);
+    }
     slideRenderStageRefs.current.clear();
     flushSync(() => {
       setRenderingDeck(nextDeck);
     });
     try {
       await waitForSlideRenderStages(
-        nextDeck.slides
-          .filter((slide) => !targetSlideIds || targetSlideIds.has(slide.slideId))
-          .map((slide) => slide.slideId),
+        targetSlides.map((slide) => slide.slideId),
         slideRenderStageRefs.current,
         waitForAnimationFrame,
         90,
@@ -2680,7 +2739,9 @@ function EditorRuntime(props: {
           continue;
         }
 
-        missingAssetCount += await waitForSlideAssets(slide);
+        if (!options.requireAssets) {
+          missingAssetCount += await waitForSlideAssets(slide, nextDeck);
+        }
 
         await waitForAnimationFrame();
 
@@ -2696,6 +2757,7 @@ function EditorRuntime(props: {
           stage,
           stageScale: 1,
           slideNumber: slide.order || index + 1,
+          requireAssets: options.requireAssets,
         });
         files.set(slide.slideId, renderFile);
       }
@@ -2787,7 +2849,9 @@ function EditorRuntime(props: {
 
   async function uploadRehearsalSlideSnapshots(activeProjectId: string, sourceDeck: Deck) {
     return enqueueSlideRender(async () => {
-      const renderResult = await renderSlideFiles(sourceDeck);
+      const renderResult = await renderSlideFiles(sourceDeck, undefined, {
+        requireAssets: true,
+      });
       const snapshots: Array<{ fileId: string; slideId: string }> = [];
 
       for (const { file, slide } of requireCompleteRehearsalSlideRender(
