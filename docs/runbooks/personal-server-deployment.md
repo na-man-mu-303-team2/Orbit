@@ -252,6 +252,41 @@ https://api.github.com/repos/na-man-mu-303-team2/Orbit/actions/workflows/deploy-
 
 Webhook은 secret 값이 아니라 고정된 배포 요청만 GitHub에 전달한다. 실제 값은 개인 서버의 read-only Doppler service token으로 실행 시점에 읽는다. GitHub App installation token은 짧은 수명이므로 relay 없이 이 직접 연결 방식에 정적으로 저장하지 않는다.
 
+#### 새 env key 자동 동기화
+
+GitHub Environment `personal-staging`에 `DOPPLER_STG_SYNC_TOKEN` secret을 등록한다. 이 값은 Doppler `orbit / stg` config의 Access 화면에서 생성한 read/write service token이어야 한다. workplace 전체 권한이 있는 CLI·Personal token을 사용하지 않고, 개인 서버에 저장된 runtime용 read-only service token도 변경하지 않는다. token 값은 저장소·문서·workflow log에 남기지 않는다.
+
+`develop` push가 Environment Contract CI를 통과하면 full 배포 workflow가 다음 순서로 동작한다.
+
+1. 검증을 통과한 정확한 `develop` SHA를 GitHub-hosted runner에 checkout한다.
+2. `DOPPLER_STG_SYNC_TOKEN`의 존재 여부만 확인한다.
+3. 아래 dry-run과 같은 정책으로 누락 key를 분류한다.
+4. 누락된 `repo-default` + `delivery=compose` key를 한 번에 추가한다.
+5. 필수 수동 값이 없으면 개인 서버 배포를 시작하지 않는다.
+6. 동기화가 성공하거나 추가할 key가 없으면 self-hosted runner의 full 배포를 실행한다.
+
+로컬에서 정책과 현재 Doppler key 상태만 확인할 때는 다음 dry-run을 사용한다.
+
+```bash
+pnpm env:sync:stg
+```
+
+이 명령은 `infra/env/personal-staging-env-policy.json`, `.env.staging.example`, 개인 서버 Compose 전달 선언과 Doppler의 key 이름을 비교한다. Doppler에서는 key 이름만 읽고 어떤 값도 출력하지 않는다. 결과는 다음 세 종류의 key 이름만 보여준다.
+
+- `Missing safe repo defaults`: 기존 값을 건드리지 않고 자동 추가할 수 있는 일반 설정
+- `Missing required manual values`: 운영자가 실제 값을 Doppler에 먼저 입력해야 하는 환경별 값 또는 secret
+- `Missing optional overrides`: 없어도 runtime 기본값으로 실행 가능한 선택 override
+
+자동화 장애를 복구하거나 merge 전에 동기화를 수동 검증해야 할 때만 쓰기 권한이 있는 관리 환경에서 다음 명령을 실행한다.
+
+```bash
+pnpm env:sync:stg:apply
+```
+
+`apply`는 자동 workflow와 동일하게 누락된 `repo-default` + `delivery=compose` key만 한 요청으로 추가한다. 기존 Doppler key를 갱신하거나 secret placeholder·빈 값을 복사하지 않는다. 변경이 생기면 위 webhook이 `environment-only` workflow를 자동 호출하므로 서버에서 `/usr/local/sbin/orbit-deploy-personal-staging`을 직접 실행하지 않는다. 개인 서버에 저장된 runtime용 read-only service token으로는 이 동기화 명령을 실행하지 않는다.
+
+자동 동기화가 발생한 push에서는 full 배포 workflow가 `personal-staging-deploy` concurrency를 먼저 점유한다. Doppler webhook의 `environment-only` 요청은 full 배포가 끝난 뒤 후속 실행되어 두 배포가 동시에 컨테이너를 교체하지 않는다. Webhook은 exactly-once를 보장하지 않으므로 중복 요청도 같은 방식으로 직렬 처리한다.
+
 `environment-only` mode는 다음 순서로 동작한다.
 
 1. GitHub dispatch의 `develop` SHA와 서버 HEAD가 같은지 확인한다.

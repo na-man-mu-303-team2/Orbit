@@ -410,3 +410,15 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
+
+## ORBIT personal staging env source policy and safe Doppler sync
+
+- Context: 새 env key가 예시 파일에 추가돼도 Doppler key 생성과 개인 서버 Compose 전달은 별개여서, 운영자가 key를 하나씩 만들고 서버 배포 script를 다시 실행했다. 모든 예시 값을 Doppler에 일괄 복사하면 secret placeholder나 환경별 URL을 실제 값처럼 저장하고 기존 secret을 덮어쓸 위험이 있다.
+- Options considered:
+  - `.env.staging.example` 전체를 매번 Doppler에 bulk upload한다.
+  - 새 key를 계속 수동 등록하고 서버 배포 script를 직접 실행한다.
+  - 각 key의 source와 개인 서버 delivery를 정책 파일로 분류하고, 누락된 안전한 일반 설정만 추가한 뒤 기존 webhook으로 재배포한다.
+- Final decision: `infra/env/personal-staging-env-policy.json`에서 모든 staging key를 `repo-default`, `doppler-optional`, `doppler-required`와 `compose`, `code-default` 조합으로 분류한다. Environment Contract CI는 정책 누락·추가 key·안전하지 않은 repo default·Compose 전달 불일치를 차단한다. `develop` full 배포는 GitHub Environment의 config-scoped `DOPPLER_STG_SYNC_TOKEN`으로 기존 값을 덮어쓰지 않고 누락된 `repo-default` + `compose` key만 한 번에 추가한 뒤 개인 서버를 배포한다. 환경별 값과 secret은 자동 생성하지 않고 누락 시 배포를 차단한다.
+- Rationale: 일반 설정은 저장소의 검토 가능한 기본값으로 자동화하면서 secret 값의 출처와 변경 권한은 Doppler에 남긴다. 동기화가 기존 값을 수정하지 않고 하나의 Doppler 변경으로 처리되므로 webhook 재배포도 key 수만큼 반복되지 않는다. 개인 서버 runtime의 read-only Doppler token과 GitHub-hosted sync job의 `orbit / stg` 전용 read/write token을 분리하며, full 배포와 webhook 후속 배포는 같은 concurrency group에서 직렬화한다.
+- Affected files: `.github/workflows/deploy-personal-staging.yml`, `.github/workflows/environment-contract-ci.yml`, `infra/env/personal-staging-env-policy.json`, `infra/scripts/personal-staging-env.mjs`, `infra/scripts/personal-staging-env.test.mjs`, `infra/scripts/sync-personal-staging-doppler.mjs`, `infra/scripts/check-env.mjs`, `docker-compose.staging.yml`, `package.json`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
+- Follow-up review notes: merge 전에 GitHub Environment `personal-staging`에 `DOPPLER_STG_SYNC_TOKEN`을 등록한다. 첫 `develop` push에서 key 이름만 출력되는지, sync job 성공 뒤 full 배포가 실행되는지, Doppler Webhook Logs와 `trigger_source=doppler-stg-secrets-update` 후속 실행이 직렬화되는지 확인하고 실제 값 또는 token은 로그에 남기지 않는다.
