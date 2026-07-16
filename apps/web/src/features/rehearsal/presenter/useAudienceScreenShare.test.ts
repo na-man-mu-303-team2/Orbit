@@ -135,7 +135,7 @@ describe("useAudienceScreenShare controller", () => {
     expect(modes).toEqual(["screen-share", "slide"]);
   });
 
-  it("disposes an active stream without publishing a mode during unmount", async () => {
+  it("disposes an active stream and returns the audience to slide on unmount", async () => {
     const capture = createCapture([]);
     const modes: string[] = [];
     const controller = createAudienceScreenShareController({
@@ -151,7 +151,23 @@ describe("useAudienceScreenShare controller", () => {
     controller.dispose();
 
     expect(capture.stop).toHaveBeenCalledTimes(1);
-    expect(modes).toEqual(["screen-share"]);
+    expect(modes).toEqual(["screen-share", "slide"]);
+  });
+
+  it("can start after a development effect cleanup reuses the controller", async () => {
+    const capture = createCapture([]);
+    const controller = createAudienceScreenShareController({
+      capturePort: { isSupported: () => true, start: async () => capture },
+      getConnected: () => true,
+      getTargetWindow: () => createTargetWindow([]),
+      identity,
+      onOutputModeChange: vi.fn(),
+    });
+
+    controller.dispose({ returnToSlide: false });
+
+    await expect(controller.start("tab-or-window")).resolves.toBe(true);
+    expect(capture.stop).not.toHaveBeenCalled();
   });
 });
 

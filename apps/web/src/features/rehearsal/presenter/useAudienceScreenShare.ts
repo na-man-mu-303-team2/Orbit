@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   attachAudienceStreamToWindow,
   detachAudienceStreamFromWindow,
@@ -66,6 +66,7 @@ export function createAudienceScreenShareController(args: {
   };
 
   const start = async (intent: ScreenShareSourceIntent) => {
+    disposed = false;
     if (!args.getConnected()) {
       setStatus(
         "failed",
@@ -125,18 +126,23 @@ export function createAudienceScreenShareController(args: {
   };
 
   return {
-    dispose: () => {
+    dispose: (
+      options: { returnToSlide: boolean } = { returnToSlide: true },
+    ) => {
+      if (disposed) return;
       operationId += 1;
       disposed = true;
       const current = active;
       active = undefined;
-      if (!current) return;
-      current.unsubscribeEnded();
-      current.capture.stop();
-      detachAudienceStreamFromWindow({
-        identity: args.identity,
-        targetWindow: current.targetWindow,
-      });
+      if (current) {
+        current.unsubscribeEnded();
+        current.capture.stop();
+        detachAudienceStreamFromWindow({
+          identity: args.identity,
+          targetWindow: current.targetWindow,
+        });
+      }
+      if (options.returnToSlide) args.onOutputModeChange("slide");
     },
     getActiveStream: () => active?.capture.stream ?? null,
     handleExternalOutputMode: (mode: AudienceOutputMode) => {
@@ -193,20 +199,21 @@ export function useAudienceScreenShare(args: {
 }) {
   const { connected, getTargetWindow, identity, onOutputModeChange, outputMode } =
     args;
-  const capturePort = useMemo(
-    () => args.capturePort ?? createScreenShareCapturePort(),
-    [args.capturePort],
-  );
+  const defaultCapturePortRef = useRef<ScreenShareCapturePort | null>(null);
+  if (!defaultCapturePortRef.current) {
+    defaultCapturePortRef.current = createScreenShareCapturePort();
+  }
+  const capturePort = args.capturePort ?? defaultCapturePortRef.current;
   const [viewState, setViewState] = useState<{
     error: string;
     status: AudienceScreenShareStatus;
   }>({ error: "", status: "idle" });
   const latestRef = useRef({ connected, getTargetWindow, onOutputModeChange });
   latestRef.current = { connected, getTargetWindow, onOutputModeChange };
-
-  const controller = useMemo(
-    () =>
-      createAudienceScreenShareController({
+  const controllerKey = `${identity.deckId}\u0000${identity.sessionId}`;
+  const createControllerEntry = () => ({
+    capturePort,
+    controller: createAudienceScreenShareController({
         capturePort,
         getConnected: () => latestRef.current.connected,
         getTargetWindow: () => latestRef.current.getTargetWindow(),
@@ -215,19 +222,32 @@ export function useAudienceScreenShare(args: {
           latestRef.current.onOutputModeChange(mode),
         onStatusChange: setViewState,
       }),
-    [capturePort, identity.deckId, identity.sessionId],
-  );
+    key: controllerKey,
+  });
+  const [controllerEntry, setControllerEntry] = useState(createControllerEntry);
+  const controller = controllerEntry.controller;
+
+  useEffect(() => {
+    if (
+      controllerEntry.capturePort === capturePort &&
+      controllerEntry.key === controllerKey
+    ) {
+      return;
+    }
+    controllerEntry.controller.dispose({ returnToSlide: true });
+    setControllerEntry(createControllerEntry());
+  }, [capturePort, controllerEntry, controllerKey]);
 
   useEffect(() => {
     controller.handleExternalOutputMode(outputMode);
   }, [controller, outputMode]);
 
   useEffect(() => {
-    const stopForPageExit = () => controller.dispose();
+    const stopForPageExit = () => controller.dispose({ returnToSlide: true });
     window.addEventListener("pagehide", stopForPageExit);
     return () => {
       window.removeEventListener("pagehide", stopForPageExit);
-      controller.dispose();
+      controller.dispose({ returnToSlide: true });
     };
   }, [controller]);
 

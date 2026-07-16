@@ -56,7 +56,26 @@ describe("AudienceOutputControls", () => {
     );
 
     expect(html).toContain("청중 화면을 먼저 연결해주세요");
+    expect(html).toContain('disabled=""');
     expect(html).not.toContain("speakerNotes");
     expect(html).not.toContain("transcript");
+  });
+
+  it("offers the latest slide return while the audience output is black", () => {
+    const html = renderToStaticMarkup(
+      <AudienceOutputControls
+        connected={true}
+        error=""
+        onReturnToSlide={vi.fn()}
+        onShowBlack={vi.fn()}
+        onStartMonitor={async () => true}
+        onStartTabOrWindow={async () => true}
+        outputMode="black"
+        status="idle"
+      />,
+    );
+
+    expect(html).toContain("슬라이드로 돌아가기");
+    expect(html).toContain("청중 화면을 가렸습니다");
   });
 });

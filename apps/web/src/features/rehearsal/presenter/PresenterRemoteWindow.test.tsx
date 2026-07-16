@@ -9,6 +9,7 @@ import {
   getPresenterRemoteNextSentenceIndex,
   getPresenterRemoteTimingState,
   isPresenterRemoteOwnerStale,
+  reconcilePresenterRemoteOutputMode,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
 } from "./PresenterRemoteWindow";
@@ -413,6 +414,54 @@ describe("PresenterRemoteWindow", () => {
     expect(isPresenterRemoteOwnerStale(null, 6001)).toBe(false);
     expect(isPresenterRemoteOwnerStale(1000, 6000)).toBe(false);
     expect(isPresenterRemoteOwnerStale(1000, 6001)).toBe(true);
+  });
+
+  it("keeps a local audience output command until the owner acknowledges it", () => {
+    const current = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      audienceOutputMode: "screen-share" as const,
+    };
+    const staleOwnerMessage = createPresenterStateMessage({
+      identity,
+      sentAt: 100,
+      state: {
+        ...current,
+        audienceOutputMode: "slide",
+        slideId: "slide_p0_2",
+        slideIndex: 1,
+      },
+      triggerAnimationIds: [],
+    });
+
+    const waiting = reconcilePresenterRemoteOutputMode({
+      current,
+      message: staleOwnerMessage,
+      now: 1500,
+      pending: { mode: "screen-share", sentAt: 1000 },
+    });
+    expect(waiting.state).toMatchObject({
+      audienceOutputMode: "screen-share",
+      slideId: "slide_p0_2",
+      slideIndex: 1,
+    });
+    expect(waiting.pending?.mode).toBe("screen-share");
+
+    const acknowledged = reconcilePresenterRemoteOutputMode({
+      current: waiting.state,
+      message: createPresenterStateMessage({
+        identity,
+        sentAt: 1600,
+        state: {
+          ...waiting.state,
+          audienceOutputMode: "screen-share",
+        },
+        triggerAnimationIds: [],
+      }),
+      now: 1600,
+      pending: waiting.pending,
+    });
+    expect(acknowledged.pending).toBeNull();
+    expect(acknowledged.state.audienceOutputMode).toBe("screen-share");
   });
 
   it("applies presenter state messages without replacing presenter-only deck data", () => {

@@ -44,6 +44,11 @@ type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
+type PendingAudienceOutputMode = {
+  mode: PresenterSlideshowState["audienceOutputMode"];
+  sentAt: number;
+};
+
 export type PresenterRemoteChannelFactory = (
   channelName: string,
 ) => ChannelLike;
@@ -66,6 +71,9 @@ export function PresenterRemoteWindow(props: {
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
   const lastOwnerSeenAtRef = useRef<number | null>(null);
+  const pendingAudienceOutputModeRef = useRef<PendingAudienceOutputMode | null>(
+    null,
+  );
 
   useEffect(() => {
     let channel: ChannelLike;
@@ -88,7 +96,16 @@ export function PresenterRemoteWindow(props: {
 
       lastOwnerSeenAtRef.current = Date.now();
       setOwnerConnected(true);
-      setState((current) => applyPresenterRemoteMessage(current, message));
+      setState((current) => {
+        const reconciled = reconcilePresenterRemoteOutputMode({
+          current,
+          message,
+          now: Date.now(),
+          pending: pendingAudienceOutputModeRef.current,
+        });
+        pendingAudienceOutputModeRef.current = reconciled.pending;
+        return reconciled.state;
+      });
     };
     channel.postMessage(createPresenterRemoteReadyMessage(identity));
     const heartbeatTimer = window.setInterval(() => {
@@ -135,6 +152,7 @@ export function PresenterRemoteWindow(props: {
   };
 
   const updateAudienceOutputMode = (mode: PresenterSlideshowState["audienceOutputMode"]) => {
+    pendingAudienceOutputModeRef.current = { mode, sentAt: Date.now() };
     setState((current) => ({ ...current, audienceOutputMode: mode }));
     sendCommand({ action: "set-audience-output", mode });
   };
@@ -574,6 +592,32 @@ export function isPresenterRemoteOwnerStale(
   staleAfterMs = 5000,
 ) {
   return lastOwnerSeenAt !== null && now - lastOwnerSeenAt > staleAfterMs;
+}
+
+export function reconcilePresenterRemoteOutputMode(args: {
+  current: PresenterSlideshowState;
+  message: PresentationChannelMessage;
+  now: number;
+  pending: PendingAudienceOutputMode | null;
+}): {
+  pending: PendingAudienceOutputMode | null;
+  state: PresenterSlideshowState;
+} {
+  const next = applyPresenterRemoteMessage(args.current, args.message);
+  if (!args.pending) return { pending: null, state: next };
+  if (next.audienceOutputMode === args.pending.mode) {
+    return { pending: null, state: next };
+  }
+  if (args.now - args.pending.sentAt <= 2000) {
+    return {
+      pending: args.pending,
+      state: {
+        ...next,
+        audienceOutputMode: args.current.audienceOutputMode,
+      },
+    };
+  }
+  return { pending: null, state: next };
 }
 
 function createBroadcastChannel(channelName: string): ChannelLike {

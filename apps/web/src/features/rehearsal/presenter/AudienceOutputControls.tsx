@@ -1,4 +1,9 @@
-import { IconAlertTriangle, IconEyeOff, IconShare3, IconX } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconEyeOff,
+  IconShare3,
+  IconX,
+} from "@tabler/icons-react";
 import { useState } from "react";
 import type { AudienceOutputMode } from "./presenterStateStore";
 import type { AudienceScreenShareStatus } from "./useAudienceScreenShare";
@@ -16,7 +21,8 @@ export function AudienceOutputControls(props: {
   const [isAdvancedOpen, setAdvancedOpen] = useState(false);
   const [isMonitorWarningOpen, setMonitorWarningOpen] = useState(false);
   const [monitorWarningConfirmed, setMonitorWarningConfirmed] = useState(false);
-  const isSharing = props.outputMode === "screen-share";
+  const isAwayFromSlide = props.outputMode !== "slide";
+  const controlsDisabled = !props.connected || props.status === "selecting";
 
   const startMonitor = () => {
     const startResult = props.onStartMonitor();
@@ -28,7 +34,7 @@ export function AudienceOutputControls(props: {
   return (
     <section className="audience-output-controls" aria-label="청중 화면 전환">
       <div className="audience-output-controls-row">
-        {isSharing ? (
+        {isAwayFromSlide ? (
           <button type="button" onClick={props.onReturnToSlide}>
             <IconX size={16} />
             슬라이드로 돌아가기
@@ -36,6 +42,7 @@ export function AudienceOutputControls(props: {
         ) : (
           <button
             className="audience-output-share-primary"
+            disabled={controlsDisabled}
             type="button"
             onClick={() => {
               const startResult = props.onStartTabOrWindow();
@@ -46,12 +53,17 @@ export function AudienceOutputControls(props: {
             웹·실습 보여주기
           </button>
         )}
-        <button type="button" onClick={props.onShowBlack}>
+        <button
+          disabled={controlsDisabled}
+          type="button"
+          onClick={props.onShowBlack}
+        >
           <IconEyeOff size={16} />
           청중 화면 가리기
         </button>
         <button
           aria-expanded={isAdvancedOpen}
+          disabled={controlsDisabled}
           type="button"
           onClick={() => setAdvancedOpen((current) => !current)}
         >
@@ -61,7 +73,11 @@ export function AudienceOutputControls(props: {
 
       {isAdvancedOpen ? (
         <div className="audience-output-advanced">
-          <button type="button" onClick={() => setMonitorWarningOpen(true)}>
+          <button
+            disabled={controlsDisabled}
+            type="button"
+            onClick={() => setMonitorWarningOpen(true)}
+          >
             전체 화면 공유
           </button>
           <small>전체 모니터 공유는 개인정보가 노출될 수 있습니다.</small>
@@ -81,7 +97,8 @@ export function AudienceOutputControls(props: {
           <IconAlertTriangle aria-hidden="true" size={22} />
           <h2>전체 화면을 공유하시겠습니까?</h2>
           <p>
-            발표자 노트, 시스템 알림, 브라우저 탭과 개인정보가 청중에게
+            발표자 노트, 시스템 알림, 브라우저 탭과 개인정보가 청중에게 보일 수
+            있습니다. Orbit 발표자 또는 청중 화면을 선택하면 화면이 반복되어
             보일 수 있습니다.
           </p>
           <label>
