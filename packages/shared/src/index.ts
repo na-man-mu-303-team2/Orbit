@@ -48,6 +48,7 @@ export * from "./presentation/presentation.schema";
 export * from "./projects/project.schema";
 export * from "./rehearsals/live-stt.schema";
 export * from "./rehearsals/realtime-transcription.schema";
+export * from "./rehearsals/rehearsal-audio-analysis.schema";
 export * from "./rehearsals/rehearsal-evaluation-snapshot";
 export * from "./rehearsals/rehearsal-semantic-evidence.schema";
 export * from "./rehearsals/rehearsal-transcript-artifact.schema";

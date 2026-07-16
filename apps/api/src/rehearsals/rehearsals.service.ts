@@ -17,6 +17,7 @@ import {
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  rehearsalAudioPlaybackUrlResponseSchema,
   rehearsalFocusProfileSchema,
   rehearsalReportSchema,
   retryRehearsalSemanticEvaluationResponseSchema,
@@ -29,6 +30,7 @@ import {
 import {
   BadRequestException,
   ConflictException,
+  GoneException,
   Inject,
   Injectable,
   NotFoundException,
@@ -65,6 +67,9 @@ export type RehearsalSemanticEvaluationEnqueueJob = (
 export const REHEARSAL_STT_ENQUEUE_JOB = "REHEARSAL_STT_ENQUEUE_JOB";
 export const REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB =
   "REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB";
+
+const rehearsalAudioRetentionMs = 14 * 24 * 60 * 60 * 1000;
+const playbackUrlMaximumExpiresInSeconds = 15 * 60;
 
 @Injectable()
 export class RehearsalsService {
@@ -198,6 +203,7 @@ export class RehearsalsService {
         metaJson: {},
         transcriptRetained: false,
         rawAudioDeletedAt: null,
+        rawAudioDeleteDeadlineAt: null,
         createdAt: now,
         updatedAt: now
       })
@@ -393,7 +399,14 @@ export class RehearsalsService {
     }, "rehearsal-audio");
     await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
 
-    const claimedRun = await this.claimAudioUpload(run, request.fileId);
+    const rawAudioDeleteDeadlineAt = new Date(
+      Date.now() + rehearsalAudioRetentionMs,
+    );
+    const claimedRun = await this.claimAudioUpload(
+      run,
+      request.fileId,
+      rawAudioDeleteDeadlineAt,
+    );
     if (!claimedRun) {
       throw new BadRequestException("Rehearsal run has no pending audio upload.");
     }
@@ -565,6 +578,76 @@ export class RehearsalsService {
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
       report: responseReport
+    });
+  }
+
+  async getAudioPlaybackUrl(runId: string) {
+    const run = await this.getRunEntity(runId);
+    if (run.status !== "succeeded") {
+      throw new ConflictException({
+        code: "REHEARSAL_AUDIO_NOT_READY",
+        message: "Rehearsal audio playback is available after processing succeeds.",
+      });
+    }
+
+    const retentionExpiresAt = run.rawAudioDeleteDeadlineAt;
+    const now = Date.now();
+    if (
+      !run.audioFileId ||
+      run.rawAudioDeletedAt ||
+      !retentionExpiresAt ||
+      retentionExpiresAt.getTime() <= now
+    ) {
+      this.logger.warn(
+        {
+          event: "rehearsal.audio_playback.unavailable",
+          projectId: run.projectId,
+          runId: run.runId,
+          retentionExpiresAt: retentionExpiresAt?.toISOString() ?? null,
+        },
+        "Rehearsal audio playback is unavailable.",
+      );
+      throw new GoneException({
+        code: "REHEARSAL_AUDIO_EXPIRED",
+        message: "Rehearsal audio is no longer available.",
+      });
+    }
+
+    const remainingSeconds = Math.floor(
+      (retentionExpiresAt.getTime() - now) / 1000,
+    );
+    if (remainingSeconds < 1) {
+      throw new GoneException({
+        code: "REHEARSAL_AUDIO_EXPIRED",
+        message: "Rehearsal audio is no longer available.",
+      });
+    }
+    const expiresInSeconds = Math.min(
+      playbackUrlMaximumExpiresInSeconds,
+      remainingSeconds,
+    );
+    const playbackUrl = await this.filesService.createPrivateAudioReadUrl(
+      run.projectId,
+      run.audioFileId,
+      "rehearsal-audio",
+      expiresInSeconds,
+    );
+    const expiresAt = new Date(now + expiresInSeconds * 1000);
+
+    this.logger.info(
+      {
+        event: "rehearsal.audio_playback_url.created",
+        projectId: run.projectId,
+        runId: run.runId,
+        retentionExpiresAt: retentionExpiresAt.toISOString(),
+      },
+      "Rehearsal audio playback URL created.",
+    );
+
+    return rehearsalAudioPlaybackUrlResponseSchema.parse({
+      playbackUrl,
+      expiresAt: expiresAt.toISOString(),
+      retentionExpiresAt: retentionExpiresAt.toISOString(),
     });
   }
 
@@ -763,7 +846,11 @@ export class RehearsalsService {
     });
   }
 
-  private async claimAudioUpload(run: RehearsalRunEntity, fileId: string) {
+  private async claimAudioUpload(
+    run: RehearsalRunEntity,
+    fileId: string,
+    rawAudioDeleteDeadlineAt: Date,
+  ) {
     const result = await this.rehearsalRuns.update(
       {
         runId: run.runId,
@@ -774,6 +861,7 @@ export class RehearsalsService {
       {
         status: "processing",
         error: null,
+        rawAudioDeleteDeadlineAt,
         updatedAt: new Date()
       }
     );
@@ -841,6 +929,8 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,
+    rawAudioDeleteDeadlineAt:
+      run.rawAudioDeleteDeadlineAt?.toISOString() ?? null,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString()
   };

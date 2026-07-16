@@ -60,7 +60,10 @@ import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.pro
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
-import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
+import {
+  enqueueExpiredRehearsalAudioDeletions,
+  reconcileStorageDeletionOutbox,
+} from "./storage-deletion-reconciler";
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
 import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
@@ -154,7 +157,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     const storage = workerStorage();
     const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
-      void reconcileStorageDeletionOutbox(this.dataSource, storage).catch(
+      void (async () => {
+        await enqueueExpiredRehearsalAudioDeletions(this.dataSource);
+        await reconcileStorageDeletionOutbox(this.dataSource, storage);
+      })().catch(
         (error) => {
           this.logger.error(
             {
@@ -217,6 +223,35 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
               this.logger[level](
                 event,
                 "Rehearsal semantic evaluation updated.",
+              );
+            },
+            (event) => {
+              const { segments, ...summary } = event;
+              const level =
+                event.measurementState === "measured" ? "info" : "warn";
+              this.logger[level](
+                summary,
+                "Rehearsal silence analysis completed.",
+              );
+              if (this.config.APP_ENV === "local" && segments.length > 0) {
+                this.logger.debug(
+                  {
+                    event: "rehearsal.silence_analysis.segments",
+                    runId: event.runId,
+                    jobId: event.jobId,
+                    segments,
+                  },
+                  "Rehearsal silence segments detected.",
+                );
+              }
+            },
+            (event) => {
+              const level = event.event.endsWith(".unmeasured")
+                ? "warn"
+                : "info";
+              this.logger[level](
+                event,
+                "Rehearsal slide speaking rate analyzed.",
               );
             },
             (event) => {
