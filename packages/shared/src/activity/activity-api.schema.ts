@@ -60,6 +60,10 @@ export const moderateActivityTextRequestSchema = z
     { message: "moderationStatus or answered is required" }
   );
 
+export const moderateActivityTextResponseSchema = z
+  .object({ result: activityPresenterResultSchema })
+  .strict();
+
 export const getActivityPresenterResultResponseSchema = z
   .object({ result: activityPresenterResultSchema })
   .strict();

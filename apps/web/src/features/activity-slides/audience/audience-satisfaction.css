@@ -84,7 +84,8 @@
   gap: 18px;
 }
 
-.activity-rating-field {
+.activity-rating-field,
+.activity-choice-field {
   border: 1px solid var(--orbit-ds-border);
   border-radius: var(--orbit-ds-radius-control);
   display: grid;
@@ -95,6 +96,7 @@
 }
 
 .activity-rating-field legend,
+.activity-choice-field legend,
 .activity-text-question > span {
   align-items: center;
   color: var(--orbit-ds-ink);
@@ -107,6 +109,7 @@
 }
 
 .activity-rating-field legend > span,
+.activity-choice-field legend > span,
 .activity-text-question > span > span {
   align-items: center;
   background: var(--orbit-ds-lime);
@@ -119,6 +122,7 @@
 }
 
 .activity-rating-field em,
+.activity-choice-field em,
 .activity-text-question em {
   color: var(--orbit-ds-danger);
   font-size: 11px;
@@ -175,7 +179,53 @@
   justify-content: space-between;
 }
 
+.activity-choice-field > p {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+  margin: -4px 0 0;
+}
+
+.activity-choice-options {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-choice-options label {
+  cursor: pointer;
+  min-height: 48px;
+  position: relative;
+}
+
+.activity-choice-options input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.activity-choice-options span {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border-strong);
+  border-radius: 14px;
+  display: flex;
+  font-weight: 700;
+  min-height: 48px;
+  padding: 10px 14px;
+}
+
+.activity-choice-options input:focus-visible + span {
+  box-shadow: var(--orbit-ds-focus);
+}
+
+.activity-choice-options input:checked + span {
+  background: var(--orbit-ds-lilac-soft);
+  border-color: var(--orbit-ds-lilac-strong);
+  color: var(--orbit-ds-lilac-strong);
+}
+
 .activity-rating-field > small,
+.activity-choice-field > small,
 .activity-form-error {
   color: var(--orbit-ds-danger);
   font-size: var(--orbit-ds-type-caption);

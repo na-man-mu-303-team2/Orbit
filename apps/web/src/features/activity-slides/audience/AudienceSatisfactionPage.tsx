@@ -385,6 +385,71 @@ export function AudienceSatisfactionForm(props: {
               </OrbitField>
             );
           }
+          if (question.type === "single-choice") {
+            return (
+              <fieldset
+                aria-describedby={errors[question.questionId] ? errorId : undefined}
+                className="activity-choice-field"
+                key={question.questionId}
+              >
+                <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
+                <div className="activity-choice-options">
+                  {question.options.map((option) => (
+                    <label key={option.optionId}>
+                      <input
+                        checked={props.draft.singleChoice[question.questionId] === option.optionId}
+                        name={question.questionId}
+                        type="radio"
+                        onChange={() => props.onChange({
+                          ...props.draft,
+                          singleChoice: {
+                            ...props.draft.singleChoice,
+                            [question.questionId]: option.optionId
+                          }
+                        })}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {errors[question.questionId] ? <small id={errorId} role="alert">{errors[question.questionId]}</small> : null}
+              </fieldset>
+            );
+          }
+          if (question.type === "multiple-choice") {
+            const selected = props.draft.multipleChoice[question.questionId] ?? [];
+            return (
+              <fieldset
+                aria-describedby={errors[question.questionId] ? errorId : undefined}
+                className="activity-choice-field"
+                key={question.questionId}
+              >
+                <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
+                {question.maxSelections ? <p>최대 {question.maxSelections}개 선택</p> : null}
+                <div className="activity-choice-options">
+                  {question.options.map((option) => (
+                    <label key={option.optionId}>
+                      <input
+                        checked={selected.includes(option.optionId)}
+                        type="checkbox"
+                        onChange={(event) => props.onChange({
+                          ...props.draft,
+                          multipleChoice: {
+                            ...props.draft.multipleChoice,
+                            [question.questionId]: event.currentTarget.checked
+                              ? [...selected, option.optionId]
+                              : selected.filter((optionId) => optionId !== option.optionId)
+                          }
+                        })}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {errors[question.questionId] ? <small id={errorId} role="alert">{errors[question.questionId]}</small> : null}
+              </fieldset>
+            );
+          }
           return null;
         })}
       </div>

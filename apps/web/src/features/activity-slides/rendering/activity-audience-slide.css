@@ -112,6 +112,40 @@
 .activity-public-result-grid article > strong { font-size: 64px; letter-spacing: -0.05em; }
 .activity-public-result-grid small { color: #73766c; font-size: 22px; margin-left: 8px; }
 
+.activity-public-choice-chart {
+  display: grid;
+  gap: 13px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-public-choice-chart li > span {
+  display: flex;
+  font-size: 20px;
+  justify-content: space-between;
+}
+
+.activity-public-choice-chart em {
+  font-style: normal;
+  font-weight: 900;
+}
+
+.activity-public-choice-chart li > i {
+  background: #eceee2;
+  border-radius: 999px;
+  display: block;
+  height: 14px;
+  overflow: hidden;
+}
+
+.activity-public-choice-chart li > i > span {
+  background: #8b5cf6;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
 .activity-public-text-list {
   display: grid;
   gap: 14px;

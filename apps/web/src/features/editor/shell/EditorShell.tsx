@@ -1470,6 +1470,8 @@ export function EditorShell(props: { projectId?: string }) {
           designProperties={
             currentSlide?.kind === "activity" ? (
               <ActivitySlideInspector
+                deckId={deck.deckId}
+                projectId={deck.projectId}
                 slide={currentSlide}
                 onChange={(activity) => {
                   commitPatch((currentDeck) =>

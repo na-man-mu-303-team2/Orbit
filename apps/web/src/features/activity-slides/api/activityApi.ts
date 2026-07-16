@@ -8,6 +8,7 @@ import {
   getAudiencePresentationPublicInfoResponseSchema,
   getCurrentPresentationSessionResponseSchema,
   listPresentationSessionsResponseSchema,
+  moderateActivityTextResponseSchema,
   presentationSessionResponseSchema,
   presentationSessionWithAudienceUrlResponseSchema,
   supersedeActivityRunResponseSchema,
@@ -17,6 +18,7 @@ import {
 import type {
   CreatePresentationSessionRequest,
   JoinAudiencePresentationRequest,
+  ModerateActivityTextRequest,
   SupersedeActivityRunRequest,
   UpdateActivityRunStatusRequest,
   UpsertActivityResponseRequest
@@ -93,6 +95,18 @@ export const activityApi = {
       presenterActivityUrl(projectId, sessionId, `activity-runs/${segment(runId)}/public-results`),
       undefined,
       getActivityPublicResultResponseSchema
+    );
+  },
+  moderateTextEntry(
+    projectId: string,
+    sessionId: string,
+    entryId: string,
+    input: ModerateActivityTextRequest
+  ) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, `text-entries/${segment(entryId)}`),
+      jsonRequest("PATCH", input),
+      moderateActivityTextResponseSchema
     );
   },
   getAudiencePublicInfo(sessionId: string) {

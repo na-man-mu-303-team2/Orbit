@@ -68,4 +68,47 @@ describe("ActivityAudienceSlideRenderer", () => {
       "/audience/session_1/a/activity_1"
     );
   });
+
+  it("reveals poll ratios only from the public result projection", () => {
+    const pollSlide = createActivitySlide(createDemoDeck(), "poll");
+    const question = pollSlide.activity.questions[0]!;
+    if (question.type !== "single-choice") throw new Error("poll fixture");
+    const pollResult: ActivityPublicResult = {
+      activityRunId: "activity_run_poll",
+      activityId: pollSlide.activity.activityId,
+      status: "results",
+      revision: 4,
+      responseCount: 2,
+      aggregates: [{
+        questionId: question.questionId,
+        type: question.type,
+        responseCount: 2,
+        average: null,
+        choices: question.options.map((option, index) => ({
+          optionId: option.optionId,
+          count: index === 0 ? 2 : 0,
+          ratio: index === 0 ? 1 : 0
+        }))
+      }],
+      approvedTextEntries: []
+    };
+    const revealed = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_poll"
+        publicResult={pollResult}
+        status="results"
+      />
+    );
+    const hidden = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_poll"
+        publicResult={pollResult}
+        status="closed"
+      />
+    );
+    expect(revealed).toContain("100%");
+    expect(hidden).not.toContain("100%");
+  });
 });

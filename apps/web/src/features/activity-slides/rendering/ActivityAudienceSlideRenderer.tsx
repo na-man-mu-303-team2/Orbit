@@ -180,6 +180,19 @@ function ActivityPublicResults(props: {
                   {aggregate.average === null ? "–" : aggregate.average.toFixed(1)}
                   <small>/ 5</small>
                 </strong>
+              ) : question.type === "single-choice" || question.type === "multiple-choice" ? (
+                <ul className="activity-public-choice-chart">
+                  {question.options.map((option) => {
+                    const choice = aggregate.choices.find((candidate) => candidate.optionId === option.optionId);
+                    const ratio = choice?.ratio ?? 0;
+                    return (
+                      <li key={option.optionId}>
+                        <span><b>{option.label}</b><em>{Math.round(ratio * 100)}%</em></span>
+                        <i><span style={{ width: `${ratio * 100}%` }} /></i>
+                      </li>
+                    );
+                  })}
+                </ul>
               ) : (
                 <strong>{aggregate.responseCount}<small>개 의견</small></strong>
               )}

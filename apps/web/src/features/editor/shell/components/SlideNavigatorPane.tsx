@@ -135,19 +135,26 @@ export function SlideNavigatorPane(props: {
             </button>
             {isAddMenuOpen ? (
               <div className="add-slide-menu" role="menu">
-                <button
-                  disabled={!canAddActivity}
-                  role="menuitem"
-                  title={canAddActivity ? "만족도 조사 추가" : "참여 장표는 16:9 덱에서 사용할 수 있습니다."}
-                  type="button"
-                  onClick={() => {
-                    props.onAddActivitySlide("satisfaction");
-                    setIsAddMenuOpen(false);
-                  }}
-                >
-                  <strong>만족도 조사</strong>
-                  <span>{canAddActivity ? "5점 척도와 주관식" : "와이드 16:9 필요"}</span>
-                </button>
+                {([
+                  ["pre-question", "사전 질문", "발표 전 질문 받기"],
+                  ["poll", "실시간 투표", "단일 선택 투표"],
+                  ["satisfaction", "만족도 조사", "척도·선택·주관식 설문"]
+                ] as const).map(([template, title, description]) => (
+                  <button
+                    disabled={!canAddActivity}
+                    key={template}
+                    role="menuitem"
+                    title={canAddActivity ? `${title} 추가` : "참여 장표는 16:9 덱에서 사용할 수 있습니다."}
+                    type="button"
+                    onClick={() => {
+                      props.onAddActivitySlide(template);
+                      setIsAddMenuOpen(false);
+                    }}
+                  >
+                    <strong>{title}</strong>
+                    <span>{canAddActivity ? description : "와이드 16:9 필요"}</span>
+                  </button>
+                ))}
               </div>
             ) : null}
           </div>

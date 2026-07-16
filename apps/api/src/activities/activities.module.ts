@@ -14,6 +14,8 @@ import { ActivityResultsRepository } from "./activity-results.repository";
 import { ActivityResultsService } from "./activity-results.service";
 import { ActivityRealtimeGateway } from "./activity-realtime.gateway";
 import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
+import { ActivityTextModerationRepository } from "./activity-text-moderation.repository";
+import { ActivityTextModerationService } from "./activity-text-moderation.service";
 
 @Module({
   imports: [AuthModule, ProjectsModule, PresentationSessionsModule],
@@ -29,6 +31,8 @@ import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
     ActivityResponsesService,
     ActivityResultsRepository,
     ActivityResultsService,
+    ActivityTextModerationRepository,
+    ActivityTextModerationService,
     ActivityRealtimePublisher,
     ActivityRealtimeGateway
   ],
