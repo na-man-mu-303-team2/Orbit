@@ -74,6 +74,10 @@ class ContentPlanningStageResult(StageModel):
 class DesignPlanningStageInput(StageModel):
     raw_input: RawInput = Field(alias="rawInput")
     content_plan: ContentPlan = Field(alias="contentPlan")
+    preserve_approved_content: bool = Field(
+        default=False,
+        alias="preserveApprovedContent",
+    )
 
 
 class DesignPlanningStageResult(StageModel):
@@ -156,6 +160,7 @@ def run_design_planning_stage(
         designPlan=plan_design(
             stage_input.raw_input,
             stage_input.content_plan.slide_plans,
+            preserve_approved_content=stage_input.preserve_approved_content,
             client=client,
             model=model,
             api_key=api_key,

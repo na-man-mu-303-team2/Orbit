@@ -164,8 +164,13 @@ export function contentPlanningStageInput(
 
 export function designPlanningStageInput(
   content: ContentPlanningArtifactPayload,
+  preserveApprovedContent = false,
 ) {
-  return { rawInput: content.rawInput, contentPlan: content.contentPlan };
+  return {
+    rawInput: content.rawInput,
+    contentPlan: content.contentPlan,
+    preserveApprovedContent,
+  };
 }
 
 export function layoutCompileStageInput(

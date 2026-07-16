@@ -219,6 +219,9 @@ describe("processAiDeckPlanningStage", () => {
       if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
         return [artifactRow("content-planning", contentPayload)];
       }
+      if (compact.includes("FROM ai_deck_story_reviews")) {
+        return [{ approved: 1 }];
+      }
       if (compact.includes("SET status = 'failed', error_json")) {
         return [
           checkpointRow(
@@ -245,14 +248,18 @@ describe("processAiDeckPlanningStage", () => {
         "worker-a",
         message,
         {
-          fetchImpl: async () =>
-            jsonResponse(
+          fetchImpl: async (_input, init) => {
+            expect(JSON.parse(String(init?.body))).toMatchObject({
+              preserveApprovedContent: true,
+            });
+            return jsonResponse(
               {
                 detail:
                   "Art Director could not create a valid design plan. Please retry deck generation.",
               },
               503,
-            ),
+            );
+          },
           eventLogger,
         },
       ),

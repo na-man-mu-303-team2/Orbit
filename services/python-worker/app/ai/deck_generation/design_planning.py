@@ -686,15 +686,18 @@ def color_role_distance(left: str, right: str) -> int:
 def apply_design_options(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
+    *,
+    preserve_approved_content: bool = False,
 ) -> list[SlidePlan]:
     for slide_plan in slide_plans:
         slide_plan.media_intent = media_intent_for_policy(
             slide_plan.media_intent,
             raw_input.design.media_policy,
         )
-    for slide_plan in slide_plans:
-        compact_dense_speaker_notes(slide_plan)
-    ensure_profile_closing_action(raw_input, slide_plans)
+    if not preserve_approved_content:
+        for slide_plan in slide_plans:
+            compact_dense_speaker_notes(slide_plan)
+        ensure_profile_closing_action(raw_input, slide_plans)
     apply_design_pack_media_plan(raw_input, slide_plans)
 
     return slide_plans
@@ -1656,11 +1659,16 @@ def plan_design(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
     *,
+    preserve_approved_content: bool = False,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
 ) -> DesignPlan:
-    slide_plans = apply_design_options(raw_input, slide_plans)
+    slide_plans = apply_design_options(
+        raw_input,
+        slide_plans,
+        preserve_approved_content=preserve_approved_content,
+    )
     theme = direct_design(raw_input, slide_plans)
     theme = apply_font_override(theme, raw_input.design.font_override)
     try:

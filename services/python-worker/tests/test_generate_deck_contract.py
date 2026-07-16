@@ -1553,6 +1553,51 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     assert any("승인" in item.text for item in slide.content_items)
 
 
+def test_design_pack_preserves_approved_story_content() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Executive decision",
+            design={"profile": "executive-report"},
+            brief={"successCriteria": "Approve the next-quarter budget."},
+        )
+    )
+    original_notes = (
+        "This approved script must remain unchanged after Story Review. "
+        "It contains enough detail to exceed the automatic density target. "
+        "The user explicitly chose this wording before approving generation."
+    )
+    slide = SlidePlan(
+        order=5,
+        slide_type="summary",
+        title="Approved closing title",
+        message="Approved closing message",
+        speaker_notes=original_notes,
+        keywords=["approval"],
+        evidence=[],
+        target_speaker_notes_chars=40,
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="approved-item",
+                text="Approved supporting content",
+            )
+        ],
+    )
+
+    apply_design_options(
+        raw_input,
+        [slide],
+        preserve_approved_content=True,
+    )
+
+    assert slide.title == "Approved closing title"
+    assert slide.message == "Approved closing message"
+    assert slide.speaker_notes == original_notes
+    assert [item.text for item in slide.content_items] == [
+        "Approved supporting content"
+    ]
+
+
 def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(

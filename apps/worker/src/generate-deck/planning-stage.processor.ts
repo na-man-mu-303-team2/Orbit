@@ -323,6 +323,7 @@ async function buildStageInput(
       );
       return designPlanningStageInput(
         contentPlanningArtifactPayloadSchema.parse(artifact.payload),
+        await hasApprovedStoryReview(dataSource, message),
       );
     }
     case "layout-compile": {
@@ -336,6 +337,26 @@ async function buildStageInput(
       );
     }
   }
+}
+
+async function hasApprovedStoryReview(
+  dataSource: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+): Promise<boolean> {
+  return Boolean(
+    firstQueryRow(
+      await dataSource.query(
+        `
+          SELECT 1
+          FROM ai_deck_story_reviews
+          WHERE pipeline_job_id = $1
+            AND project_id = $2
+            AND status = 'approved'
+        `,
+        [message.pipelineJobId, message.projectId],
+      ),
+    ),
+  );
 }
 
 async function loadRegenerationContext(
