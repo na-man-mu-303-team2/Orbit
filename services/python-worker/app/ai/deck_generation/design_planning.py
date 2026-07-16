@@ -1690,6 +1690,7 @@ def plan_design(
             force_dark=design_pack_locks_dark_canvas(raw_input),
             media_policy=raw_input.design.media_policy,
             media_budget=4,
+            preserve_slide_types=preserve_approved_content,
         )
     except (CompositionCompileError, DesignProgramError) as error:
         raise DeckContentGenerationError(str(error)) from error
