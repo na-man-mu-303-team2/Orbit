@@ -2,8 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  hasUnsavedStoryScripts,
   moveStorySlideOrder,
   StoryPlanReviewView,
+  storyReviewJobFailureMessage,
   storyPlanPath,
   storyPlanRegenerationPollingKey,
 } from "./StoryPlanReviewPage";
@@ -114,6 +116,33 @@ describe("StoryPlanReviewView", () => {
     const openingTag = html.slice(button, html.indexOf(">", button) + 1);
 
     expect(openingTag).not.toContain("disabled");
+  });
+
+  it("treats only changed script drafts as unsaved", () => {
+    const slides = response.plan.slides;
+
+    expect(hasUnsavedStoryScripts(slides, {})).toBe(false);
+    expect(
+      hasUnsavedStoryScripts(slides, { 1: slides[0]!.speakerNotes }),
+    ).toBe(false);
+    expect(hasUnsavedStoryScripts(slides, { 1: "수정한 대본" })).toBe(true);
+  });
+
+  it("explains a final generation failure caused by the daily image budget", () => {
+    expect(
+      storyReviewJobFailureMessage({
+        error: {
+          code: "GENERATE_DECK_QUALITY_GATE_FAILED",
+          message: "Deck quality gate failed.",
+        },
+        message: "AI PPT generation failed.",
+        result: {
+          warnings: [
+            "Daily image asset budget retained remaining placeholders.",
+          ],
+        },
+      }),
+    ).toContain("AI 이미지 일일 생성 한도");
   });
 
   it("moves the dragged slide to the dropped position", () => {

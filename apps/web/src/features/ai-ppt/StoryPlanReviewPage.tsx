@@ -1,5 +1,6 @@
 import {
   storyPlanReviewResponseSchema,
+  type Job,
   type StoryPlanReviewResponse,
 } from "@orbit/shared";
 import {
@@ -12,7 +13,7 @@ import {
   IconInfoCircle,
   IconRefresh,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   OrbitButton,
   OrbitDialog,
@@ -28,6 +29,29 @@ type StorySlide = StoryPlan["slides"][number];
 type StoryPlanEdit =
   | { kind: "reorder"; orders: number[] }
   | { kind: "speaker-notes"; order: number; speakerNotes: string };
+
+const DAILY_IMAGE_BUDGET_WARNING =
+  "Daily image asset budget retained remaining placeholders.";
+
+export function hasUnsavedStoryScripts(
+  slides: ReadonlyArray<Pick<StorySlide, "order" | "speakerNotes">>,
+  drafts: Readonly<Record<number, string>>,
+) {
+  return slides.some((slide) => {
+    const draft = drafts[slide.order];
+    return draft !== undefined && draft !== slide.speakerNotes;
+  });
+}
+
+export function storyReviewJobFailureMessage(
+  job: Pick<Job, "error" | "message" | "result">,
+) {
+  const warnings = job.result?.warnings;
+  if (Array.isArray(warnings) && warnings.includes(DAILY_IMAGE_BUDGET_WARNING)) {
+    return "AI 이미지 일일 생성 한도를 모두 사용했습니다. 한도가 초기화된 후 다시 시도해 주세요.";
+  }
+  return job.error?.message || job.message || "AI PPT를 생성하지 못했습니다.";
+}
 
 export function storyPlanRegenerationPollingKey(
   response: StoryPlanReviewResponse | null,
@@ -54,6 +78,7 @@ export function StoryPlanReviewPage(props: {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scriptDrafts, setScriptDrafts] = useState<Record<number, string>>({});
+  const mutationInFlight = useRef(false);
   const regenerationPollingKey = storyPlanRegenerationPollingKey(response);
 
   useEffect(() => {
@@ -72,7 +97,7 @@ export function StoryPlanReviewPage(props: {
           if (!cancelled && job.status === "succeeded") {
             navigate(`/project/${encodeURIComponent(next.projectId)}`);
           } else if (!cancelled) {
-            setError(job.error?.message || job.message);
+            setError(storyReviewJobFailureMessage(job));
           }
         }
       } catch (cause) {
@@ -93,22 +118,19 @@ export function StoryPlanReviewPage(props: {
   }, [props.jobId, props.projectId, regenerationPollingKey]);
 
   useEffect(() => {
-    const slides = response?.plan?.slides ?? [];
-    setScriptDrafts(
-      Object.fromEntries(slides.map((slide) => [slide.order, slide.speakerNotes])),
-    );
+    setScriptDrafts({});
   }, [response?.plan?.revision]);
 
-  const hasUnsavedScripts =
-    response?.plan?.slides.some(
-      (slide) =>
-        (scriptDrafts[slide.order] ?? slide.speakerNotes) !== slide.speakerNotes,
-    ) ?? false;
+  const hasUnsavedScripts = hasUnsavedStoryScripts(
+    response?.plan?.slides ?? [],
+    scriptDrafts,
+  );
 
   async function editStoryPlan(
     edit: StoryPlanEdit,
   ) {
-    if (!response?.plan || busy) return;
+    if (!response?.plan || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true);
     setError("");
     try {
@@ -118,20 +140,23 @@ export function StoryPlanReviewPage(props: {
         "edit",
         { ...edit, expectedRevision: response.plan.revision },
       );
-      setScriptDrafts(
-        Object.fromEntries(
-          (next.plan?.slides ?? []).map((slide) => [
-            slide.order,
-            slide.speakerNotes,
-          ]),
-        ),
-      );
+      setScriptDrafts({});
       setResponse(next);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "구성 변경사항을 저장하지 못했습니다.",
       );
+      if (edit.kind === "reorder") {
+        const latest = await requestStoryPlan(props.projectId, props.jobId).catch(
+          () => null,
+        );
+        if (latest) {
+          setResponse(latest);
+          setScriptDrafts({});
+        }
+      }
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   }
@@ -161,11 +186,12 @@ export function StoryPlanReviewPage(props: {
   }
 
   async function mutate(action: "approve" | "cancel" | "regenerate") {
-    if (!response || busy) return;
+    if (!response || mutationInFlight.current) return;
     if (action !== "cancel" && (!response.plan || hasUnsavedScripts)) {
       setError("대본 변경사항을 먼저 저장해 주세요.");
       return;
     }
+    mutationInFlight.current = true;
     setBusy(true);
     setError("");
     try {
@@ -190,7 +216,7 @@ export function StoryPlanReviewPage(props: {
         if (job.status === "succeeded") {
           navigate(`/project/${encodeURIComponent(next.projectId)}`);
         } else {
-          setError(job.error?.message || job.message);
+          setError(storyReviewJobFailureMessage(job));
         }
       }
     } catch (cause) {
@@ -198,6 +224,7 @@ export function StoryPlanReviewPage(props: {
         cause instanceof Error ? cause.message : "요청을 처리하지 못했습니다.",
       );
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   }
