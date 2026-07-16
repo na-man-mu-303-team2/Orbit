@@ -95,7 +95,7 @@
 | --- | --- |
 | PostgreSQL + pgvector | AWS RDS PostgreSQL + pgvector |
 | Redis | AWS ElastiCache Redis/Valkey |
-| BullMQ + Redis | AWS SQS adapter |
+| BullMQ + Redis | BullMQ + AWS ElastiCache Redis/Valkey |
 | MinIO | AWS S3 |
 | FastAPI Python worker | ECS Fargate worker |
 | Socket.IO | ALB + ECS + Redis adapter |
