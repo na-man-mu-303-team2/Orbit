@@ -230,6 +230,59 @@ describe("FilesService", () => {
     ).resolves.toMatchObject({ fileId: "file_private_1" });
   });
 
+  it("hides rehearsal transcripts from generic asset boundaries", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_transcript_json",
+        projectId: demoProject.projectId,
+        storageKey:
+          "rehearsals/2026-07-16/project_demo_created/run_123/transcript.json",
+        originalName: "transcript.json",
+        mimeType: "application/json",
+        size: 1024,
+        url: "internal://rehearsal-transcript-json",
+        purpose: "rehearsal-transcript-json",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+        deletedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
+    await expect(
+      service.getUploadedAsset(demoProject.projectId, "file_transcript_json"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.completeUpload(demoProject.projectId, {
+        fileId: "file_transcript_json",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readUploadedAssetContent(
+        demoProject.projectId,
+        "file_transcript_json",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        "file_transcript_json",
+        "rehearsal-transcript-json",
+      ),
+    ).resolves.toMatchObject({ fileId: "file_transcript_json" });
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+  });
+
   it("uses the request origin for local upload proxy URLs", async () => {
     const { service } = createService(
       {
