@@ -46,6 +46,7 @@ import { CreateAiDeckExecutionArtifacts2026071602000 } from "./migrations/202607
 import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603000-AddRehearsalAudioRetention";
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
 import { ExpandPresentationSessionsForActivities2026071701000 } from "./migrations/2026071701000-ExpandPresentationSessionsForActivities";
+import { CreateActivityRuntime2026071702000 } from "./migrations/2026071702000-CreateActivityRuntime";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -103,7 +104,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckExecutionArtifacts2026071602000,
     AddRehearsalAudioRetention2026071603000,
     AddRehearsalTranscriptArtifacts2026071603000,
-    ExpandPresentationSessionsForActivities2026071701000
+    ExpandPresentationSessionsForActivities2026071701000,
+    CreateActivityRuntime2026071702000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
