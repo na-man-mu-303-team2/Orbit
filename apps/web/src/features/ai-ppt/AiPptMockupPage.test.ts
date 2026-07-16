@@ -917,6 +917,9 @@ describe("AI PPT wizard payload", () => {
     const failureIndex = submitGeneration.indexOf(
       'if (completed.status === "failed")'
     );
+    const advisoryIndex = submitGeneration.indexOf(
+      "const advisory = getAiPptVisualAdvisory(completed);"
+    );
     const navigateIndex = submitGeneration.indexOf(
       "navigateToProject(project.projectId);"
     );
@@ -927,6 +930,7 @@ describe("AI PPT wizard payload", () => {
     expect(payloadBuilderIndex).toBeGreaterThan(endpointIndex);
     expect(pollIndex).toBeGreaterThan(payloadBuilderIndex);
     expect(failureIndex).toBeGreaterThan(pollIndex);
-    expect(navigateIndex).toBeGreaterThan(failureIndex);
+    expect(advisoryIndex).toBeGreaterThan(failureIndex);
+    expect(navigateIndex).toBeGreaterThan(advisoryIndex);
   });
 });

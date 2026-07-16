@@ -373,8 +373,16 @@ describe("generateDeckDiagnosticsSchema", () => {
   });
 
   it("accepts advisory rendered visual QA with affected slides", () => {
-    expect(generateDeckDiagnosticsSchema.parse({ visualQaStatus: "advisory" })).toMatchObject({
-      visualQaStatus: "advisory"
+    expect(generateDeckDiagnosticsSchema.parse({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+    })).toMatchObject({
+      visualQaStatus: "advisory",
+      visualIssueCodes: ["BALANCE_WEAK"],
+      visualIssueSlideOrders: [1, 2, 3],
+      warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
     });
   });
 

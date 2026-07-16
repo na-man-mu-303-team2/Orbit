@@ -787,10 +787,9 @@ class GenerateDeckDiagnostics(BaseModel):
         default_factory=list,
         alias="warningCodes",
     )
-    visual_qa_status: Literal["not-run", "passed", "failed", "unavailable"] = Field(
-        default="not-run",
-        alias="visualQaStatus",
-    )
+    visual_qa_status: Literal[
+        "not-run", "passed", "advisory", "failed", "unavailable"
+    ] = Field(default="not-run", alias="visualQaStatus")
     visual_review_attempts: int = Field(
         default=0,
         alias="visualReviewAttempts",
@@ -804,6 +803,10 @@ class GenerateDeckDiagnostics(BaseModel):
     visual_issue_codes: list[str] = Field(
         default_factory=list,
         alias="visualIssueCodes",
+    )
+    visual_issue_slide_orders: list[Annotated[int, Field(ge=1)]] = Field(
+        default_factory=list,
+        alias="visualIssueSlideOrders",
     )
 
 

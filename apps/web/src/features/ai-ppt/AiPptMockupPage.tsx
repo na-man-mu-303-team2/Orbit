@@ -13,6 +13,7 @@ import type {
 } from "@orbit/shared";
 import type { EvaluatorLensRef, FrozenBriefRef } from "@orbit/shared";
 import {
+  generateDeckDiagnosticsSchema,
   generateDeckValidationSchema,
   pptAdvisorResponseSchema,
   recommendGenerateDeckFonts,
@@ -91,6 +92,12 @@ type ReferenceGrounding = Pick<
 type AiPptQualityFailure = {
   issues: Array<{ code: string; message: string; slide?: number }>;
   remainingCount: number;
+};
+
+type AiPptVisualAdvisory = {
+  projectId: string;
+  issueCodes: string[];
+  slideOrders: number[];
 };
 
 type PolicyChoiceOption<T extends string> = {
@@ -444,6 +451,7 @@ export function AiPptMockupPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
+  const [visualAdvisory, setVisualAdvisory] = useState<AiPptVisualAdvisory | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -688,6 +696,7 @@ export function AiPptMockupPage() {
     setIsGenerating(true);
     setError("");
     setQualityFailure(null);
+    setVisualAdvisory(null);
     setStatus("프로젝트 생성 중...");
     setJob(null);
 
@@ -838,6 +847,13 @@ export function AiPptMockupPage() {
         throw new Error(completed.error?.message || completed.message);
       }
 
+      const advisory = getAiPptVisualAdvisory(completed);
+      if (advisory) {
+        setVisualAdvisory(advisory);
+        setStatus("");
+        return;
+      }
+
       setStatus("에디터로 이동 중...");
       navigateToProject(project.projectId);
     } catch (submitError) {
@@ -956,6 +972,12 @@ export function AiPptMockupPage() {
                 onRetry={() => void submitGeneration()}
               />
             ) : null}
+            {visualAdvisory ? (
+              <VisualAdvisoryPanel
+                advisory={visualAdvisory}
+                onContinue={() => navigateToProject(visualAdvisory.projectId)}
+              />
+            ) : null}
             {status ? <p className="ai-ppt-status">{status}</p> : null}
           </section>
 
@@ -1042,6 +1064,41 @@ function QualityFailurePanel(props: {
       >
         <Play size={16} />
         동일 조건으로 다시 생성
+      </button>
+    </section>
+  );
+}
+
+const visualAdvisoryMessages: Record<string, string> = {
+  BALANCE_WEAK: "시각 요소의 균형을 편집기에서 조정할 수 있습니다.",
+  LAYOUT_REPETITIVE: "비슷한 레이아웃이 반복된 슬라이드가 있습니다.",
+  BACKGROUND_RHYTHM_FLAT: "배경 변화가 적은 슬라이드가 있습니다.",
+  CARD_OVERUSED: "카드 형태가 반복된 슬라이드가 있습니다."
+};
+
+function VisualAdvisoryPanel(props: {
+  advisory: AiPptVisualAdvisory;
+  onContinue: () => void;
+}) {
+  return (
+    <section className="ai-ppt-visual-advisory" role="status">
+      <strong>편집 가능한 초안이 생성됐습니다.</strong>
+      <p>
+        시각 품질 경고가 남아 있습니다
+        {props.advisory.slideOrders.length > 0
+          ? ` · 영향 슬라이드 ${props.advisory.slideOrders.join(", ")}`
+          : ""}
+      </p>
+      <ul>
+        {props.advisory.issueCodes.map((code) => (
+          <li key={code}>
+            <b>{code}</b>: {visualAdvisoryMessages[code] ?? "시각 품질을 확인해 주세요."}
+          </li>
+        ))}
+      </ul>
+      <button className="ai-ppt-primary" type="button" onClick={props.onContinue}>
+        에디터에서 확인
+        <IconChevronRight size={17} />
       </button>
     </section>
   );
@@ -2075,6 +2132,32 @@ export function getAiPptQualityFailure(job: Job): AiPptQualityFailure | null {
   return {
     issues: visibleIssues.slice(0, 5),
     remainingCount: Math.max(0, visibleIssues.length - 5)
+  };
+}
+
+export function getAiPptVisualAdvisory(job: Job): AiPptVisualAdvisory | null {
+  if (
+    job.status !== "succeeded" ||
+    !job.result ||
+    typeof job.result !== "object" ||
+    !("diagnostics" in job.result)
+  ) {
+    return null;
+  }
+  const parsed = generateDeckDiagnosticsSchema.safeParse(job.result.diagnostics);
+  if (
+    !parsed.success ||
+    parsed.data.visualQaStatus !== "advisory" ||
+    !parsed.data.warningCodes.includes("GENERATE_DECK_VISUAL_ADVISORY")
+  ) {
+    return null;
+  }
+  return {
+    projectId: job.projectId,
+    issueCodes: [...new Set(parsed.data.visualIssueCodes ?? [])],
+    slideOrders: [...new Set(parsed.data.visualIssueSlideOrders ?? [])].sort(
+      (left, right) => left - right
+    )
   };
 }
 

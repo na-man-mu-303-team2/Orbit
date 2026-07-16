@@ -34,6 +34,7 @@ import { layoutCompileArtifactPayloadSchema } from "./planning-stage-contract";
 import { markDeckForInitialThumbnailRefresh } from "./pipeline";
 import {
   RenderedVisualQualityUnavailableError,
+  renderedVisualQualityDiagnostics,
   runRenderedVisualQuality,
 } from "./rendered-visual-quality";
 import {
@@ -449,13 +450,7 @@ async function executeRenderedVisualQuality(
       emitEvent: (event, fields) => emit(input.eventLogger, event, fields),
     });
     const diagnostics = {
-      ...workerPayload.diagnostics,
-      visualQaStatus: outcome.passed
-        ? ("passed" as const)
-        : ("failed" as const),
-      visualReviewAttempts: outcome.reviewAttempts,
-      visualRepairAttempts: outcome.repairAttempts,
-      visualIssueCodes: outcome.issues.map((issue) => issue.code),
+      ...renderedVisualQualityDiagnostics(outcome, workerPayload.diagnostics),
       validationIssueCount: allValidationIssues(outcome.validation).length,
     };
     workerPayload = generateDeckResponseSchema.parse({

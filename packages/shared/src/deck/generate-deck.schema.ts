@@ -349,11 +349,12 @@ export const generateDeckDiagnosticsSchema = z
     validationIssueCount: z.number().int().nonnegative().default(0),
     warningCodes: z.array(generateDeckWarningCodeSchema).default([]),
     visualQaStatus: z
-      .enum(["not-run", "passed", "failed", "unavailable"])
+      .enum(["not-run", "passed", "advisory", "failed", "unavailable"])
       .optional(),
     visualReviewAttempts: z.number().int().nonnegative().optional(),
     visualRepairAttempts: z.number().int().nonnegative().optional(),
-    visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional()
+    visualIssueCodes: z.array(generateDeckVisualIssueCodeSchema).optional(),
+    visualIssueSlideOrders: z.array(z.number().int().positive()).optional()
   })
   .default({});
 
