@@ -1,0 +1,119 @@
+/*
+ * Redesign System — tokens for the ongoing UI redesign (see apps/web/DESIGN.md).
+ * Namespaced under --redesign-* so it can be loaded alongside the existing
+ * apps/web/src/design-system/orbit-design-system.css (--orbit-ds-*) without collisions.
+ * New components under components/ui and components/patterns should consume
+ * these variables instead of literal hex values, per apps/web/AGENTS.md.
+ */
+
+:root {
+  /* Neutral surfaces */
+  --redesign-color-background: #ffffff;
+  --redesign-color-on-background: #111114;
+  --redesign-color-surface: #ffffff;
+  --redesign-color-surface-dim: #f2f2f4;
+  --redesign-color-surface-bright: #ffffff;
+  --redesign-color-surface-container-lowest: #ffffff;
+  --redesign-color-surface-container-low: #f8f8fa;
+  --redesign-color-surface-container: #f1f1f4;
+  --redesign-color-surface-container-high: #e9e9ed;
+  --redesign-color-surface-container-highest: #e0e0e6;
+  --redesign-color-surface-variant: #e9e9ed;
+  --redesign-color-on-surface: #111114;
+  --redesign-color-on-surface-variant: #55555f;
+  --redesign-color-inverse-surface: #1c1c20;
+  --redesign-color-inverse-on-surface: #f5f5f7;
+  --redesign-color-outline: #8c8c96;
+  --redesign-color-outline-variant: #d6d6dc;
+  --redesign-color-surface-tint: #0090ff;
+
+  /* Primary — Electric Blue */
+  --redesign-color-primary: #0090ff;
+  --redesign-color-on-primary: #ffffff;
+  --redesign-color-primary-container: #e0f3ff;
+  --redesign-color-on-primary-container: #004a75;
+  --redesign-color-inverse-primary: #8dd4ff;
+  --redesign-color-primary-fixed: #e0f3ff;
+  --redesign-color-primary-fixed-dim: #8dd4ff;
+  --redesign-color-on-primary-fixed: #001c2e;
+  --redesign-color-on-primary-fixed-variant: #004a75;
+
+  /* Secondary — Vivid Purple */
+  --redesign-color-secondary: #8b3dff;
+  --redesign-color-on-secondary: #ffffff;
+  --redesign-color-secondary-container: #f1e6ff;
+  --redesign-color-on-secondary-container: #4a1b91;
+  --redesign-color-secondary-fixed: #f1e6ff;
+  --redesign-color-secondary-fixed-dim: #d8b9ff;
+  --redesign-color-on-secondary-fixed: #2a0060;
+  --redesign-color-on-secondary-fixed-variant: #5b1fb0;
+
+  /* Tertiary — Neon Pink */
+  --redesign-color-tertiary: #ff2d9e;
+  --redesign-color-on-tertiary: #ffffff;
+  --redesign-color-tertiary-container: #ffe0f0;
+  --redesign-color-on-tertiary-container: #8a0055;
+  --redesign-color-tertiary-fixed: #ffe0f0;
+  --redesign-color-tertiary-fixed-dim: #ff86d9;
+  --redesign-color-on-tertiary-fixed: #5c0040;
+  --redesign-color-on-tertiary-fixed-variant: #8a0055;
+
+  /* Error */
+  --redesign-color-error: #d3283f;
+  --redesign-color-on-error: #ffffff;
+  --redesign-color-error-container: #ffe0e0;
+  --redesign-color-on-error-container: #7a0010;
+
+  /* Typography — single family across all roles */
+  --redesign-font-family: "Pretendard", sans-serif;
+
+  --redesign-type-display-lg-size: 64px;
+  --redesign-type-display-lg-weight: 800;
+  --redesign-type-display-lg-line-height: 72px;
+  --redesign-type-display-lg-tracking: -0.04em;
+
+  --redesign-type-headline-lg-size: 32px;
+  --redesign-type-headline-lg-weight: 700;
+  --redesign-type-headline-lg-line-height: 40px;
+  --redesign-type-headline-lg-tracking: -0.02em;
+
+  --redesign-type-headline-lg-mobile-size: 28px;
+  --redesign-type-headline-lg-mobile-weight: 700;
+  --redesign-type-headline-lg-mobile-line-height: 36px;
+  --redesign-type-headline-lg-mobile-tracking: -0.02em;
+
+  --redesign-type-body-md-size: 16px;
+  --redesign-type-body-md-weight: 400;
+  --redesign-type-body-md-line-height: 24px;
+  --redesign-type-body-md-tracking: 0em;
+
+  --redesign-type-label-sm-size: 12px;
+  --redesign-type-label-sm-weight: 600;
+  --redesign-type-label-sm-line-height: 16px;
+  --redesign-type-label-sm-tracking: 0.05em;
+
+  /* Shape */
+  --redesign-radius-sm: 0.125rem;
+  --redesign-radius: 0.25rem;
+  --redesign-radius-md: 0.375rem;
+  --redesign-radius-lg: 0.5rem;
+  --redesign-radius-xl: 0.75rem;
+  --redesign-radius-full: 9999px;
+
+  /* Spacing — 4px base scale */
+  --redesign-space-base: 4px;
+  --redesign-space-xs: 4px;
+  --redesign-space-sm: 8px;
+  --redesign-space-md: 16px;
+  --redesign-space-lg: 24px;
+  --redesign-space-xl: 48px;
+  --redesign-layout-gutter: 24px;
+  --redesign-layout-margin: 32px;
+
+  /* Elevation & glow — Bloom effect per DESIGN.md (20% opacity, 12px blur) */
+  --redesign-glow-primary: 0 0 12px rgba(0, 144, 255, 0.2);
+  --redesign-glow-secondary: 0 0 12px rgba(139, 61, 255, 0.2);
+  --redesign-glow-tertiary: 0 0 12px rgba(255, 45, 158, 0.2);
+  --redesign-glow-error: 0 0 12px rgba(211, 40, 63, 0.2);
+  --redesign-focus-ring: 0 0 0 3px rgba(0, 144, 255, 0.24);
+}
