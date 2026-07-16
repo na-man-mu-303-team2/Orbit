@@ -2,6 +2,7 @@ import { ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyStoryPlanEdit,
   projectStoryPlanReview,
   StoryPlanReviewService,
 } from "./story-plan-review.service";
@@ -72,6 +73,64 @@ describe("StoryPlanReviewService", () => {
       "RESEARCH_PARTIAL",
       "AUTO_REPAIRED",
     ]);
+  });
+
+  it("reorders slides and updates speaker notes in the content artifact", () => {
+    const first = artifact.payload_json.contentPlan.slidePlans[0]!;
+    const payload = {
+      ...artifact.payload_json,
+      contentPlan: {
+        ...artifact.payload_json.contentPlan,
+        outline: { title: "ORBIT", slide_titles: ["첫째", "둘째"] },
+        slidePlans: [
+          { ...first, order: 1, title: "첫째" },
+          { ...first, order: 2, title: "둘째", speaker_notes: "둘째 대본" },
+        ],
+        slideCount: 2,
+      },
+    };
+
+    const reordered = applyStoryPlanEdit(payload, {
+      kind: "reorder",
+      expectedRevision: 1,
+      orders: [2, 1],
+    });
+    expect(reordered).toMatchObject({
+      contentPlan: {
+        outline: { slide_titles: ["둘째", "첫째"], slideTitles: ["둘째", "첫째"] },
+        slidePlans: [
+          { order: 1, title: "둘째" },
+          { order: 2, title: "첫째" },
+        ],
+      },
+    });
+
+    expect(
+      applyStoryPlanEdit(reordered, {
+        kind: "speaker-notes",
+        expectedRevision: 2,
+        order: 1,
+        speakerNotes: "사용자가 수정한 대본",
+      }),
+    ).toMatchObject({
+      contentPlan: {
+        slidePlans: [
+          {
+            order: 1,
+            speaker_notes: "사용자가 수정한 대본",
+            speakerNotes: "사용자가 수정한 대본",
+          },
+          { order: 2 },
+        ],
+      },
+    });
+    expect(() =>
+      applyStoryPlanEdit(payload, {
+        kind: "reorder",
+        expectedRevision: 1,
+        orders: [3, 1],
+      }),
+    ).toThrow(ConflictException);
   });
 
   it("rejects stale approval before creating a design checkpoint", async () => {

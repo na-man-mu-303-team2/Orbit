@@ -113,8 +113,30 @@ integration("StoryPlanReviewService PostgreSQL lifecycle", () => {
       plan: { revision: 1, slideCount: 1 },
     });
 
-    await service.approve(projectId, jobId, { expectedRevision: 1 });
-    await service.approve(projectId, jobId, { expectedRevision: 1 });
+    await service.edit(projectId, jobId, {
+      kind: "speaker-notes",
+      expectedRevision: 1,
+      order: 1,
+      speakerNotes: "사용자가 수정한 대본",
+    });
+    await expect(service.get(projectId, jobId)).resolves.toMatchObject({
+      plan: { revision: 2, slides: [{ order: 1, speakerNotes: "사용자가 수정한 대본" }] },
+    });
+    await service.edit(projectId, jobId, {
+      kind: "reorder",
+      expectedRevision: 2,
+      orders: [1],
+    });
+    await expect(
+      service.edit(projectId, jobId, {
+        kind: "reorder",
+        expectedRevision: 2,
+        orders: [1],
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    await service.approve(projectId, jobId, { expectedRevision: 3 });
+    await service.approve(projectId, jobId, { expectedRevision: 3 });
     const designRows = await dataSource.query(
       `SELECT count(*)::int AS count FROM ai_deck_generation_stages
        WHERE pipeline_job_id = $1 AND stage = 'design-planning'`,
@@ -122,7 +144,7 @@ integration("StoryPlanReviewService PostgreSQL lifecycle", () => {
     );
     expect(designRows[0].count).toBe(1);
     await expect(
-      service.approve(projectId, jobId, { expectedRevision: 2 }),
+      service.approve(projectId, jobId, { expectedRevision: 4 }),
     ).rejects.toBeInstanceOf(ConflictException);
 
     await dataSource.query(
@@ -132,7 +154,7 @@ integration("StoryPlanReviewService PostgreSQL lifecycle", () => {
     );
     await dataSource.query(
       `UPDATE ai_deck_story_reviews
-       SET status = 'review-pending' WHERE pipeline_job_id = $1`,
+       SET status = 'review-pending', revision = 1 WHERE pipeline_job_id = $1`,
       [jobId],
     );
     for (let count = 0; count < 5; count += 1) {

@@ -22,6 +22,17 @@ export class StoryPlanReviewController {
     return this.storyPlanReview.get(projectId, jobId);
   }
 
+  @Post("edit")
+  async edit(
+    @Param("projectId") projectId: string,
+    @Param("jobId") jobId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    await this.assertCanWrite(projectId, request);
+    return this.storyPlanReview.edit(projectId, jobId, body);
+  }
+
   @Post("regenerate")
   async regenerate(
     @Param("projectId") projectId: string,

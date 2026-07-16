@@ -3,26 +3,31 @@ import {
   type StoryPlanReviewResponse,
 } from "@orbit/shared";
 import {
-  IconAlertTriangle,
-  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconClock,
+  IconDeviceFloppy,
   IconFileText,
+  IconGripVertical,
   IconInfoCircle,
-  IconMinus,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   OrbitButton,
   OrbitDialog,
-  OrbitStatus,
   OrbitTabs,
   OrbitTextarea,
 } from "../../design-system";
 import { pollJob } from "./AiPptMockupPage";
 import "./story-plan-review.css";
 
-type StoryTab = "flow" | "evidence" | "notes";
+type StoryTab = "outline" | "script";
+type StoryPlan = NonNullable<StoryPlanReviewResponse["plan"]>;
+type StorySlide = StoryPlan["slides"][number];
+type StoryPlanEdit =
+  | { kind: "reorder"; orders: number[] }
+  | { kind: "speaker-notes"; order: number; speakerNotes: string };
 
 export function storyPlanRegenerationPollingKey(
   response: StoryPlanReviewResponse | null,
@@ -43,11 +48,12 @@ export function StoryPlanReviewPage(props: {
   const [response, setResponse] = useState<StoryPlanReviewResponse | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<StoryTab>("flow");
+  const [activeTab, setActiveTab] = useState<StoryTab>("outline");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scriptDrafts, setScriptDrafts] = useState<Record<number, string>>({});
   const regenerationPollingKey = storyPlanRegenerationPollingKey(response);
 
   useEffect(() => {
@@ -86,9 +92,80 @@ export function StoryPlanReviewPage(props: {
     };
   }, [props.jobId, props.projectId, regenerationPollingKey]);
 
+  useEffect(() => {
+    const slides = response?.plan?.slides ?? [];
+    setScriptDrafts(
+      Object.fromEntries(slides.map((slide) => [slide.order, slide.speakerNotes])),
+    );
+  }, [response?.plan?.revision]);
+
+  const hasUnsavedScripts =
+    response?.plan?.slides.some(
+      (slide) =>
+        (scriptDrafts[slide.order] ?? slide.speakerNotes) !== slide.speakerNotes,
+    ) ?? false;
+
+  async function editStoryPlan(
+    edit: StoryPlanEdit,
+  ) {
+    if (!response?.plan || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const next = await requestStoryPlanMutation(
+        props.projectId,
+        props.jobId,
+        "edit",
+        { ...edit, expectedRevision: response.plan.revision },
+      );
+      setScriptDrafts(
+        Object.fromEntries(
+          (next.plan?.slides ?? []).map((slide) => [
+            slide.order,
+            slide.speakerNotes,
+          ]),
+        ),
+      );
+      setResponse(next);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "구성 변경사항을 저장하지 못했습니다.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reorderSlides(fromOrder: number, toOrder: number) {
+    if (!response?.plan || fromOrder === toOrder) return;
+    if (hasUnsavedScripts) {
+      setActiveTab("script");
+      setError("대본 변경사항을 먼저 저장해 주세요.");
+      return;
+    }
+    const orders = moveStorySlideOrder(
+      response.plan.slides.map((slide) => slide.order),
+      fromOrder,
+      toOrder,
+    );
+    await editStoryPlan({ kind: "reorder", orders });
+  }
+
+  async function saveScript(order: number) {
+    const speakerNotes = scriptDrafts[order]?.trim();
+    if (!speakerNotes) {
+      setError("대본은 비워 둘 수 없습니다.");
+      return;
+    }
+    await editStoryPlan({ kind: "speaker-notes", order, speakerNotes });
+  }
+
   async function mutate(action: "approve" | "cancel" | "regenerate") {
     if (!response || busy) return;
-    if (action !== "cancel" && !response.plan) return;
+    if (action !== "cancel" && (!response.plan || hasUnsavedScripts)) {
+      setError("대본 변경사항을 먼저 저장해 주세요.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -141,9 +218,16 @@ export function StoryPlanReviewPage(props: {
         busy={busy}
         onApprove={() => void mutate("approve")}
         onCancel={() => void mutate("cancel")}
+        hasUnsavedScripts={hasUnsavedScripts}
         onRegenerate={() => setDialogOpen(true)}
+        onReorder={(fromOrder, toOrder) => void reorderSlides(fromOrder, toOrder)}
+        onSaveScript={(order) => void saveScript(order)}
+        onScriptChange={(order, value) =>
+          setScriptDrafts((current) => ({ ...current, [order]: value }))
+        }
         onTabChange={(tab) => setActiveTab(tab)}
         response={response}
+        scriptDrafts={scriptDrafts}
       />
       <OrbitDialog
         footer={
@@ -185,11 +269,16 @@ export function StoryPlanReviewPage(props: {
 export function StoryPlanReviewView(props: {
   activeTab: StoryTab;
   busy?: boolean;
+  hasUnsavedScripts?: boolean;
   onApprove: () => void;
   onCancel: () => void;
   onRegenerate: () => void;
+  onReorder: (fromOrder: number, toOrder: number) => void;
+  onSaveScript: (order: number) => void;
+  onScriptChange: (order: number, value: string) => void;
   onTabChange: (tab: StoryTab) => void;
   response: StoryPlanReviewResponse;
+  scriptDrafts: Record<number, string>;
 }) {
   const plan = props.response.plan;
   if (!plan) {
@@ -265,18 +354,37 @@ export function StoryPlanReviewView(props: {
 
       <OrbitTabs
         activeTab={props.activeTab}
-        ariaLabel="이야기 구성 상세"
+        ariaLabel="이야기 구성"
         onChange={(tab) => props.onTabChange(tab as StoryTab)}
         tabs={[
-          { id: "flow", label: "전체 이야기 흐름" },
-          { id: "evidence", label: "근거와 참고자료" },
-          { id: "notes", label: "발표자 노트" },
+          { id: "outline", label: "목차" },
+          { id: "script", label: "대본" },
         ]}
       >
-        {props.activeTab === "flow" ? <StoryFlow plan={plan} /> : null}
-        {props.activeTab === "evidence" ? <StoryEvidence plan={plan} /> : null}
-        {props.activeTab === "notes" ? <StoryNotes plan={plan} /> : null}
+        {props.activeTab === "outline" ? (
+          <StoryOutline
+            disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
+            onReorder={props.onReorder}
+            plan={plan}
+          />
+        ) : null}
+        {props.activeTab === "script" ? (
+          <StoryScript
+            disabled={props.busy || !reviewPending}
+            drafts={props.scriptDrafts}
+            onChange={props.onScriptChange}
+            onReorder={props.onReorder}
+            onSave={props.onSaveScript}
+            reorderDisabled={props.hasUnsavedScripts}
+            plan={plan}
+          />
+        ) : null}
       </OrbitTabs>
+      {props.hasUnsavedScripts ? (
+        <p className="story-review-unsaved" role="status">
+          대본 변경사항을 저장하면 목차 순서를 다시 바꿀 수 있습니다.
+        </p>
+      ) : null}
 
       {plan.qualityWarnings.length > 0 || plan.repairReasonCodes.length > 0 ? (
         <aside className="story-review-warning">
@@ -301,14 +409,14 @@ export function StoryPlanReviewView(props: {
         </OrbitButton>
         <div>
           <OrbitButton
-            disabled={props.busy || !reviewPending || exhausted}
+            disabled={props.busy || !reviewPending || exhausted || props.hasUnsavedScripts}
             onClick={props.onRegenerate}
             variant="secondary"
           >
             다른 구성 제안받기
           </OrbitButton>
           <OrbitButton
-            disabled={props.busy || !reviewPending}
+            disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onClick={props.onApprove}
           >
             이 구성으로 생성
@@ -320,104 +428,182 @@ export function StoryPlanReviewView(props: {
   );
 }
 
-function StoryFlow({
-  plan,
-}: {
-  plan: NonNullable<StoryPlanReviewResponse["plan"]>;
+function StoryOutline(props: {
+  disabled?: boolean;
+  onReorder: (fromOrder: number, toOrder: number) => void;
+  plan: StoryPlan;
 }) {
   return (
-    <div className="story-review-table">
-      <div className="story-review-table-head">
-        <span>순서</span>
-        <span>섹션과 역할</span>
-        <span>핵심 메시지</span>
-        <span>참고자료 상태</span>
-        <span>예상 시간</span>
-      </div>
-      {plan.slides.map((slide) => (
-        <article className="story-review-row" key={slide.order}>
-          <span
-            className={`story-review-order story-review-order-${slide.sourceState}`}
-          >
-            {slide.order}
-          </span>
-          <div>
-            <small>{slideTypeLabel(slide.slideType)}</small>
-            <strong>{slide.title}</strong>
+    <div className="story-review-card-list">
+      {props.plan.slides.map((slide, index) => (
+        <StoryCard
+          disabled={props.disabled}
+          index={index}
+          key={slide.order}
+          onReorder={props.onReorder}
+          slide={slide}
+          total={props.plan.slides.length}
+        >
+          <div className="story-review-card-heading">
+            <div>
+              <small>{slideTypeLabel(slide.slideType)}</small>
+              <h2>{slide.title}</h2>
+            </div>
+            <time>{formatSeconds(slide.targetSeconds)}</time>
           </div>
           <p>{slide.message}</p>
-          <OrbitStatus
-            tone={
-              slide.sourceState === "connected"
-                ? "success"
-                : slide.sourceState === "attention"
-                  ? "warning"
-                  : "neutral"
-            }
+        </StoryCard>
+      ))}
+    </div>
+  );
+}
+
+function StoryScript(props: {
+  disabled?: boolean;
+  drafts: Record<number, string>;
+  onChange: (order: number, value: string) => void;
+  onReorder: (fromOrder: number, toOrder: number) => void;
+  onSave: (order: number) => void;
+  plan: StoryPlan;
+  reorderDisabled?: boolean;
+}) {
+  return (
+    <div className="story-review-card-list">
+      {props.plan.slides.map((slide, index) => {
+        const draft = props.drafts[slide.order] ?? slide.speakerNotes;
+        const dirty = draft !== slide.speakerNotes;
+        return (
+          <StoryCard
+            disabled={props.disabled || props.reorderDisabled}
+            index={index}
+            key={slide.order}
+            onReorder={props.onReorder}
+            slide={slide}
+            total={props.plan.slides.length}
           >
-            {slide.sourceState === "connected" ? (
-              <IconCheck aria-hidden="true" size={14} />
-            ) : slide.sourceState === "attention" ? (
-              <IconAlertTriangle aria-hidden="true" size={14} />
-            ) : (
-              <IconMinus aria-hidden="true" size={14} />
-            )}
-            {sourceStateLabel(slide.sourceState)}
-          </OrbitStatus>
-          <time>{formatSeconds(slide.targetSeconds)}</time>
-        </article>
-      ))}
+            <div className="story-review-card-heading">
+              <div>
+                <small>{slideTypeLabel(slide.slideType)}</small>
+                <h2>{slide.title}</h2>
+              </div>
+              <time>{formatSeconds(slide.targetSeconds)}</time>
+            </div>
+            <OrbitTextarea
+              aria-label={`${slide.order}번 슬라이드 대본`}
+              disabled={props.disabled}
+              maxLength={5000}
+              onChange={(event) => props.onChange(slide.order, event.target.value)}
+              rows={6}
+              value={draft}
+            />
+            <ExternalStorySources slide={slide} />
+            <div className="story-review-script-actions">
+              <small>{draft.length}/5000자</small>
+              <OrbitButton
+                disabled={props.disabled || !dirty || !draft.trim()}
+                onClick={() => props.onSave(slide.order)}
+                variant="secondary"
+              >
+                <IconDeviceFloppy aria-hidden="true" size={16} />
+                대본 저장
+              </OrbitButton>
+            </div>
+          </StoryCard>
+        );
+      })}
     </div>
   );
 }
 
-function StoryEvidence({
-  plan,
-}: {
-  plan: NonNullable<StoryPlanReviewResponse["plan"]>;
+function StoryCard(props: {
+  children: ReactNode;
+  disabled?: boolean;
+  index: number;
+  onReorder: (fromOrder: number, toOrder: number) => void;
+  slide: StorySlide;
+  total: number;
 }) {
   return (
-    <div className="story-review-list">
-      {plan.slides.map((slide) => (
-        <article key={slide.order}>
-          <h2>
-            {slide.order}. {slide.title}
-          </h2>
-          <p>{sourceStateLabel(slide.sourceState)}</p>
-          {slide.sources.length ? (
-            <ul>
-              {slide.sources.map((source, index) => (
-                <li key={`${source.title}-${index}`}>
-                  {source.title} · {sourceTypeLabel(source.type)}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <span>연결된 참고자료가 없습니다.</span>
-          )}
-        </article>
-      ))}
-    </div>
+    <article
+      aria-label={`${props.slide.order}번 ${props.slide.title}`}
+      className="story-review-card"
+      draggable={!props.disabled}
+      onDragOver={(event) => {
+        if (!props.disabled) event.preventDefault();
+      }}
+      onDragStart={(event) => {
+        if (props.disabled) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(props.slide.order));
+      }}
+      onDrop={(event) => {
+        if (props.disabled) return;
+        event.preventDefault();
+        const fromOrder = Number(event.dataTransfer.getData("text/plain"));
+        if (Number.isInteger(fromOrder)) {
+          props.onReorder(fromOrder, props.slide.order);
+        }
+      }}
+    >
+      <div className="story-review-card-order" aria-hidden="true">
+        <IconGripVertical size={18} />
+        <span>{props.slide.order}</span>
+      </div>
+      <div className="story-review-card-content">{props.children}</div>
+      <div className="story-review-move-actions">
+        <button
+          aria-label={`${props.slide.title} 위로 이동`}
+          disabled={props.disabled || props.index === 0}
+          onClick={() => props.onReorder(props.slide.order, props.slide.order - 1)}
+          type="button"
+        >
+          <IconChevronUp aria-hidden="true" size={17} />
+        </button>
+        <button
+          aria-label={`${props.slide.title} 아래로 이동`}
+          disabled={props.disabled || props.index === props.total - 1}
+          onClick={() => props.onReorder(props.slide.order, props.slide.order + 1)}
+          type="button"
+        >
+          <IconChevronDown aria-hidden="true" size={17} />
+        </button>
+      </div>
+    </article>
   );
 }
 
-function StoryNotes({
-  plan,
-}: {
-  plan: NonNullable<StoryPlanReviewResponse["plan"]>;
-}) {
+function ExternalStorySources({ slide }: { slide: StorySlide }) {
+  const sources = slide.sources.filter(
+    (source) => source.type === "web" || source.type === "uploaded",
+  );
+  if (!sources.length) return null;
   return (
-    <ol className="story-review-list story-review-notes">
-      {plan.slides.map((slide) => (
-        <li key={slide.order}>
-          <h2>{slide.title}</h2>
-          <p>{slide.speakerNotes}</p>
-        </li>
-      ))}
-    </ol>
+    <aside className="story-review-script-sources" aria-label="AI가 사용한 근거">
+      <span>AI가 참고한 근거</span>
+      <ul>
+        {sources.map((source, index) => (
+          <li key={`${source.title}-${index}`}>
+            {source.title} · {sourceTypeLabel(source.type)}
+          </li>
+        ))}
+      </ul>
+    </aside>
   );
 }
 
+export function moveStorySlideOrder(
+  orders: number[],
+  fromOrder: number,
+  toOrder: number,
+): number[] {
+  const fromIndex = orders.indexOf(fromOrder);
+  const toIndex = orders.indexOf(toOrder);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return orders;
+  const next = [...orders];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved!);
+  return next;
+}
 function StoryPlanLoading(props: {
   busy?: boolean;
   error?: string;
@@ -459,7 +645,7 @@ async function requestStoryPlan(projectId: string, jobId: string) {
 async function requestStoryPlanMutation(
   projectId: string,
   jobId: string,
-  action: "approve" | "cancel" | "regenerate",
+  action: "approve" | "cancel" | "edit" | "regenerate",
   body?: Record<string, unknown>,
 ) {
   const response = await fetch(
@@ -500,15 +686,9 @@ function formatSeconds(seconds: number) {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function sourceStateLabel(state: "connected" | "attention" | "none") {
-  if (state === "connected") return "참고자료 연결";
-  if (state === "attention") return "일부 확인 필요";
-  return "참고자료 없음";
-}
-
 function sourceTypeLabel(type: string) {
   if (type === "web") return "웹 자료";
-  if (type === "uploaded") return "업로드 자료";
+  if (type === "uploaded") return "참고 자료";
   if (type === "topic") return "사용자 입력";
   return "생성 참고자료";
 }
