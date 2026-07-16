@@ -16,6 +16,7 @@ import {
   createAuthenticatedProject,
   requestAuthenticatedProjectAccess,
 } from "./authenticatedProject";
+import { createSnapshotSafeEditorDeck } from "./editorFixtures";
 
 const mutatingMethods = new Set(["DELETE", "PATCH", "POST", "PUT"]);
 
@@ -411,7 +412,7 @@ test.describe("P0-2 editor access and trust boundary", () => {
     page: ownerPage,
   }, testInfo) => {
     const { project } = await createAuthenticatedProject(ownerPage, {
-      deck: createDemoDeck(),
+      deck: createSnapshotSafeEditorDeck(),
       label: "trust-rehearsal-owner",
     });
     const { context, page } = await createIsolatedPage(browser, testInfo);
@@ -460,7 +461,7 @@ test.describe("P0-2 editor access and trust boundary", () => {
             projectId: project.projectId,
             purpose: uploadPurposeByFileId.get(fileId),
             size: 4,
-            url: `/api/v1/projects/${project.projectId}/assets/${fileId}/content`,
+            url: `/api/v1/projects/${project.projectId}/rehearsal-slide-snapshots/${fileId}/content`,
           },
         });
       });
