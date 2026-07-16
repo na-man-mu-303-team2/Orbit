@@ -2550,6 +2550,31 @@ def test_research_first_without_provider_reports_unavailable_safely() -> None:
     assert result.web_source_count == 0
 
 
+def test_research_first_unavailable_uses_brief_instead_of_uploaded_context() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brief only",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            references=[{"fileId": "file-private"}],
+            referenceContext=[
+                {
+                    "fileId": "file-private",
+                    "title": "private.pdf",
+                    "content": "Unverified external date: 2099-01-01",
+                }
+            ],
+        )
+    )
+
+    result = ground_sources(raw_input, current_date=date(2026, 7, 16))
+
+    assert result.raw_input.research_quality == "unavailable"
+    assert [source.source_type for source in result.source_records] == ["topic"]
+    assert "2099-01-01" not in result.source_records[0].content
+
+
 def test_research_first_without_citations_reports_unavailable() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
