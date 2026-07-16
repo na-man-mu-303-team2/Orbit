@@ -13,6 +13,7 @@ from app.ai.deck_generation.models import (
     GenerateDeckReference,
     GenerateDeckReferenceKeyword,
     RawInput,
+    ResearchIssueCode,
     SlidePlan,
     SourceEvidence,
     SourceGroundingResult,
@@ -102,20 +103,33 @@ def ground_sources(
     raw_input.research_attempts = research.attempts
     raw_input.relevant_web_source_count = research.relevant_source_count
     raw_input.official_web_source_count = research.official_source_count
+    raw_input.independent_web_source_count = research.independent_source_count
+    raw_input.research_quality = research.quality
+    raw_input.research_issue_codes = list(research.issue_codes)
+    raw_input.research_fact_coverage_satisfied = (
+        research.fact_coverage_satisfied
+    )
     warnings: list[str] = []
-    if research.status == "succeeded":
+    if research.sources:
         raw_input.source_records.extend(research.sources)
-    elif raw_input.brief.reference_policy == "research-first":
+    if (
+        raw_input.brief.reference_policy == "research-first"
+        and research.quality in {"partial", "unavailable"}
+    ):
         if not has_usable_grounding_or_user_input(raw_input):
             raise DeckContentGenerationError(
                 "SOURCE_GROUNDING_REQUIRED: usable grounding is required."
             )
         warnings.append(
-            "Web research quality was insufficient; generation continued with available input."
+            "Web research quality was insufficient; generation continued with verified "
+            "sources or user-provided input only."
         )
         if "WEB_RESEARCH_QUALITY_FAILED" not in raw_input.warning_codes:
             raw_input.warning_codes.append("WEB_RESEARCH_QUALITY_FAILED")
-    elif raw_input.brief.reference_policy == "references-first":
+    elif (
+        research.status != "succeeded"
+        and raw_input.brief.reference_policy == "references-first"
+    ):
         warnings.append(
             "Web research was unavailable; generation continued with uploaded references."
         )
@@ -236,6 +250,10 @@ def research_web_sources(
             return WebResearchResult(
                 status="unavailable",
                 message="Web research provider is not configured.",
+                quality="unavailable" if policy == "research-first" else "not-run",
+                issue_codes=(
+                    ["provider-unavailable"] if policy == "research-first" else []
+                ),
             )
         from openai import OpenAI
 
@@ -245,6 +263,14 @@ def research_web_sources(
     citations_by_url: OrderedDict[str, SourceRecord] = OrderedDict()
     diagnostic_urls: list[str] = []
     last_message = "관련성 있는 웹 출처를 확보하지 못했습니다."
+    provider_call_failed = False
+    saw_response = False
+    saw_citations = False
+    saw_vetting_failure = False
+    best_sources: list[SourceRecord] = []
+    best_official_required = False
+    best_fact_coverage_satisfied = False
+    best_score = (-1, -1, -1, -1)
     search_aliases = plan_web_search_aliases(
         raw_input,
         client=api_client,
@@ -284,9 +310,11 @@ def research_web_sources(
                 include=["web_search_call.action.sources"],
             )
         except Exception:
+            provider_call_failed = True
             last_message = "웹 검색 제공자 호출에 실패했습니다."
             continue
 
+        saw_response = True
         diagnostic_urls = unique_non_empty(
             [*diagnostic_urls, *web_search_diagnostic_urls(response)]
         )[:6]
@@ -296,6 +324,7 @@ def research_web_sources(
         if not citations_by_url:
             last_message = "실제 URL citation이 포함된 검색 결과가 없습니다."
             continue
+        saw_citations = True
 
         vetted = vet_web_sources(
             raw_input,
@@ -304,6 +333,7 @@ def research_web_sources(
             model=model,
         )
         if vetted is None:
+            saw_vetting_failure = True
             last_message = "웹 출처 관련성 검증에 실패했습니다."
             continue
         official_required, fact_coverage_satisfied, relevant_sources = vetted
@@ -313,6 +343,23 @@ def research_web_sources(
         independent_count = sum(
             source.authority == "independent" for source in relevant_sources
         )
+        distinct_url_count = len(
+            {source.url for source in relevant_sources if source.url}
+        )
+        independent_required = 1 if official_required else 2
+        score = (
+            int(fact_coverage_satisfied)
+            + int(not official_required or official_count > 0)
+            + int(independent_count >= independent_required),
+            int(fact_coverage_satisfied),
+            distinct_url_count,
+            official_count + independent_count,
+        )
+        if relevant_sources and score > best_score:
+            best_sources = relevant_sources
+            best_official_required = official_required
+            best_fact_coverage_satisfied = fact_coverage_satisfied
+            best_score = score
         if policy == "references-first" and relevant_sources:
             return WebResearchResult(
                 status="succeeded",
@@ -332,6 +379,9 @@ def research_web_sources(
                 attempts=attempts,
                 relevant_source_count=len(relevant_sources),
                 official_source_count=official_count,
+                independent_source_count=independent_count,
+                quality="complete",
+                fact_coverage_satisfied=fact_coverage_satisfied,
             )
         last_message = (
             "공식 출처 1개와 독립 출처 1개가 필요합니다."
@@ -343,11 +393,47 @@ def research_web_sources(
         if not fact_coverage_satisfied:
             last_message += " 검증된 출처에 발표의 핵심 사실이 부족합니다."
 
+    if policy == "research-first" and best_sources:
+        official_count = sum(
+            source.authority == "official" for source in best_sources
+        )
+        independent_count = sum(
+            source.authority == "independent" for source in best_sources
+        )
+        return WebResearchResult(
+            status="failed",
+            sources=best_sources,
+            message=last_message,
+            attempts=attempts,
+            relevant_source_count=len(best_sources),
+            official_source_count=official_count,
+            independent_source_count=independent_count,
+            quality="partial",
+            issue_codes=web_research_issue_codes(
+                best_official_required,
+                best_fact_coverage_satisfied,
+                best_sources,
+            ),
+            fact_coverage_satisfied=best_fact_coverage_satisfied,
+        )
+
+    issue_codes: list[ResearchIssueCode] = []
+    if policy == "research-first":
+        if provider_call_failed:
+            issue_codes.append("provider-call-failed")
+        if saw_response and not saw_citations:
+            issue_codes.append("no-citations")
+        if saw_citations and (saw_vetting_failure or not best_sources):
+            issue_codes.append("vetting-failed")
+        if not issue_codes:
+            issue_codes.append("no-citations")
     return WebResearchResult(
         status="failed",
         sources=[],
         message=last_message,
         attempts=attempts,
+        quality="unavailable" if policy == "research-first" else "not-run",
+        issue_codes=issue_codes,
     )
 
 
@@ -549,6 +635,32 @@ def web_source_quality_satisfied(
     if official_required:
         return bool(official_hosts and independent_hosts - official_hosts)
     return len(independent_hosts) >= 2
+
+
+def web_research_issue_codes(
+    official_required: bool,
+    fact_coverage_satisfied: bool,
+    sources: list[SourceRecord],
+) -> list[ResearchIssueCode]:
+    official_hosts = {
+        urlparse(source.url).hostname
+        for source in sources
+        if source.url and source.authority == "official"
+    }
+    independent_hosts = {
+        urlparse(source.url).hostname
+        for source in sources
+        if source.url and source.authority == "independent"
+    }
+    issue_codes: list[ResearchIssueCode] = []
+    if official_required and not official_hosts:
+        issue_codes.append("official-missing")
+    required_independent_count = 1 if official_required else 2
+    if len(independent_hosts - official_hosts) < required_independent_count:
+        issue_codes.append("independent-missing")
+    if not fact_coverage_satisfied:
+        issue_codes.append("fact-coverage")
+    return issue_codes
 
 
 def web_sources_from_response(response: Any) -> list[SourceRecord]:

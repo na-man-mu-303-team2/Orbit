@@ -100,6 +100,16 @@ type AiPptVisualAdvisory = {
   slideOrders: number[];
 };
 
+type AiPptResearchAdvisory = {
+  projectId: string;
+  quality: "partial" | "unavailable";
+  issueCodes: string[];
+  relevantSourceCount: number;
+  officialSourceCount: number;
+  independentSourceCount: number;
+  factCoverageSatisfied: boolean;
+};
+
 type PolicyChoiceOption<T extends string> = {
   description: string;
   label: string;
@@ -127,9 +137,9 @@ export const referencePolicyOptions = [
   },
   {
     value: "research-first",
-    label: "웹 리서치 구조",
+    label: "웹 리서치 우선",
     description:
-      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 서로 다른 관련 출처 2개 이상을 확보하지 못하면 생성이 중단됩니다."
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 출처가 부족해도 검증 가능한 범위에서 초안을 생성합니다."
   }
 ] satisfies readonly PolicyChoiceOption<ReferencePolicy>[];
 
@@ -451,6 +461,8 @@ export function AiPptMockupPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [qualityFailure, setQualityFailure] = useState<AiPptQualityFailure | null>(null);
+  const [researchAdvisory, setResearchAdvisory] =
+    useState<AiPptResearchAdvisory | null>(null);
   const [visualAdvisory, setVisualAdvisory] = useState<AiPptVisualAdvisory | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [isLoadingColors, setIsLoadingColors] = useState(false);
@@ -696,6 +708,7 @@ export function AiPptMockupPage() {
     setIsGenerating(true);
     setError("");
     setQualityFailure(null);
+    setResearchAdvisory(null);
     setVisualAdvisory(null);
     setStatus("프로젝트 생성 중...");
     setJob(null);
@@ -847,8 +860,10 @@ export function AiPptMockupPage() {
         throw new Error(completed.error?.message || completed.message);
       }
 
+      const researchAdvisory = getAiPptResearchAdvisory(completed);
       const advisory = getAiPptVisualAdvisory(completed);
-      if (advisory) {
+      if (researchAdvisory || advisory) {
+        setResearchAdvisory(researchAdvisory);
         setVisualAdvisory(advisory);
         setStatus("");
         return;
@@ -972,10 +987,30 @@ export function AiPptMockupPage() {
                 onRetry={() => void submitGeneration()}
               />
             ) : null}
+            {researchAdvisory ? (
+              <ResearchAdvisoryPanel
+                advisory={researchAdvisory}
+                onContinue={() => navigateToProject(researchAdvisory.projectId)}
+                onEditTopic={() => {
+                  setResearchAdvisory(null);
+                  setVisualAdvisory(null);
+                  goToStep("brief");
+                }}
+                onAddReferences={() => {
+                  setResearchAdvisory(null);
+                  setVisualAdvisory(null);
+                  goToStep("references");
+                }}
+              />
+            ) : null}
             {visualAdvisory ? (
               <VisualAdvisoryPanel
                 advisory={visualAdvisory}
-                onContinue={() => navigateToProject(visualAdvisory.projectId)}
+                onContinue={
+                  researchAdvisory
+                    ? null
+                    : () => navigateToProject(visualAdvisory.projectId)
+                }
               />
             ) : null}
             {status ? <p className="ai-ppt-status">{status}</p> : null}
@@ -1069,6 +1104,49 @@ function QualityFailurePanel(props: {
   );
 }
 
+const researchIssueMessages: Record<string, string> = {
+  "provider-unavailable": "웹 검색 제공자를 사용할 수 없어 사용자 입력만 사용했습니다.",
+  "provider-call-failed": "웹 검색 호출을 완료하지 못해 사용자 입력만 사용했습니다.",
+  "no-citations": "직접 확인할 수 있는 URL citation을 확보하지 못했습니다.",
+  "vetting-failed": "검색된 출처의 관련성과 권위를 확인하지 못했습니다.",
+  "official-missing": "주제와 직접 관련된 공식 출처가 부족합니다.",
+  "independent-missing": "주제를 교차 확인할 독립 출처가 부족합니다.",
+  "fact-coverage": "확보한 출처가 발표의 핵심 사실 전체를 지원하지 않습니다."
+};
+
+function ResearchAdvisoryPanel(props: {
+  advisory: AiPptResearchAdvisory;
+  onContinue: () => void;
+  onEditTopic: () => void;
+  onAddReferences: () => void;
+}) {
+  return (
+    <section className="ai-ppt-visual-advisory" role="status">
+      <strong>출처 범위를 확인할 수 있는 초안이 생성됐습니다.</strong>
+      <p>
+        공식 출처 {props.advisory.officialSourceCount}개 · 독립 출처{" "}
+        {props.advisory.independentSourceCount}개 · 관련 출처{" "}
+        {props.advisory.relevantSourceCount}개
+      </p>
+      <ul>
+        {props.advisory.issueCodes.map((code) => (
+          <li key={code}>{researchIssueMessages[code] ?? "출처 범위를 확인해 주세요."}</li>
+        ))}
+      </ul>
+      <button className="ai-ppt-primary" type="button" onClick={props.onContinue}>
+        에디터에서 계속
+        <IconChevronRight size={17} />
+      </button>
+      <button className="ai-ppt-secondary" type="button" onClick={props.onEditTopic}>
+        주제 수정
+      </button>
+      <button className="ai-ppt-secondary" type="button" onClick={props.onAddReferences}>
+        참고자료 추가
+      </button>
+    </section>
+  );
+}
+
 const visualAdvisoryMessages: Record<string, string> = {
   BALANCE_WEAK: "시각 요소의 균형을 편집기에서 조정할 수 있습니다.",
   LAYOUT_REPETITIVE: "비슷한 레이아웃이 반복된 슬라이드가 있습니다.",
@@ -1078,7 +1156,7 @@ const visualAdvisoryMessages: Record<string, string> = {
 
 function VisualAdvisoryPanel(props: {
   advisory: AiPptVisualAdvisory;
-  onContinue: () => void;
+  onContinue: (() => void) | null;
 }) {
   return (
     <section className="ai-ppt-visual-advisory" role="status">
@@ -1096,10 +1174,12 @@ function VisualAdvisoryPanel(props: {
           </li>
         ))}
       </ul>
-      <button className="ai-ppt-primary" type="button" onClick={props.onContinue}>
-        에디터에서 확인
-        <IconChevronRight size={17} />
-      </button>
+      {props.onContinue ? (
+        <button className="ai-ppt-primary" type="button" onClick={props.onContinue}>
+          에디터에서 확인
+          <IconChevronRight size={17} />
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -2158,6 +2238,36 @@ export function getAiPptVisualAdvisory(job: Job): AiPptVisualAdvisory | null {
     slideOrders: [...new Set(parsed.data.visualIssueSlideOrders ?? [])].sort(
       (left, right) => left - right
     )
+  };
+}
+
+export function getAiPptResearchAdvisory(
+  job: Job
+): AiPptResearchAdvisory | null {
+  if (
+    job.status !== "succeeded" ||
+    !job.result ||
+    typeof job.result !== "object" ||
+    !("diagnostics" in job.result)
+  ) {
+    return null;
+  }
+  const parsed = generateDeckDiagnosticsSchema.safeParse(job.result.diagnostics);
+  if (
+    !parsed.success ||
+    !["partial", "unavailable"].includes(parsed.data.researchQuality) ||
+    !parsed.data.warningCodes.includes("WEB_RESEARCH_QUALITY_FAILED")
+  ) {
+    return null;
+  }
+  return {
+    projectId: job.projectId,
+    quality: parsed.data.researchQuality as "partial" | "unavailable",
+    issueCodes: [...new Set(parsed.data.researchIssueCodes)],
+    relevantSourceCount: parsed.data.relevantWebSourceCount,
+    officialSourceCount: parsed.data.officialWebSourceCount,
+    independentSourceCount: parsed.data.independentWebSourceCount,
+    factCoverageSatisfied: parsed.data.researchFactCoverageSatisfied
   };
 }
 

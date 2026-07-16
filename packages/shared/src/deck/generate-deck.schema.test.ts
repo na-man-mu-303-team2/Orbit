@@ -386,6 +386,14 @@ describe("generateDeckDiagnosticsSchema", () => {
     });
   });
 
+  it("rejects unknown research limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchIssueCodes: ["provider stack trace"]
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts unavailable rendered visual QA with warning codes", () => {
     expect(
       generateDeckDiagnosticsSchema.parse({

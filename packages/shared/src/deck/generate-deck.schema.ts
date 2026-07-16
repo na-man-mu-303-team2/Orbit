@@ -335,6 +335,23 @@ export const generateDeckWarningCodeSchema = z
   .string()
   .regex(/^[A-Z][A-Z0-9_]*$/);
 
+export const generateDeckResearchQualitySchema = z.enum([
+  "not-run",
+  "complete",
+  "partial",
+  "unavailable"
+]);
+
+export const generateDeckResearchIssueCodeSchema = z.enum([
+  "provider-unavailable",
+  "provider-call-failed",
+  "no-citations",
+  "vetting-failed",
+  "official-missing",
+  "independent-missing",
+  "fact-coverage"
+]);
+
 export const generateDeckDiagnosticsSchema = z
   .object({
     referencePolicy: generateDeckReferencePolicySchema.default("topic-only"),
@@ -343,6 +360,12 @@ export const generateDeckDiagnosticsSchema = z
     researchAttempts: z.number().int().nonnegative().default(0),
     relevantWebSourceCount: z.number().int().nonnegative().default(0),
     officialWebSourceCount: z.number().int().nonnegative().default(0),
+    independentWebSourceCount: z.number().int().nonnegative().default(0),
+    researchQuality: generateDeckResearchQualitySchema.default("not-run"),
+    researchIssueCodes: z
+      .array(generateDeckResearchIssueCodeSchema)
+      .default([]),
+    researchFactCoverageSatisfied: z.boolean().default(false),
     repairAttempted: z.boolean().default(false),
     repairReasons: z.array(generateDeckRepairReasonSchema).default([]),
     uniqueCoreLayoutCount: z.number().int().nonnegative().default(0),
@@ -443,6 +466,12 @@ export type GenerateDeckDiagnostics = z.infer<
 >;
 export type GenerateDeckWarningCode = z.infer<
   typeof generateDeckWarningCodeSchema
+>;
+export type GenerateDeckResearchQuality = z.infer<
+  typeof generateDeckResearchQualitySchema
+>;
+export type GenerateDeckResearchIssueCode = z.infer<
+  typeof generateDeckResearchIssueCodeSchema
 >;
 export type GenerateDeckVisualIssueCode = z.infer<
   typeof generateDeckVisualIssueCodeSchema

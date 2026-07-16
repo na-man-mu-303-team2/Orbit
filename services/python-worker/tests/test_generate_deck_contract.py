@@ -286,6 +286,10 @@ def test_generate_deck_request_rejects_more_than_ten_references() -> None:
 def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
     diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
 
+    assert diagnostics["researchQuality"] == "not-run"
+    assert diagnostics["researchIssueCodes"] == []
+    assert diagnostics["independentWebSourceCount"] == 0
+    assert diagnostics["researchFactCoverageSatisfied"] is False
     assert diagnostics["warningCodes"] == []
     assert diagnostics["visualQaStatus"] == "not-run"
     assert diagnostics["visualReviewAttempts"] == 0
@@ -340,6 +344,13 @@ def test_generate_deck_diagnostics_accept_extensible_warning_codes() -> None:
     assert diagnostics.warning_codes == ["FUTURE_DEGRADED_RESULT"]
 
 
+def test_generate_deck_diagnostics_reject_unknown_research_issue_codes() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckDiagnostics.model_validate(
+            {"researchIssueCodes": ["provider stack trace"]}
+        )
+
+
 @pytest.mark.parametrize(
     ("design_prompt", "expected"),
     [
@@ -389,6 +400,28 @@ def test_internal_source_grounding_stage_endpoint_uses_strict_contract() -> None
     assert response.status_code == 200
     assert response.json()["rawInput"]["topic"] == "ORBIT"
     assert response.json()["rawInput"]["warningCodes"] == []
+
+
+def test_internal_source_grounding_stage_exposes_safe_research_diagnostics() -> None:
+    response = client().post(
+        "/internal/ai/deck-generation/source-grounding",
+        json={
+            "request": {
+                "projectId": "project_demo_1",
+                "topic": "ORBIT",
+                "brief": {"referencePolicy": "research-first"},
+                "metadata": {},
+                "design": {},
+                "slideCountRange": {},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rawInput"]["research_quality"] == "unavailable"
+    assert response.json()["rawInput"]["research_issue_codes"] == [
+        "provider-unavailable"
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -2241,6 +2274,10 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     assert "underlying technology, market, or operating concepts" in str(
         web_requests[0]["input"]
     )
+    assert response.diagnostics.research_quality == "complete"
+    assert response.diagnostics.research_issue_codes == []
+    assert response.diagnostics.independent_web_source_count == 2
+    assert response.diagnostics.research_fact_coverage_satisfied is True
     ledgers = response.deck["slides"][0]["aiNotes"]["sourceLedger"]
     assert ledgers[0]["sourceType"] == "web"
     assert ledgers[0]["url"] == "https://example.com/report-a"
