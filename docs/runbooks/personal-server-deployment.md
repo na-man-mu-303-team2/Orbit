@@ -149,7 +149,7 @@ cd /var/www/orbit
 
 ## 자동 배포
 
-`develop`에 merge되면 `Environment Contract CI`가 환경 예시 파일 계약을 다시 검사한다. 성공한 push job만 같은 commit의 `.github/workflows/deploy-personal-staging.yml` reusable workflow를 `full` mode로 호출하며, 개인 서버 self-hosted runner는 검증된 commit SHA를 배포 wrapper에 전달한다.
+`develop`에 merge되면 `Environment Contract CI`가 환경 예시 파일 계약을 다시 검사한다. 성공한 push job만 같은 commit의 `.github/workflows/deploy-personal-staging.yml` reusable workflow를 `full` mode로 호출하며, 개인 서버 self-hosted runner는 검증된 commit SHA를 배포 wrapper에 전달한다. PR의 오래된 환경 검증 run은 새 commit에서 취소하지만, `develop` push run은 배포가 build·migration·service 교체 중에 중단되지 않도록 상위 workflow에서 취소하지 않는다.
 
 ### GenerateDeck breaking contract 자동 배포와 사후 확인
 
