@@ -28,6 +28,10 @@ export {
 } from "./presenter/ActivityPresenterPanel";
 export type { ActivitySurfaceRole } from "./rendering";
 export {
+  ActivityResultArchiveDetail,
+  ActivityResultsPage
+} from "./results/ActivityResultsPage";
+export {
   ActivityResultRuntime,
   ActivityResultSlideRenderer,
   getActivityResultRenderState,

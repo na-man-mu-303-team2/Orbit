@@ -113,6 +113,20 @@ export class ActivityResultsRepository {
     return rows[0] ?? null;
   }
 
+  listSessionRuns(projectId: string, sessionId: string) {
+    return this.dataSource.query<ActivityResultRunRow[]>(
+      `
+        SELECT ${runColumns}
+        FROM activity_runs AS runs
+        INNER JOIN presentation_sessions AS sessions
+          ON sessions.project_id = runs.project_id AND sessions.session_id = runs.session_id
+        WHERE runs.project_id = $1 AND runs.session_id = $2
+        ORDER BY runs.created_at ASC, runs.version ASC
+      `,
+      [projectId, sessionId]
+    );
+  }
+
   listResponses(projectId: string, runId: string) {
     return this.dataSource.query<ActivityResultResponseRow[]>(
       `

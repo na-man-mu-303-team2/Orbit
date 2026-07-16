@@ -71,11 +71,15 @@ const responses = [
   }
 ];
 
-function createService(status: typeof run.status | "closed" = "results") {
+function createService(
+  status: typeof run.status | "closed" = "results",
+  retention: "raw-retained" | "aggregate-only" | "results-deleted" = "raw-retained"
+) {
   const repository = {
     findRun: vi.fn().mockResolvedValue({ ...run, status }),
     findCurrentRun: vi.fn().mockResolvedValue({ ...run, status }),
     findActiveRun: vi.fn().mockResolvedValue({ ...run, status }),
+    listSessionRuns: vi.fn().mockResolvedValue([{ ...run, status }]),
     findOwnResponse: vi.fn().mockResolvedValue(responses[0]),
     listResponses: vi.fn().mockResolvedValue(responses),
     listTextEntries: vi.fn().mockResolvedValue([
@@ -99,12 +103,38 @@ function createService(status: typeof run.status | "closed" = "results") {
       }
     ])
   } as unknown as ActivityResultsRepository;
-  return new ActivityResultsService(repository);
+  const presentationSessionsService = {
+    getSessionForPresenter: vi.fn().mockResolvedValue({
+      sessionId: "session_1",
+      projectId: "project_1",
+      deckId: "deck_1",
+      deckVersion: 1,
+      presenterUserId: "user_owner",
+      createdBy: "user_owner",
+      status: "ended",
+      accessMode: "public",
+      startsAt: "2026-07-17T00:00:00.000Z",
+      expiresAt: "2026-07-18T00:00:00.000Z",
+      activeActivityRunId: null,
+      startedAt: "2026-07-17T00:00:00.000Z",
+      endedAt: "2026-07-17T00:20:00.000Z",
+      closedAt: "2026-07-17T00:20:00.000Z",
+      rawResponsesDeleteAfter: "2026-10-15T00:20:00.000Z",
+      rawResponsesDeletedAt: retention === "aggregate-only" ? "2026-10-15T00:20:00.000Z" : null,
+      resultsDeletedAt: retention === "results-deleted" ? "2026-07-17T00:21:00.000Z" : null,
+      createdAt: "2026-07-17T00:00:00.000Z",
+      updatedAt: "2026-07-17T00:21:00.000Z"
+    })
+  };
+  return {
+    repository,
+    service: new ActivityResultsService(repository, presentationSessionsService as never)
+  };
 }
 
 describe("ActivityResultsService", () => {
   it("returns full text moderation details only to the presenter projection", async () => {
-    const result = await createService().getPresenterResult(
+    const result = await createService().service.getPresenterResult(
       "project_1",
       "session_1",
       "activity_run_1"
@@ -131,7 +161,7 @@ describe("ActivityResultsService", () => {
   });
 
   it("removes display names and pending text from the public projection", async () => {
-    const result = await createService().getPublicResult(
+    const result = await createService().service.getPublicResult(
       "project_1",
       "session_1",
       "activity_run_1"
@@ -152,12 +182,12 @@ describe("ActivityResultsService", () => {
 
   it("does not expose aggregate results before the results state", async () => {
     await expect(
-      createService("closed").getPublicResult("project_1", "session_1", "activity_run_1")
+      createService("closed").service.getPublicResult("project_1", "session_1", "activity_run_1")
     ).resolves.toEqual({ result: null });
   });
 
   it("returns the active activity with the current audience response", async () => {
-    const result = await createService("closed").getAudienceActiveActivity(
+    const result = await createService("closed").service.getAudienceActiveActivity(
       "project_1",
       "session_1",
       "audience_private"
@@ -169,4 +199,29 @@ describe("ActivityResultsService", () => {
       publicResult: null
     });
   });
+
+  it("loads only runs from the requested project and session archive", async () => {
+    const { repository, service } = createService();
+    const archive = await service.getSessionArchive("project_1", "session_1");
+
+    expect(repository.listSessionRuns).toHaveBeenCalledWith("project_1", "session_1");
+    expect(archive).toMatchObject({
+      session: { sessionId: "session_1" },
+      activities: [{ availability: "raw-retained", result: { responseCount: 2 } }]
+    });
+  });
+
+  it.each(["aggregate-only", "results-deleted"] as const)(
+    "does not expose raw results in the %s archive state",
+    async (retention) => {
+      const archive = await createService("results", retention).service.getSessionArchive(
+        "project_1",
+        "session_1"
+      );
+      expect(archive.activities[0]).toMatchObject({
+        availability: retention,
+        result: null
+      });
+    }
+  );
 });

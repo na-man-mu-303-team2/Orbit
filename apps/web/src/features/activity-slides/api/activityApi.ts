@@ -2,6 +2,7 @@ import {
   audiencePresentationAccessResponseSchema,
   ensureActivityRunResponseSchema,
   getCurrentActivityRunResponseSchema,
+  getPresentationSessionResultsResponseSchema,
   getActivityPresenterResultResponseSchema,
   getActivityPublicResultResponseSchema,
   getAudienceActiveActivityResponseSchema,
@@ -65,6 +66,13 @@ export const activityApi = {
       presenterActivityUrl(projectId, sessionId, `activities/${segment(activityId)}/current-run`),
       undefined,
       getCurrentActivityRunResponseSchema
+    );
+  },
+  getSessionResults(projectId: string, sessionId: string) {
+    return request(
+      presenterActivityUrl(projectId, sessionId, "results"),
+      undefined,
+      getPresentationSessionResultsResponseSchema
     );
   },
   updateRunStatus(

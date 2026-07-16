@@ -100,6 +100,16 @@ export class ActivityRunsController {
     return this.activityResultsService.getPresenterResult(projectId, sessionId, runId);
   }
 
+  @Get("results")
+  async getSessionResults(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    await this.assertCanOperate(projectId, request);
+    return this.activityResultsService.getSessionArchive(projectId, sessionId);
+  }
+
   @Get("activity-runs/:runId/public-results")
   async getPublicResults(
     @Param("projectId") projectId: string,

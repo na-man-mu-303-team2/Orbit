@@ -7,11 +7,14 @@ import {
   activityRunSchema,
   getActivityPresenterResultResponseSchema,
   getActivityPublicResultResponseSchema,
+  getPresentationSessionResultsResponseSchema,
   getAudienceActiveActivityResponseSchema,
   getAudienceActivityResponseSchema
 } from "@orbit/shared";
 import type { ActivityAnswer, ActivityPresenterResult, ActivityPublicResult } from "@orbit/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+
+import { PresentationSessionsService } from "../presentation-sessions/presentation-sessions.service";
 
 import { buildActivityAggregates } from "./activity-aggregate";
 import {
@@ -22,7 +25,42 @@ import {
 
 @Injectable()
 export class ActivityResultsService {
-  constructor(private readonly repository: ActivityResultsRepository) {}
+  constructor(
+    private readonly repository: ActivityResultsRepository,
+    @Optional()
+    private readonly presentationSessionsService?: PresentationSessionsService
+  ) {}
+
+  async getSessionArchive(projectId: string, sessionId: string) {
+    if (!this.presentationSessionsService) {
+      throw new NotFoundException("Presentation session service unavailable");
+    }
+    const session = await this.presentationSessionsService.getSessionForPresenter(
+      projectId,
+      sessionId
+    );
+    const runs = await this.repository.listSessionRuns(projectId, sessionId);
+    const availability = session.resultsDeletedAt
+      ? "results-deleted"
+      : session.rawResponsesDeletedAt
+        ? "aggregate-only"
+        : "raw-retained";
+    const activities = await Promise.all(
+      runs.map(async (run) => ({
+        availability,
+        result:
+          availability === "raw-retained"
+            ? await this.buildPresenterResult(run)
+            : null,
+        run: this.toRun(run)
+      }))
+    );
+    return getPresentationSessionResultsResponseSchema.parse({
+      activities,
+      session,
+      sessionName: createSessionName(session.sessionId, session.createdAt)
+    });
+  }
 
   async getPresenterResult(projectId: string, sessionId: string, runId: string) {
     const run = await this.repository.findRun(projectId, sessionId, runId);
@@ -179,4 +217,9 @@ function toIso(value: Date | string): string {
 
 function toOptionalIso(value: Date | string | null): string | null {
   return value === null ? null : toIso(value);
+}
+
+function createSessionName(sessionId: string, createdAt: string) {
+  const date = createdAt.slice(0, 10);
+  return `발표 세션 ${date} ${sessionId.slice(-8)}`;
 }
