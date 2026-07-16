@@ -1022,6 +1022,13 @@ Implementation locations:
 API에서는 노출하지 않는다. `rehearsal_runs.transcript_json_file_id`와
 `rehearsal_runs.transcript_text_file_id`가 각 `project_assets.file_id`를 참조한다.
 
+리허설 STT 성공 시 Worker는 run의 `created_at`을 Asia/Seoul 날짜로 변환하고
+`rehearsals/{date}/{projectId}/{runId}/transcript.json`과 `transcript.txt`를 저장한다.
+JSON은 `text`, `language`, `duration`, `provider`, `segments[{ text, start, end }]`
+구조이며 speaker와 word-level segment는 보관하지 않는다. 두 `project_assets` row와
+`rehearsal_runs` 참조 갱신은 하나의 DB transaction으로 처리하고, DB 반영 실패 시
+이번 시도에서 새로 생성한 storage object만 보상 삭제한다.
+
 결정 사항:
 
 - 업로드 후 API 응답은 위 구조로 통일한다.
