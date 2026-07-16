@@ -1191,6 +1191,24 @@ Report 응답 구조:
   "deckId": "deck_demo_1",
   "transcriptRetained": false,
   "transcript": null,
+  "volumeAnalysis": {
+    "metricDefinitionVersion": 1,
+    "measurementState": "measured",
+    "reasonCode": null,
+    "averageDbfs": -22.4,
+    "baselineDbfs": -21.8,
+    "variationDb": 8.3,
+    "activeRatio": 0.76,
+    "issueSegments": [
+      {
+        "kind": "quiet",
+        "startSeconds": 8.1,
+        "endSeconds": 10.2,
+        "durationSeconds": 2.1,
+        "meanDeviationDb": -7.4
+      }
+    ]
+  },
   "metrics": {
     "durationSeconds": 90,
     "charactersPerMinute": 318,
@@ -1337,8 +1355,10 @@ Report 응답 구조:
 - `GET /api/v1/rehearsals/:runId/report` 접근은 현재 프로젝트 접근 경계(`ProjectsService.getAccessibleProject`)를 재사용한다.
 - ORBIT-37의 고급 0-100 점수 산식은 이 계약에 포함하지 않으며, 실제 산식이 확정되기 전까지 UI에서도 점수를 표시하지 않는다.
 - `score`, `deliveryScore`, `speedScore`처럼 산식이 확정되지 않은 점수 필드는 `RehearsalReport`에 저장하지 않는다.
+- `/audio/transcribe`는 원본 음성을 한 번만 읽어 같은 `AudioContent`를 STT와 로컬 음량 분석에 전달한다. `/audio/transcribe-private`는 STT 전용 계약을 유지한다.
+- `volumeAnalysis`는 현재 녹음 내부의 상대 음량 변화만 나타내며 절대적인 `적정·작음·큼` 판정으로 사용하지 않는다. 음량 분석 실패는 STT를 실패시키지 않고 `unmeasured`와 제한된 `reasonCode`로 기록한다.
 - public report는 기존 `durationSeconds`, `wordsPerMinute`, `fillerWordCount`, `pauseCount`, `keywordCoverage` 숫자 필드를 유지하고 `charactersPerMinute`, `measurements`, `sttQualityGate`, `analysisCapabilities`, `pauseV2Details`를 additive field로 제공한다.
-- legacy report에는 additive field가 없어도 schema default를 적용한다. `charactersPerMinute=null`, `pauseV2Details=[]`, Gate는 `unavailable/LEGACY_QUALITY_GATE_UNKNOWN`, capability는 모두 `unavailable/none`, measurement는 canonical version과 `unmeasured/LEGACY_MEASUREMENT_STATE_UNKNOWN`으로 읽는다. 기존 숫자만으로 measured 상태를 추정하지 않는다.
+- legacy report에는 additive field가 없어도 schema default를 적용한다. `volumeAnalysis`는 `unmeasured/LEGACY_REPORT`, `charactersPerMinute=null`, `pauseV2Details=[]`, Gate는 `unavailable/LEGACY_QUALITY_GATE_UNKNOWN`, capability는 모두 `unavailable/none`, measurement는 canonical version과 `unmeasured/LEGACY_MEASUREMENT_STATE_UNKNOWN`으로 읽는다. 기존 숫자만으로 measured 상태를 추정하지 않는다.
 - measurement version은 duration·CPM·WPM·filler·pause v1·keyword coverage가 1, pause v2가 2다. `charactersPerMinute`는 `measurements.charactersPerMinute`이 `measured`일 때만 non-null이며, 나머지 legacy 숫자는 compatibility placeholder일 수 있으므로 소비자는 measurement metadata가 `measured`일 때만 사용한다.
 - `sttQualityGate.state=failed`이면 CPM·WPM·filler·pause v1·pause v2·keyword coverage는 모두 `unmeasured/LOW_TRANSCRIPTION_CONFIDENCE`이고 `speedSamples`, `fillerWordDetails`, `pauseDetails`, `pauseV2Details`, `missedKeywords`, `slideInsights`는 비어 있어야 한다. `keywordCoverageMeasurement`는 `unmeasured/low-transcription-confidence`를 사용한다.
 - 말 속도 변화는 `speedSamples`, 습관어 상세는 `fillerWordDetails`, pause 상세는 `pauseDetails`, 누락 키워드 상세는 `missedKeywords`를 공식 필드로 사용한다. 값이 부족하면 빈 배열을 저장하며, UI는 deck 또는 평균값만으로 상세 지표를 추정하지 않는다.

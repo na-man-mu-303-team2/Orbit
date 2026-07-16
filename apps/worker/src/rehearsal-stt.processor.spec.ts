@@ -86,6 +86,28 @@ const deckRow = {
   }
 };
 
+const volumeAnalysisFixture = {
+  metricDefinitionVersion: 1,
+  measurementState: "measured",
+  reasonCode: null,
+  averageDbfs: -22.4,
+  baselineDbfs: -21.8,
+  variationDb: 8.3,
+  activeRatio: 0.76,
+  issueSegments: []
+};
+
+const unmeasuredVolumeAnalysisFixture = {
+  metricDefinitionVersion: 1,
+  measurementState: "unmeasured",
+  reasonCode: "ANALYSIS_FAILED",
+  averageDbfs: null,
+  baselineDbfs: null,
+  variationDb: null,
+  activeRatio: null,
+  issueSegments: []
+};
+
 describe("processRehearsalSttJob", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -136,6 +158,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 90,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
@@ -189,6 +212,9 @@ describe("processRehearsalSttJob", () => {
       expect.stringContaining("report_json"),
       expect.arrayContaining([
         expect.stringContaining('"reportId":"report_run-a"'),
+        expect.stringContaining(
+          '"volumeAnalysis":{"metricDefinitionVersion":1,"measurementState":"measured"'
+        ),
         expect.stringContaining('"speedSamples":[{"startSecond":0,"endSecond":3.5,"wordsPerMinute":120}]'),
         expect.stringContaining('"missedKeywords":[{"slideId":"slide_1","keywordId":"kw_1","text":"ORBIT"}]'),
         expect.stringContaining('"utteranceOutcomes":[{"slideId":"slide_1","kind":"paraphrased","sentenceId":"sentence_1","similarity":0.93}]'),
@@ -307,6 +333,7 @@ describe("processRehearsalSttJob", () => {
             language: "ko-KR",
             provider: "fake",
             model: "fake-transcriber",
+            volumeAnalysis: volumeAnalysisFixture,
             durationSeconds: 3.5,
             segments: [{ text: "안녕하세요 LATEST 발표입니다" }]
           })
@@ -379,6 +406,7 @@ describe("processRehearsalSttJob", () => {
             language: "ko-KR",
             provider: "fake",
             model: "fake-transcriber",
+            volumeAnalysis: volumeAnalysisFixture,
             durationSeconds: 90,
             segments: [
               {
@@ -530,6 +558,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 10,
               segments: [
                 {
@@ -738,6 +767,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 90,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
@@ -808,6 +838,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 10,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
@@ -910,6 +941,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 3.5,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
@@ -934,7 +966,7 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
-  it("preserves a successful analysis without scheduling cleanup", async () => {
+  it("preserves STT success when volume analysis is unmeasured", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -963,6 +995,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake",
+              volumeAnalysis: unmeasuredVolumeAnalysisFixture,
               durationSeconds: 1,
               segments: []
             })
@@ -989,6 +1022,14 @@ describe("processRehearsalSttJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("report_json"),
+      expect.arrayContaining([
+        expect.stringContaining(
+          '"volumeAnalysis":{"metricDefinitionVersion":1,"measurementState":"unmeasured","reasonCode":"ANALYSIS_FAILED"'
+        )
+      ])
+    );
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO storage_deletion_outbox")
@@ -1029,6 +1070,7 @@ describe("processRehearsalSttJob", () => {
               language: "ko-KR",
               provider: "fake",
               model: "fake-transcriber",
+              volumeAnalysis: volumeAnalysisFixture,
               durationSeconds: 3.5,
               segments: [{ text: "안녕하세요 ORBIT 발표입니다" }]
             })
@@ -1294,6 +1336,7 @@ async function runSnapshotJobWithSemanticResponse(
             language: "ko-KR",
             provider: "fake",
             model: "fake-transcriber",
+            volumeAnalysis: volumeAnalysisFixture,
             durationSeconds: 10,
             segments: [
               {

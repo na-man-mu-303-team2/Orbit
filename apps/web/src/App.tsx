@@ -2,6 +2,7 @@ import {
   deckSchema,
   demoIds,
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalVolumeAnalysis,
   type Deck,
   type Project,
   type ProjectMemberRole,
@@ -130,6 +131,7 @@ const reportMockupReport: RehearsalReport = {
   deckId: demoIds.deckId,
   transcriptRetained: false,
   transcript: null,
+  volumeAnalysis: legacyRehearsalVolumeAnalysis,
   metrics: {
     ...legacyRehearsalReportMetricsDefaults,
     durationSeconds: 286,

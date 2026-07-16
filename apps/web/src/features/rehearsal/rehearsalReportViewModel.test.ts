@@ -1,5 +1,6 @@
 import {
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalVolumeAnalysis,
   type RehearsalReport,
   type RehearsalSemanticCueOutcome,
 } from "@orbit/shared";
@@ -244,6 +245,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     deckId: "deck_1",
     transcriptRetained: false,
     transcript: null,
+    volumeAnalysis: legacyRehearsalVolumeAnalysis,
     metrics: {
       ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 60,

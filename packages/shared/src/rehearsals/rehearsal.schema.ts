@@ -37,6 +37,10 @@ import {
   rehearsalReportSttQualityGateSchema,
   speechRateMeasurementSchema,
 } from "../coaching/speech-evidence.schema";
+import {
+  legacyRehearsalVolumeAnalysis,
+  rehearsalVolumeAnalysisSchema
+} from "./rehearsal-audio-analysis.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -588,6 +592,9 @@ export const rehearsalReportSchema = z
     deckId: z.string().min(1),
     transcriptRetained: z.boolean(),
     transcript: z.string().nullable(),
+    volumeAnalysis: rehearsalVolumeAnalysisSchema.default(
+      legacyRehearsalVolumeAnalysis
+    ),
     metrics: rehearsalReportMetricsSchema,
     speedSamples: z.array(rehearsalReportSpeedSampleSchema).default([]),
     fillerWordDetails: z.array(rehearsalReportFillerWordDetailSchema).default([]),

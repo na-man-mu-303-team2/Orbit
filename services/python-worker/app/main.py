@@ -91,6 +91,10 @@ from app.audio.transcribe import (
     to_http_exception,
     transcribe_rehearsal_audio,
 )
+from app.audio.processing import (
+    RehearsalAudioProcessingResponse,
+    process_rehearsal_audio,
+)
 from app.challenge_qna import router as challenge_qna_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
@@ -553,14 +557,24 @@ async def sync_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
 @app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
-def transcribe_audio(
+def transcribe_private_audio_endpoint(
     payload: AudioTranscribeRequest,
     provider: ReportSttProviderDependency,
 ) -> AudioTranscribeResponse:
     try:
         return transcribe_rehearsal_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post("/audio/transcribe", response_model=RehearsalAudioProcessingResponse)
+def process_rehearsal_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> RehearsalAudioProcessingResponse:
+    try:
+        return process_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
 

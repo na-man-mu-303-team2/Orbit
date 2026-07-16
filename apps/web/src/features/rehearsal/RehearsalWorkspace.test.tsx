@@ -5,6 +5,7 @@ import {
   createKeywordOccurrenceId,
   createRehearsalEvaluationSnapshot,
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalVolumeAnalysis,
   type Job,
   type RehearsalReport,
   type RehearsalRun,
@@ -3119,6 +3120,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     deckId: "deck-a",
     transcriptRetained: false,
     transcript: null,
+    volumeAnalysis: legacyRehearsalVolumeAnalysis,
     metrics: {
       ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 90,

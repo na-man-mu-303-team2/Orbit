@@ -3,6 +3,7 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  rehearsalAudioProcessingResponseSchema,
   rehearsalEvaluationSnapshotSchema,
   rehearsalAnalyzeRequestSchema,
   rehearsalReportSchema,
@@ -10,6 +11,7 @@ import {
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
   type Job,
+  type RehearsalAudioProcessingResponse,
   type RehearsalEvaluationSnapshot,
   type RehearsalReport,
   type RehearsalReportSlideTiming,
@@ -64,26 +66,6 @@ const rehearsalRunInputRowSchema = z.object({
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
   semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
   analysis_revision: z.number().int().nonnegative().default(0)
-});
-
-const transcribeSegmentSchema = z
-  .object({
-    text: z.string(),
-    startSeconds: z.number().finite().nonnegative().nullable().optional(),
-    endSeconds: z.number().finite().nonnegative().nullable().optional()
-  })
-  .strict();
-
-const transcribeResponseSchema = z.object({
-  runId: z.string().min(1),
-  projectId: z.string().min(1),
-  fileId: z.string().min(1),
-  transcript: z.string(),
-  language: z.string(),
-  provider: z.string(),
-  model: z.string(),
-  durationSeconds: z.number().nullable().optional(),
-  segments: z.array(transcribeSegmentSchema)
 });
 
 const analyzeSpeedSampleSchema = z
@@ -273,7 +255,7 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 30, "음성 변환 중");
 
-  let transcribePayload: z.infer<typeof transcribeResponseSchema>;
+  let audioProcessingResponse: RehearsalAudioProcessingResponse;
   try {
     const response = await fetch(workerUrl(pythonWorkerUrl, "/audio/transcribe"), {
       method: "POST",
@@ -301,7 +283,9 @@ export async function processRehearsalSttJob(
       );
     }
 
-    transcribePayload = transcribeResponseSchema.parse(await response.json());
+    audioProcessingResponse = rehearsalAudioProcessingResponseSchema.parse(
+      await response.json()
+    );
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
       dataSource,
@@ -321,7 +305,7 @@ export async function processRehearsalSttJob(
       pythonWorkerUrl,
       payload,
       deckContext,
-      transcribePayload,
+      audioProcessingResponse,
       runMeta
     );
   } catch (error) {
@@ -339,7 +323,7 @@ export async function processRehearsalSttJob(
     pythonWorkerUrl,
     payload,
     deckContext,
-    transcribePayload,
+    audioProcessingResponse,
     runMeta,
     onSemanticEvaluationEvent
   );
@@ -350,7 +334,7 @@ export async function processRehearsalSttJob(
   try {
     report = buildRehearsalReport(
       payload,
-      transcribePayload,
+      audioProcessingResponse,
       analysis,
       new Date().toISOString(),
       deckContext,
@@ -370,7 +354,7 @@ export async function processRehearsalSttJob(
 
   try {
     await transcriptCache?.setSemanticEvidence(payload.runId, {
-      segments: buildSemanticSegments(transcribePayload.segments)
+      segments: buildSemanticSegments(audioProcessingResponse.segments)
     });
   } catch {
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
@@ -417,7 +401,12 @@ export async function processRehearsalSttJob(
     status: "succeeded",
     progress: 100,
     message: "리포트 생성 완료",
-    result: buildReportGenerationRecord(payload, transcribePayload, report, null),
+    result: buildReportGenerationRecord(
+      payload,
+      audioProcessingResponse,
+      report,
+      null
+    ),
     error: null
   });
 
@@ -428,7 +417,7 @@ export async function processRehearsalSttJob(
 
 function buildRehearsalReport(
   payload: RehearsalSttPayload,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   analysis: z.infer<typeof analyzeResponseSchema>,
   generatedAt: string,
   deckContext: DeckAnalysisContext,
@@ -442,6 +431,7 @@ function buildRehearsalReport(
     deckId: payload.deckId,
     transcriptRetained: false,
     transcript: null,
+    volumeAnalysis: transcription.volumeAnalysis,
     metrics: {
       durationSeconds: transcription.durationSeconds ?? 0,
       wordsPerMinute: analysis.wordsPerMinute,
@@ -476,7 +466,7 @@ function buildRehearsalReport(
 
 function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   report: RehearsalReport,
   rawAudioDeletedAt: string | null
 ) {
@@ -502,7 +492,7 @@ async function analyzeTranscript(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
   deckContext: DeckAnalysisContext,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   runMeta: RehearsalRunMeta
 ) {
   const request = rehearsalAnalyzeRequestSchema.parse({
@@ -542,7 +532,7 @@ async function analyzeSemanticCuesForReport(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
   deckContext: DeckAnalysisContext,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   runMeta: RehearsalRunMeta,
   onEvent?: (event: RehearsalSemanticEvaluationBusinessEvent) => void
 ): Promise<SemanticAnalysisResult> {
@@ -705,7 +695,7 @@ export async function requestSemanticAnalysis(
 }
 
 function buildSemanticSegments(
-  segments: z.infer<typeof transcribeSegmentSchema>[]
+  segments: RehearsalAudioProcessingResponse["segments"]
 ) {
   return segments.flatMap((segment) => {
     if (

@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "ORBIT FastAPI worker for document, speech, and AI helper tasks"
 requires-python = ">=3.12"
 dependencies = [
+  "av>=18,<19",
   "fastapi>=0.115.0",
+  "librosa>=0.11,<0.12",
+  "numpy>=2,<3",
   "openai>=1.86.0",
   "Pillow>=10.0,<12.0",
   "pydantic>=2.11.0",

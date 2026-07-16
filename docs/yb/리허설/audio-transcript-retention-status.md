@@ -7,8 +7,9 @@
 확인 기준은 다음과 같다.
 
 - 확인 일자: 2026-07-16
-- 확인 커밋: `5f1c13e5`
-- 현재 브랜치와 `origin/develop`은 같은 커밋을 가리킨다.
+- develop 기준 커밋: `5f1c13e5`
+- 기능 브랜치: `feature/rehearsal-volume-analysis`
+- 이 문서의 음량 분석 부분은 기능 브랜치의 현재 구현을 반영한다.
 - 이 문서는 구현된 코드의 실제 동작을 기준으로 한다.
 - `docs/contracts.md` 등 기존 문서의 의도와 실제 코드가 다른 부분은 별도로 표시한다.
 
@@ -341,16 +342,21 @@ Web에는 `report.transcriptRetained === true`이고 `report.transcript !== null
 
 ## 7. 음량 분석 구현에 미치는 영향
 
-현재 원본 음성을 다시 내려받을 수 있으므로 음량 분석 자체는 바로 연결할 수 있다. 가장 단순한 연결 지점은 Python Worker의 `transcribe_rehearsal_audio()`다.
+리허설 `/audio/transcribe`는 원본 음성을 `load_audio_content()`로 한 번 읽고, 같은 `AudioContent`를 STT와 음량 분석 모듈에 전달한다. 오케스트레이션은 `process_rehearsal_audio()`가 담당한다.
 
 ```python
-audio = read_audio_content(payload.audio)
+audio_content = load_audio_content(payload.audio)
 
-# 동일한 audio.data를 음량 분석에 사용
-volume_analysis = analyze_volume(audio)
+provider_transcription = transcribe_audio_content(audio_content, provider)
+volume_analysis = analyze_volume_safely(audio_content)
 
-# 같은 audio.data를 STT provider에 전달
-transcription = provider.transcribe(audio)
+return RehearsalAudioProcessingResponse(
+    **build_audio_transcribe_response(
+        payload,
+        provider_transcription,
+    ).model_dump(),
+    volumeAnalysis=volume_analysis,
+)
 ```
 
 이 방식의 장점은 다음과 같다.
@@ -359,6 +365,8 @@ transcription = provider.transcribe(audio)
 - STT와 음량 분석이 같은 원본 바이트 사용
 - signed URL 재발급 불필요
 - 별도 raw audio 복제 불필요
+- 음량 분석 실패가 STT 성공을 막지 않음
+- `/audio/transcribe-private`는 기존 STT 전용 동작 유지
 
 다만 음량 분석 구현 전에 다음 정책을 확정해야 한다.
 
@@ -394,10 +402,10 @@ transcription = provider.transcribe(audio)
 
 ### 4단계: 음량 분석 연결
 
-- `/audio/transcribe`에서 내려받은 `AudioContent` 재사용
-- 음량 분석 실패가 STT 성공을 막지 않도록 분리
-- `report_json.volumeAnalysis` 공통 계약 적용
-- 원본 음성 URL이나 바이트를 report와 로그에 저장하지 않음
+- `/audio/transcribe`에서 내려받은 `AudioContent`를 STT와 음량 분석이 재사용한다.
+- 음량 분석 실패는 `unmeasured`로 변환해 STT 성공을 막지 않는다.
+- `report_json.volumeAnalysis`는 shared schema로 검증한다.
+- 원본 음성 URL이나 바이트, waveform, 프레임별 RMS는 report와 로그에 저장하지 않는다.
 
 ## 9. 결론
 
@@ -405,4 +413,4 @@ transcription = provider.transcribe(audio)
 
 전사 데이터는 별도 파일로 저장하지 않는다. 전체 전사는 처리 중 메모리에서만 사용하고, 타임스탬프가 포함된 segment만 비영속 Redis에 30분 보관한다. 리포트와 리포트 API에서는 전사 원문을 제공하지 않는다.
 
-음량 분석은 현재 남아 있는 원본 음성을 사용해 구현할 수 있지만, 기능 구현과 함께 원본 음성 보관 기간, 전사 segment 수명, 문제 구간 재생 정책을 공통 계약으로 정리해야 한다.
+음량 분석은 현재 남아 있는 원본 음성을 한 번 로드해 STT와 공유하는 구조로 연결됐다. 다만 원본 음성 보관 기간, 전사 segment 수명, 문제 구간 재생 정책은 여전히 별도 계약과 구현이 필요하다.
