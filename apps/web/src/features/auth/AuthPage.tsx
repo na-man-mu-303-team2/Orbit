@@ -1,13 +1,14 @@
-import { IconArrowLeft, IconCheck, IconEdit, IconEye, IconEyeOff, IconMicrophone, IconPresentation, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconCheck, IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent, type ReactNode } from "react";
-import orbitLogo from "../../assets/orbit-logo.png";
+import { useState, type FormEvent } from "react";
+import orbitSymbol from "../../assets/orbit-symbol-v2.png";
 import {
   OrbitButton,
   OrbitField,
   OrbitIconButton,
   OrbitInput
 } from "../../design-system";
+import "../../styles/tokens.css";
 import "./orbit-auth-page.css";
 
 type Navigate = (path: string) => void;
@@ -45,21 +46,25 @@ export function OrbitAuthPage(props: {
 
   return (
     <div className="orbit-auth-page">
-      <aside className="orbit-auth-brand-panel">
-        <button aria-label="ORBIT 공개 화면" onClick={() => props.onNavigate("/")} type="button"><IconArrowLeft aria-hidden="true" className="orbit-auth-back" size={18} /><img alt="ORBIT" src={orbitLogo} /></button>
-        <div className="orbit-auth-brand-copy"><p className="orbit-ds-eyebrow">AI PRESENTATION WORKSPACE</p><h1>생각부터<br />발표 순간까지.</h1><p>만들고, 편집하고, 연습하는 모든 흐름을 ORBIT 하나로 이어보세요.</p></div>
-        <ol className="orbit-auth-benefits">
-          <AuthBenefit icon={<IconSparkles aria-hidden="true" size={19} />} title="AI로 빠르게 시작">아이디어와 자료를 발표 구성으로 정리해요.</AuthBenefit>
-          <AuthBenefit icon={<IconEdit aria-hidden="true" size={19} />} title="한눈에 편집">콘텐츠와 디자인을 한 캔버스에서 다듬어요.</AuthBenefit>
-          <AuthBenefit icon={<IconMicrophone aria-hidden="true" size={19} />} title="발표까지 자신 있게">리허설과 실전 발표 흐름을 함께 준비해요.</AuthBenefit>
-        </ol>
-        <div className="orbit-auth-brand-note"><IconPresentation aria-hidden="true" size={20} /><span>생성부터 리허설까지<br /><strong>하나의 작업 흐름으로 연결됩니다.</strong></span></div>
-      </aside>
+      <header className="orbit-auth-header">
+        <div className="orbit-auth-header-inner">
+          <button
+            aria-label="ORBIT 공개 화면으로 돌아가기"
+            className="orbit-auth-home"
+            onClick={() => props.onNavigate("/")}
+            type="button"
+          >
+            <IconArrowLeft aria-hidden="true" size={18} />
+            <img alt="" aria-hidden="true" src={orbitSymbol} />
+            <span>ORBIT</span>
+          </button>
+        </div>
+      </header>
 
       <main className="orbit-auth-form-panel">
         <div className="orbit-auth-form-card">
           <header className="orbit-auth-form-header">
-            <p className="orbit-ds-eyebrow">{isRegister ? "START WITH ORBIT" : "WELCOME BACK"}</p>
+            <p className="orbit-auth-eyebrow">{isRegister ? "START WITH ORBIT" : "WELCOME BACK"}</p>
             <h1>{isRegister ? "첫 발표를 시작해 볼까요?" : "다시 만나서 반가워요."}</h1>
             <p>{isRegister ? "계정을 만들고 아이디어를 완성도 높은 발표로 바꿔보세요." : "작업하던 발표자료와 리허설 기록을 이어서 확인하세요."}</p>
           </header>
@@ -92,10 +97,6 @@ export function OrbitAuthPage(props: {
       </main>
     </div>
   );
-}
-
-function AuthBenefit(props: { children: ReactNode; icon: ReactNode; title: string }) {
-  return <li><span>{props.icon}</span><div><strong>{props.title}</strong><small>{props.children}</small></div></li>;
 }
 
 async function readAuthError(response: Response) {
