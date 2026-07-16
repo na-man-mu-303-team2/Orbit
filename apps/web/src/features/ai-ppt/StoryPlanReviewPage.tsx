@@ -24,6 +24,14 @@ import "./story-plan-review.css";
 
 type StoryTab = "flow" | "evidence" | "notes";
 
+export function storyPlanRegenerationPollingKey(
+  response: StoryPlanReviewResponse | null,
+) {
+  return response?.status === "regenerating"
+    ? response.plan?.regenerationCount
+    : undefined;
+}
+
 export function storyPlanPath(projectId: string, jobId: string) {
   return `/project/${encodeURIComponent(projectId)}/story-plan/${encodeURIComponent(jobId)}`;
 }
@@ -40,6 +48,7 @@ export function StoryPlanReviewPage(props: {
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const regenerationPollingKey = storyPlanRegenerationPollingKey(response);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +84,7 @@ export function StoryPlanReviewPage(props: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [props.jobId, props.projectId]);
+  }, [props.jobId, props.projectId, regenerationPollingKey]);
 
   async function mutate(action: "approve" | "cancel" | "regenerate") {
     if (!response || busy) return;

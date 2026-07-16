@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { StoryPlanReviewView, storyPlanPath } from "./StoryPlanReviewPage";
+import {
+  StoryPlanReviewView,
+  storyPlanPath,
+  storyPlanRegenerationPollingKey,
+} from "./StoryPlanReviewPage";
 
 const response = {
   jobId: "job-1",
@@ -61,6 +65,16 @@ describe("StoryPlanReviewView", () => {
     expect(storyPlanPath("project 1", "job/1")).toBe(
       "/project/project%201/story-plan/job%2F1",
     );
+  });
+
+  it("restarts polling when regeneration begins", () => {
+    expect(storyPlanRegenerationPollingKey(response)).toBeUndefined();
+    expect(
+      storyPlanRegenerationPollingKey({
+        ...response,
+        status: "regenerating",
+      }),
+    ).toBe(response.plan.regenerationCount);
   });
 
   it("renders evidence and speaker notes from the same safe plan", () => {
