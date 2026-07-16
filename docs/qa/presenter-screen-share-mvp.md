@@ -17,7 +17,9 @@
 | 시스템 Chrome | 통과 | `PLAYWRIGHT_USE_SYSTEM_CHROME=1`, 3/3 |
 | actual Chrome direct bridge | 통과 | 두 WindowProxy 방향에서 canvas `MediaStream` video track 1개 attach |
 | actual Chrome native 탭 캡처 | 통과 | native `getDisplayMedia()`, `displaySurface=browser`, audio 0, video 1 |
-| native 앱 창/전체 모니터 | 환경 차단 | macOS capture source 시작 단계에서 `NotReadableError`; 아래 수동 확인 필요 |
+| native 앱 창 캡처 | 통과 | 실제 앱 창 영상 표시, Chrome 공유 중지 후 최신 slide 복귀 |
+| native 전체 모니터 | 통과 | 개인정보 경고·명시적 확인 후 영상 표시, black 전환 시 capture indicator 종료 |
+| 물리 확장 디스플레이 `surface swap` | 환경 차단 | `getScreenDetails()`가 내장 Retina 1개만 반환; 실물 모니터 필요 |
 
 ## 자동 검증 시나리오
 
@@ -66,21 +68,32 @@ Vite 개발 서버 응답은 `Cross-Origin-Opener-Policy: same-origin`, `Cross-O
 4. 시스템 Chrome native 탭
    - Chrome의 테스트용 source 자동 선택 플래그로 native picker 선택만 자동화
    - `getDisplayMedia()` 결과 `displaySurface=browser`, audio track 0개, video track 1개
+5. 시스템 Chrome native 앱 창
+   - 실제 앱 창을 선택해 청중 video에 표시
+   - 초기 검증에서 프레임은 재생되지만 `play()` promise 거부를 즉시 오류로 표시하는 오탐을 발견해 수정
+   - 1초 유예와 `canplay`/`playing` 복구 후 오류 문구 없이 영상만 표시됨을 재검증
+   - Chrome 기본 `공유 중지` 후 1초 이내 최신 slide 복귀
+6. 시스템 Chrome native 전체 모니터
+   - 고급 패널이 본문 아래에 가려지는 stacking 결함을 발견해 전면 overlay로 수정
+   - 발표자 노트·알림·개인정보 경고와 확인 전 `전체 화면 선택` disabled 확인
+   - 명시적 확인 후 전체 모니터 영상 표시
+   - `청중 화면 가리기` 후 검은 ORBIT surface와 Chrome capture indicator 종료 확인
+7. 실제 디스플레이 검색
+   - Window Management 권한 허용 후 내장 Retina 디스플레이 1개만 반환
+   - UI가 `추가 디스플레이를 찾지 못했습니다. 열린 창을 직접 옮겨주세요.` fallback을 표시
 
 direct bridge가 두 방향 모두 성공했으므로 local loopback WebRTC fallback은 구현하지 않았다.
 
-## macOS 수동 확인이 필요한 항목
+## 남은 수동 확인 항목
 
-자동 실행한 앱 창과 전체 모니터 native capture는 Chrome이 source를 선택한 뒤 `NotReadableError: Could not start video source`를 반환했다. macOS `개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음` 권한과 실제 확장 디스플레이가 필요한 환경 항목이다.
+native 앱 창과 전체 모니터는 권한을 허용한 일반 Chrome 세션에서 통과했다. 현재 장비에는 물리 외부 모니터가 없어 실제 `surface swap` 배치만 남았다.
 
-권한을 허용한 일반 Chrome 세션에서 다음을 확인한다.
+물리 모니터를 macOS 확장 모드로 연결한 일반 Chrome 세션에서 다음을 확인한다.
 
-1. `slide-window`에서 다른 Chrome 탭 선택 → video 표시 → Chrome `공유 중지` → 1초 이내 최신 slide.
-2. `slide-window`에서 별도 앱 창 선택 → video 표시 → Orbit `슬라이드로 돌아가기`.
-3. 고급 옵션 경고 확인 후 전체 모니터 선택 → video 표시, audio 없음.
-4. 공유 중 popup 닫기 → Chrome capture indicator 종료, track 잔존 없음.
-5. 실제 확장 모니터 `surface swap`에서 remote로 탭/앱/모니터 공유 후 remote 닫기 → 최신 slide.
-6. 알림·발표자 노트·다른 앱이 보이는 전체 모니터를 선택할 때 경고가 picker보다 먼저 표시되는지 확인.
+1. `화면 권한 요청` 후 외부 모니터가 목록에 나타나는지 확인한다.
+2. 외부 모니터를 청중 화면으로 선택하고 `슬라이드쇼 시작` 후 `PresenterRemoteWindow`가 내장 화면에 열리는지 확인한다.
+3. remote에서 탭·앱 창·전체 모니터 공유 후 청중 화면의 video 표시를 확인한다.
+4. remote를 닫으면 capture indicator가 종료되고 청중 화면이 최신 slide로 복귀하는지 확인한다.
 
 ## 알려진 제약
 
