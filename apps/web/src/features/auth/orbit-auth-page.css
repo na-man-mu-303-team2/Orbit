@@ -1,4 +1,8 @@
-/* Authentication page — Redesign System (apps/web/DESIGN.md). */
+/*
+ * Authentication page — Redesign System (apps/web/DESIGN.md).
+ * Consumes --redesign-* variables from src/styles/tokens.css only.
+ * Derived tints use color-mix() on tokens; no literal hex values here.
+ */
 
 .orbit-auth-page {
   min-height: 100vh;
@@ -7,19 +11,9 @@
   font-family: var(--redesign-font-family);
   background:
     radial-gradient(
-      920px 540px at 50% 104%,
-      color-mix(in srgb, var(--redesign-color-primary-fixed-dim) 64%, transparent),
+      1100px 460px at 50% -180px,
+      color-mix(in srgb, var(--redesign-color-primary) 8%, transparent),
       transparent 72%
-    ),
-    radial-gradient(
-      640px 420px at 10% 18%,
-      color-mix(in srgb, var(--redesign-color-secondary-fixed-dim) 48%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      640px 420px at 92% 22%,
-      color-mix(in srgb, var(--redesign-color-tertiary-fixed-dim) 40%, transparent),
-      transparent 70%
     ),
     var(--redesign-color-background);
 }
@@ -34,49 +28,48 @@
   display: flex;
   align-items: center;
   width: min(100%, 1200px);
-  min-height: 76px;
+  min-height: 64px;
   margin: 0 auto;
-  padding: var(--redesign-space-md) var(--redesign-layout-margin);
+  padding: 0 var(--redesign-layout-margin);
 }
 
 .orbit-auth-home {
   display: inline-flex;
   align-items: center;
   gap: var(--redesign-space-sm);
-  min-height: 40px;
+  min-height: 36px;
   padding: var(--redesign-space-xs) var(--redesign-space-sm);
   border: 0;
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-md);
   background: transparent;
   color: var(--redesign-color-on-surface);
   font-family: inherit;
   cursor: pointer;
-  transition: background-color 160ms ease, transform 160ms ease;
+  transition: background-color 140ms ease;
 }
 
 .orbit-auth-home:hover {
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface) 68%,
-    transparent
-  );
-  transform: translateX(-2px);
+  background: var(--redesign-color-surface-container);
+}
+
+.orbit-auth-home > svg {
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .orbit-auth-home img {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   transform: scale(1.28);
 }
 
 .orbit-auth-home span {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.03em;
 }
 
-.orbit-auth-page button:focus-visible,
+.orbit-auth-page button:not(.redesign-gradient-button):focus-visible,
 .orbit-auth-page .orbit-ds-input:focus-visible {
   outline: none;
   box-shadow: var(--redesign-focus-ring);
@@ -87,7 +80,7 @@
   box-sizing: border-box;
   display: grid;
   place-items: center;
-  min-height: calc(100vh - 76px);
+  min-height: calc(100vh - 64px);
   padding: var(--redesign-space-lg) var(--redesign-layout-margin)
     calc(var(--redesign-space-xl) * 1.5);
 }
@@ -95,67 +88,45 @@
 .orbit-auth-form-card {
   position: relative;
   box-sizing: border-box;
-  width: min(100%, 480px);
-  overflow: hidden;
-  padding: calc(var(--redesign-space-xl) - var(--redesign-space-sm));
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-outline-variant) 76%,
-    transparent
-  );
-  border-radius: calc(var(--redesign-radius-xl) * 2);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface) 88%,
-    transparent
-  );
-  box-shadow: 0 24px 72px
-    color-mix(in srgb, var(--redesign-color-on-surface) 12%, transparent);
-  backdrop-filter: blur(18px);
-  animation: orbit-auth-enter 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-.orbit-auth-form-card::before {
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: var(--redesign-space-base);
-  background: linear-gradient(
-    90deg,
-    var(--redesign-color-primary),
-    var(--redesign-color-secondary),
-    var(--redesign-color-tertiary)
-  );
-  content: "";
+  width: min(100%, 420px);
+  padding: calc(var(--redesign-space-xl) - var(--redesign-space-sm))
+    var(--redesign-space-xl);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--redesign-color-on-surface) 4%, transparent),
+    0 12px 32px color-mix(in srgb, var(--redesign-color-on-surface) 6%, transparent),
+    0 32px 80px color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  animation: orbit-auth-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .orbit-auth-form-header {
-  text-align: center;
+  text-align: left;
 }
 
 .orbit-auth-eyebrow {
   margin: 0 0 var(--redesign-space-sm);
-  color: var(--redesign-color-primary);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 800;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 11px;
+  font-weight: var(--redesign-type-label-sm-weight);
   line-height: var(--redesign-type-label-sm-line-height);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .orbit-auth-form-header h1 {
   margin: 0;
   color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-headline-lg-size);
+  font-size: 26px;
   font-weight: var(--redesign-type-headline-lg-weight);
-  line-height: var(--redesign-type-headline-lg-line-height);
+  line-height: 1.3;
   letter-spacing: var(--redesign-type-headline-lg-tracking);
   word-break: keep-all;
 }
 
 .orbit-auth-form-header > p:last-child {
-  max-width: 34em;
-  margin: var(--redesign-space-sm) auto 0;
+  margin: var(--redesign-space-sm) 0 0;
   color: var(--redesign-color-on-surface-variant);
   font-size: 14px;
   line-height: 1.6;
@@ -175,7 +146,7 @@
 .orbit-auth-page .orbit-ds-field > span {
   color: var(--redesign-color-on-surface);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .orbit-auth-page .orbit-ds-field small {
@@ -185,20 +156,16 @@
 
 .orbit-auth-page .orbit-ds-input {
   box-sizing: border-box;
-  min-height: 52px;
+  min-height: 46px;
   padding: 0 var(--redesign-space-md);
   border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface) 82%,
-    transparent
-  );
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-low);
   color: var(--redesign-color-on-surface);
   font-family: inherit;
-  font-size: 15px;
-  transition: border-color 160ms ease, box-shadow 160ms ease,
-    background-color 160ms ease;
+  font-size: 14px;
+  transition: border-color 140ms ease, box-shadow 140ms ease,
+    background-color 140ms ease;
 }
 
 .orbit-auth-page .orbit-ds-input::placeholder {
@@ -219,66 +186,49 @@
 }
 
 .orbit-auth-password-field .orbit-ds-input {
-  padding-right: calc(var(--redesign-space-xl) + var(--redesign-space-sm));
+  padding-right: calc(var(--redesign-space-xl) + var(--redesign-space-xs));
 }
 
 .orbit-auth-password-field > .orbit-ds-icon-button {
   position: absolute;
-  top: 30px;
+  top: 33px;
   right: var(--redesign-space-sm);
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--redesign-radius);
   background: transparent;
   color: var(--redesign-color-on-surface-variant);
 }
 
 .orbit-auth-password-field > .orbit-ds-icon-button:hover {
-  background: var(--redesign-color-primary-container);
-  color: var(--redesign-color-on-primary-container);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
 }
 
 .orbit-auth-error {
   margin: 0;
   padding: var(--redesign-space-sm) var(--redesign-space-md);
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-error) 28%,
-    transparent
-  );
-  border-radius: var(--redesign-radius-lg);
+  border: 1px solid
+    color-mix(in srgb, var(--redesign-color-error) 28%, transparent);
+  border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-error-container);
   color: var(--redesign-color-on-error-container);
   font-size: 13px;
   line-height: 1.5;
 }
 
-.orbit-auth-submit.orbit-ds-button-primary {
+.orbit-auth-submit {
   width: 100%;
   min-height: 52px;
   margin-top: var(--redesign-space-xs);
-  border: 1px solid var(--redesign-color-inverse-surface);
-  border-radius: var(--redesign-radius-full);
-  background: var(--redesign-color-inverse-surface);
-  color: var(--redesign-color-inverse-on-surface);
-  font-family: inherit;
-  font-weight: 750;
-  transition: transform 160ms ease, box-shadow 160ms ease;
-}
-
-.orbit-auth-submit.orbit-ds-button-primary:hover:not(:disabled) {
-  background: var(--redesign-color-inverse-surface);
-  box-shadow: var(--redesign-glow-primary);
-  transform: translateY(-2px);
-}
-
-.orbit-auth-submit.orbit-ds-button-primary:disabled {
-  border-color: var(--redesign-color-surface-container-highest);
-  background: var(--redesign-color-surface-container-highest);
-  color: var(--redesign-color-on-surface-variant);
+  font-size: 14px;
 }
 
 .orbit-auth-switch-copy {
   margin: var(--redesign-space-lg) 0 0;
+  padding-top: var(--redesign-space-lg);
+  border-top: 1px solid
+    color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
   color: var(--redesign-color-on-surface-variant);
   font-size: 13px;
   text-align: center;
@@ -287,11 +237,18 @@
 .orbit-auth-switch-copy button {
   padding: 0 0 0 var(--redesign-space-xs);
   border: 0;
+  border-radius: var(--redesign-radius-sm);
   background: transparent;
   color: var(--redesign-color-primary);
   font-family: inherit;
-  font-weight: 750;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
+}
+
+.orbit-auth-switch-copy button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .orbit-auth-signed-in {
@@ -301,12 +258,9 @@
   gap: var(--redesign-space-md);
   margin-top: var(--redesign-space-lg);
   padding: var(--redesign-space-md);
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-primary) 24%,
-    transparent
-  );
-  border-radius: var(--redesign-radius-xl);
+  border: 1px solid
+    color-mix(in srgb, var(--redesign-color-primary) 24%, transparent);
+  border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-primary-container);
   color: var(--redesign-color-on-primary-container);
 }
@@ -324,6 +278,7 @@
 .orbit-auth-signed-in .orbit-ds-button {
   grid-column: 1 / -1;
   width: 100%;
+  border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-inverse-surface);
   color: var(--redesign-color-inverse-on-surface);
 }
@@ -340,14 +295,14 @@
 @keyframes orbit-auth-enter {
   from {
     opacity: 0;
-    transform: translateY(18px) scale(0.98);
+    transform: translateY(12px);
   }
 }
 
 @media (max-width: 767px) {
   .orbit-auth-header-inner {
-    min-height: 64px;
-    padding: var(--redesign-space-sm) var(--redesign-space-md);
+    min-height: 56px;
+    padding: 0 var(--redesign-space-md);
   }
 
   .orbit-auth-home span {
@@ -357,7 +312,7 @@
   .orbit-auth-form-panel {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 64px);
+    min-height: calc(100vh - 56px);
     padding: var(--redesign-space-lg) var(--redesign-space-md);
   }
 
@@ -365,13 +320,10 @@
     width: 100%;
     margin: auto 0;
     padding: var(--redesign-space-lg);
-    border-radius: var(--redesign-radius-xl);
   }
 
   .orbit-auth-form-header h1 {
-    font-size: var(--redesign-type-headline-lg-mobile-size);
-    line-height: var(--redesign-type-headline-lg-mobile-line-height);
-    letter-spacing: var(--redesign-type-headline-lg-mobile-tracking);
+    font-size: 23px;
   }
 
   .orbit-auth-copyright {

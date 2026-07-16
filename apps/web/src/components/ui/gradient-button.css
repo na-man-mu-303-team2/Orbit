@@ -1,0 +1,55 @@
+.redesign-gradient-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--redesign-space-sm);
+  min-height: 36px;
+  padding: var(--redesign-space-sm) var(--redesign-space-md);
+  border: 1px solid color-mix(
+    in srgb,
+    var(--redesign-color-secondary) 72%,
+    var(--redesign-color-primary)
+  );
+  border-radius: var(--redesign-radius);
+  background: linear-gradient(
+    135deg,
+    var(--redesign-color-primary),
+    var(--redesign-color-secondary) 56%,
+    var(--redesign-color-tertiary)
+  );
+  background-position: 0% 50%;
+  background-size: 160% 160%;
+  color: var(--redesign-color-on-primary);
+  font-family: var(--redesign-font-family);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary);
+  transition: background-position 180ms ease, box-shadow 180ms ease,
+    filter 180ms ease, transform 180ms ease;
+}
+
+.redesign-gradient-button-large {
+  min-height: 46px;
+  padding: var(--redesign-space-sm) var(--redesign-space-lg);
+  font-size: 14px;
+}
+
+.redesign-gradient-button:hover:not(:disabled) {
+  background-position: 100% 50%;
+  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary),
+    var(--redesign-glow-tertiary);
+  filter: saturate(1.12) brightness(1.04);
+  transform: translateY(-2px);
+}
+
+.redesign-gradient-button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring), var(--redesign-glow-secondary);
+}
+
+.redesign-gradient-button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.5);
+  opacity: 0.58;
+}

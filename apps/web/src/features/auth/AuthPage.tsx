@@ -8,6 +8,7 @@ import {
   OrbitIconButton,
   OrbitInput
 } from "../../design-system";
+import { GradientButton } from "../../components/ui/GradientButton";
 import "../../styles/tokens.css";
 import "./orbit-auth-page.css";
 
@@ -87,7 +88,7 @@ export function OrbitAuthPage(props: {
                 <OrbitIconButton aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"} onClick={() => setShowPassword((current) => !current)} variant="plain">{showPassword ? <IconEyeOff aria-hidden="true" size={18} /> : <IconEye aria-hidden="true" size={18} />}</OrbitIconButton>
               </div>
               {error ? <p className="orbit-auth-error" role="alert">{error}</p> : null}
-              <OrbitButton className="orbit-auth-submit" disabled={isSubmitting} type="submit">{isSubmitting ? isRegister ? "가입 중..." : "로그인 중..." : isRegister ? "무료로 시작하기" : "로그인"}</OrbitButton>
+              <GradientButton className="orbit-auth-submit" disabled={isSubmitting} type="submit">{isSubmitting ? isRegister ? "가입 중..." : "로그인 중..." : isRegister ? "무료로 시작하기" : "로그인"}</GradientButton>
             </form>
           )}
 

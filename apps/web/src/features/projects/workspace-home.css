@@ -1,0 +1,464 @@
+/*
+ * Workspace home — white professional-tool surface on the Redesign System
+ * (apps/web/DESIGN.md). It follows the landing page's crisp white canvas,
+ * thin structural borders, and vivid token-based accents.
+ */
+
+/* ---------- Shell ---------- */
+
+.orbit-home-shell {
+  background: var(--redesign-color-background);
+}
+
+/* ---------- Top menu bar (home shell only) ---------- */
+
+.orbit-home-shell .orbit-app-header {
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
+  background: color-mix(in srgb, var(--redesign-color-surface) 82%, transparent);
+  font-family: var(--redesign-font-family);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.orbit-home-shell .orbit-app-header-inner {
+  height: 64px;
+  max-width: 1200px;
+  padding: 0 var(--redesign-layout-margin);
+}
+
+.orbit-home-shell .orbit-app-header-brand {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-home-shell .orbit-app-header-nav button {
+  min-height: 34px;
+  padding: var(--redesign-space-sm) var(--redesign-space-md);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 140ms ease;
+}
+
+.orbit-home-shell .orbit-app-header-nav button:hover {
+  background: transparent;
+  color: var(--redesign-color-primary);
+}
+
+.orbit-home-shell .orbit-app-header-nav button.active {
+  background: transparent;
+  border-bottom: 2px solid var(--redesign-color-primary);
+  color: var(--redesign-color-primary);
+}
+
+.orbit-home-shell .orbit-app-header-user,
+.orbit-home-shell .orbit-app-header-login {
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.orbit-home-shell .orbit-app-header-user:hover,
+.orbit-home-shell .orbit-app-header-login:hover {
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container);
+}
+
+.orbit-home-shell .orbit-app-header-user-label {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-home-shell .orbit-app-header-avatar {
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-home-shell .orbit-app-header-menu {
+  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-home-shell .orbit-app-header-menu button {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-home-shell .orbit-app-header-menu button:hover {
+  background: var(--redesign-color-surface-container-highest);
+}
+
+.orbit-home-shell .orbit-app-header button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring);
+}
+
+/* ---------- Page ---------- */
+
+.workspace-home {
+  box-sizing: border-box;
+  min-height: 100%;
+  color: var(--redesign-color-on-background);
+  font-family: var(--redesign-font-family);
+  background: var(--redesign-color-background);
+}
+
+.workspace-home button {
+  font-family: inherit;
+}
+
+.workspace-home button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring);
+}
+
+.workspace-home-main {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--redesign-space-lg);
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  padding: var(--redesign-space-xl) var(--redesign-layout-margin)
+    calc(var(--redesign-space-xl) * 1.5);
+}
+
+/* ---------- Section head ---------- */
+
+.workspace-home-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--redesign-space-md);
+}
+
+.workspace-home-eyebrow {
+  margin: 0 0 var(--redesign-space-xs);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
+  line-height: var(--redesign-type-label-sm-line-height);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workspace-home-head h1 {
+  margin: 0;
+  color: var(--redesign-color-on-surface);
+  font-size: 22px;
+  font-weight: var(--redesign-type-headline-lg-weight);
+  letter-spacing: var(--redesign-type-headline-lg-tracking);
+}
+
+.workspace-home-more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-xs);
+  min-height: 36px;
+  padding: var(--redesign-space-sm) 0 var(--redesign-space-sm)
+    var(--redesign-space-md);
+  border: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.workspace-home-more:hover {
+  color: var(--redesign-color-primary);
+  transform: translateX(2px);
+}
+
+/* ---------- Grid ---------- */
+
+.workspace-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: var(--redesign-layout-gutter);
+}
+
+/* Create tile — empty card with a plus */
+
+.workspace-home-create {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  aspect-ratio: 16 / 13;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.workspace-home-create > svg {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--redesign-color-secondary) 72%,
+    var(--redesign-color-primary)
+  );
+  border-radius: var(--redesign-radius);
+  background: linear-gradient(
+    135deg,
+    var(--redesign-color-primary),
+    var(--redesign-color-secondary) 56%,
+    var(--redesign-color-tertiary)
+  );
+  background-position: 0% 50%;
+  background-size: 160% 160%;
+  color: var(--redesign-color-on-primary);
+  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary);
+  transition: border-color 140ms ease, color 140ms ease,
+    background-position 180ms ease, box-shadow 180ms ease, transform 140ms ease;
+}
+
+.workspace-home-create:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 50%,
+    var(--redesign-color-outline-variant)
+  );
+  background: var(--redesign-color-surface-container-low);
+}
+
+.workspace-home-create:hover > svg {
+  border-color: var(--redesign-color-tertiary);
+  background-position: 100% 50%;
+  color: var(--redesign-color-on-primary);
+  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary),
+    var(--redesign-glow-tertiary);
+  transform: scale(1.04);
+}
+
+/* ---------- Cards ---------- */
+
+.workspace-home-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-low);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.workspace-home-card:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 50%,
+    var(--redesign-color-outline-variant)
+  );
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.workspace-home-card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Thumbnail — dark canvas with a miniature slide */
+
+.workspace-home-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 10;
+  padding: var(--redesign-space-lg);
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--redesign-color-outline-variant) 30%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--redesign-color-outline-variant) 30%, transparent) 1px,
+      transparent 1px
+    ),
+    var(--redesign-color-surface-container-lowest);
+  background-size: 16px 16px, 16px 16px, auto;
+  box-sizing: border-box;
+}
+
+.workspace-home-thumb-slide {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  width: 76%;
+  aspect-ratio: 16 / 9;
+  padding: var(--redesign-space-md);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-lowest);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.workspace-home-thumb-slide::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+}
+
+.workspace-home-thumb.tone-0 .workspace-home-thumb-slide::before {
+  background: linear-gradient(90deg, var(--redesign-color-primary), transparent);
+}
+
+.workspace-home-thumb.tone-1 .workspace-home-thumb-slide::before {
+  background: linear-gradient(90deg, var(--redesign-color-secondary), transparent);
+}
+
+.workspace-home-thumb.tone-2 .workspace-home-thumb-slide::before {
+  background: linear-gradient(90deg, var(--redesign-color-tertiary), transparent);
+}
+
+.workspace-home-thumb-slide b {
+  width: 64%;
+  height: 7px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-highest);
+}
+
+.workspace-home-thumb-slide i {
+  width: 42%;
+  height: 4px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.workspace-home-thumb-slide i:last-child {
+  width: 52%;
+}
+
+/* Card footer */
+
+.workspace-home-card footer {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-sm);
+  padding: var(--redesign-space-sm) var(--redesign-space-md);
+}
+
+.workspace-home-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--redesign-color-outline);
+}
+
+.workspace-home-card-meta {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-home-card-meta strong {
+  overflow: hidden;
+  color: var(--redesign-color-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-home-card-meta small {
+  color: var(--redesign-color-outline);
+  font-size: 11px;
+}
+
+.workspace-home-card footer > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--redesign-radius);
+  background: transparent;
+  color: var(--redesign-color-outline);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workspace-home-card footer > button:hover {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-primary);
+}
+
+/* ---------- States (span the grid) ---------- */
+
+.workspace-home-state {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: var(--redesign-space-sm);
+  align-content: center;
+  justify-items: start;
+  margin: 0;
+  padding: var(--redesign-space-lg);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 14px;
+}
+
+.workspace-home-state strong {
+  color: var(--redesign-color-on-surface);
+  font-size: 15px;
+}
+
+.workspace-home-state button {
+  min-height: 36px;
+  padding: var(--redesign-space-sm) var(--redesign-space-md);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workspace-home-state button:hover {
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container-high);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 767px) {
+  .workspace-home-main {
+    padding: var(--redesign-space-lg) var(--redesign-space-md)
+      var(--redesign-space-xl);
+  }
+
+  .workspace-home-state {
+    grid-column: 1 / -1;
+  }
+}

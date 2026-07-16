@@ -358,16 +358,25 @@ button:disabled {
   align-items: center;
   background: transparent;
   border: 0;
+  color: inherit;
   display: inline-flex;
+  gap: 8px;
   justify-self: start;
   padding: 4px 0;
 }
 
 .orbit-app-header-brand img {
   display: block;
-  height: 32px;
+  height: 28px;
   object-fit: contain;
-  width: 96px;
+  transform: scale(1.28);
+  width: 28px;
+}
+
+.orbit-app-header-brand span {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .orbit-app-header-nav {
