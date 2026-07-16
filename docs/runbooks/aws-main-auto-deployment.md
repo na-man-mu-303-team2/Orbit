@@ -13,6 +13,7 @@
 - EC2 1대: Docker Compose로 `api`, `worker`, `python-worker`, `redis`, `nginx` 실행
 - RDS PostgreSQL: private subnet, pgvector는 TypeORM migration에서 생성
 - S3 Assets bucket: presigned PUT/GET
+- S3 Private Audio bucket: `raw/`와 `evidence/` 전용 presigned PUT/GET
 - CloudWatch Logs: Docker `awslogs` driver
 
 ## 1회 AWS bootstrap
@@ -43,6 +44,35 @@ aws cloudformation deploy \
 ```
 
 `CloudFrontOriginPrefixListId`를 비우면 EC2 80번 포트는 `OriginIngressCidr` 기본값인 `0.0.0.0/0`로 열린다. bootstrap 직후 가능한 한 prefix list 제한으로 갱신한다.
+
+Private Audio stack은 main stack의 EC2 runtime role에 최소 권한 policy를 연결한다. main stack update가 끝난 뒤 다음 명령으로 생성하거나 갱신한다.
+
+```bash
+EC2_RUNTIME_ROLE_NAME="$(aws cloudformation describe-stacks \
+  --region ap-northeast-2 \
+  --stack-name orbit-main-production \
+  --query "Stacks[0].Outputs[?OutputKey=='Ec2RuntimeRoleName'].OutputValue" \
+  --output text)"
+
+CLOUDFRONT_DOMAIN="$(aws cloudformation describe-stacks \
+  --region ap-northeast-2 \
+  --stack-name orbit-main-production \
+  --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
+  --output text)"
+
+aws cloudformation deploy \
+  --region ap-northeast-2 \
+  --stack-name orbit-main-production-storage \
+  --template-file infra/aws/main-production-storage.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    Ec2RuntimeRoleName="$EC2_RUNTIME_ROLE_NAME" \
+    WebAllowedOrigin="https://$CLOUDFRONT_DOMAIN" \
+    AdditionalWebAllowedOrigin1="https://tryorbit.site" \
+    AdditionalWebAllowedOrigin2="https://www.tryorbit.site"
+```
+
+`raw/` object는 분석 terminal path에서 즉시 삭제하는 것이 기본 정책이며 14일 lifecycle은 실패 시 안전망이다. `evidence/` Evidence Clip은 `docs/contracts.md` 계약대로 7일 후 만료한다. Private Audio bucket은 versioning을 켜지 않아 lifecycle 삭제 뒤 이전 version이 남지 않게 한다.
 
 ## GitHub Actions 설정
 
@@ -108,6 +138,7 @@ SESSION_SECRET
 COOKIE_SECRET
 STORAGE_DRIVER
 S3_BUCKET
+S3_PRIVATE_AUDIO_BUCKET
 S3_REGION
 S3_FORCE_PATH_STYLE
 JOB_QUEUE_DRIVER
@@ -143,6 +174,7 @@ PYTHON_WORKER_URL=http://python-worker:8000
 REDIS_URL=redis://redis:6379
 STORAGE_DRIVER=s3
 S3_BUCKET=<AssetsBucketName>
+S3_PRIVATE_AUDIO_BUCKET=<PrivateAudioBucketName>
 S3_REGION=ap-northeast-2
 S3_FORCE_PATH_STYLE=false
 JOB_QUEUE_DRIVER=bullmq
@@ -226,7 +258,7 @@ curl -fsS "https://<CloudFrontDomainName>/socket.io/?EIO=4&transport=polling"
 curl -fsSI https://<CloudFrontDomainName>/
 ```
 
-S3 Assets presigned 흐름은 앱에서 프로젝트 asset upload URL을 발급한 뒤 browser PUT과 complete API까지 확인한다. presigned URL 자체는 로그에 남기지 않는다.
+S3 Assets presigned 흐름은 앱에서 프로젝트 asset upload URL을 발급한 뒤 browser PUT과 complete API까지 확인한다. private audio는 `raw/` upload URL이 Private Audio bucket을 가리키고 `evidence/` lifecycle이 7일인지 추가 확인한다. presigned URL과 private storage key는 로그에 남기지 않는다.
 
 CloudWatch Logs:
 

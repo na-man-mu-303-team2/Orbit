@@ -21,6 +21,7 @@ const validEnv = {
   S3_ENDPOINT: "http://localhost:9000",
   S3_PUBLIC_ENDPOINT: "http://localhost:9000",
   S3_BUCKET: "orbit-local",
+  S3_PRIVATE_AUDIO_BUCKET: "orbit-local",
   S3_REGION: "ap-northeast-2",
   S3_ACCESS_KEY_ID: "orbit",
   S3_SECRET_ACCESS_KEY: "orbit-password",
@@ -50,6 +51,30 @@ const validEnv = {
   DEMO_PROJECT_ID: "project_demo_1",
   DEMO_DECK_ID: "deck_demo_1",
   DEMO_SESSION_ID: "session_demo_1"
+};
+
+const validProductionS3Env = {
+  ...validEnv,
+  NODE_ENV: "production",
+  APP_ENV: "production",
+  WEB_ORIGIN: "https://tryorbit.site",
+  API_BASE_URL: "https://tryorbit.site",
+  PYTHON_WORKER_URL: "http://python-worker:8000",
+  DATABASE_URL: "postgres://orbit:orbit@prod-rds.example.com:5432/orbit",
+  REDIS_URL: "redis://redis:6379",
+  PRIVATE_EVIDENCE_REDIS_URL: "redis://private-evidence-redis:6379",
+  SESSION_SECRET: "production-session-secret",
+  COOKIE_SECRET: "production-cookie-secret",
+  STORAGE_DRIVER: "s3",
+  S3_ENDPOINT: "",
+  S3_PUBLIC_ENDPOINT: "",
+  S3_BUCKET: "orbit-production-assets",
+  S3_PRIVATE_AUDIO_BUCKET: "orbit-production-private-audio",
+  S3_ACCESS_KEY_ID: "",
+  S3_SECRET_ACCESS_KEY: "",
+  S3_FORCE_PATH_STYLE: "false",
+  OPENAI_API_KEY: "test-production-openai-key-placeholder",
+  AUTH_COOKIE_SECURE: "true"
 };
 
 describe("ORBIT env validation", () => {
@@ -108,6 +133,30 @@ describe("ORBIT env validation", () => {
         { service: "api" }
       )
     ).toThrow("PRIVATE_EVIDENCE_REDIS_URL");
+  });
+
+  it("requires a distinct private audio bucket for production S3", () => {
+    expect(loadOrbitConfig(validProductionS3Env, { service: "api" })).toMatchObject({
+      S3_BUCKET: "orbit-production-assets",
+      S3_PRIVATE_AUDIO_BUCKET: "orbit-production-private-audio"
+    });
+
+    expect(() =>
+      loadOrbitConfig(
+        { ...validProductionS3Env, S3_PRIVATE_AUDIO_BUCKET: "" },
+        { service: "api" }
+      )
+    ).toThrow("S3_PRIVATE_AUDIO_BUCKET is required");
+
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validProductionS3Env,
+          S3_PRIVATE_AUDIO_BUCKET: validProductionS3Env.S3_BUCKET
+        },
+        { service: "api" }
+      )
+    ).toThrow("S3_PRIVATE_AUDIO_BUCKET must differ from S3_BUCKET");
   });
 
   it("reads OpenAI model defaults from env", () => {

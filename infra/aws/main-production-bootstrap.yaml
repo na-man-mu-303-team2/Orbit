@@ -284,7 +284,7 @@ Resources:
               - ETag
             MaxAge: 3000
       VersioningConfiguration:
-        Status: Enabled
+        Status: Suspended
 
   ProductionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -459,6 +459,7 @@ Resources:
           S3_ENDPOINT=
           S3_PUBLIC_ENDPOINT=
           S3_BUCKET=REPLACE_WITH_ASSETS_BUCKET
+          S3_PRIVATE_AUDIO_BUCKET=REPLACE_WITH_PRIVATE_AUDIO_BUCKET
           S3_REGION=ap-northeast-2
           S3_ACCESS_KEY_ID=
           S3_SECRET_ACCESS_KEY=
@@ -714,6 +715,9 @@ Outputs:
     Value: !Ref StaticWebBucket
   AssetsBucketName:
     Value: !Ref AssetsBucket
+  Ec2RuntimeRoleName:
+    Description: EC2 runtime role name used by the private audio storage stack.
+    Value: !Ref Ec2InstanceRole
   Ec2InstanceId:
     Value: !Ref AppServerInstance
   Ec2PublicDnsName:

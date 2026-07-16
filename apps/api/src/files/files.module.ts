@@ -1,5 +1,5 @@
 import { loadOrbitConfig } from "@orbit/config";
-import { LocalMinioStorage, S3Storage } from "@orbit/storage";
+import { LocalMinioStorage, PrefixRoutingStorage, S3Storage } from "@orbit/storage";
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
@@ -30,18 +30,28 @@ import {
         const config = loadOrbitConfig(process.env, { service: "api" });
 
         if (config.STORAGE_DRIVER === "s3") {
-          return new S3Storage({
+          const sharedOptions = {
             endpoint: config.S3_ENDPOINT,
             publicEndpoint: config.S3_PUBLIC_ENDPOINT,
-            bucket: config.S3_BUCKET,
             region: config.S3_REGION,
             accessKeyId: config.AWS_ACCESS_KEY_ID,
             secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
             forcePathStyle: config.S3_FORCE_PATH_STYLE,
+          };
+
+          return new PrefixRoutingStorage({
+            defaultStorage: new S3Storage({
+              ...sharedOptions,
+              bucket: config.S3_BUCKET,
+            }),
+            privateStorage: new S3Storage({
+              ...sharedOptions,
+              bucket: config.S3_PRIVATE_AUDIO_BUCKET ?? config.S3_BUCKET,
+            }),
           });
         }
 
-        return new LocalMinioStorage({
+        const localStorage = new LocalMinioStorage({
           endpoint: config.S3_ENDPOINT,
           publicEndpoint: config.S3_PUBLIC_ENDPOINT,
           bucket: config.S3_BUCKET,
@@ -49,6 +59,11 @@ import {
           accessKeyId: config.S3_ACCESS_KEY_ID,
           secretAccessKey: config.S3_SECRET_ACCESS_KEY,
           forcePathStyle: config.S3_FORCE_PATH_STYLE,
+        });
+
+        return new PrefixRoutingStorage({
+          defaultStorage: localStorage,
+          privateStorage: localStorage,
         });
       },
     },
