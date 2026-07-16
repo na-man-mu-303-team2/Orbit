@@ -108,11 +108,11 @@ describe("processRehearsalSttJob", () => {
           "succeeded",
           100,
           {
-            transcriptRetained: false,
+            transcriptRetained: true,
             transcript: null,
             report: {
               reportId: "report_run-a",
-              transcriptRetained: false,
+              transcriptRetained: true,
               transcript: null
             },
             rawAudioDeletedAt: null
@@ -167,7 +167,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -194,7 +194,7 @@ describe("processRehearsalSttJob", () => {
         expect.stringContaining('"utteranceOutcomes":[{"slideId":"slide_1","kind":"paraphrased","sentenceId":"sentence_1","similarity":0.93}]'),
         expect.stringContaining('"semanticCueDecisions":[{"slideId":"slide_1","cueId":"scue_intro_1"'),
         expect.stringContaining('"slideTimings":[{"slideId":"slide_1","targetSeconds":60,"actualSeconds":45}]'),
-        false
+        true
       ])
     );
     expect(query).toHaveBeenCalledWith(
@@ -205,12 +205,12 @@ describe("processRehearsalSttJob", () => {
         100,
         "리포트 생성 완료",
         expect.objectContaining({
-          transcriptRetained: false,
+          transcriptRetained: true,
           segmentCount: 1,
           rawAudioDeletedAt: null,
           report: expect.objectContaining({
               reportId: "report_run-a",
-              transcriptRetained: false,
+              transcriptRetained: true,
               transcript: null,
               aiSummary: {
                 headline: "도입부 핵심 메시지가 약했습니다.",
@@ -238,6 +238,83 @@ describe("processRehearsalSttJob", () => {
         String(sql).includes("INSERT INTO storage_deletion_outbox")
       )
     ).toBe(false);
+  });
+
+  it("fails without deleting raw audio when transcript artifact storage fails", async () => {
+    const query = createQueryMock()
+      .mockResolvedValueOnce([jobRow("running", 10, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([assetRow])
+      .mockResolvedValueOnce([deckRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([jobRow("running", 30, null, null)])
+      .mockResolvedValueOnce([jobRow("running", 65, null, null)])
+      .mockResolvedValueOnce([runRow()])
+      .mockResolvedValueOnce([
+        jobRow(
+          "failed",
+          65,
+          null,
+          {
+            code: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+            message: "Rehearsal transcript artifact storage failed."
+          }
+        )
+      ]);
+    const storage = createStorage();
+    vi.mocked(storage.putObject).mockRejectedValueOnce(
+      new Error("transcript storage unavailable")
+    );
+    const events = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            runId: "run-a",
+            projectId: "project-a",
+            fileId: "file-audio",
+            transcript: "전사 저장 실패 테스트",
+            language: "ko",
+            provider: "fake",
+            model: "fake-transcriber",
+            durationSeconds: 3,
+            segments: [{ text: "전사 저장 실패 테스트" }]
+          })
+        )
+      )
+    );
+
+    const job = await processRehearsalSttJob(
+      createDataSource(query),
+      storage,
+      "http://localhost:8000",
+      payload,
+      undefined,
+      undefined,
+      events
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("REHEARSAL_TRANSCRIPT_STORAGE_FAILED");
+    expect(storage.removeObject).toHaveBeenCalledWith(
+      "rehearsals/2026-07-16/project-a/run-a/transcript.json"
+    );
+    expect(storage.removeObject).not.toHaveBeenCalledWith(assetRow.storage_key);
+    expect(events).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        event: "rehearsal.transcript_artifacts.started",
+        artifactCount: 2
+      })
+    );
+    expect(events).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        event: "rehearsal.transcript_artifacts.failed",
+        errorCode: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED"
+      })
+    );
   });
 
   it("replays patch-only deck updates and normalizes analyze keyword DTOs", async () => {
@@ -281,11 +358,11 @@ describe("processRehearsalSttJob", () => {
           "succeeded",
           100,
           {
-            transcriptRetained: false,
+            transcriptRetained: true,
             transcript: null,
             report: {
               reportId: "report_run-a",
-              transcriptRetained: false,
+              transcriptRetained: true,
               transcript: null
             },
             rawAudioDeletedAt: null
@@ -326,7 +403,7 @@ describe("processRehearsalSttJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -417,7 +494,7 @@ describe("processRehearsalSttJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload,
@@ -557,7 +634,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload,
@@ -710,11 +787,11 @@ describe("processRehearsalSttJob", () => {
           "succeeded",
           100,
           {
-            transcriptRetained: false,
+            transcriptRetained: true,
             transcript: null,
             report: {
               reportId: "report_run-a",
-              transcriptRetained: false,
+              transcriptRetained: true,
               transcript: null
             },
             rawAudioDeletedAt: null
@@ -757,7 +834,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -828,7 +905,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -863,7 +940,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -919,7 +996,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -982,7 +1059,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -1049,7 +1126,7 @@ describe("processRehearsalSttJob", () => {
     );
 
     const job = await processRehearsalSttJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -1114,8 +1191,31 @@ function createQueryMock() {
 function createStorage() {
   return {
     getSignedReadUrl: vi.fn(async () => "http://localhost:9000/rehearsal.webm"),
+    headObject: vi.fn(async () => null),
+    putObject: vi.fn(async (value) => ({
+      key: value.key,
+      url: `http://localhost:9000/${value.key}`,
+      contentType: value.contentType,
+      purpose: value.purpose,
+      size:
+        typeof value.body === "string" ? value.body.length : value.body.byteLength
+    })),
     removeObject: vi.fn(async () => undefined)
-  } as unknown as Pick<StoragePort, "getSignedReadUrl" | "removeObject">;
+  } as unknown as Pick<
+    StoragePort,
+    "getSignedReadUrl" | "headObject" | "putObject" | "removeObject"
+  >;
+}
+
+function createDataSource(query: ReturnType<typeof createQueryMock>): DataSource {
+  return {
+    query,
+    transaction: vi.fn(async (callback) =>
+      callback({
+        query: vi.fn(async () => [{ run_id: "run-a" }])
+      } as never)
+    )
+  } as unknown as DataSource;
 }
 
 function jobRow(
@@ -1147,6 +1247,11 @@ function runRow(
 ) {
   return {
     run_id: "run-a",
+    created_at: new Date("2026-07-15T15:30:00.000Z"),
+    transcript_json_file_id: null,
+    transcript_text_file_id: null,
+    transcript_json_status: null,
+    transcript_text_status: null,
     meta_json: metaJson,
     evaluation_snapshot_json: evaluationSnapshot,
     semantic_evaluation_mode: semanticEvaluationMode
@@ -1319,7 +1424,7 @@ async function runSnapshotJobWithSemanticResponse(
       .mockResolvedValueOnce(semanticResponse)
   );
   const job = await processRehearsalSttJob(
-    { query } as unknown as DataSource,
+    createDataSource(query),
     createStorage(),
     "http://localhost:8000",
     payload
