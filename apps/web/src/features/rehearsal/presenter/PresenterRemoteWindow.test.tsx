@@ -8,6 +8,7 @@ import {
   getPresenterRemoteKeywordRows,
   getPresenterRemoteNextSentenceIndex,
   getPresenterRemoteTimingState,
+  isPresenterRemoteOwnerStale,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
 } from "./PresenterRemoteWindow";
@@ -52,7 +53,8 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("첫 문장입니다");
     expect(html).toContain("이전");
     expect(html).toContain("다음");
-    expect(html).toContain("팝업 가림");
+    expect(html).toContain("웹·실습 보여주기");
+    expect(html).toContain("청중 화면 가리기");
     expect(html).toContain("발표 종료");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
@@ -405,6 +407,12 @@ describe("PresenterRemoteWindow", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-start" }),
     ).toEqual([0]);
+  });
+
+  it("marks the owner stale only after the five-second heartbeat window", () => {
+    expect(isPresenterRemoteOwnerStale(null, 6001)).toBe(false);
+    expect(isPresenterRemoteOwnerStale(1000, 6000)).toBe(false);
+    expect(isPresenterRemoteOwnerStale(1000, 6001)).toBe(true);
   });
 
   it("applies presenter state messages without replacing presenter-only deck data", () => {

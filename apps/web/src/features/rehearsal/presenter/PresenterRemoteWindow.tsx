@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
-  EyeOff,
   ListChecks,
   Maximize2,
   Monitor,
@@ -37,6 +36,9 @@ import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScr
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
 import { getPresenterAidPolicy } from "./presenterAidPolicy";
+import { AudienceOutputControls } from "./AudienceOutputControls";
+import { useAudienceScreenShare } from "./useAudienceScreenShare";
+import type { AudienceStreamBridgeWindow } from "./audienceStreamBridge";
 
 type ChannelLike = Pick<BroadcastChannel, "close" | "postMessage"> & {
   onmessage: ((event: MessageEvent) => void) | null;
@@ -60,9 +62,10 @@ export function PresenterRemoteWindow(props: {
   } = props;
   const [state, setState] = useState(initialState);
   const [channelError, setChannelError] = useState("");
-  const [isBlanked, setBlanked] = useState(false);
+  const [isOwnerConnected, setOwnerConnected] = useState(false);
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
+  const lastOwnerSeenAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     let channel: ChannelLike;
@@ -83,11 +86,17 @@ export function PresenterRemoteWindow(props: {
         return;
       }
 
+      lastOwnerSeenAtRef.current = Date.now();
+      setOwnerConnected(true);
       setState((current) => applyPresenterRemoteMessage(current, message));
     };
     channel.postMessage(createPresenterRemoteReadyMessage(identity));
     const heartbeatTimer = window.setInterval(() => {
       channel.postMessage(createPresenterRemoteHeartbeatMessage(identity));
+      const lastOwnerSeenAt = lastOwnerSeenAtRef.current;
+      if (isPresenterRemoteOwnerStale(lastOwnerSeenAt, Date.now())) {
+        setOwnerConnected(false);
+      }
     }, 1000);
 
     return () => {
@@ -97,6 +106,7 @@ export function PresenterRemoteWindow(props: {
       if (channelRef.current === channel) {
         channelRef.current = null;
       }
+      lastOwnerSeenAtRef.current = null;
     };
   }, [channelFactory, identity]);
 
@@ -123,6 +133,32 @@ export function PresenterRemoteWindow(props: {
       void request.catch(() => undefined);
     }
   };
+
+  const updateAudienceOutputMode = (mode: PresenterSlideshowState["audienceOutputMode"]) => {
+    setState((current) => ({ ...current, audienceOutputMode: mode }));
+    sendCommand({ action: "set-audience-output", mode });
+  };
+  const isAudienceSurfaceConnected =
+    isOwnerConnected &&
+    !channelError &&
+    typeof window !== "undefined" &&
+    Boolean(window.opener && !window.opener.closed);
+  const audienceScreenShare = useAudienceScreenShare({
+    connected: isAudienceSurfaceConnected,
+    getTargetWindow: () =>
+      typeof window === "undefined"
+        ? null
+        : (window.opener as AudienceStreamBridgeWindow | null),
+    identity,
+    onOutputModeChange: updateAudienceOutputMode,
+    outputMode: state.audienceOutputMode,
+  });
+
+  useEffect(() => {
+    if (!isOwnerConnected || channelError) {
+      audienceScreenShare.handlePeerUnavailable();
+    }
+  }, [channelError, isOwnerConnected]);
 
   usePresenterKeyboard({
     onNextStep: () => sendCommand({ action: "next-step" }),
@@ -202,7 +238,11 @@ export function PresenterRemoteWindow(props: {
         </span>
         <strong>{deck.title}</strong>
         <span className="presenter-remote-connection">
-          {channelError ? "채널 오류" : "팝업 연결됨"}
+          {channelError
+            ? "채널 오류"
+            : isOwnerConnected
+              ? "팝업 연결됨"
+              : "팝업 연결 대기"}
         </span>
       </header>
       {visibleCapabilityItems.map((item) => (
@@ -446,11 +486,16 @@ export function PresenterRemoteWindow(props: {
         </aside>
       </section>
 
-      {isBlanked ? (
-        <section className="presenter-remote-blank-status" role="status">
-          팝업 가림 모드가 켜져 있습니다.
-        </section>
-      ) : null}
+      <AudienceOutputControls
+        connected={isAudienceSurfaceConnected}
+        error={audienceScreenShare.error}
+        onReturnToSlide={audienceScreenShare.returnToSlide}
+        onShowBlack={audienceScreenShare.showBlack}
+        onStartMonitor={audienceScreenShare.startMonitor}
+        onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
+        outputMode={state.audienceOutputMode}
+        status={audienceScreenShare.status}
+      />
 
       <div className="presenter-remote-command-dock" aria-label="발표 제어">
         <button
@@ -468,15 +513,6 @@ export function PresenterRemoteWindow(props: {
         >
           다음
           <ChevronRight size={17} />
-        </button>
-        <button
-          aria-pressed={isBlanked}
-          className="presenter-remote-command"
-          type="button"
-          onClick={() => setBlanked((current) => !current)}
-        >
-          <EyeOff size={17} />
-          팝업 가림
         </button>
         <button
           className="presenter-remote-command"
@@ -530,6 +566,14 @@ export function applyPresenterRemoteMessage(
   }
 
   return current;
+}
+
+export function isPresenterRemoteOwnerStale(
+  lastOwnerSeenAt: number | null,
+  now: number,
+  staleAfterMs = 5000,
+) {
+  return lastOwnerSeenAt !== null && now - lastOwnerSeenAt > staleAfterMs;
 }
 
 function createBroadcastChannel(channelName: string): ChannelLike {
