@@ -5,6 +5,7 @@ const requiredKeys = [
   "APP_ENV",
   "WEB_PORT",
   "API_PORT",
+  "API_JSON_BODY_LIMIT_BYTES",
   "WORKER_PORT",
   "PYTHON_WORKER_PORT",
   "WEB_ORIGIN",
@@ -39,11 +40,39 @@ const requiredKeys = [
   "LIVE_STT_PROVIDER",
   "LIVE_STT_ENGINE",
   "REPORT_STT_PROVIDER",
+  "REHEARSAL_AUDIO_MAX_BYTES",
   "OCR_PROVIDER",
   "LLM_PROVIDER",
+  "AI_SLIDE_IMAGE_REVIEW_MODE",
+  "ORBIT_PPTX_OOXML_VECTOR_IMPORT",
+  "VITE_SEMANTIC_CUE_NLI_ENABLED",
+  "VITE_SEMANTIC_CUE_NLI_PROVIDER",
+  "VITE_SEMANTIC_CUE_NLI_MODEL_ID",
+  "VITE_SEMANTIC_CUE_NLI_BENCHMARK_PASSED",
+  "VITE_SEMANTIC_CUE_NLI_BENCHMARK_DEVICE",
+  "OPENAI_API_KEY",
   "OPENAI_MODEL",
+  "AI_PPT_VISUAL_QA_MODEL",
+  "OPENAI_IMAGE_MODEL",
+  "IMAGE_PROVIDER",
+  "PUBLIC_IMAGE_PROVIDER",
+  "IMAGE_MAX_PER_DECK",
+  "IMAGE_MAX_PER_USER_PER_DAY",
+  "OPENAI_TRANSCRIPTION_MODEL",
   "OPENAI_EMBEDDING_MODEL",
+  "OPENAI_REALTIME_TRANSCRIPTION_MODEL",
+  "OPENAI_REALTIME_TRANSCRIPTION_DELAY",
+  "OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS",
+  "WHISPERX_API_URL",
+  "WHISPERX_API_KEY",
+  "WHISPERX_MODEL",
+  "WHISPERX_TIMEOUT_MS",
   "AWS_REGION",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "TRANSCRIBE_LANGUAGE_CODE",
+  "TEXTRACT_ENABLED",
+  "AUTH_COOKIE_SECURE",
   "LOG_LEVEL",
   "LOG_PRETTY",
   "DEMO_USER_ID",
@@ -59,48 +88,119 @@ const exampleFiles = [
   ".env.production.example"
 ];
 
-function readEnvKeys(path) {
-  const content = fs.readFileSync(path, "utf8");
-  return new Set(
-    content
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#"))
-      .map((line) => line.split("=")[0])
-  );
-}
+const commonAllowedEmptyKeys = [
+  "ADAPTIVE_COACHING_PROJECT_ALLOWLIST",
+  "AUTH_COOKIE_SECURE",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AI_PPT_VISUAL_QA_MODEL",
+  "COACHING_IDEMPOTENCY_HMAC_SECRET",
+  "COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET",
+  "COACHING_IDEMPOTENCY_HMAC_PREVIOUS_KEY_VERSION",
+  "DEMO_FIXTURE_ENV_ALLOWLIST",
+  "S3_ENDPOINT",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "VITE_SEMANTIC_CUE_NLI_BENCHMARK_DEVICE",
+  "WHISPERX_API_URL",
+  "WHISPERX_API_KEY",
+  "WHISPERX_MODEL"
+];
+
+const allowedEmptyKeysByFile = new Map([
+  [
+    ".env.example",
+    new Set([...commonAllowedEmptyKeys, "OPENAI_API_KEY"])
+  ],
+  [".env.staging.example", new Set(commonAllowedEmptyKeys)],
+  [".env.production.example", new Set(commonAllowedEmptyKeys)]
+]);
 
 const failures = [];
 
-for (const file of exampleFiles) {
-  const keys = readEnvKeys(file);
-  const missing = requiredKeys.filter((key) => !keys.has(key));
+function isBlankEnvValue(rawValue) {
+  let value = rawValue.trim();
+  const isQuoted =
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"));
 
-  if (missing.length > 0) {
-    failures.push(`${file} missing env keys: ${missing.join(", ")}`);
+  if (isQuoted) {
+    value = value.slice(1, -1).trim();
+  }
+
+  return value.length === 0;
+}
+
+function readEnvFile(file) {
+  const entries = new Map();
+  const content = fs.readFileSync(file, "utf8");
+
+  content.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trim();
+
+    if (!line || line.startsWith("#")) {
+      return;
+    }
+
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    if (!match) {
+      failures.push(`${file}:${index + 1} invalid env declaration`);
+      return;
+    }
+
+    const [, key, rawValue] = match;
+    if (entries.has(key)) {
+      failures.push(`${file}:${index + 1} duplicate env key: ${key}`);
+      return;
+    }
+
+    entries.set(key, rawValue);
+  });
+
+  return entries;
+}
+
+const envFiles = new Map(
+  exampleFiles.map((file) => [file, readEnvFile(file)])
+);
+
+for (const [file, entries] of envFiles) {
+  const allowedEmptyKeys = allowedEmptyKeysByFile.get(file);
+
+  for (const key of requiredKeys) {
+    if (!entries.has(key)) {
+      failures.push(`${file} missing env key: ${key}`);
+    }
+  }
+
+  for (const [key, value] of entries) {
+    if (isBlankEnvValue(value) && !allowedEmptyKeys.has(key)) {
+      failures.push(`${file} has an empty required env value: ${key}`);
+    }
   }
 }
 
-const localKeys = readEnvKeys(".env.example");
+const localKeys = new Set(envFiles.get(".env.example").keys());
 for (const file of exampleFiles.slice(1)) {
-  const keys = readEnvKeys(file);
-  const extra = [...keys].filter((key) => !localKeys.has(key));
-  const missingFromFile = [...localKeys].filter((key) => !keys.has(key));
+  const keys = new Set(envFiles.get(file).keys());
 
-  if (extra.length > 0) {
-    failures.push(`${file} has extra env keys: ${extra.join(", ")}`);
+  for (const key of localKeys) {
+    if (!keys.has(key)) {
+      failures.push(`${file} does not match .env.example: missing ${key}`);
+    }
   }
 
-  if (missingFromFile.length > 0) {
-    failures.push(`${file} does not match .env.example keys: ${missingFromFile.join(", ")}`);
+  for (const key of keys) {
+    if (!localKeys.has(key)) {
+      failures.push(`${file} does not match .env.example: extra ${key}`);
+    }
   }
 }
 
 if (failures.length > 0) {
-  console.error(failures.join("\n"));
+  console.error("Environment contract validation failed:");
+  console.error(failures.map((failure) => `- ${failure}`).join("\n"));
   process.exit(1);
 }
 
-console.log(
-  `${exampleFiles.join(", ")} contain the required ORBIT env keys`
-);
+console.log("Environment contract validation passed.");

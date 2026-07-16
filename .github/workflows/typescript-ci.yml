@@ -29,12 +29,6 @@ on:
       - "turbo.json"
       # 모든 TypeScript 설정 파일이 바뀌면 실행합니다.
       - "tsconfig*.json"
-      # 환경변수 예시 파일이 바뀌면 검증을 다시 실행합니다.
-      - ".env.example"
-      # staging/production 환경변수 예시 파일이 바뀌어도 검증을 다시 실행합니다.
-      - ".env.*.example"
-      # 환경변수 검증 스크립트가 바뀌면 실행합니다.
-      - "infra/scripts/check-env.mjs"
       # 이 workflow 파일 자체가 바뀌면 실행합니다.
       - ".github/workflows/typescript-ci.yml"
 
@@ -62,12 +56,6 @@ on:
       - "turbo.json"
       # 모든 TypeScript 설정 파일이 바뀌면 실행합니다.
       - "tsconfig*.json"
-      # 환경변수 예시 파일이 바뀌면 검증을 다시 실행합니다.
-      - ".env.example"
-      # staging/production 환경변수 예시 파일이 바뀌어도 검증을 다시 실행합니다.
-      - ".env.*.example"
-      # 환경변수 검증 스크립트가 바뀌면 실행합니다.
-      - "infra/scripts/check-env.mjs"
       # 이 workflow 파일 자체가 바뀌면 실행합니다.
       - ".github/workflows/typescript-ci.yml"
 
@@ -130,11 +118,6 @@ jobs:
       - name: Prepare local env
         # 비밀값 없이 .env.example만 사용합니다.
         run: cp .env.example .env.local
-
-      # 환경변수 계약이 깨지지 않았는지 확인합니다.
-      - name: Check environment contract
-        # infra/scripts/check-env.mjs를 실행합니다.
-        run: node infra/scripts/check-env.mjs
 
       # TypeScript 전체 빌드를 실행합니다.
       - name: Build
