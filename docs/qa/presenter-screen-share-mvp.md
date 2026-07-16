@@ -15,6 +15,7 @@
 | `surface swap` E2E | 통과 | remote → opener video, output command, 최신 slide, black, remote close |
 | Playwright Chromium | 통과 | `presenter-screen.spec.ts` 3/3 |
 | 시스템 Chrome | 통과 | `PLAYWRIGHT_USE_SYSTEM_CHROME=1`, 3/3 |
+| 전체 workspace gate | 통과 | `pnpm lint` 17/17, `pnpm test` 17/17, `pnpm build` 10/10 tasks |
 | actual Chrome direct bridge | 통과 | 두 WindowProxy 방향에서 canvas `MediaStream` video track 1개 attach |
 | actual Chrome native 탭 캡처 | 통과 | native `getDisplayMedia()`, `displaySurface=browser`, audio 0, video 1 |
 | native 앱 창 캡처 | 통과 | 실제 앱 창 영상 표시, Chrome 공유 중지 후 최신 slide 복귀 |
@@ -22,6 +23,8 @@
 | 물리 확장 디스플레이 `surface swap` | 환경 차단 | `getScreenDetails()`가 내장 Retina 1개만 반환; 실물 모니터 필요 |
 
 ## 자동 검증 시나리오
+
+계획 문서에 적힌 `pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`가 파일 필터를 버리지 않도록 `test:smoke`의 인자 전달 래퍼를 추가했다. 동일한 명령으로 Chromium 3/3, `PLAYWRIGHT_USE_SYSTEM_CHROME=1`을 추가한 시스템 Chrome 3/3을 통과했다.
 
 ### 일반 `slide-window`
 

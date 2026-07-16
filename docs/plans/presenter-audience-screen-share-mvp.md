@@ -362,15 +362,15 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] 새 presenter state의 기본값은 `audienceOutputMode: "slide"`다.
-- [ ] 모든 audience/remote snapshot과 state update가 유효한 mode를 전달하고 잘못된 enum은 거부한다.
-- [ ] `set-audience-output` command와 `screen-share-ended` lifecycle message가 identity/runtime 검증을 통과한다.
-- [ ] 직렬화된 메시지에 stream, track, speaker notes, transcript, raw audio가 없다.
+- [x] 새 presenter state의 기본값은 `audienceOutputMode: "slide"`다.
+- [x] 모든 audience/remote snapshot과 state update가 유효한 mode를 전달하고 잘못된 enum은 거부한다.
+- [x] `set-audience-output` command와 `screen-share-ended` lifecycle message가 identity/runtime 검증을 통과한다.
+- [x] 직렬화된 메시지에 stream, track, speaker notes, transcript, raw audio가 없다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- presenterStateStore presentationChannel`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- presenterStateStore presentationChannel`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** 없음
 **Files likely touched:**
@@ -388,16 +388,16 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] 탭/창 intent는 audio와 monitor를 제외하고 tab switching을 허용한다.
-- [ ] monitor intent는 고급 경로에서만 생성할 수 있다.
-- [ ] 기본 경로에서 실제 `displaySurface`가 `monitor`면 즉시 stop하고 안전 오류를 반환한다.
-- [ ] `stop()` 중복 호출과 track `ended` 중복 이벤트가 한 번의 종료 callback만 만든다.
-- [ ] API 미지원과 주요 DOMException이 정의된 사용자 오류로 변환된다.
+- [x] 탭/창 intent는 audio와 monitor를 제외하고 tab switching을 허용한다.
+- [x] monitor intent는 고급 경로에서만 생성할 수 있다.
+- [x] 기본 경로에서 실제 `displaySurface`가 `monitor`면 즉시 stop하고 안전 오류를 반환한다.
+- [x] `stop()` 중복 호출과 track `ended` 중복 이벤트가 한 번의 종료 callback만 만든다.
+- [x] API 미지원과 주요 DOMException이 정의된 사용자 오류로 변환된다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- screenShareCapture`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- screenShareCapture`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Task 1
 **Files likely touched:**
@@ -413,15 +413,15 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] 일치하는 `{deckId, sessionId}`만 stream attach/detach가 가능하다.
-- [ ] 닫힌 창, bridge 미준비, 다른 identity, 접근 예외가 typed failure로 반환된다.
-- [ ] receiver unmount와 identity 변경 시 오래된 bridge를 제거한다.
-- [ ] 기존 `BroadcastChannel` payload에는 `MediaStream`을 넣지 않는다.
+- [x] 일치하는 `{deckId, sessionId}`만 stream attach/detach가 가능하다.
+- [x] 닫힌 창, bridge 미준비, 다른 identity, 접근 예외가 typed failure로 반환된다.
+- [x] receiver unmount와 identity 변경 시 오래된 bridge를 제거한다.
+- [x] 기존 `BroadcastChannel` payload에는 `MediaStream`을 넣지 않는다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- audienceStreamBridge PresentWindow`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- audienceStreamBridge PresentWindow`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Task 1
 **Files likely touched:**
@@ -439,16 +439,16 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] `slide`에서 기존 `SlideshowRenderer` 동작과 애니메이션 복원이 회귀하지 않는다.
-- [ ] `screen-share`에서 muted video만 렌더하고 `speakerNotes`나 presenter UI는 나타나지 않는다.
-- [ ] `black`에서 검정 surface와 작은 Orbit 로고만 나타난다.
-- [ ] stream이 없으면 5초 동안 연결 상태를 표시한 뒤 `screen-share-ended`를 보내고 slide 복귀를 요청한다.
-- [ ] video cleanup이 `srcObject = null`을 보장한다.
+- [x] `slide`에서 기존 `SlideshowRenderer` 동작과 애니메이션 복원이 회귀하지 않는다.
+- [x] `screen-share`에서 muted video만 렌더하고 `speakerNotes`나 presenter UI는 나타나지 않는다.
+- [x] `black`에서 검정 surface와 작은 Orbit 로고만 나타난다.
+- [x] stream이 없으면 5초 동안 연결 상태를 표시한 뒤 `screen-share-ended`를 보내고 slide 복귀를 요청한다.
+- [x] video cleanup이 `srcObject = null`을 보장한다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- PresentWindow AudienceOutputRenderer SlideshowRenderer`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- PresentWindow AudienceOutputRenderer SlideshowRenderer`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Tasks 1, 3
 **Files likely touched:**
@@ -463,11 +463,11 @@ black         -> black surface + small Orbit logo
 
 ## Checkpoint A. 브라우저 전송 경로 fail-fast
 
-- [ ] Tasks 1~4의 단위 테스트와 typecheck가 통과한다.
-- [ ] 현재 Vite COOP/COEP headers로 실행한 실제 Chrome에서 opener → `/present` popup stream attach가 동작한다.
-- [ ] 실제 Chrome에서 `PresenterRemoteWindow` → `window.opener` stream attach가 동작한다.
-- [ ] 두 방향 중 하나라도 브라우저 정책으로 실패하면 UI/state 계약은 유지한 채 `audienceStreamBridge.ts` 내부 구현을 local loopback `RTCPeerConnection`으로 교체한다.
-- [ ] fallback도 실패하면 구현을 계속 확장하지 말고 실패한 Chrome 버전, header, reproduction과 함께 사용자에게 보고한다.
+- [x] Tasks 1~4의 단위 테스트와 typecheck가 통과한다.
+- [x] 현재 Vite COOP/COEP headers로 실행한 실제 Chrome에서 opener → `/present` popup stream attach가 동작한다.
+- [x] 실제 Chrome에서 `PresenterRemoteWindow` → `window.opener` stream attach가 동작한다.
+- [x] 두 방향 모두 direct bridge가 성공해 local loopback `RTCPeerConnection` 교체가 필요하지 않음을 확인했다.
+- [x] direct bridge 성공 결과와 실제 Chrome 환경을 QA 문서에 기록했다.
 
 ### Task 5. 재사용 가능한 발표자 컨트롤과 공유 hook 구현
 
@@ -475,16 +475,16 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] 연결 전에는 picker를 열지 않고 정확한 안내를 표시한다.
-- [ ] 기본 버튼은 탭/창 공유를 시작하고, 고급 전체 화면은 경고 확인 후에만 시작한다.
-- [ ] bridge attach 성공 후에만 mode를 `screen-share`로 바꾼다.
-- [ ] `슬라이드로 돌아가기`, black, ended, unmount가 같은 idempotent cleanup을 사용한다.
-- [ ] 공유 중 상태와 오류가 `aria-live`로 전달되고 키보드로 모든 제어가 가능하다.
+- [x] 연결 전에는 picker를 열지 않고 정확한 안내를 표시한다.
+- [x] 기본 버튼은 탭/창 공유를 시작하고, 고급 전체 화면은 경고 확인 후에만 시작한다.
+- [x] bridge attach 성공 후에만 mode를 `screen-share`로 바꾼다.
+- [x] `슬라이드로 돌아가기`, black, ended, unmount가 같은 idempotent cleanup을 사용한다.
+- [x] 공유 중 상태와 오류가 `aria-live`로 전달되고 키보드로 모든 제어가 가능하다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- AudienceOutputControls useAudienceScreenShare`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- AudienceOutputControls useAudienceScreenShare`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Tasks 2~4, Checkpoint A
 **Files likely touched:**
@@ -503,16 +503,16 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] `/present` popup이 connected일 때 main presenter toolbar에서 공유와 black을 제어할 수 있다.
-- [ ] popup 재열기/새로고침의 `slide-window-ready`에서 살아 있는 stream을 재부착한다.
-- [ ] popup stale/closed, 새 display 열기, role 전환, workspace unmount 시 capture를 중지하고 mode를 slide로 돌린다.
-- [ ] 공유 중 바뀐 내부 slide/step은 유지되고 복귀 시 최신 상태가 보인다.
-- [ ] 기존 슬라이드 창 열기, fullscreen, auto placement fallback이 회귀하지 않는다.
+- [x] `/present` popup이 connected일 때 main presenter toolbar에서 공유와 black을 제어할 수 있다.
+- [x] popup 재열기/새로고침의 `slide-window-ready`에서 살아 있는 stream을 재부착한다.
+- [x] popup stale/closed, 새 display 열기, role 전환, workspace unmount 시 capture를 중지하고 mode를 slide로 돌린다.
+- [x] 공유 중 바뀐 내부 slide/step은 유지되고 복귀 시 최신 상태가 보인다.
+- [x] 기존 슬라이드 창 열기, fullscreen, auto placement fallback이 회귀하지 않는다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- RehearsalWorkspace usePresentationChannelPublisher DisplayControls`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- RehearsalWorkspace usePresentationChannelPublisher DisplayControls`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Task 5
 **Files likely touched:**
@@ -530,16 +530,16 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] surface swap 성공 후 remote command dock에서 공유/black/slide 복귀를 제어할 수 있다.
-- [ ] remote는 `window.opener` bridge identity를 확인한 뒤에만 `screen-share` command를 전송한다.
-- [ ] owner가 보내는 output mode update를 remote가 반영하고 외부에서 slide/black으로 바뀌면 local capture를 정리한다.
-- [ ] remote close/unmount, owner 응답 단절, track ended가 capture를 남기지 않는다.
-- [ ] 기존 next/prev/timer/notes/privacy 동작이 회귀하지 않는다.
+- [x] surface swap 성공 후 remote command dock에서 공유/black/slide 복귀를 제어할 수 있다.
+- [x] remote는 `window.opener` bridge identity를 확인한 뒤에만 `screen-share` command를 전송한다.
+- [x] owner가 보내는 output mode update를 remote가 반영하고 외부에서 slide/black으로 바뀌면 local capture를 정리한다.
+- [x] remote close/unmount, owner 응답 단절, track ended가 capture를 남기지 않는다.
+- [x] 기존 next/prev/timer/notes/privacy 동작이 회귀하지 않는다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- PresenterRemoteWindow presentationChannel RehearsalWorkspace`
-- [ ] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web test -- PresenterRemoteWindow presentationChannel RehearsalWorkspace`
+- [x] `pnpm --filter @orbit/web typecheck`
 
 **Dependencies:** Tasks 5, 6
 **Files likely touched:**
@@ -553,11 +553,11 @@ black         -> black surface + small Orbit logo
 
 ## Checkpoint B. 두 출력 경로 기능 완료
 
-- [ ] `slide-window` 탭/창 공유와 종료가 동작한다.
+- [x] `slide-window` 탭/창 공유와 종료가 동작한다.
 - [ ] 자동 배치 `surface swap` 탭/창 공유와 종료가 동작한다.
-- [ ] 두 경로 모두 black과 최신 슬라이드 복귀가 동작한다.
-- [ ] track, popup, remote, receiver lifecycle 정리 테스트가 통과한다.
-- [ ] 기존 presenter 관련 unit test 전체가 통과한다.
+- [x] 두 경로 모두 black과 최신 슬라이드 복귀가 동작한다.
+- [x] track, popup, remote, receiver lifecycle 정리 테스트가 통과한다.
+- [x] 기존 presenter 관련 unit test 전체가 통과한다.
 
 ### Task 8. E2E, privacy 회귀, 실제 Chrome 검증 기록
 
@@ -565,21 +565,21 @@ black         -> black surface + small Orbit logo
 
 **Acceptance criteria:**
 
-- [ ] Playwright mock stream으로 `slide-window`의 slide → screen-share → slide와 black 전환을 검증한다.
-- [ ] Playwright로 surface swap remote → opener stream attach와 output command를 검증한다.
-- [ ] audience HTML과 channel fixture에 private marker가 없음을 재검증한다.
+- [x] Playwright mock stream으로 `slide-window`의 slide → screen-share → slide와 black 전환을 검증한다.
+- [x] Playwright로 surface swap remote → opener stream attach와 output command를 검증한다.
+- [x] audience HTML과 channel fixture에 private marker가 없음을 재검증한다.
 - [ ] 실제 시스템 Chrome에서 탭, 앱 창, 고급 전체 화면, Chrome 공유 중지, popup/remote 종료를 검증한다.
-- [ ] 결과 문서에 Chrome/OS, 출력 경로, 성공/실패, 남은 제약을 기록한다.
+- [x] 결과 문서에 Chrome/OS, 출력 경로, 성공/실패, 남은 제약을 기록한다.
 
 **Verification:**
 
-- [ ] `pnpm --filter @orbit/web test -- presenter presentationChannel screenShare`
-- [ ] `pnpm --filter @orbit/web typecheck`
-- [ ] `pnpm --filter @orbit/web build`
-- [ ] `pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`
-- [ ] `PLAYWRIGHT_USE_SYSTEM_CHROME=1 pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`
-- [ ] `node infra/scripts/check-env.mjs`
-- [ ] 변경 범위 최종 gate: `pnpm lint && pnpm test && pnpm build`
+- [x] `pnpm --filter @orbit/web test -- presenter presentationChannel screenShare`
+- [x] `pnpm --filter @orbit/web typecheck`
+- [x] `pnpm --filter @orbit/web build`
+- [x] `pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`
+- [x] `PLAYWRIGHT_USE_SYSTEM_CHROME=1 pnpm test:smoke -- tests/e2e/presenter-screen.spec.ts`
+- [x] `node infra/scripts/check-env.mjs`
+- [x] 변경 범위 최종 gate: `pnpm lint && pnpm test && pnpm build`
 
 **Dependencies:** Tasks 1~7, Checkpoint B
 **Files likely touched:**
@@ -593,12 +593,12 @@ black         -> black surface + small Orbit logo
 ## Checkpoint C. Goal 완료 gate
 
 - [ ] Goal 완료 정의의 모든 항목을 증거와 함께 확인했다.
-- [ ] Chrome picker를 자동화하지 못한 항목은 `docs/qa/presenter-screen-share-mvp.md`의 실제 수동 결과가 있다.
-- [ ] 기존 slide-window privacy assertion과 animation sync E2E가 통과한다.
-- [ ] 전체 화면 경고를 우회하는 UI 경로가 없다.
-- [ ] console/server log와 channel payload에 민감 데이터 또는 capture metadata가 없다.
-- [ ] `git diff --check`가 통과한다.
-- [ ] 계획 밖 API/DB/shared schema/대규모 CSS 리팩터링이 없다.
+- [x] Chrome picker를 자동화하지 못한 항목은 `docs/qa/presenter-screen-share-mvp.md`의 실제 수동 결과가 있다.
+- [x] 기존 slide-window privacy assertion과 animation sync E2E가 통과한다.
+- [x] 전체 화면 경고를 우회하는 UI 경로가 없다.
+- [x] console/server log와 channel payload에 민감 데이터 또는 capture metadata가 없다.
+- [x] `git diff --check`가 통과한다.
+- [x] 계획 밖 API/DB/shared schema/대규모 CSS 리팩터링이 없다.
 
 ## 7. 검증 시나리오 행렬
 
