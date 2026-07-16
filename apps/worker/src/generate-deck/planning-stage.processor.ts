@@ -34,6 +34,15 @@ import {
   type AiDeckPlanningStagePythonClientOptions,
 } from "./planning-stage-python-client";
 import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  compactDiagnostics,
+  contractErrorDiagnostics,
+  emitStageEvent,
+  stageEventFields,
+  unknownErrorDiagnostics,
+  type AiDeckStageEventLogger,
+  type SafeStageErrorDiagnostics,
+} from "./stage-diagnostics";
 
 const planningMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckPlanningStage(message.stage),
@@ -76,6 +85,7 @@ const progressByStage: Record<AiDeckPlanningStage, number> = {
 
 export interface AiDeckPlanningStageProcessorOptions extends AiDeckPlanningStagePythonClientOptions {
   heartbeatIntervalMs?: number;
+  eventLogger?: AiDeckStageEventLogger;
 }
 
 export async function processAiDeckPlanningStage(
@@ -96,6 +106,12 @@ export async function processAiDeckPlanningStage(
   if (!claimed.leaseOwner) {
     throw new Error("Claimed stage is missing its lease owner.");
   }
+  const startedAt = Date.now();
+  emitStageEvent(
+    options.eventLogger,
+    "ai-ppt.stage.started",
+    stageEventFields(message, workerId, claimed.attempt, startedAt),
+  );
 
   const controller = new AbortController();
   let leaseLost = false;
@@ -136,17 +152,24 @@ export async function processAiDeckPlanningStage(
       },
     );
     if (leaseLost) return;
-    return await completeStage(
+    const result = await completeStage(
       dataSource,
       message,
       claimed.leaseOwner,
       claimed.attempt,
       payload,
     );
+    emitStageEvent(
+      options.eventLogger,
+      "ai-ppt.stage.succeeded",
+      stageEventFields(message, workerId, claimed.attempt, startedAt),
+    );
+    return result;
   } catch (error) {
     if (leaseLost || error instanceof AiDeckStageFencingLostError) return;
     if (isRetrySignal(error)) throw error;
     const normalized = normalizeStageError(error, message.stage);
+    const diagnostics = planningErrorDiagnostics(error, normalized);
     if (normalized.retryable && claimed.attempt < 5) {
       const released = await checkpoints.releaseForRetry(
         message,
@@ -154,16 +177,45 @@ export async function processAiDeckPlanningStage(
         claimed.attempt,
         normalized,
       );
-      if (released) throw retrySignal();
+      if (released) {
+        emitStageEvent(
+          options.eventLogger,
+          "ai-ppt.stage.attempt-failed",
+          stageEventFields(
+            message,
+            workerId,
+            claimed.attempt,
+            startedAt,
+            false,
+            diagnostics,
+          ),
+        );
+        throw retrySignal();
+      }
       return;
     }
-    return failStageAndParent(
+    const result = await failStageAndParent(
       dataSource,
       message,
       claimed.leaseOwner,
       claimed.attempt,
       normalized,
     );
+    if (result) {
+      emitStageEvent(
+        options.eventLogger,
+        "ai-ppt.stage.failed",
+        stageEventFields(
+          message,
+          workerId,
+          claimed.attempt,
+          startedAt,
+          true,
+          diagnostics,
+        ),
+      );
+    }
+    return result;
   } finally {
     clearInterval(heartbeat);
   }
@@ -460,6 +512,36 @@ function normalizeStageError(
     failedStage: stage,
     retryable: true,
   });
+}
+
+function planningErrorDiagnostics(
+  error: unknown,
+  normalized: JobError,
+): SafeStageErrorDiagnostics {
+  if (error instanceof AiDeckPlanningStageError) {
+    return compactDiagnostics({
+      code: normalized.code,
+      reasonCode: error.diagnostics.reasonCode,
+      name: error.name,
+      httpStatus: error.diagnostics.httpStatus,
+      providerHttpStatus: error.diagnostics.providerHttpStatus,
+      provider: error.diagnostics.provider,
+      providerRequestId: error.diagnostics.providerRequestId,
+      retryAfterMs: error.diagnostics.retryAfterMs,
+    });
+  }
+  if (error instanceof z.ZodError) {
+    return contractErrorDiagnostics(
+      error,
+      normalized.code,
+      "PLANNING_RESPONSE_CONTRACT_INVALID",
+    );
+  }
+  return unknownErrorDiagnostics(
+    error,
+    normalized.code,
+    "PLANNING_FAILURE_UNCLASSIFIED",
+  );
 }
 
 class AiDeckStageFencingLostError extends Error {

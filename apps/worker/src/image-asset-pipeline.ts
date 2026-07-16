@@ -25,6 +25,25 @@ export type ImageAssetScope = {
   userId: string;
 };
 
+export type ImageAssetFallbackDiagnostic = {
+  reasonCode:
+    | "OPENAI_IMAGE_HTTP_ERROR"
+    | "OPENAI_IMAGE_EMPTY_RESPONSE"
+    | "OPENVERSE_SEARCH_HTTP_ERROR"
+    | "OPENVERSE_NO_LICENSED_CANDIDATE"
+    | "PUBLIC_IMAGE_DOWNLOAD_FAILED"
+    | "OFFICIAL_IMAGE_UNAVAILABLE"
+    | "IMAGE_ASSET_INVALID_SIZE"
+    | "IMAGE_ASSET_INVALID_MIME"
+    | "IMAGE_ASSET_RESOLUTION_TOO_LOW"
+    | "IMAGE_STORAGE_FAILED"
+    | "IMAGE_PROVIDER_UNAVAILABLE";
+  name: string;
+  provider: "openai" | "openverse" | "official-web" | "user-upload" | "storage";
+  providerHttpStatus?: number;
+  providerRequestId?: string;
+};
+
 type StoredAssetRow = {
   file_id: string;
   project_id: string;
@@ -43,7 +62,8 @@ export async function resolveDeckImageAssets(
   scope: ImageAssetScope,
   onlySlideIds?: ReadonlySet<string>,
   officialAssetFileIds: readonly string[] = [],
-  deterministicIdentity?: string
+  deterministicIdentity?: string,
+  onFallback?: (diagnostic: ImageAssetFallbackDiagnostic) => void
 ): Promise<{ deck: Deck; warnings: string[] }> {
   const warnings: string[] = [];
   const candidates = deck.slides.filter(
@@ -100,6 +120,11 @@ export async function resolveDeckImageAssets(
     if (uploadedOfficialAsset) uploadedOfficialAssetIndex += 1;
     if (!provider && !uploadedOfficialAsset) {
       warnings.push(`Image provider is disabled for ${policy}.`);
+      emitImageFallback(onFallback, {
+        reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+        name: "ImageProviderUnavailableError",
+        provider: providerForPolicy(policy, Boolean(uploadedOfficialAsset)),
+      });
       continue;
     }
 
@@ -152,6 +177,10 @@ export async function resolveDeckImageAssets(
         usedPublicAssetUrls.add(asset.sourceAssetUrl);
       }
     } catch (error) {
+      emitImageFallback(
+        onFallback,
+        classifyImageAssetError(error, policy, Boolean(uploadedOfficialAsset))
+      );
       warnings.push(
         `Image asset fallback retained for slide ${slide.order}: ${safeErrorMessage(error)}`
       );
@@ -337,13 +366,14 @@ async function storeImageAsset(
     ? `projects/${projectId}/ai-deck-assets/${stableHash}-${originalName}`
     : `projects/${projectId}/assets/${fileId}-${originalName}`;
   const url = createAssetContentUrl(projectId, fileId);
-  await storage.putObject({
-    key: storageKey,
-    body: asset.body,
-    contentType: asset.mimeType,
-    purpose: "design-asset"
-  });
-  await dataSource.query(
+  try {
+    await storage.putObject({
+      key: storageKey,
+      body: asset.body,
+      contentType: asset.mimeType,
+      purpose: "design-asset"
+    });
+    await dataSource.query(
     `
       INSERT INTO project_assets (
         file_id, project_id, storage_key, original_name, mime_type, size, url,
@@ -394,7 +424,14 @@ async function storeImageAsset(
       asset.sourceAuthority ?? "unknown",
       asset.usageBasis ?? (asset.generationPrompt ? "generated" : null)
     ]
-  );
+    );
+  } catch (error) {
+    throw new ImageAssetPipelineError(
+      "IMAGE_STORAGE_FAILED",
+      "storage",
+      error
+    );
+  }
   return { fileId, url };
 }
 
@@ -571,4 +608,113 @@ function createAssetContentUrl(projectId: string, fileId: string) {
 
 function safeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Image provider failed";
+}
+
+function emitImageFallback(
+  onFallback: ((diagnostic: ImageAssetFallbackDiagnostic) => void) | undefined,
+  diagnostic: ImageAssetFallbackDiagnostic
+): void {
+  try {
+    onFallback?.(diagnostic);
+  } catch {
+    // Diagnostic logging must not change image fallback behavior.
+  }
+}
+
+export function classifyImageAssetError(
+  error: unknown,
+  policy: string,
+  uploadedOfficialAsset = false
+): ImageAssetFallbackDiagnostic {
+  if (error instanceof ImageAssetPipelineError) {
+    return {
+      reasonCode: error.reasonCode,
+      name: error.name,
+      provider: error.provider,
+      providerHttpStatus: safeHttpStatus(error.cause),
+      providerRequestId: safeProviderRequestId(error.cause)
+    };
+  }
+  const message = error instanceof Error ? error.message : "";
+  const provider = providerForPolicy(policy, uploadedOfficialAsset);
+  const reasonCode = message.startsWith(
+    "OpenAI image generation failed with status"
+  )
+    ? "OPENAI_IMAGE_HTTP_ERROR"
+    : message === "OpenAI image generation returned no image data"
+      ? "OPENAI_IMAGE_EMPTY_RESPONSE"
+      : message.startsWith("Openverse image search failed with status")
+        ? "OPENVERSE_SEARCH_HTTP_ERROR"
+        : message === "Openverse returned no licensed image candidate"
+          ? "OPENVERSE_NO_LICENSED_CANDIDATE"
+          : message.startsWith("Public image download failed with status")
+            ? "PUBLIC_IMAGE_DOWNLOAD_FAILED"
+            : message.includes("Official") || uploadedOfficialAsset
+              ? "OFFICIAL_IMAGE_UNAVAILABLE"
+              : message.includes("size") || message.includes("byte")
+                ? "IMAGE_ASSET_INVALID_SIZE"
+                : message.includes("MIME") || message.includes("content type")
+                  ? "IMAGE_ASSET_INVALID_MIME"
+                  : message.includes("resolution") ||
+                      message.includes("640x360")
+                    ? "IMAGE_ASSET_RESOLUTION_TOO_LOW"
+                    : "IMAGE_PROVIDER_UNAVAILABLE";
+  return {
+    reasonCode,
+    name: error instanceof Error ? error.name : "UnknownError",
+    provider,
+    providerHttpStatus: safeHttpStatus(error) ?? statusFromMessage(message),
+    providerRequestId: safeProviderRequestId(error)
+  };
+}
+
+class ImageAssetPipelineError extends Error {
+  constructor(
+    readonly reasonCode: "IMAGE_STORAGE_FAILED",
+    readonly provider: "storage",
+    override readonly cause: unknown
+  ) {
+    super("Image asset storage failed.");
+    this.name = "ImageAssetPipelineError";
+  }
+}
+
+function providerForPolicy(
+  policy: string,
+  uploadedOfficialAsset: boolean
+): ImageAssetFallbackDiagnostic["provider"] {
+  if (uploadedOfficialAsset) return "user-upload";
+  if (policy === "ai-generated") return "openai";
+  if (policy === "public-assets") return "openverse";
+  return "official-web";
+}
+
+function safeHttpStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  for (const key of ["status", "statusCode", "httpStatus"]) {
+    const value = error[key];
+    if (typeof value === "number" && value >= 100 && value <= 599) return value;
+  }
+  return undefined;
+}
+
+function safeProviderRequestId(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  for (const key of ["requestId", "request_id"]) {
+    const value = error[key];
+    if (typeof value === "string" && value.length > 0 && value.length <= 256) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function statusFromMessage(message: string): number | undefined {
+  const match = /status (\d{3})(?:\D|$)/.exec(message);
+  const status = Number(match?.[1]);
+  return status >= 100 && status <= 599 ? status : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

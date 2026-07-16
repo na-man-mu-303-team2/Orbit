@@ -196,7 +196,7 @@
 
 ## ORBIT-228 personal server runtime override policy
 
-- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, SQS, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
+- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
 - Options considered:
   - Doppler `stg` 값을 개인 서버 토폴로지에 맞춰 수동으로 계속 관리한다.
   - staging 예시 값을 그대로 사용하고 실패 항목을 runbook troubleshooting으로만 설명한다.

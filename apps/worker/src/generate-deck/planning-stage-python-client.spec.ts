@@ -6,7 +6,10 @@ import {
 } from "./planning-stage-python-client";
 
 const sourcePayload = {
-  rawInput: { topic: "Safe topic", warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"] },
+  rawInput: {
+    topic: "Safe topic",
+    warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"],
+  },
   sourceRecords: [],
   warnings: ["Web research quality was insufficient; usable input was kept."],
   webSourceCount: 0,
@@ -56,13 +59,19 @@ describe("executeAiDeckPlanningStage", () => {
   });
 
   it("classifies provider unavailability as retryable without exposing detail", async () => {
+    const providerBodySentinel = "secret-provider-response-body";
     const error = await executeAiDeckPlanningStage(
       "http://python-worker:8000",
       "content-planning",
       {},
       {
         fetchImpl: async () =>
-          jsonResponse({ detail: "LLM deck content generation failed: secret" }, 503),
+          jsonResponse(
+            {
+              detail: `LLM deck content generation failed: ${providerBodySentinel}`,
+            },
+            503,
+          ),
       },
     ).catch((caught: unknown) => caught);
 
@@ -70,7 +79,75 @@ describe("executeAiDeckPlanningStage", () => {
       code: "PYTHON_WORKER_PLANNING_FAILED",
       message: "AI deck planning provider failed.",
       retryable: true,
+      diagnostics: {
+        reasonCode: "CONTENT_LLM_PROVIDER_FAILURE",
+        httpStatus: 503,
+      },
     });
+    if (!(error instanceof Error)) throw new Error("Expected planning error");
+    expect(error.message).not.toContain(providerBodySentinel);
+    expect(JSON.stringify(error)).not.toContain(providerBodySentinel);
+  });
+
+  it.each([
+    ["CONTENT_LLM_EMPTY_RESPONSE", false],
+    ["CONTENT_LLM_INVALID_RESPONSE", false],
+    ["CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED", false],
+    ["CONTENT_LLM_PROVIDER_FAILURE", true],
+  ] as const)(
+    "accepts structured planning reason %s without changing the public error",
+    async (reasonCode, retryable) => {
+      const error = await executeAiDeckPlanningStage(
+        "http://python-worker:8000",
+        "content-planning",
+        {},
+        {
+          fetchImpl: async () =>
+            jsonResponse(
+              {
+                detail: {
+                  reasonCode,
+                  provider: "openai",
+                  providerHttpStatus: retryable ? 429 : 400,
+                  providerRequestId: "request-safe-1",
+                },
+              },
+              retryable ? 503 : 400,
+            ),
+        },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        code: "PYTHON_WORKER_PLANNING_FAILED",
+        message: "AI deck planning provider failed.",
+        retryable,
+        diagnostics: {
+          reasonCode,
+          provider: "openai",
+          providerHttpStatus: retryable ? 429 : 400,
+          providerRequestId: "request-safe-1",
+        },
+      });
+    },
+  );
+
+  it("classifies legacy content-plan invariant failures without logging detail", async () => {
+    const detail =
+      "LLM content plan referenced unavailable source IDs: private-source-sentinel";
+    const error = await executeAiDeckPlanningStage(
+      "http://python-worker:8000",
+      "content-planning",
+      {},
+      { fetchImpl: async () => jsonResponse({ detail }, 503) },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      diagnostics: {
+        reasonCode: "CONTENT_LLM_INVALID_RESPONSE",
+        httpStatus: 503,
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain("private-source-sentinel");
   });
 
   it("rejects an invalid successful response as a terminal contract failure", async () => {

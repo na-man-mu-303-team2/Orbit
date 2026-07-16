@@ -89,7 +89,7 @@ export class AiDeckPlanningArtifactRepository {
     rawReference: unknown,
     expectedStage: AiDeckPlanningStage,
   ): Promise<AiDeckPlanningArtifact> {
-    const message = planningMessage(rawMessage);
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const reference = aiDeckPlanningArtifactReferenceSchema.parse(rawReference);
     const rows = await this.db.query(
       `

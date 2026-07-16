@@ -95,6 +95,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     redisCursor: "0",
     pendingJobIds: [],
   };
+  private readonly aiPptEventLogger = (
+    event: string,
+    fields: Record<string, unknown>,
+  ) => {
+    const level =
+      event === "ai-ppt.stage.failed"
+        ? "error"
+        : event === "ai-ppt.stage.attempt-failed" ||
+            event === "ai-ppt.image-asset.fallback"
+          ? "warn"
+          : "info";
+    this.logger[level]({ event, ...fields }, "AI PPT generation event.");
+  };
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -288,6 +301,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.config.PYTHON_WORKER_URL,
             this.workerId,
             job.data,
+            { eventLogger: this.aiPptEventLogger },
           );
         },
       },
@@ -302,6 +316,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.config.PYTHON_WORKER_URL,
             this.workerId,
             job.data,
+            { eventLogger: this.aiPptEventLogger },
           );
         },
       },
@@ -319,11 +334,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             job.data,
             imageRuntime,
             {
-              eventLogger: (event, fields) =>
-                this.logger.info(
-                  { event, ...fields },
-                  "AI PPT generation event.",
-                ),
+              eventLogger: this.aiPptEventLogger,
             },
           );
         },
@@ -346,11 +357,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             job.data,
             imageRuntime,
             {
-              eventLogger: (event, fields) =>
-                this.logger.info(
-                  { event, ...fields },
-                  "AI PPT generation event.",
-                ),
+              eventLogger: this.aiPptEventLogger,
             },
           );
         },
@@ -459,6 +466,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     this.logger.info(
       {
         event: "worker.ready",
+        workerId: this.workerId,
         driver: this.config.JOB_QUEUE_DRIVER,
         aiDeckExecutionMode: this.config.AI_DECK_EXECUTION_MODE,
         aiDeckWorkerQueue: this.config.AI_DECK_WORKER_QUEUE,
@@ -497,6 +505,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     );
 
     worker.on("failed", (job, error) => {
+      if (isAiDeckStageRetrySignal(error)) {
+        this.logger.warn(
+          {
+            event: "bullmq.job.retry-scheduled",
+            queueName,
+            bullJobId: job?.id,
+            attemptsMade: job?.attemptsMade,
+            ...jobPayloadFields(job?.data),
+          },
+          "BullMQ job retry scheduled.",
+        );
+        return;
+      }
       this.logger.error(
         {
           event: "bullmq.job.failed",
@@ -604,6 +625,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       }
       return result;
     } catch (error) {
+      if (isAiDeckStageRetrySignal(error)) throw error;
       await this.recoverAiDeckTransportFailure(queueName, job);
       this.logger.error(
         {
@@ -808,6 +830,14 @@ function isFinalBullMqAttempt(job: BullMqJob): boolean {
   const configuredAttempts =
     typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
   return job.attemptsMade + 1 >= Math.max(1, configuredAttempts);
+}
+
+function isAiDeckStageRetrySignal(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "AiDeckStageRetrySignal" &&
+    error.message === "AI_DECK_STAGE_RETRY"
+  );
 }
 
 function jobPayloadFields(data: unknown) {
