@@ -6,6 +6,8 @@ cd "$repo_root"
 
 database_name="orbit"
 container_name="orbit-rehearsal-ownership-test-${RANDOM}-$$"
+ownership_migration_name="AddRehearsalOwnership2026071503000"
+max_targeted_reverts=20
 
 postgres() {
   docker exec -i "$container_name" psql \
@@ -13,6 +15,39 @@ postgres() {
     -d "$database_name" \
     -v ON_ERROR_STOP=1 \
     "$@"
+}
+
+ownership_migration_is_applied() {
+  local applied
+  applied="$({ postgres -tAc "
+    SELECT EXISTS (
+      SELECT 1
+      FROM typeorm_migrations
+      WHERE name = '${ownership_migration_name}'
+    );
+  "; } | tr -d '[:space:]')"
+  test "$applied" = "t"
+}
+
+revert_through_ownership_migration() {
+  local revert_count=0
+
+  if ! ownership_migration_is_applied; then
+    echo "ownership migration is not applied: ${ownership_migration_name}" >&2
+    exit 1
+  fi
+
+  while ownership_migration_is_applied; do
+    if ((revert_count >= max_targeted_reverts)); then
+      echo "ownership migration remained applied after ${max_targeted_reverts} reverts" >&2
+      exit 1
+    fi
+
+    pnpm db:migration:revert
+    revert_count=$((revert_count + 1))
+  done
+
+  echo "Reverted ownership migration and ${revert_count} migration(s) at or after it."
 }
 
 cleanup() {
@@ -52,10 +87,11 @@ export NODE_ENV=test
 export APP_ENV=test
 export DATABASE_URL="postgresql://orbit:orbit@127.0.0.1:${postgres_port}/${database_name}"
 
-# Build the complete schema, then return only the ownership migration so the
-# test can insert rows that represent data created before creator columns existed.
+# Build the complete schema, then return to the state immediately before the
+# ownership migration. Newer migrations must be reverted first because TypeORM
+# only reverts the latest applied migration.
 pnpm db:migration:run
-pnpm db:migration:revert
+revert_through_ownership_migration
 
 postgres <<'SQL'
 INSERT INTO projects (project_id, workspace_id, title, created_by)
@@ -172,7 +208,7 @@ postgres -c "
   );
 " >/dev/null
 
-pnpm db:migration:revert
+revert_through_ownership_migration
 
 columns_after_revert="$({ postgres -tAc "
   SELECT count(*)
