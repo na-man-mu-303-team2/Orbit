@@ -4,11 +4,12 @@ import { ProjectsModule } from "../projects/projects.module";
 import { AudienceSessionsController } from "./audience-sessions.controller";
 import { PresentationSessionsController } from "./presentation-sessions.controller";
 import { PresentationSessionsService } from "./presentation-sessions.service";
+import { PresentationSessionRepository } from "./presentation-session.repository";
 
 @Module({
   imports: [AuthModule, ProjectsModule],
   controllers: [AudienceSessionsController, PresentationSessionsController],
-  providers: [PresentationSessionsService],
+  providers: [PresentationSessionRepository, PresentationSessionsService],
   exports: [PresentationSessionsService]
 })
 export class PresentationSessionsModule {}

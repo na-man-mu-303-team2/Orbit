@@ -81,11 +81,59 @@ export const updatePresentationSessionAccessRequestSchema = z
     accessMode: presentationAccessModeSchema,
     passcode: z.string().regex(/^\d{4}$/).optional()
   })
-  .strict();
+  .strict()
+  .superRefine((request, ctx) => {
+    const startsAt = new Date(request.startsAt).getTime();
+    const expiresAt = new Date(request.expiresAt).getTime();
+    if (expiresAt <= startsAt || expiresAt - startsAt > 30 * 24 * 60 * 60 * 1000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiresAt"],
+        message: "presentation access must be later than startsAt and no longer than 30 days"
+      });
+    }
+    if (request.accessMode === "passcode" && request.passcode === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passcode"],
+        message: "passcode is required for passcode access"
+      });
+    }
+    if (request.accessMode === "public" && request.passcode !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["passcode"],
+        message: "public access must not include a passcode"
+      });
+    }
+  });
 
 export const presentationSessionResponseSchema = z
   .object({ session: presentationSessionSchema })
   .strict();
+
+export const presentationSessionWithAudienceUrlResponseSchema = z
+  .object({
+    session: presentationSessionSchema,
+    audienceUrl: z.string().min(1)
+  })
+  .strict();
+
+export const getCurrentPresentationSessionResponseSchema = z
+  .object({
+    session: presentationSessionSchema.nullable(),
+    audienceUrl: z.string().min(1).nullable()
+  })
+  .strict()
+  .superRefine((response, ctx) => {
+    if ((response.session === null) !== (response.audienceUrl === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["audienceUrl"],
+        message: "session and audienceUrl must be present or absent together"
+      });
+    }
+  });
 
 export const listPresentationSessionsResponseSchema = z
   .object({ sessions: z.array(presentationSessionSchema) })
@@ -163,6 +211,12 @@ export type CreatePresentationSessionRequest = z.infer<
 >;
 export type UpdatePresentationSessionAccessRequest = z.infer<
   typeof updatePresentationSessionAccessRequestSchema
+>;
+export type PresentationSessionWithAudienceUrlResponse = z.infer<
+  typeof presentationSessionWithAudienceUrlResponseSchema
+>;
+export type GetCurrentPresentationSessionResponse = z.infer<
+  typeof getCurrentPresentationSessionResponseSchema
 >;
 export type RehearsalMetrics = z.infer<typeof rehearsalMetricsSchema>;
 export type PresentationReport = z.infer<typeof reportSchema>;
