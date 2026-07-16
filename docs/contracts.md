@@ -623,7 +623,7 @@ AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job
 
 - API 시작점은 `POST /api/v1/projects/:projectId/jobs/generate-deck`이다.
 - Job type은 기존 `ai-deck-generation`을 사용하고 상태값은 공통 `queued`, `running`, `succeeded`, `failed`만 사용한다.
-- PR 3까지 로컬 기본 `AI_DECK_EXECUTION_MODE`는 `bullmq`다. `pg`는 기존 `ai_deck_generation_stages` checkpoint를 durable queue로 직접 사용하고 AI Deck BullMQ coordinator·stage enqueue/consume 없이 파일별 OCR, planning, slide별 image fan-out, semantic quality, rendered visual quality와 publication을 실행한다. `bullmq`와 `monolith`는 rollback·회귀 경로로 유지한다. staging·production 예제의 명시적 `monolith` 값과 `develop` 자동 배포 규칙은 별도 승인된 cutover 전까지 유지한다. `sqs`는 도입 취소된 미지원 값이며 API와 Worker 시작 시 즉시 거부한다.
+- 로컬 `.env.example`의 기본 `AI_DECK_EXECUTION_MODE`는 `pg`다. `pg`는 기존 `ai_deck_generation_stages` checkpoint를 durable queue로 직접 사용하고 AI Deck BullMQ coordinator·stage enqueue/consume 없이 파일별 OCR, planning, slide별 image fan-out, semantic quality, rendered visual quality와 publication을 실행한다. `bullmq`와 `monolith`는 rollback·회귀 경로로 유지한다. staging·production 예제의 명시적 `monolith` 값과 `develop` 자동 배포 규칙은 별도 승인된 cutover 전까지 유지한다. `sqs`는 도입 취소된 미지원 값이며 API와 Worker 시작 시 즉시 거부한다.
 - GenerateDeck public request에는 `generationMode`, `design.engineVersion`, `design.slidePresetId`, `designReferences`, `templateBlueprintId`가 없다. root request와 모든 중첩 request object는 strict하며 제거된 필드와 unknown field를 거부하고 ingress 호환 shim을 두지 않는다.
 - `develop` merge는 `.github/workflows/deploy-personal-staging.yml`을 통해 personal staging에 자동 배포한다. #339 때문에 이 workflow를 변경·중단하거나 `personal-staging` required reviewer를 추가하지 않는다. workflow는 run 실행 시점에 `git pull --ff-only origin develop`로 동기화한 서버 HEAD에서 Web/API/Worker/Python worker 이미지를 모두 빌드·교체하고 API/root health check가 통과해야 성공한다.
 - #339 종료 증거는 자동 배포 run 성공, 서버에서 확인한 `git rev-parse HEAD`, 배포 후 BullMQ `pptx-import`, `ai-template-deck-generation`, `generate-deck` 전체 상태와 관련 DB Job의 `queued`/`running`을 읽기 전용으로 확인하고 GenerateDeck smoke를 실행한 결과다. workflow trigger SHA와 실제 서버 HEAD를 구분하며, 성공한 배포 run만으로 queue/DB가 0이었다고 주장하지 않는다. production의 ingress 중단, drain, 동시 교체와 cache invalidation은 별도 승인된 배포 계획에서 다룬다.
@@ -1549,7 +1549,7 @@ historical `type` 값:
 
 - staged BullMQ coordinator message는 strict `{ jobId, projectId }`만 담고 전체 request는 DB의 부모 `jobs.payload`에서 읽는다. `generate-deck` queue는 `job.name`의 `generate-deck`과 `generate-deck-staged-coordinator`, `reference-extract` queue는 `reference-extract`와 `reference-extract-file`을 구분해 기존 monolith/standalone OCR과 staged handler를 함께 안전하게 routing한다. 나머지 stage queue도 stage 이름과 `job.name`이 일치할 때만 실행한다.
 - `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 실행할 수 있다. `research-content`는 `ai-deck-research-content`, `design-layout`은 `ai-deck-design-layout`, `image`는 `ai-deck-image`, `qa-finalize`는 `ai-deck-qa-finalize`만 소비한다. 지원되는 실행 모드는 `monolith|bullmq|pg`다. dedicated role은 `bullmq`에서만 허용하고 `pg`는 `all`만 허용한다. `AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이므로 Worker 시작 시 거부한다.
-- 부모 `jobs.payload`는 strict `generateDeckStoredJobPayloadSchema`를 사용한다. 새 인증 요청은 `requestedByUserId`를 저장하고 기존 payload에 값이 없으면 PostgreSQL claim에서 `projects.created_by`를 사용한다. raw source, OCR, provider 응답과 내부 prompt는 이 payload에 추가하지 않는다.
+- 부모 `jobs.payload`는 strict `generateDeckStoredJobPayloadSchema`를 사용한다. 새 인증 요청은 `requestedByUserId`와 생성 시 결정한 `storyReviewRequired`를 저장하고, 기존 payload에 `requestedByUserId`가 없으면 PostgreSQL claim에서 `projects.created_by`를 사용한다. raw source, OCR, provider 응답과 내부 prompt는 이 payload에 추가하지 않는다.
 - stage enum은 `reference-extract-file`, `source-grounding`, `content-planning`, `design-planning`, `layout-compile`, `image-slide`, `semantic-quality`, `rendered-visual-quality`, `publication`의 정확한 9개다.
 - queue envelope은 strict `{ pipelineJobId, projectId, stage, shardKey }`만 허용한다. binary, base64, 전체 Deck, provider raw response, 별도 checkpoint/asset ID는 금지한다.
 - `reference-extract-file`과 `image-slide`은 colon 없는 non-empty `shardKey`를 사용하고 나머지 singleton stage는 정확히 `""`를 사용한다. stage 전용 `pipelineJobId`에도 colon을 허용하지 않으며 일반 historical `Job.jobId` 계약은 좁히지 않는다.
@@ -1563,7 +1563,7 @@ historical `type` 값:
 - 검증된 OCR 응답은 `usable=false`여도 artifact로 보존할 수 있다. transient/unusable 결과는 먼저 해당 shard만 재시도하고, 총 5번째 시도에도 unusable이면 `usable=false` artifact와 locator를 저장해 checkpoint를 `succeeded`로 끝낸 뒤 policy join이 부모의 계속/실패를 결정한다. provider raw response와 credential은 artifact나 Job error에 저장하지 않는다.
 - claim은 `queued -> running` 조건부 update에 성공한 consumer만 허용하며 이때만 `attempt`를 증가시킨다. stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 claim마다 새로 발급하고 `attempt`를 generation fencing token으로 함께 사용한다. claim이 반환한 `lease_owner`와 `attempt`가 모두 일치하고 lease가 만료되지 않은 heartbeat·성공·실패·retry release만 허용한다.
 - `pg`는 `AI_DECK_WORKER_CONCURRENCY=5`의 process-wide slot을 모든 stage handler가 공유한다. 후보 사용자는 현재 running 수, 가장 오래 기다린 checkpoint, 사용자 ID 순으로 고른다. 사용자별 advisory transaction lock과 해당 `users` row의 `FOR UPDATE` lock을 획득한 뒤 running 수를 다시 확인하고, `AI_DECK_USER_CONCURRENCY=5` 이상이면 건너뛴다. 실제 checkpoint row는 `FOR UPDATE OF stages SKIP LOCKED LIMIT 1`로 claim한다. Worker replica가 늘어나도 사용자별 상한은 같은 transaction과 durable user row lock으로 유지된다.
-- `pg`에서 checkpoint가 없는 active 부모 Job은 Worker maintenance가 기존 staged coordinator 함수를 직접 호출해 멱등 초기화한다. 사용자별 review 대기가 도입되기 전 PR 3에서는 기존 자동 stage chain을 유지한다.
+- `pg`에서 checkpoint가 없는 active 부모 Job은 Worker maintenance가 기존 staged coordinator 함수를 직접 호출해 멱등 초기화한다. `storyReviewRequired=false`인 기존 Job과 `bullmq` rollback 경로는 기존 자동 stage chain을 유지한다.
 - BullMQ dispatcher는 9개 stage checkpoint를 모두 enqueue한다. enqueue 후 BullMQ `getState()`가 `waiting | delayed | prioritized`일 때만 조회 당시 `attempt`를 대조해 `dispatched_at`을 기록한다. `active | completed | failed | unknown`은 durable dispatch로 인정해 mark하지 않으며, 늦은 이전 send가 새 retry generation을 덮지 못한다. `pg`에서는 dispatcher를 실행하지 않는다.
 - BullMQ dispatcher는 매 회차 `listUndispatched` 전에 active parent의 9개 stage 중 `status='queued'`이고 `dispatched_at`이 15분 이상 지난 row를 최대 100개씩 `FOR UPDATE ... SKIP LOCKED`로 복구한다. 이 scan은 `idx_ai_deck_generation_stages_stale_dispatch (dispatched_at, pipeline_job_id, shard_key)` partial index를 사용한다.
 - retryable failure는 현재 stage/shard만 지수 backoff로 최대 총 5회 시도한다. DB lease는 10분, heartbeat는 60초다. retry release와 expired lease의 1~4번째 복구는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 전이하고 기존 `attempt`는 유지한다. OCR의 5번째 종료는 policy join이 부모의 계속/실패를 결정하고, 나머지 필수 stage의 5번째 실패·expired lease는 checkpoint와 부모를 함께 terminal 처리한다. 부모가 terminal이면 transaction commit 후 반환된 parent Job으로 표준 `job.failed` 업무 로그를 남긴다. 이 DB checkpoint `attempt`는 BullMQ transport의 `attemptsMade`와 별도 재시도 층이다. expired-lease reconciler는 `bullmq`와 `pg` 모두 Worker 시작 직후 한 번 실행한 뒤 주기적으로 실행하고 dispatcher는 `bullmq`에서만 실행한다.
@@ -1574,12 +1574,28 @@ historical `type` 값:
 - `generate-deck-staged-coordinator` BullMQ Job은 재시도 소진뿐 아니라 stall/started limit 초과로도 failed set에 들어갈 수 있다. failed entry는 `removeOnFail=false`로 cap 없이 보존한다. BullMQ의 정확한 transport-boundary `failedReason`인 `job stalled more than allowable limit` 또는 `job started more than allowable limit`이면 `attemptsMade`와 무관하게 coordinator transaction을 멱등 재실행한다. 그 외에는 `attemptsMade >= opts.attempts`일 때 active checkpoint와 부모를 terminal 복구하고, 그보다 작으면 역시 멱등 재실행해 commit 전 crash와 commit 후 ACK 유실을 모두 수렴시킨다. resume가 failed parent를 반환하거나 지연된 terminal DB recovery가 성공하면 DB commit 이후에만 failed entry 제거를 시도하고, reconciliation 결과를 받은 Worker가 같은 표준 `job.failed` 업무 로그를 남긴다. maintenance reconciler는 live rank offset 대신 Redis failed ZSET의 opaque `ZSCAN` cursor와 초과 batch의 `pendingJobIds`를 Worker에 보존하고 한 회차에 기본 25개, 최대 100개만 처리한다. concurrent cleanup으로 사라진 entry와 중복 scan은 멱등 처리하며, DB recovery가 실패한 entry는 제거하지 않아 다음 full cursor cycle에서 다시 방문한다.
 - `layout-compile`은 검증된 worker payload와 visual requirements를 artifact로 저장한다. image가 필요한 slide만 `image-slide` checkpoint로 fan-out하고 마지막 성공 child가 별도 join stage 없이 `semantic-quality`을 만든다. image가 없으면 곧바로 `semantic-quality`을 만든다. `semantic-quality` → `rendered-visual-quality` → `publication`은 각각 독립 checkpoint이며 publication transaction이 execution artifact, checkpoint 성공, Deck upsert와 부모 Job `succeeded/progress=100`을 함께 commit한다. terminal failure에서는 Deck을 쓰지 않는다. `WEB_RESEARCH_QUALITY_FAILED`는 usable grounding 또는 사용자 입력이 있으면 warning으로 계속하고, usable grounding이 전혀 없는 strict policy의 `SOURCE_GROUNDING_REQUIRED`와 내부 재시도 후에도 유효하지 않은 Art Director 응답의 `ART_DIRECTOR_INVALID_RESPONSE`는 terminal이다.
 
+### AI Deck Story Review
+
+- 기존 `POST /api/v1/projects/:projectId/jobs/generate-deck` request를 재사용하고 응답은 strict `{ job, storyReviewRequired }`다. 요청을 받은 시점의 `AI_DECK_EXECUTION_MODE`가 `pg`이면 `storyReviewRequired=true`, 그 밖의 rollback 경로는 `false`이며 결정된 값은 부모 `jobs.payload`에 저장한다.
+- 조회와 변경 endpoint는 각각 `GET /api/v1/projects/:projectId/jobs/:jobId/story-plan`, `POST .../story-plan/regenerate`, `POST .../story-plan/approve`, `POST .../story-plan/cancel`이다. 모두 기존 인증과 project write 권한 검사를 재사용한다. regenerate는 strict `{ expectedRevision, instruction? }`, approve는 strict `{ expectedRevision }`, cancel body는 사용하지 않으며 instruction은 trim 후 최대 240자다.
+- `StoryPlanReviewResponse`는 strict `{ jobId, projectId, status, plan, error }`다. `status`는 `planning | review-pending | regenerating | approved | failed | cancelled`다. 공개 plan에는 revision, 재제안 횟수와 한도 5회, outline, 예상 시간, slide 수, 생성 시각, 품질 warning, repair reason과 slide별 order/type/title/message/speaker notes/예상 시간/source 상태·안전한 metadata만 포함한다. raw source·OCR·provider 응답·URL·내부 prompt는 노출하지 않는다.
+- `ai_deck_story_reviews`는 `pipeline_job_id` PK/FK, `project_id`, `status`, `revision`, `regeneration_count`, `regeneration_instruction`, `last_error_json`, timestamp만 저장한다. plan, artifact ID와 이전 revision은 중복 저장하지 않고 기존 `content-planning` artifact를 조회한다.
+- `storyReviewRequired=true`인 Job은 `content-planning` artifact와 checkpoint를 성공 transaction에 저장한 뒤 review를 `review-pending`, 부모 Job을 `running/progress=40`으로 유지하고 `design-planning` checkpoint를 만들지 않는다. review 대기 중에는 Worker slot과 provider를 사용하지 않는다.
+- approve는 Job과 review row를 잠근 뒤 `expectedRevision`을 검증하고 `design-planning` checkpoint를 `ON CONFLICT DO NOTHING`으로 정확히 하나 만든다. 동일 revision의 중복 approve는 멱등이며 stale revision이나 승인할 수 없는 상태는 `409`다.
+- regenerate는 review row lock 안에서 revision과 5회 한도를 검증하고, 성공 여부와 관계없이 수락한 요청 횟수를 증가시킨 뒤 기존 source-grounding artifact를 재사용해 `content-planning` checkpoint만 다시 queued로 만든다. 성공 시 기존 content artifact를 같은 transaction에서 교체하고 revision을 증가시킨다. 최종 실패 시 기존 artifact를 유지하고 review를 `review-pending`으로 복구해 approve action을 보존한다.
+- regeneration instruction과 이전 outline 제목은 기존 Python `content-planning` input의 선택 context로만 전달한다. instruction은 근거가 아니며 source 제약, 사실 경계와 reference policy를 덮어쓸 수 없다. Python에는 Story Review 전용 endpoint를 만들지 않는다.
+- cancel은 승인 전에는 멱등이며 활성 checkpoint의 lease를 제거하고 checkpoint와 부모 Job을 `AI_DECK_GENERATION_CANCELLED`, `retryable=false`로 terminal 처리한다. project, file, brief와 artifact는 삭제하지 않는다. approved 상태의 cancel은 `409`다.
+- Web은 `storyReviewRequired=true` 응답이면 generic project route보다 먼저 매칭되는 `/project/:projectId/story-plan/:jobId`로 이동한다. 한 화면에서 planning, review-pending, regenerating, regeneration error, approved, cancelled와 failed를 처리하고 승인 뒤 기존 Job endpoint를 polling해 성공 시 editor로 이동한다. source 문구는 `참고자료 연결`, `일부 확인 필요`, `참고자료 없음`만 사용하며 사실이 “검증됨”이라고 표시하거나 Visual QA 결과를 미리 예측하지 않는다. `repairReasonCodes`는 AI가 자동 조정한 내용으로만 안내하고 정확한 token 절감량은 표시하지 않는다.
+
 구현 위치:
 
 - `packages/shared/src/jobs/ai-deck-generation-stage.schema.ts`
 - `packages/config/src/index.ts`
 - `packages/job-queue/src/index.ts`
 - `apps/api/src/generate-deck/generate-deck.service.ts`
+- `apps/api/src/generate-deck/story-plan-review.controller.ts`
+- `apps/api/src/generate-deck/story-plan-review.service.ts`
+- `apps/api/src/database/migrations/2026071604000-CreateAiDeckStoryReviews.ts`
 - `apps/api/src/database/migrations/2026071502000-CreateAiDeckGenerationStages.ts`
 - `apps/api/src/database/migrations/2026071503000-CreateAiDeckReferenceExtractionArtifacts.ts`
 - `apps/api/src/database/migrations/2026071601000-CreateAiDeckPlanningArtifacts.ts`
@@ -1589,6 +1605,8 @@ historical `type` 값:
 - `apps/worker/src/generate-deck/postgres-stage-runner.ts`
 - `apps/worker/src/generate-deck/stage-checkpoint-repository.ts`
 - `apps/worker/src/generate-deck/planning-stage.processor.ts`
+- `apps/web/src/features/ai-ppt/StoryPlanReviewPage.tsx`
+- `packages/shared/src/deck/story-plan-review.schema.ts`
 - `apps/worker/src/generate-deck/execution-stage.processor.ts`
 - `apps/worker/src/generate-deck/execution-artifact-repository.ts`
 - `apps/worker/src/reference-extract-python-client.ts`

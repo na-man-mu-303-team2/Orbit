@@ -76,6 +76,25 @@ const parentJobRowSchema = z.object({
   created_at: timestampSchema,
   updated_at: timestampSchema,
 });
+const regenerationReviewRowSchema = z.object({
+  regeneration_instruction: z.string().max(240).nullable(),
+});
+const previousContentRowSchema = z.object({
+  payload_json: z
+    .object({
+      contentPlan: z
+        .object({
+          outline: z
+            .object({
+              slide_titles: z.array(z.string()).optional(),
+              slideTitles: z.array(z.string()).optional(),
+            })
+            .passthrough(),
+        })
+        .passthrough(),
+    })
+    .passthrough(),
+});
 
 const nextStageByStage: Partial<
   Record<AiDeckPlanningStage, AiDeckPlanningStage>
@@ -293,6 +312,7 @@ async function buildStageInput(
       );
       return contentPlanningStageInput(
         sourceGroundingArtifactPayloadSchema.parse(artifact.payload),
+        await loadRegenerationContext(dataSource, message),
       );
     }
     case "design-planning": {
@@ -316,6 +336,52 @@ async function buildStageInput(
       );
     }
   }
+}
+
+async function loadRegenerationContext(
+  dataSource: DataSource,
+  message: AiDeckGenerationStageMessage,
+): Promise<
+  | { instruction?: string; previousSlideTitles: string[] }
+  | undefined
+> {
+  const review = firstQueryRow(
+    await dataSource.query(
+      `
+        SELECT regeneration_instruction
+        FROM ai_deck_story_reviews
+        WHERE pipeline_job_id = $1
+          AND project_id = $2
+          AND status = 'regenerating'
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (!review) return undefined;
+  const parsedReview = regenerationReviewRowSchema.parse(review);
+  const previous = firstQueryRow(
+    await dataSource.query(
+      `
+        SELECT payload_json
+        FROM ai_deck_planning_artifacts
+        WHERE pipeline_job_id = $1
+          AND project_id = $2
+          AND stage = 'content-planning'
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  const parsedPrevious = previous
+    ? previousContentRowSchema.parse(previous)
+    : null;
+  const outline = parsedPrevious?.payload_json.contentPlan.outline;
+  return {
+    ...(parsedReview.regeneration_instruction
+      ? { instruction: parsedReview.regeneration_instruction }
+      : {}),
+    previousSlideTitles:
+      outline?.slideTitles ?? outline?.slide_titles ?? [],
+  };
 }
 
 async function loadGroundingRequest(
@@ -412,6 +478,17 @@ async function completeStage(
     );
     if (!succeeded) throw new AiDeckStageFencingLostError();
 
+    if (
+      message.stage === "content-planning" &&
+      (await completeStoryReview(manager, message))
+    ) {
+      return updateParentProgress(
+        manager,
+        message,
+        progressByStage[message.stage],
+      );
+    }
+
     const nextStage = nextStageByStage[message.stage];
     if (nextStage) {
       const next = await checkpoints.ensureQueued(
@@ -434,6 +511,84 @@ async function completeStage(
       progressByStage[message.stage],
     );
   });
+}
+
+async function completeStoryReview(
+  manager: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+): Promise<boolean> {
+  const parent = firstQueryRow(
+    await manager.query(
+      `
+        SELECT payload
+        FROM jobs
+        WHERE job_id = $1 AND project_id = $2
+          AND type = 'ai-deck-generation'
+        FOR UPDATE
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (
+    !parent ||
+    typeof parent !== "object" ||
+    !("payload" in parent) ||
+    !generateDeckStoredJobPayloadSchema.parse(parent.payload)
+      .storyReviewRequired
+  ) {
+    return false;
+  }
+  const review = firstQueryRow(
+    await manager.query(
+      `
+        SELECT status, revision
+        FROM ai_deck_story_reviews
+        WHERE pipeline_job_id = $1 AND project_id = $2
+        FOR UPDATE
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (!review) {
+    await manager.query(
+      `
+        INSERT INTO ai_deck_story_reviews (
+          pipeline_job_id, project_id, status, revision, regeneration_count
+        )
+        VALUES ($1, $2, 'review-pending', 1, 0)
+      `,
+      [message.pipelineJobId, message.projectId],
+    );
+    return true;
+  }
+  const status = z
+    .object({
+      status: z.enum([
+        "review-pending",
+        "regenerating",
+        "approved",
+        "cancelled",
+      ]),
+      revision: z.number().int().min(0),
+    })
+    .parse(review);
+  if (status.status !== "regenerating") {
+    throw new Error("Story Review is not waiting for regenerated content.");
+  }
+  await manager.query(
+    `
+      UPDATE ai_deck_story_reviews
+      SET status = 'review-pending',
+          revision = revision + 1,
+          regeneration_instruction = NULL,
+          last_error_json = NULL,
+          updated_at = now()
+      WHERE pipeline_job_id = $1 AND project_id = $2
+        AND status = 'regenerating'
+    `,
+    [message.pipelineJobId, message.projectId],
+  );
+  return true;
 }
 
 async function ensureImageOrSemanticCheckpoints(
@@ -493,6 +648,12 @@ async function failStageAndParent(
       manager,
     ).fail(message, leaseOwner, attempt, error);
     if (!failed) return;
+    if (
+      message.stage === "content-planning" &&
+      (await recoverStoryReviewRegeneration(manager, message, error))
+    ) {
+      return updateParentProgress(manager, message, 40);
+    }
     const rows = await manager.query(
       `
         UPDATE jobs
@@ -510,6 +671,50 @@ async function failStageAndParent(
     );
     return parentJobFromQuery(rows);
   });
+}
+
+async function recoverStoryReviewRegeneration(
+  manager: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+  error: JobError,
+): Promise<boolean> {
+  const review = firstQueryRow(
+    await manager.query(
+      `
+        SELECT status
+        FROM ai_deck_story_reviews
+        WHERE pipeline_job_id = $1 AND project_id = $2
+        FOR UPDATE
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (
+    !review ||
+    z.object({ status: z.string() }).parse(review).status !== "regenerating"
+  ) {
+    return false;
+  }
+  await manager.query(
+    `
+      UPDATE ai_deck_story_reviews
+      SET status = 'review-pending',
+          regeneration_instruction = NULL,
+          last_error_json = $3::jsonb,
+          updated_at = now()
+      WHERE pipeline_job_id = $1 AND project_id = $2
+        AND status = 'regenerating'
+    `,
+    [
+      message.pipelineJobId,
+      message.projectId,
+      {
+        code: error.code,
+        message: "Story plan regeneration failed.",
+      },
+    ],
+  );
+  return true;
 }
 
 async function updateParentProgress(

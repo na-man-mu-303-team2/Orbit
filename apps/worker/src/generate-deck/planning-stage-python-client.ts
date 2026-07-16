@@ -151,8 +151,15 @@ export function sourceGroundingStageInput(
 
 export function contentPlanningStageInput(
   grounding: SourceGroundingArtifactPayload,
+  regenerationContext?: {
+    instruction?: string;
+    previousSlideTitles: string[];
+  },
 ) {
-  return { groundingResult: grounding };
+  return {
+    groundingResult: grounding,
+    ...(regenerationContext ? { regenerationContext } : {}),
+  };
 }
 
 export function designPlanningStageInput(

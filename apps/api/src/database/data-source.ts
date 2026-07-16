@@ -45,6 +45,7 @@ import { ExpandAiDeckStageDispatchRecovery2026071601100 } from "./migrations/202
 import { CreateAiDeckExecutionArtifacts2026071602000 } from "./migrations/2026071602000-CreateAiDeckExecutionArtifacts";
 import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603000-AddRehearsalAudioRetention";
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
+import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -101,7 +102,8 @@ export const databaseOptions: DataSourceOptions = {
     ExpandAiDeckStageDispatchRecovery2026071601100,
     CreateAiDeckExecutionArtifacts2026071602000,
     AddRehearsalAudioRetention2026071603000,
-    AddRehearsalTranscriptArtifacts2026071603000
+    AddRehearsalTranscriptArtifacts2026071603000,
+    CreateAiDeckStoryReviews2026071604000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

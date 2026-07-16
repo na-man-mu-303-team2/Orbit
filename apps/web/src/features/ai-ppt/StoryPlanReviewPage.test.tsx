@@ -18,7 +18,7 @@ const response = {
     qualityWarnings: [
       { code: "RESEARCH_PARTIAL" as const, message: "일부 확인 필요" },
     ],
-    repairReasonCodes: ["CONTENT_CAPACITY"],
+    repairReasonCodes: ["CONTENT_CAPACITY" as const],
     slides: [
       {
         order: 1,
@@ -61,5 +61,85 @@ describe("StoryPlanReviewView", () => {
     expect(storyPlanPath("project 1", "job/1")).toBe(
       "/project/project%201/story-plan/job%2F1",
     );
+  });
+
+  it("renders evidence and speaker notes from the same safe plan", () => {
+    const evidence = renderToStaticMarkup(
+      <StoryPlanReviewView
+        activeTab="evidence"
+        onApprove={() => undefined}
+        onCancel={() => undefined}
+        onRegenerate={() => undefined}
+        onTabChange={() => undefined}
+        response={response}
+      />,
+    );
+    const notes = renderToStaticMarkup(
+      <StoryPlanReviewView
+        activeTab="notes"
+        onApprove={() => undefined}
+        onCancel={() => undefined}
+        onRegenerate={() => undefined}
+        onTabChange={() => undefined}
+        response={response}
+      />,
+    );
+
+    expect(evidence).toContain("공식 안내 · 웹 자료");
+    expect(notes).toContain("발표자 노트");
+  });
+
+  it.each(["approved", "cancelled", "failed"] as const)(
+    "disables every mutation action in the %s state",
+    (status) => {
+      const html = renderToStaticMarkup(
+        <StoryPlanReviewView
+          activeTab="flow"
+          onApprove={() => undefined}
+          onCancel={() => undefined}
+          onRegenerate={() => undefined}
+          onTabChange={() => undefined}
+          response={{ ...response, status }}
+        />,
+      );
+
+      expect(html.match(/ disabled=""/g)).toHaveLength(3);
+    },
+  );
+
+  it("disables only regeneration when the five-attempt limit is exhausted", () => {
+    const html = renderToStaticMarkup(
+      <StoryPlanReviewView
+        activeTab="flow"
+        onApprove={() => undefined}
+        onCancel={() => undefined}
+        onRegenerate={() => undefined}
+        onTabChange={() => undefined}
+        response={{
+          ...response,
+          plan: { ...response.plan, regenerationCount: 5 },
+        }}
+      />,
+    );
+
+    expect(html.match(/ disabled=""/g)).toHaveLength(1);
+  });
+
+  it.each([
+    ["cancelled", "생성이 취소되었습니다."],
+    ["failed", "구성을 만들지 못했습니다."],
+  ] as const)("renders the terminal %s state without a plan", (status, copy) => {
+    const html = renderToStaticMarkup(
+      <StoryPlanReviewView
+        activeTab="flow"
+        onApprove={() => undefined}
+        onCancel={() => undefined}
+        onRegenerate={() => undefined}
+        onTabChange={() => undefined}
+        response={{ ...response, status, plan: null }}
+      />,
+    );
+
+    expect(html).toContain(copy);
   });
 });

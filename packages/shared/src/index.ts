@@ -26,6 +26,7 @@ export * from "./deck/deck.schema";
 export * from "./deck/design-agent.schema";
 export * from "./deck/font-catalog";
 export * from "./deck/generate-deck.schema";
+export * from "./deck/story-plan-review.schema";
 export * from "./deck/id.schema";
 export * from "./deck/keyword-occurrences";
 export * from "./deck/patch.schema";

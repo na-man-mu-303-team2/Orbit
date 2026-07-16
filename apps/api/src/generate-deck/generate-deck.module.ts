@@ -8,6 +8,8 @@ import { PresentationBriefsModule } from "../presentation-briefs/presentation-br
 import { DeckColorOptionsController } from "./deck-color-options.controller";
 import { GenerateDeckController } from "./generate-deck.controller";
 import { GenerateDeckService } from "./generate-deck.service";
+import { StoryPlanReviewController } from "./story-plan-review.controller";
+import { StoryPlanReviewService } from "./story-plan-review.service";
 
 @Module({
   imports: [
@@ -18,7 +20,11 @@ import { GenerateDeckService } from "./generate-deck.service";
     ProjectsModule,
     SavedDesignPacksModule
   ],
-  controllers: [DeckColorOptionsController, GenerateDeckController],
-  providers: [GenerateDeckService]
+  controllers: [
+    DeckColorOptionsController,
+    GenerateDeckController,
+    StoryPlanReviewController
+  ],
+  providers: [GenerateDeckService, StoryPlanReviewService]
 })
 export class GenerateDeckModule {}

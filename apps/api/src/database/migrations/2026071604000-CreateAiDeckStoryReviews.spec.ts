@@ -10,6 +10,7 @@ describe("CreateAiDeckStoryReviews migration", () => {
     const sql = query.mock.calls.flat().join(" ");
     expect(sql).toContain("CREATE TABLE ai_deck_story_reviews");
     expect(sql).toContain("pipeline_job_id text PRIMARY KEY");
+    expect(sql).toContain("FOREIGN KEY (pipeline_job_id, project_id)");
     expect(sql).toContain("regeneration_count");
     expect(sql).not.toContain("artifact_id");
     expect(sql).not.toContain("plan_json");
