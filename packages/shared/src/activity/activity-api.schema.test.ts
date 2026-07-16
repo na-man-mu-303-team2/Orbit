@@ -5,6 +5,7 @@ import {
   activityPublicResultSchema
 } from "./activity-results.schema";
 import {
+  getAudienceActiveActivityResponseSchema,
   updateActivityRunStatusRequestSchema,
   upsertActivityResponseRequestSchema
 } from "./activity-api.schema";
@@ -85,6 +86,15 @@ describe("activity API boundary schemas", () => {
           }
         ]
       }).success
+    ).toBe(false);
+  });
+
+  it("represents an audience session with no active activity explicitly", () => {
+    expect(
+      getAudienceActiveActivityResponseSchema.safeParse({ activity: null }).success
+    ).toBe(true);
+    expect(
+      getAudienceActiveActivityResponseSchema.safeParse({}).success
     ).toBe(false);
   });
 });

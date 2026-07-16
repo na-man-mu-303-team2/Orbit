@@ -1,5 +1,6 @@
 import {
   createDemoDeck,
+  createUpdateActivityDefinitionPatch,
   getElementAnimations,
   deriveKeywordActionUsage,
   validateSlideAnimations
@@ -73,6 +74,7 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { ActivitySlideInspector } from "../../activity-slides";
 import {
   type SemanticCueExtractionUiState
 } from "../semantic-cues/SemanticCueReviewPanel";
@@ -665,6 +667,7 @@ export function EditorShell(props: { projectId?: string }) {
   const { copiedElementRef } = editorCanvasRefs;
   const handleAddChartElement = editorCanvasActions.addChartElement;
   const handleAddSlide = editorCanvasActions.addSlide;
+  const handleAddActivitySlide = editorCanvasActions.addActivitySlide;
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
@@ -1211,6 +1214,11 @@ export function EditorShell(props: { projectId?: string }) {
           currentSlideIndex={currentSlideIndex}
           deck={deck}
           isCollapsed={isSlidesPaneCollapsed}
+          onAddActivitySlide={(template) => {
+            if (!handleAddActivitySlide(template)) return;
+            setIsRightPanelOpen(true);
+            setRightPanelView("design");
+          }}
           onAddSlide={handleAddSlide}
           onResizeStart={handleSlidesPaneResizeStart}
           onSelectSlide={handleSelectSlideIndex}
@@ -1460,7 +1468,20 @@ export function EditorShell(props: { projectId?: string }) {
           currentSlide={currentSlide}
           deck={deck}
           designProperties={
-            <EditorSelectionProperties
+            currentSlide?.kind === "activity" ? (
+              <ActivitySlideInspector
+                slide={currentSlide}
+                onChange={(activity) => {
+                  commitPatch((currentDeck) =>
+                    createUpdateActivityDefinitionPatch(
+                      currentDeck,
+                      currentSlide.slideId,
+                      activity
+                    )
+                  );
+                }}
+              />
+            ) : <EditorSelectionProperties
               animations={selectedElementAnimations}
               animationDiagnostics={currentSlideAnimationDiagnostics}
               canvas={deck.canvas}

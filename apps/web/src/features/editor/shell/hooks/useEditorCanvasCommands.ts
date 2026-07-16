@@ -1,6 +1,7 @@
 import {
   createAddElementPatch,
   createAddSlidePatch,
+  createActivitySlide,
   createElementId,
   createGroupedElementFramePatch,
   createSlideId,
@@ -13,6 +14,7 @@ import {
 } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import type {
   CustomShapeNode,
+  ActivityTemplate,
   Deck,
   DeckElement,
   DeckElementRole,
@@ -248,6 +250,26 @@ export function useEditorCanvasCommands(args: {
     if (!committed) return;
     args.setCurrentSlideIndex(nextSlideIndex);
     args.setSelectedElementIds([]);
+  }
+
+  function addActivitySlide(template: ActivityTemplate) {
+    if (!args.confirmDiscardSpeakerNotesDraft()) return false;
+    if (args.workingDeckRef.current.canvas.preset !== "wide-16-9") return false;
+
+    let nextSlideIndex = args.workingDeckRef.current.slides.length;
+    args.resetSpeakerNotesEditState("");
+    const committed = args.commitPatch((currentDeck) => {
+      const slide = createActivitySlide(currentDeck, template);
+      nextSlideIndex = currentDeck.slides.length;
+      return createAddSlidePatch(currentDeck, slide);
+    });
+    if (!committed) return false;
+
+    args.setCurrentSlideIndex(nextSlideIndex);
+    args.setSelectedElementIds([]);
+    args.setEditingElementId(null);
+    args.setCustomShapeEditElementId(null);
+    return true;
   }
 
   function deleteSelectedElement() {
@@ -549,6 +571,7 @@ export function useEditorCanvasCommands(args: {
     actions: {
       addChartElement,
       addSlide,
+      addActivitySlide,
       addTextElement,
       changeElementFrame,
       clearCanvasSelection,

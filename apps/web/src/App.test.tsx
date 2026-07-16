@@ -131,6 +131,13 @@ describe("App shell routing", () => {
     expect(
       shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
     ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "audience-activity",
+        sessionId: "session-1",
+        activityId: "activity-1"
+      })
+    ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
@@ -179,6 +186,14 @@ describe("App shell routing", () => {
   it("exposes separate production login and signup routes", () => {
     expect(getRoute("/login")).toEqual({ name: "login" });
     expect(getRoute("/signup")).toEqual({ name: "signup" });
+  });
+
+  it("parses the canonical direct audience activity route", () => {
+    expect(getRoute("/audience/session_1/a/activity_1")).toEqual({
+      name: "audience-activity",
+      sessionId: "session_1",
+      activityId: "activity_1"
+    });
   });
 
   it("renders the production AI PPT wizard from the createdeck route", () => {

@@ -77,6 +77,10 @@ export const getAudienceActivityResponseSchema = z
   })
   .strict();
 
+export const getAudienceActiveActivityResponseSchema = z
+  .object({ activity: getAudienceActivityResponseSchema.nullable() })
+  .strict();
+
 export type UpdateActivityRunStatusRequest = z.infer<
   typeof updateActivityRunStatusRequestSchema
 >;
@@ -88,4 +92,10 @@ export type UpsertActivityResponseRequest = z.infer<
 >;
 export type ModerateActivityTextRequest = z.infer<
   typeof moderateActivityTextRequestSchema
+>;
+export type GetAudienceActivityResponse = z.infer<
+  typeof getAudienceActivityResponseSchema
+>;
+export type GetAudienceActiveActivityResponse = z.infer<
+  typeof getAudienceActiveActivityResponseSchema
 >;

@@ -73,6 +73,7 @@ export type Route =
   | { name: "project-history"; projectId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "audience-activity"; sessionId: string; activityId: string }
   | { name: "presentation"; projectId: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
@@ -348,6 +349,15 @@ export function getRoute(pathname?: string, search?: string): Route {
       return { name: "deck-render" };
     }
 
+    const audienceActivityMatch = normalized.match(/^\/audience\/([^/]+)\/a\/([^/]+)$/);
+    if (audienceActivityMatch) {
+      return {
+        name: "audience-activity",
+        sessionId: decodeURIComponent(audienceActivityMatch[1]),
+        activityId: decodeURIComponent(audienceActivityMatch[2]),
+      };
+    }
+
     const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
     if (audienceSessionMatch) {
       return {
@@ -538,6 +548,7 @@ export function shouldWaitForAuthResolution(route: Route) {
     "mockup",
     "report-mockup",
     "audience-session",
+    "audience-activity",
     "present",
     "deck-render",
     "not-found",
@@ -556,6 +567,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
+    route.name !== "audience-activity" &&
     route.name !== "deck-render"
   );
 }
@@ -616,6 +628,14 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "audience-activity") {
+    return (
+      <AudienceSessionPage
+        activityId={route.activityId}
+        sessionId={route.sessionId}
+      />
+    );
   }
   if (route.name === "presentation") {
     return (
