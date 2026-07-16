@@ -1048,9 +1048,10 @@ Implementation locations:
 - 업로드 후 API 응답은 위 구조로 통일한다.
 - PPTX import, 참고자료 추출, 리포트용 리허설 STT는 모두 `fileId`를 받아 시작한다.
 - `url`은 임시로 로컬 경로를 쓰되, 이후 S3 signed URL로 교체할 수 있게 유지한다.
-- 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작한다.
-- 업로드 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 `fileId`를 받아 위 구조를 반환한다.
-- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값을 25MB로 유지한다. WhisperX는 현재 별도 provider 최대 크기 계약을 정의하지 않는다.
+- 일반 업로드 요청은 `POST /api/v1/projects/:projectId/assets/upload-url`로 시작하고, 완료 처리는 `POST /api/v1/projects/:projectId/assets/complete`에서 수행한다. 이 generic command는 private audio purpose를 생성하거나 완료하지 않는다.
+- `rehearsal-slide-snapshot`은 creator-owned 리허설 준비 예외로 generic upload-url과 purpose-pinned complete를 사용하지만 generic list/get/content에는 노출하지 않는다.
+- run 전용 command가 발급한 `rehearsal-audio`와 snapshot의 local proxy PUT은 authenticated creator와 pending asset 경계를 통과한 경우에만 허용한다. 이 PUT 예외는 generic upload-url 또는 complete 권한을 완화하지 않는다.
+- 1차 구현에서 허용하는 mime type은 purpose별로 제한한다. 문서/이미지 purpose는 PDF, PPTX, DOCX, JPEG, PNG, WebP를 허용하고 최대 크기는 50MiB다. `rehearsal-slide-snapshot`은 JPEG, PNG, WebP만 허용한다. `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값을 25MB로 유지한다. WhisperX는 현재 별도 provider 최대 크기 계약을 정의하지 않는다.
 - upload URL을 발급한 뒤 complete가 호출되지 않은 파일은 `pending` metadata로 남기고, 정리 정책은 후속 작업에서 결정한다.
 - 분석이 끝난 `rehearsal-audio` raw object는 삭제하고, metadata는 `status=deleted`, `deletedAt`으로 추적한다.
 
@@ -1117,6 +1118,7 @@ OpenAI Realtime client secret API:
 - accepted project Owner, Editor, Viewer는 개인 리허설 Run을 생성할 수 있다.
 - Run과 그 list, summary, report, comparison, meta 및 retry/cancel 같은 read/write 결과는 project 역할과 관계없이 `createdByUserId`가 현재 사용자와 같은 경우에만 접근할 수 있다.
 - `rehearsal-audio`와 `rehearsal-slide-snapshot`은 생성자 소유 private asset이다. 다른 사용자의 `runId` 또는 `fileId` 접근은 존재 여부를 숨기기 위해 HTTP 404로 응답한다.
+- `rehearsal-slide-snapshot` binary는 `GET /api/v1/projects/:projectId/rehearsal-slide-snapshots/:fileId/content`에서만 현재 생성자에게 반환한다. generic `/assets/:fileId/content`는 생성자 본인에게도 private asset을 반환하지 않는다.
 - 일반 project asset의 기존 read/write 권한은 완화하지 않는다. Viewer 예외는 본인이 생성한 개인 리허설 private asset 흐름에만 적용한다.
 - legacy Run과 기존 private rehearsal asset은 실제 생성자를 복원할 수 없으므로 해당 project의 `projects.created_by`를 생성자로 backfill한다.
 - 로그와 Job payload에는 raw audio, transcript 원문, 발표자 script, signed URL, storage key 또는 파일 bytes를 기록하지 않는다. 추적에는 `runId`, `fileId`, `projectId`, `userId` 같은 식별자만 사용한다.
@@ -1164,6 +1166,10 @@ API:
   - `semanticEvaluationMode`는 `full | delivery-only`이고 기본값은 `full`이다.
   - `slideSnapshots`는 optional이며 `rehearsal-slide-snapshot` purpose로 업로드 완료된 현재 Deck 이미지의 `slideId/fileId` 매핑만 허용한다. API는 이 매핑을 run의 immutable `evaluationSnapshot.slides[].thumbnailUrl`로 고정한다.
   - response: `{ "run": RehearsalRun }`
+- `GET /api/v1/projects/:projectId/rehearsal-slide-snapshots/:fileId/content`
+  - signed session, project read 권한, `createdByUserId`, `purpose=rehearsal-slide-snapshot`, uploaded 상태를 모두 검증한다.
+  - 다른 생성자, project, purpose 또는 상태는 HTTP 404로 응답한다.
+  - response: snapshot image binary, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`
 - `POST /api/v1/rehearsals/:runId/cancel`
   - audio processing 시작 전 `created/uploading` run만 `cancelled`로 바꾼다.
   - response: `{ "run": RehearsalRun }`
@@ -1822,8 +1828,8 @@ DB migration이나 API route를 추가하지 않는다. 후속 구현은 기존 
 
 ### Privacy와 public boundary
 
-- `rehearsal-audio`, `focused-practice-audio`, `qna-answer-audio`는 private purpose다.
-- generic file upload/list/get/content는 private purpose를 생성하거나 반환하지 않는다.
+- `rehearsal-audio`, `rehearsal-slide-snapshot`, `focused-practice-audio`, `qna-answer-audio`는 creator-owned private purpose다.
+- generic file upload/list/get/content는 private purpose를 생성하거나 반환하지 않는다. snapshot의 purpose-pinned 준비 upload와 run-issued authenticated local proxy PUT만 위 file 계약에 정의된 예외다.
 - `focused-practice-analysis`, `challenge-qna-generation`, `challenge-qna-answer-analysis`, `private-audio-cleanup`은 internal Job type이다.
 - public `POST /jobs`는 `publicCreatableJobTypeSchema`만 받으며 internal coaching Job과 historical-only `pptx-import`, `ai-template-deck-generation`을 거부한다.
 - Job payload/result에는 canonical ID와 bounded result만 넣고 audio key/URL/bytes, transcript, typed answer, Question/AnswerGuide 원문, reference chunk 원문, speaker notes, provider raw error를 넣지 않는다.

@@ -35,6 +35,23 @@ describe("assetUploadUrlRequestSchema", () => {
     });
   });
 
+  it("rejects non-image rehearsal slide snapshots", () => {
+    for (const mimeType of [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "audio/webm",
+    ] as const) {
+      expect(
+        assetUploadUrlRequestSchema.safeParse({
+          originalName: "slide-01-snapshot",
+          mimeType,
+          size: 1024,
+          purpose: "rehearsal-slide-snapshot",
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   it("reserves all private audio purposes from generic uploads", () => {
     for (const purpose of [
       "rehearsal-audio",

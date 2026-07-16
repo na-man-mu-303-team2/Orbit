@@ -33,6 +33,38 @@ describe("RehearsalsController", () => {
     expect(rehearsalsService.getReport).toHaveBeenCalledWith("run-1", "user-1");
   });
 
+  it("serves a creator-owned slide snapshot only through the dedicated content boundary", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+    const response = { setHeader: vi.fn() } as any;
+
+    const file = await controller.readSlideSnapshotContent(
+      "project-a",
+      "file-slide-1",
+      signedRequest(),
+      response,
+    );
+
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(rehearsalsService.readSlideSnapshotContent).toHaveBeenCalledWith(
+      "project-a",
+      "file-slide-1",
+      "user-1",
+    );
+    expect(response.setHeader).toHaveBeenCalledWith("content-type", "image/png");
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "cache-control",
+      "private, no-store",
+    );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "x-content-type-options",
+      "nosniff",
+    );
+    expect(file).toBeDefined();
+  });
+
   it("requires project read permission before returning a run comparison", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
@@ -110,6 +142,10 @@ function createController() {
       briefing: []
     })),
     getReport: vi.fn(async () => ({ report: null })),
+    readSlideSnapshotContent: vi.fn(async () => ({
+      body: Buffer.from("png"),
+      contentType: "image/png",
+    })),
   };
 
   return {

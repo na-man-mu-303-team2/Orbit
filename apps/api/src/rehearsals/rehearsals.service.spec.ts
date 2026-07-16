@@ -218,7 +218,30 @@ describe("RehearsalsService", () => {
       actorUserId
     );
     expect(result.run.evaluationSnapshot?.slides[0]?.thumbnailUrl).toBe(
-      "/api/v1/projects/project-a/assets/file-slide-1/content"
+      "/api/v1/projects/project-a/rehearsal-slide-snapshots/file-slide-1/content"
+    );
+  });
+
+  it("reads a creator-owned slide snapshot through the dedicated file boundary", async () => {
+    const readRehearsalSlideSnapshotContent = vi.fn(async () => ({
+      body: Buffer.from("png"),
+      contentType: "image/png",
+    }));
+    const service = createService({
+      filesServicePatch: { readRehearsalSlideSnapshotContent },
+    });
+
+    await expect(
+      service.readSlideSnapshotContent(
+        "project-a",
+        "file-slide-1",
+        actorUserId,
+      ),
+    ).resolves.toMatchObject({ contentType: "image/png" });
+    expect(readRehearsalSlideSnapshotContent).toHaveBeenCalledWith(
+      "project-a",
+      "file-slide-1",
+      actorUserId,
     );
   });
 

@@ -184,6 +184,29 @@ describe("FilesController", () => {
     );
   });
 
+  it("allows a Viewer to PUT only creator-owned rehearsal content", async () => {
+    const { controller, projectsService, service } = createController();
+    vi.mocked(projectsService.assertCanWriteProject).mockRejectedValueOnce(
+      new ForbiddenException("Project write access denied"),
+    );
+    const request = {
+      ...createRequest(),
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from("audio");
+      },
+    } as any;
+
+    await controller.uploadContent("project_1", "file_audio_1", request);
+
+    expect(service.storeUploadContent).toHaveBeenCalledWith(
+      "project_1",
+      "file_audio_1",
+      Buffer.from("audio"),
+      "user_1",
+      ["rehearsal-audio", "rehearsal-slide-snapshot"],
+    );
+  });
+
   it("reads uploaded asset content through the service", async () => {
     const { controller, projectsService, service } = createController({
       readUploadedAssetContent: vi.fn(async () => ({

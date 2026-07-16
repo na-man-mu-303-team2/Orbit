@@ -41,7 +41,10 @@ import { LessThan, Not, Repository } from "typeorm";
 import { ZodError } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
-import { FilesService } from "../files/files.service";
+import {
+  FilesService,
+  rehearsalSlideSnapshotContentPath,
+} from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 import { ProjectEntity } from "../projects/project.entity";
@@ -281,11 +284,23 @@ export class RehearsalsService {
 
       urls.set(
         snapshot.slideId,
-        `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(snapshot.fileId)}/content`
+        rehearsalSlideSnapshotContentPath(projectId, snapshot.fileId)
       );
     }
 
     return urls;
+  }
+
+  async readSlideSnapshotContent(
+    projectId: string,
+    fileId: string,
+    actorUserId: string
+  ) {
+    return this.filesService.readRehearsalSlideSnapshotContent(
+      projectId,
+      fileId,
+      actorUserId
+    );
   }
 
   private async resolveAdaptiveBrief(
