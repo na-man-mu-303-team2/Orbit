@@ -5,6 +5,10 @@ export {
 } from "./audience/AudienceSatisfactionPage";
 export { ActivitySlideInspector } from "./editor/ActivitySlideInspector";
 export {
+  ActivityResultSlideInspector,
+  findActivityResultSource
+} from "./editor/ActivityResultSlideInspector";
+export {
   ActivitySlidePreview,
   type ActivityPreviewRole
 } from "./editor/ActivitySlidePreview";

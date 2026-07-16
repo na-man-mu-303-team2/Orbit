@@ -78,6 +78,15 @@ describe("Activity slide operations", () => {
       resultSlide.slideId,
       { ...resultSlide.activityResult, layout: "chart" }
     );
+    expect(resultPatch.operations[0]).toEqual({
+      type: "update_activity_result_definition",
+      slideId: resultSlide.slideId,
+      activityResult: {
+        sourceActivityId: activitySlide.activity.activityId,
+        display: "live",
+        layout: "chart"
+      }
+    });
     const result = applyDeckPatch(deckWithResult, resultPatch);
 
     expect(result.ok).toBe(true);

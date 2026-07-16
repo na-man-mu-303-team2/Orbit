@@ -299,6 +299,53 @@
   padding: 10px;
 }
 
+.activity-result-inspector {
+  gap: 16px;
+}
+
+.activity-result-inspector > label {
+  display: grid;
+  gap: 8px;
+  color: #4b4b4b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.activity-result-inspector select {
+  min-height: 40px;
+  border: 1px solid #d9d9d3;
+  border-radius: 8px;
+  background: white;
+  color: #171717;
+  padding: 0 12px;
+}
+
+.activity-inspector-secondary-button {
+  min-height: 40px;
+  border: 1px solid #d9d9d3;
+  border-radius: 8px;
+  background: white;
+  color: #171717;
+  font-weight: 700;
+}
+
+.activity-result-preview {
+  display: grid;
+  min-height: 148px;
+  place-items: center;
+  border: 1px dashed #d9d9d3;
+  border-radius: 10px;
+  background: #f4f4ef;
+  padding: 20px;
+  text-align: center;
+}
+
+.activity-result-preview p {
+  margin: 0;
+  color: #666;
+  line-height: 1.5;
+}
+
 .activity-system-layer-lock strong {
   font-size: 12px;
 }
