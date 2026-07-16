@@ -622,7 +622,7 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
   });
 
   it("accepts report STT MIME aliases including FLAC", () => {
-    for (const mimeType of ["audio/mp3", "audio/flac", "audio/x-m4a"] as const) {
+    for (const mimeType of ["audio/mp3", "audio/ogg", "audio/flac", "audio/x-m4a"] as const) {
       const request = createRehearsalAudioUploadUrlRequestSchema.parse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -644,7 +644,7 @@ describe("createRehearsalAudioUploadUrlRequestSchema", () => {
   });
 
   it("rejects MIME types outside the rehearsal audio contract", () => {
-    for (const mimeType of ["audio/ogg"] as const) {
+    for (const mimeType of ["audio/aac"] as const) {
       const result = createRehearsalAudioUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,
