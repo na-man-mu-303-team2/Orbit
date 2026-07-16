@@ -351,6 +351,13 @@ def test_generate_deck_diagnostics_reject_unknown_research_issue_codes() -> None
         )
 
 
+def test_generate_deck_diagnostics_reject_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckDiagnostics.model_validate(
+            {"researchQuality": "partial", "providerResponse": {"raw": True}}
+        )
+
+
 @pytest.mark.parametrize(
     ("design_prompt", "expected"),
     [

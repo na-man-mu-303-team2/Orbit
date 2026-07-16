@@ -394,6 +394,15 @@ describe("generateDeckDiagnosticsSchema", () => {
     ).toBe(false);
   });
 
+  it("rejects unknown diagnostics fields instead of stripping them", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchQuality: "partial",
+        providerResponse: { raw: true }
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts unavailable rendered visual QA with warning codes", () => {
     expect(
       generateDeckDiagnosticsSchema.parse({
