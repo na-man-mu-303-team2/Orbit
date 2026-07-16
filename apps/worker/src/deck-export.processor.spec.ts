@@ -362,6 +362,7 @@ function createDeck(sourceType: "ai" | "import"): Deck {
     },
     slides: [
       {
+        kind: "content",
         slideId: "slide_1",
         order: 1,
         title: "Opening",

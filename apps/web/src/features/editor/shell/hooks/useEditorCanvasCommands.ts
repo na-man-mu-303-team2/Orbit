@@ -203,6 +203,7 @@ export function useEditorCanvasCommands(args: {
       const nextOrder = currentDeck.slides.length + 1;
       nextSlideIndex = currentDeck.slides.length;
       return createAddSlidePatch(currentDeck, {
+        kind: "content",
         slideId,
         order: nextOrder,
         title: `Slide ${nextOrder}`,
