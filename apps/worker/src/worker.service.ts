@@ -38,10 +38,14 @@ import {
 import { processAiDeckReferenceExtractionStage } from "./generate-deck/reference-extract-stage";
 import { processAiDeckPlanningStage } from "./generate-deck/planning-stage.processor";
 import { processAiDeckExecutionStage } from "./generate-deck/execution-stage.processor";
+import { AiDeckPostgresStageRunner } from "./generate-deck/postgres-stage-runner";
 import { dispatchAiDeckGenerationStages } from "./generate-deck/stage-dispatcher";
 import { AiDeckGenerationStageCheckpointRepository } from "./generate-deck/stage-checkpoint-repository";
 import { reconcileExpiredAiDeckStageLeases } from "./generate-deck/stage-reconciler";
-import { processAiDeckStagedCoordinatorJob } from "./generate-deck/staged-coordinator";
+import {
+  initializePendingAiDeckGenerationJobs,
+  processAiDeckStagedCoordinatorJob,
+} from "./generate-deck/staged-coordinator";
 import { recoverAiDeckBullMqFinalFailure } from "./generate-deck/transport-failure-recovery";
 import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
@@ -56,7 +60,10 @@ import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.pro
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
-import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
+import {
+  enqueueExpiredRehearsalAudioDeletions,
+  reconcileStorageDeletionOutbox,
+} from "./storage-deletion-reconciler";
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
 import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
@@ -91,6 +98,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
+  private aiDeckPostgresRunner: AiDeckPostgresStageRunner | null = null;
   private aiDeckFailedCoordinatorScanCursor: FailedCoordinatorScanCursor = {
     redisCursor: "0",
     pendingJobIds: [],
@@ -149,7 +157,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     const storage = workerStorage();
     const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
-      void reconcileStorageDeletionOutbox(this.dataSource, storage).catch(
+      void (async () => {
+        await enqueueExpiredRehearsalAudioDeletions(this.dataSource);
+        await reconcileStorageDeletionOutbox(this.dataSource, storage);
+      })().catch(
         (error) => {
           this.logger.error(
             {
@@ -213,6 +224,39 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
                 event,
                 "Rehearsal semantic evaluation updated.",
               );
+            },
+            (event) => {
+              const { segments, ...summary } = event;
+              const level =
+                event.measurementState === "measured" ? "info" : "warn";
+              this.logger[level](
+                summary,
+                "Rehearsal silence analysis completed.",
+              );
+              if (this.config.APP_ENV === "local" && segments.length > 0) {
+                this.logger.debug(
+                  {
+                    event: "rehearsal.silence_analysis.segments",
+                    runId: event.runId,
+                    jobId: event.jobId,
+                    segments,
+                  },
+                  "Rehearsal silence segments detected.",
+                );
+              }
+            },
+            (event) => {
+              const level = event.event.endsWith(".unmeasured")
+                ? "warn"
+                : "info";
+              this.logger[level](
+                event,
+                "Rehearsal slide speaking rate analyzed.",
+              );
+            },
+            (event) => {
+              const level = event.event.endsWith(".failed") ? "error" : "info";
+              this.logger[level](event, "Rehearsal transcript artifacts updated.");
             },
           ),
       },
@@ -426,7 +470,42 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       .filter(({ queueName }) => selectedQueues.has(queueName))
       .map(({ queueName, handler }) => this.createWorker(queueName, handler));
 
-    if (this.config.AI_DECK_EXECUTION_MODE === "bullmq") {
+    if (this.config.AI_DECK_EXECUTION_MODE === "pg") {
+      this.aiDeckPostgresRunner = new AiDeckPostgresStageRunner({
+        dataSource: this.dataSource,
+        storage,
+        pythonWorkerUrl: this.config.PYTHON_WORKER_URL,
+        workerId: this.workerId,
+        concurrency: this.config.AI_DECK_WORKER_CONCURRENCY,
+        userConcurrency: this.config.AI_DECK_USER_CONCURRENCY,
+        imageRuntime,
+        eventLogger: this.aiPptEventLogger,
+        onError: (error, claimed) => {
+          const retryScheduled = isAiDeckStageRetrySignal(error);
+          this.logger[retryScheduled ? "warn" : "error"](
+            {
+              event: retryScheduled
+                ? "ai-ppt.stage.retry-scheduled"
+                : "ai-ppt.stage.runner-failed",
+              pipelineJobId: claimed.message.pipelineJobId,
+              projectId: claimed.message.projectId,
+              stage: claimed.message.stage,
+              shardKey: claimed.message.shardKey,
+              ...(retryScheduled ? {} : { error: serializeLogError(error) }),
+            },
+            retryScheduled
+              ? "PostgreSQL AI deck stage retry scheduled."
+              : "PostgreSQL AI deck stage runner failed.",
+          );
+        },
+      });
+      this.aiDeckPostgresRunner.start();
+    }
+
+    if (
+      this.config.AI_DECK_EXECUTION_MODE === "bullmq" ||
+      this.config.AI_DECK_EXECUTION_MODE === "pg"
+    ) {
       const maintainAiDeckStages = () => {
         this.scheduleAiDeckStageMaintenance();
       };
@@ -441,6 +520,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         driver: this.config.JOB_QUEUE_DRIVER,
         aiDeckExecutionMode: this.config.AI_DECK_EXECUTION_MODE,
         aiDeckWorkerQueue: this.config.AI_DECK_WORKER_QUEUE,
+        aiDeckWorkerConcurrency:
+          this.config.AI_DECK_EXECUTION_MODE === "pg"
+            ? this.config.AI_DECK_WORKER_CONCURRENCY
+            : undefined,
+        aiDeckUserConcurrency:
+          this.config.AI_DECK_EXECUTION_MODE === "pg"
+            ? this.config.AI_DECK_USER_CONCURRENCY
+            : undefined,
         queueNames: this.queueNames,
       },
       "Worker ready.",
@@ -450,6 +537,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy() {
     if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     if (this.aiDeckMaintenanceTimer) clearInterval(this.aiDeckMaintenanceTimer);
+    await this.aiDeckPostgresRunner?.stop();
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.aiDeckMaintenanceInFlight;
     await this.transcriptCache?.close();
@@ -662,6 +750,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async runAiDeckStageMaintenance(): Promise<void> {
+    if (this.config.AI_DECK_EXECUTION_MODE === "pg") {
+      await this.runAiDeckPostgresMaintenance();
+      return;
+    }
     const repository = new AiDeckGenerationStageCheckpointRepository(
       this.dataSource,
     );
@@ -762,6 +854,70 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async runAiDeckPostgresMaintenance(): Promise<void> {
+    try {
+      const result = await initializePendingAiDeckGenerationJobs(
+        this.dataSource,
+        {
+          onError: (error, parent) =>
+            this.logger.error(
+              {
+                event: "ai_deck.postgres_initialization_failed",
+                jobId: parent.jobId,
+                projectId: parent.projectId,
+                error: serializeLogError(error),
+              },
+              "PostgreSQL AI deck parent initialization failed.",
+            ),
+        },
+      );
+      if (result.initialized > 0) {
+        this.logger.info(
+          {
+            event: "ai_deck.postgres_initialized",
+            scanned: result.scanned,
+            initialized: result.initialized,
+          },
+          "PostgreSQL AI deck parents initialized.",
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        {
+          event: "ai_deck.postgres_initialization_scan_failed",
+          error: serializeLogError(error),
+        },
+        "PostgreSQL AI deck parent initialization scan failed.",
+      );
+    }
+
+    try {
+      const result = await reconcileExpiredAiDeckStageLeases(this.dataSource, {
+        onError: (error, message) =>
+          this.logger.error(
+            {
+              event: "ai_deck.stage.reconcile_failed",
+              pipelineJobId: message.pipelineJobId,
+              projectId: message.projectId,
+              stage: message.stage,
+              shardKey: message.shardKey,
+              error: serializeLogError(error),
+            },
+            "AI deck stage reconciliation failed.",
+          ),
+      });
+      this.logTerminalFailures(result.terminalJobs);
+    } catch (error) {
+      this.logger.error(
+        {
+          event: "ai_deck.stage.reconcile_scan_failed",
+          error: serializeLogError(error),
+        },
+        "AI deck stage reconciliation scan failed.",
+      );
+    }
+  }
+
   private logTerminalFailures(jobs: OrbitJob[]): void {
     for (const job of jobs) {
       if (job.status !== "failed") continue;
@@ -792,7 +948,16 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       case "qa-finalize":
         return [aiDeckQaFinalizeQueueName];
       default:
-        return this.allQueueNames;
+        return this.config.AI_DECK_EXECUTION_MODE === "pg"
+          ? this.allQueueNames.filter(
+              (queueName) =>
+                queueName !== generateDeckQueueName &&
+                queueName !== aiDeckResearchContentQueueName &&
+                queueName !== aiDeckDesignLayoutQueueName &&
+                queueName !== aiDeckImageQueueName &&
+                queueName !== aiDeckQaFinalizeQueueName,
+            )
+          : this.allQueueNames;
     }
   }
 }

@@ -38,7 +38,7 @@ describe("rehearsalEvaluationPlanSchema", () => {
       metricDefinitionVersions: {
         timing: 1,
         filler: 1,
-        pause: 1,
+        silence: 1,
         semantic: 1,
       },
       approvedReferences: [],
@@ -49,4 +49,3 @@ describe("rehearsalEvaluationPlanSchema", () => {
     expect(JSON.stringify(plan)).not.toContain("transcript");
   });
 });
-

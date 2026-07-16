@@ -39,7 +39,9 @@ export type CriterionEvaluationInput = {
  * 이 함수는 분석기나 STT를 실행하지 않는다. 분석기가 이미 만든 Observation을
  * Criterion의 기대 조건에 맞춰 통과/부분 통과/실패/측정 불가로 정규화하는 역할만 한다.
  */
-export function evaluateCriterion(input: CriterionEvaluationInput): CriterionResult {
+export function evaluateCriterion(
+  input: CriterionEvaluationInput,
+): CriterionResult {
   // 이 모듈의 입력 경계다. 타입이 선언되어 있어도 런타임 데이터는 신뢰하지 않고,
   // shared schema를 통과한 값만 아래 판정 로직으로 보낸다.
   const criterion = evaluationCriterionSchema.parse(input.criterion);
@@ -138,7 +140,8 @@ export function evaluateCriterion(input: CriterionEvaluationInput): CriterionRes
     observation.value.kind === "count" &&
     observation.value.metric === criterion.measurement.metric
   ) {
-    // `count`라는 kind만 같은 것으로는 부족하다. filler-word-count와 pause-count는
+    // `count`라는 kind만 같은 것으로는 부족하다. filler-word-count와
+    // long-silence-count는
     // 단위와 의미가 다르므로 metric까지 일치할 때만 동일한 maximum과 비교한다.
     const passed = observation.value.value <= criterion.measurement.maximum;
     return passed
@@ -153,7 +156,8 @@ export function evaluateCriterion(input: CriterionEvaluationInput): CriterionRes
   }
 
   // 예: duration Criterion에 count Observation이 들어오거나, filler-word Criterion에
-  // pause-count가 들어온 경우다. 값이 존재하더라도 올바른 비교가 아니므로 실패가 아니라
+  // long-silence-count가 들어온 경우다. 값이 존재하더라도 올바른 비교가 아니므로
+  // 실패가 아니라
   // `EVALUATION_UNAVAILABLE`로 반환한다.
   return unavailableResult(
     criterion,

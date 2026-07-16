@@ -7,6 +7,8 @@ import {
   buildReferenceGrounding,
   briefFieldPlaceholders,
   getAiPptGenerationStatus,
+  getAiPptResearchAdvisory,
+  getAiPptVisualAdvisory,
   filesFromFileList,
   getApprovedBriefReferenceFileIds,
   getAiPptWizardValidationMessage,
@@ -189,6 +191,71 @@ describe("AI PPT wizard payload", () => {
     };
 
     expect(getAiPptGenerationStatus(job)).toBe("6/7 시각 품질 보정");
+  });
+
+  it("exposes advisory issue codes and affected slides for user confirmation", () => {
+    const job: Job = {
+      jobId: "job_visual_advisory",
+      projectId: "project_visual_advisory",
+      type: "ai-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "completed",
+      result: {
+        diagnostics: {
+          visualQaStatus: "advisory",
+          visualIssueCodes: ["BALANCE_WEAK"],
+          visualIssueSlideOrders: [1, 2, 3],
+          warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+        }
+      },
+      error: null,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:01.000Z"
+    };
+
+    expect(getAiPptVisualAdvisory(job)).toEqual({
+      projectId: "project_visual_advisory",
+      issueCodes: ["BALANCE_WEAK"],
+      slideOrders: [1, 2, 3]
+    });
+  });
+
+  it("projects partial research diagnostics into safe completion actions", () => {
+    const job: Job = {
+      jobId: "job_research_partial",
+      projectId: "project_research_partial",
+      type: "ai-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "completed",
+      result: {
+        diagnostics: {
+          referencePolicy: "research-first",
+          researchQuality: "partial",
+          researchIssueCodes: ["independent-missing", "fact-coverage"],
+          researchAttempts: 3,
+          relevantWebSourceCount: 1,
+          officialWebSourceCount: 1,
+          independentWebSourceCount: 0,
+          researchFactCoverageSatisfied: false,
+          warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"]
+        }
+      },
+      error: null,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:01.000Z"
+    };
+
+    expect(getAiPptResearchAdvisory(job)).toEqual({
+      projectId: "project_research_partial",
+      quality: "partial",
+      issueCodes: ["independent-missing", "fact-coverage"],
+      relevantSourceCount: 1,
+      officialSourceCount: 1,
+      independentSourceCount: 0,
+      factCoverageSatisfied: false
+    });
   });
 
   it.each([
@@ -888,6 +955,12 @@ describe("AI PPT wizard payload", () => {
     const failureIndex = submitGeneration.indexOf(
       'if (completed.status === "failed")'
     );
+    const researchAdvisoryIndex = submitGeneration.indexOf(
+      "getAiPptResearchAdvisory(completed)"
+    );
+    const advisoryIndex = submitGeneration.indexOf(
+      "const advisory = getAiPptVisualAdvisory(completed);"
+    );
     const navigateIndex = submitGeneration.indexOf(
       "navigateToProject(project.projectId);"
     );
@@ -898,6 +971,21 @@ describe("AI PPT wizard payload", () => {
     expect(payloadBuilderIndex).toBeGreaterThan(endpointIndex);
     expect(pollIndex).toBeGreaterThan(payloadBuilderIndex);
     expect(failureIndex).toBeGreaterThan(pollIndex);
-    expect(navigateIndex).toBeGreaterThan(failureIndex);
+    expect(researchAdvisoryIndex).toBeGreaterThan(failureIndex);
+    expect(advisoryIndex).toBeGreaterThan(researchAdvisoryIndex);
+    expect(navigateIndex).toBeGreaterThan(advisoryIndex);
+  });
+
+  it("offers safe actions for limited research drafts", () => {
+    const source = fs.readFileSync(
+      new URL("./AiPptMockupPage.tsx", import.meta.url),
+      "utf8"
+    );
+
+    expect(source).toContain('label: "웹 리서치 우선"');
+    expect(source).toContain("출처가 부족해도 검증 가능한 범위에서 초안을 생성합니다.");
+    expect(source).toContain("에디터에서 계속");
+    expect(source).toContain("주제 수정");
+    expect(source).toContain("참고자료 추가");
   });
 });

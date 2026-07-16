@@ -30,10 +30,8 @@ describe("fetchRehearsalRunComparison", () => {
       ),
     ).resolves.toBeNull();
     await expect(
-      fetchRehearsalRunComparison(
-        "project_1",
-        "run_1",
-        async () => jsonResponse({ currentRunId: "run_1" }),
+      fetchRehearsalRunComparison("project_1", "run_1", async () =>
+        jsonResponse({ currentRunId: "run_1" }),
       ),
     ).resolves.toBeNull();
     await expect(
@@ -65,6 +63,17 @@ function comparisonFixture(): RehearsalRunComparison {
   return {
     currentRunId: "run current/1",
     previousRunId: "run_previous",
+    silenceComparison: {
+      state: "unavailable",
+      metricDefinitionVersion: null,
+      currentLongSilenceCount: null,
+      previousLongSilenceCount: null,
+      longSilenceCountDelta: null,
+      currentTotalSilenceSeconds: null,
+      previousTotalSilenceSeconds: null,
+      totalSilenceSecondsDelta: null,
+      reasonCode: "LEGACY_COMPARISON",
+    },
     improved: [],
     repeated: [],
     newIssues: [],

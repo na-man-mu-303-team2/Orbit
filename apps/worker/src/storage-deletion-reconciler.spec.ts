@@ -1,8 +1,47 @@
 import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
-import { reconcileStorageDeletionOutbox } from "./storage-deletion-reconciler";
+import {
+  enqueueExpiredRehearsalAudioDeletions,
+  reconcileStorageDeletionOutbox,
+} from "./storage-deletion-reconciler";
 
 describe("storage deletion reconciler", () => {
+  it("enqueues expired successful rehearsal audio idempotently", async () => {
+    let queryCount = 0;
+    const query = vi.fn(
+      async (sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryCount += 1;
+        if (queryCount === 1) {
+          expect(sql).toContain("runs.raw_audio_delete_deadline_at <= now()");
+          expect(sql).toContain("runs.status = 'succeeded'");
+          expect(sql).toContain("assets.purpose = 'rehearsal-audio'");
+          return [
+            {
+              project_id: "project-a",
+              file_id: "file-a",
+              storage_key: "private/rehearsal-audio",
+              purpose: "rehearsal-audio",
+            },
+          ];
+        }
+        expect(sql).toContain("ON CONFLICT (storage_key_hash) DO NOTHING");
+        return [{ deletion_id: "deletion-a" }];
+      },
+    );
+
+    const count = await enqueueExpiredRehearsalAudioDeletions({ query } as never);
+
+    expect(count).toBe(1);
+    expect(query.mock.calls[1]?.[1]).toEqual([
+      expect.stringMatching(/^deletion_[a-f0-9]{32}$/),
+      "project-a",
+      "file-a",
+      "private/rehearsal-audio",
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+      "rehearsal-audio",
+    ]);
+  });
+
   it("exhausts safely on the fifth failed attempt without exposing the storage key", async () => {
     let queryCount = 0;
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> =>

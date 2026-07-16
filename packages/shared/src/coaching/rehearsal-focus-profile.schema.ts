@@ -12,7 +12,7 @@ export const rehearsalFocusKindSchema = z.enum([
   "timing",
   "semantic-coverage",
   "filler-words",
-  "pauses",
+  "silences",
   "custom",
 ]);
 
@@ -55,7 +55,7 @@ export const rehearsalFocusItemsSchema = z
     });
   });
 
-export const rehearsalFocusProfileSchema = z
+const rehearsalFocusProfileObjectSchema = z
   .object({
     profileId: coachingIdSchema,
     projectId: coachingIdSchema,
@@ -67,6 +67,11 @@ export const rehearsalFocusProfileSchema = z
     updatedAt: isoDateTimeSchema,
   })
   .strict();
+
+export const rehearsalFocusProfileSchema = z.preprocess(
+  normalizeLegacyFocusContainer,
+  rehearsalFocusProfileObjectSchema,
+);
 
 export const putRehearsalFocusProfileRequestSchema = z
   .object({
@@ -91,12 +96,33 @@ export const frozenRehearsalFocusProfileRefSchema = z
   })
   .strict();
 
-export const rehearsalFocusProfileSnapshotSchema = z
+const rehearsalFocusProfileSnapshotObjectSchema = z
   .object({
     profileRef: frozenRehearsalFocusProfileRefSchema,
     items: rehearsalFocusItemsSchema,
   })
   .strict();
+
+export const rehearsalFocusProfileSnapshotSchema = z.preprocess(
+  normalizeLegacyFocusContainer,
+  rehearsalFocusProfileSnapshotObjectSchema,
+);
+
+function normalizeLegacyFocusContainer(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const container = { ...(value as Record<string, unknown>) };
+  if (!Array.isArray(container.items)) return container;
+  const filteredItems = container.items.filter((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+    return (item as Record<string, unknown>).kind !== "pauses";
+  });
+  if (filteredItems.length === container.items.length) return container;
+  container.items = filteredItems.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return { ...(item as Record<string, unknown>), priority: index + 1 };
+  });
+  return container;
+}
 
 export type RehearsalFocusKind = z.infer<typeof rehearsalFocusKindSchema>;
 export type RehearsalFocusItem = z.infer<typeof rehearsalFocusItemSchema>;

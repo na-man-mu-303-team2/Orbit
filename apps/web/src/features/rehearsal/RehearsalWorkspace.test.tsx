@@ -5,6 +5,9 @@ import {
   createKeywordOccurrenceId,
   createRehearsalEvaluationSnapshot,
   legacyRehearsalReportMetricsDefaults,
+  legacyRehearsalSlideSpeakingRate,
+  legacyRehearsalSilenceAnalysis,
+  legacyRehearsalVolumeAnalysis,
   type Job,
   type RehearsalReport,
   type RehearsalRun,
@@ -145,8 +148,12 @@ describe("RehearsalWorkspace", () => {
 
     expect(hookBody).toContain("useState<number | null>(null)");
     expect(hookBody).toContain("useLayoutEffect(() => {");
-    expect(hookBody).toContain("const observer = new ResizeObserver(updateScale)");
-    expect(hookBody).toContain('window.addEventListener("resize", updateScale)');
+    expect(hookBody).toContain(
+      "const observer = new ResizeObserver(updateScale)",
+    );
+    expect(hookBody).toContain(
+      'window.addEventListener("resize", updateScale)',
+    );
     expect(hookBody).not.toContain("scheduleScaleUpdate");
     expect(hookBody).not.toContain("useState(0.44)");
     expect(stageRenderBody).toContain("presenterScale !== null");
@@ -172,7 +179,9 @@ describe("RehearsalWorkspace", () => {
       "utf8",
     );
 
-    expect(source).toContain('className="rehearsal-assist-card checklist-card"');
+    expect(source).toContain(
+      'className="rehearsal-assist-card checklist-card"',
+    );
     expect(source).toContain('className="rehearsal-teleprompter-progress"');
     expect(panelSource).toContain(
       'className="rehearsal-panel-section rehearsal-panel-script"',
@@ -181,10 +190,16 @@ describe("RehearsalWorkspace", () => {
       'className="rehearsal-side-audio-gauge"',
     );
     expect(css).toMatch(/\.rehearsal-stage-label,[^{]+\{[^}]*display: none;/s);
-    expect(css).toMatch(/\.rehearsal-next-slide-preview \{[^}]*display: none;/s);
-    expect(css).toMatch(/\.rehearsal-teleprompter-progress \{[^}]*display: none;/s);
+    expect(css).toMatch(
+      /\.rehearsal-next-slide-preview \{[^}]*display: none;/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-teleprompter-progress \{[^}]*display: none;/s,
+    );
     expect(css).toMatch(/\.rehearsal-panel-live-slot \{[^}]*display: none;/s);
-    expect(css).toMatch(/\.rehearsal-side-audio-gauge,[^{]+\{[^}]*display: none;/s);
+    expect(css).toMatch(
+      /\.rehearsal-side-audio-gauge,[^{]+\{[^}]*display: none;/s,
+    );
     expect(css).toMatch(/\.rehearsal-panel-script \{[^}]*display: none;/s);
   });
 
@@ -224,8 +239,10 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
     expect(html).toContain("음성 트리거");
     expect(html).toContain("리허설 시작");
-    expect(html).toContain("disabled=\"\"");
-    expect(html).toContain("마이크 연결을 확인해야 리허설을 시작할 수 있습니다.");
+    expect(html).toContain('disabled=""');
+    expect(html).toContain(
+      "마이크 연결을 확인해야 리허설을 시작할 수 있습니다.",
+    );
     expect(html).toContain("음성 없이 연습하기");
     expect(html).toContain("이번 목표는");
     expect(html).not.toContain("지난번보다");
@@ -624,7 +641,9 @@ describe("RehearsalWorkspace", () => {
 
     expect(errorBody).toContain("if (!p3SessionRef.current)");
     expect(resultBody).toContain("!p3SessionRef.current");
-    expect(resultBody).toContain('rehearsalRuntimeStatusRef.current === "paused"');
+    expect(resultBody).toContain(
+      'rehearsalRuntimeStatusRef.current === "paused"',
+    );
     expect(resultBody.indexOf("!p3SessionRef.current")).toBeLessThan(
       resultBody.indexOf("handleLivePartialTranscript"),
     );
@@ -848,63 +867,77 @@ describe("RehearsalWorkspace", () => {
 
     expect(handleTimePrimaryActionBody).toContain("await startRecording()");
     expect(handleTimePrimaryActionBody).toContain(
-      'if (rehearsalRuntimeStatus === "paused")'
+      'if (rehearsalRuntimeStatus === "paused")',
     );
-    expect(handleTimePrimaryActionBody).toContain("await resumePausedRehearsal()");
-    expect(handleTimePrimaryActionBody).toContain("await pauseActiveRehearsal()");
+    expect(handleTimePrimaryActionBody).toContain(
+      "await resumePausedRehearsal()",
+    );
+    expect(handleTimePrimaryActionBody).toContain(
+      "await pauseActiveRehearsal()",
+    );
   });
 
   it("pauses report recording before falling back to standalone Live STT pause", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleSideTimerPrimaryAction");
     const end = source.indexOf("function commitElapsedTimeInput");
     const handleSideTimerPrimaryActionBody = source.slice(start, end);
 
-    expect(handleSideTimerPrimaryActionBody).toContain('if (phase === "recording")');
-    expect(handleSideTimerPrimaryActionBody).toContain("pauseActiveRehearsal()");
+    expect(handleSideTimerPrimaryActionBody).toContain(
+      'if (phase === "recording")',
+    );
+    expect(handleSideTimerPrimaryActionBody).toContain(
+      "pauseActiveRehearsal()",
+    );
     expect(handleSideTimerPrimaryActionBody).toContain("if (canStopLiveDemo)");
     expect(handleSideTimerPrimaryActionBody).not.toContain(
-      "stopLiveDemo({ showCompletionModal: true })"
+      "stopLiveDemo({ showCompletionModal: true })",
     );
-    expect(handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'))
-      .toBeLessThan(handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"));
+    expect(
+      handleSideTimerPrimaryActionBody.indexOf('if (phase === "recording")'),
+    ).toBeLessThan(
+      handleSideTimerPrimaryActionBody.indexOf("if (canStopLiveDemo)"),
+    );
   });
 
   it("녹음 pause 완료 후 STT와 마이크를 멈추고 역순으로 재시작한다", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const pauseStart = source.indexOf("async function pauseActiveRehearsal");
     const resumeStart = source.indexOf("async function resumePausedRehearsal");
-    const actionStart = source.indexOf("async function handleTimePrimaryAction");
+    const actionStart = source.indexOf(
+      "async function handleTimePrimaryAction",
+    );
     const pauseBody = source.slice(pauseStart, resumeStart);
     const resumeBody = source.slice(resumeStart, actionStart);
 
-    expect(pauseBody.indexOf("await sessionRef.current?.pause()"))
-      .toBeLessThan(pauseBody.indexOf("await p3Session.pause()"));
-    expect(pauseBody.indexOf("await p3Session.pause()"))
-      .toBeLessThan(pauseBody.indexOf('if (pauseResult.status === "paused")'));
-    expect(pauseBody.indexOf('if (pauseResult.status === "paused")'))
-      .toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled("));
-    expect(resumeBody.indexOf("setMediaStreamTracksEnabled(stream, true)"))
-      .toBeLessThan(resumeBody.indexOf("await sessionRef.current?.resume()"));
-    expect(resumeBody.indexOf("await sessionRef.current?.resume()"))
-      .toBeLessThan(resumeBody.indexOf("await p3Session.resume"));
+    expect(pauseBody.indexOf("await sessionRef.current?.pause()")).toBeLessThan(
+      pauseBody.indexOf("await p3Session.pause()"),
+    );
+    expect(pauseBody.indexOf("await p3Session.pause()")).toBeLessThan(
+      pauseBody.indexOf('if (pauseResult.status === "paused")'),
+    );
+    expect(
+      pauseBody.indexOf('if (pauseResult.status === "paused")'),
+    ).toBeLessThan(pauseBody.indexOf("setMediaStreamTracksEnabled("));
+    expect(
+      resumeBody.indexOf("setMediaStreamTracksEnabled(stream, true)"),
+    ).toBeLessThan(resumeBody.indexOf("await sessionRef.current?.resume()"));
+    expect(
+      resumeBody.indexOf("await sessionRef.current?.resume()"),
+    ).toBeLessThan(resumeBody.indexOf("await p3Session.resume"));
   });
 
   it("starts report recording from the side timer play button", () => {
-    const source = fs.readFileSync(
-      rehearsalWorkspaceSourcePath,
-      "utf8"
-    );
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const start = source.indexOf("function handleSideTimerPrimaryAction");
     const end = source.indexOf("function commitElapsedTimeInput");
     const handleSideTimerPrimaryActionBody = source.slice(start, end);
 
     expect(handleSideTimerPrimaryActionBody).toContain("if (canRecord)");
     expect(handleSideTimerPrimaryActionBody).toContain("void startRecording()");
-    expect(handleSideTimerPrimaryActionBody).not.toContain("void startLiveDemo()");
+    expect(handleSideTimerPrimaryActionBody).not.toContain(
+      "void startLiveDemo()",
+    );
   });
 
   it("creates fallback Live STT ports from the runtime-configured engine", () => {
@@ -935,9 +968,7 @@ describe("RehearsalWorkspace", () => {
     );
     expect(getOrCreateLiveSttPortBody).toContain("activeProjectId");
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
-    expect(getOrCreateLiveSttPortBody).toContain(
-      "engineId",
-    );
+    expect(getOrCreateLiveSttPortBody).toContain("engineId");
     expect(source).toContain("await fetchLiveSttRuntimeConfig()");
     expect(source).toContain("return presenterSettings.sttEngine");
     expect(source).toContain("props.resolveLiveSttEngine()");
@@ -959,9 +990,9 @@ describe("RehearsalWorkspace", () => {
     expect(startRecordingBody).toContain(
       "void startP3Tracking(stream, evaluationSnapshot)",
     );
-    expect(startRecordingBody.indexOf("prepareEvaluationSnapshot")).toBeLessThan(
-      startRecordingBody.indexOf("startP3Tracking"),
-    );
+    expect(
+      startRecordingBody.indexOf("prepareEvaluationSnapshot"),
+    ).toBeLessThan(startRecordingBody.indexOf("startP3Tracking"));
     expect(startRecordingBody).not.toContain("startLiveStt(stream)");
     expect(stopRecordingBody).toContain(
       "const p3Session = p3SessionRef.current",
@@ -1078,7 +1109,9 @@ describe("RehearsalWorkspace", () => {
     expect(sessionBody).toContain("onSemanticCapabilityEvent");
     expect(sessionBody).toContain("slice(-100)");
     expect(source).toContain("createSemanticCapabilityStatusItems");
-    expect(source).toContain("semanticCapabilityItems={semanticCapabilityItems}");
+    expect(source).toContain(
+      "semanticCapabilityItems={semanticCapabilityItems}",
+    );
     expect(source).toContain("capabilityEvents={semanticCapabilityEvents}");
   });
 
@@ -1281,8 +1314,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("1분 30초");
     expect(html).toContain(String(deck.slides.length));
     expect(html).toContain("말버릇 총량");
-    expect(html).toContain("긴 멈춤");
-    expect(html).toContain("발화 지체 및 긴 멈춤 분석");
+    expect(html).toContain("긴 침묵");
+    expect(html).toContain("긴 침묵 구간 분석");
     expect(html).toContain("음");
     expect(html).toContain("2회 · 100%");
     expect(html).toContain("놓친 핵심 메시지");
@@ -1315,7 +1348,7 @@ describe("RehearsalWorkspace", () => {
               durationSeconds: 90,
               wordsPerMinute: 120,
               fillerWordCount: 0,
-              pauseCount: 1,
+              longSilenceCount: 1,
               keywordCoverage: 0.75,
               keywordCoverageMeasurement: { state: "measured" },
             },
@@ -1328,7 +1361,7 @@ describe("RehearsalWorkspace", () => {
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 18,
-            pauseCount: 1,
+            longSilenceCount: 1,
             keywordCoverage: 0.75,
             keywordCoverageMeasurement: { state: "measured" },
           },
@@ -1364,14 +1397,38 @@ describe("RehearsalWorkspace", () => {
         prevReports={[
           reportFixture({
             slideTimings: [
-              { slideId: slide1!.slideId, targetSeconds: 60, actualSeconds: 35 },
-              { slideId: slide2!.slideId, targetSeconds: 60, actualSeconds: 66 },
-              { slideId: slide3!.slideId, targetSeconds: 60, actualSeconds: 68 },
-              { slideId: slide4!.slideId, targetSeconds: 60, actualSeconds: 72 },
+              {
+                slideId: slide1!.slideId,
+                targetSeconds: 60,
+                actualSeconds: 35,
+              },
+              {
+                slideId: slide2!.slideId,
+                targetSeconds: 60,
+                actualSeconds: 66,
+              },
+              {
+                slideId: slide3!.slideId,
+                targetSeconds: 60,
+                actualSeconds: 68,
+              },
+              {
+                slideId: slide4!.slideId,
+                targetSeconds: 60,
+                actualSeconds: 72,
+              },
             ],
             missedKeywords: [
-              { slideId: slide2!.slideId, keywordId: "prev_kw_2", text: "동시 접근" },
-              { slideId: slide3!.slideId, keywordId: "prev_kw_3", text: "세마포어" },
+              {
+                slideId: slide2!.slideId,
+                keywordId: "prev_kw_2",
+                text: "동시 접근",
+              },
+              {
+                slideId: slide3!.slideId,
+                keywordId: "prev_kw_3",
+                text: "세마포어",
+              },
             ],
           }),
         ]}
@@ -1379,7 +1436,11 @@ describe("RehearsalWorkspace", () => {
         report={reportFixture({
           missedKeywords: [
             { slideId: slide1!.slideId, keywordId: "kw_1", text: "ORBIT" },
-            { slideId: slide2!.slideId, keywordId: "kw_2", text: "Race Condition" },
+            {
+              slideId: slide2!.slideId,
+              keywordId: "kw_2",
+              text: "Race Condition",
+            },
           ],
           slideTimings: [
             { slideId: slide1!.slideId, targetSeconds: 60, actualSeconds: 52 },
@@ -1388,10 +1449,30 @@ describe("RehearsalWorkspace", () => {
             { slideId: slide4!.slideId, targetSeconds: 60, actualSeconds: 84 },
           ],
           slideInsights: [
-            { slideId: slide1!.slideId, fillerWordCount: 2, pauseCount: 1 },
-            { slideId: slide2!.slideId, fillerWordCount: 1, pauseCount: 0 },
-            { slideId: slide3!.slideId, fillerWordCount: 0, pauseCount: 1 },
-            { slideId: slide4!.slideId, fillerWordCount: 3, pauseCount: 0 },
+            {
+              slideId: slide1!.slideId,
+              fillerWordCount: 2,
+              longSilenceCount: 1,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
+            },
+            {
+              slideId: slide2!.slideId,
+              fillerWordCount: 1,
+              longSilenceCount: 0,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
+            },
+            {
+              slideId: slide3!.slideId,
+              fillerWordCount: 0,
+              longSilenceCount: 1,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
+            },
+            {
+              slideId: slide4!.slideId,
+              fillerWordCount: 3,
+              longSilenceCount: 0,
+              speakingRate: legacyRehearsalSlideSpeakingRate,
+            },
           ],
         })}
         run={runFixture("succeeded")}
@@ -1501,7 +1582,7 @@ describe("RehearsalWorkspace", () => {
             durationSeconds: 0,
             wordsPerMinute: 3600,
             fillerWordCount: 0,
-            pauseCount: 0,
+            longSilenceCount: null,
             keywordCoverage: 1,
             keywordCoverageMeasurement: { state: "measured" },
           },
@@ -1528,7 +1609,7 @@ describe("RehearsalWorkspace", () => {
             durationSeconds: 90,
             wordsPerMinute: 120,
             fillerWordCount: 0,
-            pauseCount: 0,
+            longSilenceCount: null,
             keywordCoverage: 1,
             keywordCoverageMeasurement: { state: "measured" },
           },
@@ -2233,7 +2314,7 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain("const ENABLE_REHEARSAL_NLI = false");
     expect(source).toContain("showScriptPanel={true}");
     expect(source).toContain(
-      'import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI'
+      'import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI',
     );
   });
 
@@ -2610,7 +2691,7 @@ describe("RehearsalWorkspace", () => {
     const track = { enabled: true, readyState: "live" } as MediaStreamTrack;
     const stream = {
       active: true,
-      getAudioTracks: () => [track]
+      getAudioTracks: () => [track],
     } as unknown as MediaStream;
 
     setMediaStreamTracksEnabled(stream, false);
@@ -2717,7 +2798,8 @@ describe("rehearsal evaluation run lifecycle", () => {
       jsonResponse({
         run: runFixture("created", {
           deckVersion: 3,
-          evaluationSnapshot: createRehearsalEvaluationSnapshot(createDemoDeck()),
+          evaluationSnapshot:
+            createRehearsalEvaluationSnapshot(createDemoDeck()),
         }),
       }),
     );
@@ -2768,27 +2850,28 @@ describe("rehearsal evaluation run lifecycle", () => {
     const run = await cancelRehearsalRun("run-1", fetcher);
 
     expect(run.status).toBe("cancelled");
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/v1/rehearsals/run-1/cancel",
-      { method: "POST" },
-    );
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/rehearsals/run-1/cancel", {
+      method: "POST",
+    });
   });
 
   it("creates a delivery-only run after an offline rehearsal deck version mismatch", async () => {
     const bodies: unknown[] = [];
-    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body)));
-      if (bodies.length === 1) {
-        return new Response("deck version mismatch", { status: 409 });
-      }
-      return jsonResponse({
-        run: runFixture("created", {
-          semanticEvaluationMode: "delivery-only",
-          deckVersion: null,
-          evaluationSnapshot: null,
-        }),
-      });
-    });
+    const fetcher = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        if (bodies.length === 1) {
+          return new Response("deck version mismatch", { status: 409 });
+        }
+        return jsonResponse({
+          run: runFixture("created", {
+            semanticEvaluationMode: "delivery-only",
+            deckVersion: null,
+            evaluationSnapshot: null,
+          }),
+        });
+      },
+    );
 
     const result = await createRehearsalRunForUpload(
       "project-a",
@@ -3142,19 +3225,46 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     deckId: "deck-a",
     transcriptRetained: false,
     transcript: null,
+    volumeAnalysis: legacyRehearsalVolumeAnalysis,
+    silenceAnalysis: {
+      ...legacyRehearsalSilenceAnalysis,
+      measurementState: "measured",
+      reasonCode: null,
+      detectorVersion: "test-vad",
+      analysisWindowStartSeconds: 0,
+      analysisWindowEndSeconds: 90,
+      totalSilenceSeconds: 2,
+      silenceRatio: 0.0222,
+      longSilenceCount: 1,
+      detectedSegmentCount: 1,
+      segments: [
+        {
+          category: "long",
+          startSeconds: 12,
+          endSeconds: 14,
+          durationSeconds: 2,
+        },
+      ],
+    },
     metrics: {
       ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 90,
       wordsPerMinute: 120,
       fillerWordCount: 2,
-      pauseCount: 1,
+      longSilenceCount: 1,
       keywordCoverage: 0.75,
+      measurements: {
+        ...legacyRehearsalReportMetricsDefaults.measurements,
+        longSilenceCount: {
+          measurementState: "measured",
+          metricDefinitionVersion: 1,
+          reasonCode: null,
+        },
+      },
       keywordCoverageMeasurement: { state: "measured" },
     },
     speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 120 }],
     fillerWordDetails: [{ word: "음", count: 2 }],
-    pauseDetails: [{ startSecond: 12, endSecond: 14, durationSeconds: 2 }],
-    pauseV2Details: [],
     missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "ORBIT" }],
     utteranceOutcomes: [],
     semanticCueDecisions: [],
@@ -3169,7 +3279,12 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
       { slideId: "slide_1", targetSeconds: 60, actualSeconds: 52 },
     ],
     slideInsights: [
-      { slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 },
+      {
+        slideId: "slide_1",
+        fillerWordCount: 2,
+        longSilenceCount: 1,
+        speakingRate: legacyRehearsalSlideSpeakingRate,
+      },
     ],
     qnaSummary: {
       questionCount: 0,

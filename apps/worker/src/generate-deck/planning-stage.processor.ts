@@ -1,11 +1,13 @@
 import {
   aiDeckGenerationStageMessageSchema,
+  generateDeckResearchIssueCodeSchema,
+  generateDeckResearchQualitySchema,
   generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
   referenceExtractionResultSchema,
-  savedDesignPackSnapshotSchema,
   type AiDeckGenerationStageMessage,
   type GenerateDeckRequest,
   type Job,
@@ -33,7 +35,10 @@ import {
   sourceGroundingStageInput,
   type AiDeckPlanningStagePythonClientOptions,
 } from "./planning-stage-python-client";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import {
   compactDiagnostics,
   contractErrorDiagnostics,
@@ -48,13 +53,16 @@ const planningMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckPlanningStage(message.stage),
   { message: "Planning stage required" },
 );
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  })
-  .passthrough();
 const extractionRowSchema = z.object({ extraction_json: z.unknown() });
+const sourceGroundingResearchDiagnosticsSchema = z.object({
+  research_quality: generateDeckResearchQualitySchema,
+  research_issue_codes: z.array(generateDeckResearchIssueCodeSchema),
+  research_attempts: z.number().int().nonnegative(),
+  relevant_web_source_count: z.number().int().nonnegative(),
+  official_web_source_count: z.number().int().nonnegative(),
+  independent_web_source_count: z.number().int().nonnegative(),
+  research_fact_coverage_satisfied: z.boolean(),
+});
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
@@ -86,6 +94,7 @@ const progressByStage: Record<AiDeckPlanningStage, number> = {
 export interface AiDeckPlanningStageProcessorOptions extends AiDeckPlanningStagePythonClientOptions {
   heartbeatIntervalMs?: number;
   eventLogger?: AiDeckStageEventLogger;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
 }
 
 export async function processAiDeckPlanningStage(
@@ -101,8 +110,10 @@ export async function processAiDeckPlanningStage(
   }
   const message = { ...parsedMessage, stage: parsedMessage.stage };
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) return;
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) {
     throw new Error("Claimed stage is missing its lease owner.");
   }
@@ -152,6 +163,31 @@ export async function processAiDeckPlanningStage(
       },
     );
     if (leaseLost) return;
+    if (message.stage === "source-grounding") {
+      const sourcePayload = sourceGroundingArtifactPayloadSchema.parse(payload);
+      const research = sourceGroundingResearchDiagnosticsSchema.safeParse(
+        sourcePayload.rawInput,
+      );
+      if (research.success && research.data.research_quality !== "not-run") {
+        emitStageEvent(
+          options.eventLogger,
+          "ai-ppt.web-research.completed",
+          {
+            pipelineJobId: message.pipelineJobId,
+            projectId: message.projectId,
+            quality: research.data.research_quality,
+            issueCodes: research.data.research_issue_codes,
+            attempts: research.data.research_attempts,
+            relevantSourceCount: research.data.relevant_web_source_count,
+            officialSourceCount: research.data.official_web_source_count,
+            independentSourceCount:
+              research.data.independent_web_source_count,
+            factCoverageSatisfied:
+              research.data.research_fact_coverage_satisfied,
+          },
+        );
+      }
+    }
     const result = await completeStage(
       dataSource,
       message,
@@ -218,6 +254,20 @@ export async function processAiDeckPlanningStage(
     return result;
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
   }
 }
 
@@ -294,7 +344,9 @@ async function loadGroundingRequest(
   ) {
     throw new Error("AI deck generation parent job not found.");
   }
-  const storedPayload = storedPayloadSchema.parse(rawParent.payload);
+  const storedPayload = generateDeckStoredJobPayloadSchema.parse(
+    rawParent.payload,
+  );
   const request = storedPayload.request;
   const extractionRows = await dataSource.query(
     `

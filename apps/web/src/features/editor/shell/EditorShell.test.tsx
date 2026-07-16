@@ -20,34 +20,43 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  EditorStateNotice,
+} from "./EditorShell";
+import { EditorStateNotice } from "./components/EditorStateNotice";
+import {
   appendAppliedDesignProposalHistory,
+  resolveHistoryNavigation
+} from "./utils/editorHistory";
+import {
   applyDeckPatchAcknowledgement,
-  buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
-  createSemanticCueExtractionJob,
-  createDistributeSelectionPatch,
-  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
-  getSpeakerNotesDanglingOccurrenceSaveBlock,
+  parseDeckPatchPersistenceResponse,
+  putProjectDeck
+} from "./api/deckPersistenceApi";
+import {
+  createSemanticCueExtractionJob,
+  exportDeckToPptx,
+  importPptxIntoEditor,
+  requireMatchingPptxImportedDeck
+} from "./api/editorJobApi";
+import {
+  buildSlideThumbnailPatch,
   getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
-  getEditorValidationItems,
-  getResponsiveEditorStageScale,
-  importPptxIntoEditor,
   mergeDeckIntoQueryCache,
-  parseDeckPatchPersistenceResponse,
-  putProjectDeck,
-  resolveHistoryNavigation,
-  requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
-  shouldPromptSpeakerNotesDraftDiscard,
-  shouldPromptSpeakerNotesOverwrite,
   shouldHydrateDeckFromQuery
-} from "./EditorShell";
+} from "./utils/deckState";
+import {
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
+  shouldPromptSpeakerNotesDraftDiscard,
+  shouldPromptSpeakerNotesOverwrite
+} from "./utils/speakerNotesDraft";
+import { getResponsiveEditorStageScale } from "./utils/editorLayout";
+import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
@@ -56,6 +65,7 @@ import {
   tableDataDraft
 } from "./components/SelectionQuickBar";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 

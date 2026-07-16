@@ -1,17 +1,12 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import {
-  coachingIdSchema,
-  criterionRefSchema,
-} from "./coaching-common.schema";
+import { coachingIdSchema, criterionRefSchema } from "./coaching-common.schema";
 import { evidenceClipRefSchema } from "./speech-evidence.schema";
 
 export const criterionScopeSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run") }).strict(),
-  z
-    .object({ type: z.literal("slide"), slideId: coachingIdSchema })
-    .strict(),
+  z.object({ type: z.literal("slide"), slideId: coachingIdSchema }).strict(),
   z
     .object({
       type: z.literal("slide-range"),
@@ -43,7 +38,7 @@ export const criterionMeasurementSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("max-count"),
-      metric: z.enum(["filler-word-count", "pause-count"]),
+      metric: z.enum(["filler-word-count", "long-silence-count"]),
       maximum: z.number().int().nonnegative(),
     })
     .strict(),
@@ -80,7 +75,7 @@ export const reportObservationValueSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("count"),
-      metric: z.enum(["filler-word-count", "pause-count"]),
+      metric: z.enum(["filler-word-count", "long-silence-count"]),
       value: z.number().int().nonnegative(),
     })
     .strict(),
@@ -168,7 +163,8 @@ export const reportObservationSchema = z
     if ((observation.measurementState === "measured") !== hasMeasuredValue) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "measured observations require a value and unmeasured observations require none.",
+        message:
+          "measured observations require a value and unmeasured observations require none.",
         path: ["value"],
       });
     }
@@ -214,14 +210,16 @@ export const criterionResultSchema = z
     if (isMeasured === (result.evaluationStatus === "not-evaluated")) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "measured results require an evaluation and unmeasured results must be not-evaluated.",
+        message:
+          "measured results require an evaluation and unmeasured results must be not-evaluated.",
         path: ["evaluationStatus"],
       });
     }
     if (isMeasured !== (result.observationId !== null)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "measured results require an observation reference and unmeasured results must omit it.",
+        message:
+          "measured results require an observation reference and unmeasured results must omit it.",
         path: ["observationId"],
       });
     }
@@ -237,7 +235,11 @@ export const criterionResultSchema = z
         "EVALUATION_UNAVAILABLE",
       ],
     } as const;
-    if (!(allowedReasonsByStatus[result.evaluationStatus] as readonly string[]).includes(result.reasonCode)) {
+    if (
+      !(
+        allowedReasonsByStatus[result.evaluationStatus] as readonly string[]
+      ).includes(result.reasonCode)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "criterion result reason must match its evaluation status.",

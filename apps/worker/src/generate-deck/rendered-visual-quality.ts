@@ -3,6 +3,7 @@ import {
   generateDeckVisualRepairActionSchema,
   generateDeckVisualRepairActionTypeSchema,
   type Deck,
+  type GenerateDeckDiagnostics,
   type GenerateDeckValidation,
   type GenerateDeckVisualRepairAction,
 } from "@orbit/shared";
@@ -81,6 +82,35 @@ export type RenderedVisualQualityOutcome = {
   repairAttempts: number;
   issues: VisualQaIssue[];
 };
+
+export function renderedVisualQualityDiagnostics(
+  outcome: RenderedVisualQualityOutcome,
+  diagnostics: GenerateDeckDiagnostics,
+): GenerateDeckDiagnostics {
+  const advisory = outcome.passed && outcome.issues.length > 0;
+  return {
+    ...diagnostics,
+    warningCodes: advisory
+      ? [
+          ...new Set([
+            ...diagnostics.warningCodes,
+            "GENERATE_DECK_VISUAL_ADVISORY",
+          ]),
+        ]
+      : diagnostics.warningCodes,
+    visualQaStatus: advisory
+      ? "advisory"
+      : outcome.passed
+        ? "passed"
+        : "failed",
+    visualReviewAttempts: outcome.reviewAttempts,
+    visualRepairAttempts: outcome.repairAttempts,
+    visualIssueCodes: outcome.issues.map((issue) => issue.code),
+    visualIssueSlideOrders: [
+      ...new Set(outcome.issues.map((issue) => issue.slideOrder)),
+    ].sort((left, right) => left - right),
+  };
+}
 
 export class RenderedVisualQualityUnavailableError extends Error {
   constructor(
@@ -275,10 +305,7 @@ export async function runRenderedVisualQuality(input: {
     emitVisualReviewEvent(input, deck, review, reviewAttempts);
   }
 
-  const passed = visualReviewMeetsAcceptanceThreshold(
-    review,
-    deck.slides.length,
-  );
+  const passed = visualReviewMeetsAcceptanceThreshold(review);
   if (passed && !review.passed) {
     warnings.push(
       `Vision QA accepted ${review.issues.length} advisory issue(s) after bounded repair.`,
@@ -383,18 +410,11 @@ function emitVisualReviewEvent(
 
 function visualReviewMeetsAcceptanceThreshold(
   review: NormalizedVisualQaReview,
-  slideCount: number,
 ) {
   if (review.passed) return true;
-  if (
-    !review.issues.every((issue) => advisoryVisualIssueCodes.has(issue.code))
-  ) {
-    return false;
-  }
-  const affectedSlideCount = new Set(
-    review.issues.map((issue) => issue.slideOrder),
-  ).size;
-  return affectedSlideCount <= Math.max(1, Math.floor(slideCount * 0.2));
+  return review.issues.every((issue) =>
+    advisoryVisualIssueCodes.has(issue.code),
+  );
 }
 
 function unavailableVisualQaError(

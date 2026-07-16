@@ -1,11 +1,69 @@
 import { z } from "zod";
 
+import {
+  legacyRehearsalSilenceAnalysis,
+  rehearsalSilenceAnalysisSchema,
+} from "../rehearsals/rehearsal-audio-analysis.schema";
 import { coachingIdSchema } from "./coaching-common.schema";
 
 const boundedTextSchema = z.string().trim().min(1).max(128);
 const positiveFiniteNumberSchema = z.number().finite().positive();
 const nullablePositiveFiniteNumberSchema =
   positiveFiniteNumberSchema.nullable();
+
+export const rehearsalSlideSpeakingRateReasonCodeSchema = z.enum([
+  "UNSUPPORTED_LANGUAGE",
+  "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+  "INSUFFICIENT_SLIDE_SPEECH",
+  "BASELINE_UNAVAILABLE",
+  "LEGACY_REPORT",
+]);
+
+const rehearsalSlideSpeakingRateEvidenceSchema = {
+  metricDefinitionVersion: z.literal(1),
+  activeSpeechSeconds: z.number().finite().nonnegative(),
+  characterCount: z.number().int().nonnegative(),
+};
+
+export const rehearsalSlideSpeakingRateSchema = z.discriminatedUnion(
+  "measurementState",
+  [
+    z
+      .object({
+        ...rehearsalSlideSpeakingRateEvidenceSchema,
+        measurementState: z.literal("measured"),
+        reasonCode: z.null(),
+        charactersPerSecond: z.number().finite().positive(),
+        baselineCharactersPerSecond: z.number().finite().positive(),
+        relativeRateRatio: z.number().finite().positive(),
+        paceCategory: z.enum(["slower", "similar", "faster"]),
+      })
+      .strict(),
+    z
+      .object({
+        ...rehearsalSlideSpeakingRateEvidenceSchema,
+        measurementState: z.literal("unmeasured"),
+        reasonCode: rehearsalSlideSpeakingRateReasonCodeSchema,
+        charactersPerSecond: z.null(),
+        baselineCharactersPerSecond: z.null(),
+        relativeRateRatio: z.null(),
+        paceCategory: z.null(),
+      })
+      .strict(),
+  ],
+);
+
+export const legacyRehearsalSlideSpeakingRate = {
+  metricDefinitionVersion: 1 as const,
+  measurementState: "unmeasured" as const,
+  reasonCode: "LEGACY_REPORT" as const,
+  charactersPerSecond: null,
+  baselineCharactersPerSecond: null,
+  relativeRateRatio: null,
+  paceCategory: null,
+  activeSpeechSeconds: 0,
+  characterCount: 0,
+};
 
 export const approvedSttNormalizationProfileIds: readonly string[] = [];
 
@@ -99,6 +157,7 @@ export const rehearsalAnalyzeRequestV2Schema = z
     segments: z.array(rehearsalAnalyzeTranscriptSegmentV2Schema),
     deckKeywords: z.array(rehearsalAnalyzeDeckKeywordV2Schema),
     slideTimeline: z.array(rehearsalAnalyzeSlideTimelineEntryV2Schema),
+    silenceAnalysis: rehearsalSilenceAnalysisSchema,
   })
   .strict()
   .superRefine((request, context) => {
@@ -147,8 +206,7 @@ export const speechMeasurementReasonCodeSchema = z.enum([
   "LOW_TRANSCRIPTION_CONFIDENCE",
   "NO_KEYWORDS",
   "SEGMENT_TIMESTAMPS_UNAVAILABLE",
-  "SENTENCE_BOUNDARY_UNAVAILABLE",
-  "PAUSE_INTENT_UNAVAILABLE",
+  "AUDIO_ANALYSIS_UNAVAILABLE",
   "LEGACY_MEASUREMENT_STATE_UNKNOWN",
 ]);
 
@@ -286,89 +344,13 @@ export const fillerWordDetailV2Schema = z
   })
   .strict();
 
-export const pauseV1DetailSchema = z
-  .object({
-    startSecond: z.number().finite().nonnegative(),
-    endSecond: z.number().finite().nonnegative(),
-    durationSeconds: z.number().finite().min(1),
-  })
-  .strict()
-  .superRefine((pause, context) => {
-    if (
-      pause.endSecond < pause.startSecond ||
-      Math.abs(pause.durationSeconds - (pause.endSecond - pause.startSecond)) >
-        0.01
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause v1 duration must match its time range.",
-        path: ["durationSeconds"],
-      });
-    }
-  });
-
-export const rehearsalAnalyzePauseV2DetailSchema = z
-  .object({
-    pauseId: coachingIdSchema,
-    startMs: z.number().int().nonnegative(),
-    endMs: z.number().int().nonnegative(),
-    durationMs: z.number().int().min(1_000),
-    position: z.enum([
-      "between-sentences",
-      "within-sentence",
-      "slide-transition",
-      "unknown",
-    ]),
-    intent: z.enum(["intentional", "hesitation", "unknown"]),
-    positionSource: z.enum(["provider", "slide-timeline", "none"]),
-    intentSource: z.enum(["provider", "none"]),
-    beforeSlideId: coachingIdSchema.nullable(),
-    afterSlideId: coachingIdSchema.nullable(),
-    metricDefinitionVersion: z.literal(2),
-  })
-  .strict()
-  .superRefine((pause, context) => {
-    if (
-      pause.endMs < pause.startMs ||
-      Math.abs(pause.durationMs - (pause.endMs - pause.startMs)) > 1
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause v2 duration must match its time range.",
-        path: ["durationMs"],
-      });
-    }
-    if (pause.intentSource === "none" && pause.intent !== "unknown") {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause intent must remain unknown without evidence.",
-        path: ["intent"],
-      });
-    }
-    const validPositionSource =
-      (pause.positionSource === "none" && pause.position === "unknown") ||
-      (pause.positionSource === "slide-timeline" &&
-        pause.position === "slide-transition") ||
-      (pause.positionSource === "provider" &&
-        (pause.position === "between-sentences" ||
-          pause.position === "within-sentence"));
-    if (!validPositionSource) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause position must match its evidence source.",
-        path: ["position"],
-      });
-    }
-  });
-
 const metricMeasurementsSchema = z
   .object({
     duration: metricMeasurementSchema,
     charactersPerMinute: metricMeasurementSchema,
     wordsPerMinute: metricMeasurementSchema,
     fillerWordCount: metricMeasurementSchema,
-    pauseV1: metricMeasurementSchema,
-    pauseV2: metricMeasurementSchema,
+    longSilenceCount: metricMeasurementSchema,
     keywordCoverage: metricMeasurementSchema,
   })
   .strict();
@@ -380,7 +362,6 @@ const analysisCapabilitiesSchema = z
     segmentTimestamps: analysisCapabilitySchema,
     sttConfidence: analysisCapabilitySchema,
     sentenceBoundaries: analysisCapabilitySchema,
-    pauseIntentClassification: analysisCapabilitySchema,
   })
   .strict();
 
@@ -412,8 +393,11 @@ const missedKeywordSchema = z
 const slideInsightSchema = z
   .object({
     slideId: coachingIdSchema,
-    fillerWordCount: z.number().int().nonnegative(),
-    pauseCount: z.number().int().nonnegative(),
+    fillerWordCount: z.number().int().nonnegative().nullable(),
+    longSilenceCount: z.number().int().nonnegative().nullable(),
+    speakingRate: rehearsalSlideSpeakingRateSchema.default(
+      legacyRehearsalSlideSpeakingRate,
+    ),
   })
   .strict();
 
@@ -475,14 +459,12 @@ export const rehearsalAnalyzeResponseV2Schema = z
     charactersPerMinute: z.number().finite().nonnegative().nullable(),
     wordsPerMinute: z.number().finite().nonnegative().nullable(),
     fillerWordCount: z.number().int().nonnegative().nullable(),
-    pauseCount: z.number().int().nonnegative().nullable(),
+    longSilenceCount: z.number().int().nonnegative().nullable(),
     sttQualityGate: rehearsalAnalyzeSttQualityGateSchema,
     measurements: metricMeasurementsSchema,
     capabilities: analysisCapabilitiesSchema,
     speedSamples: z.array(speedSampleSchema),
     fillerWordDetails: z.array(fillerWordDetailV2Schema),
-    pauseDetails: z.array(pauseV1DetailSchema),
-    pauseV2Details: z.array(rehearsalAnalyzePauseV2DetailSchema),
     keywordCoverage: z.number().finite().min(0).max(1).nullable(),
     missedKeywords: z.array(missedKeywordSchema),
     slideInsights: z.array(slideInsightSchema),
@@ -529,9 +511,9 @@ export const rehearsalAnalyzeResponseV2Schema = z
     );
     addMeasurementValueIssue(
       context,
-      response.measurements.pauseV1,
-      response.pauseCount,
-      "pauseCount",
+      response.measurements.longSilenceCount,
+      response.longSilenceCount,
+      "longSilenceCount",
     );
     addMeasurementValueIssue(
       context,
@@ -551,7 +533,7 @@ export const rehearsalAnalyzeResponseV2Schema = z
       "charactersPerMinute",
       "wordsPerMinute",
       "fillerWordCount",
-      "pauseV1",
+      "longSilenceCount",
       "keywordCoverage",
     ] as const) {
       if (response.measurements[name].metricDefinitionVersion !== 1) {
@@ -562,14 +544,6 @@ export const rehearsalAnalyzeResponseV2Schema = z
         });
       }
     }
-    if (response.measurements.pauseV2.metricDefinitionVersion !== 2) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pauseV2 uses metric definition version 2.",
-        path: ["measurements", "pauseV2", "metricDefinitionVersion"],
-      });
-    }
-
     const fillerCount = response.fillerWordDetails.reduce(
       (total, detail) => total + detail.count,
       0,
@@ -582,44 +556,6 @@ export const rehearsalAnalyzeResponseV2Schema = z
         code: z.ZodIssueCode.custom,
         message: "filler count must equal the detail count sum.",
         path: ["fillerWordCount"],
-      });
-    }
-    if (
-      response.pauseCount !== null &&
-      response.pauseCount !== response.pauseDetails.length
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause count must equal the number of pause v1 details.",
-        path: ["pauseCount"],
-      });
-    }
-    if (
-      !isTimeOrdered(
-        response.pauseDetails.map((pause) => ({
-          start: pause.startSecond,
-          end: pause.endSecond,
-        })),
-      )
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause v1 details must be ordered by time.",
-        path: ["pauseDetails"],
-      });
-    }
-    if (
-      !isTimeOrdered(
-        response.pauseV2Details.map((pause) => ({
-          start: pause.startMs,
-          end: pause.endMs,
-        })),
-      )
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause v2 details must be ordered by time.",
-        path: ["pauseV2Details"],
       });
     }
     if (
@@ -670,8 +606,6 @@ export const rehearsalAnalyzeResponseV2Schema = z
     const unmeasuredDetails = [
       [response.measurements.wordsPerMinute, response.speedSamples],
       [response.measurements.fillerWordCount, response.fillerWordDetails],
-      [response.measurements.pauseV1, response.pauseDetails],
-      [response.measurements.pauseV2, response.pauseV2Details],
       [response.measurements.keywordCoverage, response.missedKeywords],
     ] as const;
     unmeasuredDetails.forEach(([measurement, details], index) => {
@@ -680,28 +614,20 @@ export const rehearsalAnalyzeResponseV2Schema = z
           code: z.ZodIssueCode.custom,
           message: "unmeasured metrics must not include derived details.",
           path: [
-            [
-              "speedSamples",
-              "fillerWordDetails",
-              "pauseDetails",
-              "pauseV2Details",
-              "missedKeywords",
-            ][index] ?? "measurements",
+            ["speedSamples", "fillerWordDetails", "missedKeywords"][index] ??
+              "measurements",
           ],
         });
       }
     });
 
     if (
-      (response.measurements.fillerWordCount.measurementState ===
-        "unmeasured" ||
-        response.measurements.pauseV1.measurementState === "unmeasured") &&
-      response.slideInsights.length > 0
+      response.measurements.fillerWordCount.measurementState === "unmeasured" &&
+      response.slideInsights.some((insight) => insight.fillerWordCount !== null)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          "slide insights require measured filler word count and pause v1 metrics.",
+        message: "slide filler insights require a measured filler word count.",
         path: ["slideInsights"],
       });
     }
@@ -711,8 +637,6 @@ export const rehearsalAnalyzeResponseV2Schema = z
         "charactersPerMinute",
         "wordsPerMinute",
         "fillerWordCount",
-        "pauseV1",
-        "pauseV2",
         "keywordCoverage",
       ] as const) {
         const measurement = response.measurements[name];
@@ -730,10 +654,10 @@ export const rehearsalAnalyzeResponseV2Schema = z
       if (
         response.speedSamples.length > 0 ||
         response.fillerWordDetails.length > 0 ||
-        response.pauseDetails.length > 0 ||
-        response.pauseV2Details.length > 0 ||
         response.missedKeywords.length > 0 ||
-        response.slideInsights.length > 0
+        response.slideInsights.some(
+          (insight) => insight.fillerWordCount !== null,
+        )
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -784,10 +708,14 @@ export const rehearsalAnalyzeRequestV1Schema = z
     projectId: coachingIdSchema,
     deckId: coachingIdSchema,
     transcript: z.string(),
+    language: boundedTextSchema.default("und"),
     durationSeconds: z.number().finite().nonnegative(),
     segments: z.array(rehearsalAnalyzeTranscriptSegmentV1Schema),
     deckKeywords: z.array(rehearsalAnalyzeDeckKeywordV1Schema),
     slideTimeline: z.array(rehearsalAnalyzeSlideTimelineEntryV1Schema),
+    silenceAnalysis: rehearsalSilenceAnalysisSchema.default(
+      legacyRehearsalSilenceAnalysis,
+    ),
   })
   .strict();
 

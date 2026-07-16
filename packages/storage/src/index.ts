@@ -46,7 +46,7 @@ export interface StorageHeadResult {
 export interface StoragePort {
   putObject(input: StoragePutInput): Promise<StorageObject>;
   createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl>;
-  getSignedReadUrl(key: string): Promise<string>;
+  getSignedReadUrl(key: string, expiresInSeconds?: number): Promise<string>;
   removeObject(key: string): Promise<void>;
   headObject(key: string): Promise<StorageHeadResult | null>;
 }
@@ -128,14 +128,14 @@ export class S3CompatibleStorage implements StoragePort {
   }
 
   // 저장된 object를 읽기 위한 presigned GET URL을 만든다.
-  async getSignedReadUrl(key: string): Promise<string> {
+  async getSignedReadUrl(key: string, expiresInSeconds = 15 * 60): Promise<string> {
     return getSignedUrl(
       this.publicClient,
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
       }),
-      { expiresIn: 15 * 60 },
+      { expiresIn: expiresInSeconds },
     );
   }
 

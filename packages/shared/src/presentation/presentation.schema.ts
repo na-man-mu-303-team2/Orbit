@@ -10,7 +10,7 @@ export const presentationSessionSchema = z.object({
   presenterUserId: z.string().min(1),
   status: z.enum(["draft", "live", "ended"]),
   startedAt: isoDateTimeSchema.nullable(),
-  endedAt: isoDateTimeSchema.nullable()
+  endedAt: isoDateTimeSchema.nullable(),
 });
 
 export const rehearsalMetricsSchema = z.object({
@@ -20,8 +20,8 @@ export const rehearsalMetricsSchema = z.object({
   durationSeconds: z.number().nonnegative(),
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
-  pauseCount: z.number().int().nonnegative(),
-  keywordCoverage: z.number().min(0).max(1)
+  longSilenceCount: z.number().int().nonnegative().nullable(),
+  keywordCoverage: z.number().min(0).max(1),
 });
 
 export const reportSchema = z.object({
@@ -31,7 +31,7 @@ export const reportSchema = z.object({
   summary: z.string().default(""),
   questionCount: z.number().int().nonnegative(),
   pollCount: z.number().int().nonnegative(),
-  createdAt: isoDateTimeSchema
+  createdAt: isoDateTimeSchema,
 });
 
 export const audienceAccessSessionStatusSchema = z.enum(["open", "closed"]);
@@ -41,39 +41,39 @@ export const audienceAccessSessionSchema = z.object({
   projectId: z.string().min(1),
   status: audienceAccessSessionStatusSchema,
   createdAt: isoDateTimeSchema,
-  expiresAt: isoDateTimeSchema
+  expiresAt: isoDateTimeSchema,
 });
 
 export const createAudienceAccessSessionRequestSchema = z.object({
   passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits"),
-  expiresInHours: z.number().int().min(1).max(24)
+  expiresInHours: z.number().int().min(1).max(24),
 });
 
 export const createAudienceAccessSessionResponseSchema = z.object({
   session: audienceAccessSessionSchema,
-  audienceUrl: z.string().min(1)
+  audienceUrl: z.string().min(1),
 });
 
 export const getCurrentAudienceAccessSessionResponseSchema = z.object({
   session: audienceAccessSessionSchema.nullable(),
-  audienceUrl: z.string().min(1).nullable()
+  audienceUrl: z.string().min(1).nullable(),
 });
 
 export const updateAudienceAccessSessionStatusRequestSchema = z.object({
-  status: audienceAccessSessionStatusSchema
+  status: audienceAccessSessionStatusSchema,
 });
 
 export const updateAudienceAccessSessionStatusResponseSchema = z.object({
-  session: audienceAccessSessionSchema
+  session: audienceAccessSessionSchema,
 });
 
 export const verifyAudienceAccessSessionRequestSchema = z.object({
-  passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits")
+  passcode: z.string().regex(/^\d{4}$/, "passcode must be exactly 4 digits"),
 });
 
 export const verifyAudienceAccessSessionResponseSchema = z.object({
   verified: z.literal(true),
-  session: audienceAccessSessionSchema
+  session: audienceAccessSessionSchema,
 });
 
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;

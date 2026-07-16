@@ -37,7 +37,8 @@ export function compareCriterionSources(input: {
   }
 
   if (
-    input.currentCriterion.criterionId !== input.previousCriterion.criterionId ||
+    input.currentCriterion.criterionId !==
+      input.previousCriterion.criterionId ||
     input.currentCriterion.revision !== input.previousCriterion.revision
   ) {
     return incomparable("CRITERION_CHANGED");
@@ -74,7 +75,9 @@ export function compareCriterionSources(input: {
 }
 
 function metricDefinitionVersion(
-  versions: NonNullable<RehearsalEvaluationSnapshot["evaluationPlan"]>["metricDefinitionVersions"],
+  versions: NonNullable<
+    RehearsalEvaluationSnapshot["evaluationPlan"]
+  >["metricDefinitionVersions"],
   criterion: EvaluationCriterion,
 ) {
   if (criterion.measurement.type === "semantic-coverage") {
@@ -86,7 +89,7 @@ function metricDefinitionVersion(
   if (criterion.measurement.type === "max-count") {
     return criterion.measurement.metric === "filler-word-count"
       ? versions.filler
-      : versions.pause;
+      : versions.silence;
   }
   return null;
 }

@@ -26,8 +26,10 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq
-AI_DECK_EXECUTION_MODE=monolith | bullmq
+AI_DECK_EXECUTION_MODE=monolith | bullmq | pg
 AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize
+AI_DECK_WORKER_CONCURRENCY=1..32
+AI_DECK_USER_CONCURRENCY=1..32
 LIVE_STT_PROVIDER=sherpa
 LIVE_STT_ENGINE=openai-realtime | web-speech
 REPORT_STT_PROVIDER=openai | whisperx
@@ -35,11 +37,11 @@ OCR_PROVIDER=python | textract
 LLM_PROVIDER=openai
 ```
 
-현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 구현 완료된 BullMQ/Redis 경로를 기준으로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. 전역 `JOB_QUEUE_DRIVER`와 AI Deck stage transport는 최종 운영 기준으로 `bullmq`를 유지한다. `JOB_QUEUE_DRIVER=sqs`는 지원하지 않으며 Worker startup이 실패한다.
+현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 다른 비동기 Job의 transport로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. AI Deck stage transport는 `AI_DECK_EXECUTION_MODE`가 별도로 결정한다. `JOB_QUEUE_DRIVER=sqs`는 지원하지 않으며 Worker startup이 실패한다.
 
-`AI_DECK_EXECUTION_MODE`의 코드 기본값과 로컬 `.env.example`은 `bullmq`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. 로컬 `docker-compose.yml`의 API와 Worker는 두 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 로컬 기본값 변경이 배포 환경을 자동 전환하지 않는다.
+`AI_DECK_EXECUTION_MODE`의 코드 기본값과 로컬 `.env.example`은 PR 3까지 `bullmq`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. `AI_DECK_WORKER_CONCURRENCY`와 `AI_DECK_USER_CONCURRENCY`는 각각 5가 기본값이며 `pg`에서만 AI Deck 실행 상한으로 사용한다. 로컬 `docker-compose.yml`의 API와 Worker는 이 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 코드 배포가 staging·production을 `pg`로 자동 전환하지 않는다.
 
-338-3에서 지원하는 조합은 다음과 같다.
+현재 지원하는 조합은 다음과 같다.
 
 | `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                            |
 | ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -50,8 +52,9 @@ LLM_PROVIDER=openai
 | `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
 | `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
 | `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
+| `pg`                     | `all`                  | `ai_deck_generation_stages`를 직접 claim한다. AI Deck BullMQ coordinator·stage queue는 enqueue/consume하지 않고 process 전체 5개, 사용자 전체 5개 기본 상한을 적용한다. |
 
-`AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이며 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
+`AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이며 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용되고 `pg`는 `all`만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
 
 ## 서버 로그
 

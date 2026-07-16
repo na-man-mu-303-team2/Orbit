@@ -7,6 +7,7 @@ import {
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobSchema,
   type DeckColorOptionsResponse
 } from "@orbit/shared";
@@ -73,20 +74,22 @@ export class GenerateDeckService {
     const request = resolved.request;
     await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
+    const storedPayload = generateDeckStoredJobPayloadSchema.parse({
+      request,
+      ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+      ...(userId
+        ? {
+            requestedByUserId: userId,
+            imageAssetScope: {
+              userId
+            }
+          }
+        : {})
+    });
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
-      payload: {
-        request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(userId
-          ? {
-              imageAssetScope: {
-                userId
-              }
-            }
-          : {})
-      }
+      payload: storedPayload
     });
 
     try {
@@ -96,15 +99,7 @@ export class GenerateDeckService {
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(userId
-          ? {
-              imageAssetScope: {
-                userId
-              }
-            }
-          : {})
+        ...storedPayload
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
@@ -165,13 +160,19 @@ export class GenerateDeckService {
   }
 
   async retryJob(projectId: string, jobId: string) {
-    if (this.config.AI_DECK_EXECUTION_MODE !== "bullmq") {
+    if (
+      this.config.AI_DECK_EXECUTION_MODE !== "bullmq" &&
+      this.config.AI_DECK_EXECUTION_MODE !== "pg"
+    ) {
       throw new ServiceUnavailableException(
         "AI deck stage retry requires bullmq execution mode."
       );
     }
     const retried = await this.jobsService.retryAiDeckGeneration(projectId, jobId);
-    if (retried.restartCoordinator) {
+    if (
+      retried.restartCoordinator &&
+      this.config.AI_DECK_EXECUTION_MODE === "bullmq"
+    ) {
       try {
         await retryAiDeckStagedCoordinatorJob({
           redisUrl: this.config.REDIS_URL,

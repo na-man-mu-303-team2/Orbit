@@ -7,6 +7,8 @@ export const filePurposeSchema = z.enum([
   "pptx-import",
   "reference-material",
   "rehearsal-audio",
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
   "focused-practice-audio",
   "qna-answer-audio",
   "export-result",
@@ -23,6 +25,18 @@ export const privateAudioPurposeSchema = z.enum([
 ]);
 export const privateAudioPurposes = new Set<string>(privateAudioPurposeSchema.options);
 
+export const rehearsalTranscriptPurposeSchema = z.enum([
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
+]);
+export const rehearsalTranscriptPurposes = new Set<string>(
+  rehearsalTranscriptPurposeSchema.options,
+);
+export const ownerOnlyFilePurposes = new Set<string>([
+  ...privateAudioPurposeSchema.options,
+  ...rehearsalTranscriptPurposeSchema.options,
+]);
+
 export const allowedAssetMimeTypes = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -35,6 +49,7 @@ export const allowedAssetMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -52,6 +67,7 @@ export const allowedRehearsalAudioMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -124,6 +140,14 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
+    if (rehearsalTranscriptPurposes.has(value.purpose)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.purpose} is reserved for internal rehearsal transcript artifacts.`,
+        path: ["purpose"],
+      });
+    }
+
     if (privateAudioPurposes.has(value.purpose) && !isAudio) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -181,6 +205,9 @@ export const completeAssetUploadRequestSchema = z.object({
 });
 
 export type FilePurpose = z.infer<typeof filePurposeSchema>;
+export type RehearsalTranscriptPurpose = z.infer<
+  typeof rehearsalTranscriptPurposeSchema
+>;
 export type UploadedFile = z.infer<typeof uploadedFileSchema>;
 export type AssetUploadUrlRequest = z.infer<typeof assetUploadUrlRequestSchema>;
 export type AssetUploadUrlResponse = z.infer<

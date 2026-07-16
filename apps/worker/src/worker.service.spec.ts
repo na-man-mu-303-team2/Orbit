@@ -30,7 +30,11 @@ const bullMq = vi.hoisted(() => ({
 
 const configState = vi.hoisted(() => ({
   JOB_QUEUE_DRIVER: "bullmq" as "bullmq" | "sqs",
-  AI_DECK_EXECUTION_MODE: "monolith" as "monolith" | "bullmq" | "sqs",
+  AI_DECK_EXECUTION_MODE: "monolith" as
+    | "monolith"
+    | "bullmq"
+    | "pg"
+    | "sqs",
   AI_DECK_WORKER_QUEUE: "all" as
     | "all"
     | "reference-extract"
@@ -38,6 +42,8 @@ const configState = vi.hoisted(() => ({
     | "design-layout"
     | "image"
     | "qa-finalize",
+  AI_DECK_WORKER_CONCURRENCY: 5,
+  AI_DECK_USER_CONCURRENCY: 5,
   PRIVATE_EVIDENCE_REDIS_URL: "redis://localhost:6380",
   PYTHON_WORKER_URL: "http://localhost:8000",
   REDIS_URL: "redis://localhost:6379",
@@ -61,6 +67,7 @@ const processors = vi.hoisted(() => ({
 }));
 
 const maintenance = vi.hoisted(() => ({
+  initialize: vi.fn(async () => ({ scanned: 0, initialized: 0 })),
   coordinator: vi.fn(async () => ({
     scanned: 0,
     recovered: 0,
@@ -76,6 +83,12 @@ const maintenance = vi.hoisted(() => ({
     failed: 0,
     terminalJobs: [] as Job[],
   })),
+}));
+
+const postgresRunner = vi.hoisted(() => ({
+  options: [] as Array<Record<string, unknown>>,
+  start: vi.fn(),
+  stop: vi.fn(async () => undefined),
 }));
 
 const transportRecovery = vi.hoisted(() => ({
@@ -123,6 +136,16 @@ vi.mock("./generate-deck.processor", () => ({
 }));
 vi.mock("./generate-deck/staged-coordinator", () => ({
   processAiDeckStagedCoordinatorJob: processors.stagedCoordinator,
+  initializePendingAiDeckGenerationJobs: maintenance.initialize,
+}));
+vi.mock("./generate-deck/postgres-stage-runner", () => ({
+  AiDeckPostgresStageRunner: class {
+    constructor(options: Record<string, unknown>) {
+      postgresRunner.options.push(options);
+    }
+    start = postgresRunner.start;
+    stop = postgresRunner.stop;
+  },
 }));
 vi.mock("./reference-extract.processor", () => ({
   processReferenceExtractJob: processors.referenceExtract,
@@ -155,6 +178,7 @@ vi.mock("./storage", () => ({
   workerStorage: vi.fn(() => ({ getSignedReadUrl: vi.fn() })),
 }));
 vi.mock("./storage-deletion-reconciler", () => ({
+  enqueueExpiredRehearsalAudioDeletions: vi.fn(async () => undefined),
   reconcileStorageDeletionOutbox: vi.fn(async () => undefined),
 }));
 vi.mock("./rehearsal-transcript-cache", () => ({
@@ -172,9 +196,12 @@ beforeEach(() => {
   configState.JOB_QUEUE_DRIVER = "bullmq";
   configState.AI_DECK_EXECUTION_MODE = "monolith";
   configState.AI_DECK_WORKER_QUEUE = "all";
+  configState.AI_DECK_WORKER_CONCURRENCY = 5;
+  configState.AI_DECK_USER_CONCURRENCY = 5;
   bullMq.queues.length = 0;
   bullMq.handlers.clear();
   bullMq.failedHandlers.clear();
+  postgresRunner.options.length = 0;
   vi.clearAllMocks();
   vi.spyOn(globalThis, "setInterval").mockReturnValue(1 as never);
   vi.spyOn(globalThis, "clearInterval").mockImplementation(() => undefined);
@@ -185,6 +212,34 @@ afterEach(() => {
 });
 
 describe("WorkerService queue subscriptions", () => {
+  it("uses PostgreSQL stage polling with five shared slots and no AI BullMQ queues", async () => {
+    configState.AI_DECK_EXECUTION_MODE = "pg";
+    const { service } = createService();
+
+    service.onModuleInit();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(bullMq.queues).not.toContain(generateDeckQueueName);
+    expect(bullMq.queues).not.toContain(aiDeckResearchContentQueueName);
+    expect(bullMq.queues).not.toContain(aiDeckDesignLayoutQueueName);
+    expect(bullMq.queues).not.toContain(aiDeckImageQueueName);
+    expect(bullMq.queues).not.toContain(aiDeckQaFinalizeQueueName);
+    expect(bullMq.queues).toContain(referenceExtractQueueName);
+    expect(postgresRunner.options).toHaveLength(1);
+    expect(postgresRunner.options[0]).toMatchObject({
+      concurrency: 5,
+      userConcurrency: 5,
+    });
+    expect(postgresRunner.start).toHaveBeenCalledTimes(1);
+    expect(maintenance.initialize).toHaveBeenCalledTimes(1);
+    expect(maintenance.reconcile).toHaveBeenCalledTimes(1);
+    expect(maintenance.dispatch).not.toHaveBeenCalled();
+    expect(maintenance.coordinator).not.toHaveBeenCalled();
+
+    await service.onModuleDestroy();
+    expect(postgresRunner.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("registers every active queue in the default all role", async () => {
     const { service } = createService();
 
