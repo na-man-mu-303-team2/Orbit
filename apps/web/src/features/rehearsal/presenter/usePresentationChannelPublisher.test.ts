@@ -14,6 +14,7 @@ import {
 import {
   createPresentationPublisherController,
   isPresentationPeerStale,
+  publishPresenterHeartbeat,
   type PresentationChannelStatus,
 } from "./usePresentationChannelPublisher";
 
@@ -26,6 +27,24 @@ const publisherHookSourcePath = fileURLToPath(
 );
 
 describe("createPresentationPublisherController", () => {
+  it("publishes owner heartbeat to both audience and presenter remote channels", () => {
+    const slideWindowChannel = { postMessage: vi.fn() };
+    const presenterRemoteChannel = { postMessage: vi.fn() };
+
+    publishPresenterHeartbeat({
+      identity,
+      presenterRemoteChannel,
+      slideWindowChannel,
+    });
+
+    expect(slideWindowChannel.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "presenter-heartbeat" }),
+    );
+    expect(presenterRemoteChannel.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "presenter-heartbeat" }),
+    );
+  });
+
   it("publishes a full sanitized snapshot when the slide window becomes ready", () => {
     const posted: unknown[] = [];
     const statuses: PresentationChannelStatus[] = [];

@@ -222,9 +222,11 @@ export function usePresentationChannelPublisher(args: {
     }
 
     const heartbeatTimer = window.setInterval(() => {
-      channelRef.current?.postMessage(
-        createPresenterHeartbeatMessage(identity),
-      );
+      publishPresenterHeartbeat({
+        identity,
+        presenterRemoteChannel: presenterRemoteChannelRef.current,
+        slideWindowChannel: channelRef.current,
+      });
     }, 1000);
     const staleTimer = window.setInterval(() => {
       const lastPeerSeenAt = lastPeerSeenAtRef.current;
@@ -268,6 +270,16 @@ export function usePresentationChannelPublisher(args: {
     sessionId,
     status,
   };
+}
+
+export function publishPresenterHeartbeat(args: {
+  identity: PresentationChannelIdentity;
+  presenterRemoteChannel: Pick<PresentationChannelLike, "postMessage"> | null;
+  slideWindowChannel: Pick<PresentationChannelLike, "postMessage"> | null;
+}) {
+  const message = createPresenterHeartbeatMessage(args.identity);
+  args.slideWindowChannel?.postMessage(message);
+  args.presenterRemoteChannel?.postMessage(message);
 }
 
 export function createPresentationPublisherController(args: {
