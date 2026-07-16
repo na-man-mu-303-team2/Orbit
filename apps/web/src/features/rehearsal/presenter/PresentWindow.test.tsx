@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Deck } from "@orbit/shared";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import {
+  applyPresentWindowScreenShareFailure,
   applyPresentWindowMessage,
   getSlideWindowScale,
   isPresentWindowPresenterStale,
@@ -217,6 +218,30 @@ describe("PresentWindow", () => {
 
     expect(next?.state.slideId).toBe("slide_p0_2");
     expect(next?.triggerAnimationIds).toEqual(["anim_image_zoom_in"]);
+  });
+
+  it("returns a screen-share receiver to its latest slide exactly once", () => {
+    const current = {
+      deck: p0AnimationDeck,
+      state: {
+        ...createPresenterSlideshowState(p0AnimationDeck),
+        audienceOutputMode: "screen-share" as const,
+        slideId: "slide_p0_2",
+        slideIndex: 1,
+        stepIndex: 2,
+      },
+      triggerAnimationIds: ["anim_image_zoom_in"],
+    };
+
+    const recovered = applyPresentWindowScreenShareFailure(current);
+
+    expect(recovered?.state).toMatchObject({
+      audienceOutputMode: "slide",
+      slideId: "slide_p0_2",
+      slideIndex: 1,
+      stepIndex: 2,
+    });
+    expect(applyPresentWindowScreenShareFailure(recovered)).toBeNull();
   });
 
   it("does not import presenter-only auto advance status UI", () => {

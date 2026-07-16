@@ -1,7 +1,8 @@
-.rehearsal-presenter-shell {
+main.rehearsal-presenter-shell {
   background: var(--orbit-ds-surface);
   color: var(--orbit-ds-ink);
   font-family: var(--orbit-ds-font-sans);
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -9,8 +10,12 @@
   background: color-mix(in srgb, var(--orbit-ds-canvas) 96%, transparent);
   border-bottom: 1px solid var(--orbit-ds-border);
   box-shadow: none;
+  height: auto;
   min-height: 68px;
+  overflow: visible;
   padding: 10px 24px;
+  position: relative;
+  z-index: 30;
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button,
@@ -27,6 +32,139 @@
 .rehearsal-presenter-shell .presenter-single-screen-button:hover {
   background: var(--orbit-ds-surface);
   border-color: var(--orbit-ds-ink);
+}
+
+.audience-output-controls {
+  align-items: stretch;
+  background: var(--orbit-ds-canvas, #fff);
+  border: 1px solid var(--orbit-ds-border, #dbe3ef);
+  border-radius: var(--orbit-ds-radius-panel, 10px);
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  position: relative;
+  z-index: 40;
+}
+
+.audience-output-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audience-output-controls button {
+  align-items: center;
+  background: var(--orbit-ds-canvas, #fff);
+  border: 1px solid var(--orbit-ds-border-strong, #cbd5e1);
+  border-radius: 8px;
+  color: var(--orbit-ds-ink, #0f172a);
+  display: inline-flex;
+  font: inherit;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.audience-output-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.audience-output-controls .audience-output-share-primary {
+  background: var(--orbit-ds-ink, #0f172a);
+  border-color: var(--orbit-ds-ink, #0f172a);
+  color: var(--orbit-ds-canvas, #fff);
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls {
+  align-self: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  .audience-output-controls-row {
+  flex-wrap: nowrap;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  button {
+  min-height: 34px;
+  padding-inline: 10px;
+}
+
+.rehearsal-presenter-shell
+  .rehearsal-display-toolbar
+  > .audience-output-controls
+  .audience-output-control-status {
+  font-size: 0.68rem;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audience-output-advanced,
+.audience-output-warning {
+  background: var(--orbit-ds-surface, #f8fafc);
+  border: 1px solid var(--orbit-ds-border, #dbe3ef);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.audience-output-advanced {
+  box-shadow: var(--orbit-ds-shadow-floating, 0 16px 36px rgba(15, 23, 42, 0.18));
+  min-width: 280px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 41;
+}
+
+.audience-output-warning {
+  box-shadow: var(--orbit-ds-shadow-floating, 0 20px 48px rgba(15, 23, 42, 0.24));
+  max-width: calc(100vw - 48px);
+  position: fixed;
+  right: 24px;
+  top: 80px;
+  width: 380px;
+  z-index: 1000;
+}
+
+.audience-output-warning > div {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.audience-output-warning h2,
+.audience-output-warning p,
+.audience-output-control-status {
+  margin: 0;
+}
+
+.audience-output-control-status,
+.audience-output-advanced small {
+  color: var(--orbit-ds-text-muted, #64748b);
+  font-size: 0.76rem;
+}
+
+.presenter-remote-shell > .audience-output-controls {
+  margin-top: 10px;
 }
 
 .rehearsal-presenter-shell .rehearsal-session-status,
@@ -546,6 +684,19 @@
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
     grid-template-rows: var(--rehearsal-stage-block-size) 44px;
+  }
+
+  .rehearsal-presenter-shell
+    .rehearsal-display-toolbar
+    > .audience-output-controls {
+    width: 100%;
+  }
+
+  .rehearsal-presenter-shell
+    .rehearsal-display-toolbar
+    > .audience-output-controls
+    .audience-output-controls-row {
+    flex-wrap: wrap;
   }
 
   .rehearsal-completion-screen { padding: 28px 18px 54px; }

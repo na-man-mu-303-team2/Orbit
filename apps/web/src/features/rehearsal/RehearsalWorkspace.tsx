@@ -140,6 +140,7 @@ import {
   type RequestSlideWindowFullscreenResult,
   type SlideDisplayOptions,
 } from "./presenter/DisplayControls";
+import { AudienceOutputControls } from "./presenter/AudienceOutputControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen,
@@ -161,6 +162,8 @@ import {
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
+import { useAudienceScreenShare } from "./presenter/useAudienceScreenShare";
+import type { AudienceStreamBridgeWindow } from "./presenter/audienceStreamBridge";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
 import { AutoAdvanceStatus } from "./advance/AutoAdvanceStatus";
@@ -1953,6 +1956,9 @@ export function RehearsalWorkspace(props: {
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
   >("presenter");
+  const [audienceOutputMode, setAudienceOutputMode] = useState<
+    "slide" | "screen-share" | "black"
+  >("slide");
   const [slideReceiverMessage, setSlideReceiverMessage] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
@@ -1999,6 +2005,8 @@ export function RehearsalWorkspace(props: {
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const slideWindowRef = useRef<SlideWindowRef | null>(null);
+  const reattachAudienceStreamRef = useRef<() => boolean>(() => true);
+  const stopAudienceStreamRef = useRef<() => void>(() => undefined);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -2190,6 +2198,11 @@ export function RehearsalWorkspace(props: {
       return;
     }
     if (deckSnapshot.slides.length === 0) {
+      return;
+    }
+
+    if (command.action === "set-audience-output") {
+      setAudienceOutputMode(command.mode);
       return;
     }
 
@@ -2398,6 +2411,7 @@ export function RehearsalWorkspace(props: {
     () =>
       currentSlide
         ? {
+            audienceOutputMode,
             highlights: [],
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,
@@ -2430,6 +2444,7 @@ export function RehearsalWorkspace(props: {
         : null,
     [
       canStartLiveDemo,
+      audienceOutputMode,
       currentSlide?.slideId,
       currentSlideIndex,
       currentSlideTargetSeconds,
@@ -2458,10 +2473,51 @@ export function RehearsalWorkspace(props: {
         displayRole === "slide-receiver" ||
         displayRole === "slide-surface"),
     onCommand: handlePresenterRemoteCommand,
+    onPeerReady: (peer) => {
+      if (peer === "slide-window") reattachAudienceStreamRef.current();
+    },
+    onScreenShareEnded: () => stopAudienceStreamRef.current(),
     sessionId: props.presenterSessionId,
     state: presentationChannelState,
     triggerAnimationIds,
   });
+  const audienceScreenShareIdentity = useMemo(
+    () => ({
+      deckId: deck?.deckId ?? "pending-deck",
+      sessionId: presentationChannel.sessionId,
+    }),
+    [deck?.deckId, presentationChannel.sessionId],
+  );
+  const audienceScreenShare = useAudienceScreenShare({
+    connected:
+      displayRole === "presenter" &&
+      presentationChannel.status === "connected" &&
+      Boolean(slideWindowRef.current && !slideWindowRef.current.closed),
+    getTargetWindow: () =>
+      slideWindowRef.current as unknown as AudienceStreamBridgeWindow | null,
+    identity: audienceScreenShareIdentity,
+    onOutputModeChange: setAudienceOutputMode,
+    outputMode: audienceOutputMode,
+  });
+  reattachAudienceStreamRef.current = audienceScreenShare.reattach;
+  stopAudienceStreamRef.current = () =>
+    audienceScreenShare.stopSharing({ returnToSlide: true });
+
+  useEffect(() => {
+    if (
+      presentationChannel.status === "stale" ||
+      presentationChannel.status === "closed" ||
+      presentationChannel.status === "failed"
+    ) {
+      audienceScreenShare.handlePeerUnavailable();
+    }
+  }, [presentationChannel.status]);
+
+  useEffect(() => {
+    if (displayRole !== "presenter") {
+      audienceScreenShare.handlePeerUnavailable();
+    }
+  }, [displayRole]);
   const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
@@ -4155,6 +4211,7 @@ export function RehearsalWorkspace(props: {
     return fullscreenStarted;
   };
   const openSlideDisplay = async (options: SlideDisplayOptions) => {
+    audienceScreenShare.returnToSlide();
     if (!deck || !currentSlide) {
       return {
         displayMode: options.displayMode,
@@ -4419,12 +4476,9 @@ export function RehearsalWorkspace(props: {
   const slideReceiverIdentity = useMemo(
     () =>
       deck
-        ? {
-            deckId: deck.deckId,
-            sessionId: presentationChannel.sessionId,
-          }
+        ? audienceScreenShareIdentity
         : null,
-    [deck?.deckId, presentationChannel.sessionId],
+    [audienceScreenShareIdentity, deck],
   );
   const slideReceiverSnapshot = useMemo(
     () =>
@@ -4753,6 +4807,20 @@ export function RehearsalWorkspace(props: {
                 onOpenSlideDisplay={openSlideDisplay}
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
+              />
+              <AudienceOutputControls
+                connected={
+                  displayRole === "presenter" &&
+                  presentationChannel.status === "connected" &&
+                  Boolean(slideWindowRef.current && !slideWindowRef.current.closed)
+                }
+                error={audienceScreenShare.error}
+                onReturnToSlide={audienceScreenShare.returnToSlide}
+                onShowBlack={audienceScreenShare.showBlack}
+                onStartMonitor={audienceScreenShare.startMonitor}
+                onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
+                outputMode={audienceOutputMode}
+                status={audienceScreenShare.status}
               />
               <button
                 className="presenter-single-screen-button"
