@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchEvaluatorLenses, PresentationBriefConflictError, putPresentationBrief } from "./presentationBriefApi";
+import {
+  fetchEvaluatorLenses,
+  presentationBriefQueryKey,
+  PresentationBriefConflictError,
+  putPresentationBrief,
+} from "./presentationBriefApi";
 
 describe("presentation Brief API", () => {
+  it("shares the project-scoped Brief query key", () => {
+    expect(presentationBriefQueryKey("project-a")).toEqual([
+      "presentation-brief",
+      "project-a",
+    ]);
+  });
+
   it("loads the evaluator lens registry used by the brief screen", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ items: [
       { ref: { lensId: "general-novice", revision: 1 }, label: "처음 듣는 청중", description: "처음 듣는 관점", priorityOrder: ["structure", "semantic", "timing", "delivery"] },
