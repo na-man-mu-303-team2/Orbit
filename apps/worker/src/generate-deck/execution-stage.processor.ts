@@ -45,6 +45,15 @@ import {
   withVisualIssues,
 } from "./semantic-quality";
 import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  compactDiagnostics,
+  contractErrorDiagnostics,
+  emitStageEvent,
+  stageEventFields,
+  unknownErrorDiagnostics,
+  type AiDeckStageEventLogger,
+  type SafeStageErrorDiagnostics,
+} from "./stage-diagnostics";
 
 const executionMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckExecutionStage(message.stage),
@@ -76,7 +85,7 @@ const parentJobRowSchema = z.object({
 
 export interface AiDeckExecutionStageProcessorOptions {
   heartbeatIntervalMs?: number;
-  eventLogger?: (event: string, fields: Record<string, unknown>) => void;
+  eventLogger?: AiDeckStageEventLogger;
 }
 
 export async function processAiDeckExecutionStage(
@@ -97,6 +106,12 @@ export async function processAiDeckExecutionStage(
   const claimed = await checkpoints.claim(message, workerId);
   if (!claimed) return;
   if (!claimed.leaseOwner) throw new Error("Claimed stage has no lease owner.");
+  const startedAt = Date.now();
+  emitStageEvent(
+    options.eventLogger,
+    "ai-ppt.stage.started",
+    stageEventFields(message, workerId, claimed.attempt, startedAt),
+  );
 
   const controller = new AbortController();
   let leaseLost = false;
@@ -133,13 +148,16 @@ export async function processAiDeckExecutionStage(
       context,
       imageRuntime,
       eventLogger: options.eventLogger,
+      workerId,
+      attempt: claimed.attempt,
+      startedAt,
     });
     if (leaseLost) return;
     if (message.stage === "publication") {
       const result = generateDeckJobResultSchema.parse(
         (payload as { result: unknown }).result,
       );
-      return publishAtomically(
+      const job = await publishAtomically(
         dataSource,
         { ...message, stage: "publication" },
         claimed.leaseOwner,
@@ -147,8 +165,14 @@ export async function processAiDeckExecutionStage(
         result,
         options.eventLogger,
       );
+      emitStageEvent(
+        options.eventLogger,
+        "ai-ppt.stage.succeeded",
+        stageEventFields(message, workerId, claimed.attempt, startedAt),
+      );
+      return job;
     }
-    return completeStage(
+    const job = await completeStage(
       dataSource,
       message,
       claimed.leaseOwner,
@@ -156,10 +180,17 @@ export async function processAiDeckExecutionStage(
       claimed.inputRef,
       payload,
     );
+    emitStageEvent(
+      options.eventLogger,
+      "ai-ppt.stage.succeeded",
+      stageEventFields(message, workerId, claimed.attempt, startedAt),
+    );
+    return job;
   } catch (error) {
     if (leaseLost || error instanceof AiDeckExecutionFencingLostError) return;
     if (isRetrySignal(error)) throw error;
     const normalized = normalizeExecutionError(error, message.stage);
+    const diagnostics = executionErrorDiagnostics(error, normalized.error);
     if (normalized.error.retryable && claimed.attempt < 5) {
       const released = await checkpoints.releaseForRetry(
         message,
@@ -167,10 +198,24 @@ export async function processAiDeckExecutionStage(
         claimed.attempt,
         normalized.error,
       );
-      if (released) throw retrySignal();
+      if (released) {
+        emitStageEvent(
+          options.eventLogger,
+          "ai-ppt.stage.attempt-failed",
+          stageEventFields(
+            message,
+            workerId,
+            claimed.attempt,
+            startedAt,
+            false,
+            diagnostics,
+          ),
+        );
+        throw retrySignal();
+      }
       return;
     }
-    return failStageAndParent(
+    const result = await failStageAndParent(
       dataSource,
       message,
       claimed.leaseOwner,
@@ -178,6 +223,21 @@ export async function processAiDeckExecutionStage(
       normalized.error,
       normalized.result,
     );
+    if (result) {
+      emitStageEvent(
+        options.eventLogger,
+        "ai-ppt.stage.failed",
+        stageEventFields(
+          message,
+          workerId,
+          claimed.attempt,
+          startedAt,
+          true,
+          diagnostics,
+        ),
+      );
+    }
+    return result;
   } finally {
     clearInterval(heartbeat);
   }
@@ -191,7 +251,10 @@ async function executeStage(input: {
   inputRef: Record<string, unknown>;
   context: Awaited<ReturnType<typeof loadParentContext>>;
   imageRuntime?: ImageAssetRuntime;
-  eventLogger?: (event: string, fields: Record<string, unknown>) => void;
+  eventLogger?: AiDeckStageEventLogger;
+  workerId: string;
+  attempt: number;
+  startedAt: number;
 }): Promise<AiDeckExecutionArtifactPayload> {
   switch (input.message.stage) {
     case "image-slide":
@@ -254,6 +317,22 @@ async function executeImageSlide(
     officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
     onlySlideIds: new Set([input.message.shardKey]),
     deterministicIdentity: `${input.message.projectId}:${input.message.pipelineJobId}`,
+    onImageFallback: (diagnostic) =>
+      emitStageEvent(
+        input.eventLogger,
+        "ai-ppt.image-asset.fallback",
+        stageEventFields(
+          input.message,
+          input.workerId,
+          input.attempt,
+          input.startedAt,
+          false,
+          {
+            code: "GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK",
+            ...diagnostic,
+          },
+        ),
+      ),
   });
   deck = resolved.deck;
   const slide = deck.slides.find(
@@ -651,6 +730,21 @@ function qualityGateError(
       ...payload,
       coachingProvenance: null,
     }),
+    {
+      reasonCode: "QUALITY_GATE_BLOCKING",
+      issueCodes: unique(
+        allValidationIssues(validation).map((issue) => issue.code),
+      ),
+      issueCount: allValidationIssues(validation).length,
+      unresolvedMediaCount: deck.slides.reduce(
+        (count, slide) =>
+          count +
+          slide.elements.filter((element) =>
+            element.elementId.endsWith("_media_placeholder"),
+          ).length,
+        0,
+      ),
+    },
   );
 }
 
@@ -702,6 +796,46 @@ function normalizeExecutionError(
   };
 }
 
+function executionErrorDiagnostics(
+  error: unknown,
+  normalized: JobError,
+): SafeStageErrorDiagnostics {
+  if (error instanceof StageTerminalError) {
+    return compactDiagnostics({
+      code: normalized.code,
+      reasonCode: error.diagnostics?.reasonCode ?? error.code,
+      name: error.name,
+      issueCodes: error.diagnostics?.issueCodes,
+      issueCount: error.diagnostics?.issueCount,
+      unresolvedMediaCount: error.diagnostics?.unresolvedMediaCount,
+    });
+  }
+  if (error instanceof OptionalMediaFallbackUnavailableError) {
+    return compactDiagnostics({
+      code: normalized.code,
+      reasonCode:
+        error.imageFailureDiagnostic?.reasonCode ??
+        "OPTIONAL_IMAGE_FALLBACK_FAILED",
+      name: error.name,
+      providerHttpStatus: error.imageFailureDiagnostic?.providerHttpStatus,
+      provider: error.imageFailureDiagnostic?.provider,
+      providerRequestId: error.imageFailureDiagnostic?.providerRequestId,
+    });
+  }
+  if (error instanceof z.ZodError) {
+    return contractErrorDiagnostics(
+      error,
+      normalized.code,
+      "EXECUTION_CONTRACT_INVALID",
+    );
+  }
+  return unknownErrorDiagnostics(
+    error,
+    normalized.code,
+    "EXECUTION_FAILURE_UNCLASSIFIED",
+  );
+}
+
 async function updateParentProgress(
   db: Pick<DataSource, "query">,
   message: AiDeckGenerationStageMessage,
@@ -728,6 +862,10 @@ class StageTerminalError extends Error {
     readonly code: string,
     message: string,
     readonly result: Record<string, unknown> | null = null,
+    readonly diagnostics?: Pick<
+      SafeStageErrorDiagnostics,
+      "reasonCode" | "issueCodes" | "issueCount" | "unresolvedMediaCount"
+    >,
   ) {
     super(message);
     this.name = "StageTerminalError";

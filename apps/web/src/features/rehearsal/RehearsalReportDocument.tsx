@@ -5,7 +5,6 @@ import {
   Download,
   FileText,
   Mic,
-  Target,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -68,7 +67,6 @@ export function RehearsalReportDocument({
     useState<RehearsalTranscriptArtifact | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>("overview");
 
-  const coaching = report.coaching;
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
   const reportDeck = useMemo(() => {
@@ -180,87 +178,19 @@ export function RehearsalReportDocument({
           {practiceGoalSummary}
         </div>
 
-      {/* ── 2. 말버릇 ── */}
-      <RehearsalHabitOverview prevReport={prevReport} report={report} />
+      <div className="rrd-top-overview rrd-speech-overview">
+        {/* ── 2. 말버릇 ── */}
+        <RehearsalHabitOverview prevReport={prevReport} report={report} />
 
-      {/* ── 3. 음성 타임라인 / 긴 멈춤 ── */}
-      <RehearsalPauseOverview
-        deck={deck}
-        formatDuration={fmt}
-        report={report}
-      />
+        {/* ── 3. 음성 타임라인 / 긴 멈춤 ── */}
+        <RehearsalPauseOverview
+          deck={deck}
+          formatDuration={fmt}
+          report={report}
+        />
+      </div>
 
-      {/* ── 4. 소요 시간 분석 ── */}
-      <section className="rrd-card rrd-overview-card">
-        <header className="rrd-card-head">
-          <FileText size={20} className="rrd-card-icon" />
-          <h2>소요 시간 분석</h2>
-        </header>
-
-        <div className="rrd-duration-hero">
-          <Clock size={26} className="rrd-duration-hero-icon" />
-          <div className="rrd-duration-hero-text">
-            <span>전체 발표 시간</span>
-            <strong>{fmt(metrics.durationSeconds)}</strong>
-            <em>
-              {durationDelta === null
-                ? "비교할 이전 리허설 없음"
-                : `직전 대비 ${fmtDelta(durationDelta)}`}
-            </em>
-          </div>
-        </div>
-
-        <div className="rrd-overview-columns">
-          <RehearsalSlideTimingOverview
-            deck={reportDeck}
-            formatDuration={fmt}
-            slideTimings={slideTimings}
-          />
-        </div>
-
-      </section>
-
-      {/* ── 5. 전체 코칭 ── */}
-      {coaching && (
-        <section className="rrd-card">
-          <header className="rrd-card-head">
-            <Target size={16} className="rrd-card-icon" />
-            <h2>전체 코칭</h2>
-          </header>
-
-          {coaching.nextPracticeFocus && (
-            <div className="rrd-coaching-focus">
-              <span>다음 연습 우선순위</span>
-              <p>{coaching.nextPracticeFocus}</p>
-            </div>
-          )}
-
-          <div className="rrd-coaching-cols">
-            {coaching.improvements.length > 0 && (
-              <div>
-                <strong className="rrd-coaching-col-head">개선 포인트</strong>
-                <ol className="rrd-coaching-list rrd-coaching-list-ordered">
-                  {coaching.improvements.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {coaching.strengths.length > 0 && (
-              <div>
-                <strong className="rrd-coaching-col-head">잘한 점</strong>
-                <ul className="rrd-coaching-list">
-                  {coaching.strengths.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* ── 6. 전사본 ── */}
+      {/* ── 4. 전사본 ── */}
       {transcriptArtifact && (
         <section className="rrd-card rrd-transcript-card">
           <header className="rrd-card-head">
@@ -314,6 +244,34 @@ export function RehearsalReportDocument({
           prevReports={prevReports}
           report={report}
         />
+
+        <section className="rrd-card rrd-overview-card">
+          <header className="rrd-card-head">
+            <FileText size={20} className="rrd-card-icon" />
+            <h2>소요 시간 분석</h2>
+          </header>
+
+          <div className="rrd-duration-hero">
+            <Clock size={26} className="rrd-duration-hero-icon" />
+            <div className="rrd-duration-hero-text">
+              <span>전체 발표 시간</span>
+              <strong>{fmt(metrics.durationSeconds)}</strong>
+              <em>
+                {durationDelta === null
+                  ? "비교할 이전 리허설 없음"
+                  : `직전 대비 ${fmtDelta(durationDelta)}`}
+              </em>
+            </div>
+          </div>
+
+          <div className="rrd-overview-columns">
+            <RehearsalSlideTimingOverview
+              deck={reportDeck}
+              formatDuration={fmt}
+              slideTimings={slideTimings}
+            />
+          </div>
+        </section>
       </div>
 
     </div>

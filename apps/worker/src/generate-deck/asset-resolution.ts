@@ -10,6 +10,7 @@ import type { DataSource } from "typeorm";
 import { z } from "zod";
 import {
   resolveDeckImageAssets,
+  type ImageAssetFallbackDiagnostic,
   type ImageAssetRuntime,
 } from "../image-asset-pipeline";
 
@@ -28,6 +29,7 @@ export class OptionalMediaFallbackUnavailableError extends Error {
     readonly deck: Deck,
     readonly validation: GenerateDeckValidation,
     readonly warnings: string[],
+    readonly imageFailureDiagnostic?: ImageAssetFallbackDiagnostic,
   ) {
     super(message);
     this.name = "OptionalMediaFallbackUnavailableError";
@@ -45,6 +47,7 @@ export async function resolveGenerateDeckAssets(input: {
   officialAssetFileIds: readonly string[];
   onlySlideIds?: ReadonlySet<string>;
   deterministicIdentity?: string;
+  onImageFallback?: (diagnostic: ImageAssetFallbackDiagnostic) => void;
 }): Promise<{
   deck: Deck;
   validation: GenerateDeckValidation;
@@ -53,6 +56,7 @@ export async function resolveGenerateDeckAssets(input: {
   let deck = input.deck;
   let validation = input.validation;
   const warnings: string[] = [];
+  let imageFailureDiagnostic: ImageAssetFallbackDiagnostic | undefined;
 
   if (input.imageRuntime && input.imageAssetScope) {
     try {
@@ -65,6 +69,10 @@ export async function resolveGenerateDeckAssets(input: {
         input.onlySlideIds,
         input.officialAssetFileIds,
         input.deterministicIdentity,
+        (diagnostic) => {
+          imageFailureDiagnostic = diagnostic;
+          input.onImageFallback?.(diagnostic);
+        },
       );
       deck = resolvedImages.deck;
       warnings.push(...resolvedImages.warnings);
@@ -98,6 +106,7 @@ export async function resolveGenerateDeckAssets(input: {
         deck,
         validation,
         [...warnings],
+        imageFailureDiagnostic,
       );
     }
   }

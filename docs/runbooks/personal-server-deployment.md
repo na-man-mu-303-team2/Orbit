@@ -97,7 +97,7 @@ AUTH_COOKIE_SECURE=false
 - OCR provider는 Python worker 경로를 사용한다.
 - AWS Textract는 사용하지 않는다.
 
-Doppler `orbit / stg` 값이 S3, SQS, AWS Transcribe, AWS Textract 기준이어도 개인 서버 override에서 위 값으로 덮어쓴다.
+Doppler `orbit / stg` 값이 S3, AWS Transcribe, AWS Textract 기준이어도 개인 서버 override에서 위 값으로 덮어쓴다.
 
 ## Nginx
 
