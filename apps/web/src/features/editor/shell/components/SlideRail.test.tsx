@@ -38,6 +38,9 @@ describe("SlideRail", () => {
     expect(html.match(/tabindex="0"/g)).toHaveLength(1);
     expect(selectionEnd).toBeLessThan(menuStart);
     expect(html).toContain('aria-label="시작 드래그하여 이동"');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain('role="menu"');
+    expect(html.match(/role="menuitem"/g)).toHaveLength(8);
     expect(html).toContain("슬라이드 2");
   });
 
@@ -72,7 +75,11 @@ describe("SlideRail", () => {
       />,
     );
 
-    expect(boundaryHtml).toMatch(/<button disabled="" type="button">위로 이동/);
-    expect(singleHtml).toMatch(/<button disabled="" type="button">삭제/);
+    expect(boundaryHtml).toMatch(
+      /<button disabled="" role="menuitem" type="button">위로 이동/,
+    );
+    expect(singleHtml).toMatch(
+      /<button disabled="" role="menuitem" type="button">삭제/,
+    );
   });
 });

@@ -97,6 +97,7 @@ import { EditorExitConfirmModal } from "./components/EditorExitConfirmModal";
 import { EditorZoomControl } from "./components/EditorZoomControl";
 import { PresentationMenu } from "./components/PresentationMenu";
 import { SlideRail } from "./components/SlideRail";
+import { usePopupMenuKeyboard } from "./components/usePopupMenuKeyboard";
 import {
   ShareAccessModal
 } from "./components/ShareAccessModal";
@@ -161,6 +162,8 @@ export {
 export { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 export { getResponsiveEditorStageScale } from "./editorZoom";
 export { getEditorValidationItems } from "../ai/quality/editorValidation";
+export const MISSING_PROJECT_SAVE_MESSAGE =
+  "저장할 프로젝트를 찾지 못했습니다.";
 import type {
   ApplyDesignAgentProposalResponse,
   AppendDeckPatchAckResponse,
@@ -1825,6 +1828,12 @@ function EditorRuntime(props: {
   const [validationRepairStatus, setValidationRepairStatus] = useState("");
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
+  const fileMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const fileMenuKeyboard = usePopupMenuKeyboard({
+    getTrigger: () => fileMenuTriggerRef.current,
+    isOpen: activeTopMenu === "file",
+    onClose: () => setActiveTopMenu(null),
+  });
   const [lastPatchLabel, setLastPatchLabel] = useState("편집 없음");
   const insertTool = useEditorShellUiStore((state) => state.insertTool);
   const setInsertTool = useEditorShellUiStore((state) => state.setInsertTool);
@@ -2876,7 +2885,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", MISSING_PROJECT_SAVE_MESSAGE);
       return false;
     }
 
@@ -2978,11 +2987,11 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       setSaveState("error");
-      setSaveError("missing-project", "저장할 프로젝트를 찾지 못했습니다.");
+      setSaveError("missing-project", MISSING_PROJECT_SAVE_MESSAGE);
       return {
         status: "blocked",
         reason: "save-error",
-        recoveryMessage: "저장할 프로젝트를 찾지 못했습니다. 새로고침해 주세요."
+        recoveryMessage: `${MISSING_PROJECT_SAVE_MESSAGE} 새로고침해 주세요.`
       };
     }
 
@@ -3205,7 +3214,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       throw withSaveErrorCode(
-        new Error("저장할 프로젝트를 찾지 못했습니다."),
+        new Error(MISSING_PROJECT_SAVE_MESSAGE),
         "missing-project"
       );
     }
@@ -3285,7 +3294,7 @@ function EditorRuntime(props: {
 
     if (!activeProjectId) {
       throw withSaveErrorCode(
-        new Error("??ν븷 ?꾨줈?앺듃瑜?李얠? 紐삵뻽?듬땲??"),
+        new Error(MISSING_PROJECT_SAVE_MESSAGE),
         "missing-project"
       );
     }
@@ -6249,6 +6258,7 @@ function EditorRuntime(props: {
                   aria-expanded={activeTopMenu === "file"}
                   aria-haspopup="menu"
                   className={`top-menu-button ${activeTopMenu === "file" ? "active" : ""}`}
+                  ref={fileMenuTriggerRef}
                   type="button"
                   onClick={() =>
                     setActiveTopMenu((current) => (current === "file" ? null : "file"))
@@ -6260,7 +6270,12 @@ function EditorRuntime(props: {
             </div>
 
             {canMutateDeck && activeTopMenu === "file" ? (
-              <div className="file-menu-popover" role="menu">
+              <div
+                className="file-menu-popover"
+                ref={fileMenuKeyboard.menuRef}
+                role="menu"
+                onKeyDown={fileMenuKeyboard.onKeyDown}
+              >
                 <div className="file-menu-header">
                   <div>
                     <strong>{deck.title}</strong>

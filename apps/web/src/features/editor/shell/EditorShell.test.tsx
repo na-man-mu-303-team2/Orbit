@@ -48,6 +48,7 @@ import {
   isSpeakerNotesDraftBoundToSlide,
   loadProjectDeck,
   mergeDeckIntoQueryCache,
+  MISSING_PROJECT_SAVE_MESSAGE,
   parseDeckPatchPersistenceResponse,
   putProjectDeck,
   requireCompleteRehearsalSlideRender,
@@ -218,6 +219,12 @@ describe("editor shell", () => {
     expect(missingFetcher).toHaveBeenCalledWith(
       `/api/v1/projects/${encodeURIComponent(deck.projectId)}/deck`,
       expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("uses a readable missing-project save message", () => {
+    expect(MISSING_PROJECT_SAVE_MESSAGE).toBe(
+      "저장할 프로젝트를 찾지 못했습니다.",
     );
   });
 

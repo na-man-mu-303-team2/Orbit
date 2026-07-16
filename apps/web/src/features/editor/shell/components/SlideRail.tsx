@@ -22,6 +22,7 @@ import {
   type SlideRailItem,
 } from "../slideRailModel";
 import { IdBadge } from "./EditorIdBadge";
+import { usePopupMenuKeyboard } from "./usePopupMenuKeyboard";
 
 export type SlideRailProps = {
   canMutate: boolean;
@@ -44,6 +45,14 @@ export function SlideRail(props: SlideRailProps) {
   const dragStateRef = useRef<SlideRailDragState | null>(null);
   const selectionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const menuButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const menuKeyboard = usePopupMenuKeyboard({
+    getTrigger: () =>
+      openMenuSlideId
+        ? menuButtonRefs.current.get(openMenuSlideId) ?? null
+        : null,
+    isOpen: openMenuSlideId !== null,
+    onClose: () => setOpenMenuSlideId(null),
+  });
 
   useEffect(() => {
     if (!dragState) return;
@@ -83,11 +92,15 @@ export function SlideRail(props: SlideRailProps) {
     requestAnimationFrame(() => menuButtonRefs.current.get(slideId)?.focus());
   }
 
-  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>, slideId: string) {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    setOpenMenuSlideId(null);
-    refocusMenuButton(slideId);
+  function getSelectionFocusAfterDelete(slideId: string) {
+    const selected = props.items.find((item) => item.isSelected);
+    if (selected && selected.slideId !== slideId) return selected.slideId;
+    const index = props.items.findIndex((item) => item.slideId === slideId);
+    return (
+      props.items[index + 1]?.slideId ??
+      props.items[index - 1]?.slideId ??
+      null
+    );
   }
 
   function handleDragStart(event: PointerEvent<HTMLButtonElement>, slideId: string) {
@@ -206,7 +219,7 @@ export function SlideRail(props: SlideRailProps) {
                   <button
                     aria-controls={menuId}
                     aria-expanded={isMenuOpen}
-                    aria-haspopup="true"
+                    aria-haspopup="menu"
                     aria-label={`${item.title} 메뉴`}
                     className="slide-rail-menu-button"
                     ref={(node) => setButtonRef(menuButtonRefs.current, item.slideId, node)}
@@ -220,18 +233,22 @@ export function SlideRail(props: SlideRailProps) {
                     className="slide-rail-menu"
                     hidden={!isMenuOpen}
                     id={menuId}
-                    role="group"
-                    onKeyDown={(event) => handleMenuKeyDown(event, item.slideId)}
+                    ref={isMenuOpen ? menuKeyboard.menuRef : undefined}
+                    role="menu"
+                    onKeyDown={menuKeyboard.onKeyDown}
                   >
                     <button
+                      role="menuitem"
                       type="button"
                       onClick={() => {
                         setOpenMenuSlideId(null);
                         props.onDuplicate(item.slideId);
+                        refocusMenuButton(item.slideId);
                       }}
                     >복제</button>
                     <button
                       disabled={!item.canMoveUp}
+                      role="menuitem"
                       type="button"
                       onClick={() => {
                         setOpenMenuSlideId(null);
@@ -241,6 +258,7 @@ export function SlideRail(props: SlideRailProps) {
                     >위로 이동</button>
                     <button
                       disabled={!item.canMoveDown}
+                      role="menuitem"
                       type="button"
                       onClick={() => {
                         setOpenMenuSlideId(null);
@@ -250,10 +268,21 @@ export function SlideRail(props: SlideRailProps) {
                     >아래로 이동</button>
                     <button
                       disabled={!item.canDelete}
+                      role="menuitem"
                       type="button"
                       onClick={() => {
+                        const nextFocusSlideId = getSelectionFocusAfterDelete(
+                          item.slideId,
+                        );
                         setOpenMenuSlideId(null);
                         props.onDelete(item.slideId);
+                        if (nextFocusSlideId) {
+                          requestAnimationFrame(() =>
+                            selectionButtonRefs.current
+                              .get(nextFocusSlideId)
+                              ?.focus(),
+                          );
+                        }
                       }}
                     >삭제</button>
                   </div>
