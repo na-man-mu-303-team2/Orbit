@@ -90,6 +90,7 @@ describe("AudienceOutputRenderer", () => {
     const video = {
       muted: false,
       play: vi.fn().mockResolvedValue(undefined),
+      readyState: 0,
       srcObject: null as MediaProvider | null,
     };
 
@@ -98,5 +99,43 @@ describe("AudienceOutputRenderer", () => {
     expect(video.muted).toBe(true);
     cleanup();
     expect(video.srcObject).toBeNull();
+  });
+
+  it("ignores a rejected play promise after video frames are ready", async () => {
+    vi.useFakeTimers();
+    const stream = {} as MediaStream;
+    const onPlaybackFailed = vi.fn();
+    const video = {
+      muted: false,
+      play: vi.fn().mockRejectedValue(new Error("play rejected")),
+      readyState: 4,
+      srcObject: null as MediaProvider | null,
+    };
+
+    attachAudienceVideoStream(video, stream, onPlaybackFailed);
+    await Promise.resolve();
+    vi.runAllTimers();
+
+    expect(onPlaybackFailed).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("reports playback failure while the video still has no frame", async () => {
+    vi.useFakeTimers();
+    const stream = {} as MediaStream;
+    const onPlaybackFailed = vi.fn();
+    const video = {
+      muted: false,
+      play: vi.fn().mockRejectedValue(new Error("play rejected")),
+      readyState: 0,
+      srcObject: null as MediaProvider | null,
+    };
+
+    attachAudienceVideoStream(video, stream, onPlaybackFailed);
+    await Promise.resolve();
+    vi.runAllTimers();
+
+    expect(onPlaybackFailed).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });

@@ -10,7 +10,10 @@
   border-bottom: 1px solid var(--orbit-ds-border);
   box-shadow: none;
   min-height: 68px;
+  overflow: visible;
   padding: 10px 24px;
+  position: relative;
+  z-index: 30;
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button,
@@ -37,6 +40,8 @@
   display: grid;
   gap: 8px;
   padding: 8px;
+  position: relative;
+  z-index: 40;
 }
 
 .audience-output-controls-row {
@@ -78,6 +83,25 @@
   display: grid;
   gap: 8px;
   padding: 12px;
+}
+
+.audience-output-advanced {
+  box-shadow: var(--orbit-ds-shadow-floating, 0 16px 36px rgba(15, 23, 42, 0.18));
+  min-width: 280px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 41;
+}
+
+.audience-output-warning {
+  box-shadow: var(--orbit-ds-shadow-floating, 0 20px 48px rgba(15, 23, 42, 0.24));
+  max-width: calc(100vw - 48px);
+  position: fixed;
+  right: 24px;
+  top: 80px;
+  width: 380px;
+  z-index: 1000;
 }
 
 .audience-output-warning > div {

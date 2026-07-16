@@ -85,6 +85,8 @@ export function AudienceScreenShareVideo(props: { stream: MediaStream }) {
         aria-label="공유 중인 웹 또는 실습 화면"
         autoPlay
         muted
+        onCanPlay={() => setPlaybackFailed(false)}
+        onPlaying={() => setPlaybackFailed(false)}
         playsInline
         ref={videoRef}
       />
@@ -98,15 +100,26 @@ export function AudienceScreenShareVideo(props: { stream: MediaStream }) {
 }
 
 export function attachAudienceVideoStream(
-  video: Pick<HTMLVideoElement, "muted" | "play" | "srcObject">,
+  video: Pick<
+    HTMLVideoElement,
+    "muted" | "play" | "readyState" | "srcObject"
+  >,
   stream: MediaStream,
   onPlaybackFailed?: () => void,
 ) {
+  let failureTimer: ReturnType<typeof setTimeout> | undefined;
   video.srcObject = stream;
   video.muted = true;
-  void video.play().catch(() => onPlaybackFailed?.());
+  void video.play().catch(() => {
+    failureTimer = setTimeout(() => {
+      if (video.srcObject === stream && video.readyState < 2) {
+        onPlaybackFailed?.();
+      }
+    }, 1000);
+  });
 
   return () => {
+    if (failureTimer) clearTimeout(failureTimer);
     if (video.srcObject === stream) video.srcObject = null;
   };
 }
