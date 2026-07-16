@@ -13,6 +13,7 @@ import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
 import { RehearsalSilenceOverview } from "./RehearsalSilenceOverview";
+import { RehearsalVolumeOverview } from "./RehearsalVolumeOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
@@ -181,6 +182,8 @@ export function RehearsalReportDocument({
           report={report}
         />
       </div>
+
+      <RehearsalVolumeOverview formatDuration={fmt} report={report} />
 
       {/* ── 4. 전사본 ── */}
       {transcriptAvailable && (

@@ -202,6 +202,53 @@ describe("FilesService", () => {
     ).resolves.toMatchObject({ fileId: "file_private_1" });
   });
 
+  it("creates a bounded read URL only through the private audio boundary", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_audio_1",
+        projectId: demoProject.projectId,
+        storageKey: "projects/project_demo_created/private/file_audio_1.webm",
+        originalName: "rehearsal.webm",
+        mimeType: "audio/webm",
+        size: 1024,
+        url: "internal://private-audio",
+        purpose: "rehearsal-audio",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+        deletedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await service.createPrivateAudioReadUrl(
+      demoProject.projectId,
+      "file_audio_1",
+      "rehearsal-audio",
+      300,
+    );
+
+    expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
+      "projects/project_demo_created/private/file_audio_1.webm",
+      300,
+    );
+    await expect(
+      service.createPrivateAudioReadUrl(
+        demoProject.projectId,
+        "file_audio_1",
+        "thumbnail",
+        300,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("uses the request origin for local upload proxy URLs", async () => {
     const { service } = createService(
       {

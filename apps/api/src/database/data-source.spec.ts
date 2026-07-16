@@ -41,4 +41,18 @@ describe("databaseOptions", () => {
       ),
     ).toBe(true);
   });
+
+  it("registers the rehearsal audio retention migration", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+
+    expect(
+      migrations.some(
+        (migration) =>
+          typeof migration === "function" &&
+          migration.name === "AddRehearsalAudioRetention2026071603000",
+      ),
+    ).toBe(true);
+  });
 });

@@ -8,6 +8,7 @@ import {
   createRehearsalRunRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  rehearsalAudioPlaybackUrlResponseSchema,
   rehearsalRunComparisonSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticCueDecisionSchema,
@@ -88,12 +89,14 @@ describe("rehearsalRunSchema", () => {
       status: "succeeded",
       error: null,
       rawAudioDeletedAt: "2026-06-29T00:00:10.000Z",
+      rawAudioDeleteDeadlineAt: "2026-07-13T00:00:00.000Z",
       createdAt: "2026-06-29T00:00:00.000Z",
       updatedAt: "2026-06-29T00:00:10.000Z",
     });
 
     expect(run.status).toBe("succeeded");
     expect(run.rawAudioDeletedAt).toBe("2026-06-29T00:00:10.000Z");
+    expect(run.rawAudioDeleteDeadlineAt).toBe("2026-07-13T00:00:00.000Z");
     expect(run.deckVersion).toBeNull();
     expect(run.evaluationSnapshot).toBeNull();
     expect(run.semanticEvaluationMode).toBe("full");
@@ -111,11 +114,35 @@ describe("rehearsalRunSchema", () => {
       status: "cancelled",
       error: null,
       rawAudioDeletedAt: null,
+      rawAudioDeleteDeadlineAt: null,
       createdAt: "2026-06-29T00:00:00.000Z",
       updatedAt: "2026-06-29T00:00:10.000Z",
     });
 
     expect(run.status).toBe("cancelled");
+    expect(run.rawAudioDeleteDeadlineAt).toBeNull();
+  });
+});
+
+describe("rehearsalAudioPlaybackUrlResponseSchema", () => {
+  it("accepts a short-lived URL bounded by the retention deadline", () => {
+    const response = rehearsalAudioPlaybackUrlResponseSchema.parse({
+      playbackUrl: "https://storage.example.com/audio?signature=short-lived",
+      expiresAt: "2026-07-16T00:15:00.000Z",
+      retentionExpiresAt: "2026-07-30T00:00:00.000Z",
+    });
+
+    expect(response.playbackUrl).toContain("signature");
+  });
+
+  it("rejects a playback URL that outlives retention", () => {
+    expect(
+      rehearsalAudioPlaybackUrlResponseSchema.safeParse({
+        playbackUrl: "https://storage.example.com/audio?signature=short-lived",
+        expiresAt: "2026-07-30T00:00:01.000Z",
+        retentionExpiresAt: "2026-07-30T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
   });
 });
 

@@ -63,6 +63,13 @@ export class RehearsalRunEntity {
   @Column({ name: "raw_audio_deleted_at", nullable: true, type: "timestamptz" })
   rawAudioDeletedAt!: Date | null;
 
+  @Column({
+    name: "raw_audio_delete_deadline_at",
+    nullable: true,
+    type: "timestamptz",
+  })
+  rawAudioDeleteDeadlineAt!: Date | null;
+
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 

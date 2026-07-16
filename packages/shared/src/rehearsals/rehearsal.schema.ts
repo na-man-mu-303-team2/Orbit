@@ -141,6 +141,7 @@ export const rehearsalRunSchema = z.object({
   analysisFinalizedAt: isoDateTimeSchema.nullable().default(null),
   error: rehearsalRunErrorSchema.nullable(),
   rawAudioDeletedAt: isoDateTimeSchema.nullable(),
+  rawAudioDeleteDeadlineAt: isoDateTimeSchema.nullable().optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
@@ -932,6 +933,23 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
   job: jobSchema,
 });
 
+export const rehearsalAudioPlaybackUrlResponseSchema = z
+  .object({
+    playbackUrl: z.string().url(),
+    expiresAt: isoDateTimeSchema,
+    retentionExpiresAt: isoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((response, context) => {
+    if (Date.parse(response.expiresAt) > Date.parse(response.retentionExpiresAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "playback URL cannot outlive audio retention.",
+        path: ["expiresAt"],
+      });
+    }
+  });
+
 export const rehearsalRunMetaSchema = z
   .object({
     recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
@@ -1570,6 +1588,9 @@ export type CompleteRehearsalAudioChunkUploadRequest = z.infer<
 >;
 export type CompleteRehearsalAudioUploadResponse = z.infer<
   typeof completeRehearsalAudioUploadResponseSchema
+>;
+export type RehearsalAudioPlaybackUrlResponse = z.infer<
+  typeof rehearsalAudioPlaybackUrlResponseSchema
 >;
 export type BeginRehearsalAudioUploadRequest = z.infer<
   typeof beginRehearsalAudioUploadRequestSchema

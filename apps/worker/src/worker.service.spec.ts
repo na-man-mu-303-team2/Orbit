@@ -155,6 +155,7 @@ vi.mock("./storage", () => ({
   workerStorage: vi.fn(() => ({ getSignedReadUrl: vi.fn() })),
 }));
 vi.mock("./storage-deletion-reconciler", () => ({
+  enqueueExpiredRehearsalAudioDeletions: vi.fn(async () => undefined),
   reconcileStorageDeletionOutbox: vi.fn(async () => undefined),
 }));
 vi.mock("./rehearsal-transcript-cache", () => ({

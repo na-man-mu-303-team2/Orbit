@@ -1,6 +1,7 @@
 import {
   legacyRehearsalReportMetricsDefaults,
   legacyRehearsalSilenceAnalysis,
+  legacyRehearsalSlideSpeakingRate,
   legacyRehearsalVolumeAnalysis,
 } from "@orbit/shared";
 import type {
@@ -36,6 +37,7 @@ describe("buildRehearsalRunComparison", () => {
           slideId: "slide_delivery",
           fillerWordCount: 2,
           longSilenceCount: null,
+          speakingRate: legacyRehearsalSlideSpeakingRate,
         },
       ],
     });
@@ -63,6 +65,7 @@ describe("buildRehearsalRunComparison", () => {
           slideId: "slide_delivery",
           fillerWordCount: 3,
           longSilenceCount: null,
+          speakingRate: legacyRehearsalSlideSpeakingRate,
         },
       ],
     });
@@ -303,7 +306,12 @@ function reportWithLongSilence(): RehearsalReport {
       keywordCoverageMeasurement: { state: "measured" },
     },
     slideInsights: [
-      { slideId: "slide_delivery", fillerWordCount: 0, longSilenceCount: 1 },
+      {
+        slideId: "slide_delivery",
+        fillerWordCount: 0,
+        longSilenceCount: 1,
+        speakingRate: legacyRehearsalSlideSpeakingRate,
+      },
     ],
   });
 }

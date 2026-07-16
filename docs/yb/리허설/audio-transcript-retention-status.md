@@ -2,418 +2,135 @@
 
 ## 1. 문서 목적
 
-이 문서는 현재 `develop`이 반영된 `feature/rehearsal-volume-analysis` 브랜치에서 리허설 원본 음성과 전사 데이터가 어떻게 생성·저장·조회·삭제되는지 정리한다.
-
-확인 기준은 다음과 같다.
+이 문서는 `feature/rehearsal-volume-analysis` 브랜치에서 리허설 원본 음성과 전사 데이터가 어떻게 생성·저장·조회·삭제되는지 정리한다.
 
 - 확인 일자: 2026-07-16
-- develop 기준 커밋: `5f1c13e5`
-- 기능 브랜치: `feature/rehearsal-volume-analysis`
-- 이 문서의 음량 분석 부분은 기능 브랜치의 현재 구현을 반영한다.
-- 이 문서는 구현된 코드의 실제 동작을 기준으로 한다.
-- `docs/contracts.md` 등 기존 문서의 의도와 실제 코드가 다른 부분은 별도로 표시한다.
+- 원본 음성 보관 정책: 업로드 완료 시점부터 14일
+- 전사 원문 정책: 영속 보관하지 않음
+- 문제 구간 재생 방식: 별도 Clip 없이 보관 중인 원본 음성을 구간 seek
 
-## 2. 요약
+## 2. 현재 정책 요약
 
-| 대상 | 현재 처리 | 보관 기간 | 저장 위치 | 외부 조회 |
+| 대상 | 현재 처리 | 보관 기간 | 저장 위치 | 사용자 조회 |
 | --- | --- | --- | --- | --- |
-| 정상 완료된 원본 음성 | 분석 후에도 유지 | 명시된 기한 없음 | S3 호환 Object Storage, `project_assets` metadata | 일반 파일 API에서 차단 |
-| 분석 실패한 원본 음성 | 삭제 outbox 등록 후 삭제 | 즉시 삭제 시도 | 삭제 전 Object Storage | 조회 불가 |
+| 정상 완료된 원본 음성 | 업로드 완료 시 deadline 저장 후 만료 삭제 | 14일 | S3 호환 Object Storage, `project_assets` metadata | 전용 playback URL로 구간 재생 |
+| 분석·enqueue 실패 원본 음성 | 삭제 outbox 또는 즉시 삭제 요청 | 즉시 삭제 시도 | 삭제 전 Object Storage | 조회 불가 |
 | 전체 전사 문자열 | 처리 중에만 사용 | 영속 보관 안 함 | Python/TypeScript Worker 메모리 | 조회 불가 |
 | 타임스탬프 전사 segment | 의미 평가 재시도용 캐시 | 30분 | 비영속 private-evidence Redis | 내부 Worker만 조회 |
-| 리포트의 전사 필드 | 항상 `false/null` | 해당 없음 | `rehearsal_runs.report_json` | API도 `false/null` 반환 |
-| 문제 구간 Evidence Clip | schema와 DB 계약만 존재 | 계약상 7일 | `rehearsal_evidence_clips` 예정 | 생성·재생 구현 없음 |
+| 리포트 전사 필드 | `transcriptRetained=false`, `transcript=null` | 해당 없음 | `rehearsal_runs.report_json` | 원문 미제공 |
+| 음량 분석 결과 | 수치·문제 시간 범위 저장 | 리포트와 동일 | `rehearsal_runs.report_json.volumeAnalysis` | 상대 문구와 구간 표시 |
+| Evidence Clip | 별도 schema·DB 계약만 존재 | 계약상 7일 | `rehearsal_evidence_clips` 예정 | 생성·재생 구현 없음 |
 
-현재 원본 음성과 전사 데이터에는 14일 보관 정책이 구현되어 있지 않다.
+원본 음성 14일 보관과 전사 segment 30분 캐시는 서로 다른 정책이다. 이번 구현은 전사 원문이나 segment의 보관 기간을 14일로 늘리지 않는다.
 
 ## 3. 원본 음성 처리 흐름
 
-### 3.1 녹음과 업로드
-
-Web은 브라우저 `MediaRecorder`를 이용해 음성을 녹음한다. 녹음 chunk를 `Blob`으로 합친 뒤 `File`로 변환한다.
-
-구현 위치:
-
-- `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`
-  - `createRecordingSession`
-  - `createRecordingFile`
-
-업로드 흐름은 다음과 같다.
+### 3.1 업로드와 분석
 
 ```text
 MediaRecorder
-→ Blob/File 생성
 → POST /api/v1/rehearsals/:runId/audio/upload-url
-→ Object Storage에 PUT
+→ Object Storage PUT
 → POST /api/v1/rehearsals/:runId/audio/complete
-→ rehearsal-stt Job 생성
+→ rawAudioDeleteDeadlineAt = 완료 시각 + 14일
+→ rehearsal-stt Job
+→ STT·음량·침묵 분석
+→ report_json 저장
 ```
 
-API는 업로드 URL을 만들 때 파일 목적을 `rehearsal-audio`로 고정한다.
+원본 binary는 S3 호환 Object Storage에 저장한다. 로컬 Docker 환경은 MinIO를 사용하며 Object key는 `projects/{projectId}/assets/{fileId}-{safeFileName}` 형식이다. PostgreSQL `project_assets`는 `storage_key`, `purpose=rehearsal-audio`, 업로드·삭제 상태 등 metadata만 저장하고, `rehearsal_runs.audio_file_id`가 파일을 참조한다.
 
-구현 위치:
+### 3.2 단일 로드와 분석 모듈 공유
 
-- `apps/api/src/rehearsals/rehearsals.service.ts`
-  - `createAudioUploadUrl`
-  - `completeAudioUpload`
-- `apps/api/src/files/files.service.ts`
-  - `createUploadUrl`
-  - `completeUpload`
-
-### 3.2 저장 위치
-
-원본 음성 binary는 S3 호환 Object Storage에 저장한다.
-
-- 로컬 Docker 환경: MinIO
-- 기본 bucket: `orbit-local`
-- 운영 환경: 설정된 S3 호환 bucket
-- Object key 형식: `projects/{projectId}/assets/{fileId}-{safeFileName}`
-
-PostgreSQL의 `project_assets`에는 다음 metadata가 저장된다.
-
-- `file_id`
-- `project_id`
-- `storage_key`
-- `original_name`
-- `mime_type`
-- `size`
-- `purpose = rehearsal-audio`
-- `status`
-- `created_at`, `uploaded_at`, `deleted_at`
-
-`rehearsal_runs.audio_file_id`가 `project_assets.file_id`를 가리켜 리허설 실행과 음성 파일을 연결한다.
-
-구현 위치:
-
-- `apps/api/src/files/project-asset.entity.ts`
-- `apps/api/src/rehearsals/rehearsal-run.entity.ts`
-- `apps/api/src/files/files.service.ts#createStorageKey`
-
-### 3.3 Worker의 원본 음성 접근
-
-TypeScript Worker는 `project_assets`에서 `storage_key`를 조회하고 `StoragePort.getSignedReadUrl()`을 호출한다. 생성되는 signed GET URL은 15분 동안 유효하다.
+TypeScript Worker는 `StoragePort.getSignedReadUrl()`로 내부 처리용 signed URL을 만들고 Python Worker의 `/audio/transcribe`에 전달한다. Python Worker는 원본을 한 번 내려받아 `AudioContent`로 만들고, PyAV 디코딩도 한 번 수행한다.
 
 ```text
-rehearsal_runs.audio_file_id
-→ project_assets.storage_key
-→ StoragePort.getSignedReadUrl(storageKey)
-→ Python Worker /audio/transcribe
+AudioContent
+├── STT provider
+└── DecodedAudio (mono float32 16kHz)
+    ├── volumeAnalysis
+    └── silenceAnalysis
 ```
 
-Python Worker는 signed URL에서 음성을 내려받아 `AudioContent.data: bytes`로 메모리에 올리고 STT provider에 전달한다.
+음량 또는 침묵 분석 실패는 해당 결과만 `unmeasured`로 만들며 STT 성공을 막지 않는다. raw bytes, waveform, 전체 RMS 배열과 signed URL은 저장하거나 로그에 남기지 않는다.
 
-구현 위치:
+### 3.3 14일 보관과 삭제
 
-- `apps/worker/src/rehearsal-stt.processor.ts`
-  - `loadAudioAsset`
-  - `processRehearsalSttJob`
-- `packages/storage/src/index.ts#getSignedReadUrl`
-- `services/python-worker/app/audio/transcribe.py`
-  - `read_audio_content`
-  - `transcribe_rehearsal_audio`
+- 신규 녹음은 `completeAudioUpload()` 성공 시 `rehearsal_runs.raw_audio_delete_deadline_at`에 `현재 시각+14일`을 저장한다.
+- 기존 성공 음성은 migration에서 `project_assets.uploaded_at+14일`로 backfill한다.
+- 이미 만료된 기존 음성도 같은 deadline을 가지며 다음 reconciler 실행에서 삭제 대상으로 처리한다.
+- Worker의 30초 deletion reconciler는 deadline이 지난 성공 음성을 `storage_deletion_outbox`에 `ON CONFLICT DO NOTHING`으로 먼저 등록한다.
+- 기존 outbox 삭제기가 Object를 삭제하고 `project_assets.status=deleted`, `project_assets.deleted_at`, `rehearsal_runs.raw_audio_deleted_at`을 기록한다.
+- 실제 Object 삭제가 늦어져도 deadline 이후 playback API는 만료로 응답한다.
+- 분석 실패는 기존처럼 outbox에 즉시 등록하고, Job enqueue 실패는 API에서 즉시 삭제를 시도한다.
 
-### 3.4 정상 완료 시 보관
+업로드 취소와 `complete`가 호출되지 않은 pending asset 정리는 이번 변경에 포함되지 않은 후속 과제다.
 
-현재 정상 완료 경로에서는 원본 음성 삭제 호출이 주석 처리되어 있다.
+## 4. 문제 구간 재생
 
-```ts
-// Temporary: retain successful rehearsal recordings for follow-up audio analysis.
-// await scheduleRawAudioDeletion(dataSource, asset);
-```
+`GET /api/v1/rehearsals/:runId/audio/playback-url`은 다음 조건을 모두 확인한다.
 
-따라서 정상 완료된 원본 음성은 다음 상태로 남는다.
+- signed session 사용자와 프로젝트 read 권한
+- `succeeded` run
+- run에 연결된 `rehearsal-audio` purpose asset
+- `uploaded` 상태이고 아직 삭제되지 않은 asset
+- `rawAudioDeleteDeadlineAt`이 현재보다 뒤인 상태
 
-- Object Storage object 유지
-- `project_assets.status = uploaded` 유지
-- `rehearsal_runs.raw_audio_deleted_at = null` 유지
-- 별도의 만료 시각 없음
-- 14일 후 삭제 예약 없음
-- 저장소 코드에 S3 lifecycle 설정 없음
+응답은 `playbackUrl`, `expiresAt`, `retentionExpiresAt`을 포함한다. URL은 최대 15분 동안 유효하고 14일 retention deadline 이후까지 발급하지 않는다.
 
-이는 14일 보관 정책이 아니라 보관 종료 시점이 정해지지 않은 임시 상태다.
+- 처리 중: HTTP 409 `REHEARSAL_AUDIO_NOT_READY`
+- 만료·삭제·deadline 없음: HTTP 410 `REHEARSAL_AUDIO_EXPIRED`
 
-구현 위치:
+Web은 URL을 필요할 때만 요청하고 만료 30초 전까지만 메모리에 캐시한다. 하나의 `Audio` 인스턴스로 문제 구간의 `startSeconds`로 이동한 뒤 `endSeconds`에서 정지한다. 다른 구간을 선택하면 기존 재생을 중단한다.
 
-- `apps/worker/src/rehearsal-stt.processor.ts`
-  - `processRehearsalSttJob` 성공 경로 마지막 부분
+일반 asset 목록·content API에서는 계속 `rehearsal-audio`를 차단한다. playback URL, storage key, 파일명과 음성 데이터는 DB·리포트·로그에 저장하지 않는다.
 
-### 3.5 실패 시 삭제
+## 5. 전사 데이터 처리
 
-STT, 지표 분석 또는 리포트 생성이 실패하면 `storage_deletion_outbox`에 삭제 요청을 등록한다. 삭제 reconciler가 실제 Object를 삭제한 후 다음 상태를 갱신한다.
+### 5.1 전체 전사 문자열
 
-- `project_assets.status = deleted`
-- `project_assets.deleted_at` 기록
-- `rehearsal_runs.raw_audio_deleted_at` 기록
-- `storage_deletion_outbox.status = deleted`
+`/audio/transcribe`의 전체 전사 문자열은 Worker가 리포트 생성 중에만 사용하고 영속 저장하지 않는다.
 
-삭제 실패는 지수 backoff 방식으로 최대 5회 재시도한 뒤 `exhausted` 상태가 된다.
-
-구현 위치:
-
-- `apps/worker/src/rehearsal-stt.processor.ts`
-  - `failAndScheduleRawAudioDeletion`
-  - `scheduleRawAudioDeletion`
-- `apps/worker/src/storage-deletion-reconciler.ts`
-
-Job enqueue 자체가 실패한 경우에는 API가 `FilesService.deleteUploadedAsset()`을 호출해 즉시 삭제를 시도한다.
-
-구현 위치:
-
-- `apps/api/src/rehearsals/rehearsals.service.ts#cleanupAfterEnqueueFailure`
-
-### 3.6 일반 API 접근 제한
-
-`rehearsal-audio`는 private audio purpose다. 일반 asset 목록과 content API에서는 private audio를 반환하지 않는다.
-
-- 일반 asset list: private audio row 필터링
-- 일반 asset content: private purpose이면 `404`
-- 내부 Worker: repository와 `StoragePort`를 통해 접근
-
-따라서 현재 사용자용 원본 음성 재생·다운로드 API는 없다.
-
-구현 위치:
-
-- `packages/shared/src/files/file.schema.ts`
-- `apps/api/src/files/files.service.ts`
-
-## 4. 전사 데이터 처리 흐름
-
-### 4.1 Python Worker의 STT 결과
-
-Python Worker의 `/audio/transcribe`는 다음 데이터를 반환한다.
-
-- `transcript`: 전체 전사 문자열
-- `segments`: 구간별 `text`, `startSeconds`, `endSeconds`
-- `language`
-- `provider`
-- `model`
-- `durationSeconds`
-
-이 응답은 TypeScript Worker가 리허설 지표 분석과 리포트 생성에 사용한다.
-
-구현 위치:
-
-- `services/python-worker/app/audio/transcribe.py#AudioTranscribeResponse`
-- `apps/worker/src/rehearsal-stt.processor.ts`
-
-### 4.2 전체 전사 문자열
-
-전체 전사 문자열은 처리 중에는 Worker 메모리에 존재하지만 영속 저장하지 않는다.
-
-- `rehearsal_runs`에 전사 원문 column 없음
-- `report_json.transcript = null`
-- `report_json.transcriptRetained = false`
+- `report_json.transcriptRetained=false`
+- `report_json.transcript=null`
 - Job result에 전사 원문 없음
-- 별도의 `.txt`, `.json`, `.docx` 파일을 서버에서 생성하지 않음
+- 별도 텍스트·문서 파일 생성 없음
 
-리포트 생성 시 다음 값을 명시적으로 저장한다.
+따라서 현재 Web의 전사본 표시·DOCX 생성 조건은 정상 리허설 흐름에서 충족되지 않는다.
 
-```json
-{
-  "transcriptRetained": false,
-  "transcript": null
-}
-```
+### 5.2 timestamp segment 캐시
 
-API의 `GET /api/v1/rehearsals/:runId/report`도 DB 값과 관계없이 응답을 다시 `false/null`로 고정한다.
+타임스탬프 segment는 의미 평가 재시도를 위해 비영속 Redis에 30분 저장한다.
 
-구현 위치:
+- key: `rehearsal:semantic-evidence:{runId}`
+- 사용 주체: 내부 semantic evaluation Worker
+- 저장 실패는 기본 리포트 생성을 실패시키지 않음
+- TTL 이후 재시도는 `REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED`
 
-- `apps/worker/src/rehearsal-stt.processor.ts#buildRehearsalReport`
-- `apps/api/src/rehearsals/rehearsals.service.ts#getReport`
-- `packages/shared/src/rehearsals/rehearsal.schema.ts#rehearsalReportSchema`
+이 캐시는 사용자 재생에 사용하지 않는다. 문제 구간 재생은 리포트에 저장된 음량 구간의 시간 범위와 원본 음성을 사용한다.
 
-### 4.3 전사 segment Redis 캐시
+## 6. 음량 리포트와 보관 정책의 연결
 
-전체 전사 문자열 대신 타임스탬프가 있는 segment를 private-evidence Redis에 저장한다.
+`report_json.volumeAnalysis.issueSegments`는 `quiet/loud`, 시작·종료·지속 시간과 내부 분석 수치를 저장한다. 사용자 리포트에는 다음만 노출한다.
 
-저장 구조:
+- 전체 발화보다 작게 말한 구간 수
+- 전체 발화보다 크게 말한 구간 수
+- 녹음 타임라인상의 위치
+- 시작 시각과 지속 시간
+- `이 구간 들어보기`
 
-```json
-{
-  "segments": [
-    {
-      "startMs": 0,
-      "endMs": 1800,
-      "text": "발화 내용"
-    }
-  ]
-}
-```
+dBFS, RMS, 평균 음량 숫자는 표시하지 않는다. 절대적인 `적정·작음·큼` 판정도 하지 않는다. 구간 재생은 원본 파일을 새 Clip으로 잘라 저장하지 않으므로 추가 음성 사본이 생기지 않는다.
 
-정책:
+## 7. 남은 과제
 
-- Redis key: `rehearsal:semantic-evidence:{runId}`
-- TTL: 30분
-- Redis는 일반 Redis와 분리된 비영속 인스턴스 사용
-- 저장 실패가 리포트 생성을 실패시키지는 않음
-- 의미 평가 재시도 Worker만 segment 원문을 조회함
+- 업로드 취소와 미완료 pending asset cleanup
+- 프로젝트 삭제 시 Object Storage 삭제 정합성 검증
+- 실제 MinIO/S3 환경의 HTTP Range와 browser seek smoke test
+- Web의 비활성 전사본 UI와 DOCX 코드 유지 여부 결정
+- Evidence Clip 계약을 실제 구현할지, 원본 구간 재생으로 대체할지 결정
 
-구현 위치:
+## 8. 결론
 
-- `apps/worker/src/rehearsal-transcript-cache.ts`
-- `apps/api/src/rehearsals/rehearsal-transcript-cache.ts`
-- `packages/shared/src/rehearsals/rehearsal-semantic-evidence.schema.ts`
-- `apps/worker/src/rehearsal-semantic-evaluation.processor.ts`
+정상 완료된 원본 음성은 업로드 완료 시점부터 14일 동안만 보관한다. 만료 대상은 기존 삭제 outbox 경계를 통해 제거하며, deadline 이후에는 Object가 남아 있더라도 재생할 수 없다.
 
-30분이 지나면 의미 평가 재시도는 `REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED`로 거부된다.
-
-### 4.4 전사본 DOCX UI
-
-Web에는 `report.transcriptRetained === true`이고 `report.transcript !== null`일 때 전사본을 보여주고 브라우저에서 DOCX를 생성하는 코드가 있다.
-
-구현 위치:
-
-- `apps/web/src/features/rehearsal/RehearsalReportDocument.tsx`
-- `apps/web/src/features/rehearsal/rehearsalTranscriptExport.ts`
-
-하지만 현재 Worker와 API가 항상 `transcriptRetained=false`, `transcript=null`을 반환하므로 실제 정상 흐름에서는 이 UI가 활성화될 수 없다.
-
-## 5. 보관 정책 현황
-
-### 5.1 구현된 정책
-
-| 데이터 | 성공 시 | 실패 시 | 만료 기준 |
-| --- | --- | --- | --- |
-| 원본 리허설 음성 | 유지 | 즉시 삭제 요청 | 없음 |
-| 전체 전사 문자열 | 저장하지 않음 | 저장하지 않음 | 처리 종료 시 소멸 |
-| 전사 segment | Redis 저장 | 처리 단계에 따라 미저장 가능 | 30분 |
-| 리포트 수치·분석 결과 | PostgreSQL 저장 | 실패 정보 저장 | 별도 만료 없음 |
-| Evidence Clip | 실제 생성 안 됨 | 해당 없음 | 계약상 7일 |
-
-### 5.2 구현되지 않은 14일 정책
-
-현재 코드에는 다음 요소가 없다.
-
-- 원본 음성 `expires_at`
-- 원본 음성 `retention_days = 14`
-- 성공 완료 시점부터 14일 뒤를 계산하는 로직
-- 14일 뒤 `storage_deletion_outbox`에 등록하는 scheduler
-- S3 또는 MinIO lifecycle 14일 규칙
-- 전사 전체 또는 segment의 14일 저장소
-- 14일 동안 사용할 수 있는 owner-only 조회 API
-
-## 6. 코드와 문서 사이의 불일치
-
-### 6.1 원본 음성 삭제 정책
-
-`docs/contracts.md`는 분석 완료 직후 원본 음성을 삭제한다고 규정한다.
-
-실제 코드는 정상 완료된 원본 음성을 삭제하지 않는다.
-
-영향:
-
-- 개인정보 보관 정책과 실제 데이터 수명이 다르다.
-- 운영 저장소 용량이 계속 증가할 수 있다.
-- 사용자에게 정확한 삭제 시점을 안내할 수 없다.
-
-### 6.2 전사본 API 정책
-
-`docs/rehearsal-report/backend.md`는 Redis TTL이 살아 있으면 리포트 API가 전사본을 반환한다고 설명한다.
-
-실제 `getReport()`는 항상 다음 값을 반환한다.
-
-```json
-{
-  "transcriptRetained": false,
-  "transcript": null
-}
-```
-
-영향:
-
-- 문서만 보고 구현한 Web과 API의 기대가 어긋난다.
-- 전사본 UI 및 DOCX 다운로드 코드가 정상 API 흐름에서 실행되지 않는다.
-
-### 6.3 업로드 취소와 미완료 파일 정리
-
-리허설이 `created` 또는 `uploading` 상태일 때 `cancelRun()`을 호출할 수 있지만, 이 경로는 연결된 `rehearsal-audio` 삭제를 호출하지 않는다.
-
-영향:
-
-- 업로드된 object 또는 `pending/uploaded` metadata가 남을 수 있다.
-- `complete`가 호출되지 않은 pending asset 정리 정책도 아직 후속 과제로 남아 있다.
-
-### 6.4 Evidence Clip 계약과 구현
-
-문제 구간 Evidence Clip은 shared schema와 migration에서 7일 보관으로 정의돼 있다. 하지만 현재 API와 Worker에는 실제 clip 생성, 만료 처리, playback endpoint 구현이 없다.
-
-따라서 현재 `rehearsal_evidence_clips` 계약을 원본 음성 재생 기능으로 사용할 수 없다.
-
-## 7. 음량 분석 구현에 미치는 영향
-
-리허설 `/audio/transcribe`는 원본 음성을 `load_audio_content()`로 한 번 읽는다. STT는 같은 `AudioContent`를 사용하고, 음량 분석과 Silero VAD 침묵 분석은 PyAV로 한 번 만든 `DecodedAudio`를 공유한다. 오케스트레이션은 `process_rehearsal_audio()`가 담당한다.
-
-```python
-audio_content = load_audio_content(payload.audio)
-
-provider_transcription = transcribe_audio_content(audio_content, provider)
-volume_analysis, silence_analysis = analyze_audio_safely(audio_content)
-
-return RehearsalAudioProcessingResponse(
-    **build_audio_transcribe_response(
-        payload,
-        provider_transcription,
-    ).model_dump(),
-    volumeAnalysis=volume_analysis,
-    silenceAnalysis=silence_analysis,
-)
-```
-
-이 방식의 장점은 다음과 같다.
-
-- Object Storage 다운로드 1회
-- STT와 음향 분석이 같은 원본 바이트 사용
-- 음량과 침묵 분석이 같은 16kHz 파형 사용
-- signed URL 재발급 불필요
-- 별도 raw audio 복제 불필요
-- 음량 또는 침묵 분석 실패가 STT 성공을 막지 않음
-- `/audio/transcribe-private`는 기존 STT 전용 동작 유지
-
-다만 음량 분석 구현 전에 다음 정책을 확정해야 한다.
-
-1. 정상 완료된 원본 음성을 정확히 14일 보관할지
-2. 전사 segment도 14일 보관할지, 30분을 유지할지
-3. 14일 안에 재분석할 때 기존 결과를 사용할지 원본부터 다시 분석할지
-4. 사용자에게 원본 전체를 재생할지 문제 구간 Clip만 재생할지
-5. 프로젝트 삭제 시 Object Storage까지 확실히 삭제할지
-6. 업로드 취소 및 미완료 asset을 언제 정리할지
-
-## 8. 권장 정리 순서
-
-### 1단계: 계약 확정
-
-- 원본 음성 보관 기간을 `14일` 또는 `분석 직후 삭제` 중 하나로 확정한다.
-- 전사 데이터는 `전체 원문`, `segment`, `문제 구간 텍스트` 중 무엇을 보관할지 구분한다.
-- 원본 음성과 파생 Evidence Clip의 보관 정책을 분리한다.
-
-### 2단계: 원본 음성 retention 구현
-
-- `expires_at` 또는 `raw_audio_delete_deadline_at` 추가
-- 성공 시 `완료 시각 + 14일` 저장
-- 만료된 asset을 outbox에 등록하는 reconciler 추가
-- 취소·미완료 upload cleanup 추가
-- project 삭제와 object 삭제 정합성 검증
-
-### 3단계: 전사 계약 정리
-
-- 30분 Redis cache를 유지할지 결정
-- API가 전사본을 제공하지 않을 경우 Web의 전사 UI와 DOCX 기능 제거
-- API가 제공할 경우 owner-only 접근, TTL, 응답 schema를 명확히 추가
-- `docs/rehearsal-report/backend.md`와 실제 `getReport()` 동기화
-
-### 4단계: 음량 분석 연결
-
-- `/audio/transcribe`에서 내려받은 `AudioContent`를 STT가 사용하고, 한 번 디코딩한 `DecodedAudio`를 음량과 침묵 분석이 재사용한다.
-- 음량 분석 실패는 `unmeasured`로 변환해 STT 성공을 막지 않는다.
-- `report_json.volumeAnalysis`는 shared schema로 검증한다.
-- `report_json.silenceAnalysis`는 shared schema로 검증한다.
-- 원본 음성 URL이나 바이트, waveform, 프레임별 RMS는 report와 로그에 저장하지 않는다.
-
-## 9. 결론
-
-현재 구현은 후속 음성 분석을 위해 정상 완료된 원본 음성을 임시로 남겨둔 상태다. 그러나 보관 만료와 삭제 책임이 정의되어 있지 않아 14일 보관 정책으로 볼 수 없다.
-
-전사 데이터는 별도 파일로 저장하지 않는다. 전체 전사는 처리 중 메모리에서만 사용하고, 타임스탬프가 포함된 segment만 비영속 Redis에 30분 보관한다. 리포트와 리포트 API에서는 전사 원문을 제공하지 않는다.
-
-음량 분석은 현재 남아 있는 원본 음성을 한 번 로드해 STT와 공유하는 구조로 연결됐다. 다만 원본 음성 보관 기간, 전사 segment 수명, 문제 구간 재생 정책은 여전히 별도 계약과 구현이 필요하다.
+전사 원문은 여전히 영속 보관하지 않고 timestamp segment만 내부 재시도를 위해 30분 캐시한다. 사용자는 리포트의 상대 음량 문제 구간을 선택해 보관 중인 원본 음성의 해당 시간 범위만 들을 수 있다.
