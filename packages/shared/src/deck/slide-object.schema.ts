@@ -120,6 +120,8 @@ export const textElementRunSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   baseline: z.enum(["normal", "superscript", "subscript"]).default("normal")
 });
@@ -136,6 +138,8 @@ export const textElementParagraphSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   align: textAlignSchema.default("left"),
   lineHeight: z.number().finite().positive().default(1.2),
@@ -161,6 +165,8 @@ export const textElementPropsSchema = z
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
