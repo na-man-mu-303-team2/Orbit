@@ -167,7 +167,7 @@ describe("GenerateDeckService", () => {
       references: [{ fileId: "file_1" }]
     });
 
-    expect(result).toEqual({ job });
+    expect(result).toEqual({ job, storyReviewRequired: false });
     expect(projectsService.getAccessibleProject).toHaveBeenCalledWith(
       "project_generated_1"
     );
@@ -175,6 +175,7 @@ describe("GenerateDeckService", () => {
       projectId: "project_generated_1",
       type: "ai-deck-generation",
       payload: {
+        storyReviewRequired: false,
         request: expect.objectContaining({
           topic: "AI 덱 생성",
           designPrompt: "retro pixel palette",

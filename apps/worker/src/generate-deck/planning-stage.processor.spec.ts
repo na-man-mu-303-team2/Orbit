@@ -269,6 +269,61 @@ describe("processAiDeckPlanningStage", () => {
     );
   });
 
+  it("pauses a PostgreSQL Story Review job after content planning", async () => {
+    const message = { ...sourceMessage, stage: "content-planning" as const };
+    const contentPayload = {
+      rawInput: { topic: "Safe topic" },
+      contentPlan: {
+        outline: { title: "Safe topic", slide_titles: ["Safe topic"] },
+        slidePlans: [{ order: 1, title: "Safe topic" }],
+      },
+    };
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("SET status = 'running', attempt = stages.attempt + 1")) {
+        return [checkpointRow(message.stage, "running", 1, { planningArtifactId })];
+      }
+      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
+        return [artifactRow("source-grounding", sourcePayload)];
+      }
+      if (compact.includes("FROM ai_deck_story_reviews")) return [];
+      if (compact.includes("INSERT INTO ai_deck_planning_artifacts")) {
+        return [artifactRow("content-planning", contentPayload)];
+      }
+      if (compact.includes("SET status = 'succeeded'")) {
+        return [checkpointRow(message.stage, "succeeded", 1, { planningArtifactId }, { planningArtifactId })];
+      }
+      if (compact.includes("SELECT payload FROM jobs")) {
+        return [{ payload: { request: { topic: "Safe topic" }, storyReviewRequired: true } }];
+      }
+      if (compact.includes("INSERT INTO ai_deck_story_reviews")) {
+        return [{ pipeline_job_id: message.pipelineJobId }];
+      }
+      if (compact.includes("UPDATE jobs SET status = 'running'")) {
+        return [parentRow("running", 40)];
+      }
+      if (compact.includes("INSERT INTO ai_deck_generation_stages")) {
+        throw new Error("design-planning must wait for Story Review approval");
+      }
+      throw new Error("Unexpected Story Review SQL");
+    });
+
+    await expect(
+      processAiDeckPlanningStage(
+        fakeDataSource(query),
+        "http://python-worker:8000",
+        "worker-a",
+        message,
+        { fetchImpl: async () => jsonResponse(contentPayload) },
+      ),
+    ).resolves.toMatchObject({ status: "running", progress: 40 });
+    expect(
+      query.mock.calls.some(([sql]) =>
+        compactSql(String(sql)).includes("INSERT INTO ai_deck_story_reviews"),
+      ),
+    ).toBe(true);
+  });
+
   it("fans out one image checkpoint per visual requirement after layout", async () => {
     const message = { ...sourceMessage, stage: "layout-compile" as const };
     const deck = createTestDeck(sourceMessage.projectId);
