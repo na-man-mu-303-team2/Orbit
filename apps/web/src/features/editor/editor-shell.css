@@ -699,6 +699,10 @@
   outline: none;
 }
 
+.compact-presentation-journey-button {
+  display: none;
+}
+
 .header-chip-button.active {
   border-color: #bfdbfe;
   background: var(--blue-soft);
@@ -6281,6 +6285,28 @@
 }
 
 @media (max-width: 860px) {
+  .orbit-shell .compact-presentation-journey-button {
+    align-items: center;
+    background: var(--orbit-ds-canvas);
+    border: 1px solid var(--orbit-ds-border);
+    border-radius: var(--orbit-ds-radius-panel);
+    bottom: 130px;
+    box-shadow: 0 12px 28px rgba(31, 29, 61, 0.16);
+    color: var(--orbit-ds-ink);
+    display: inline-flex;
+    height: 52px;
+    justify-content: center;
+    position: fixed;
+    right: 12px;
+    width: 52px;
+    z-index: 32;
+  }
+
+  .orbit-shell .compact-presentation-journey-button:focus-visible {
+    box-shadow: var(--orbit-ds-focus), 0 12px 28px rgba(31, 29, 61, 0.16);
+    outline: none;
+  }
+
   .orbit-shell.editor-app-shell {
     grid-template-rows: 64px minmax(0, 1fr);
     min-height: 620px;

@@ -2986,12 +2986,18 @@ function EditorRuntime(props: {
       setSaveError(null, null);
       return { status: "saved" };
     } catch (error) {
-      const message = toEditorErrorMessage(error);
+      const saveErrorCode =
+        (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ??
+        "rehearsal-save-failed";
+      const message =
+        saveErrorCode === "conflict-recovery-failed"
+          ? "최신 버전과 저장 충돌을 해결하지 못했습니다. 새로고침한 뒤 다시 시도해 주세요."
+          : "편집 내용을 저장하지 못했습니다. 다시 시도해 주세요.";
 
       setLastPatchLabel(`발표 준비 저장 실패 · ${message}`);
       setSaveState("error");
-      setSaveError("rehearsal-save-failed", message);
-      throw error;
+      setSaveError(saveErrorCode, message);
+      throw new Error(message);
     }
   }
 
@@ -3092,6 +3098,18 @@ function EditorRuntime(props: {
           ? "rehearsal"
           : "presentation";
     void handlePresentationJourneyNavigation(destination);
+  }
+
+  function handleOpenPresentationJourney() {
+    setIsRightPanelOpen(true);
+    if (canMutateDeck) {
+      setRightPanelView("journey");
+    }
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>('[data-testid="presentation-journey-panel"]')
+        ?.focus();
+    });
   }
 
   async function handleStartPresentation() {
@@ -6292,19 +6310,7 @@ function EditorRuntime(props: {
           <button
             aria-label="발표 준비 경로 열기"
             className="editor-context-top-button"
-            onClick={() => {
-              setIsRightPanelOpen(true);
-              if (canMutateDeck) {
-                setRightPanelView("journey");
-              }
-              requestAnimationFrame(() => {
-                document
-                  .querySelector<HTMLElement>(
-                    '[data-testid="presentation-journey-panel"]'
-                  )
-                  ?.focus();
-              });
-            }}
+            onClick={handleOpenPresentationJourney}
             type="button"
           >
             <FileText size={15} />
@@ -7081,6 +7087,14 @@ function EditorRuntime(props: {
           ) : (
             <div className="collapsed-right-rail">
               <button
+                aria-label="발표 준비 경로 열기"
+                className="compact-presentation-journey-button"
+                type="button"
+                onClick={handleOpenPresentationJourney}
+              >
+                <FileText aria-hidden="true" size={18} />
+              </button>
+              <button
                 aria-label="오른쪽 패널 펼치기"
                 className="collapse-right-pane-button"
                 type="button"
@@ -7134,6 +7148,14 @@ function EditorRuntime(props: {
               </>
             ) : (
               <div className="collapsed-right-rail">
+                <button
+                  aria-label="발표 준비 경로 열기"
+                  className="compact-presentation-journey-button"
+                  type="button"
+                  onClick={handleOpenPresentationJourney}
+                >
+                  <FileText aria-hidden="true" size={18} />
+                </button>
                 <button
                   aria-label="오른쪽 패널 펼치기"
                   className="collapse-right-pane-button"

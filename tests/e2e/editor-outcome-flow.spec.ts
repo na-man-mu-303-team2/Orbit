@@ -149,14 +149,10 @@ async function openJourney(page: Page) {
   });
   await expect(opener).toBeVisible();
   await opener.click();
-  await expect(journeyPanel(page)).toBeVisible();
-  await expect(
-    journeyPanel(page).getByRole("navigation", {
-      name: "발표 준비 경로",
-      exact: true,
-    }),
-  ).toBeVisible();
-  return journeyPanel(page);
+  const panel = journeyPanel(page);
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveAttribute("aria-label", "발표 준비 경로");
+  return panel;
 }
 
 async function expectFourJourneySteps(page: Page) {

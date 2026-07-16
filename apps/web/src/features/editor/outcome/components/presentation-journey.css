@@ -149,6 +149,10 @@
   .presentation-journey-panel {
     padding: 12px;
   }
+
+  .presentation-journey-action {
+    min-height: 44px;
+  }
 }
 
 @media (any-pointer: coarse) {
