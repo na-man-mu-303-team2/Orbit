@@ -3,11 +3,11 @@ import {
   generateDeckResearchIssueCodeSchema,
   generateDeckResearchQualitySchema,
   generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
   referenceExtractionResultSchema,
-  savedDesignPackSnapshotSchema,
   type AiDeckGenerationStageMessage,
   type GenerateDeckRequest,
   type Job,
@@ -35,7 +35,10 @@ import {
   sourceGroundingStageInput,
   type AiDeckPlanningStagePythonClientOptions,
 } from "./planning-stage-python-client";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import {
   compactDiagnostics,
   contractErrorDiagnostics,
@@ -50,12 +53,6 @@ const planningMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckPlanningStage(message.stage),
   { message: "Planning stage required" },
 );
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  })
-  .passthrough();
 const extractionRowSchema = z.object({ extraction_json: z.unknown() });
 const sourceGroundingResearchDiagnosticsSchema = z.object({
   research_quality: generateDeckResearchQualitySchema,
@@ -97,6 +94,7 @@ const progressByStage: Record<AiDeckPlanningStage, number> = {
 export interface AiDeckPlanningStageProcessorOptions extends AiDeckPlanningStagePythonClientOptions {
   heartbeatIntervalMs?: number;
   eventLogger?: AiDeckStageEventLogger;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
 }
 
 export async function processAiDeckPlanningStage(
@@ -112,8 +110,10 @@ export async function processAiDeckPlanningStage(
   }
   const message = { ...parsedMessage, stage: parsedMessage.stage };
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) return;
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) {
     throw new Error("Claimed stage is missing its lease owner.");
   }
@@ -257,6 +257,20 @@ export async function processAiDeckPlanningStage(
   }
 }
 
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
+  }
+}
+
 async function buildStageInput(
   dataSource: DataSource,
   message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
@@ -330,7 +344,9 @@ async function loadGroundingRequest(
   ) {
     throw new Error("AI deck generation parent job not found.");
   }
-  const storedPayload = storedPayloadSchema.parse(rawParent.payload);
+  const storedPayload = generateDeckStoredJobPayloadSchema.parse(
+    rawParent.payload,
+  );
   const request = storedPayload.request;
   const extractionRows = await dataSource.query(
     `

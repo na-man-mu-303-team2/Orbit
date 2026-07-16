@@ -13,6 +13,7 @@ const jobIds = [
   "it-pg-transport-job-a",
   "it-pg-transport-job-b",
 ];
+const userIds = ["it-pg-user-a", "it-pg-user-b"];
 
 describeWithPostgres("AI deck PostgreSQL transport integration", () => {
   const dataSource = new DataSource({ type: "postgres", url: databaseUrl });
@@ -36,6 +37,7 @@ describeWithPostgres("AI deck PostgreSQL transport integration", () => {
       projectId: projectIds[0]!,
       jobId: jobIds[0]!,
       userId: "it-pg-user-a",
+      storeRequestedByUserId: false,
     });
     await seedStages(
       dataSource,
@@ -100,9 +102,9 @@ describeWithPostgres("AI deck PostgreSQL transport integration", () => {
           WHEN pipeline_job_id = $1 THEN now() - interval '2 minutes'
           ELSE now() - interval '1 minute'
         END
-        WHERE pipeline_job_id = ANY($3::text[])
+        WHERE pipeline_job_id = ANY($2::text[])
       `,
-      [jobIds[0], jobIds[1], jobIds],
+      [jobIds[0], jobIds],
     );
 
     const next = await new AiDeckGenerationStageCheckpointRepository(
@@ -136,6 +138,11 @@ describeWithPostgres("AI deck PostgreSQL transport integration", () => {
 
     expect(claims.every((value) => value !== null)).toBe(true);
     expect(
+      claims.every(
+        (value) => value?.requestedByUserId === "it-pg-user-a",
+      ),
+    ).toBe(true);
+    expect(
       new Set(
         claims.map(
           (value) => `${value!.message.stage}:${value!.message.shardKey}`,
@@ -147,8 +154,21 @@ describeWithPostgres("AI deck PostgreSQL transport integration", () => {
 
 async function seedProjectAndJob(
   dataSource: DataSource,
-  input: { projectId: string; jobId: string; userId: string },
+  input: {
+    projectId: string;
+    jobId: string;
+    userId: string;
+    storeRequestedByUserId?: boolean;
+  },
 ) {
+  await dataSource.query(
+    `
+      INSERT INTO users (user_id, email, password_hash)
+      VALUES ($1, $2, 'integration-only')
+      ON CONFLICT (user_id) DO NOTHING
+    `,
+    [input.userId, `${input.userId}@example.invalid`],
+  );
   await dataSource.query(
     `
       INSERT INTO projects (project_id, workspace_id, title, created_by)
@@ -171,7 +191,9 @@ async function seedProjectAndJob(
       input.projectId,
       {
         request: { topic: "PostgreSQL transport" },
-        requestedByUserId: input.userId,
+        ...(input.storeRequestedByUserId === false
+          ? {}
+          : { requestedByUserId: input.userId }),
       },
     ],
   );
@@ -221,4 +243,7 @@ async function cleanup(dataSource: DataSource) {
     "DELETE FROM projects WHERE project_id = ANY($1::text[])",
     [projectIds],
   );
+  await dataSource.query("DELETE FROM users WHERE user_id = ANY($1::text[])", [
+    userIds,
+  ]);
 }

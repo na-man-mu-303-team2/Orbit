@@ -12,7 +12,10 @@ import {
   deckCompositionIdSchema
 } from "./composition.schema";
 import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
-import { savedDesignPackSelectionSchema } from "./saved-design-pack.schema";
+import {
+  savedDesignPackSelectionSchema,
+  savedDesignPackSnapshotSchema
+} from "./saved-design-pack.schema";
 import { themeColorSchema } from "./theme.schema";
 
 export const generateDeckTemplateSchema = z.enum([
@@ -230,6 +233,20 @@ export const generateDeckRequestSchema = z.object({
     .nullable()
     .default(null)
 }).strict();
+
+export const generateDeckStoredJobPayloadSchema = z
+  .object({
+    request: generateDeckRequestSchema,
+    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
+    imageAssetScope: z
+      .object({
+        userId: z.string().trim().min(1)
+      })
+      .strict()
+      .optional(),
+    requestedByUserId: z.string().trim().min(1).optional()
+  })
+  .strict();
 
 export const deckColorOptionRequestSchema = z.object({
   topic: z.string().trim().min(1),
@@ -451,6 +468,9 @@ export type GenerateDeckSlideCountRange = z.infer<
   typeof generateDeckSlideCountRangeSchema
 >;
 export type GenerateDeckRequest = z.infer<typeof generateDeckRequestSchema>;
+export type GenerateDeckStoredJobPayload = z.infer<
+  typeof generateDeckStoredJobPayloadSchema
+>;
 export type DeckColorOptionRequest = z.infer<typeof deckColorOptionRequestSchema>;
 export type DeckColorOption = z.infer<typeof deckColorOptionSchema>;
 export type DeckColorOptionsResponse = z.infer<

@@ -133,6 +133,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
         },
       ])
       .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ user_id: "user-b" }])
       .mockResolvedValueOnce([{ running_count: 0 }])
       .mockResolvedValueOnce([
         {
@@ -141,7 +142,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
           requested_by_user_id: "user-b",
         },
       ]);
-    const transaction = vi.fn(async (callback) =>
+    const transaction = vi.fn(async (_isolationLevel, callback) =>
       callback({ query: managerQuery }),
     );
     const repository = new AiDeckGenerationStageCheckpointRepository({
@@ -160,7 +161,10 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       checkpoint: { status: "running", attempt: 1 },
     });
 
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledWith(
+      "READ COMMITTED",
+      expect.any(Function),
+    );
     const candidatesSql = compactSql(managerQuery.mock.calls[0]?.[0]);
     expect(candidatesSql).toContain(
       "COALESCE(NULLIF(jobs.payload->>'requestedByUserId', ''), projects.created_by)",
@@ -170,9 +174,12 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
     );
     const lockSql = compactSql(managerQuery.mock.calls[1]?.[0]);
     expect(lockSql).toContain("pg_try_advisory_xact_lock");
-    const recountSql = compactSql(managerQuery.mock.calls[2]?.[0]);
+    const guardSql = compactSql(managerQuery.mock.calls[2]?.[0]);
+    expect(guardSql).toContain("FROM users");
+    expect(guardSql).toContain("FOR UPDATE");
+    const recountSql = compactSql(managerQuery.mock.calls[3]?.[0]);
     expect(recountSql).toContain("stages.status = 'running'");
-    const claimSql = compactSql(managerQuery.mock.calls[3]?.[0]);
+    const claimSql = compactSql(managerQuery.mock.calls[4]?.[0]);
     expect(claimSql).toContain("FOR UPDATE OF stages SKIP LOCKED");
     expect(claimSql).toContain("LIMIT 1");
     expect(claimSql).toContain("status = 'running'");
@@ -191,15 +198,18 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
         },
       ])
       .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ user_id: "user-a" }])
       .mockResolvedValueOnce([{ running_count: 5 }]);
     const repository = new AiDeckGenerationStageCheckpointRepository({
       query: vi.fn(),
-      transaction: async (callback: (manager: { query: QueryFunction }) => unknown) =>
-        callback({ query: managerQuery }),
+      transaction: async (
+        _isolationLevel: "READ COMMITTED",
+        callback: (manager: { query: QueryFunction }) => unknown,
+      ) => callback({ query: managerQuery }),
     } as unknown as DataSource);
 
     await expect(repository.claimNext("worker-b", 5)).resolves.toBeNull();
-    expect(managerQuery).toHaveBeenCalledTimes(3);
+    expect(managerQuery).toHaveBeenCalledTimes(4);
     expect(
       managerQuery.mock.calls.some(([sql]) =>
         compactSql(sql).includes("UPDATE ai_deck_generation_stages"),
@@ -224,6 +234,7 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       ])
       .mockResolvedValueOnce([{ acquired: false }])
       .mockResolvedValueOnce([{ acquired: true }])
+      .mockResolvedValueOnce([{ user_id: "user-b" }])
       .mockResolvedValueOnce([{ running_count: 0 }])
       .mockResolvedValueOnce([
         {
@@ -234,8 +245,10 @@ describe("AiDeckGenerationStageCheckpointRepository", () => {
       ]);
     const repository = new AiDeckGenerationStageCheckpointRepository({
       query: vi.fn(),
-      transaction: async (callback: (manager: { query: QueryFunction }) => unknown) =>
-        callback({ query: managerQuery }),
+      transaction: async (
+        _isolationLevel: "READ COMMITTED",
+        callback: (manager: { query: QueryFunction }) => unknown,
+      ) => callback({ query: managerQuery }),
     } as unknown as DataSource);
 
     await expect(repository.claimNext("worker-b", 5)).resolves.toMatchObject({

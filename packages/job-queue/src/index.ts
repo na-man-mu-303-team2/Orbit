@@ -151,6 +151,7 @@ export interface GenerateDeckBullMqPayload {
   projectId: string;
   request: GenerateDeckRequest;
   designPackSnapshot?: SavedDesignPackSnapshot;
+  requestedByUserId?: string;
   imageAssetScope?: {
     userId: string;
   };
@@ -323,6 +324,7 @@ export async function enqueueGenerateDeckJob(
   if (executionMode === "sqs") {
     throw new Error("AI Deck SQS transport is not implemented yet.");
   }
+  if (executionMode === "pg") return;
 
   const queue = new Queue(generateDeckQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
@@ -355,6 +357,9 @@ export async function enqueueGenerateDeckJob(
           : {}),
         ...(input.imageAssetScope
           ? { imageAssetScope: input.imageAssetScope }
+          : {}),
+        ...(input.requestedByUserId
+          ? { requestedByUserId: input.requestedByUserId }
           : {}),
       } satisfies GenerateDeckBullMqPayload,
       canonicalJobOptions(input.jobId),
