@@ -11,6 +11,7 @@ export {
 } from "./SlideBackground";
 export { ElementNodeContent, type SlideElementFrame } from "./elementRendering";
 export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
+export { getHighlightOverlayElements } from "./highlightOverlayElements";
 export {
   getRenderableSlideElements,
   normalizeRenderableElement
