@@ -241,6 +241,23 @@ DesignAgentOperation = Annotated[
     | UpdateSlideStyleOperation,
     Field(discriminator="type"),
 ]
+class SmartArtItem(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=400)
+
+
+class SmartArtRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    layout_type: Literal["list", "process", "card_grid"] = Field(alias="layoutType")
+    source_element_ids: list[str] = Field(
+        default_factory=list,
+        alias="sourceElementIds",
+        max_length=100,
+    )
+    items: list[SmartArtItem] = Field(min_length=1, max_length=12)
+
+
 class DesignAgentIntent(BaseModel):
     alignment: (
         Literal[
@@ -269,6 +286,9 @@ class DesignAgentResponse(BaseModel):
         max_length=200,
     )
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    smart_art_request: SmartArtRequest | None = Field(
+        default=None, alias="smartArtRequest"
+    )
 
 
 class DesignAgentGenerationError(RuntimeError):
@@ -330,6 +350,43 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                     "maxItems": 20,
                     "items": {"type": "string"},
                 },
+                "smartArtRequest": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "layoutType": {
+                            "type": "string",
+                            "enum": ["list", "process", "card_grid"],
+                        },
+                        "sourceElementIds": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": {"type": "string"},
+                        },
+                        "items": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 12,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "title": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 120,
+                                    },
+                                    "description": {
+                                        "type": ["string", "null"],
+                                        "maxLength": 400,
+                                    },
+                                },
+                                "required": ["title", "description"],
+                            },
+                        },
+                    },
+                    "required": ["layoutType", "sourceElementIds", "items"],
+                },
             },
             "required": [
                 "message",
@@ -337,6 +394,7 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                 "operations",
                 "affectedElementIds",
                 "warnings",
+                "smartArtRequest",
             ],
         },
     }
@@ -406,6 +464,17 @@ def design_agent_system_prompt(
         "Preserve text meaning. Avoid overlap, keep every element inside the canvas, "
         "maintain visual hierarchy, and emit the smallest necessary set of operations. "
         f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
+        "If the user asks to turn a list of items, steps, or comparisons into a diagram "
+        "(e.g. '스마트아트', 'SmartArt', a process/step diagram, a card layout), do NOT "
+        "compute shape coordinates yourself and do NOT emit add_element operations for it. "
+        "Instead set smartArtRequest with a layoutType ('list' for a simple bulleted or "
+        "numbered list, 'process' for sequential steps, 'card_grid' for parallel items such "
+        "as team members or features) and the extracted items (short title, optional "
+        "description) in the user's language; leave operations empty unless the user also "
+        "asked for an unrelated change. Set sourceElementIds to the selectedElementIds whose "
+        "content is being converted; use an empty array when the diagram is newly added. Never "
+        "include unselected element IDs. A server-side layout preset places the shapes. "
+        "When the request is not about creating such a diagram, set smartArtRequest to null. "
         "Do not claim the proposal has already been applied."
     )
 
@@ -475,6 +544,38 @@ def validate_design_proposal(
     unknown_affected = set(response.affected_element_ids) - known_element_ids
     if unknown_affected:
         raise DesignAgentGenerationError("affectedElementIds contains unknown elements.")
+
+    if response.smart_art_request is not None:
+        source_ids = set(response.smart_art_request.source_element_ids)
+        selected_ids = set(request.context.selected_element_ids)
+        if not source_ids.issubset(selected_ids):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains unselected elements."
+            )
+        if not source_ids.issubset(known_element_ids):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains unknown elements."
+            )
+        if any(elements[element_id].get("visible") is False for element_id in source_ids):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains hidden elements."
+            )
+        directly_targeted_ids = {
+            operation.element_id
+            for operation in response.operations
+            if isinstance(
+                operation,
+                (
+                    DeleteElementOperation,
+                    UpdateElementFrameOperation,
+                    UpdateElementPropsOperation,
+                ),
+            )
+        }
+        if source_ids & directly_targeted_ids:
+            raise DesignAgentGenerationError(
+                "SmartArt source elements are also targeted by direct operations."
+            )
 
     payload = response.model_dump(by_alias=True, exclude_none=True)
     payload["operations"] = [

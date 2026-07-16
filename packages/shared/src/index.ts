@@ -35,6 +35,7 @@ export * from "./deck/ppt-advisor.schema";
 export * from "./deck/reference-extraction.schema";
 export * from "./deck/saved-design-pack.schema";
 export * from "./deck/semantic-qa";
+export * from "./deck/smart-art-layout.schema";
 export * from "./deck/semantic-cue.schema";
 export * from "./deck/semantic-cue-extraction.schema";
 export * from "./deck/slide-action.schema";
