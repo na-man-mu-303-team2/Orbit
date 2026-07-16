@@ -172,6 +172,22 @@ test.describe("P1 presenter screen and slide window", () => {
         systemAudio: "exclude",
       });
 
+    await delayNextMockShare(page);
+    await page.getByRole("button", { name: "고급 옵션" }).click();
+    await page.getByRole("button", { name: "전체 화면 공유" }).click();
+    await page.getByLabel("노출 위험을 확인했습니다").check();
+    await page.getByRole("button", { name: "전체 화면 선택" }).click();
+    await expect(
+      slideWindow.locator('[data-slide-id="slide_presenter_1"]'),
+    ).toBeVisible();
+    await page.waitForTimeout(6000);
+    await expect(slideWindow.locator("video")).toHaveCount(0);
+    await releaseNextMockShare(page);
+    await expect(sharedVideo).toBeVisible();
+    await expect
+      .poll(() => getScreenShareRequest(page))
+      .toMatchObject({ monitorTypeSurfaces: "include" });
+
     await page.getByRole("button", { name: "다음 슬라이드" }).click();
 
     await page.getByRole("button", { name: "슬라이드로 돌아가기" }).click();
@@ -247,6 +263,7 @@ test.describe("P1 presenter screen and slide window", () => {
 
     await page.goto(`/rehearsal/${project.projectId}`);
     await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
+    await expect(page.getByText("리허설 · 자동 따라가기")).toBeVisible();
     await page.getByRole("button", { name: "프레젠테이션 옵션" }).click();
     await page.getByRole("button", { name: "화면 권한 요청" }).click();
     await expect(
@@ -275,6 +292,17 @@ test.describe("P1 presenter screen and slide window", () => {
         }),
       )
       .toEqual({ bridgeReady: true, hasOpener: true, openerClosed: false });
+    await remoteWindow
+      .getByRole("button", { name: "리허설 일시정지" })
+      .click();
+    await expect(
+      remoteWindow.getByRole("button", { name: "리허설 다시 시작" }),
+    ).toBeVisible();
+    await remoteWindow.waitForTimeout(6000);
+    await expect(remoteWindow.getByText("팝업 연결됨")).toBeVisible();
+    await expect(
+      remoteWindow.getByRole("button", { name: "웹·실습 보여주기" }),
+    ).toBeEnabled();
     await remoteWindow
       .getByRole("button", { name: "웹·실습 보여주기" })
       .click();
@@ -320,6 +348,33 @@ test.describe("P1 presenter screen and slide window", () => {
       page.locator('[data-slide-id="slide_presenter_2"]'),
     ).toBeVisible();
     expect(await page.content()).not.toContain("두 번째 슬라이드 대본도");
+  });
+
+  test("recovers from a missing receiver stream while presenter state keeps changing", async ({
+    page,
+  }) => {
+    await installScreenShareMock(page);
+    const { project } = await createAuthenticatedProject(page, {
+      deck: presenterDeck as Deck,
+      label: "presenter-missing-stream",
+    });
+
+    await page.goto(`/rehearsal/${project.projectId}`);
+    await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
+    const slideWindowPromise = page.waitForEvent("popup");
+    await page.getByRole("button", { name: "슬라이드 창 열기" }).click();
+    const slideWindow = await slideWindowPromise;
+    await slideWindow.waitForLoadState();
+    await suppressNextAudienceStreamAttach(slideWindow);
+
+    await page.getByRole("button", { name: "웹·실습 보여주기" }).click();
+    await expect(slideWindow.getByLabel("공유 화면 연결 중")).toBeVisible();
+    await page.waitForTimeout(6000);
+
+    await expect(
+      slideWindow.locator('[data-slide-id="slide_presenter_1"]'),
+    ).toBeVisible();
+    await expect.poll(() => getLatestMockTrackState(page)).toBe("ended");
   });
 
   test("shows a screen picker when Window Management reports multiple external displays", async ({
@@ -377,6 +432,7 @@ test.describe("P1 presenter screen and slide window", () => {
 
     await page.goto(`/rehearsal/${project.projectId}`);
     await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
+    await expect(page.getByText("리허설 · 자동 따라가기")).toBeVisible();
     await page.getByRole("button", { name: "프레젠테이션 옵션" }).click();
     await page.getByRole("button", { name: "화면 권한 요청" }).click();
 
@@ -388,6 +444,8 @@ test.describe("P1 presenter screen and slide window", () => {
 async function installScreenShareMock(page: import("@playwright/test").Page) {
   await page.context().addInitScript(() => {
     const qa = {
+      delayNextRequest: false,
+      pendingRequestResolvers: [] as Array<() => void>,
       requests: [] as DisplayMediaStreamOptions[],
       tracks: [] as MediaStreamTrack[],
     };
@@ -410,6 +468,12 @@ async function installScreenShareMock(page: import("@playwright/test").Page) {
       configurable: true,
       value: async (options: DisplayMediaStreamOptions) => {
         qa.requests.push(options);
+        if (qa.delayNextRequest) {
+          qa.delayNextRequest = false;
+          await new Promise<void>((resolve) => {
+            qa.pendingRequestResolvers.push(resolve);
+          });
+        }
         const canvas = document.createElement("canvas");
         canvas.hidden = true;
         canvas.width = 640;
@@ -423,7 +487,13 @@ async function installScreenShareMock(page: import("@playwright/test").Page) {
         const getSettings = track.getSettings.bind(track);
         Object.defineProperty(track, "getSettings", {
           configurable: true,
-          value: () => ({ ...getSettings(), displaySurface: "browser" }),
+          value: () => ({
+            ...getSettings(),
+            displaySurface:
+              options.monitorTypeSurfaces === "include"
+                ? "monitor"
+                : "browser",
+          }),
         });
         qa.tracks.push(track);
         return stream;
@@ -480,6 +550,43 @@ async function getScreenShareRequest(page: import("@playwright/test").Page) {
       }
     ).__orbitScreenShareQa;
     return qa.requests.at(-1) ?? null;
+  });
+}
+
+async function delayNextMockShare(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    const qa = (
+      window as unknown as {
+        __orbitScreenShareQa: { delayNextRequest: boolean };
+      }
+    ).__orbitScreenShareQa;
+    qa.delayNextRequest = true;
+  });
+}
+
+async function releaseNextMockShare(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    const qa = (
+      window as unknown as {
+        __orbitScreenShareQa: { pendingRequestResolvers: Array<() => void> };
+      }
+    ).__orbitScreenShareQa;
+    qa.pendingRequestResolvers.shift()?.();
+  });
+}
+
+async function suppressNextAudienceStreamAttach(
+  page: import("@playwright/test").Page,
+) {
+  await page.evaluate(() => {
+    const audienceWindow = window as typeof window & {
+      __orbitAudienceStreamBridgeV1?: {
+        attach: () => { ok: true };
+      };
+    };
+    const bridge = audienceWindow.__orbitAudienceStreamBridgeV1;
+    if (!bridge) throw new Error("audience stream bridge is not ready");
+    bridge.attach = () => ({ ok: true });
   });
 }
 
