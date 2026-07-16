@@ -678,6 +678,29 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("wires audience output state, popup reattach, and receiver failure cleanup", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const publisherStart = source.indexOf(
+      "const presentationChannel = usePresentationChannelPublisher",
+    );
+    const controllerStart = source.indexOf(
+      "const audienceScreenShare = useAudienceScreenShare",
+    );
+    const controllerEnd = source.indexOf(
+      "const displayManager = useMemo",
+      controllerStart,
+    );
+    const integrationBody = source.slice(publisherStart, controllerEnd);
+
+    expect(integrationBody).toContain("onPeerReady: (peer)");
+    expect(integrationBody).toContain("reattachAudienceStreamRef.current()");
+    expect(integrationBody).toContain("onScreenShareEnded:");
+    expect(integrationBody).toContain("stopAudienceStreamRef.current()");
+    expect(integrationBody).toContain("slideWindowRef.current");
+    expect(integrationBody).toContain("setAudienceOutputMode");
+    expect(integrationBody).toContain("handlePeerUnavailable");
+  });
+
   it("supports Surface Swap fullscreen before opening the presenter remote popup", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const surfaceStart = source.indexOf("const openSurfaceSwapDisplay =");
