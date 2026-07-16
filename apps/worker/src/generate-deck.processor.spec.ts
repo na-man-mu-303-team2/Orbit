@@ -532,8 +532,8 @@ describe("processGenerateDeckJob", () => {
     ]);
   });
 
-  it("publishes after bounded repair when only one advisory slide remains", async () => {
-    const deck = programV2Deck();
+  it("publishes a four-slide deck when advisory issues remain on three slides", async () => {
+    const deck = programV2DeckWithSlideCount(4);
     const query = dynamicJobQuery();
     let repairCount = 0;
     vi.stubGlobal(
@@ -544,7 +544,7 @@ describe("processGenerateDeckJob", () => {
           return generateDeckResponse(deck);
         }
         if (url.endsWith("/ai/review-deck-visuals")) {
-          return visualFailureResponse("BALANCE_WEAK");
+          return visualFailureResponse("BALANCE_WEAK", [1, 2, 3]);
         }
         if (url.endsWith("/ai/repair-deck-visuals")) {
           repairCount += 1;
@@ -569,10 +569,12 @@ describe("processGenerateDeckJob", () => {
         designIssues: []
       },
       diagnostics: {
-        visualQaStatus: "passed",
+        visualQaStatus: "advisory",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
-        visualIssueCodes: ["BALANCE_WEAK"]
+        visualIssueCodes: ["BALANCE_WEAK", "BALANCE_WEAK", "BALANCE_WEAK"],
+        visualIssueSlideOrders: [1, 2, 3],
+        warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
       },
       warnings: [expect.stringContaining("advisory issue")]
     });
@@ -1802,6 +1804,33 @@ function programV2Deck() {
   });
 }
 
+function programV2DeckWithSlideCount(slideCount: number) {
+  const base = programV2Deck();
+  const source = base.slides[0];
+  return deckSchema.parse({
+    ...base,
+    slides: Array.from({ length: slideCount }, (_, index) => {
+      const elementId = `el_${index + 1}_program_v2_title`;
+      return {
+        ...source,
+        slideId: `slide_${index + 1}`,
+        order: index + 1,
+        elements: source.elements.map((element) => ({
+          ...element,
+          elementId
+        })),
+        aiNotes: {
+          ...source.aiNotes,
+          compositionPlan: {
+            ...source.aiNotes?.compositionPlan,
+            primaryFocalElementId: elementId
+          }
+        }
+      };
+    })
+  });
+}
+
 function programV2DeckWithOptionalMedia() {
   const base = programV2Deck();
   return deckSchema.parse({
@@ -2071,13 +2100,18 @@ function visualPassResponse() {
 }
 
 function visualFailureResponse(
-  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH"
+  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH",
+  slideOrders = [1]
 ) {
   return new Response(
     JSON.stringify({
       review: {
         passed: false,
-        issues: [{ code, slideOrder: 1, message: "Visual hierarchy is weak." }],
+        issues: slideOrders.map((slideOrder) => ({
+          code,
+          slideOrder,
+          message: "Visual hierarchy is weak."
+        })),
         repairActions: [
           {
             action: "increaseFocalScale",

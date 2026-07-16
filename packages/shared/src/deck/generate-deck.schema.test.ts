@@ -372,6 +372,12 @@ describe("generateDeckDiagnosticsSchema", () => {
     });
   });
 
+  it("accepts advisory rendered visual QA with affected slides", () => {
+    expect(generateDeckDiagnosticsSchema.parse({ visualQaStatus: "advisory" })).toMatchObject({
+      visualQaStatus: "advisory"
+    });
+  });
+
   it("accepts extensible uppercase codes and rejects user-facing warning text", () => {
     expect(
       generateDeckDiagnosticsSchema.parse({
