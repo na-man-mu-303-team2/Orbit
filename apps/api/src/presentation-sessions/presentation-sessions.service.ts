@@ -143,6 +143,12 @@ export class PresentationSessionsService {
     return presentationSessionResponseSchema.parse({ session: this.toSession(row) });
   }
 
+  async getSessionForPresenter(projectId: string, sessionId: string) {
+    const row = await this.repository.findByIdForRead(projectId, sessionId);
+    if (!row) throw new NotFoundException("Presentation session not found");
+    return this.toSession(row);
+  }
+
   async getAudiencePublicInfo(sessionId: string, now = new Date()) {
     const row = await this.repository.findAudienceInfo(sessionId);
     if (!row) throw new NotFoundException("Audience session unavailable");

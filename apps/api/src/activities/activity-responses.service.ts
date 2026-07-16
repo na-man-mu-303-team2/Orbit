@@ -6,7 +6,7 @@ import {
   upsertActivityResponseResponseSchema
 } from "@orbit/shared";
 import type { ActivityAnswer, UpsertActivityResponseRequest } from "@orbit/shared";
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Optional } from "@nestjs/common";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import {
@@ -17,13 +17,15 @@ import {
   ActivityResponseValidationError,
   validateActivityResponseInput
 } from "./activity-response-validator";
+import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
 
 @Injectable()
 export class ActivityResponsesService {
   constructor(
     private readonly repository: ActivityResponseRepository,
     @InjectPinoLogger(ActivityResponsesService.name)
-    private readonly logger: PinoLogger
+    private readonly logger: PinoLogger,
+    @Optional() private readonly realtimePublisher?: ActivityRealtimePublisher
   ) {}
 
   async upsert(
@@ -104,6 +106,11 @@ export class ActivityResponsesService {
         },
         "activity response upserted"
       );
+      this.realtimePublisher?.publishResultsUpdated({
+        sessionId,
+        runId: result.response.activity_run_id,
+        revision: result.runRevision
+      });
     }
     return upsertActivityResponseResponseSchema.parse({
       response: this.toResponse(result.response),

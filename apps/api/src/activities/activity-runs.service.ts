@@ -14,7 +14,14 @@ import type {
   SupersedeActivityRunRequest,
   UpdateActivityRunStatusRequest
 } from "@orbit/shared";
-import { ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import { createActivityDefinitionFingerprint } from "./activity-definition-fingerprint";
@@ -23,6 +30,7 @@ import {
   type ActivityRunRow,
   type ActivitySessionDeckRow
 } from "./activity-run.repository";
+import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
 
 const allowedTransitions: Record<ActivityRuntimeStatus, ActivityRuntimeStatus[]> = {
   draft: ["open"],
@@ -36,7 +44,8 @@ export class ActivityRunsService {
   constructor(
     private readonly repository: ActivityRunRepository,
     @InjectPinoLogger(ActivityRunsService.name)
-    private readonly logger: PinoLogger
+    private readonly logger: PinoLogger,
+    @Optional() private readonly realtimePublisher?: ActivityRealtimePublisher
   ) {}
 
   async ensureCurrentRun(projectId: string, sessionId: string, activityId: string) {
@@ -167,6 +176,21 @@ export class ActivityRunsService {
     });
     if (result.changed) {
       this.logRunEvent(eventForStatus(input.status), projectId, sessionId, runId);
+      this.realtimePublisher?.publishStateChanged({
+        sessionId,
+        activityId: result.run.activity_id,
+        runId,
+        status: result.run.status,
+        revision: result.run.revision
+      });
+      if (result.run.status === "open") {
+        this.realtimePublisher?.publishActiveActivityChanged({
+          sessionId,
+          activityId: result.run.activity_id,
+          runId,
+          revision: result.run.revision
+        });
+      }
     }
     return updateActivityRunStatusResponseSchema.parse({ run: this.toRun(result.run) });
   }

@@ -145,6 +145,10 @@ export class PresentationSessionRepository {
     return rows[0] ?? null;
   }
 
+  findByIdForRead(projectId: string, sessionId: string) {
+    return this.findById(this.dataSource, projectId, sessionId, false);
+  }
+
   async closeActive(
     manager: EntityManager,
     projectId: string,
