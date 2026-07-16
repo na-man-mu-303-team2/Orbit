@@ -7,6 +7,7 @@ import {
   activityRunSchema,
   getActivityPresenterResultResponseSchema,
   getActivityPublicResultResponseSchema,
+  getAudienceActiveActivityResponseSchema,
   getAudienceActivityResponseSchema
 } from "@orbit/shared";
 import type { ActivityAnswer, ActivityPresenterResult, ActivityPublicResult } from "@orbit/shared";
@@ -47,13 +48,31 @@ export class ActivityResultsService {
   ) {
     const run = await this.repository.findCurrentRun(projectId, sessionId, activityId);
     if (!run) throw new NotFoundException("Activity run not found");
+    return this.buildAudienceActivity(run, audienceId);
+  }
+
+  async getAudienceActiveActivity(
+    projectId: string,
+    sessionId: string,
+    audienceId: string
+  ) {
+    const run = await this.repository.findActiveRun(projectId, sessionId);
+    return getAudienceActiveActivityResponseSchema.parse({
+      activity: run ? await this.buildAudienceActivity(run, audienceId) : null
+    });
+  }
+
+  private async buildAudienceActivity(
+    run: ActivityResultRunRow,
+    audienceId: string
+  ) {
     const ownResponse = await this.repository.findOwnResponse(
-      projectId,
+      run.project_id,
       run.activity_run_id,
       audienceId
     );
     return getAudienceActivityResponseSchema.parse({
-      activityId,
+      activityId: run.activity_id,
       run: this.toRun(run),
       ownResponse: ownResponse ? this.toResponse(run.activity_run_id, ownResponse) : null,
       publicResult: run.status === "results" ? await this.buildPublicResult(run) : null

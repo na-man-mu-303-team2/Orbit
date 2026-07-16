@@ -75,6 +75,7 @@ function createService(status: typeof run.status | "closed" = "results") {
   const repository = {
     findRun: vi.fn().mockResolvedValue({ ...run, status }),
     findCurrentRun: vi.fn().mockResolvedValue({ ...run, status }),
+    findActiveRun: vi.fn().mockResolvedValue({ ...run, status }),
     findOwnResponse: vi.fn().mockResolvedValue(responses[0]),
     listResponses: vi.fn().mockResolvedValue(responses),
     listTextEntries: vi.fn().mockResolvedValue([
@@ -153,5 +154,19 @@ describe("ActivityResultsService", () => {
     await expect(
       createService("closed").getPublicResult("project_1", "session_1", "activity_run_1")
     ).resolves.toEqual({ result: null });
+  });
+
+  it("returns the active activity with the current audience response", async () => {
+    const result = await createService("closed").getAudienceActiveActivity(
+      "project_1",
+      "session_1",
+      "audience_private"
+    );
+
+    expect(result.activity).toMatchObject({
+      activityId: "activity_1",
+      ownResponse: { responseId: "activity_response_1" },
+      publicResult: null
+    });
   });
 });

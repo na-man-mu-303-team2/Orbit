@@ -133,11 +133,14 @@ export class ActivityResponseRepository {
   ): Promise<ActivityResponseRow> {
     const rows = await manager.query<ActivityResponseRow[]>(
       `
-        UPDATE activity_responses
-        SET answers_json = $2::jsonb, display_name = $3,
-            last_client_mutation_id = $4, revision = revision + 1, updated_at = $5
-        WHERE response_id = $1
-        RETURNING ${responseColumns}
+        WITH updated AS (
+          UPDATE activity_responses
+          SET answers_json = $2::jsonb, display_name = $3,
+              last_client_mutation_id = $4, revision = revision + 1, updated_at = $5
+          WHERE response_id = $1
+          RETURNING ${responseColumns}
+        )
+        SELECT * FROM updated
       `,
       [responseId, JSON.stringify(answers), displayName, mutationId, now]
     );
@@ -198,12 +201,15 @@ export class ActivityResponseRepository {
   ): Promise<number> {
     const rows = await manager.query<Array<{ revision: number }>>(
       `
-        UPDATE activity_runs
-        SET revision = revision + 1,
-            response_count = response_count + CASE WHEN $2 THEN 1 ELSE 0 END,
-            updated_at = $3
-        WHERE activity_run_id = $1
-        RETURNING revision
+        WITH updated AS (
+          UPDATE activity_runs
+          SET revision = revision + 1,
+              response_count = response_count + CASE WHEN $2 THEN 1 ELSE 0 END,
+              updated_at = $3
+          WHERE activity_run_id = $1
+          RETURNING revision
+        )
+        SELECT revision FROM updated
       `,
       [runId, incrementResponseCount, now]
     );

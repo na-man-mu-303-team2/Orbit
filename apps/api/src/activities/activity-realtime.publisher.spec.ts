@@ -4,6 +4,32 @@ import { describe, expect, it, vi } from "vitest";
 import { ActivityRealtimePublisher } from "./activity-realtime.publisher";
 
 describe("ActivityRealtimePublisher", () => {
+  it("publishes a complete state-change payload", () => {
+    const emit = vi.fn();
+    const publisher = new ActivityRealtimePublisher();
+    publisher.attach({
+      to: vi.fn().mockReturnValue({ emit })
+    } as unknown as Server);
+
+    publisher.publishStateChanged({
+      sessionId: "session_1",
+      activityId: "activity_1",
+      runId: "activity_run_1",
+      status: "open",
+      revision: 2
+    });
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls[0]?.[1]).toMatchObject({
+      payload: {
+        activityId: "activity_1",
+        activityRunId: "activity_run_1",
+        status: "open",
+        revision: 2
+      }
+    });
+  });
+
   it("publishes revision-only refetch events to isolated presenter and audience rooms", () => {
     const emit = vi.fn();
     const to = vi.fn().mockReturnValue({ emit });

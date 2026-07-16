@@ -93,6 +93,26 @@ export class ActivityResultsRepository {
     return rows[0] ?? null;
   }
 
+  async findActiveRun(
+    projectId: string,
+    sessionId: string
+  ): Promise<ActivityResultRunRow | null> {
+    const rows = await this.dataSource.query<ActivityResultRunRow[]>(
+      `
+        SELECT ${runColumns}
+        FROM presentation_sessions AS sessions
+        INNER JOIN activity_runs AS runs
+          ON runs.project_id = sessions.project_id
+         AND runs.session_id = sessions.session_id
+         AND runs.activity_run_id = sessions.active_activity_run_id
+        WHERE sessions.project_id = $1 AND sessions.session_id = $2
+        LIMIT 1
+      `,
+      [projectId, sessionId]
+    );
+    return rows[0] ?? null;
+  }
+
   listResponses(projectId: string, runId: string) {
     return this.dataSource.query<ActivityResultResponseRow[]>(
       `

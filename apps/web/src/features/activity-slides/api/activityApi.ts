@@ -2,6 +2,7 @@ import {
   audiencePresentationAccessResponseSchema,
   ensureActivityRunResponseSchema,
   getActivityPresenterResultResponseSchema,
+  getAudienceActiveActivityResponseSchema,
   getAudienceActivityResponseSchema,
   getAudiencePresentationPublicInfoResponseSchema,
   getCurrentPresentationSessionResponseSchema,
@@ -112,6 +113,13 @@ export const activityApi = {
       `/api/v1/audience-sessions/${segment(sessionId)}/activities/${segment(activityId)}`,
       undefined,
       getAudienceActivityResponseSchema
+    );
+  },
+  getAudienceActiveActivity(sessionId: string) {
+    return request(
+      `/api/v1/audience-sessions/${segment(sessionId)}/active-activity`,
+      undefined,
+      getAudienceActiveActivityResponseSchema
     );
   },
   upsertAudienceResponse(

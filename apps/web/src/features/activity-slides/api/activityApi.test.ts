@@ -36,4 +36,21 @@ describe("activityApi", () => {
       })
     );
   });
+
+  it("loads the active activity from the audience session boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ activity: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await activityApi.getAudienceActiveActivity("session_1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/audience-sessions/session_1/active-activity",
+      expect.objectContaining({ credentials: "include" })
+    );
+  });
 });

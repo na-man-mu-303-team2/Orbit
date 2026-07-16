@@ -170,11 +170,14 @@ export class ActivityRunRepository {
   ): Promise<ActivityRunRow> {
     const rows = await manager.query<ActivityRunRow[]>(
       `
-        UPDATE activity_runs
-        SET source_slide_id = $2, definition_snapshot = $3::jsonb,
-            definition_fingerprint = $4, revision = revision + 1, updated_at = $5
-        WHERE activity_run_id = $1 AND response_count = 0
-        RETURNING ${runColumns}
+        WITH updated AS (
+          UPDATE activity_runs
+          SET source_slide_id = $2, definition_snapshot = $3::jsonb,
+              definition_fingerprint = $4, revision = revision + 1, updated_at = $5
+          WHERE activity_run_id = $1 AND response_count = 0
+          RETURNING ${runColumns}
+        )
+        SELECT * FROM updated
       `,
       [runId, sourceSlideId, JSON.stringify(definition), fingerprint, now]
     );
@@ -237,15 +240,18 @@ export class ActivityRunRepository {
   ): Promise<ActivityRunRow> {
     const rows = await manager.query<ActivityRunRow[]>(
       `
-        UPDATE activity_runs
-        SET status = $2,
-            revision = revision + 1,
-            opened_at = CASE WHEN $2 = 'open' THEN COALESCE(opened_at, $3) ELSE opened_at END,
-            closed_at = CASE WHEN $2 = 'closed' THEN $3 ELSE closed_at END,
-            revealed_at = CASE WHEN $2 = 'results' THEN $3 ELSE revealed_at END,
-            updated_at = $3
-        WHERE activity_run_id = $1
-        RETURNING ${runColumns}
+        WITH updated AS (
+          UPDATE activity_runs
+          SET status = $2,
+              revision = revision + 1,
+              opened_at = CASE WHEN $2 = 'open' THEN COALESCE(opened_at, $3) ELSE opened_at END,
+              closed_at = CASE WHEN $2 = 'closed' THEN $3 ELSE closed_at END,
+              revealed_at = CASE WHEN $2 = 'results' THEN $3 ELSE revealed_at END,
+              updated_at = $3
+          WHERE activity_run_id = $1
+          RETURNING ${runColumns}
+        )
+        SELECT * FROM updated
       `,
       [runId, status, now]
     );

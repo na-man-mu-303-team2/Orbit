@@ -12,6 +12,7 @@ describe("activity-slides public boundary", () => {
     const role: ActivitySurfaceRole = "audience";
     expect(role).toBe("audience");
     expect(activityApi.getAudienceActivity).toBeTypeOf("function");
+    expect(activityApi.getAudienceActiveActivity).toBeTypeOf("function");
     expect(activityQueryKeys.audienceActivity("session_1", "activity_1")).toEqual([
       "activity-slides",
       "audience-activity",

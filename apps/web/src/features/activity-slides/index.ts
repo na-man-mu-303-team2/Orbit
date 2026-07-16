@@ -1,4 +1,8 @@
 export { activityApi } from "./api/activityApi";
+export {
+  AudienceSatisfactionForm,
+  AudienceSatisfactionPage
+} from "./audience/AudienceSatisfactionPage";
 export { ActivitySlideInspector } from "./editor/ActivitySlideInspector";
 export {
   ActivitySlidePreview,

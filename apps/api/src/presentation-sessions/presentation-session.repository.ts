@@ -47,6 +47,16 @@ const sessionColumns = `
   created_at, updated_at
 `;
 
+const qualifiedSessionColumns = `
+  sessions.session_id, sessions.project_id, sessions.deck_id, sessions.deck_version,
+  sessions.presenter_user_id, sessions.created_by, sessions.status, sessions.access_mode,
+  sessions.session_password_hash, sessions.starts_at, sessions.expires_at,
+  sessions.active_activity_run_id, sessions.started_at, sessions.ended_at,
+  sessions.closed_at, sessions.raw_responses_delete_after,
+  sessions.raw_responses_deleted_at, sessions.results_deleted_at,
+  sessions.created_at, sessions.updated_at
+`;
+
 @Injectable()
 export class PresentationSessionRepository {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
@@ -115,10 +125,10 @@ export class PresentationSessionRepository {
   async findAudienceInfo(sessionId: string): Promise<AudiencePresentationSessionRow | null> {
     const rows = await this.dataSource.query<AudiencePresentationSessionRow[]>(
       `
-        SELECT ${sessionColumns}, projects.title AS project_title
-        FROM presentation_sessions
-        INNER JOIN projects ON projects.project_id = presentation_sessions.project_id
-        WHERE session_id = $1
+        SELECT ${qualifiedSessionColumns}, projects.title AS project_title
+        FROM presentation_sessions AS sessions
+        INNER JOIN projects ON projects.project_id = sessions.project_id
+        WHERE sessions.session_id = $1
         LIMIT 1
       `,
       [sessionId]
