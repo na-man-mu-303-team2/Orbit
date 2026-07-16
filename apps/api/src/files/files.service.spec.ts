@@ -157,6 +157,34 @@ describe("FilesService", () => {
     ]);
   });
 
+  it("creates a rehearsal audio key from the Seoul run date", async () => {
+    const { assets, service, storage } = createService({
+      getAccessibleProject: vi.fn(async () => demoProject),
+    });
+
+    await service.createRehearsalAudioUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "browser-recording.ogg",
+        mimeType: "audio/ogg",
+        size: 1024,
+        purpose: "rehearsal-audio",
+      },
+      { runId: "run_123", createdAt: new Date("2026-07-15T15:30:00.000Z") },
+    );
+
+    expect(storage.createUploadUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        contentType: "audio/ogg",
+      }),
+    );
+    expect(assets[0]).toMatchObject({
+      purpose: "rehearsal-audio",
+      storageKey: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+    });
+  });
+
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {
     const { repository } = createAssetRepository([
       {
@@ -247,6 +275,59 @@ describe("FilesService", () => {
         300,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("hides rehearsal transcripts from generic asset boundaries", async () => {
+    const { repository } = createAssetRepository([
+      {
+        fileId: "file_transcript_json",
+        projectId: demoProject.projectId,
+        storageKey:
+          "rehearsals/2026-07-16/project_demo_created/run_123/transcript.json",
+        originalName: "transcript.json",
+        mimeType: "application/json",
+        size: 1024,
+        url: "internal://rehearsal-transcript-json",
+        purpose: "rehearsal-transcript-json",
+        status: "uploaded",
+        createdAt: new Date(),
+        uploadedAt: new Date(),
+        deletedAt: null,
+      } as ProjectAssetEntity,
+    ]);
+    const storage = createStorage();
+    const service = new FilesService(
+      repository,
+      {
+        getAccessibleProject: vi.fn(async () => demoProject),
+      } as unknown as ProjectsService,
+      storage,
+    );
+
+    await expect(service.list(demoProject.projectId)).resolves.toEqual([]);
+    await expect(
+      service.getUploadedAsset(demoProject.projectId, "file_transcript_json"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.completeUpload(demoProject.projectId, {
+        fileId: "file_transcript_json",
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.readUploadedAssetContent(
+        demoProject.projectId,
+        "file_transcript_json",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      service.getUploadedAsset(
+        demoProject.projectId,
+        "file_transcript_json",
+        "rehearsal-transcript-json",
+      ),
+    ).resolves.toMatchObject({ fileId: "file_transcript_json" });
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
   });
 
   it("uses the request origin for local upload proxy URLs", async () => {

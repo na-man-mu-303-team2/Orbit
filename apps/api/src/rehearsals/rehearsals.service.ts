@@ -189,6 +189,8 @@ export class RehearsalsService {
         projectId,
         deckId: request.deckId,
         audioFileId: null,
+        transcriptJsonFileId: null,
+        transcriptTextFileId: null,
         jobId: null,
         deckVersion: evaluationSnapshot?.deckVersion ?? null,
         evaluationSnapshot,
@@ -359,12 +361,13 @@ export class RehearsalsService {
       throw new BadRequestException("Rehearsal run is not accepting uploads.");
     }
 
-    const upload = await this.filesService.createUploadUrl(
+    const upload = await this.filesService.createRehearsalAudioUploadUrl(
       run.projectId,
       parseRequest(this.rehearsalAudioUploadRequestSchema, {
         ...request,
         purpose: "rehearsal-audio"
-      })
+      }),
+      { runId: run.runId, createdAt: run.createdAt }
     );
 
     run.audioFileId = upload.fileId;

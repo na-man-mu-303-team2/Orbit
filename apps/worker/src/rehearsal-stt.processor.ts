@@ -26,6 +26,7 @@ import type { DataSource } from "typeorm";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import { storeRehearsalTranscriptArtifacts } from "./rehearsal-transcript-artifacts";
 import {
   derivePracticeGoalSet,
   loadPracticeGoalRankingContext,
@@ -64,6 +65,11 @@ const deckPatchRowSchema = z.object({
 
 const rehearsalRunInputRowSchema = z.object({
   run_id: z.string().min(1),
+  created_at: z.union([z.date(), z.string().min(1)]),
+  transcript_json_file_id: z.string().min(1).nullable(),
+  transcript_text_file_id: z.string().min(1).nullable(),
+  transcript_json_status: z.string().nullable(),
+  transcript_text_status: z.string().nullable(),
   meta_json: z.record(z.unknown()).nullable().optional(),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema
     .nullable()
@@ -234,9 +240,23 @@ function buildSlideSpeakingRateBusinessEvent(
   };
 }
 
+export type RehearsalTranscriptArtifactBusinessEvent = {
+  event:
+    | "rehearsal.transcript_artifacts.started"
+    | "rehearsal.transcript_artifacts.succeeded"
+    | "rehearsal.transcript_artifacts.failed";
+  projectId: string;
+  runId: string;
+  jobId: string;
+  artifactCount: 2;
+  errorCode?: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED";
+};
 export async function processRehearsalSttJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
+  storage: Pick<
+    StoragePort,
+    "getSignedReadUrl" | "headObject" | "putObject" | "removeObject"
+  >,
   pythonWorkerUrl: string,
   rawPayload: unknown,
   transcriptCache?: RehearsalTranscriptCache,
@@ -248,6 +268,9 @@ export async function processRehearsalSttJob(
   ) => void,
   onSlideSpeakingRateEvent?: (
     event: RehearsalSlideSpeakingRateBusinessEvent,
+  ) => void,
+  onTranscriptArtifactEvent?: (
+    event: RehearsalTranscriptArtifactBusinessEvent,
   ) => void,
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
@@ -395,6 +418,49 @@ export async function processRehearsalSttJob(
 
   await progressJob(dataSource, payload.jobId, 65, "발화 지표 분석 중");
 
+  emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+    event: "rehearsal.transcript_artifacts.started",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    artifactCount: 2,
+  });
+  try {
+    await storeRehearsalTranscriptArtifacts(dataSource, storage, {
+      projectId: payload.projectId,
+      runId: payload.runId,
+      runCreatedAt: runInput.created_at,
+      transcriptJsonFileId: runInput.transcript_json_file_id,
+      transcriptTextFileId: runInput.transcript_text_file_id,
+      transcriptJsonStatus: runInput.transcript_json_status,
+      transcriptTextStatus: runInput.transcript_text_status,
+      transcription: audioProcessingResponse,
+    });
+  } catch {
+    emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+      event: "rehearsal.transcript_artifacts.failed",
+      projectId: payload.projectId,
+      runId: payload.runId,
+      jobId: payload.jobId,
+      artifactCount: 2,
+      errorCode: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+    });
+    return failJobAndRun(
+      dataSource,
+      payload,
+      65,
+      "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+      "Rehearsal transcript artifact storage failed.",
+    );
+  }
+  emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
+    event: "rehearsal.transcript_artifacts.succeeded",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    artifactCount: 2,
+  });
+
   let analysis: z.infer<typeof analyzeResponseSchema>;
   try {
     analysis = await analyzeTranscript(
@@ -534,7 +600,7 @@ function buildRehearsalReport(
     runId: payload.runId,
     projectId: payload.projectId,
     deckId: payload.deckId,
-    transcriptRetained: false,
+    transcriptRetained: true,
     transcript: null,
     volumeAnalysis: transcription.volumeAnalysis,
     silenceAnalysis: transcription.silenceAnalysis,
@@ -1097,6 +1163,19 @@ function emitSemanticEvaluationEvent(
   }
 }
 
+function emitTranscriptArtifactEvent(
+  callback:
+    | ((event: RehearsalTranscriptArtifactBusinessEvent) => void)
+    | undefined,
+  event: RehearsalTranscriptArtifactBusinessEvent,
+) {
+  try {
+    callback?.(event);
+  } catch {
+    // Business event logging must not interrupt rehearsal processing.
+  }
+}
+
 async function loadAudioAsset(
   dataSource: DataSource,
   payload: RehearsalSttPayload,
@@ -1542,8 +1621,15 @@ async function updateRun(
           END,
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id, meta_json, evaluation_snapshot_json,
-                semantic_evaluation_mode, analysis_revision
+      RETURNING run_id, created_at, meta_json, evaluation_snapshot_json,
+                semantic_evaluation_mode, analysis_revision,
+                transcript_json_file_id, transcript_text_file_id,
+                (SELECT status FROM project_assets
+                 WHERE file_id = rehearsal_runs.transcript_json_file_id)
+                  AS transcript_json_status,
+                (SELECT status FROM project_assets
+                 WHERE file_id = rehearsal_runs.transcript_text_file_id)
+                  AS transcript_text_status
     `,
     [
       payload.runId,

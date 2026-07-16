@@ -55,4 +55,18 @@ describe("databaseOptions", () => {
       ),
     ).toBe(true);
   });
+
+  it("registers the rehearsal transcript artifact migration", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+
+    expect(
+      migrations.some(
+        (migration) =>
+          typeof migration === "function" &&
+          migration.name === "AddRehearsalTranscriptArtifacts2026071603000",
+      ),
+    ).toBe(true);
+  });
 });

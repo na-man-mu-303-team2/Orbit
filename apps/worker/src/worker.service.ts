@@ -249,6 +249,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
                 "Rehearsal slide speaking rate analyzed.",
               );
             },
+            (event) => {
+              const level = event.event.endsWith(".failed") ? "error" : "info";
+              this.logger[level](event, "Rehearsal transcript artifacts updated.");
+            },
           ),
       },
       {
