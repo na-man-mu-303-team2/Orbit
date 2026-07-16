@@ -24,7 +24,7 @@ ORBIT은 MVP 기능 범위를 `docker compose up --build` 한 번으로 Web, API
 | --- | --- |
 | PostgreSQL + pgvector | RDS PostgreSQL + pgvector |
 | Redis | ElastiCache Redis/Valkey |
-| BullMQ + Redis | SQS adapter |
+| BullMQ + Redis | BullMQ + ElastiCache Redis/Valkey |
 | MinIO | S3 |
 | FastAPI worker | ECS Fargate worker |
 | Socket.IO | ALB + ECS + Redis adapter |

@@ -2,7 +2,7 @@
 
 **작성일**: 2026-07-14
 
-**상태**: 확정 · #341 완료 · #339 완료 · #338-0·338-1·338-2 완료·병합 · #338-3 구현·로컬 검증 중
+**상태**: 확정 · #341 완료 · #339 완료 · #338-0~338-3 완료·병합 · #338-4·338-5 취소
 
 **관련 이슈**: [#341](https://github.com/na-man-mu-303-team2/Orbit/issues/341) → [#339](https://github.com/na-man-mu-303-team2/Orbit/issues/339) → [#338](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
@@ -20,14 +20,14 @@
 flowchart LR
     A["계획·이슈 동기화"] --> B["#341<br/>Art Director 정규화"]
     B --> C["#339<br/>레거시 제거·stage 경계 분리"]
-    C --> D["#338<br/>checkpoint·부분 재시도·queue adapter"]
-    D --> E["후속 인프라 이슈<br/>SQS·ECS·CloudWatch 실제 전환"]
+    C --> D["#338-0~3<br/>checkpoint·부분 재시도·staged BullMQ"]
+    D --> E["최종 운영 경로<br/>BullMQ + monolith rollback"]
 ```
 
 계획·이슈 동기화 상태:
 
 - 이 로컬 통합 계획과 세부 계획을 현재 실행 기준으로 사용한다.
-- GitHub #338에는 이 최신 계획 전문이 아직 게시되지 않았다. 사용자가 로컬 계획을 최종 확정한 뒤 최신 전문을 댓글로 게시하며, 게시 전에는 기존 #338 본문·댓글을 최신 실행 기준으로 사용하지 않는다.
+- 2026-07-16 팀 회의에서 SQS 도입을 취소했다. #338의 과거 SQS 확정 댓글은 현재 실행 기준으로 사용하지 않고 최신 취소 결정 댓글과 이 문서를 따른다.
 - 각 PR은 최신 `develop`에서 별도 브랜치로 시작하며, 선행 PR 병합 전 다음 의존 PR을 병합하지 않는다.
 
 ## 2. PR 실행 순서
@@ -55,7 +55,7 @@ flowchart LR
 
 PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증거는 `docs/plans/generate-deck-separation-before-issue-338.md`의 PR 8 및 readiness checklist를 단일 기준으로 사용한다. 서버 HEAD 일치, smoke 전후 queue/DB 잔여 상태 0, 네 번째 GenerateDeck 성공을 모두 확인했다. 앞선 세 Job의 `PYTHON_WORKER_GENERATE_DECK_FAILED`는 #339의 기존 terminal baseline인 `WEB_RESEARCH_QUALITY_FAILED`로 분류됐으며 degraded success 전환 owner는 #338로 확정돼 있으므로 #338 구현을 시작할 수 있다.
 
-### #338 — stage Job, checkpoint와 queue adapter
+### #338 — stage Job, checkpoint와 staged BullMQ
 
 | 순서  | PR 목표                         | 핵심 결정                                                                                                                                                                                                                                                                                                                                  |
 | ----- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -63,8 +63,8 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 | 338-1 | staged BullMQ coordinator와 OCR | 기존 monolith의 full-deck payload와 기본 실행을 유지한 채 staged BullMQ coordinator와 파일별 OCR만 활성화한다. OCR artifact, policy join, durable dispatch와 shard-only retry를 구현하고 `source-grounding` checkpoint는 만들되 338-2 전에는 dispatch하지 않는다.                                                                          |
 | 338-2 | Python planning stage 연결      | `source-grounding`, `content-planning`, `design-planning`, `layout-compile`을 독립 실행한다. research 실패 정책은 새 계약으로 변경하고 #341의 Art Director 정규화·terminal 정책은 보존하며 `docs/contracts.md`와 shared contract test를 갱신한다.                                                                                          |
 | 338-3 | image·QA·publication 연결       | slide별 image fan-out, semantic quality, rendered visual quality, publication과 `failedStage` 기반 명시적 retry API를 연결한다. 로컬 기본 실행을 staged BullMQ로 전환하고 Visual QA unavailable 정책은 새 계약으로 변경하되, #339에서 고정한 optional image no-media fallback과 advisory Visual QA acceptance는 stage 경계에서도 보존한다. |
-| 338-4 | SQS transport adapter           | 다섯 SQS queue URL key를 추가하고 `@aws-sdk/client-sqs`를 이용해 동일 stage message의 send/receive/delete/visibility 연장을 구현한다. 다른 Job은 계속 `JOB_QUEUE_DRIVER=bullmq`를 사용한다.                                                                                                                                                |
-| 338-5 | monolith 제거와 인계            | staged BullMQ 전체 회귀와 SQS adapter parity test를 통과한 뒤 Worker의 기존 장기 `generate-deck` handler와 `monolith` 실행 모드를 제거한다. 실제 AWS 리소스 전환은 후속 인프라 이슈로 인계한다.                                                                                                                                            |
+| 338-4 | SQS transport adapter — 취소    | 팀 회의 결정으로 SQS를 도입하지 않는다. PR #397은 미병합 상태로 닫혔고 SQS SDK, queue URL, consumer와 parity test는 결과물에 포함하지 않는다.                                                                                                                               |
+| 338-5 | monolith 제거와 인계 — 취소     | `monolith`는 호환·회귀·rollback 경로로 유지한다. SQS/DLQ, IAM, SQS consumer ECS, autoscaling, CloudWatch SQS 지표와 production SQS cutover를 구현하거나 후속 작업으로 인계하지 않는다.                                                                                        |
 
 338-1의 병합 기준 실행 경계는 다음과 같다.
 
@@ -82,7 +82,7 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - `research-content`, `design-layout` dedicated Worker role을 활성화하고 OCR과 네 planning stage만 dispatcher·stale dispatch·expired lease·final transport recovery 대상으로 확장한다. 338-3 stage는 아직 dispatch하지 않는다.
 - `layout-compile` 이후 부모 Job은 progress 60의 `running`으로 유지하며 image·QA·publication은 338-3이 이어받는다. production 기본값 `monolith`와 `develop` 자동 배포 규칙은 변경하지 않는다.
 
-338-3의 현재 구현 경계는 다음과 같다.
+338-3의 병합된 구현 경계는 다음과 같다.
 
 - `layout-compile` artifact가 검증된 worker payload와 visual requirements를 함께 보존하고, 이미지가 필요한 slide만 `image-slide` checkpoint로 fan-out한다. 마지막 image child가 별도 join stage 없이 `semantic-quality`을 만들며 이미지가 없으면 직접 semantic stage로 진행한다.
 - `ai_deck_execution_artifacts`와 strict `{ executionArtifactId: uuid }` locator로 image·semantic·rendered·publication 결과를 보존한다. tenant·pipeline·stage·shard identity를 조회 시 다시 검증하며 queue message shape은 바꾸지 않는다.
@@ -97,7 +97,7 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - 내부 message는 strict `{ pipelineJobId, projectId, stage, shardKey }`만 전달한다. binary, base64, 전체 Deck, provider 원문, 별도 checkpoint/asset ID는 넣지 않는다.
 - stage는 `reference-extract-file`, `source-grounding`, `content-planning`, `design-planning`, `layout-compile`, `image-slide`, `semantic-quality`, `rendered-visual-quality`, `publication`으로 고정한다.
 - `reference-extract-file`과 `image-slide`은 colon 없는 non-empty `shardKey`를 사용하고 나머지 singleton stage는 정확히 `""`를 사용한다. `pipelineJobId`에도 colon을 허용하지 않는다.
-- BullMQ `opts.jobId`는 `${pipelineJobId}:${stage}:${shardKey}`로 만들어 정확히 세 segment를 유지한다. 이 ID는 message field가 아니며 SQS 중복 방지는 checkpoint 상태 전이에 맡긴다.
+- BullMQ `opts.jobId`는 `${pipelineJobId}:${stage}:${shardKey}`로 만들어 정확히 세 segment를 유지한다. 이 ID는 message field가 아니며 중복 처리와 crash 복구는 checkpoint 상태 전이에 맡긴다.
 - consumer/repository는 parent row의 `jobs.job_id`, `jobs.project_id`, `jobs.type="ai-deck-generation"`을 message와 대조한다.
 - `shard_key`는 `NOT NULL DEFAULT ''`이며 `(pipeline_job_id, stage, shard_key)`를 UNIQUE로 둔다. `pipeline_job_id`는 `jobs.job_id`를 `ON DELETE CASCADE`로 참조한다.
 - 별도 join stage는 만들지 않는다. 마지막 OCR/image child가 종료될 때 전체 expected shard 상태를 트랜잭션으로 확인하고 다음 stage checkpoint를 `ON CONFLICT DO NOTHING`으로 생성한다.
@@ -107,7 +107,7 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - dispatcher는 `dispatched_at`이 15분 이상 지난 active parent의 queued 9-stage row를 매 회차 최대 100개 복구하고, partial index `idx_ai_deck_generation_stages_stale_dispatch`로 이 scan을 지원한다.
 - BullMQ 최종 transport failure에서 OCR Job은 queued checkpoint의 `dispatched_at`만 복구하고 재시도 예산을 소진한 coordinator Job은 active checkpoint와 부모를 `AI_DECK_COORDINATOR_FAILED`, `retryable=true`로 atomic 종료한다. 단 `failedReason`이 BullMQ의 정확한 stall/started-limit transport reason이면 `attemptsMade`와 무관하게 coordinator transaction을 멱등 재실행하며, 그 외 예산을 소진한 entry만 terminal 복구한다. failed entry는 `removeOnFail=false`로 cap 없이 보존한다. maintenance는 opaque Redis `ZSCAN` cursor와 `pendingJobIds`로 회차당 기본 25개·최대 100개를 처리한다. resume 또는 terminal DB recovery가 failed parent를 반환하면 DB commit 이후에만 entry 제거를 시도하고 Worker가 표준 `job.failed`를 남기며, DB recovery 실패 entry는 full cursor cycle 뒤 재시도한다. BullMQ transport attempt와 DB checkpoint `attempt`는 서로 다른 재시도 층이다.
 - provider 호출은 crash 경계에서 재실행될 수 있으므로 exactly-once를 보장한다고 표현하지 않는다. 대신 checkpoint, 결정적 image object key와 publication 조건부 upsert로 중복 저장을 막는다.
-- claim 시 `attempt`를 증가시키며 initial attempt를 포함해 총 5회만 시도한다. 1~4번째 retryable 실패는 해당 shard를 다시 queued로 만들고 5번째 종료 시 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행해 계속 또는 terminal을 결정한다. DB lease는 10분, heartbeat는 60초이며 SQS visibility 연장은 338-4에서 5분 단위로 추가한다.
+- claim 시 `attempt`를 증가시키며 initial attempt를 포함해 총 5회만 시도한다. 1~4번째 retryable 실패는 해당 shard를 다시 queued로 만들고 5번째 종료 시 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행해 계속 또는 terminal을 결정한다. DB lease는 10분, heartbeat는 60초이며 BullMQ transport와 checkpoint lease를 최종 운영 계약으로 사용한다.
 - claim은 stable worker ID에 UUID를 붙인 opaque `lease_owner` token을 매번 새로 발급하고 `attempt`를 lease generation fencing token으로 함께 사용한다. heartbeat·성공·실패·retry release는 claim이 반환한 `lease_owner`와 `attempt`가 모두 일치할 때만 허용하고, dispatcher도 조회 당시 `attempt`가 일치할 때만 `dispatched_at`을 기록한다.
 - retry release와 expired lease는 `status='queued'`, `lease_owner=NULL`, `lease_expires_at=NULL`, `dispatched_at=NULL`로 되돌리고 기존 `attempt`는 유지한다. 338-1 reconciler가 이 전이를 실행한다. 5번째 attempt가 끝나면 OCR은 artifact가 있으면 그 `usable`, 없으면 unusable로 reference policy join을 실행하고 다른 필수 stage는 checkpoint와 부모 Job을 함께 `failed`로 종료한다.
 - 338-0의 checkpoint reference allowlist는 비어 있었다. 338-1은 `ai_deck_reference_extraction_artifacts`와 strict `{ referenceExtractionArtifactId: uuid }`, 338-2는 `ai_deck_planning_artifacts`와 strict `{ planningArtifactId: uuid }`, 338-3은 `ai_deck_execution_artifacts`와 strict `{ executionArtifactId: uuid }` locator를 추가한다. 전체 Deck·content·binary/base64·provider raw response는 checkpoint에 저장하지 않는다.
@@ -120,9 +120,9 @@ PR 8의 로컬·required 자동 CI·personal staging 자동 배포와 운영 증
 - `visualQaStatus`는 기존 optional 계약을 유지하면서 `not-run | passed | failed | unavailable`을 허용한다.
 - `Job.error`에는 optional `failedStage`와 `retryable`을 추가해 기존 Job row parsing을 깨뜨리지 않는다. `retryable`은 부모 Job의 명시적 retry API 허용 여부이며 자동 checkpoint 재시도는 `attempt < 5`로 별도 관리한다. shard 식별자는 Job error가 아니라 checkpoint key에 둔다.
 - 338-0은 위 신규 값을 parse/round-trip할 기반만 추가했다. `WEB_RESEARCH_QUALITY_FAILED` warning은 338-2, Visual QA unavailable warning은 338-3에서 실제로 emit한다.
-- AI PPT 전용 설정은 `AI_DECK_EXECUTION_MODE=monolith|bullmq|sqs`로 시작하고 338-5에서 `bullmq|sqs`만 남긴다. 338-3의 로컬 기본값은 `bullmq`이고 staging·production 예제는 명시적 `monolith`를 유지하며 `sqs`는 API·Worker startup에서 fail-fast한다.
+- AI PPT 전용 지원 모드는 `AI_DECK_EXECUTION_MODE=monolith|bullmq`다. 로컬 기본값은 `bullmq`이고 staging·production 예제는 명시적 `monolith`를 유지한다. `sqs`는 지원하지 않으며 API·Worker startup에서 fail-fast한다.
 - `AI_DECK_WORKER_QUEUE=all|reference-extract|research-content|design-layout|image|qa-finalize`를 사용하고 338-3에서 모든 role을 실행 가능하게 한다.
-- 다섯 SQS queue URL key와 send/receive/delete/visibility transport는 338-4에서 함께 추가하고 그때 `sqs` mode에서만 필수 검증한다. 전역 `JOB_QUEUE_DRIVER`는 다른 Job을 위해 `bullmq`로 유지한다.
+- 전역 `JOB_QUEUE_DRIVER`와 AI PPT stage transport는 `bullmq`로 유지한다. SQS queue URL key, SDK와 transport는 추가하지 않는다.
 
 ### 최종 실패 정책
 
@@ -184,7 +184,7 @@ uv run pytest
 - [x] `failedStage` retry의 upstream·성공 shard 보존, downstream invalidation과 coordinator-only 재enqueue test
 - [x] 6개 Worker role, 9개 stage dispatcher·stale dispatch·lease·transport recovery test
 - [x] API·Worker 전체 회귀, shared/job-queue contract, Python 493 passed·1 skipped, Web 병렬 timeout 단독 재검증, API·Worker·Web 직접 build, env·Compose 검증
-- [ ] PR required 자동 CI 성공과 사용자 병합
+- [x] PR required 자동 CI 성공과 사용자 병합
 
 추가 필수 시나리오:
 
@@ -196,14 +196,14 @@ uv run pytest
 - OCR 하나 또는 image 하나의 실패가 다른 shard와 이전 stage를 재실행하지 않는다.
 - queue message에 bytes/base64가 없고 결정적 asset key와 publication upsert가 중복 결과를 막는다.
 - research, Art Director, optional image, Visual QA의 degraded/terminal 경계를 shared·Worker·Web contract test로 고정한다.
-- BullMQ와 mocked SQS adapter가 같은 message schema, checkpoint 상태 전이와 retry 결과를 만든다.
+- BullMQ duplicate delivery, enqueue 직후 crash와 expired lease가 같은 checkpoint 상태 전이로 수렴한다.
 - migration은 `run → 검증 → revert → run`을 통과한다.
 
-## 5. 운영 인계와 명시적 전제
+## 5. 최종 운영 경로와 명시적 전제
 
-- #338 범위는 application stage pipeline, BullMQ 실행, SQS adapter와 환경 계약까지다.
-- 실제 다섯 SQS/DLQ, IAM, ECS service, autoscaling, CloudWatch alarm과 production cutover는 별도 인프라 이슈로 분리한다. 이 범위 변경을 #338 계획과 GitHub 댓글에 함께 반영한다.
-- 후속 인프라 이슈가 완료되기 전 production의 `AI_DECK_EXECUTION_MODE=sqs`는 활성화하지 않는다.
-- 외부 AWS 리소스 생성·배포·GitHub 원격 변경은 별도 사용자 승인 후 수행한다.
+- #338의 최종 범위는 #338-0~338-3의 application stage pipeline, checkpoint와 BullMQ 실행 계약이다.
+- staged BullMQ를 최종 stage transport로 사용하고 `monolith`를 호환·회귀·rollback 경로로 유지한다.
+- SQS adapter와 실제 SQS/DLQ, IAM, SQS consumer ECS, autoscaling, CloudWatch SQS 지표와 production SQS cutover는 취소했으며 후속 인프라 작업으로 인계하지 않는다.
+- staging·production의 명시적 `monolith`를 `bullmq`로 전환하려면 별도로 승인된 배포 계획과 smoke, queue/DB 잔여 상태 검증을 거친다.
 - `develop` merge의 personal staging 자동 배포는 팀의 고정 규칙이며 #339 때문에 workflow를 변경·중단하거나 required reviewer를 추가하지 않았다. #339 운영 증거로 자동 배포 성공, 서버의 실제 `git rev-parse HEAD`, 배포 후 읽기 전용 health·queue·DB 확인과 GenerateDeck smoke를 수집했고 workflow trigger SHA와 실제 서버 HEAD를 구분했다. production의 breaking cutover는 별도 승인된 배포 계획에서 ingress, drain, 동시 교체와 cache invalidation을 다룬다.
 - #341 완료 전 #339 baseline을 만들지 않고, #339 readiness 완료 전 #338 persistence 작업을 병합하지 않는다.

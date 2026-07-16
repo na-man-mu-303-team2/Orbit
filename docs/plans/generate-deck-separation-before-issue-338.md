@@ -10,7 +10,7 @@
 
 **선행 버그 이슈**: [#341 Art Director 배경 모드 불일치 정규화](https://github.com/na-man-mu-303-team2/Orbit/issues/341)
 
-**후속 이슈**: [#338 PPT 생성 - AI PPT stage Job·SQS 파이프라인 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
+**후속 이슈**: [#338 PPT 생성 - AI PPT staged Job 파이프라인 전환](https://github.com/na-man-mu-303-team2/Orbit/issues/338)
 
 **선행 버그 수정 문서**: `docs/plans/art-director-background-mode-normalization.md`
 
@@ -18,16 +18,18 @@
 
 > 이 문서는 확정된 #339 실행 계약이다. GitHub에서는 이 문서 전문을 최신 기준 댓글로 사용하며 기존 댓글은 기준으로 사용하지 않는다.
 
+> **후속 결정 변경**: 2026-07-16 팀 회의에서 #338의 SQS 도입과 `monolith` 제거를 취소했다. 이 문서의 SQS 관련 문구는 #339 당시의 선행 설계 배경으로만 보존하며 현재 transport 목표나 완료 조건으로 사용하지 않는다. 현재 기준은 `docs/plans/ai-ppt-sqs-pipeline-refactoring.md`의 staged BullMQ 운영 결정이다.
+
 ## 1. 문서 목적
 
-이 문서는 이슈 #338의 staged BullMQ 기반 단계별 Job과 동일 계약의 SQS transport adapter를 구현하기 전에 반드시 끝내야 하는 선행 작업을 정의한다.
+이 문서는 이슈 #338의 staged BullMQ 기반 단계별 Job을 구현하기 전에 반드시 끝내야 하는 선행 작업을 정의한다. SQS transport adapter는 후속 결정으로 취소되었다.
 
 현재 `services/python-worker/app/ai/generate_deck.py`는 `origin/develop` 기준 약 1.4만 줄이며, 현재 UI에서 사용하는 `design-pack + program-v2` 경로와 더 이상 사용하지 않는 생성 경로가 같은 요청 계약·Worker processor·Python 분기 안에 섞여 있다. 이 상태에서 바로 stage job과 checkpoint를 도입하면 다음 문제가 생긴다.
 
 - 실제 서비스 경로와 레거시 경로를 모두 stage 계약에 반영하게 되어 불필요한 호환성 비용이 커진다.
 - PPTX를 원본에 가깝게 가져오는 순수 변환 기능과 PPTX 디자인에 AI 내용을 채우는 폐기 대상 기능의 경계가 다시 섞인다.
 - 대형 파일을 이동하는 작업과 실행 의미를 바꾸는 작업이 동시에 일어나 회귀 원인을 찾기 어렵다.
-- SQS의 at-least-once delivery, stage 재시도, checkpoint 멱등성을 검증하기 전에 현재 동작의 기준선부터 흔들린다.
+- queue redelivery, stage 재시도, checkpoint 멱등성을 검증하기 전에 현재 동작의 기준선부터 흔들린다.
 
 따라서 #338에 앞서 아래 다섯 가지를 순서대로 완료한다.
 
@@ -37,7 +39,7 @@
 4. 폐기 대상 UI, API, queue, processor, shared schema, Python 분기를 제거한다.
 5. #341이 고친 `program-v2` 동작을 변경하지 않은 채 `generate_deck.py`를 #338의 stage 경계에 맞는 Python 모듈로 분리한다.
 
-이 선행 작업에서는 SQS, stage checkpoint, 부모/자식 Job, image fan-out/join을 구현하지 않는다. 해당 기능은 경계가 정리된 뒤 #338에서 구현한다.
+이 선행 작업에서는 stage checkpoint, 부모/자식 Job, image fan-out/join을 구현하지 않는다. 해당 기능은 경계가 정리된 뒤 #338의 staged BullMQ 경로에서 구현한다.
 
 ## 2. 확인된 현재 구조
 
@@ -112,7 +114,7 @@ PR 2부터 imported Deck export는 저장 version과 `ooxmlSyncedDeckVersion`이
 - 이미지와 같은 병렬화 가능 작업이 하나의 긴 실행 흐름 안에서 join 지점을 명시하지 못한다.
 - Python worker와 외부 provider의 동시성·rate limit이 queue 소비량과 분리되어 있지 않다.
 
-AWS SQS는 이 문제를 해결하는 실행 기반이 될 수 있지만, 현재의 큰 job을 그대로 SQS로 옮기는 것만으로는 해결되지 않는다. #338의 핵심은 이 문서에서 준비한 stage 함수를 business checkpoint 단위 job으로 만들고, 자원 특성에 맞는 queue에 배치하며, 실패한 stage 또는 image slide만 다시 전달하는 것이다.
+#338의 핵심은 현재의 큰 BullMQ Job을 유지한 채 Worker 수만 늘리는 것이 아니라, 이 문서에서 준비한 stage 함수를 business checkpoint 단위 Job으로 만들고 자원 특성에 맞는 BullMQ queue에 배치하며 실패한 stage 또는 image slide만 다시 전달하는 것이다.
 
 특히 web research 품질 게이트에서 “공식 출처와 독립 출처가 충분하지 않다”는 판정은 무조건 전체 생성 실패가 되어서는 안 된다. #338에서는 reference policy와 사용자 요청에 따라 다음 상태를 구분해야 한다.
 
@@ -122,7 +124,7 @@ AWS SQS는 이 문제를 해결하는 실행 기반이 될 수 있지만, 현재
 
 이 선행 작업은 위 상태 전이를 구현하지 않는다. 대신 `source_grounding.py`와 `SourceGroundingResult`가 source, 품질 판정, warning을 분리해 #338에서 전체 파이프라인을 다시 뜯지 않고 정책을 연결할 수 있게 한다.
 
-현재 첨부자료 OCR도 `reference-extract` BullMQ Job 하나에 여러 파일과 `contentBase64`를 묶어 `/documents/parse`로 전달한다. 파일 하나의 실패가 요청 전체의 재시도로 이어지고, 첨부자료 요청이 몰리면 이후 stage를 분리해도 OCR이 앞단 병목으로 남는다. #339에서는 이 동작을 회귀 테스트로 고정해 삭제나 품질 회귀를 막고, 실제 전환은 #338의 staged BullMQ 경로에서 시작한 뒤 같은 stage 계약을 SQS transport adapter로 연결한다.
+현재 첨부자료 OCR도 `reference-extract` BullMQ Job 하나에 여러 파일과 `contentBase64`를 묶어 `/documents/parse`로 전달한다. 파일 하나의 실패가 요청 전체의 재시도로 이어지고, 첨부자료 요청이 몰리면 이후 stage를 분리해도 OCR이 앞단 병목으로 남는다. #339에서는 이 동작을 회귀 테스트로 고정해 삭제나 품질 회귀를 막고, 실제 전환은 #338의 staged BullMQ 경로에서 파일별 stage와 checkpoint로 연결한다.
 
 - `reference-extract-file`을 파일별 Job으로 fan-out한다.
 - message에는 binary나 base64가 아니라 `{ pipelineJobId, projectId, stage: "reference-extract-file", shardKey: fileId }`만 전달한다.
@@ -313,7 +315,7 @@ flowchart LR
 
 ### 4.3 이 선행 작업에서 하지 않을 일
 
-- SQS queue 생성 또는 BullMQ 전체 교체
+- 별도 queue backend 도입 또는 BullMQ 교체
 - 부모/자식 Job, stage checkpoint 테이블 도입
 - stage별 재시도와 DLQ 정책 구현
 - image slide fan-out/join 구현
@@ -322,7 +324,7 @@ flowchart LR
 - DesignPack 삭제 또는 BrandKit 재도입
 - `TemplateBlueprint` 삭제
 - 공개 `/ai/generate-deck` endpoint를 여러 endpoint로 분할
-- `reference-extract`를 staged BullMQ 파일별 fan-out/join으로 전환하거나 SQS transport adapter를 구현하는 작업. 이 항목은 #338에서 수행한다.
+- `reference-extract`를 staged BullMQ 파일별 fan-out/join으로 전환하는 작업. 이 항목은 #338에서 수행한다.
 
 BrandKit runtime과 organization 기반 기능은 이미 `origin/develop`의 활성 생성 경로에서 제거된 상태이므로 이 계획에서 다시 다루지 않는다. 과거 create migration과 이후 drop migration은 적용 이력 재현을 위해 유지하며 삭제하거나 수정하지 않는다. DesignPack은 현재 활성 기능이므로 모든 단계에서 보존한다.
 
@@ -686,7 +688,7 @@ uv run pytest tests/test_generate_deck_contract.py
 - 순수 model/utility부터 이동하고 각 commit마다 Python 테스트를 통과시킨다.
 - 공개 `generate_deck()` import와 `/ai/generate-deck` request/response는 유지한다.
 - 함수 시그니처는 future queue message가 아니라 현재 in-process 호출에 맞춘다.
-- stage 결과는 Pydantic model로 정의하되 DB checkpoint나 SQS envelope를 미리 넣지 않는다.
+- stage 결과는 Pydantic model로 정의하되 DB checkpoint나 transport envelope를 미리 넣지 않는다.
 - 외부 provider, clock, ID generator, storage 접근은 명시적 dependency로 전달한다.
 
 **권장 stage DTO**
@@ -933,7 +935,7 @@ sequenceDiagram
 
 ## 9. #338 착수 준비 체크리스트
 
-다음 항목이 모두 완료되어야 #338의 staged BullMQ/checkpoint 구현과 후속 SQS transport adapter 작업을 시작한다.
+다음 항목이 모두 완료되어야 #338의 staged BullMQ/checkpoint 구현을 시작한다.
 
 - [x] 제품 AI PPT 생성 route가 `/createdeck` 하나로 정리되어 있다.
 - [x] `design_planning.py`가 기존 `design_program.py`의 #341 정규화를 호출하고 design stage 회귀 테스트가 `slides[].backgroundMode` canonical 규칙을 검증한다.
@@ -954,7 +956,7 @@ sequenceDiagram
 - [x] `generate_deck.py`가 façade 수준으로 축소됐다.
 - [x] Python의 source, content, design, layout, visual requirements, quality, diagnostics 단계가 명시적 DTO로 단독 테스트 가능하다.
 - [x] Worker의 asset resolution, semantic quality, rendered visual quality, publication 단계가 단독 테스트 가능하다.
-- [x] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환과 SQS transport adapter는 #338 범위로 명시되어 있다.
+- [x] 현재 `reference-extract`의 단일·다중 파일 회귀 테스트가 통과하고, 파일별 staged BullMQ 전환은 #338 범위로 명시되어 있다.
 - [x] `/ai/generate-deck` 공개 계약과 최종 Deck schema가 유지된다.
 - [x] 전체 TypeScript/Python 검증이 통과한다.
 
@@ -969,7 +971,7 @@ flowchart LR
     C --> D["source·content·design·layout stage"]
     D --> E["image fan-out/join"]
     E --> F["quality·publication stage"]
-    F --> G["SQS at-least-once·stage-only retry"]
+    F --> G["BullMQ redelivery·stage-only retry"]
     G --> H["ECS autoscaling·관측성"]
 ```
 
@@ -988,7 +990,7 @@ flowchart LR
 | 호환 façade가 영구적인 두 번째 구현이 됨 | 중복 로직과 수정 누락 | façade에는 validation·delegation만 허용 |
 | selector 제거 버전이 Web/API/Worker/Python worker에 섞여 배포됨 | 구 payload 400/422, 새 payload의 구 recipe-v1 실행, queued Job 실패 | personal staging은 run 실행 시점에 동기화한 `develop` 서버 HEAD에서 네 이미지를 한 workflow run으로 build한 뒤 `docker compose up -d`로 교체하고 health check를 통과시킨다. 실제 서버 HEAD를 기록하고 배포 후 queue/DB stuck Job 0과 GenerateDeck smoke를 확인하며 production은 별도 승인된 cutover 계획을 사용한다. |
 | web research 실패를 전체 실패로 고정 | 기존 UX 문제 반복 | #338에서 정책별 degraded success와 retryable error를 구분 |
-| OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 staged BullMQ 파일별 Job과 checkpoint join을 먼저 도입하고 동일 계약을 SQS adapter로 연결 |
+| OCR을 기존 다중 파일 BullMQ Job으로 영구 유지 | 첨부자료 요청의 앞단 직렬 병목과 전체 재시도 유지 | #338에서 staged BullMQ 파일별 Job과 checkpoint join을 도입 |
 
 ## 11. 계획 변경 규칙
 
@@ -1014,6 +1016,6 @@ flowchart LR
 6. PPTX OOXML의 AI slot 생성과 일반 생성기의 PPTX 디자인 재사용을 제거한다.
 7. `GenerateDeckRequest`를 `program-v2` 전용으로 축소한다.
 8. 남은 활성 Python 코드와 TypeScript Worker 후처리를 stage 경계로 분리하고 `/ai/generate-deck`를 façade로 유지한다.
-9. readiness checklist를 통과한 뒤 #338에서 checkpoint와 staged BullMQ 기반 파일별 OCR을 먼저 구현하고, stage-only retry와 image fan-out/join을 연결한 다음 같은 계약에 SQS transport adapter를 추가한다.
+9. readiness checklist를 통과한 뒤 #338에서 checkpoint와 staged BullMQ 기반 파일별 OCR을 구현하고 stage-only retry와 image fan-out/join을 연결한다.
 
 이 순서를 따르면 PPTX import의 원본 보존 능력과 DesignPack 기반 AI PPT 생성을 유지하면서, #338이 해결하려는 동시 처리·부분 재시도 구조를 불필요한 레거시 없이 설계할 수 있다.
