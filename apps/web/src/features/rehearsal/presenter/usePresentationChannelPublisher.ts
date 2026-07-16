@@ -10,8 +10,8 @@ import {
   createPresenterRemoteStateMessage,
   getPresentationChannelName,
   getPresenterRemoteChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
   type PresenterRemoteCommand,
@@ -314,15 +314,16 @@ export function createPresentationPublisherController(args: {
       onStatusChange?.("closed");
     },
     handleIncoming: (data: unknown) => {
-      if (!isPresentationChannelMessage(data)) {
+      const message = parsePresentationChannelMessage(data);
+      if (!message) {
         return;
       }
-      if (!matchesPresentationChannelIdentity(data, identity)) {
+      if (!matchesPresentationChannelIdentity(message, identity)) {
         return;
       }
 
       onPeerSeen?.();
-      handlePublisherMessage(data, {
+      handlePublisherMessage(message, {
         handleCommand: onCommand,
         handlePeerReady: onPeerReady,
         handleScreenShareEnded: onScreenShareEnded,

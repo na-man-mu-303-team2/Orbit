@@ -25,8 +25,8 @@ import {
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
   getPresenterRemoteChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
   type PresenterRemoteCommand,
@@ -86,8 +86,8 @@ export function PresenterRemoteWindow(props: {
 
     channelRef.current = channel;
     channel.onmessage = (event) => {
-      const message = event.data;
-      if (!isPresentationChannelMessage(message)) {
+      const message = parsePresentationChannelMessage(event.data);
+      if (!message) {
         return;
       }
       if (!matchesPresentationChannelIdentity(message, identity)) {

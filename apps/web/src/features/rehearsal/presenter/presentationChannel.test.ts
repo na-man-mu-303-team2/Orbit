@@ -16,14 +16,16 @@ import {
   createSlideWindowReadyMessage,
   getPresentationChannelName,
   getPresenterRemoteChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
 } from "./presentationChannel";
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1",
 };
+const isPresentationChannelMessage = (value: unknown) =>
+  parsePresentationChannelMessage(value) !== null;
 
 describe("presentationChannel", () => {
   it("creates deterministic session-scoped channel names", () => {
@@ -398,6 +400,55 @@ describe("presentationChannel", () => {
         state: { ...message.state, audienceOutputMode: "notes" },
       }),
     ).toBe(false);
+  });
+
+  it("normalizes a missing legacy audience mode to slide without mutating input", () => {
+    const state = createPresenterSlideshowState(p0AnimationDeck);
+    const messages = [
+      createPresenterSnapshotMessage({
+        deck: p0AnimationDeck,
+        identity,
+        sentAt: 94,
+        state,
+      }),
+      createPresenterStateMessage({ identity, sentAt: 95, state }),
+      createPresenterRemoteSnapshotMessage({
+        deck: p0AnimationDeck,
+        identity,
+        sentAt: 96,
+        state,
+      }),
+      createPresenterRemoteStateMessage({ identity, sentAt: 97, state }),
+    ];
+
+    for (const message of messages) {
+      const legacyState = { ...message.state } as Record<string, unknown>;
+      delete legacyState.audienceOutputMode;
+      const legacyMessage = { ...message, state: legacyState };
+
+      const parsed = parsePresentationChannelMessage(legacyMessage);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed && "state" in parsed
+        ? parsed.state.audienceOutputMode
+        : null).toBe("slide");
+      expect(legacyState).not.toHaveProperty("audienceOutputMode");
+    }
+  });
+
+  it("rejects an explicitly invalid audience mode while parsing", () => {
+    const message = createPresenterStateMessage({
+      identity,
+      sentAt: 98,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+    });
+
+    expect(
+      parsePresentationChannelMessage({
+        ...message,
+        state: { ...message.state, audienceOutputMode: "notes" },
+      }),
+    ).toBeNull();
   });
 });
 

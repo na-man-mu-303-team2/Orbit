@@ -24,8 +24,8 @@ import {
   createSlideWindowReadyMessage,
   createScreenShareEndedMessage,
   getPresentationChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
 } from "./presentationChannel";
@@ -150,8 +150,8 @@ export function PresentWindowReceiver(props: {
     channelRef.current = channel;
 
     channel.onmessage = (event) => {
-      const message = event.data;
-      if (!isPresentationChannelMessage(message)) {
+      const message = parsePresentationChannelMessage(event.data);
+      if (!message) {
         return;
       }
       if (!matchesPresentationChannelIdentity(message, identity)) {
