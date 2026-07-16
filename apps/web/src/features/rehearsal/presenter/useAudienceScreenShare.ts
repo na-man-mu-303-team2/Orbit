@@ -75,7 +75,8 @@ export function createAudienceScreenShareController(args: {
       return false;
     }
 
-    stopSharing({ returnToSlide: false });
+    const replacingActiveShare = Boolean(active);
+    stopSharing({ returnToSlide: replacingActiveShare });
     const currentOperationId = ++operationId;
     const capturePromise = args.capturePort.start(intent);
     setStatus("selecting");

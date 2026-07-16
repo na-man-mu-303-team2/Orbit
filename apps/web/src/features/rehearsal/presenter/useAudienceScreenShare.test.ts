@@ -54,6 +54,77 @@ describe("useAudienceScreenShare controller", () => {
     );
   });
 
+  it("returns to slide before waiting for a replacement capture", async () => {
+    const order: string[] = [];
+    const firstCapture = createCapture(order);
+    const replacementCapture = createCapture(order);
+    let startCount = 0;
+    let resolveReplacement:
+      | ((capture: ReturnType<typeof createCapture>) => void)
+      | undefined;
+    const replacementPromise = new Promise<ReturnType<typeof createCapture>>(
+      (resolve) => {
+        resolveReplacement = resolve;
+      },
+    );
+    const controller = createAudienceScreenShareController({
+      capturePort: {
+        isSupported: () => true,
+        start: () => {
+          startCount += 1;
+          order.push(`capture-start-${startCount}`);
+          return startCount === 1
+            ? Promise.resolve(firstCapture)
+            : replacementPromise;
+        },
+      },
+      getConnected: () => true,
+      getTargetWindow: () => createTargetWindow(order),
+      identity,
+      onOutputModeChange: (mode) => order.push(`mode-${mode}`),
+    });
+    await controller.start("tab-or-window");
+
+    const startReplacement = controller.start("monitor");
+
+    expect(order.indexOf("mode-slide")).toBeGreaterThan(-1);
+    expect(order.indexOf("mode-slide")).toBeLessThan(
+      order.indexOf("capture-start-2"),
+    );
+    expect(firstCapture.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(firstCapture.stop).toHaveBeenCalledTimes(1);
+
+    resolveReplacement?.(replacementCapture);
+    await expect(startReplacement).resolves.toBe(true);
+    expect(order.at(-1)).toBe("mode-screen-share");
+  });
+
+  it("keeps the latest slide visible when a replacement picker is cancelled", async () => {
+    const capture = createCapture([]);
+    const modes: string[] = [];
+    let startCount = 0;
+    const controller = createAudienceScreenShareController({
+      capturePort: {
+        isSupported: () => true,
+        start: async () => {
+          startCount += 1;
+          if (startCount === 1) return capture;
+          throw new Error("picker cancelled");
+        },
+      },
+      getConnected: () => true,
+      getTargetWindow: () => createTargetWindow([]),
+      identity,
+      onOutputModeChange: (mode) => modes.push(mode),
+    });
+    await controller.start("tab-or-window");
+
+    await expect(controller.start("monitor")).resolves.toBe(false);
+
+    expect(modes).toEqual(["screen-share", "slide"]);
+    expect(capture.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("stops capture and keeps slide mode when bridge attach fails", async () => {
     const capture = createCapture([]);
     const onOutputModeChange = vi.fn();
