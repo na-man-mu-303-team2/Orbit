@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import {
@@ -140,4 +141,26 @@ test("sync arguments are dry-run by default and reject unknown input", () => {
     config: "stg_demo",
   });
   assert.throws(() => parseArguments(["--unknown"]), /unknown argument/);
+});
+
+test("develop deploy syncs safe Doppler defaults before server deployment", () => {
+  const workflow = fs.readFileSync(
+    ".github/workflows/deploy-personal-staging.yml",
+    "utf8",
+  );
+
+  assert.match(workflow, /^  sync-personal-staging-env:$/m);
+  assert.match(
+    workflow,
+    /DOPPLER_TOKEN: \$\{\{ secrets\.DOPPLER_STG_SYNC_TOKEN \}\}/,
+  );
+  assert.match(
+    workflow,
+    /node infra\/scripts\/sync-personal-staging-doppler\.mjs \\\s+--apply/,
+  );
+  assert.match(workflow, /^    needs: sync-personal-staging-env$/m);
+  assert.match(
+    workflow,
+    /needs\.sync-personal-staging-env\.result == 'success'/,
+  );
 });

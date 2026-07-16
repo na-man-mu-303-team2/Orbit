@@ -32,7 +32,9 @@ jobs:
           node-version: 24
 
       - name: Validate environment contract
-        run: node infra/scripts/check-env.mjs
+        run: |
+          node infra/scripts/check-env.mjs
+          node --test infra/scripts/personal-staging-env.test.mjs
 
   deploy-personal-staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
