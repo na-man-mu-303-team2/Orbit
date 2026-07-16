@@ -12,6 +12,7 @@ import {
   deckPatchOperationSchema,
   type DeckChangeRecord,
 } from "./patch.schema";
+import { smartArtRequestSchema } from "./smart-art-layout.schema";
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
@@ -111,6 +112,7 @@ export const designAgentWorkerResponseSchema = z.object({
   operations: z.array(deckPatchOperationSchema).max(200).default([]),
   affectedElementIds: z.array(deckElementIdSchema).max(200).default([]),
   warnings: z.array(z.string().trim().min(1).max(1_000)).max(20).default([]),
+  smartArtRequest: smartArtRequestSchema.nullable().default(null),
 });
 
 export const designAgentMessageSchema = z.object({
