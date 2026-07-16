@@ -170,6 +170,23 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps the audience controls inside the presenter topbar", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /main\.rehearsal-presenter-shell \{[^}]*grid-template-rows: auto minmax\(0, 1fr\);/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-presenter-shell \.rehearsal-presenter-topbar \{[^}]*height: auto;/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-display-toolbar\s*> \.audience-output-controls \{[^}]*padding: 0;/s,
+    );
+    expect(css).toMatch(
+      /\.rehearsal-display-toolbar[\s\S]*?> \.audience-output-controls[\s\S]*?button \{[^}]*min-height: 34px;/,
+    );
+  });
+
   it("keeps rehearsal assistance mounted while hiding the annotated presenter chrome", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
@@ -695,6 +712,29 @@ describe("RehearsalWorkspace", () => {
     expect(renderBody).toContain(
       "onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}",
     );
+  });
+
+  it("wires audience output state, popup reattach, and receiver failure cleanup", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const publisherStart = source.indexOf(
+      "const presentationChannel = usePresentationChannelPublisher",
+    );
+    const controllerStart = source.indexOf(
+      "const audienceScreenShare = useAudienceScreenShare",
+    );
+    const controllerEnd = source.indexOf(
+      "const displayManager = useMemo",
+      controllerStart,
+    );
+    const integrationBody = source.slice(publisherStart, controllerEnd);
+
+    expect(integrationBody).toContain("onPeerReady: (peer)");
+    expect(integrationBody).toContain("reattachAudienceStreamRef.current()");
+    expect(integrationBody).toContain("onScreenShareEnded:");
+    expect(integrationBody).toContain("stopAudienceStreamRef.current()");
+    expect(integrationBody).toContain("slideWindowRef.current");
+    expect(integrationBody).toContain("setAudienceOutputMode");
+    expect(integrationBody).toContain("handlePeerUnavailable");
   });
 
   it("supports Surface Swap fullscreen before opening the presenter remote popup", () => {
