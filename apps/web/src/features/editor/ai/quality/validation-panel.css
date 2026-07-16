@@ -1,0 +1,159 @@
+.orbit-shell .validation-card {
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-control);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.orbit-shell .validation-list,
+.orbit-shell .validation-item {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.orbit-shell .validation-item {
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-control);
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.orbit-shell .validation-item:hover,
+.orbit-shell .validation-item:focus-within {
+  background: var(--orbit-ds-lilac-soft);
+  border-color: var(--orbit-ds-lilac-strong);
+}
+
+.orbit-shell .validation-item-risk {
+  background: var(--orbit-ds-warning-soft);
+  border-color: var(--orbit-ds-warning);
+}
+
+.orbit-shell .validation-severity-label {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+  font-weight: 700;
+}
+
+.orbit-shell .validation-target-button {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border-strong);
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-ink);
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--orbit-ds-type-ui-small);
+  justify-content: flex-start;
+  line-height: 1.45;
+  max-width: 100%;
+  min-height: 38px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 7px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.orbit-shell .validation-target-button:hover:not(:disabled) {
+  background: var(--orbit-ds-canvas);
+  border-color: var(--orbit-ds-lilac-strong);
+}
+
+.orbit-shell .validation-target-button:focus-visible,
+.orbit-shell .validation-action-button:focus-visible,
+.orbit-shell .validation-apply-all-button:focus-visible {
+  box-shadow: var(--orbit-ds-focus);
+  outline: none;
+}
+
+.orbit-shell .validation-target-button:disabled {
+  color: var(--orbit-ds-text-muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.orbit-shell .validation-recovery-instruction {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-ui-small);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.orbit-shell .validation-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.orbit-shell .validation-action-button,
+.orbit-shell .validation-apply-all-button {
+  align-items: center;
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-lilac-strong);
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-lilac-strong);
+  display: inline-flex;
+  font-size: var(--orbit-ds-type-ui-small);
+  font-weight: 700;
+  gap: 6px;
+  justify-content: center;
+  line-height: 1.35;
+  max-width: 100%;
+  min-height: 36px;
+  overflow-wrap: anywhere;
+  padding: 7px 10px;
+  white-space: normal;
+}
+
+.orbit-shell .validation-action-button:hover,
+.orbit-shell .validation-apply-all-button:hover {
+  background: var(--orbit-ds-lilac-soft);
+}
+
+.orbit-shell .validation-apply-all-button {
+  margin-top: 2px;
+  width: 100%;
+}
+
+.orbit-shell .validation-repair-status {
+  background: var(--orbit-ds-info-soft);
+  border-radius: var(--orbit-ds-radius-control);
+  color: var(--orbit-ds-info);
+  font-size: var(--orbit-ds-type-ui-small);
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+}
+
+.orbit-shell .validation-repair-status:empty {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.orbit-shell .validation-empty-state {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-ui-small);
+}
+
+@media (any-pointer: coarse) {
+  .orbit-shell .validation-target-button,
+  .orbit-shell .validation-action-button,
+  .orbit-shell .validation-apply-all-button {
+    min-height: 44px;
+  }
+}
