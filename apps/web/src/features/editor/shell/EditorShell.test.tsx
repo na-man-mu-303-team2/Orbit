@@ -161,6 +161,7 @@ function renderApp(
 
 function setDeckData(queryClient: QueryClient, deck: Deck) {
   queryClient.setQueryData(["deck", demoIds.projectId], deck);
+  queryClient.setQueryData(["presentation-brief", demoIds.projectId], null);
   queryClient.setQueryData(["editor-deck-load", demoIds.projectId], {
     kind: "ready",
     deck,
@@ -693,6 +694,16 @@ describe("editor shell", () => {
     expect(html).toContain("AI 검증");
     expect(html).toContain("AI 채팅");
     expect(html).toContain("AI 코치");
+    expect(html).toContain('aria-label="발표 준비 경로 열기"');
+    expect(html).toContain('data-testid="presentation-journey-panel"');
+    expect(html).toContain('data-journey-step="brief"');
+    expect(html).toContain('data-journey-step="validation"');
+    expect(html).toContain('data-journey-step="rehearsal"');
+    expect(html).toContain('data-journey-step="presentation"');
+    expect(html).toContain('data-journey-action="brief-edit"');
+    expect(html).toContain('data-journey-action="validation-open"');
+    expect(html).toContain('data-journey-action="rehearsal-start"');
+    expect(html).toContain('data-journey-action="presentation-start"');
     expect(html).toContain(">검사<");
     expect(html).toContain(">디자인<");
     expect(html).not.toContain('id="editor-notes-tab"');
@@ -2622,6 +2633,13 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="100%로 보기"');
     expect(html).toContain('data-zoom-mode="fit"');
     expect(html).toContain('data-testid="editor-validation-panel"');
+    expect(html).toContain('data-testid="presentation-journey-panel"');
+    expect(html).toContain('data-journey-action="brief-view"');
+    expect(html).toContain('data-journey-action="validation-focus"');
+    expect(html).toContain('data-journey-action="rehearsal-start"');
+    expect(html).not.toContain('data-journey-action="brief-edit"');
+    expect(html).not.toContain('data-journey-action="validation-open"');
+    expect(html).not.toContain('data-journey-action="presentation-start"');
     expect(html).toContain('data-testid="editor-validation-target"');
     expect(html).toContain("1번 슬라이드 · 본문 텍스트");
     const validationPanelStart = html.indexOf(

@@ -30,6 +30,7 @@ export function PresentationJourneyPanel(props: PresentationJourneyPanelProps) {
       aria-label="발표 준비 경로"
       className="presentation-journey-panel"
       data-testid="presentation-journey-panel"
+      tabIndex={-1}
     >
       <header className="presentation-journey-header">
         <strong>발표 준비 경로</strong>

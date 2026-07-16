@@ -28,6 +28,7 @@ export function ValidationPanel(props: ValidationPanelProps) {
       aria-labelledby="editor-validation-title"
       className="suggestion-card validation-card"
       data-testid="editor-validation-panel"
+      tabIndex={-1}
     >
       <strong id="editor-validation-title">AI 검증</strong>
       <div className="stack-list validation-list">
