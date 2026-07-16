@@ -210,7 +210,6 @@ describe("FilesService", () => {
       demoProject.projectId,
       { fileId: upload.fileId },
       demoIds.userId,
-      "rehearsal-slide-snapshot",
     );
 
     expect(assets[0].createdByUserId).toBe(demoIds.userId);

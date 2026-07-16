@@ -848,13 +848,15 @@ async function loadCanvasImage(url: string) {
 
   return new Promise<HTMLImageElement | null>((resolve) => {
     const image = new window.Image();
+    const hasRenderableDimensions = () =>
+      image.naturalWidth > 0 && image.naturalHeight > 0;
 
     image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
+    image.onload = () => resolve(hasRenderableDimensions() ? image : null);
     image.onerror = () => resolve(null);
     image.src = resolveEditorAssetUrl(url);
 
-    if (image.complete && image.naturalWidth > 0) {
+    if (image.complete && hasRenderableDimensions()) {
       resolve(image);
     }
   });
@@ -900,12 +902,14 @@ async function loadImageAsset(url: string) {
 
   return new Promise<boolean>((resolve) => {
     const image = new window.Image();
+    const hasRenderableDimensions = () =>
+      image.naturalWidth > 0 && image.naturalHeight > 0;
 
-    image.onload = () => resolve(true);
+    image.onload = () => resolve(hasRenderableDimensions());
     image.onerror = () => resolve(false);
     image.src = resolveEditorAssetUrl(url);
 
-    if (image.complete && image.naturalWidth > 0) {
+    if (image.complete && hasRenderableDimensions()) {
       resolve(true);
     }
   });

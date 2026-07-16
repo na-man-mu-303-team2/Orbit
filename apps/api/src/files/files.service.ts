@@ -196,7 +196,7 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAssetPurposes.has(asset.purpose))
+      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
