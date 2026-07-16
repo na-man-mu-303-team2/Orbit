@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, Res, StreamableFile } from "@nestjs/common";
+import type { Response } from "express";
 import { AuthService } from "../auth/auth.service";
 import {
   getCurrentUser,
@@ -121,6 +122,37 @@ export class RehearsalsController {
     return this.rehearsalsService.getReport(runId);
   }
 
+  @Get("api/v1/rehearsals/:runId/transcript")
+  async getTranscript(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertOwnerRun(runId, user.userId);
+    return this.rehearsalsService.getTranscript(runId);
+  }
+
+  @Get("api/v1/rehearsals/:runId/transcript/download")
+  async downloadTranscript(
+    @Param("runId") runId: string,
+    @Query("format") format: string,
+    @Req() request: SignedCookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    if (format !== "json" && format !== "txt") {
+      throw new BadRequestException("Transcript format must be json or txt.");
+    }
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertOwnerRun(runId, user.userId);
+    const artifact = await this.rehearsalsService.getTranscriptDownload(runId, format);
+    response.setHeader("content-type", artifact.contentType);
+    response.setHeader(
+      "content-disposition",
+      `attachment; filename="${artifact.fileName}"`,
+    );
+    return new StreamableFile(artifact.body);
+  }
+
   @Get("api/v1/projects/:projectId/rehearsal-summary")
   async getSummary(
     @Param("projectId") projectId: string,
@@ -139,5 +171,10 @@ export class RehearsalsController {
   private async assertCanWriteRun(runId: string, userId: string) {
     const projectId = await this.rehearsalsService.getRunProjectId(runId);
     await this.projectsService.assertCanWriteProject(projectId, userId);
+  }
+
+  private async assertOwnerRun(runId: string, userId: string) {
+    const projectId = await this.rehearsalsService.getRunProjectId(runId);
+    await this.projectsService.assertProjectOwnerAccess(projectId, userId);
   }
 }

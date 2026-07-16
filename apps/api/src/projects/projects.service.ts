@@ -201,6 +201,11 @@ export class ProjectsService {
     return this.toProjectDto(project);
   }
 
+  async assertProjectOwnerAccess(projectId: string, userId: string): Promise<void> {
+    const project = await this.getAccessibleProject(projectId);
+    await this.assertProjectOwner(project.workspaceId, projectId, userId);
+  }
+
   async getProjectAccess(
     projectId: string,
     userId: string,

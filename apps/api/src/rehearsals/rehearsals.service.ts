@@ -19,6 +19,7 @@ import {
   getRehearsalRunResponseSchema,
   rehearsalFocusProfileSchema,
   rehearsalReportSchema,
+  rehearsalTranscriptArtifactSchema,
   retryRehearsalSemanticEvaluationResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
@@ -184,6 +185,8 @@ export class RehearsalsService {
         projectId,
         deckId: request.deckId,
         audioFileId: null,
+        transcriptJsonFileId: null,
+        transcriptTextFileId: null,
         jobId: null,
         deckVersion: evaluationSnapshot?.deckVersion ?? null,
         evaluationSnapshot,
@@ -353,12 +356,13 @@ export class RehearsalsService {
       throw new BadRequestException("Rehearsal run is not accepting uploads.");
     }
 
-    const upload = await this.filesService.createUploadUrl(
+    const upload = await this.filesService.createRehearsalAudioUploadUrl(
       run.projectId,
       parseRequest(this.rehearsalAudioUploadRequestSchema, {
         ...request,
         purpose: "rehearsal-audio"
-      })
+      }),
+      { runId: run.runId, createdAt: run.createdAt }
     );
 
     run.audioFileId = upload.fileId;
@@ -563,6 +567,31 @@ export class RehearsalsService {
       run: toRehearsalRun(run),
       report: responseReport
     });
+  }
+
+  async getTranscript(runId: string) {
+    const artifact = await this.getTranscriptArtifact(runId, "json");
+    return rehearsalTranscriptArtifactSchema.parse(JSON.parse(artifact.body.toString("utf8")));
+  }
+
+  async getTranscriptDownload(runId: string, format: "json" | "txt") {
+    return this.getTranscriptArtifact(runId, format);
+  }
+
+  private async getTranscriptArtifact(runId: string, format: "json" | "txt") {
+    const run = await this.getRunEntity(runId);
+    const fileId = format === "json" ? run.transcriptJsonFileId : run.transcriptTextFileId;
+    if (!fileId) {
+      throw new NotFoundException(`Rehearsal transcript is not available: ${runId}`);
+    }
+    const purpose =
+      format === "json" ? "rehearsal-transcript-json" : "rehearsal-transcript-text";
+    const content = await this.filesService.readPrivateUploadedAssetContent(
+      run.projectId,
+      fileId,
+      purpose
+    );
+    return { ...content, fileName: `transcript.${format}` };
   }
 
   async getComparison(projectId: string, runId: string) {

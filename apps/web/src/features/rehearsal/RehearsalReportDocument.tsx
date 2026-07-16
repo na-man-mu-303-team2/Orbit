@@ -7,20 +7,17 @@ import {
   Mic,
   Target,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import type { Deck, RehearsalReport, RehearsalRun, RehearsalTranscriptArtifact } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
 import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
-import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
 import type { SemanticRetryState } from "./RehearsalSemanticCoverage";
 import "./rehearsal-report-components.css";
-
-const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 
 function fmt(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -67,6 +64,8 @@ export function RehearsalReportDocument({
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptArtifact, setTranscriptArtifact] =
+    useState<RehearsalTranscriptArtifact | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>("overview");
 
   const coaching = report.coaching;
@@ -101,17 +100,26 @@ export function RehearsalReportDocument({
   const durationDelta = prevReport
     ? report.metrics.durationSeconds - prevReport.metrics.durationSeconds
     : null;
-  const transcriptAvailable =
-    report.transcriptRetained &&
-    report.transcript !== null &&
-    Date.now() - Date.parse(report.generatedAt) < TRANSCRIPT_WINDOW_MS;
-  const minutesLeft = transcriptAvailable
-    ? Math.ceil(
-        (TRANSCRIPT_WINDOW_MS -
-          (Date.now() - Date.parse(report.generatedAt))) /
-          60000,
-      )
-    : 0;
+  useEffect(() => {
+    let active = true;
+    setTranscriptArtifact(null);
+    void fetch(`/api/v1/rehearsals/${encodeURIComponent(report.runId)}/transcript`, {
+      credentials: "include",
+    })
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((artifact) => {
+        if (active) setTranscriptArtifact(artifact as RehearsalTranscriptArtifact | null);
+      })
+      .catch(() => {
+        if (active) setTranscriptArtifact(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [report.runId]);
+
+  const transcriptDownloadPath = (format: "json" | "txt") =>
+    `/api/v1/rehearsals/${encodeURIComponent(report.runId)}/transcript/download?format=${format}`;
 
   return (
     <div className="rrd-root">
@@ -253,26 +261,26 @@ export function RehearsalReportDocument({
       )}
 
       {/* ── 6. 전사본 ── */}
-      {transcriptAvailable && (
+      {transcriptArtifact && (
         <section className="rrd-card rrd-transcript-card">
           <header className="rrd-card-head">
             <FileText size={20} className="rrd-card-icon" />
             <h2>발표 전사본</h2>
-            <span className="rrd-transcript-ttl">{minutesLeft}분 후 만료</span>
             <div className="rrd-transcript-actions">
-              <button
-                type="button"
+              <a
                 className="rrd-transcript-download"
-                onClick={() =>
-                  downloadTranscriptDocx(
-                    deck?.title ?? "리허설",
-                    report.transcript ?? "",
-                  )
-                }
+                href={transcriptDownloadPath("txt")}
               >
                 <Download size={14} />
-                DOCX 내려받기
-              </button>
+                TXT 내려받기
+              </a>
+              <a
+                className="rrd-transcript-download"
+                href={transcriptDownloadPath("json")}
+              >
+                <Download size={14} />
+                JSON 내려받기
+              </a>
               <button
                 type="button"
                 className="rrd-transcript-toggle"
@@ -286,7 +294,7 @@ export function RehearsalReportDocument({
           </header>
 
           {transcriptOpen && (
-            <pre className="rrd-transcript-body">{report.transcript}</pre>
+            <pre className="rrd-transcript-body">{transcriptArtifact.text}</pre>
           )}
         </section>
       )}

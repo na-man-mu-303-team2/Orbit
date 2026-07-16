@@ -1,7 +1,8 @@
 import {
   assetUploadUrlResponseSchema,
+  createRehearsalArtifactPrefix,
   filePurposeSchema,
-  privateAudioPurposes,
+  privateArtifactPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -108,6 +109,55 @@ export class FilesService {
     });
   }
 
+  async createRehearsalAudioUploadUrl(
+    projectId: string,
+    input: AssetUploadUrlRequest,
+    rehearsal: { runId: string; createdAt: Date },
+    requestOrigin?: string | null,
+  ): Promise<AssetUploadUrlResponse> {
+    const project = await this.projectsService.getAccessibleProject(projectId);
+    const fileId = `file_${randomUUID()}`;
+    const extension = rehearsalAudioExtension(input.mimeType);
+    const storageKey = `${createRehearsalArtifactPrefix({
+      createdAt: rehearsal.createdAt,
+      projectId: project.projectId,
+      runId: rehearsal.runId,
+    })}/audio.${extension}`;
+    const uploadUrl = await this.createUploadTarget({
+      projectId: project.projectId,
+      fileId,
+      key: storageKey,
+      contentType: input.mimeType,
+      expiresInSeconds: uploadUrlExpiresInSeconds,
+      requestOrigin,
+    });
+    const asset = this.assetsRepository.create({
+      fileId,
+      projectId: project.projectId,
+      storageKey,
+      originalName: `audio.${extension}`,
+      mimeType: input.mimeType,
+      size: input.size,
+      url: this.uploadProxyOrigin
+        ? this.createAssetAccessUrl(project.projectId, fileId, requestOrigin)
+        : uploadUrl.url,
+      purpose: "rehearsal-audio",
+      status: "pending",
+      createdAt: new Date(),
+      uploadedAt: null,
+    });
+    await this.assetsRepository.save(asset);
+    return assetUploadUrlResponseSchema.parse({
+      fileId,
+      projectId: project.projectId,
+      uploadUrl: uploadUrl.url,
+      method: uploadUrl.method,
+      headers: uploadUrl.headers,
+      expiresAt: uploadUrl.expiresAt,
+      purpose: "rehearsal-audio",
+    });
+  }
+
   // local MinIO 모드에서 브라우저가 보낸 binary를 실제 storage object로 저장한다.
   async storeUploadContent(
     projectId: string,
@@ -172,7 +222,7 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+      (!expectedPurpose && privateArtifactPurposes.has(asset.purpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -219,7 +269,7 @@ export class FilesService {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
     }
 
-    if (!purpose && privateAudioPurposes.has(asset.purpose)) {
+    if (!purpose && privateArtifactPurposes.has(asset.purpose)) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
@@ -300,7 +350,7 @@ export class FilesService {
     });
 
     return assets
-      .filter((asset) => !privateAudioPurposes.has(asset.purpose))
+      .filter((asset) => !privateArtifactPurposes.has(asset.purpose))
       .map((asset) => this.toUploadedFile(asset));
   }
 
@@ -326,6 +376,25 @@ export class FilesService {
       throw new NotFoundException(`Asset content unavailable: ${fileId}`);
     }
 
+    return {
+      body: Buffer.from(await response.arrayBuffer()),
+      contentType: asset.mimeType,
+    };
+  }
+
+  async readPrivateUploadedAssetContent(
+    projectId: string,
+    fileId: string,
+    purpose: "rehearsal-transcript-json" | "rehearsal-transcript-text",
+  ): Promise<{ body: Buffer; contentType: string }> {
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const readUrl = this.uploadProxyOrigin
+      ? this.createInternalObjectUrl(asset.storageKey)
+      : await this.storage.getSignedReadUrl(asset.storageKey);
+    const response = await fetch(readUrl);
+    if (!response.ok) {
+      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+    }
     return {
       body: Buffer.from(await response.arrayBuffer()),
       contentType: asset.mimeType,
@@ -412,4 +481,22 @@ export class FilesService {
       createdAt: asset.createdAt.toISOString(),
     });
   }
+}
+
+function rehearsalAudioExtension(mimeType: string): string {
+  const extensions: Record<string, string> = {
+    "audio/webm": "webm",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mp4": "m4a",
+    "video/mp4": "m4a",
+    "audio/ogg": "ogg",
+    "audio/mp3": "mp3",
+    "audio/mpeg": "mp3",
+    "audio/mpga": "mp3",
+    "audio/flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+  };
+  return extensions[mimeType] ?? "webm";
 }

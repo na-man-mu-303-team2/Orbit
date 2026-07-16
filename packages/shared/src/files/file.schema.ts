@@ -7,6 +7,8 @@ export const filePurposeSchema = z.enum([
   "pptx-import",
   "reference-material",
   "rehearsal-audio",
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
   "focused-practice-audio",
   "qna-answer-audio",
   "export-result",
@@ -22,6 +24,11 @@ export const privateAudioPurposeSchema = z.enum([
   "qna-answer-audio",
 ]);
 export const privateAudioPurposes = new Set<string>(privateAudioPurposeSchema.options);
+export const privateArtifactPurposes = new Set<string>([
+  ...privateAudioPurposeSchema.options,
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
+]);
 
 export const allowedAssetMimeTypes = [
   "application/pdf",
@@ -35,6 +42,7 @@ export const allowedAssetMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -52,6 +60,7 @@ export const allowedRehearsalAudioMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -109,6 +118,17 @@ export function createAssetUploadUrlRequestSchema(
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "design-asset is reserved for internal derived assets.",
+        path: ["purpose"],
+      });
+    }
+
+    if (
+      value.purpose === "rehearsal-transcript-json" ||
+      value.purpose === "rehearsal-transcript-text"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.purpose} is reserved for internal transcript artifacts.`,
         path: ["purpose"],
       });
     }

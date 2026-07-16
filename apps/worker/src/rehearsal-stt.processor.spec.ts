@@ -185,6 +185,21 @@ describe("processRehearsalSttJob", () => {
       expect.objectContaining({ method: "POST" })
     );
     expect(storage.removeObject).not.toHaveBeenCalled();
+    expect(storage.putObject).toHaveBeenCalledTimes(2);
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "rehearsals/2026-06-27/project-a/run-a/transcript.json",
+        contentType: "application/json",
+        purpose: "rehearsal-transcript-json"
+      })
+    );
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "rehearsals/2026-06-27/project-a/run-a/transcript.txt",
+        contentType: "text/plain; charset=utf-8",
+        purpose: "rehearsal-transcript-text"
+      })
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("report_json"),
       expect.arrayContaining([
@@ -1114,8 +1129,15 @@ function createQueryMock() {
 function createStorage() {
   return {
     getSignedReadUrl: vi.fn(async () => "http://localhost:9000/rehearsal.webm"),
-    removeObject: vi.fn(async () => undefined)
-  } as unknown as Pick<StoragePort, "getSignedReadUrl" | "removeObject">;
+    removeObject: vi.fn(async () => undefined),
+    putObject: vi.fn(async (input: { key: string; body: Uint8Array; contentType: string; purpose: string }) => ({
+      key: input.key,
+      url: `http://localhost:9000/orbit-local/${input.key}`,
+      contentType: input.contentType,
+      purpose: input.purpose,
+      size: input.body.byteLength
+    }))
+  } as unknown as Pick<StoragePort, "getSignedReadUrl" | "removeObject" | "putObject">;
 }
 
 function jobRow(
@@ -1147,6 +1169,7 @@ function runRow(
 ) {
   return {
     run_id: "run-a",
+    created_at: "2026-06-27T00:00:00.000Z",
     meta_json: metaJson,
     evaluation_snapshot_json: evaluationSnapshot,
     semantic_evaluation_mode: semanticEvaluationMode

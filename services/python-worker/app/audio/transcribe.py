@@ -439,7 +439,12 @@ def _read_segments(data: Any) -> list[TranscriptSegment]:
 def _parse_whisperx_response(
     payload: Any, *, fallback_language: str, fallback_model: str
 ) -> ProviderTranscription:
-    transcript = _read_field(payload, "transcript", "")
+    segments = _read_whisperx_segments(payload)
+    transcript = _read_field(payload, "transcript", None)
+    if transcript is None:
+        transcript = _read_field(payload, "text", None)
+    if transcript is None and segments:
+        transcript = " ".join(segment.text.strip() for segment in segments)
     if not isinstance(transcript, str) or not transcript.strip():
         raise AudioTranscriptionError(
             "empty_transcript",
@@ -451,6 +456,10 @@ def _parse_whisperx_response(
     provider = _read_field(payload, "provider", "whisperx")
     model = _read_field(payload, "model", fallback_model)
     duration = _read_optional_float(payload, "durationSeconds")
+    if duration is None:
+        duration = _read_optional_float(payload, "duration")
+    if duration is None and segments:
+        duration = max(segment.end_seconds or 0.0 for segment in segments)
 
     if not isinstance(language, str) or not language:
         language = fallback_language
@@ -465,7 +474,7 @@ def _parse_whisperx_response(
         provider=provider,
         model=model,
         duration_seconds=duration,
-        segments=_read_whisperx_segments(payload),
+        segments=segments,
     )
 
 
@@ -480,8 +489,18 @@ def _read_whisperx_segments(data: Any) -> list[TranscriptSegment]:
         if not isinstance(text, str) or not text.strip():
             raise _malformed_whisperx_segments_error()
 
-        start_seconds = _read_required_whisperx_float(raw_segment, "startSeconds")
-        end_seconds = _read_required_whisperx_float(raw_segment, "endSeconds")
+        start_field = (
+            "startSeconds"
+            if _read_field(raw_segment, "startSeconds", None) is not None
+            else "start"
+        )
+        end_field = (
+            "endSeconds"
+            if _read_field(raw_segment, "endSeconds", None) is not None
+            else "end"
+        )
+        start_seconds = _read_required_whisperx_float(raw_segment, start_field)
+        end_seconds = _read_required_whisperx_float(raw_segment, end_field)
         if end_seconds < start_seconds:
             raise _malformed_whisperx_segments_error()
 

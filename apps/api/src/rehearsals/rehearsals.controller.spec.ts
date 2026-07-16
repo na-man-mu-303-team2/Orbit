@@ -40,6 +40,19 @@ describe("RehearsalsController", () => {
     ).toBeLessThan(rehearsalsService.getReport.mock.invocationCallOrder[0]);
   });
 
+  it("requires project owner permission before returning a transcript", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.getTranscript("run-1", signedRequest());
+
+    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
+    expect(projectsService.assertProjectOwnerAccess).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(rehearsalsService.getTranscript).toHaveBeenCalledWith("run-1");
+  });
+
   it("requires project read permission before returning a run comparison", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
@@ -106,6 +119,7 @@ function createController() {
   const projectsService = {
     assertCanReadProject: vi.fn(async () => ({ projectId: "project-a" })),
     assertCanWriteProject: vi.fn(async () => ({ projectId: "project-a" })),
+    assertProjectOwnerAccess: vi.fn(async () => undefined),
   };
   const rehearsalsService = {
     createRun: vi.fn(async () => ({ run: { runId: "run-1" } })),
@@ -121,6 +135,12 @@ function createController() {
       briefing: []
     })),
     getReport: vi.fn(async () => ({ report: null })),
+    getTranscript: vi.fn(async () => ({ text: "transcript" })),
+    getTranscriptDownload: vi.fn(async () => ({
+      body: Buffer.from("transcript"),
+      contentType: "text/plain; charset=utf-8",
+      fileName: "transcript.txt",
+    })),
     getRunProjectId: vi.fn(async () => "project-a"),
   };
 

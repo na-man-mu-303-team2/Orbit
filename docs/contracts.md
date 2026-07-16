@@ -1,5 +1,18 @@
 # ORBIT 1차 스프린트 공통 계약
 
+## 리허설 전사 산출물 영속화 (2026-07-16)
+
+이 절은 완료된 전체 리허설의 canonical 전사 산출물에 한해 기존 30분 Redis-only 규칙보다 우선한다. Semantic retry용 Redis evidence cache는 기존처럼 일시적으로 유지한다.
+
+- 신규 리허설 산출물의 object key prefix는 `rehearsals/{Asia-Seoul YYYY-MM-DD}/{projectId}/{runId}/`이다. 기존 object는 이동하지 않는다.
+- prefix 아래에 `audio.{webm|m4a|ogg|...}`, `transcript.json`, `transcript.txt`를 저장한다.
+- `transcript.json`은 `{ text, language, duration, provider, segments[] }`만 포함하며 segment는 `{ text, start, end }` 구조다. `speaker`, `word_segments`, model payload, provider raw response는 저장하지 않는다.
+- `transcript.txt`는 전사 텍스트만 포함한다.
+- `project_assets`는 파일마다 `rehearsal-audio`, `rehearsal-transcript-json`, `rehearsal-transcript-text` purpose의 개별 row를 저장한다. `rehearsal_runs`는 `audio_file_id`, `transcript_json_file_id`, `transcript_text_file_id`로 이를 연결한다.
+- 전사 purpose는 private이다. generic asset upload/list/get/content API로 노출하지 않으며 project Owner만 `GET /api/v1/rehearsals/:runId/transcript`와 `GET /api/v1/rehearsals/:runId/transcript/download?format=json|txt`를 사용할 수 있다.
+- Report JSON, Job payload/result, audience API, server log에는 transcript 원문, object key, signed URL, bytes를 포함하지 않는다.
+- 14일 자동 삭제는 이번 계약 변경에 포함하지 않는 후속 작업이다. cleanup이 배포되기 전에는 보존 기한 준수를 보장하지 않는다.
+
 ## 목적
 
 1차 스프린트에서는 구현 토론보다 팀 전체가 같은 데이터 모양과 연결 기준으로 개발하는 것이 우선이다. 이 문서는 편집기, AI 생성, 파일 업로드, Job, WebSocket, E2E 흐름에서 공통으로 사용할 계약을 정의한다.

@@ -312,6 +312,49 @@ def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
     assert result.segments[0].end_seconds == 2.5
 
 
+def test_whisperx_provider_accepts_raw_whisperx_response() -> None:
+    def fake_urlopen(request: object, *, timeout: float) -> FakeHttpResponse:
+        return FakeHttpResponse(
+            {
+                "text": "안녕하세요 반갑습니다.",
+                "language": "ko",
+                "duration": 3.5,
+                "segments": [
+                    {
+                        "text": "안녕하세요 반갑습니다.",
+                        "start": 1.0,
+                        "end": 3.5,
+                        "speaker": "SPEAKER_00",
+                    }
+                ],
+                "word_segments": [
+                    {
+                        "word": "안녕하세요",
+                        "start": 1.0,
+                        "end": 1.5,
+                        "score": 0.98,
+                    }
+                ],
+            }
+        )
+
+    provider = WhisperXSpeechToTextProvider(
+        api_url="https://whisperx.example.test/transcribe",
+        api_key="whisperx-test-key",
+        model="large-v3",
+        language="ko-KR",
+        opener=fake_urlopen,
+    )
+    result = provider.transcribe(
+        AudioContent(data=b"audio", file_name="audio.webm", mime_type="audio/webm")
+    )
+
+    assert result.transcript == "안녕하세요 반갑습니다."
+    assert result.duration_seconds == 3.5
+    assert result.segments[0].start_seconds == 1.0
+    assert result.segments[0].end_seconds == 3.5
+
+
 def test_whisperx_provider_sanitizes_multipart_filename() -> None:
     calls: list[object] = []
 

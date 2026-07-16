@@ -3,6 +3,8 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  createRehearsalArtifactPrefix,
+  rehearsalTranscriptArtifactSchema,
   rehearsalEvaluationSnapshotSchema,
   rehearsalAnalyzeRequestSchema,
   rehearsalReportSchema,
@@ -60,6 +62,7 @@ const deckPatchRowSchema = z.object({
 
 const rehearsalRunInputRowSchema = z.object({
   run_id: z.string().min(1),
+  created_at: z.coerce.date(),
   meta_json: z.record(z.unknown()).nullable().optional(),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
   semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
@@ -185,7 +188,7 @@ export type RehearsalSemanticEvaluationBusinessEvent = {
 
 export async function processRehearsalSttJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject" | "putObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
   transcriptCache?: RehearsalTranscriptCache,
@@ -376,11 +379,31 @@ export async function processRehearsalSttJob(
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
   }
 
+  let transcriptArtifacts: Awaited<ReturnType<typeof storeTranscriptArtifacts>>;
+  try {
+    transcriptArtifacts = await storeTranscriptArtifacts(
+      storage,
+      payload,
+      runInput.created_at,
+      transcribePayload
+    );
+  } catch (error) {
+    return failAndScheduleRawAudioDeletion(
+      dataSource,
+      asset,
+      payload,
+      85,
+      "REHEARSAL_TRANSCRIPT_STORAGE_FAILED",
+      error instanceof Error ? error.message : "Transcript artifact storage failed."
+    );
+  }
+
   const completedRun = await updateRun(dataSource, payload, {
     status: "succeeded",
     error: null,
     rehearsalReport: report,
-    transcriptRetained: report.transcriptRetained
+    transcriptRetained: report.transcriptRetained,
+    transcriptArtifacts
   });
 
   if (completedRun.evaluation_snapshot_json) {
@@ -1309,10 +1332,40 @@ async function updateRun(
     rawAudioDeletedAt?: string;
     rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
+    transcriptArtifacts?: Array<{
+      fileId: string;
+      storageKey: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      url: string;
+      purpose: "rehearsal-transcript-json" | "rehearsal-transcript-text";
+    }>;
   }
 ): Promise<z.infer<typeof rehearsalRunInputRowSchema>> {
+  const jsonArtifact = patch.transcriptArtifacts?.find(
+    (artifact) => artifact.purpose === "rehearsal-transcript-json"
+  );
+  const textArtifact = patch.transcriptArtifacts?.find(
+    (artifact) => artifact.purpose === "rehearsal-transcript-text"
+  );
   const rows = await dataSource.query(
     `
+      WITH inserted_transcript_assets AS (
+        INSERT INTO project_assets (
+          file_id, project_id, storage_key, original_name, mime_type,
+          size, url, purpose, status, created_at, uploaded_at
+        )
+        SELECT
+          artifact.file_id, $8, artifact.storage_key, artifact.original_name,
+          artifact.mime_type, artifact.size, artifact.url, artifact.purpose,
+          'uploaded', now(), now()
+        FROM jsonb_to_recordset(COALESCE($10::jsonb, '[]'::jsonb)) AS artifact(
+          file_id text, storage_key text, original_name text, mime_type text,
+          size integer, url text, purpose text
+        )
+        ON CONFLICT (file_id) DO NOTHING
+      )
       UPDATE rehearsal_runs
       SET status = $2,
           job_id = COALESCE($3, job_id),
@@ -1320,6 +1373,8 @@ async function updateRun(
           raw_audio_deleted_at = COALESCE($5::timestamptz, raw_audio_deleted_at),
           report_json = COALESCE($6::jsonb, report_json),
           transcript_retained = COALESCE($7::boolean, transcript_retained),
+          transcript_json_file_id = COALESCE($11, transcript_json_file_id),
+          transcript_text_file_id = COALESCE($12, transcript_text_file_id),
           analysis_revision = CASE
             WHEN $6::jsonb IS NULL THEN analysis_revision
             ELSE analysis_revision + 1
@@ -1331,7 +1386,7 @@ async function updateRun(
           END,
           updated_at = now()
       WHERE run_id = $1 AND project_id = $8
-      RETURNING run_id, meta_json, evaluation_snapshot_json,
+      RETURNING run_id, created_at, meta_json, evaluation_snapshot_json,
                 semantic_evaluation_mode, analysis_revision
     `,
     [
@@ -1345,7 +1400,22 @@ async function updateRun(
       payload.projectId,
       patch.rehearsalReport
         ? !patch.rehearsalReport.semanticEvaluation.retryable
-        : false
+        : false,
+      patch.transcriptArtifacts
+        ? JSON.stringify(
+            patch.transcriptArtifacts.map((artifact) => ({
+              file_id: artifact.fileId,
+              storage_key: artifact.storageKey,
+              original_name: artifact.originalName,
+              mime_type: artifact.mimeType,
+              size: artifact.size,
+              url: artifact.url,
+              purpose: artifact.purpose
+            }))
+          )
+        : null,
+      jsonArtifact?.fileId ?? null,
+      textArtifact?.fileId ?? null
     ]
   );
 
@@ -1355,6 +1425,84 @@ async function updateRun(
   }
 
   return rehearsalRunInputRowSchema.parse(row);
+}
+
+async function storeTranscriptArtifacts(
+  storage: Pick<StoragePort, "putObject">,
+  payload: RehearsalSttPayload,
+  createdAt: Date,
+  transcription: z.infer<typeof transcribeResponseSchema>
+) {
+  const prefix = createRehearsalArtifactPrefix({
+    createdAt,
+    projectId: payload.projectId,
+    runId: payload.runId
+  });
+  const artifact = rehearsalTranscriptArtifactSchema.parse({
+    text: transcription.transcript,
+    language: transcription.language || null,
+    duration: transcription.durationSeconds ?? null,
+    provider: transcription.provider,
+    segments: transcription.segments
+      .filter(
+        (segment) =>
+          segment.startSeconds !== null &&
+          segment.startSeconds !== undefined &&
+          segment.endSeconds !== null &&
+          segment.endSeconds !== undefined
+      )
+      .map((segment) => ({
+        text: segment.text,
+        start: segment.startSeconds as number,
+        end: segment.endSeconds as number
+      }))
+  });
+  const jsonBody = Buffer.from(JSON.stringify(artifact, null, 2), "utf8");
+  const textBody = Buffer.from(artifact.text, "utf8");
+  const definitions = [
+    {
+      originalName: "transcript.json",
+      storageKey: `${prefix}/transcript.json`,
+      mimeType: "application/json",
+      purpose: "rehearsal-transcript-json" as const,
+      body: jsonBody
+    },
+    {
+      originalName: "transcript.txt",
+      storageKey: `${prefix}/transcript.txt`,
+      mimeType: "text/plain; charset=utf-8",
+      purpose: "rehearsal-transcript-text" as const,
+      body: textBody
+    }
+  ];
+
+  return Promise.all(
+    definitions.map(async (definition) => {
+      const stored = await storage.putObject({
+        key: definition.storageKey,
+        body: definition.body,
+        contentType: definition.mimeType,
+        purpose: definition.purpose
+      });
+      return {
+        fileId: createTranscriptArtifactFileId(payload.runId, definition.originalName),
+        storageKey: definition.storageKey,
+        originalName: definition.originalName,
+        mimeType: definition.mimeType,
+        size: definition.body.byteLength,
+        url: stored.url,
+        purpose: definition.purpose
+      };
+    })
+  );
+}
+
+function createTranscriptArtifactFileId(runId: string, fileName: string): string {
+  const digest = createHash("sha256")
+    .update(`${runId}:${fileName}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `file_${digest}`;
 }
 
 async function progressJob(
