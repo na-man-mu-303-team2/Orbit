@@ -1,3 +1,4 @@
+import { createDemoDeck } from "@orbit/editor-core";
 import type {
   AssetUploadUrlResponse,
   RehearsalRun,
@@ -183,7 +184,9 @@ test.describe("Editor rehearsal creator ownership", () => {
       await expect(
         viewerA.page.getByLabel("Presentation editor"),
       ).toBeVisible();
-      await viewerA.page.getByRole("button", { name: "리허설" }).click();
+      await viewerA.page
+        .getByTestId("presentation-journey-rehearsal-start")
+        .click();
 
       const uploadRequestBody = (
         await snapshotUploadRequest
@@ -349,12 +352,20 @@ test.describe("Editor rehearsal creator ownership", () => {
   }, testInfo: TestInfo) => {
     test.slow();
     const sourceDeck = createSnapshotSafeEditorDeck();
-    sourceDeck.slides[0]!.style.backgroundImage = {
-      alt: "retry fixture",
-      fit: "cover",
-      opacity: 0,
-      src: "/__e2e-snapshot-retry.png",
-    };
+    const imageElement = createDemoDeck().slides[0]?.elements.find(
+      (element) => element.type === "image",
+    );
+    if (!imageElement || imageElement.type !== "image") {
+      throw new Error("Demo Deck image fixture is missing.");
+    }
+    sourceDeck.slides[0]!.elements.push({
+      ...structuredClone(imageElement),
+      elementId: "el_snapshot_retry",
+      props: {
+        ...structuredClone(imageElement.props),
+        src: "/__e2e-snapshot-retry.png",
+      },
+    });
     const { project } = await createAuthenticatedProject(ownerPage, {
       deck: sourceDeck,
       label: "snapshot-retry-owner",
@@ -368,13 +379,16 @@ test.describe("Editor rehearsal creator ownership", () => {
         role: "viewer",
       });
       let imageAvailable = false;
-      await viewer.page.route("**/__e2e-snapshot-retry.png", (route) =>
-        route.fulfill(
-          imageAvailable
-            ? { body: tinyPng, contentType: "image/png", status: 200 }
-            : { body: "missing", status: 404 },
-        ),
-      );
+      await viewer.page.route("**/__e2e-snapshot-retry.png", (route) => {
+        if (!imageAvailable) {
+          return route.abort("failed");
+        }
+        return route.fulfill({
+          body: tinyPng,
+          contentType: "image/png",
+          status: 200,
+        });
+      });
       const apiRequests: Request[] = [];
       viewer.page.on("request", (request) => {
         const pathname = new URL(request.url()).pathname;
@@ -391,7 +405,10 @@ test.describe("Editor rehearsal creator ownership", () => {
       await installNavigationRecorder(viewer.page);
       await viewer.page.goto(`/project/${project.projectId}`);
       await expect(viewer.page.getByLabel("Presentation editor")).toBeVisible();
-      await viewer.page.getByRole("button", { name: "리허설" }).click();
+      const rehearsalButton = viewer.page.getByTestId(
+        "presentation-journey-rehearsal-start",
+      );
+      await rehearsalButton.click();
       await expect(viewer.page.getByRole("alert")).toContainText(
         /슬라이드 이미지 1개를 불러오지 못했습니다/,
       );
@@ -408,7 +425,7 @@ test.describe("Editor rehearsal creator ownership", () => {
           new URL(response.url()).pathname.endsWith("/assets/complete") &&
           response.ok(),
       );
-      await viewer.page.getByRole("button", { name: "리허설" }).click();
+      await rehearsalButton.click();
       const snapshot = await parseJson<UploadedFile>(await completeResponse);
       await expect(viewer.page).toHaveURL(
         new RegExp(`/rehearsal/${project.projectId}\\?snapshotPreparationId=`),

@@ -204,7 +204,7 @@ postgres -c "
     file_id, project_id, storage_key, original_name, mime_type, size, url, purpose, status
   ) VALUES (
     'file_public_without_creator', 'project_legacy', 'public', 'public.pdf',
-    'application/pdf', 1, 'internal://public', 'reference', 'uploaded'
+    'application/pdf', 1, 'internal://public', 'reference-material', 'uploaded'
   );
 " >/dev/null
 

@@ -115,6 +115,11 @@ async function getStageTop(page: Page) {
   return getTop(page.getByTestId("editor-stage-shell"));
 }
 
+async function getCanvasPaneTop(page: Page) {
+  await settleEditorLayout(page);
+  return getTop(page.getByTestId("editor-canvas-pane"));
+}
+
 async function expectAlignedEditorPaneTops(page: Page) {
   await settleEditorLayout(page);
   const tops = await Promise.all([
@@ -224,13 +229,13 @@ function createValidationOverflowDeck() {
     throw new Error("Validation overflow fixture element el_2 is missing.");
   }
 
-  overflowElement.width = 260;
-  overflowElement.height = 18;
+  overflowElement.width = 480;
+  overflowElement.height = 52;
   overflowElement.props = {
     ...overflowElement.props,
-    fontSize: 48,
-    lineHeight: 1.5,
-    text: "검사 탭에서 선택 출처를 검증하기 위한 충분히 긴 텍스트입니다.",
+    fontSize: 24,
+    lineHeight: 1.2,
+    text: "안전한 자동 수정 첫 줄\n안전한 자동 수정 둘째 줄",
   };
 
   return deck;
@@ -246,7 +251,7 @@ for (const viewport of desktopViewports) {
     });
     await closeRightPanel(page);
 
-    const stageTopBeforeSelection = await getStageTop(page);
+    const canvasPaneTopBeforeSelection = await getCanvasPaneTop(page);
     await expectNoHorizontalDocumentOverflow(page);
     await expectNoCriticalOrSeriousAxeViolations(page);
 
@@ -257,11 +262,11 @@ for (const viewport of desktopViewports) {
     await expect(
       page.getByRole("region", { name: "현재 선택", exact: true }),
     ).toBeVisible();
-    const stageTopAfterSelection = await getStageTop(page);
+    const canvasPaneTopAfterSelection = await getCanvasPaneTop(page);
 
     expect(
-      Math.abs(stageTopAfterSelection - stageTopBeforeSelection),
-      `Stage Y changed from ${stageTopBeforeSelection} to ${stageTopAfterSelection}`,
+      Math.abs(canvasPaneTopAfterSelection - canvasPaneTopBeforeSelection),
+      `Canvas pane Y changed from ${canvasPaneTopBeforeSelection} to ${canvasPaneTopAfterSelection}`,
     ).toBeLessThanOrEqual(1);
     await expectAlignedEditorPaneTops(page);
 
@@ -354,7 +359,7 @@ test("validation-origin repair keeps AI inspection tabs selected", async ({
     .first();
   await expect(overflowItem).toBeVisible();
   await overflowItem
-    .getByRole("button", { name: "글자 줄이기", exact: true })
+    .getByRole("button", { name: "텍스트 넘침 안전 수정", exact: true })
     .click();
 
   await expect(
@@ -363,6 +368,49 @@ test("validation-origin repair keeps AI inspection tabs selected", async ({
   await expect(aiTab).toHaveAttribute("aria-selected", "true");
   await expect(validationTab).toHaveAttribute("aria-selected", "true");
   await expect(designTab).toHaveAttribute("aria-selected", "false");
+});
+
+test("file and presentation menus keep keyboard focus reversible", async ({
+  page,
+}) => {
+  await openEditor(page, {
+    label: "toolbar-popup-menu-keyboard",
+    viewport: { width: 1440, height: 900 },
+  });
+
+  const fileTrigger = page.getByRole("button", { name: "파일", exact: true });
+  await fileTrigger.focus();
+  await fileTrigger.press("Enter");
+  const fileMenu = page.getByRole("menu").filter({ hasText: "내보내기" });
+  await expect(fileMenu).toBeVisible();
+  const fileItems = fileMenu.getByRole("menuitem");
+  await expect(fileItems.first()).toBeFocused();
+  await page.keyboard.press("End");
+  const lastEnabledFileItem = fileMenu
+    .locator('[role="menuitem"]:not([disabled])')
+    .last();
+  await expect(lastEnabledFileItem).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(fileItems.first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(fileTrigger).toBeFocused();
+  await expect(fileTrigger).toHaveAttribute("aria-expanded", "false");
+
+  const presentationTrigger = page.getByRole("button", {
+    name: "발표 메뉴 열기",
+    exact: true,
+  });
+  await presentationTrigger.focus();
+  await presentationTrigger.press("Enter");
+  const presentationMenu = page
+    .getByRole("menu")
+    .filter({ hasText: "청중 링크·QR" });
+  await expect(presentationMenu).toBeVisible();
+  await expect(presentationMenu.getByRole("menuitem")).toBeFocused();
+  await expectNoCriticalOrSeriousAxeViolations(page);
+  await page.keyboard.press("Escape");
+  await expect(presentationTrigger).toBeFocused();
+  await expect(presentationTrigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test.describe("compact coarse pointer target", () => {
