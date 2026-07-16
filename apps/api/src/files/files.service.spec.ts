@@ -157,6 +157,34 @@ describe("FilesService", () => {
     ]);
   });
 
+  it("creates a rehearsal audio key from the Seoul run date", async () => {
+    const { assets, service, storage } = createService({
+      getAccessibleProject: vi.fn(async () => demoProject),
+    });
+
+    await service.createRehearsalAudioUploadUrl(
+      demoProject.projectId,
+      {
+        originalName: "browser-recording.ogg",
+        mimeType: "audio/ogg",
+        size: 1024,
+        purpose: "rehearsal-audio",
+      },
+      { runId: "run_123", createdAt: new Date("2026-07-15T15:30:00.000Z") },
+    );
+
+    expect(storage.createUploadUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        contentType: "audio/ogg",
+      }),
+    );
+    expect(assets[0]).toMatchObject({
+      purpose: "rehearsal-audio",
+      storageKey: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+    });
+  });
+
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {
     const { repository } = createAssetRepository([
       {
