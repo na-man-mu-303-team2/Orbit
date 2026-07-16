@@ -43,6 +43,11 @@ export type ActivityResultTextRow = {
   updated_at: Date | string;
 };
 
+export type ActivityResultSnapshotRow = {
+  activity_run_id: string;
+  aggregate_json: unknown;
+};
+
 const runColumns = `
   runs.activity_run_id, runs.project_id, runs.session_id, runs.activity_id,
   runs.source_slide_id, runs.version, runs.supersedes_activity_run_id,
@@ -128,6 +133,17 @@ export class ActivityResultsRepository {
           ON sessions.project_id = runs.project_id AND sessions.session_id = runs.session_id
         WHERE runs.project_id = $1 AND runs.session_id = $2
         ORDER BY runs.created_at ASC, runs.version ASC
+      `,
+      [projectId, sessionId]
+    );
+  }
+
+  listSessionSnapshots(projectId: string, sessionId: string) {
+    return this.dataSource.query<ActivityResultSnapshotRow[]>(
+      `
+        SELECT activity_run_id, aggregate_json
+        FROM activity_result_snapshots
+        WHERE project_id = $1 AND session_id = $2
       `,
       [projectId, sessionId]
     );

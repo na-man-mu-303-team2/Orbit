@@ -83,6 +83,36 @@ function createService(
     findCurrentRun: vi.fn().mockResolvedValue({ ...run, status }),
     findActiveRun: vi.fn().mockResolvedValue({ ...run, status }),
     listSessionRuns: vi.fn().mockResolvedValue([{ ...run, status }]),
+    listSessionSnapshots: vi.fn().mockResolvedValue(
+      retention === "aggregate-only"
+        ? [{
+            activity_run_id: run.activity_run_id,
+            aggregate_json: {
+              activityRunId: run.activity_run_id,
+              activityId: run.activity_id,
+              status,
+              revision: run.revision,
+              responseCount: run.response_count,
+              aggregates: [{
+                questionId: "question_rating",
+                type: "rating",
+                responseCount: 2,
+                average: 4,
+                choices: []
+              }],
+              textEntries: [{
+                entryId: "activity_text_approved",
+                questionId: "question_text",
+                text: "공개 의견",
+                displayName: null,
+                moderationStatus: "approved",
+                answeredAt: null,
+                updatedAt: "2026-07-17T00:05:00.000Z"
+              }]
+            }
+          }]
+        : []
+    ),
     hardDeleteSessionResults: vi.fn().mockImplementation(async () => {
       resultsDeleted = true;
       return true;
@@ -225,19 +255,31 @@ describe("ActivityResultsService", () => {
     });
   });
 
-  it.each(["aggregate-only", "results-deleted"] as const)(
-    "does not expose raw results in the %s archive state",
-    async (retention) => {
-      const archive = await createService("results", retention).service.getSessionArchive(
-        "project_1",
-        "session_1"
-      );
-      expect(archive.activities[0]).toMatchObject({
-        availability: retention,
-        result: null
-      });
-    }
-  );
+  it("uses the anonymous snapshot in the aggregate-only archive state", async () => {
+    const archive = await createService("results", "aggregate-only").service.getSessionArchive(
+      "project_1",
+      "session_1"
+    );
+    expect(archive.activities[0]).toMatchObject({
+      availability: "aggregate-only",
+      result: {
+        responseCount: 2,
+        textEntries: [{ displayName: null, moderationStatus: "approved" }]
+      }
+    });
+    expect(JSON.stringify(archive)).not.toContain("PRIVATE_NAME_SENTINEL");
+  });
+
+  it("does not expose a snapshot after hard deletion", async () => {
+    const archive = await createService("results", "results-deleted").service.getSessionArchive(
+      "project_1",
+      "session_1"
+    );
+    expect(archive.activities[0]).toMatchObject({
+      availability: "results-deleted",
+      result: null
+    });
+  });
 
   it("requires the exact session name before permanent deletion", async () => {
     const { repository, service } = createService();

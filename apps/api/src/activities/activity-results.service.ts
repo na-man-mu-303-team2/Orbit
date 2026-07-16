@@ -2,6 +2,7 @@ import {
   activityAnswerSchema,
   activityDefinitionSchema,
   activityPresenterResultSchema,
+  activityRetentionSnapshotSchema,
   activityPublicResultSchema,
   activityResponseSchema,
   activityRunSchema,
@@ -44,7 +45,13 @@ export class ActivityResultsService {
       projectId,
       sessionId
     );
-    const runs = await this.repository.listSessionRuns(projectId, sessionId);
+    const [runs, snapshots] = await Promise.all([
+      this.repository.listSessionRuns(projectId, sessionId),
+      this.repository.listSessionSnapshots(projectId, sessionId)
+    ]);
+    const snapshotsByRun = new Map(
+      snapshots.map((snapshot) => [snapshot.activity_run_id, snapshot.aggregate_json])
+    );
     const availability = session.resultsDeletedAt
       ? "results-deleted"
       : session.rawResponsesDeletedAt
@@ -56,7 +63,9 @@ export class ActivityResultsService {
         result:
           availability === "raw-retained"
             ? await this.buildPresenterResult(run)
-            : null,
+            : availability === "aggregate-only"
+              ? this.parseRetentionSnapshot(snapshotsByRun.get(run.activity_run_id))
+              : null,
         run: this.toRun(run)
       }))
     );
@@ -65,6 +74,11 @@ export class ActivityResultsService {
       session,
       sessionName: createSessionName(session.sessionId, session.createdAt)
     });
+  }
+
+  private parseRetentionSnapshot(value: unknown) {
+    if (value === undefined) return null;
+    return activityRetentionSnapshotSchema.parse(value);
   }
 
   async deleteSessionResults(

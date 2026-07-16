@@ -16,6 +16,9 @@ import {
   enqueueRehearsalSttJob,
   enqueueRehearsalSemanticEvaluationJob,
   enqueueWorkerHealthCheckJob,
+  enqueueActivityResponseRetentionJob,
+  activityResponseRetentionJobName,
+  activityResponseRetentionQueueName,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
   referenceExtractQueueName,
@@ -342,6 +345,36 @@ describe("enqueueWorkerHealthCheckJob", () => {
       expect.objectContaining({ jobId: "job-1", attempts: 5 })
     );
     expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueActivityResponseRetentionJob", () => {
+  it("adds an ID-only retryable retention job to BullMQ", async () => {
+    await enqueueActivityResponseRetentionJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job_activity_retention_session_1",
+      projectId: "project-a",
+      presentationSessionId: "session_1"
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      activityResponseRetentionQueueName,
+      { connection: expect.objectContaining({ host: "localhost", port: 6379 }) }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(
+      activityResponseRetentionJobName,
+      {
+        jobId: "job_activity_retention_session_1",
+        projectId: "project-a",
+        presentationSessionId: "session_1"
+      },
+      expect.objectContaining({
+        jobId: "job_activity_retention_session_1",
+        attempts: 5,
+        backoff: { type: "exponential", delay: 1_000 }
+      })
+    );
   });
 });
 
