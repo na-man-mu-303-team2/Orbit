@@ -76,6 +76,7 @@
 | ORBIT-45 | 1000명 load | p95 <= 1s target and report | manual/scheduled load harness |
 | ORBIT-46 | 자동 슬라이드 전환 | keyword >=80%, script >=80%, manual override | planned auto-advance unit tests |
 | ORBIT-47 | M6 checkpoint | live path without server STT | Playwright presentation smoke, load smoke |
+| 신규 | 발표자 웹·실습 공유 | 같은 기기의 slide-window/surface swap에서 slide·screen-share·black 전환, 최신 slide 복귀, presenter privacy | presenter unit tests, `tests/e2e/presenter-screen.spec.ts`, `docs/qa/presenter-screen-share-mvp.md` |
 | ORBIT-48 | 청중 참여 epic | Q&A, polls, surveys, final report | 하위 ORBIT-49..56 테스트 |
 | ORBIT-49 | Q&A 제한 | 3 questions/min, filtered count | planned API rate-limit tests |
 | ORBIT-50 | Live poll | start/stop/respond/visibility | planned API/web poll tests |

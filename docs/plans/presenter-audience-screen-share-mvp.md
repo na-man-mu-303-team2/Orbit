@@ -1,10 +1,12 @@
 # 발표자 웹·실습 공유 1차 MVP 실행 계획
 
 **문서 유형:** Goal 실행용 Implementation Plan
-**상태:** Ready — 1차 범위 확정
+**상태:** Implemented — macOS native 앱 창/모니터 수동 QA 대기
 **작성일:** 2026-07-16
 **대상:** Chrome 데스크톱, 같은 노트북의 확장 디스플레이
 **관련 문서:** `docs/specs/presenter-screen.md`, `docs/specs/slide-window-auto-fullscreen.md`, `docs/plans/google-slides-presentation-display-implementation.md`, `docs/contracts.md`
+
+**실행 결과:** Tasks 1~8 구현과 unit/integration/E2E, Chromium 및 시스템 Chrome 검증을 완료했다. actual Chrome direct bridge 양방향과 native 탭 캡처는 통과했다. macOS 권한이 필요한 native 앱 창/전체 모니터는 `NotReadableError`로 자동 검증이 차단되어 `docs/qa/presenter-screen-share-mvp.md`의 수동 체크리스트를 남겼다.
 
 ## 0. Goal 모드 실행 계약
 
