@@ -7,6 +7,7 @@ import type {
 import { useState } from "react";
 
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
+import { ActivityEditorModerationPanel } from "./ActivityEditorModerationPanel";
 
 const templateLabels = {
   "pre-question": "사전 질문",
@@ -22,7 +23,9 @@ const questionTypeLabels: Record<ActivityQuestionType, string> = {
 };
 
 export function ActivitySlideInspector(props: {
+  deckId?: string;
   onChange: (activity: ActivityDefinition) => void;
+  projectId?: string;
   slide: ActivitySlide;
 }) {
   const [previewRole, setPreviewRole] = useState<ActivityPreviewRole>("audience");
@@ -221,6 +224,13 @@ export function ActivitySlideInspector(props: {
         <strong>시스템 레이어 · 잠김</strong>
         <span>응답 UI는 문항 설정에서 자동 생성되며 개별 요소로 편집할 수 없습니다.</span>
       </div>
+      {props.deckId && props.projectId ? (
+        <ActivityEditorModerationPanel
+          deckId={props.deckId}
+          projectId={props.projectId}
+          slide={props.slide}
+        />
+      ) : null}
     </div>
   );
 }

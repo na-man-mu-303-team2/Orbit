@@ -309,6 +309,23 @@
   line-height: 1.4;
 }
 
+.activity-editor-moderation {
+  border-top: 1px solid #deded7;
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+}
+
+.activity-editor-moderation > strong {
+  font-size: 12px;
+}
+
+.activity-editor-moderation > p {
+  color: #b45309;
+  font-size: 11px;
+  margin: 0;
+}
+
 .add-slide-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;

@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   ensureActivityRunRequestSchema,
+  moderateActivityTextRequestSchema,
   supersedeActivityRunRequestSchema,
   updateActivityRunStatusRequestSchema
 } from "@orbit/shared";
@@ -22,6 +23,7 @@ import { parseRequest } from "../common/zod-request";
 import { ProjectsService } from "../projects/projects.service";
 import { ActivityRunsService } from "./activity-runs.service";
 import { ActivityResultsService } from "./activity-results.service";
+import { ActivityTextModerationService } from "./activity-text-moderation.service";
 
 type SignedCookieRequest = Request & {
   signedCookies?: Record<string, string | false | undefined>;
@@ -33,7 +35,8 @@ export class ActivityRunsController {
     private readonly authService: AuthService,
     private readonly projectsService: ProjectsService,
     private readonly activityRunsService: ActivityRunsService,
-    private readonly activityResultsService: ActivityResultsService
+    private readonly activityResultsService: ActivityResultsService,
+    private readonly activityTextModerationService: ActivityTextModerationService
   ) {}
 
   @Put("activities/:activityId/current-run")
@@ -95,6 +98,24 @@ export class ActivityRunsController {
   ) {
     await this.assertCanOperate(projectId, request);
     return this.activityResultsService.getPublicResult(projectId, sessionId, runId);
+  }
+
+  @Patch("text-entries/:entryId")
+  async moderateTextEntry(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("entryId") entryId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    const input = parseRequest(moderateActivityTextRequestSchema, body ?? {});
+    await this.assertCanOperate(projectId, request);
+    return this.activityTextModerationService.moderate(
+      projectId,
+      sessionId,
+      entryId,
+      input
+    );
   }
 
   private async assertCanOperate(projectId: string, request: SignedCookieRequest) {

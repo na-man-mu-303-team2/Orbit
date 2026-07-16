@@ -55,3 +55,67 @@
 }
 
 .activity-presenter-primary-command:disabled { cursor: wait; opacity: 0.55; }
+
+.activity-presenter-result-detail,
+.activity-presenter-result-detail section,
+.activity-presenter-result-detail ul {
+  display: grid;
+  gap: 7px;
+}
+
+.activity-presenter-result-detail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-presenter-result-detail section > strong {
+  color: #334155;
+  font-size: 0.72rem;
+}
+
+.activity-presenter-result-detail section > ul > li {
+  align-items: center;
+  background: #f8fafc;
+  border-radius: 6px;
+  display: flex;
+  font-size: 0.7rem;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 7px 9px;
+}
+
+.activity-presenter-text-entries li {
+  align-items: start !important;
+  display: grid !important;
+  grid-template-columns: auto 1fr auto;
+}
+
+.activity-presenter-text-entries p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-presenter-text-entries em {
+  color: #64748b;
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.activity-presenter-moderation-actions {
+  display: flex;
+  gap: 5px;
+  grid-column: 1 / -1;
+}
+
+.activity-presenter-moderation-actions button {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  color: #334155;
+  font-size: 0.64rem;
+  font-weight: 800;
+  min-height: 28px;
+  padding: 4px 8px;
+}

@@ -2,7 +2,8 @@ import type {
   ActivityPresenterResult,
   ActivityRun,
   ActivityRuntimeStatus,
-  ActivitySlide
+  ActivitySlide,
+  ModerateActivityTextRequest
 } from "@orbit/shared";
 import {
   IconChartBar,
@@ -32,6 +33,7 @@ export function ActivityPresenterPanel(props: {
   const [runtime, setRuntime] = useState<ActivityPresenterRuntime | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [moderatingEntryId, setModeratingEntryId] = useState<string | null>(null);
   const activityId = props.slide.activity.activityId;
 
   useEffect(() => {
@@ -111,6 +113,45 @@ export function ActivityPresenterPanel(props: {
     }
   };
 
+  const moderateText = async (
+    entryId: string,
+    patch: Pick<ModerateActivityTextRequest, "moderationStatus" | "answered">
+  ) => {
+    if (!runtime || moderatingEntryId) return;
+    const previous = runtime;
+    setModeratingEntryId(entryId);
+    setError("");
+    setRuntime({
+      ...runtime,
+      result: {
+        ...runtime.result,
+        textEntries: runtime.result.textEntries.map((entry) => entry.entryId === entryId
+          ? {
+              ...entry,
+              ...(patch.moderationStatus ? { moderationStatus: patch.moderationStatus } : {}),
+              ...(patch.answered !== undefined
+                ? { answeredAt: patch.answered ? new Date().toISOString() : null }
+                : {})
+            }
+          : entry)
+      }
+    });
+    try {
+      const response = await activityApi.moderateTextEntry(
+        props.projectId,
+        runtime.sessionId,
+        entryId,
+        { ...patch, expectedRevision: runtime.result.revision }
+      );
+      setRuntime((current) => current ? { ...current, result: response.result } : current);
+    } catch (cause) {
+      setRuntime(previous);
+      setError(activityErrorMessage(cause));
+    } finally {
+      setModeratingEntryId(null);
+    }
+  };
+
   return (
     <section className="activity-presenter-panel" aria-label="참여 장표 운영">
       <div className="activity-presenter-panel-heading">
@@ -140,6 +181,14 @@ export function ActivityPresenterPanel(props: {
           <IconExternalLink aria-hidden="true" size={15} stroke={1.7} />
         </a>
       ) : null}
+      {runtime ? (
+        <ActivityPresenterResults
+          disabledEntryId={moderatingEntryId}
+          onModerate={(entryId, patch) => void moderateText(entryId, patch)}
+          result={runtime.result}
+          slide={props.slide}
+        />
+      ) : null}
       {error ? <p className="activity-presenter-error" role="status">{error}</p> : null}
       <button
         className="activity-presenter-primary-command"
@@ -155,6 +204,78 @@ export function ActivityPresenterPanel(props: {
         {pending ? "상태 변경 중" : primary.label}
       </button>
     </section>
+  );
+}
+
+export function ActivityPresenterResults(props: {
+  disabledEntryId?: string | null;
+  onModerate?: (
+    entryId: string,
+    patch: Pick<ModerateActivityTextRequest, "moderationStatus" | "answered">
+  ) => void;
+  result: ActivityPresenterResult;
+  slide: ActivitySlide;
+}) {
+  return (
+    <div className="activity-presenter-result-detail">
+      {props.slide.activity.questions.map((question) => {
+        const aggregate = props.result.aggregates.find(
+          (candidate) => candidate.questionId === question.questionId
+        );
+        if (!aggregate || (question.type !== "single-choice" && question.type !== "multiple-choice")) {
+          return null;
+        }
+        return (
+          <section key={question.questionId} aria-label={`${question.prompt} 집계`}>
+            <strong>{question.prompt}</strong>
+            <ul>
+              {question.options.map((option) => {
+                const choice = aggregate.choices.find((candidate) => candidate.optionId === option.optionId);
+                return (
+                  <li key={option.optionId}>
+                    <span>{option.label}</span>
+                    <b>{choice?.count ?? 0} · {Math.round((choice?.ratio ?? 0) * 100)}%</b>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+      {props.result.textEntries.length > 0 ? (
+        <section aria-label="제출된 주관식 답변" className="activity-presenter-text-entries">
+          <strong>제출된 질문·의견</strong>
+          <ul>
+            {props.result.textEntries.slice(0, 50).map((entry) => (
+              <li key={entry.entryId}>
+                <span>{entry.displayName ?? "익명"}</span>
+                <p>{entry.text}</p>
+                <em>{entry.moderationStatus === "pending" ? "검토 대기" : entry.moderationStatus === "approved" ? "공개" : "숨김"}</em>
+                {props.onModerate ? (
+                  <div className="activity-presenter-moderation-actions">
+                    <button
+                      disabled={props.disabledEntryId === entry.entryId}
+                      type="button"
+                      onClick={() => props.onModerate?.(entry.entryId, { moderationStatus: "approved" })}
+                    >승인</button>
+                    <button
+                      disabled={props.disabledEntryId === entry.entryId}
+                      type="button"
+                      onClick={() => props.onModerate?.(entry.entryId, { moderationStatus: "hidden" })}
+                    >숨김</button>
+                    <button
+                      disabled={props.disabledEntryId === entry.entryId}
+                      type="button"
+                      onClick={() => props.onModerate?.(entry.entryId, { answered: entry.answeredAt === null })}
+                    >{entry.answeredAt === null ? "답변 완료" : "미답변"}</button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
