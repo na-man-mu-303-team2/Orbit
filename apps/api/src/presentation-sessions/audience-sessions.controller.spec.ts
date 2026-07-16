@@ -1,0 +1,91 @@
+import type { OrbitConfig } from "@orbit/config";
+import { ForbiddenException, UnsupportedMediaTypeException } from "@nestjs/common";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  audienceAccessCookieName,
+  createAudienceAccessToken,
+  verifyAudienceAccessToken
+} from "./audience-access-cookie";
+import { AudienceSessionsController } from "./audience-sessions.controller";
+
+const access = {
+  sessionId: "session_1",
+  projectId: "project_1",
+  deckId: "deck_1",
+  accessMode: "public" as const,
+  startsAt: "2026-07-17T00:00:00.000Z",
+  expiresAt: "2027-07-31T00:00:00.000Z",
+  activeActivityRunId: null
+};
+
+function createController() {
+  const service = {
+    getAudiencePublicInfo: vi.fn().mockResolvedValue({}),
+    joinAudience: vi.fn().mockResolvedValue({ verified: true, session: access }),
+    getAudienceAccess: vi.fn().mockResolvedValue({ verified: true, session: access })
+  };
+  const controller = new AudienceSessionsController(service as never);
+  const config = Reflect.get(controller, "config") as OrbitConfig;
+  return { config, controller, service };
+}
+
+describe("AudienceSessionsController", () => {
+  it("requires JSON and a same-origin mutation request", async () => {
+    const { controller, config } = createController();
+    const response = { cookie: vi.fn() } as never;
+
+    await expect(
+      controller.join(
+        "session_1",
+        {},
+        { headers: { origin: config.WEB_ORIGIN } } as never,
+        response
+      )
+    ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
+    await expect(
+      controller.join(
+        "session_1",
+        {},
+        {
+          headers: {
+            origin: "https://invalid.example",
+            "content-type": "application/json"
+          }
+        } as never,
+        response
+      )
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("preserves the signed audience identity when rejoining the same session", async () => {
+    const { controller, config } = createController();
+    const existingToken = createAudienceAccessToken(
+      config,
+      access,
+      "test-agent",
+      "audience_existing"
+    );
+    const response = { cookie: vi.fn() };
+
+    await controller.join(
+      "session_1",
+      {},
+      {
+        headers: {
+          origin: config.WEB_ORIGIN,
+          "content-type": "application/json",
+          "user-agent": "test-agent"
+        },
+        signedCookies: { [audienceAccessCookieName]: existingToken }
+      } as never,
+      response as never
+    );
+
+    const issuedToken = response.cookie.mock.calls[0]?.[1];
+    expect(typeof issuedToken).toBe("string");
+    expect(
+      verifyAudienceAccessToken(config, issuedToken, "test-agent")?.audienceId
+    ).toBe("audience_existing");
+  });
+});

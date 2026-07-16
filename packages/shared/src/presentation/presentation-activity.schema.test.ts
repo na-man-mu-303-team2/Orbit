@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPresentationSessionRequestSchema,
-  presentationSessionSchema
+  audiencePresentationAccessResponseSchema,
+  getCurrentPresentationSessionResponseSchema,
+  presentationSessionSchema,
+  updatePresentationSessionAccessRequestSchema
 } from "./presentation.schema";
 
 const session = {
@@ -68,6 +71,58 @@ describe("PresentationSession Activity contract", () => {
         deckId: "deck_1",
         accessMode: "public",
         deckVersion: 99
+      }).success
+    ).toBe(false);
+  });
+
+  it("represents the absence of a current session without a dangling URL", () => {
+    expect(
+      getCurrentPresentationSessionResponseSchema.safeParse({
+        session: null,
+        audienceUrl: null
+      }).success
+    ).toBe(true);
+    expect(
+      getCurrentPresentationSessionResponseSchema.safeParse({
+        session: null,
+        audienceUrl: "/audience/session_missing"
+      }).success
+    ).toBe(false);
+  });
+
+  it("requires matching access credentials when access settings change", () => {
+    const window = {
+      startsAt: "2026-07-17T00:00:00.000Z",
+      expiresAt: "2026-07-31T00:00:00.000Z"
+    };
+    expect(
+      updatePresentationSessionAccessRequestSchema.safeParse({
+        ...window,
+        accessMode: "passcode"
+      }).success
+    ).toBe(false);
+    expect(
+      updatePresentationSessionAccessRequestSchema.safeParse({
+        ...window,
+        accessMode: "public"
+      }).success
+    ).toBe(true);
+  });
+
+  it("keeps audience access identity out of the public response contract", () => {
+    expect(
+      audiencePresentationAccessResponseSchema.safeParse({
+        verified: true,
+        session: {
+          sessionId: "session_1",
+          projectId: "project_1",
+          deckId: "deck_1",
+          accessMode: "public",
+          startsAt: "2026-07-17T00:00:00.000Z",
+          expiresAt: "2026-07-31T00:00:00.000Z",
+          activeActivityRunId: null,
+          audienceId: "audience_private"
+        }
       }).success
     ).toBe(false);
   });

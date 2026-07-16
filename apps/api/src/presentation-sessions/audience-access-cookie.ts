@@ -1,6 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { OrbitConfig } from "@orbit/config";
-import type { AudienceAccessSession } from "@orbit/shared";
 import type { CookieOptions } from "express";
 
 export const audienceAccessCookieName = "orbit_audience_access";
@@ -16,13 +15,20 @@ type AudienceAccessTokenPayload = {
 
 export type VerifiedAudienceAccessToken = AudienceAccessTokenPayload;
 
+type AudienceAccessTokenSession = {
+  sessionId: string;
+  projectId: string;
+  expiresAt: string;
+};
+
 export function createAudienceAccessToken(
   config: OrbitConfig,
-  session: AudienceAccessSession,
-  userAgent: string
+  session: AudienceAccessTokenSession,
+  userAgent: string,
+  existingAudienceId?: string
 ): string {
   const payload: AudienceAccessTokenPayload = {
-    audienceId: `audience_${randomUUID()}`,
+    audienceId: existingAudienceId ?? `audience_${randomUUID()}`,
     sessionId: session.sessionId,
     projectId: session.projectId,
     uaHash: hashUserAgent(config.SESSION_SECRET, userAgent),

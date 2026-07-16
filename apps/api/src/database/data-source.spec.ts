@@ -69,4 +69,28 @@ describe("databaseOptions", () => {
       ),
     ).toBe(true);
   });
+
+  it("registers the presentation session activity expansion", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+    const names = migrations.map((migration) =>
+      typeof migration === "function" ? migration.name : "",
+    );
+
+    expect(names).toContain("ExpandPresentationSessionsForActivities2026071701000");
+  });
+
+  it("registers the activity runtime migration after the session expansion", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+    const names = migrations.map((migration) =>
+      typeof migration === "function" ? migration.name : "",
+    );
+
+    expect(names.indexOf("CreateActivityRuntime2026071702000")).toBeGreaterThan(
+      names.indexOf("ExpandPresentationSessionsForActivities2026071701000"),
+    );
+  });
 });

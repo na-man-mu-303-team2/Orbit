@@ -1,0 +1,299 @@
+import type { PresentationAccessMode } from "@orbit/shared";
+import { Injectable } from "@nestjs/common";
+import { InjectDataSource } from "@nestjs/typeorm";
+import { DataSource, EntityManager } from "typeorm";
+
+export type PresentationSessionStatus = "draft" | "live" | "ended";
+
+export type PresentationSessionRow = {
+  session_id: string;
+  project_id: string;
+  deck_id: string | null;
+  deck_version: number | null;
+  presenter_user_id: string | null;
+  created_by: string | null;
+  status: PresentationSessionStatus;
+  access_mode: PresentationAccessMode;
+  session_password_hash: string | null;
+  starts_at: Date | string;
+  expires_at: Date | string;
+  active_activity_run_id: string | null;
+  started_at: Date | string | null;
+  ended_at: Date | string | null;
+  closed_at: Date | string | null;
+  raw_responses_delete_after: Date | string | null;
+  raw_responses_deleted_at: Date | string | null;
+  results_deleted_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+};
+
+export type StoredDeckIdentity = {
+  deck_id: string;
+  version: number;
+};
+
+export type AudiencePresentationSessionRow = PresentationSessionRow & {
+  project_title: string;
+};
+
+type QueryExecutor = DataSource | EntityManager;
+
+const sessionColumns = `
+  session_id, project_id, deck_id, deck_version, presenter_user_id, created_by,
+  status, access_mode, session_password_hash, starts_at, expires_at,
+  active_activity_run_id, started_at, ended_at, closed_at,
+  raw_responses_delete_after, raw_responses_deleted_at, results_deleted_at,
+  created_at, updated_at
+`;
+
+@Injectable()
+export class PresentationSessionRepository {
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  transaction<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {
+    return this.dataSource.transaction(work);
+  }
+
+  async findStoredDeckForUpdate(
+    manager: EntityManager,
+    projectId: string,
+    deckId: string
+  ): Promise<StoredDeckIdentity | null> {
+    const rows = await manager.query<StoredDeckIdentity[]>(
+      `SELECT deck_id, version FROM decks WHERE project_id = $1 AND deck_id = $2 FOR UPDATE`,
+      [projectId, deckId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async findCurrent(projectId: string, deckId: string): Promise<PresentationSessionRow | null> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE project_id = $1
+          AND deck_id = $2
+          AND status IN ('draft', 'live')
+          AND expires_at > now()
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [projectId, deckId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async list(projectId: string, deckId: string): Promise<PresentationSessionRow[]> {
+    return this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE project_id = $1 AND deck_id = $2
+        ORDER BY created_at DESC
+      `,
+      [projectId, deckId]
+    );
+  }
+
+  async findAccessibleBySessionId(sessionId: string): Promise<PresentationSessionRow | null> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status = 'live'
+          AND starts_at <= now()
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async findAudienceInfo(sessionId: string): Promise<AudiencePresentationSessionRow | null> {
+    const rows = await this.dataSource.query<AudiencePresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}, projects.title AS project_title
+        FROM presentation_sessions
+        INNER JOIN projects ON projects.project_id = presentation_sessions.project_id
+        WHERE session_id = $1
+        LIMIT 1
+      `,
+      [sessionId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async findById(
+    executor: QueryExecutor,
+    projectId: string,
+    sessionId: string,
+    lock = false
+  ): Promise<PresentationSessionRow | null> {
+    const rows = await executor.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE project_id = $1 AND session_id = $2
+        LIMIT 1
+        ${lock ? "FOR UPDATE" : ""}
+      `,
+      [projectId, sessionId]
+    );
+    return rows[0] ?? null;
+  }
+
+  async closeActive(
+    manager: EntityManager,
+    projectId: string,
+    now: Date
+  ): Promise<string[]> {
+    const active = await manager.query<Array<{ session_id: string }>>(
+      `
+        SELECT session_id
+        FROM presentation_sessions
+        WHERE project_id = $1 AND status IN ('draft', 'live')
+        FOR UPDATE
+      `,
+      [projectId]
+    );
+    const sessionIds = active.map((row) => row.session_id);
+    if (sessionIds.length === 0) return [];
+
+    await manager.query(
+      `
+        UPDATE activity_runs
+        SET status = 'closed', closed_at = COALESCE(closed_at, $2),
+            revision = revision + 1, updated_at = $2
+        WHERE session_id = ANY($1::text[]) AND status = 'open'
+      `,
+      [sessionIds, now]
+    );
+    await manager.query(
+      `
+        UPDATE presentation_sessions
+        SET status = 'ended', active_activity_run_id = NULL,
+            ended_at = $2, closed_at = $2,
+            raw_responses_delete_after = $2 + interval '90 days', updated_at = $2
+        WHERE project_id = $1 AND session_id = ANY($3::text[])
+      `,
+      [projectId, now, sessionIds]
+    );
+    return sessionIds;
+  }
+
+  async insert(
+    manager: EntityManager,
+    input: {
+      sessionId: string;
+      projectId: string;
+      deckId: string;
+      deckVersion: number;
+      userId: string;
+      status: Exclude<PresentationSessionStatus, "ended">;
+      accessMode: PresentationAccessMode;
+      passwordHash: string | null;
+      startsAt: Date;
+      expiresAt: Date;
+      now: Date;
+    }
+  ): Promise<PresentationSessionRow> {
+    const rows = await manager.query<PresentationSessionRow[]>(
+      `
+        INSERT INTO presentation_sessions (
+          session_id, session_password_hash, project_id, status, created_at, expires_at,
+          deck_id, deck_version, presenter_user_id, created_by, access_mode,
+          starts_at, updated_at, started_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $5, $12)
+        RETURNING ${sessionColumns}
+      `,
+      [
+        input.sessionId,
+        input.passwordHash,
+        input.projectId,
+        input.status,
+        input.now,
+        input.expiresAt,
+        input.deckId,
+        input.deckVersion,
+        input.userId,
+        input.accessMode,
+        input.startsAt,
+        input.status === "live" ? input.now : null
+      ]
+    );
+    return rows[0];
+  }
+
+  async updateAccess(
+    manager: EntityManager,
+    projectId: string,
+    sessionId: string,
+    input: {
+      status: Exclude<PresentationSessionStatus, "ended">;
+      accessMode: PresentationAccessMode;
+      passwordHash: string | null;
+      startsAt: Date;
+      expiresAt: Date;
+      now: Date;
+    }
+  ): Promise<PresentationSessionRow | null> {
+    const rows = await manager.query<PresentationSessionRow[]>(
+      `
+        UPDATE presentation_sessions
+        SET status = $3, access_mode = $4, session_password_hash = $5,
+            starts_at = $6, expires_at = $7, updated_at = $8,
+            started_at = CASE WHEN $3 = 'live' THEN COALESCE(started_at, $8) ELSE NULL END
+        WHERE project_id = $1 AND session_id = $2 AND status IN ('draft', 'live')
+        RETURNING ${sessionColumns}
+      `,
+      [
+        projectId,
+        sessionId,
+        input.status,
+        input.accessMode,
+        input.passwordHash,
+        input.startsAt,
+        input.expiresAt,
+        input.now
+      ]
+    );
+    return rows[0] ?? null;
+  }
+
+  async close(
+    manager: EntityManager,
+    projectId: string,
+    sessionId: string,
+    now: Date
+  ): Promise<PresentationSessionRow | null> {
+    const row = await this.findById(manager, projectId, sessionId, true);
+    if (!row) return null;
+    if (row.status === "ended") return row;
+
+    await manager.query(
+      `
+        UPDATE activity_runs
+        SET status = 'closed', closed_at = COALESCE(closed_at, $3),
+            revision = revision + 1, updated_at = $3
+        WHERE project_id = $1 AND session_id = $2 AND status = 'open'
+      `,
+      [projectId, sessionId, now]
+    );
+    const rows = await manager.query<PresentationSessionRow[]>(
+      `
+        UPDATE presentation_sessions
+        SET status = 'ended', active_activity_run_id = NULL,
+            ended_at = $3, closed_at = $3,
+            raw_responses_delete_after = $3 + interval '90 days', updated_at = $3
+        WHERE project_id = $1 AND session_id = $2
+        RETURNING ${sessionColumns}
+      `,
+      [projectId, sessionId, now]
+    );
+    return rows[0] ?? null;
+  }
+}
