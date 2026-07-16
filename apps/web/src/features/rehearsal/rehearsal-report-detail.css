@@ -6,6 +6,20 @@
 .rrd-root .rrd-hero-action { align-items: center; background: white; border: 1px solid rgba(9,9,9,.14); border-radius: var(--orbit-ds-radius-pill); color: var(--orbit-ds-ink); display: flex; font-weight: 700; gap: 7px; min-height: 42px; padding: 0 16px; }
 .rrd-root .rrd-card { background: white; border: 1px solid var(--orbit-ds-border); border-radius: 14px; box-shadow: none; margin: 0; padding: 22px; }
 .rrd-root .rrd-ai-card { background: var(--orbit-ds-lilac-soft); border-color: #ded3ff; }
+.rrd-top-overview { align-items: stretch; display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rrd-top-overview > .rrd-card,
+.rrd-top-overview > .practice-report-summary { box-sizing: border-box; height: 100%; margin: 0; min-width: 0; }
+.rrd-top-overview > .practice-report-summary { background: white; padding: 22px; }
+.rrd-top-overview > .practice-report-summary > header { align-items: flex-start; gap: 16px; }
+.rrd-top-overview > .practice-report-summary h2 { font-size: 20px; }
+.rrd-top-overview > .practice-report-summary ol { margin-top: 18px; }
+.rrd-top-overview > .practice-report-summary li { gap: 12px; grid-template-columns: 28px minmax(0, 1fr) max-content; padding: 16px 0; }
+.rrd-top-overview > .practice-report-summary .practice-goal-result { align-items: flex-end; flex: 0 0 auto; grid-column: 3; justify-self: end; min-width: max-content; }
+.rrd-top-overview > .practice-report-summary .orbit-ds-status { white-space: nowrap; }
+.rrd-top-overview > .practice-report-summary .practice-pass-marks { flex-wrap: nowrap; }
+.rrd-top-overview > .practice-report-summary .practice-pass-marks > span { flex: 0 0 34px; }
+.rrd-top-overview .rrd-ai-insights { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rrd-top-overview .rrd-ai-insight { gap: 10px; padding: 14px; }
 .rrd-root .rrd-card-head { align-items: center; border-bottom: 1px solid var(--orbit-ds-border); display: flex; gap: 9px; margin-bottom: 18px; padding-bottom: 14px; }
 .rrd-root .rrd-card-head h2 { font-size: 20px; margin: 0; }
 .rrd-root .rrd-summary-block, .rrd-root .rrd-overview-metric, .rrd-root .rrd-utterance-group, .rrd-root .rrd-coaching-focus { border-radius: 10px; }
@@ -127,4 +141,8 @@ body .rehearsal-report-page .rehearsal-report-nav-empty {
     border-right: 0;
     padding: 18px;
   }
+}
+
+@media (max-width: 980px) {
+  .rrd-top-overview { grid-template-columns: 1fr; }
 }

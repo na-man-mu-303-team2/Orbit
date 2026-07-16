@@ -8,12 +8,14 @@ import {
   Target,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
 import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
 import { RehearsalSlideAnalysisOverview } from "./RehearsalSlideAnalysisOverview";
+import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
 import type { SemanticRetryState } from "./RehearsalSemanticCoverage";
@@ -43,6 +45,7 @@ function formatDate(iso: string) {
 type Props = {
   deck: Deck | null;
   onSemanticRetry?: () => void;
+  practiceGoalSummary?: ReactNode;
   prevReports: RehearsalReport[];
   projectId: string;
   report: RehearsalReport;
@@ -54,6 +57,7 @@ type Props = {
 
 export function RehearsalReportDocument({
   deck,
+  practiceGoalSummary,
   prevReports,
   projectId,
   report,
@@ -129,7 +133,16 @@ export function RehearsalReportDocument({
       </section>
 
       {/* ── 1. AI summary ── */}
-      <RehearsalAiSummaryOverview report={report} />
+      <div className="rrd-top-overview">
+        <RehearsalAiSummaryOverview report={report} />
+        {practiceGoalSummary}
+      </div>
+
+      <RehearsalSlideCoachingViewer
+        deck={reportDeck}
+        prevReports={prevReports}
+        report={report}
+      />
 
       {/* ── 2. 말버릇 ── */}
       <RehearsalHabitOverview prevReport={prevReport} report={report} />

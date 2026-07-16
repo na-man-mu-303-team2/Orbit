@@ -91,7 +91,7 @@ describe("processRehearsalSttJob", () => {
     vi.unstubAllGlobals();
   });
 
-  it("transcribes, analyzes, stores results, and then schedules raw audio cleanup", async () => {
+  it("transcribes, analyzes, stores results, and retains the raw audio", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -233,17 +233,11 @@ describe("processRehearsalSttJob", () => {
         null
       ])
     );
-    const succeededJobCallIndex = query.mock.calls.findIndex(
-      ([sql, params]) =>
-        String(sql).includes("UPDATE jobs") &&
-        Array.isArray(params) &&
-        params[1] === "succeeded"
-    );
-    const cleanupCallIndex = query.mock.calls.findIndex(([sql]) =>
-      String(sql).includes("INSERT INTO storage_deletion_outbox")
-    );
-    expect(succeededJobCallIndex).toBeGreaterThanOrEqual(0);
-    expect(cleanupCallIndex).toBeGreaterThan(succeededJobCallIndex);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO storage_deletion_outbox")
+      )
+    ).toBe(false);
   });
 
   it("replays patch-only deck updates and normalizes analyze keyword DTOs", async () => {
@@ -940,7 +934,7 @@ describe("processRehearsalSttJob", () => {
     );
   });
 
-  it("preserves a successful analysis and schedules cleanup after success", async () => {
+  it("preserves a successful analysis without scheduling cleanup", async () => {
     const query = createQueryMock()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
@@ -995,10 +989,11 @@ describe("processRehearsalSttJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO storage_deletion_outbox"),
-      expect.arrayContaining(["project-a", "file-audio", assetRow.storage_key])
-    );
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO storage_deletion_outbox")
+      )
+    ).toBe(false);
   });
 
   it("marks the job failed before scheduling cleanup when report validation fails", async () => {

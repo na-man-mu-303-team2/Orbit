@@ -81,7 +81,7 @@ export function PracticeGoalSummary(props: {
           <h2 id="practice-report-summary-title">다음 연습에서 먼저 바꿀 것</h2>
         </div>
         <a href={planHref}>
-          연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
+          연습하기 <ArrowRight aria-hidden="true" size={17} />
         </a>
       </header>
       <ol>
@@ -129,7 +129,7 @@ function PracticeGoalSummaryStateCard(props: { copy: string; href: string; title
           <h2 id="practice-report-summary-title">{props.title}</h2>
         </div>
         <a href={props.href}>
-          연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
+          연습하기 <ArrowRight aria-hidden="true" size={17} />
         </a>
       </header>
       <p>
