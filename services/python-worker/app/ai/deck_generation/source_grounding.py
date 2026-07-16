@@ -110,7 +110,16 @@ def ground_sources(
         research.fact_coverage_satisfied
     )
     warnings: list[str] = []
-    if research.sources:
+    if (
+        raw_input.brief.reference_policy == "research-first"
+        and research.quality == "unavailable"
+    ):
+        raw_input.source_records = [
+            record
+            for record in raw_input.source_records
+            if record.source_type == "topic"
+        ]
+    elif research.sources:
         raw_input.source_records.extend(research.sources)
     if (
         raw_input.brief.reference_policy == "research-first"
