@@ -16,6 +16,12 @@ const presentationGridStep = presentationGridColumnWidth + presentationGridGutte
 const presentationGridSafeX = 120;
 const presentationGridSpacing = 8;
 const presentationGridTolerance = 4;
+const locallyRecomputedGenerationIssueCodes = new Set([
+  "BODY_CONTENT_DENSE",
+  "CTA_MISSING",
+  "SPEAKER_NOTES_DENSE",
+  "SPEAKER_NOTES_SHORT"
+]);
 
 export type EditorValidationItem = {
   elementId?: string;
@@ -39,7 +45,7 @@ export function getEditorValidationItems(
   );
   if (!slide) return uniqueValidationItems([...deckItems, ...slideItems]);
   return uniqueValidationItems([
-    ...deckItems.filter((item) => !item.slideId || item.slideId === slide.slideId),
+    ...deckItems.filter((item) => item.slideId === slide.slideId),
     ...slideItems
   ]);
 }
@@ -56,12 +62,14 @@ function uniqueValidationItems(items: EditorValidationItem[]) {
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
   const items: EditorValidationItem[] =
-    deck.metadata.generationQuality?.issues.map((issue) => ({
-      issue: issue.code,
-      message: issue.message,
-      severity: issue.severity,
-      slideId: issue.slideId,
-    })) ?? [];
+    deck.metadata.generationQuality?.issues
+      .filter((issue) => !locallyRecomputedGenerationIssueCodes.has(issue.code))
+      .map((issue) => ({
+        issue: issue.code,
+        message: issue.message,
+        severity: issue.severity,
+        slideId: issue.slideId,
+      })) ?? [];
   const presentationRules = Boolean(deck.metadata.presentationProfile);
   const timingPlan = deck.slides.find(
     (slide) => slide.aiNotes?.timingPlan

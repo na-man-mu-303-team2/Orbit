@@ -925,21 +925,41 @@ async function executeV2SemanticQuality(
   return qualityArtifactPayloadSchema.parse({ workerPayload });
 }
 
-function mergeSlideValidations(
+export function mergeSlideValidations(
   completed: Array<
     ReturnType<typeof completedSlideV2ArtifactPayloadSchema.parse>
   >,
 ) {
-  const layoutIssues = completed.flatMap(
+  const finalSlideOrder = Math.max(
+    ...completed.map((artifact) => artifact.order),
+  );
+  const mergeIssues = (
+    select: (
+      artifact: (typeof completed)[number],
+    ) => (typeof artifact.validation.layoutIssues),
+  ) =>
+    completed.flatMap((artifact) =>
+      select(artifact)
+        .filter((issue) => issue.scope !== "deck")
+        .filter(
+          (issue) =>
+            issue.code !== "CTA_MISSING" || artifact.order === finalSlideOrder,
+        )
+        .map((issue) => ({
+          ...issue,
+          path: rebaseSlideShardIssuePath(issue.path, artifact.order),
+        })),
+    );
+  const layoutIssues = mergeIssues(
     (artifact) => artifact.validation.layoutIssues,
   );
-  const contentIssues = completed.flatMap(
+  const contentIssues = mergeIssues(
     (artifact) => artifact.validation.contentIssues,
   );
-  const designIssues = completed.flatMap(
+  const designIssues = mergeIssues(
     (artifact) => artifact.validation.designIssues,
   );
-  const presentationIssues = completed.flatMap(
+  const presentationIssues = mergeIssues(
     (artifact) => artifact.validation.presentationIssues,
   );
   return {
@@ -954,6 +974,10 @@ function mergeSlideValidations(
     designIssues,
     presentationIssues,
   };
+}
+
+function rebaseSlideShardIssuePath(path: string, slideOrder: number) {
+  return path.replace(/^slides\.0(?=\.|$)/, `slides.${slideOrder - 1}`);
 }
 
 async function executeRenderedVisualQuality(

@@ -2,7 +2,11 @@ import { generateDeckJobResultSchema } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 
-import { publishAtomically } from "./execution-stage.processor";
+import {
+  mergeSlideValidations,
+  publishAtomically,
+} from "./execution-stage.processor";
+import { completedSlideV2ArtifactPayloadSchema } from "./execution-stage-contract";
 import { createTestDeck } from "./test-deck.fixture";
 
 const now = "2026-07-16T00:00:00.000Z";
@@ -75,6 +79,94 @@ describe("publishAtomically", () => {
     );
   });
 });
+
+describe("mergeSlideValidations", () => {
+  it("maps shard-local issues to their actual slide and removes invalid shard-wide checks", () => {
+    const second = completedSlideArtifact(2, {
+      contentIssues: [
+        validationIssue("BODY_CONTENT_DENSE", "slide", "slides.0.elements"),
+      ],
+      presentationIssues: [
+        validationIssue("CTA_MISSING", "slide", "slides.0"),
+        validationIssue("SPEAKER_NOTES_SHORT", "deck", "slides"),
+      ],
+    });
+    const third = completedSlideArtifact(3, {
+      designIssues: [
+        validationIssue(
+          "TEXT_CONTRAST_LOW",
+          "element",
+          "slides.0.elements.2.props.color",
+        ),
+        validationIssue("FOCAL_POINT_WEAK", "slide", "slides.2"),
+      ],
+      presentationIssues: [
+        validationIssue("CTA_MISSING", "slide", "slides.0"),
+      ],
+    });
+
+    const validation = mergeSlideValidations([second, third]);
+
+    expect(validation.contentIssues[0]?.path).toBe("slides.1.elements");
+    expect(validation.designIssues.map((issue) => issue.path)).toEqual([
+      "slides.2.elements.2.props.color",
+      "slides.2",
+    ]);
+    expect(validation.presentationIssues).toEqual([
+      expect.objectContaining({ code: "CTA_MISSING", path: "slides.2" }),
+    ]);
+  });
+});
+
+function completedSlideArtifact(
+  order: number,
+  issues: Partial<{
+    layoutIssues: ReturnType<typeof validationIssue>[];
+    contentIssues: ReturnType<typeof validationIssue>[];
+    designIssues: ReturnType<typeof validationIssue>[];
+    presentationIssues: ReturnType<typeof validationIssue>[];
+  }>,
+) {
+  const slide = {
+    ...structuredClone(createTestDeck().slides[0]),
+    slideId: `slide_${order}`,
+    order,
+  };
+  const issueCount = Object.values(issues).reduce(
+    (count, value) => count + (value?.length ?? 0),
+    0,
+  );
+  return completedSlideV2ArtifactPayloadSchema.parse({
+    artifactVersion: 2,
+    sourceOrder: order,
+    order,
+    slideId: slide.slideId,
+    slide,
+    warnings: [],
+    validation: {
+      passed: issueCount === 0,
+      layoutIssues: issues.layoutIssues ?? [],
+      contentIssues: issues.contentIssues ?? [],
+      designIssues: issues.designIssues ?? [],
+      presentationIssues: issues.presentationIssues ?? [],
+    },
+  });
+}
+
+function validationIssue(
+  code: string,
+  scope: "deck" | "slide" | "element",
+  path: string,
+) {
+  return {
+    code,
+    scope,
+    severity: "warning" as const,
+    blocking: false,
+    path,
+    message: `${code} warning`,
+  };
+}
 
 function artifactRow(payload: unknown) {
   return {

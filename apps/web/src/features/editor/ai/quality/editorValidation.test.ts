@@ -221,6 +221,69 @@ describe("editor design-pack validation", () => {
     );
   });
 
+  it("shows only QA warnings assigned to the current slide", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "현재 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "다른 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_2",
+          slideOrder: 2,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "전체 발표의 초점이 약합니다.",
+          severity: "warning",
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).toContain("현재 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("다른 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("전체 발표의 초점이 약합니다.");
+  });
+
+  it("recomputes character warnings for the current slide instead of using stored copies", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "SPEAKER_NOTES_DENSE",
+          message: "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).not.toContain(
+      "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+    );
+    expect(
+      getEditorValidationItems(deck, deck.slides[0]).some(
+        (item) => item.issue === "SPEAKER_NOTES_DENSE",
+      ),
+    ).toBe(true);
+  });
+
   it("accepts generated text fitting and expected media placeholders", () => {
     const items = getEditorValidationItems(designPackDeck);
 
