@@ -74,10 +74,6 @@ export function SlideQuestionGuidePanel(props: {
     }
   }
 
-  const selected = guide?.items.find((item) => item.questionId === selectedQuestionId) ?? guide?.items[0] ?? null;
-  const officialSources = selected
-    ? uniqueOfficialSources(Array.from(selected.sourceRefs).filter((source) => source.kind === "web"))
-    : [];
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-header">
@@ -89,42 +85,12 @@ export function SlideQuestionGuidePanel(props: {
       {message ? <p className="editor-practice-message">{message}</p> : null}
       {hasStaleGuide ? <p className="editor-question-stale">덱이 바뀌어 이전 질문은 숨겼습니다. 현재 버전으로 다시 생성해 주세요.</p> : null}
       {guide ? <SlideQuestionGuideResearchNotice guide={guide} /> : null}
-      {guide && selected ? (
-        <div className="editor-question-guide-content">
-          <nav aria-label="예상 질문 목록">
-            {guide.items.map((item, index) => (
-              <button
-                aria-current={item.questionId === selected.questionId ? "true" : undefined}
-                key={item.questionId}
-                type="button"
-                onClick={() => setSelectedQuestionId(item.questionId)}
-              >
-                <span>Q{index + 1}</span>{item.questionText}
-              </button>
-            ))}
-          </nav>
-          <article>
-            <h4>{selected.questionText}</h4>
-            {selected.supportState === "insufficient" ? (
-              <div className="editor-question-remediation">
-                <strong>근거가 부족합니다</strong>
-                <p>{selected.remediation?.message}</p>
-                <ul>{selected.remediation?.actions.map((action) => <li key={action}>{action}</li>)}</ul>
-              </div>
-            ) : (
-              <>
-                <div className="editor-question-concepts"><strong>핵심 개념</strong>{selected.keyConcepts.map((concept) => <span key={concept.label}>{concept.label}</span>)}</div>
-                <details>
-                  <summary>추천 답변 보기</summary>
-                  <p>{selected.suggestedAnswer?.summary}</p>
-                  <ol>{selected.suggestedAnswer?.structure.map((step) => <li key={step}>{step}</li>)}</ol>
-                  {selected.suggestedAnswer?.caveats.map((caveat) => <p className="editor-question-caveat" key={caveat}>{caveat}</p>)}
-                </details>
-              </>
-            )}
-            <OfficialSourceLinks sources={officialSources} />
-          </article>
-        </div>
+      {guide && guide.items.length > 0 ? (
+        <SlideQuestionGuideCarousel
+          guide={guide}
+          selectedQuestionId={selectedQuestionId}
+          onSelect={setSelectedQuestionId}
+        />
       ) : status === "loading" ? (
         <p className="editor-dock-empty">이전 질문을 불러오는 중…</p>
       ) : (
@@ -132,6 +98,104 @@ export function SlideQuestionGuidePanel(props: {
       )}
     </div>
   );
+}
+
+export function SlideQuestionGuideCarousel(props: {
+  guide: SlideQuestionGuide;
+  selectedQuestionId: string | null;
+  onSelect: (questionId: string) => void;
+}) {
+  const selectedIndex = Math.max(
+    0,
+    props.guide.items.findIndex((item) => item.questionId === props.selectedQuestionId),
+  );
+  const selected = props.guide.items[selectedIndex] ?? props.guide.items[0];
+  if (!selected) return null;
+  const officialSources = uniqueOfficialSources(
+    Array.from(selected.sourceRefs).filter((source) => source.kind === "web"),
+  );
+  const move = (offset: -1 | 1) => {
+    const nextQuestionId = getAdjacentQuestionId(
+      props.guide,
+      selected.questionId,
+      offset,
+    );
+    if (nextQuestionId) props.onSelect(nextQuestionId);
+  };
+  return (
+    <div
+      aria-label="예상 질문 탐색"
+      className="editor-question-guide-content carousel"
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          move(-1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          move(1);
+        }
+      }}
+      role="region"
+      tabIndex={0}
+    >
+      <nav aria-label="예상 질문 이동" className="editor-question-carousel-nav">
+        <button
+          aria-label="이전 질문"
+          disabled={selectedIndex === 0}
+          type="button"
+          onClick={() => move(-1)}
+        >
+          <span aria-hidden="true">←</span>
+        </button>
+        <span aria-live="polite">
+          <strong>Q{selectedIndex + 1}</strong>
+          <small>{selectedIndex + 1} / {props.guide.items.length}</small>
+        </span>
+        <button
+          aria-label="다음 질문"
+          disabled={selectedIndex === props.guide.items.length - 1}
+          type="button"
+          onClick={() => move(1)}
+        >
+          <span aria-hidden="true">→</span>
+        </button>
+      </nav>
+      <article aria-live="polite">
+        <h4>{selected.questionText}</h4>
+        {selected.supportState === "insufficient" ? (
+          <div className="editor-question-remediation">
+            <strong>근거가 부족합니다</strong>
+            <p>{selected.remediation?.message}</p>
+            <ul>{selected.remediation?.actions.map((action) => <li key={action}>{action}</li>)}</ul>
+          </div>
+        ) : (
+          <>
+            <div className="editor-question-concepts"><strong>핵심 개념</strong>{selected.keyConcepts.map((concept) => <span key={concept.label}>{concept.label}</span>)}</div>
+            <section className="editor-question-answer" aria-label="추천 답변">
+              <strong>추천 답변</strong>
+              <p>{selected.suggestedAnswer?.summary}</p>
+              <ol>{selected.suggestedAnswer?.structure.map((step) => <li key={step}>{step}</li>)}</ol>
+              {selected.suggestedAnswer?.caveats.map((caveat) => <p className="editor-question-caveat" key={caveat}>{caveat}</p>)}
+            </section>
+          </>
+        )}
+        <OfficialSourceLinks sources={officialSources} />
+      </article>
+    </div>
+  );
+}
+
+export function getAdjacentQuestionId(
+  guide: SlideQuestionGuide,
+  selectedQuestionId: string,
+  offset: -1 | 1,
+) {
+  const selectedIndex = guide.items.findIndex(
+    (item) => item.questionId === selectedQuestionId,
+  );
+  if (selectedIndex < 0) return null;
+  return guide.items[selectedIndex + offset]?.questionId ?? null;
 }
 
 export function SlideQuestionGuideResearchNotice({ guide }: { guide: SlideQuestionGuide }) {

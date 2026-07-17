@@ -530,6 +530,18 @@
 - Affected files: `packages/shared/src/slide-practice/**`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/slide_practice_coaching.py`, `services/python-worker/app/main.py`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: staging에서는 graph sample 개수, coaching status·issue code·latency aggregate만 확인한다. transcript, 전체 speaker notes, raw audio, storage URL, 사용자별 원시 sample 값은 로그에 남기지 않는다. 임계값 변경은 기존 report를 재분류하지 않고 새 policy version으로 관리한다.
 
+## ORBIT slide question guide single-item carousel
+
+- Context: 예상 질문 3개 목록과 답변 영역을 동시에 보여주면 작은 editor dock에서 질문·답변의 대응 관계를 따라가기 어렵다. 사용자는 한 번에 질문과 답변 한 세트만 보고 좌우 화살표로 이동하기를 요청했다.
+- Options considered:
+  - 기존 왼쪽 질문 목록을 유지한다.
+  - 질문만 carousel로 바꾸고 추천 답변은 접힌 상태를 유지한다.
+  - 질문·추천 답변을 하나의 card로 묶고 이전/다음 화살표와 현재 번호를 제공한다.
+- Final decision: 예상 질문 UI는 한 번에 하나의 질문, 핵심 개념, 추천 답변 또는 근거 부족 remediation, 공식 출처를 표시한다. `이전 질문`·`다음 질문` 버튼과 `현재/전체` 번호를 제공하고 첫·마지막 버튼은 비활성화한다. focus된 carousel에서는 좌우 방향키도 같은 이동을 수행한다. 저장/API/Job 계약은 변경하지 않는다.
+- Rationale: question-guide privacy와 생성 계약을 건드리지 않고 작은 화면에서 한 질문과 답변에 집중할 수 있으며, 버튼 label과 disabled state로 접근 가능한 순차 탐색을 제공한다.
+- Affected files: `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.test.tsx`, `apps/web/src/features/editor/editor-shell.css`.
+- Follow-up review notes: 실제 dock 폭에서 답변 길이, keyboard focus, 공식 출처 링크가 화살표 탐색 후 올바른 질문에 맞춰 바뀌는지 확인한다.
+
 ## ORBIT slide question guide current deck reconstruction
 
 - Context: 예상 질문 API는 `DecksService`를 통해 `decks` checkpoint와 이후 `deck_patches`를 재생한 최신 deck version으로 guide를 고정하지만, Worker는 `decks` row만 읽었다. checkpoint가 v1이고 유효한 patch tail이 v2를 만든 상태에서 guide v2를 실제 변경으로 오인해 `SLIDE_QUESTION_GUIDE_SOURCE_STALE`로 실패했다.
