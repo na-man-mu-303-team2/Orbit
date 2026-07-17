@@ -188,6 +188,10 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
     assert result.warnings == [
         f"OOXML grouped frame sync skipped for {target['elementId']}."
     ]
+    assert result.applied_operations == []
+    assert [
+        operation.reason_code for operation in result.unsupported_operations
+    ] == ["GROUPED_FRAME_UNSUPPORTED"]
 
     synced_path = tmp_path / "grouped-frame-synced.pptx"
     synced_path.write_bytes(package_bytes)
@@ -244,7 +248,7 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
                 "type": "update_element_props",
                 "slideId": "slide_import_file_template_1",
                 "elementId": target_image["elementId"],
-                "props": {"alt": "Replacement", "src": replacement_data_url},
+                "props": {"src": replacement_data_url},
             },
         ],
     )
@@ -254,6 +258,8 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
     )
 
     assert result.warnings == []
+    assert len(result.applied_operations) == 2
+    assert result.unsupported_operations == []
     assert target_relationship_id != target_source["relationshipId"]
     assert source_for_element(
         result.element_sources,
@@ -476,6 +482,7 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         text_source["elementId"] = "el_shared_text"
         image_source["elementId"] = "el_shared_image"
         delete_source["elementId"] = "el_shared_delete"
+        delete_source["ooxmlEditCapabilities"]["delete"] = True
         mapped_sources.append(
             {"text": text_source, "image": image_source, "delete": delete_source}
         )

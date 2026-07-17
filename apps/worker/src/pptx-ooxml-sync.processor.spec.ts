@@ -80,7 +80,22 @@ describe("processPptxOoxmlSyncJob", () => {
             props: { src: "data:image/png;base64,AQID" },
           }),
         ]);
-        return new Response(JSON.stringify(workerResponse()));
+        return new Response(
+          JSON.stringify(
+            workerResponse([
+              {
+                operationType: "update_element_props",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+              {
+                operationType: "update_element_props",
+                slideId: "slide_1",
+                elementId: "el_image",
+              },
+            ]),
+          ),
+        );
       }
       return new Response("unexpected", { status: 500 });
     });
@@ -165,7 +180,17 @@ describe("processPptxOoxmlSyncJob", () => {
       vi.fn(async (input: string | URL) =>
         String(input).endsWith("current.pptx")
           ? new Response("pptx-bytes")
-          : new Response(JSON.stringify(workerResponse())),
+          : new Response(
+              JSON.stringify(
+                workerResponse([
+                  {
+                    operationType: "update_element_props",
+                    slideId: "slide_1",
+                    elementId: "el_title",
+                  },
+                ]),
+              ),
+            ),
       ),
     );
 
@@ -178,6 +203,145 @@ describe("processPptxOoxmlSyncJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PPTX_OOXML_SYNC_FAILED");
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
+  });
+
+  it("fails without saving assets or advancing freshness when Python rejects an operation", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { fontSize: 42 },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse(),
+                unsupportedOperations: [
+                  {
+                    operationType: "update_element_props",
+                    slideId: "slide_1",
+                    elementId: "el_title",
+                    reasonCode: "PROPS_FIELDS_UNSUPPORTED",
+                  },
+                ],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO project_assets"),
+      ),
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an incomplete applied-operation acknowledgement", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_title",
+          frame: { x: 120 },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(JSON.stringify(workerResponse())),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects package-changing patch types before calling Python", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "reorder_slides",
+          slideOrders: [{ slideId: "slide_1", order: 1 }],
+        },
+      ],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("DELETE FROM deck_patches"),
@@ -310,7 +474,17 @@ function templateBlueprint(syncedVersion: number) {
   };
 }
 
-function workerResponse() {
+function workerResponse(
+  appliedOperations: Array<{
+    operationType:
+      | "add_element"
+      | "update_element_frame"
+      | "update_element_props"
+      | "delete_element";
+    slideId?: string;
+    elementId?: string;
+  }> = [],
+) {
   return {
     assets: [
       {
@@ -321,6 +495,8 @@ function workerResponse() {
       },
     ],
     elementSources: [],
+    appliedOperations,
+    unsupportedOperations: [],
     warnings: [],
   };
 }
