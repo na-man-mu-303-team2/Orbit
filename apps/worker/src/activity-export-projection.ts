@@ -9,6 +9,7 @@ import {
   type ActivityAnswer,
   type ActivityPresenterResult,
   type Deck,
+  type DeckElement,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 
@@ -31,6 +32,11 @@ type TextRow = {
   text_value: string;
   answered_at: Date | string | null;
   updated_at: Date | string;
+};
+
+type LoadedActivityExportResult = {
+  aggregateOnly: boolean;
+  result: ActivityPresenterResult;
 };
 
 export async function projectActivityDeckForStaticExport(
@@ -100,7 +106,13 @@ export async function projectActivityDeckForStaticExport(
       kind: "content",
       speakerNotes: "",
       elements: result
-        ? staticResultElements(slide.slideId, source, result)
+        ? staticResultElements(
+            slide.slideId,
+            source,
+            result.result,
+            activityResult.layout,
+            result.aggregateOnly,
+          )
         : staticMessageElements(
             slide.slideId,
             source.title,
@@ -118,7 +130,7 @@ async function loadActivityExportResult(
   deckId: string,
   sessionId: string,
   activityId: string,
-): Promise<ActivityPresenterResult | null> {
+): Promise<LoadedActivityExportResult | null> {
   const runs = readQueryRows<ExportRunRow>(
     await dataSource.query(
       `
@@ -149,7 +161,10 @@ async function loadActivityExportResult(
   const run = runs[0];
   if (!run) return null;
   if (run.aggregate_json !== null) {
-    return activityRetentionSnapshotSchema.parse(run.aggregate_json);
+    return {
+      aggregateOnly: true,
+      result: activityRetentionSnapshotSchema.parse(run.aggregate_json),
+    };
   }
   if (run.raw_responses_deleted_at) return null;
 
@@ -183,31 +198,34 @@ async function loadActivityExportResult(
   const answers = readQueryRows<ResponseRow>(responses).map((row) =>
     activityAnswerSchema.array().parse(row.answers_json),
   );
-  return activityPresenterResultSchema.parse({
-    activityRunId: run.activity_run_id,
-    activityId: run.activity_id,
-    status: run.status,
-    revision: run.revision,
-    responseCount: run.response_count,
-    participantCount: run.participant_count,
-    responseRate: calculateActivityResponseRate(
-      run.response_count,
-      run.participant_count,
-    ),
-    aggregates: buildActivityAggregates(
-      definition,
-      answers as ActivityAnswer[][],
-    ),
-    textEntries: readQueryRows<TextRow>(approvedText).map((entry) => ({
-      entryId: entry.entry_id,
-      questionId: entry.question_id,
-      text: entry.text_value,
-      displayName: null,
-      moderationStatus: "approved" as const,
-      answeredAt: toOptionalIso(entry.answered_at),
-      updatedAt: toIso(entry.updated_at),
-    })),
-  });
+  return {
+    aggregateOnly: false,
+    result: activityPresenterResultSchema.parse({
+      activityRunId: run.activity_run_id,
+      activityId: run.activity_id,
+      status: run.status,
+      revision: run.revision,
+      responseCount: run.response_count,
+      participantCount: run.participant_count,
+      responseRate: calculateActivityResponseRate(
+        run.response_count,
+        run.participant_count,
+      ),
+      aggregates: buildActivityAggregates(
+        definition,
+        answers as ActivityAnswer[][],
+      ),
+      textEntries: readQueryRows<TextRow>(approvedText).map((entry) => ({
+        entryId: entry.entry_id,
+        questionId: entry.question_id,
+        text: entry.text_value,
+        displayName: null,
+        moderationStatus: "approved" as const,
+        answeredAt: toOptionalIso(entry.answered_at),
+        updatedAt: toIso(entry.updated_at),
+      })),
+    }),
+  };
 }
 
 function staticActivityElements(
@@ -280,6 +298,27 @@ function staticResultElements(
   slideId: string,
   definition: ReturnType<typeof activityDefinitionSchema.parse>,
   result: ActivityPresenterResult,
+  layout: "summary" | "chart" | "approved-text",
+  aggregateOnly: boolean,
+) {
+  if (layout === "approved-text") {
+    return staticApprovedTextResultElements(
+      slideId,
+      definition,
+      result,
+      aggregateOnly,
+    );
+  }
+  if (layout === "chart") {
+    return staticChartResultElements(slideId, definition, result);
+  }
+  return staticSummaryResultElements(slideId, definition, result);
+}
+
+function staticSummaryResultElements(
+  slideId: string,
+  definition: ReturnType<typeof activityDefinitionSchema.parse>,
+  result: ActivityPresenterResult,
 ) {
   const aggregateLines = result.aggregates.map((aggregate) => {
     const question = definition.questions.find(
@@ -304,10 +343,6 @@ function staticResultElements(
     }
     return `${label}: ${aggregate.responseCount}개 의견`;
   });
-  const approved = result.textEntries
-    .filter((entry) => entry.moderationStatus === "approved")
-    .slice(0, 5)
-    .map((entry) => `• ${entry.text.replace(/\s+/g, " ").slice(0, 180)}`);
   return [
     textElement(
       slideId,
@@ -348,25 +383,143 @@ function staticResultElements(
       aggregateLines.join("\n"),
       120,
       430,
-      800,
+      1680,
       450,
       28,
       "normal",
     ),
-    textElement(
-      slideId,
-      "approved",
-      approved.length > 0
-        ? `승인된 의견\n${approved.join("\n")}`
-        : "승인된 의견이 없습니다.",
-      980,
-      430,
-      820,
-      450,
-      26,
-      "normal",
-    ),
   ];
+}
+
+function staticChartResultElements(
+  slideId: string,
+  definition: ReturnType<typeof activityDefinitionSchema.parse>,
+  result: ActivityPresenterResult,
+) {
+  const rows = definition.questions.flatMap((question) => {
+    const aggregate = result.aggregates.find(
+      (candidate) => candidate.questionId === question.questionId,
+    );
+    if (!aggregate) return [];
+    if (question.type === "single-choice" || question.type === "multiple-choice") {
+      return question.options.map((option) => {
+        const choice = aggregate.choices.find(
+          (candidate) => candidate.optionId === option.optionId,
+        );
+        return {
+          label: `${question.prompt} · ${option.label}`,
+          ratio: choice?.ratio ?? 0,
+          value: `${Math.round((choice?.ratio ?? 0) * 100)}%`,
+        };
+      });
+    }
+    if (question.type === "rating") {
+      const average = aggregate.average ?? 0;
+      return [{
+        label: question.prompt,
+        ratio: average / 5,
+        value: `${aggregate.average?.toFixed(1) ?? "–"} / 5`,
+      }];
+    }
+    return [{
+      label: question.prompt,
+      ratio: result.responseCount === 0 ? 0 : aggregate.responseCount / result.responseCount,
+      value: `${aggregate.responseCount}개`,
+    }];
+  }).slice(0, 7);
+  const elements: DeckElement[] = staticResultHeaderElements(
+    slideId,
+    definition.title,
+    result.responseCount,
+  );
+  rows.forEach((row, index) => {
+    const y = 430 + index * 76;
+    elements.push(
+      textElement(slideId, `chart_label_${index}`, row.label, 120, y, 420, 54, 20, "semibold"),
+      rectElement(slideId, `chart_track_${index}`, 570, y + 12, 980, 28, "#E5E7EB", 1),
+    );
+    if (row.ratio > 0) {
+      elements.push(rectElement(
+        slideId,
+        `chart_value_${index}`,
+        570,
+        y + 12,
+        980 * Math.min(1, row.ratio),
+        28,
+        "#8B5CF6",
+        2,
+      ));
+    }
+    elements.push(
+      textElement(slideId, `chart_count_${index}`, row.value, 1580, y, 220, 54, 22, "bold"),
+    );
+  });
+  return elements;
+}
+
+function staticApprovedTextResultElements(
+  slideId: string,
+  definition: ReturnType<typeof activityDefinitionSchema.parse>,
+  result: ActivityPresenterResult,
+  aggregateOnly: boolean,
+) {
+  const approved = result.textEntries
+    .filter((entry) => entry.moderationStatus === "approved")
+    .slice(0, 8)
+    .map((entry) => `• ${entry.text.replace(/\s+/g, " ").slice(0, 180)}`);
+  const message = aggregateOnly
+    ? "원문 보존 기간이 종료되어 승인 의견을 표시할 수 없습니다."
+    : approved.length > 0
+      ? approved.join("\n")
+      : "승인된 의견이 없습니다.";
+  return [
+    ...staticResultHeaderElements(slideId, definition.title, result.responseCount),
+    textElement(slideId, "approved", message, 120, 430, 1680, 450, 28, "normal"),
+  ];
+}
+
+function staticResultHeaderElements(
+  slideId: string,
+  title: string,
+  responseCount: number,
+) {
+  return [
+    textElement(slideId, "eyebrow", "발표 결과", 120, 90, 1680, 65, 28, "semibold"),
+    textElement(slideId, "title", title, 120, 170, 1680, 120, 56, "bold"),
+    textElement(slideId, "count", `${responseCount}명 응답`, 120, 310, 1680, 80, 30, "semibold"),
+  ];
+}
+
+function rectElement(
+  slideId: string,
+  suffix: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fill: string,
+  zIndex: number,
+) {
+  return {
+    elementId: `el_export_${slideId}_${suffix}`,
+    type: "rect" as const,
+    role: "decoration" as const,
+    x,
+    y,
+    width,
+    height,
+    rotation: 0,
+    opacity: 1,
+    zIndex,
+    locked: true,
+    visible: true,
+    props: {
+      fill,
+      stroke: "transparent",
+      strokeWidth: 0,
+      borderRadius: 14,
+    },
+  };
 }
 
 function textElement(

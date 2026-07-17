@@ -207,7 +207,11 @@ function ResultContent(props: {
       ? presenterTexts
       : publicTexts.map((entry) => ({ ...entry, moderationStatus: "approved" as const }));
     return (
-      <section className="activity-result-texts" aria-label="주관식 결과">
+      <section
+        className="activity-result-texts"
+        aria-label="주관식 결과"
+        data-result-layout="approved-text"
+      >
         <strong>응답 {result.responseCount}개</strong>
         {texts.length > 0 ? (
           <ul>
@@ -225,8 +229,56 @@ function ResultContent(props: {
     );
   }
 
+  if (props.layout === "summary") {
+    return (
+      <section
+        className="activity-result-summary-layout"
+        aria-label="결과 요약"
+        data-result-layout="summary"
+      >
+        <div className="activity-result-total">
+          <IconChartBar aria-hidden="true" size={42} stroke={1.5} />
+          <span>응답</span>
+          <strong>{result.responseCount}</strong>
+        </div>
+        <ul>
+          {props.source.activity.questions.map((question) => {
+            const aggregate = result.aggregates.find(
+              (candidate) => candidate.questionId === question.questionId
+            );
+            if (!aggregate) return null;
+            let value = `${aggregate.responseCount}개 의견`;
+            if (question.type === "rating") {
+              value = `${aggregate.average?.toFixed(1) ?? "–"} / 5`;
+            } else if (
+              question.type === "single-choice" ||
+              question.type === "multiple-choice"
+            ) {
+              const top = [...aggregate.choices].sort(
+                (left, right) => right.count - left.count
+              )[0];
+              value = question.options.find(
+                (option) => option.optionId === top?.optionId
+              )?.label ?? "응답 없음";
+            }
+            return (
+              <li key={question.questionId}>
+                <span>{question.prompt}</span>
+                <strong>{value}</strong>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  }
+
   return (
-    <section className="activity-result-content" aria-label="집계 결과">
+    <section
+      className="activity-result-content"
+      aria-label="집계 차트"
+      data-result-layout="chart"
+    >
       <div className="activity-result-total">
         <IconChartBar aria-hidden="true" size={42} stroke={1.5} />
         <span>응답</span>
@@ -242,7 +294,12 @@ function ResultContent(props: {
             <article key={question.questionId}>
               <span>{question.prompt}</span>
               {question.type === "rating" ? (
-                <strong>{aggregate.average?.toFixed(1) ?? "–"}<small>/ 5</small></strong>
+                <>
+                  <strong>{aggregate.average?.toFixed(1) ?? "–"}<small>/ 5</small></strong>
+                  <i className="activity-result-chart-track" aria-hidden="true">
+                    <span style={{ width: `${((aggregate.average ?? 0) / 5) * 100}%` }} />
+                  </i>
+                </>
               ) : question.type === "single-choice" || question.type === "multiple-choice" ? (
                 <ul>
                   {question.options.map((option) => {
@@ -252,6 +309,9 @@ function ResultContent(props: {
                     return (
                       <li key={option.optionId}>
                         <span>{option.label}</span>
+                        <i className="activity-result-chart-track" aria-hidden="true">
+                          <span style={{ width: `${(choice?.ratio ?? 0) * 100}%` }} />
+                        </i>
                         <strong>{Math.round((choice?.ratio ?? 0) * 100)}%</strong>
                       </li>
                     );

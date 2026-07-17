@@ -179,10 +179,10 @@ export function ActivitySlideInspector(props: {
                         aria-label={`선택지 ${optionIndex + 1} 삭제`}
                         disabled={question.options.length <= 2}
                         type="button"
-                        onClick={() => updateQuestion(question.questionId, {
-                          ...question,
-                          options: question.options.filter((candidate) => candidate.optionId !== option.optionId)
-                        })}
+                        onClick={() => updateQuestion(
+                          question.questionId,
+                          removeQuestionOption(question, option.optionId)
+                        )}
                       >삭제</button>
                     </span>
                   </label>
@@ -338,6 +338,24 @@ export function convertQuestionType(
     : [createOption(activity, question), createOption(activity, question, 1)];
   if (type === "multiple-choice") return { ...base, type, options, maxSelections: options.length };
   return { ...base, type, options };
+}
+
+export function removeQuestionOption(
+  question: ActivityQuestion,
+  optionId: string
+): ActivityQuestion {
+  if (question.type !== "single-choice" && question.type !== "multiple-choice") {
+    return question;
+  }
+  const options = question.options.filter((option) => option.optionId !== optionId);
+  if (question.type === "multiple-choice" && question.maxSelections !== undefined) {
+    return {
+      ...question,
+      options,
+      maxSelections: Math.min(question.maxSelections, options.length)
+    };
+  }
+  return { ...question, options };
 }
 
 function createQuestion(activity: ActivityDefinition, type: ActivityQuestionType): ActivityQuestion {
