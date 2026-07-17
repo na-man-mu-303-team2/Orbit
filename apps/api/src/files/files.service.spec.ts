@@ -175,14 +175,38 @@ describe("FilesService", () => {
 
     expect(storage.createUploadUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+        key: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
         contentType: "audio/ogg",
       }),
     );
     expect(assets[0]).toMatchObject({
       purpose: "rehearsal-audio",
-      storageKey: `rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
+      storageKey: `raw/rehearsals/2026-07-16/${demoProject.projectId}/run_123/audio.ogg`,
     });
+  });
+
+  it("stores focused-practice audio under the private raw prefix", async () => {
+    const { service, storage, assets } = createService({
+      getAccessibleProject: vi.fn(async () => demoProject),
+    });
+
+    await service.createUploadUrl(demoProject.projectId, {
+      originalName: "focused-attempt.webm",
+      mimeType: "audio/webm",
+      size: 1024,
+      purpose: "focused-practice-audio",
+    });
+
+    expect(storage.createUploadUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(
+          /^raw\/projects\/project_demo_created\/assets\/file_.+-focused-attempt\.webm$/,
+        ),
+      }),
+    );
+    expect(assets[0]?.storageKey).toMatch(
+      /^raw\/projects\/project_demo_created\/assets\/file_.+-focused-attempt\.webm$/,
+    );
   });
 
   it("hides private audio from generic complete, get, list, and content boundaries", async () => {

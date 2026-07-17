@@ -16,7 +16,9 @@
 - DB: RDS PostgreSQL + pgvector
 - Cache/session/realtime adapter: ElastiCache Redis/Valkey
 - Queue: BullMQ + ElastiCache Redis/Valkey
-- File storage: S3 private bucket, presigned URL
+- Static web: 전용 S3 bucket + CloudFront
+- Project assets와 export: 전용 private S3 bucket, presigned URL
+- Raw audio와 Evidence Clip: 별도 private S3 bucket. `raw/`는 terminal path 즉시 삭제를 기본으로 하고 14일 lifecycle을 안전망으로 사용하며, `evidence/`는 계약대로 7일 후 만료한다.
 - Live STT: browser on-device STT, no managed cloud STT service
 - Rehearsal/coaching STT: OpenAI STT/API via `python-worker`
 - OCR: Amazon Textract
@@ -29,7 +31,8 @@
 - [ ] migration runbook 작성
 - [ ] rollback 절차 작성
 - [ ] ALB WebSocket idle timeout 설정
-- [ ] S3 lifecycle policy와 KMS encryption 설정
+- [ ] Assets와 private audio bucket 분리, public access block, encryption, CORS 설정 검증
+- [ ] Private audio의 `raw/` 14일 안전망과 `evidence/` 7일 lifecycle policy 검증
 - [ ] raw audio 삭제 정책 검증
 - [ ] 청중 API에서 speaker notes/script가 노출되지 않는지 검증
 - [ ] BullMQ와 ElastiCache Redis/Valkey 연결·TLS·network policy 검증

@@ -2,6 +2,7 @@ import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
   ownerOnlyFilePurposes,
+  privateAudioPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -68,7 +69,7 @@ export class FilesService {
     const fileId = `file_${randomUUID()}`;
     const storageKey =
       storageKeyOverride ??
-      this.createStorageKey(project.projectId, fileId, input.originalName);
+      this.createStorageKey(project.projectId, fileId, input.originalName, input.purpose);
     const uploadUrl = await this.createUploadTarget({
       projectId: project.projectId,
       fileId,
@@ -114,7 +115,7 @@ export class FilesService {
   ): Promise<AssetUploadUrlResponse> {
     const extension = rehearsalAudioExtension(input.mimeType);
     const date = formatAsiaSeoulDate(rehearsal.createdAt);
-    const storageKey = `rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    const storageKey = `raw/rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
@@ -346,8 +347,14 @@ export class FilesService {
     projectId: string,
     fileId: string,
     originalName: string,
+    purpose: FilePurpose,
   ): string {
     const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    if (privateAudioPurposes.has(purpose)) {
+      return `raw/projects/${projectId}/assets/${fileId}-${safeName}`;
+    }
+
     return `projects/${projectId}/assets/${fileId}-${safeName}`;
   }
 

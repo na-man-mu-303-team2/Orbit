@@ -230,6 +230,7 @@ export const orbitEnvSchema = z.object({
   S3_ENDPOINT: optionalString,
   S3_PUBLIC_ENDPOINT: optionalString,
   S3_BUCKET: requiredString("S3_BUCKET"),
+  S3_PRIVATE_AUDIO_BUCKET: optionalString,
   S3_REGION: requiredString("S3_REGION"),
   S3_ACCESS_KEY_ID: optionalString,
   S3_SECRET_ACCESS_KEY: optionalString,
@@ -330,6 +331,22 @@ export const orbitEnvSchema = z.object({
           message: `${key} is required when STORAGE_DRIVER=minio`
         });
       }
+    }
+  }
+
+  if (value.APP_ENV === "production" && value.STORAGE_DRIVER === "s3") {
+    if (!value.S3_PRIVATE_AUDIO_BUCKET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["S3_PRIVATE_AUDIO_BUCKET"],
+        message: "S3_PRIVATE_AUDIO_BUCKET is required in production when STORAGE_DRIVER=s3"
+      });
+    } else if (value.S3_PRIVATE_AUDIO_BUCKET === value.S3_BUCKET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["S3_PRIVATE_AUDIO_BUCKET"],
+        message: "S3_PRIVATE_AUDIO_BUCKET must differ from S3_BUCKET in production"
+      });
     }
   }
 

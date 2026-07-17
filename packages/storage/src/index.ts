@@ -1,4 +1,5 @@
-import { FilePurpose } from "@orbit/shared";
+import { privateAudioPurposes } from "@orbit/shared";
+import type { FilePurpose } from "@orbit/shared";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -49,6 +50,54 @@ export interface StoragePort {
   getSignedReadUrl(key: string): Promise<string>;
   removeObject(key: string): Promise<void>;
   headObject(key: string): Promise<StorageHeadResult | null>;
+}
+
+export interface PrefixRoutingStorageOptions {
+  defaultStorage: StoragePort;
+  privateStorage: StoragePort;
+}
+
+const privateStoragePrefixes = ["raw/", "evidence/"] as const;
+
+export class PrefixRoutingStorage implements StoragePort {
+  constructor(private readonly options: PrefixRoutingStorageOptions) {}
+
+  async putObject(input: StoragePutInput): Promise<StorageObject> {
+    const privatePurpose = privateAudioPurposes.has(input.purpose);
+    const privateKey = this.isPrivateKey(input.key);
+
+    if (privatePurpose !== privateKey) {
+      throw new Error("Private audio storage prefix and file purpose must match.");
+    }
+
+    return this.storageForKey(input.key).putObject(input);
+  }
+
+  async createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl> {
+    return this.storageForKey(input.key).createUploadUrl(input);
+  }
+
+  async getSignedReadUrl(key: string): Promise<string> {
+    return this.storageForKey(key).getSignedReadUrl(key);
+  }
+
+  async removeObject(key: string): Promise<void> {
+    await this.storageForKey(key).removeObject(key);
+  }
+
+  async headObject(key: string): Promise<StorageHeadResult | null> {
+    return this.storageForKey(key).headObject(key);
+  }
+
+  private storageForKey(key: string): StoragePort {
+    return this.isPrivateKey(key)
+      ? this.options.privateStorage
+      : this.options.defaultStorage;
+  }
+
+  private isPrivateKey(key: string): boolean {
+    return privateStoragePrefixes.some((prefix) => key.startsWith(prefix));
+  }
 }
 
 export interface S3CompatibleStorageOptions {

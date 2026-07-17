@@ -23,6 +23,48 @@ describe("workerStorage", () => {
     );
     expect(readUrl.searchParams.get("X-Amz-Signature")).toBeTruthy();
   });
+
+  it("routes production raw audio reads to the private S3 bucket", async () => {
+    stubWorkerEnv({
+      NODE_ENV: "production",
+      APP_ENV: "production",
+      WEB_ORIGIN: "https://tryorbit.site",
+      API_BASE_URL: "https://tryorbit.site",
+      PYTHON_WORKER_URL: "http://python-worker:8000",
+      DATABASE_URL: "postgres://orbit:orbit@prod-rds.example.com:5432/orbit",
+      REDIS_URL: "redis://redis:6379",
+      PRIVATE_EVIDENCE_REDIS_URL: "redis://private-evidence-redis:6379",
+      SESSION_SECRET: "production-session-secret",
+      COOKIE_SECRET: "production-cookie-secret",
+      STORAGE_DRIVER: "s3",
+      S3_ENDPOINT: "",
+      S3_PUBLIC_ENDPOINT: "",
+      S3_BUCKET: "orbit-production-assets",
+      S3_PRIVATE_AUDIO_BUCKET: "orbit-production-private-audio",
+      S3_ACCESS_KEY_ID: "",
+      S3_SECRET_ACCESS_KEY: "",
+      S3_FORCE_PATH_STYLE: "false",
+      OPENAI_API_KEY: "test-production-openai-key-placeholder",
+      AWS_ACCESS_KEY_ID: "test-access-key-placeholder",
+      AWS_SECRET_ACCESS_KEY: "test-secret-key-placeholder",
+      AUTH_COOKIE_SECURE: "true",
+    });
+
+    const storage = workerStorage();
+    const privateReadUrl = new URL(
+      await storage.getSignedReadUrl("raw/projects/project-a/audio.webm"),
+    );
+    const assetsReadUrl = new URL(
+      await storage.getSignedReadUrl("projects/project-a/assets/report.pdf"),
+    );
+
+    expect(privateReadUrl.hostname).toBe(
+      "orbit-production-private-audio.s3.ap-northeast-2.amazonaws.com",
+    );
+    expect(assetsReadUrl.hostname).toBe(
+      "orbit-production-assets.s3.ap-northeast-2.amazonaws.com",
+    );
+  });
 });
 
 function stubWorkerEnv(overrides: Record<string, string> = {}) {
@@ -44,6 +86,7 @@ function stubWorkerEnv(overrides: Record<string, string> = {}) {
     S3_ENDPOINT: "http://localhost:9000",
     S3_PUBLIC_ENDPOINT: "http://localhost:9000",
     S3_BUCKET: "orbit-local",
+    S3_PRIVATE_AUDIO_BUCKET: "orbit-local",
     S3_REGION: "ap-northeast-2",
     S3_ACCESS_KEY_ID: "orbit",
     S3_SECRET_ACCESS_KEY: "orbit-password",

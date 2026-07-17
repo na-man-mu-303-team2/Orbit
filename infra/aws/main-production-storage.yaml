@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ORBIT production private audio storage for the Seoul region deployment.
+
+Parameters:
+  Ec2RuntimeRoleName:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9+=,.@_-]{1,64}$"
+    Description: Existing ORBIT production EC2 runtime role name.
+  WebAllowedOrigin:
+    Type: String
+    AllowedPattern: "^https://[^/]+$"
+    Description: Primary HTTPS origin allowed to use short-lived presigned audio URLs.
+  AdditionalWebAllowedOrigin1:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^https://[^/]+$"
+    Description: Optional additional HTTPS origin for presigned audio URLs.
+  AdditionalWebAllowedOrigin2:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^https://[^/]+$"
+    Description: Optional additional HTTPS origin for presigned audio URLs.
+
+Conditions:
+  HasAdditionalWebAllowedOrigin1: !Not [!Equals [!Ref AdditionalWebAllowedOrigin1, ""]]
+  HasAdditionalWebAllowedOrigin2: !Not [!Equals [!Ref AdditionalWebAllowedOrigin2, ""]]
+
+Resources:
+  PrivateAudioBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - HEAD
+              - PUT
+            AllowedOrigins:
+              - !Ref WebAllowedOrigin
+              - !If
+                - HasAdditionalWebAllowedOrigin1
+                - !Ref AdditionalWebAllowedOrigin1
+                - !Ref AWS::NoValue
+              - !If
+                - HasAdditionalWebAllowedOrigin2
+                - !Ref AdditionalWebAllowedOrigin2
+                - !Ref AWS::NoValue
+            ExposedHeaders:
+              - ETag
+            MaxAge: 900
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteRawAudioAfterFourteenDays
+            Prefix: raw/
+            Status: Enabled
+            ExpirationInDays: 14
+          - Id: DeleteEvidenceAfterSevenDays
+            Prefix: evidence/
+            Status: Enabled
+            ExpirationInDays: 7
+          - Id: AbortIncompleteMultipartUploads
+            Prefix: ""
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Application
+          Value: orbit
+        - Key: Environment
+          Value: production
+        - Key: DataClassification
+          Value: sensitive-audio
+        - Key: RetentionPolicy
+          Value: raw-fourteen-days-evidence-seven-days
+
+  PrivateAudioBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PrivateAudioBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt PrivateAudioBucket.Arn
+              - !Sub "${PrivateAudioBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  PrivateAudioRuntimePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Least-privilege object access for ORBIT private audio prefixes.
+      Roles:
+        - !Ref Ec2RuntimeRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccessPrivateAudioObjects
+            Effect: Allow
+            Action:
+              - s3:DeleteObject
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !Sub "${PrivateAudioBucket.Arn}/raw/*"
+              - !Sub "${PrivateAudioBucket.Arn}/evidence/*"
+
+Outputs:
+  PrivateAudioBucketName:
+    Description: Name of the private audio bucket.
+    Value: !Ref PrivateAudioBucket
+  PrivateAudioBucketArn:
+    Description: ARN of the private audio bucket.
+    Value: !GetAtt PrivateAudioBucket.Arn
