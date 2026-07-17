@@ -1144,6 +1144,7 @@ export function EditorShell(props: { projectId?: string }) {
         />
       <EditorModals
         audienceLink={{
+          deckId: deck.deckId,
           isOpen: isAudienceLinkModalOpen,
           onClose: () => setIsAudienceLinkModalOpen(false),
           projectId
