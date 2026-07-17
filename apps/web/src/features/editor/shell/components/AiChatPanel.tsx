@@ -125,7 +125,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
           operations: result.proposal.operations
         });
         if (!previewResult.ok) {
-          throw new Error("AI 제안의 미리보기를 만들지 못했습니다.");
+          const detail = previewResult.error.details?.[0];
+          throw new Error(
+            `AI 제안의 미리보기를 만들지 못했습니다: ${
+              detail ?? previewResult.error.message
+            }`,
+          );
         }
         setPendingPreview({
           candidateDeck: previewResult.deck,
