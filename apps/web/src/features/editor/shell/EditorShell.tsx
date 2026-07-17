@@ -763,6 +763,8 @@ export function EditorShell(props: { projectId?: string }) {
   const handleDeleteSelectedElement = editorCanvasActions.deleteSelectedElement;
   const handleDuplicateSelectedElement = editorCanvasActions.duplicateSelectedElement;
   const handleElementFrameChange = editorCanvasActions.changeElementFrame;
+  const handleElementLayerOrderChange =
+    editorCanvasActions.changeElementLayerOrder;
   const handleInsertShapeElement = editorCanvasActions.insertShapeElement;
   const handleOpenElementContextMenu = editorCanvasActions.openElementContextMenu;
   const handlePasteCopiedElement = editorCanvasActions.pasteCopiedElement;
@@ -1231,6 +1233,7 @@ export function EditorShell(props: { projectId?: string }) {
     onDuplicate: handleDuplicateSelectedElement,
     onPaste: handlePasteCopiedElement,
     onRedo: handleRedo,
+    onSave: () => void handleSaveDeck(),
     onUndo: handleUndo,
     selectedElement,
     selectedElementId,
@@ -1698,6 +1701,7 @@ export function EditorShell(props: { projectId?: string }) {
               customShapeEditActive={isCustomShapeEditingSelection}
               element={selectedElementIds.length === 1 ? selectedElement : null}
               onChangeElementFrame={handleElementFrameChange}
+              onChangeElementLayerOrder={handleElementLayerOrderChange}
               onChangeElementProps={handleElementPropsChange}
               onChangeSlideStyle={(style) => {
                 if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);

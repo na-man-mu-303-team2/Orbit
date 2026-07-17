@@ -10,6 +10,7 @@ export function useEditorKeyboardShortcuts(args: {
   onDuplicate: () => void;
   onPaste: () => void;
   onRedo: () => void;
+  onSave: () => void;
   onUndo: () => void;
   selectedElement: DeckElement | null;
   selectedElementId: string | null;
@@ -20,6 +21,12 @@ export function useEditorKeyboardShortcuts(args: {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const isEditableTarget = isKeyboardEditableTarget(event.target);
+
+      if (isEditorSaveShortcut(event)) {
+        event.preventDefault();
+        args.onSave();
+        return;
+      }
 
       if (
         !isEditableTarget &&
@@ -87,6 +94,16 @@ export function useEditorKeyboardShortcuts(args: {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [args]);
+}
+
+export function isEditorSaveShortcut(
+  event: Pick<KeyboardEvent, "ctrlKey" | "key" | "metaKey" | "repeat">,
+) {
+  return (
+    !event.repeat &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === "s"
+  );
 }
 
 export function isKeyboardEditableTarget(target: EventTarget | null) {

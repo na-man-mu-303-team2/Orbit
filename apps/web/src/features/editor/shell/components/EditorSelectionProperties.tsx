@@ -10,6 +10,7 @@ import type { ComponentProps } from "react";
 
 import { getCustomShapeAbsoluteNodes } from "../../canvas/custom-shape/geometry";
 import { SelectionQuickBar } from "./SelectionQuickBar";
+import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
 
 type EditorSelectionPropertiesProps = {
   animations: DeckAnimation[];
@@ -26,6 +27,11 @@ type EditorSelectionPropertiesProps = {
     slideId: string,
     elementId: string,
     props: Parameters<ComponentProps<typeof SelectionQuickBar>["onChangeProps"]>[0]
+  ) => void;
+  onChangeElementLayerOrder: (
+    slideId: string,
+    elementId: string,
+    action: ElementLayerOrderAction,
   ) => void;
   onChangeSlideStyle: ComponentProps<typeof SelectionQuickBar>["onChangeSlideStyle"];
   onChangeTheme: ComponentProps<typeof SelectionQuickBar>["onChangeTheme"];
@@ -68,6 +74,11 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       theme={props.theme}
       onChangeFrame={(frame) => {
         if (element && slide) props.onChangeElementFrame(slide.slideId, element.elementId, frame);
+      }}
+      onChangeLayerOrder={(action) => {
+        if (element && slide) {
+          props.onChangeElementLayerOrder(slide.slideId, element.elementId, action);
+        }
       }}
       onChangeProps={(nextProps) => {
         if (element && slide) props.onChangeElementProps(slide.slideId, element.elementId, nextProps);

@@ -19,6 +19,8 @@ import {
   IconAlignBoxCenterTop as AlignTop,
   IconAlignBoxLeftMiddle as AlignLeft,
   IconAlignBoxRightMiddle as AlignRight,
+  IconArrowBarToDown as ArrowToBack,
+  IconArrowBarToUp as ArrowToFront,
   IconArrowDown as ArrowDown,
   IconArrowUp as ArrowUp,
   IconArrowsMinimize as Shrink,
@@ -43,6 +45,7 @@ import {
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { IdBadge } from "./EditorIdBadge";
+import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
 
 type TextFitContext = {
   fontFamily?: string;
@@ -88,6 +91,7 @@ export function SelectionQuickBar(props: {
     zIndex?: number;
     visible?: boolean;
   }) => void;
+  onChangeLayerOrder?: (action: ElementLayerOrderAction) => void;
   onChangeProps: (props: Record<string, unknown>) => void;
   onChangeSlideStyle: (style: {
     backgroundColor?: string | null;
@@ -112,6 +116,7 @@ export function SelectionQuickBar(props: {
     canvas,
     element,
     onChangeFrame,
+    onChangeLayerOrder,
     onChangeProps,
     onChangeSlideStyle,
     onChangeTheme,
@@ -373,24 +378,40 @@ export function SelectionQuickBar(props: {
             aria-label="레이어 순서"
           >
             <button
-              aria-label="앞으로 보내기"
+              aria-label="맨 앞으로 가져오기"
               className="quickbar-toggle"
-              title="앞으로 보내기"
+              title="맨 앞으로 가져오기"
               type="button"
-              onClick={() => onChangeFrame({ zIndex: element.zIndex + 1 })}
+              onClick={() => onChangeLayerOrder?.("bring-to-front")}
+            >
+              <ArrowToFront aria-hidden="true" size={17} />
+            </button>
+            <button
+              aria-label="앞으로 가져오기"
+              className="quickbar-toggle"
+              title="앞으로 가져오기"
+              type="button"
+              onClick={() => onChangeLayerOrder?.("bring-forward")}
             >
               <ArrowUp aria-hidden="true" size={17} />
             </button>
             <button
-              aria-label="뒤로 보내기"
+              aria-label="뒤로 가져오기"
               className="quickbar-toggle"
-              title="뒤로 보내기"
+              title="뒤로 가져오기"
               type="button"
-              onClick={() =>
-                onChangeFrame({ zIndex: Math.max(0, element.zIndex - 1) })
-              }
+              onClick={() => onChangeLayerOrder?.("send-backward")}
             >
               <ArrowDown aria-hidden="true" size={17} />
+            </button>
+            <button
+              aria-label="맨 뒤로 보내기"
+              className="quickbar-toggle"
+              title="맨 뒤로 보내기"
+              type="button"
+              onClick={() => onChangeLayerOrder?.("send-to-back")}
+            >
+              <ArrowToBack aria-hidden="true" size={17} />
             </button>
           </div>
         </div>

@@ -42,6 +42,10 @@ import {
   getContextMenuPosition,
   getNextElementZIndex,
 } from "../utils/editorLayout";
+import {
+  getElementLayerOrderUpdates,
+  type ElementLayerOrderAction,
+} from "../utils/elementLayerOrder";
 import { canEditSlideCanvas } from "../utils/slideEditingPolicy";
 import type { PatchProducer } from "./useEditorPersistenceState";
 
@@ -743,6 +747,53 @@ export function useEditorCanvasCommands(args: {
     }
   }
 
+  function changeElementLayerOrder(
+    slideId: string,
+    elementId: string,
+    action: ElementLayerOrderAction,
+  ) {
+    const slide = args.deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!canEditSlideCanvas(slide)) return;
+    const updates = getElementLayerOrderUpdates(
+      slide.elements,
+      elementId,
+      action,
+    );
+    if (updates.length === 0) return;
+
+    args.commitPatch((currentDeck) => {
+      const currentSlide = currentDeck.slides.find(
+        (candidate) => candidate.slideId === slideId,
+      );
+      if (!currentSlide) {
+        throw new Error(`Slide ${slideId} was not found`);
+      }
+      return {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: updates.map((update) => {
+          const element = currentSlide.elements.find(
+            (candidate) => candidate.elementId === update.elementId,
+          );
+          if (!element) {
+            throw new Error(`Element ${update.elementId} was not found`);
+          }
+          return {
+            type: "update_element_frame" as const,
+            slideId,
+            elementId: update.elementId,
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
+              zIndex: update.zIndex,
+            }),
+          };
+        }),
+      };
+    });
+  }
+
   function createGroupFromSelection() {
     if (!canEditSlideCanvas(args.currentSlide) || args.selectedElements.length < 2) return;
     const elementId = createElementId(args.deck);
@@ -876,6 +927,7 @@ export function useEditorCanvasCommands(args: {
       addActivitySlide,
       addTextElement,
       changeElementFrame,
+      changeElementLayerOrder,
       clearCanvasSelection,
       commitCustomShapeGeometry,
       copySelectedElement,
