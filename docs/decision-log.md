@@ -447,3 +447,15 @@
 - Rationale: 기본 브랜치에 이미 등록된 수동 entrypoint로 완전히 새로운 run ID를 만들면서 sync와 서버 배포 사이의 순서를 보존한다. Environment secret 경계를 유지하고 token이 비어 있으면 self-hosted runner 배포 전에 중단한다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/personal-staging-env.test.mjs`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: PR merge push로 생성된 새 run ID에서 token 존재 확인, Doppler sync, full 배포를 순서대로 확인한다. 계속 빈 문자열이면 reusable workflow 경계를 원인으로 확정하고 환경 계약, sync, full deploy 전체 체인을 하나의 workflow 및 같은 concurrency 경계로 이동한다. 성공하면 기존 run 재실행 또는 secret 등록 시점 문제로 분류하고 현재 구조를 유지한다. 이후 수동 `develop + full + manual` run도 같은 검증에 사용할 수 있다.
+
+## ORBIT personal staging direct Environment secret boundary
+
+- Context: token을 다시 교체한 뒤 생성한 새 `develop` push run `29559013580`에서도 called workflow의 `sync-personal-staging-env` job은 `personal-staging` Environment deployment로 실행됐지만 `DOPPLER_TOKEN`이 빈 문자열이었다. 따라서 기존 run 재실행이나 token 등록 시점 문제는 제외됐고, 실제 자동 배포에서 reusable workflow 경계를 통과할 때 Environment secret을 읽지 못하는 동작이 재현됐다. sync job만 상위 workflow로 옮기면 수동·webhook 배포가 sync와 full 배포 사이에 끼어들 수 있다.
+- Options considered:
+  - Repository secret 또는 `secrets: inherit`로 token을 called workflow에 전달한다.
+  - sync job만 Environment Contract CI로 이동하고 full deploy 호출은 그대로 둔다.
+  - 자동 환경 계약, Doppler sync, full deploy 전체를 Environment Contract CI의 direct jobs로 실행하고 workflow 전체를 공통 deploy concurrency로 묶는다.
+- Final decision: `develop` push의 `environment-contract → sync-personal-staging-env → deploy-personal-staging` 체인을 `.github/workflows/environment-contract-ci.yml`의 direct jobs로 실행한다. 이 push run의 concurrency group은 `personal-staging-deploy`로 고정하고, PR run만 기존 ref별 environment-contract group과 취소 정책을 유지한다. `.github/workflows/deploy-personal-staging.yml`은 `workflow_dispatch` 전용으로 남겨 수동 full과 Doppler webhook `environment-only`를 처리하며 `workflow_call` entrypoint는 제거한다.
+- Rationale: GitHub Environment secret을 실제 job이 선언된 workflow에서 직접 읽고, 자동 환경 계약부터 서버 full 배포까지 수동·webhook 배포와 겹치지 않게 한다. token scope를 넓히거나 secret을 Repository 수준으로 내리지 않으며, sync 실패 시 self-hosted runner를 시작하지 않는다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/personal-staging-env.test.mjs`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
+- Follow-up review notes: merge push로 생성된 새 run에서 direct sync job의 token 존재 확인과 Doppler sync 성공을 확인하고, 이어지는 full 배포의 검증 SHA·서버 HEAD·health check를 확인한다. 별도 `environment-only` run에서는 Git pull, image build, migration 로그가 없고 앱 컨테이너 재생성 및 health check만 실행되는지 확인한다.

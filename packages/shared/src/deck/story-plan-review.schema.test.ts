@@ -11,6 +11,7 @@ const response = {
   jobId: "job-1",
   projectId: "project-1",
   status: "review-pending",
+  styleContext: { topic: "ORBIT", tone: "professional" },
   plan: {
     revision: 1,
     regenerationCount: 0,
@@ -24,13 +25,16 @@ const response = {
     slides: [
       {
         order: 1,
+        sourceOrder: 1,
         slideType: "problem",
         title: "문제",
         message: "현재 문제를 정의합니다.",
         speakerNotes: "문제의 배경을 설명합니다.",
         targetSeconds: 60,
         sourceState: "connected",
-        sources: [{ title: "참고 문서", type: "uploaded", authority: "unknown" }],
+        sources: [
+          { title: "참고 문서", type: "uploaded", authority: "unknown" },
+        ],
       },
     ],
   },
@@ -98,5 +102,33 @@ describe("Story Plan Review contracts", () => {
         rawPrompt: "do not expose",
       }).success,
     ).toBe(false);
+    expect(
+      storyPlanApproveRequestSchema.safeParse({
+        expectedRevision: 1,
+        slides: [
+          { sourceOrder: 2, title: "해결", message: "해결책을 제안합니다." },
+          { sourceOrder: 1, title: "문제", message: "문제를 설명합니다." },
+        ],
+        designSelection: {
+          paletteOptionId: "brandlogy-blue",
+          paletteOverride: {
+            primary: "#6846D8",
+            secondary: "#1F1D3D",
+            background: "#F7F7F5",
+            surface: "#FFFFFF",
+            muted: "#F1ECFF",
+            border: "#E6E6E6",
+            text: "#090909",
+            accentColor: "#C5B0F4",
+          },
+          fontOverride: {
+            fontId: "pretendard",
+            name: "Pretendard",
+            headingFontFamily: "Pretendard",
+            bodyFontFamily: "Pretendard",
+          },
+        },
+      }).success,
+    ).toBe(true);
   });
 });

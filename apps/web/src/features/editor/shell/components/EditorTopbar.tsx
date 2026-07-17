@@ -1,4 +1,4 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckExportFormat } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
   IconCloud as Cloud,
@@ -40,7 +40,7 @@ type EditorTopbarProps = {
   lastSavedAtLabel: string | null;
   ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
   onExitToHome: () => void;
-  onExportPptx: () => void;
+  onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenPresenceDebug: () => void;
@@ -81,7 +81,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     lastSavedAtLabel,
     ooxmlSyncStatus,
     onExitToHome,
-    onExportPptx,
+    onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
     onOpenPresenceDebug,
@@ -153,15 +153,30 @@ export function EditorTopbar(props: EditorTopbarProps) {
       meta: saveMenuMeta
     }
   ];
-  const exportMenuItems = ["PPTX 내보내기", "PDF 내보내기", "PNG 내보내기", "JSON 백업 내보내기"].map(
-    (label, index) => ({
-      action: index === 0 ? "pptx" : "pending",
-      disabled: index === 0 ? isPptxExporting : true,
+  const exportMenuItems: Array<{
+    disabled: boolean;
+    format?: DeckExportFormat;
+    icon: typeof Download;
+    label: string;
+    meta: string;
+  }> = [
+    {
+      disabled: isPptxExporting,
+      format: "pptx",
       icon: Download,
-      label: index === 0 && isPptxExporting ? "PPTX 내보내는 중..." : label,
-      meta: index === 0 ? pptxExportMessage : "준비 중"
-    })
-  );
+      label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+      meta: pptxExportMessage
+    },
+    {
+      disabled: isPptxExporting,
+      format: "png",
+      icon: Download,
+      label: isPptxExporting ? "PNG ZIP 내보내는 중..." : "PNG ZIP 내보내기",
+      meta: pptxExportMessage || "모든 장표 PNG"
+    },
+    { disabled: true, icon: Download, label: "PDF 내보내기", meta: "준비 중" },
+    { disabled: true, icon: Download, label: "JSON 백업 내보내기", meta: "준비 중" }
+  ];
   const editModeItems = [
     { active: true, label: "편집 중", meta: "텍스트와 오브젝트 수정" },
     { label: "보기 전용", meta: "슬라이드 탐색만" },
@@ -245,8 +260,8 @@ export function EditorTopbar(props: EditorTopbarProps) {
                   </button>
                 ))}
                 <span className="menu-section-label">내보내기</span>
-                {exportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
-                  <button className="file-menu-item" disabled={disabled} key={label} role="menuitem" type="button" onClick={() => action === "pptx" ? onExportPptx() : undefined}>
+                {exportMenuItems.map(({ disabled, format, icon: Icon, label, meta }) => (
+                  <button className="file-menu-item" disabled={disabled} key={label} role="menuitem" type="button" onClick={() => format ? onOpenExport(format) : undefined}>
                     <span className="file-menu-label"><Icon size={16} />{label}</span>
                     <span className="file-menu-meta">{meta ? <small>{meta}</small> : null}</span>
                   </button>

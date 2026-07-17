@@ -1,39 +1,38 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.ai.deck_generation.content_planning import plan_content
+from app.ai.composition_library import COMPOSITION_SPECS
+from app.ai.deck_generation.content_planning import (
+    compose_slide_detail_with_llm,
+    plan_story_content,
+)
 from app.ai.deck_generation.design_planning import (
     plan_design,
     resolve_style_prompt_context,
 )
-from app.ai.deck_generation.diagnostics import assemble_generation_diagnostics
 from app.ai.deck_generation.layout_compiler import (
-    compile_layout,
-    core_geometry_fingerprint,
+    assemble_program_v2_slide,
 )
 from app.ai.deck_generation.models import (
     ContentPlan,
+    DeckContentGenerationError,
     DesignPlan,
     GenerateDeckRequest,
-    GenerateDeckResponse,
-    GenerationDiagnosticsInput,
     ImageReviewMode,
     LayoutCompileResult,
     PythonQualityInput,
     RawInput,
     SourceGroundingResult,
+    ValidationResult,
     VisualRequirements,
 )
 from app.ai.deck_generation.pipeline import analyze_input, build_deck_from_layout
 from app.ai.deck_generation.quality import (
-    enforce_design_pack_constraints,
     finalize_python_quality,
-    refine_python_quality,
-    review_python_quality,
 )
 from app.ai.deck_generation.source_grounding import ground_sources
 from app.ai.deck_generation.visual_requirements import (
@@ -67,6 +66,7 @@ class ContentPlanningStageInput(StageModel):
 
 
 class ContentPlanningStageResult(StageModel):
+    artifact_version: Literal[2] = Field(default=2, alias="artifactVersion")
     raw_input: RawInput = Field(alias="rawInput")
     content_plan: ContentPlan = Field(alias="contentPlan")
 
@@ -91,10 +91,33 @@ class LayoutCompileStageInput(StageModel):
     source_warnings: list[str] = Field(default_factory=list, alias="sourceWarnings")
 
 
+class LayoutManifestSlide(StageModel):
+    source_order: int = Field(alias="sourceOrder", ge=1)
+    order: int = Field(ge=1)
+    slide_id: str = Field(alias="slideId", min_length=1)
+    shard_key: str = Field(alias="shardKey", min_length=1)
+
+
 class LayoutCompileStageResult(StageModel):
-    layout_result: LayoutCompileResult = Field(alias="layoutResult")
-    visual_requirements: VisualRequirements = Field(alias="visualRequirements")
-    worker_payload: GenerateDeckResponse = Field(alias="workerPayload")
+    artifact_version: Literal[2] = Field(default=2, alias="artifactVersion")
+    deck_shell: dict[str, Any] = Field(alias="deckShell")
+    slides: list[LayoutManifestSlide] = Field(min_length=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SlideComposeStageInput(StageModel):
+    raw_input: RawInput = Field(alias="rawInput")
+    content_plan: ContentPlan = Field(alias="contentPlan")
+    design_plan: DesignPlan = Field(alias="designPlan")
+    source_order: int = Field(alias="sourceOrder", ge=1)
+    order: int = Field(ge=1)
+    slide_id: str = Field(alias="slideId", min_length=1)
+
+
+class SlideComposeStageResult(StageModel):
+    slide: dict[str, Any]
+    validation: ValidationResult
+    warnings: list[str] = Field(default_factory=list)
 
 
 def run_source_grounding_stage(
@@ -131,7 +154,7 @@ def run_content_planning_stage(
                 ),
             }
         )
-    content_plan = plan_content(
+    content_plan = plan_story_content(
         raw_input,
         resolve_style_prompt_context(raw_input),
         client=client,
@@ -176,57 +199,106 @@ def run_layout_compile_stage(
     api_key: str | None = None,
     image_review_mode: ImageReviewMode = "auto",
 ) -> LayoutCompileStageResult:
-    layout_result = compile_layout(stage_input.raw_input, stage_input.design_plan)
-    visual_requirements = plan_visual_requirements(
-        stage_input.raw_input,
-        stage_input.design_plan,
-        layout_result,
-    )
-    visualized_slides = apply_visual_requirements(layout_result, visual_requirements)
     deck = build_deck_from_layout(
         stage_input.raw_input,
         stage_input.content_plan.outline,
         stage_input.design_plan,
-        visualized_slides,
+        [],
     )
-    deck = enforce_design_pack_constraints(deck, stage_input.raw_input)
-    reviewer = review_python_quality(
-        PythonQualityInput(rawInput=stage_input.raw_input, deck=deck)
-    ).validation
-    refined = refine_python_quality(
-        PythonQualityInput(
-            rawInput=stage_input.raw_input,
-            deck=deck,
-            reviewerValidation=reviewer,
+    deck.pop("slides", None)
+    return LayoutCompileStageResult(
+        deckShell=deck,
+        slides=[
+            LayoutManifestSlide(
+                sourceOrder=slide.order,
+                order=slide.order,
+                slideId=f"slide_{slide.order}",
+                shardKey=f"{slide.order:03d}-slide_{slide.order}",
+            )
+            for slide in stage_input.content_plan.slide_plans
+        ],
+        warnings=stage_input.source_warnings,
+    )
+
+
+def run_slide_compose_stage(
+    stage_input: SlideComposeStageInput,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> SlideComposeStageResult:
+    target = next(
+        (
+            slide
+            for slide in stage_input.content_plan.slide_plans
+            if slide.order == stage_input.order
         ),
+        None,
+    )
+    if target is None or stage_input.source_order != target.order:
+        raise DeckContentGenerationError("Slide manifest does not match the story plan.")
+    expected_slide_id = f"slide_{target.order}"
+    if stage_input.slide_id != expected_slide_id:
+        raise DeckContentGenerationError("Slide manifest identity is invalid.")
+    available_sources = {
+        source.source_id: source for source in stage_input.raw_input.source_records
+    }
+    scoped_raw_input = stage_input.raw_input.model_copy(
+        deep=True,
+        update={
+            "source_records": [
+                available_sources[source_id]
+                for source_id in target.source_refs
+                if source_id in available_sources
+            ],
+            "reference_context": [],
+        },
+    )
+    direction = stage_input.design_plan.design_program.slides[target.order - 1]
+    composition = COMPOSITION_SPECS[direction.composition_id]
+    detailed = compose_slide_detail_with_llm(
+        scoped_raw_input,
+        target,
+        resolve_style_prompt_context(scoped_raw_input),
         client=client,
         model=model,
         api_key=api_key,
-        image_review_mode=image_review_mode,
+        content_item_range=(composition.min_items, composition.max_items),
+    )
+    slide = assemble_program_v2_slide(
+        scoped_raw_input,
+        detailed,
+        stage_input.design_plan.theme,
+        stage_input.design_plan.design_program,
+        direction,
+    )
+    single_design = stage_input.design_plan.model_copy(
+        deep=True,
+        update={"slide_plans": [detailed]},
+    )
+    layout_result = LayoutCompileResult(slides=[slide])
+    visual_requirements = VisualRequirements(
+        items=[
+            plan_visual_requirements(
+                scoped_raw_input,
+                single_design,
+                layout_result,
+            ).items[0]
+        ]
+    )
+    visualized = apply_visual_requirements(layout_result, visual_requirements)[0]
+    deck = build_deck_from_layout(
+        scoped_raw_input,
+        stage_input.content_plan.outline,
+        stage_input.design_plan,
+        [visualized],
     )
     finalized = finalize_python_quality(
-        PythonQualityInput(rawInput=stage_input.raw_input, deck=refined.deck)
+        PythonQualityInput(rawInput=scoped_raw_input, deck=deck)
     )
-    body_slides = finalized.deck.get("slides", [])[1:-1]
-    diagnostics = assemble_generation_diagnostics(
-        GenerationDiagnosticsInput(
-            rawInput=stage_input.raw_input,
-            validation=finalized.validation,
-            generatedSlideCount=len(visualized_slides),
-            uniqueCoreLayoutCount=len(
-                {core_geometry_fingerprint(slide) for slide in body_slides}
-            ),
-            agentWarnings=stage_input.source_warnings,
-        )
-    )
-    return LayoutCompileStageResult(
-        layoutResult=layout_result,
-        visualRequirements=visual_requirements,
-        workerPayload=GenerateDeckResponse(
-            deck=finalized.deck,
-            templateSelection=[],
-            warnings=diagnostics.warnings,
-            validation=finalized.validation,
-            diagnostics=diagnostics.diagnostics,
-        ),
+    final_slide = finalized.deck.get("slides", [])[0]
+    return SlideComposeStageResult(
+        slide=final_slide,
+        validation=finalized.validation,
     )

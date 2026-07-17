@@ -30,6 +30,7 @@ function createPatch(
 
 function createSlide(slideId: string, order: number): Slide {
   return {
+    kind: "content",
     slideId,
     order,
     title: `Slide ${order}`,

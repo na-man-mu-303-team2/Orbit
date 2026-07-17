@@ -3,8 +3,8 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DesignAgentProposal,
-  Slide,
-  SpeakerNotesSuggestionMode
+  SpeakerNotesSuggestionMode,
+  Slide
 } from "@orbit/shared";
 import { IconArrowUp as ArrowUp } from "@tabler/icons-react";
 import {
@@ -46,6 +46,7 @@ type AiChatPanelProps = {
   onChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
   onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
+  designEditingEnabled?: boolean;
 };
 
 export function createInitialAiChatState(projectId: string): AiChatState {
@@ -63,6 +64,7 @@ export function createInitialAiChatState(projectId: string): AiChatState {
 }
 
 export function AiChatPanel(props: AiChatPanelProps) {
+  const designEditingEnabled = props.designEditingEnabled ?? true;
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -81,7 +83,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || !props.currentSlide || isSending) return;
+    if (!content || !props.currentSlide || !designEditingEnabled || isSending) return;
 
     updateMessages((current) => [
       ...current,
@@ -191,10 +193,17 @@ export function AiChatPanel(props: AiChatPanelProps) {
     ]);
   }
 
-  const canSend = Boolean(draft.trim() && props.currentSlide && !isSending);
+  const canSend = Boolean(
+    draft.trim() && props.currentSlide && designEditingEnabled && !isSending
+  );
 
   return (
     <section className="ai-chat-panel" aria-label="AI 채팅">
+      {!designEditingEnabled && props.currentSlide ? (
+        <p className="ai-chat-editing-locked" role="status">
+          특수 장표는 AI 디자인 대신 장표 설정에서 관리합니다.
+        </p>
+      ) : null}
       <div className="ai-chat-history" aria-live="polite">
         {props.chatState.messages.map((message) => (
           <div className={`ai-chat-message ${message.role}`} key={message.id}>
@@ -217,10 +226,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
       <form className="ai-chat-composer" onSubmit={handleSubmit}>
         <textarea
           aria-label="AI에게 메시지 보내기"
-          placeholder="바꾸고 싶은 디자인을 말씀해 주세요"
+          placeholder={designEditingEnabled
+            ? "바꾸고 싶은 디자인을 말씀해 주세요"
+            : "장표 설정에서 내용을 관리해 주세요"}
           rows={1}
           value={draft}
-          disabled={isSending || !props.currentSlide}
+          disabled={isSending || !props.currentSlide || !designEditingEnabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;

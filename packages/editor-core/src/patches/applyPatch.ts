@@ -541,6 +541,50 @@ function applyOperation(
       return { ok: true };
     }
 
+    case "update_activity_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity definition can only be updated on an Activity slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activity = cloneJson(operation.activity);
+      return { ok: true };
+    }
+
+    case "update_activity_result_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity-results") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity result definition can only be updated on an Activity result slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activityResult = cloneJson(operation.activityResult);
+      return { ok: true };
+    }
+
     default:
       return unsupportedOperation(operation);
   }

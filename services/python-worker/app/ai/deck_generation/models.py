@@ -627,6 +627,20 @@ class GeneratedDeckContentPlan(BaseModel):
     slides: list[GeneratedSlideContent] = Field(min_length=1)
 
 
+class GeneratedStorySlide(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    slide_type: SlideType = Field(alias="slideType")
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+
+
+class GeneratedStoryPlan(BaseModel):
+    title: str = Field(min_length=1)
+    slides: list[GeneratedStorySlide] = Field(min_length=1)
+
+
 class SpeakerNotesRepairItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

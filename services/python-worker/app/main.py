@@ -10,8 +10,11 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ai.color_options import (
+    DeckColorCustomizationRequest,
+    DeckColorCustomizationResponse,
     DeckColorOptionsRequest,
     DeckColorOptionsResponse,
+    customize_deck_color_palette,
     generate_deck_color_options,
 )
 from app.ai.deck_pptx_export import (
@@ -39,10 +42,13 @@ from app.ai.deck_generation.stage_runtime import (
     DesignPlanningStageResult,
     LayoutCompileStageInput,
     LayoutCompileStageResult,
+    SlideComposeStageInput,
+    SlideComposeStageResult,
     SourceGroundingStageInput,
     run_content_planning_stage,
     run_design_planning_stage,
     run_layout_compile_stage,
+    run_slide_compose_stage,
     run_source_grounding_stage,
 )
 from app.ai.deck_generation.models import SourceGroundingResult
@@ -53,6 +59,7 @@ from app.ai.pptx_design_importer import (
 from app.ai.pptx_ooxml_generation import (
     PptxOoxmlGenerationError,
     PptxOoxmlGenerationResult,
+    PptxRenderUnavailableError,
     PptxOoxmlSyncResult,
     UnsupportedPptxAspectRatioError,
     generate_pptx_ooxml,
@@ -60,6 +67,12 @@ from app.ai.pptx_ooxml_generation import (
 )
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
+)
+from app.ai.pptx_png_zip_export import (
+    PptxPngZipExportError,
+    PptxPngZipExportRequest,
+    PptxPngZipExportResponse,
+    export_pptx_png_zip,
 )
 from app.ai.visual_qa import (
     VisualQaRequest,
@@ -790,6 +803,27 @@ def layout_compile_stage(
     )
 
 
+@app.post(
+    "/internal/ai/deck-generation/slide-compose",
+    response_model=SlideComposeStageResult,
+)
+def slide_compose_stage(
+    payload: SlideComposeStageInput,
+    request: Request,
+) -> SlideComposeStageResult:
+    config = _config(request)
+    try:
+        return run_slide_compose_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
 def generate_ai_deck_color_options(
     payload: DeckColorOptionsRequest,
@@ -797,6 +831,22 @@ def generate_ai_deck_color_options(
 ) -> DeckColorOptionsResponse:
     config = _config(request)
     return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post(
+    "/ai/deck-color-customization",
+    response_model=DeckColorCustomizationResponse,
+)
+def generate_ai_deck_color_customization(
+    payload: DeckColorCustomizationRequest,
+    request: Request,
+) -> DeckColorCustomizationResponse:
+    config = _config(request)
+    return customize_deck_color_palette(
         payload,
         model=config.openai_model,
         api_key=config.openai_api_key,
@@ -826,6 +876,18 @@ def propose_slide_design(
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
 def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
     return export_deck_pptx(payload)
+
+
+@app.post("/ai/export-pptx-png-zip", response_model=PptxPngZipExportResponse)
+def export_pptx_png_zip_endpoint(
+    payload: PptxPngZipExportRequest,
+) -> PptxPngZipExportResponse:
+    try:
+        return export_pptx_png_zip(payload)
+    except PptxRenderUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except PptxPngZipExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/ai/review-deck-visuals", response_model=VisualQaResponse)

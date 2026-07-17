@@ -1,6 +1,10 @@
 import type { Deck } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
+import {
+  ActivityAudienceRuntime,
+  ActivityResultRuntime
+} from "../../activity-slides";
 import type { ScreenShareEndedReason } from "./presentationChannel";
 import type { PresenterSlideshowState } from "./presenterStateStore";
 import { SlideshowRenderer } from "./SlideshowRenderer";
@@ -59,6 +63,32 @@ export function AudienceOutputRenderer(props: {
       >
         공유 화면을 연결하는 중입니다
       </section>
+    );
+  }
+
+  const slide =
+    deck.slides.find((candidate) => candidate.slideId === state.slideId) ??
+    deck.slides[state.slideIndex];
+
+  if (slide?.kind === "activity") {
+    return (
+      <ActivityAudienceRuntime
+        activity={slide.activity}
+        deckId={deck.deckId}
+        projectId={deck.projectId}
+        scale={scale}
+      />
+    );
+  }
+
+  if (slide?.kind === "activity-results") {
+    return (
+      <ActivityResultRuntime
+        deck={deck}
+        role="audience"
+        scale={scale}
+        slide={slide}
+      />
     );
   }
 

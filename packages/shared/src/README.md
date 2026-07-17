@@ -20,6 +20,11 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | 파일 | 역할 |
 | --- | --- |
 | `index.ts` | `@orbit/shared`의 public barrel export. 구현 로직을 두지 않는다. |
+| `activity/activity-id.schema.ts` | Activity, question, option, run, response, text entry ID 계약. |
+| `activity/activity-definition.schema.ts` | Deck에 저장하는 참여 장표 정의, 문항 union, 연결 결과 정의 계약. |
+| `activity/activity-runtime.schema.ts` | PresentationSession별 run, 상태, answer, response 계약. |
+| `activity/activity-results.schema.ts` | presenter/public/editor 결과 projection을 분리하는 strict 계약. |
+| `activity/activity-api.schema.ts` | run 상태, supersede, 응답 upsert, moderation request/response 계약. |
 | `auth/auth.schema.ts` | 회원가입, 로그인, 로그아웃, 현재 사용자 조회 API의 request/response와 session schema. |
 | `common/demo-ids.ts` | 1차 스프린트 데모용 고정 사용자, 워크스페이스, 프로젝트, 덱, 세션 ID. |
 | `common/time.schema.ts` | ISO datetime schema와 현재 시각 생성 유틸리티. |
@@ -49,7 +54,14 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `rehearsals/realtime-transcription.schema.ts` | 브라우저 Live STT가 OpenAI Realtime transcription에 연결할 때 API에서 받는 project-scoped client secret 응답 계약. |
 | `rehearsals/rehearsal.schema.ts` | 리허설 run, legacy upload-url/complete 요청, 후속 audio chunk begin/upload/complete, run meta, run 조회 API 계약. `completeRehearsalAudioUploadRequestSchema`는 `{ fileId }` legacy complete 요청이며 chunk manifest는 `completeRehearsalAudioChunkUploadRequestSchema`를 사용한다. |
 | `realtime/websocket.schema.ts` | WebSocket event envelope과 주요 payload schema. |
-| `presentation/presentation.schema.ts` | 발표 세션, 리허설 지표, 최종 보고서 schema. |
+| `presentation/presentation.schema.ts` | Deck version과 access 기간을 고정한 발표 세션, 리허설 지표, 최종 보고서 schema. |
+
+## Activity Slides 계약 메모
+
+- Deck에는 `ActivityDefinition`과 `sourceActivityId` 참조만 저장한다. run, response, aggregate, QR, audience URL은 Deck이나 `slide.elements`에 넣지 않는다.
+- `kind`가 없는 legacy slide는 parse 시 `content`로 정규화한다. `activity`와 `activity-results`가 하나라도 있으면 Deck canvas는 `wide-16-9`여야 한다.
+- presenter/public/editor 결과는 서로 독립된 strict schema다. public 결과에는 선택 이름과 pending/hidden 주관식 원문이 존재할 수 없다.
+- 응답은 HTTP transaction으로 저장하고 WebSocket은 commit 후 revision 알림과 public projection만 전달한다.
 
 ## ORBIT-14 작업 메모
 

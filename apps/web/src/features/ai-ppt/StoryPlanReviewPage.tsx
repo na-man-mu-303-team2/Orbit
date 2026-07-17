@@ -1,31 +1,46 @@
-import {
-  storyPlanReviewResponseSchema,
-  type Job,
-  type StoryPlanReviewResponse,
+import type {
+  Job,
+  StoryPlanApproveRequest,
+  StoryPlanReviewResponse,
 } from "@orbit/shared";
 import {
   IconChevronDown,
   IconChevronUp,
   IconClock,
-  IconDeviceFloppy,
   IconFileText,
   IconGripVertical,
   IconInfoCircle,
   IconRefresh,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   OrbitButton,
   OrbitDialog,
+  OrbitInput,
   OrbitTabs,
   OrbitTextarea,
 } from "../../design-system";
-import { pollJob } from "./AiPptMockupPage";
+import {
+  requestStoryPlan,
+  requestStoryPlanMutation,
+  saveStoryApprovalDraft,
+  storyGenerationPath,
+  storyStyleColorPath,
+} from "./story-plan-api";
 import "./story-plan-review.css";
+
+export {
+  storyGenerationPath,
+  storyPlanPath,
+  storyStyleColorPath,
+} from "./story-plan-api";
 
 type StoryTab = "outline" | "script";
 type StoryPlan = NonNullable<StoryPlanReviewResponse["plan"]>;
 type StorySlide = StoryPlan["slides"][number];
+type StoryApprovalSlide = NonNullable<
+  StoryPlanApproveRequest["slides"]
+>[number];
 type StoryPlanEdit =
   | { kind: "reorder"; orders: number[] }
   | { kind: "speaker-notes"; order: number; speakerNotes: string };
@@ -34,11 +49,11 @@ const DAILY_IMAGE_BUDGET_WARNING =
   "Daily image asset budget retained remaining placeholders.";
 
 export function hasUnsavedStoryScripts(
-  slides: ReadonlyArray<Pick<StorySlide, "order" | "speakerNotes">>,
+  slides: ReadonlyArray<Pick<StorySlide, "sourceOrder" | "speakerNotes">>,
   drafts: Readonly<Record<number, string>>,
 ) {
   return slides.some((slide) => {
-    const draft = drafts[slide.order];
+    const draft = drafts[slide.sourceOrder];
     return draft !== undefined && draft !== slide.speakerNotes;
   });
 }
@@ -47,7 +62,10 @@ export function storyReviewJobFailureMessage(
   job: Pick<Job, "error" | "message" | "result">,
 ) {
   const warnings = job.result?.warnings;
-  if (Array.isArray(warnings) && warnings.includes(DAILY_IMAGE_BUDGET_WARNING)) {
+  if (
+    Array.isArray(warnings) &&
+    warnings.includes(DAILY_IMAGE_BUDGET_WARNING)
+  ) {
     return "AI 이미지 일일 생성 한도를 모두 사용했습니다. 한도가 초기화된 후 다시 시도해 주세요.";
   }
   return job.error?.message || job.message || "AI PPT를 생성하지 못했습니다.";
@@ -59,10 +77,6 @@ export function storyPlanRegenerationPollingKey(
   return response?.status === "regenerating"
     ? response.plan?.regenerationCount
     : undefined;
-}
-
-export function storyPlanPath(projectId: string, jobId: string) {
-  return `/project/${encodeURIComponent(projectId)}/story-plan/${encodeURIComponent(jobId)}`;
 }
 
 export function StoryPlanReviewPage(props: {
@@ -78,8 +92,10 @@ export function StoryPlanReviewPage(props: {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scriptDrafts, setScriptDrafts] = useState<Record<number, string>>({});
+  const [storyDrafts, setStoryDrafts] = useState<StoryApprovalSlide[]>([]);
   const mutationInFlight = useRef(false);
   const regenerationPollingKey = storyPlanRegenerationPollingKey(response);
+  const responseSlides = response?.plan?.slides;
 
   useEffect(() => {
     let cancelled = false;
@@ -93,12 +109,7 @@ export function StoryPlanReviewPage(props: {
         if (next.status === "planning" || next.status === "regenerating") {
           timer = setTimeout(load, 1200);
         } else if (next.status === "approved") {
-          const job = await pollJob(next.jobId);
-          if (!cancelled && job.status === "succeeded") {
-            navigate(`/project/${encodeURIComponent(next.projectId)}`);
-          } else if (!cancelled) {
-            setError(storyReviewJobFailureMessage(job));
-          }
+          navigate(storyGenerationPath(next.projectId, next.jobId));
         }
       } catch (cause) {
         if (!cancelled) {
@@ -119,16 +130,46 @@ export function StoryPlanReviewPage(props: {
 
   useEffect(() => {
     setScriptDrafts({});
-  }, [response?.plan?.revision]);
+    setStoryDrafts(
+      responseSlides?.map(({ sourceOrder, title, message }) => ({
+        sourceOrder,
+        title,
+        message,
+      })) ?? [],
+    );
+  }, [response?.plan?.revision, responseSlides]);
+
+  const draftResponse = useMemo(() => {
+    if (!response?.plan || storyDrafts.length !== response.plan.slides.length) {
+      return response;
+    }
+    const slidesBySourceOrder = new Map(
+      response.plan.slides.map((slide) => [slide.sourceOrder, slide]),
+    );
+    const slides = storyDrafts.flatMap((draft, index) => {
+      const slide = slidesBySourceOrder.get(draft.sourceOrder);
+      return slide ? [{ ...slide, ...draft, order: index + 1 }] : [];
+    });
+    if (slides.length !== response.plan.slides.length) return response;
+    return {
+      ...response,
+      plan: {
+        ...response.plan,
+        outline: {
+          ...response.plan.outline,
+          slideTitles: slides.map((slide) => slide.title),
+        },
+        slides,
+      },
+    };
+  }, [response, storyDrafts]);
 
   const hasUnsavedScripts = hasUnsavedStoryScripts(
     response?.plan?.slides ?? [],
     scriptDrafts,
   );
 
-  async function editStoryPlan(
-    edit: StoryPlanEdit,
-  ) {
+  async function editStoryPlan(edit: StoryPlanEdit) {
     if (!response?.plan || mutationInFlight.current) return;
     mutationInFlight.current = true;
     setBusy(true);
@@ -144,12 +185,15 @@ export function StoryPlanReviewPage(props: {
       setResponse(next);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "구성 변경사항을 저장하지 못했습니다.",
+        cause instanceof Error
+          ? cause.message
+          : "구성 변경사항을 저장하지 못했습니다.",
       );
       if (edit.kind === "reorder") {
-        const latest = await requestStoryPlan(props.projectId, props.jobId).catch(
-          () => null,
-        );
+        const latest = await requestStoryPlan(
+          props.projectId,
+          props.jobId,
+        ).catch(() => null);
         if (latest) {
           setResponse(latest);
           setScriptDrafts({});
@@ -161,31 +205,77 @@ export function StoryPlanReviewPage(props: {
     }
   }
 
-  async function reorderSlides(fromOrder: number, toOrder: number) {
+  function reorderSlides(fromOrder: number, toOrder: number) {
     if (!response?.plan || fromOrder === toOrder) return;
     if (hasUnsavedScripts) {
       setActiveTab("script");
       setError("대본 변경사항을 먼저 저장해 주세요.");
       return;
     }
-    const orders = moveStorySlideOrder(
-      response.plan.slides.map((slide) => slide.order),
-      fromOrder,
-      toOrder,
-    );
-    await editStoryPlan({ kind: "reorder", orders });
+    setStoryDrafts((current) => {
+      const next = [...current];
+      const [moved] = next.splice(fromOrder - 1, 1);
+      if (!moved) return current;
+      next.splice(toOrder - 1, 0, moved);
+      return next;
+    });
   }
 
-  async function saveScript(order: number) {
-    const speakerNotes = scriptDrafts[order]?.trim();
+  async function saveScript(sourceOrder: number) {
+    const speakerNotes = scriptDrafts[sourceOrder]?.trim();
     if (!speakerNotes) {
       setError("대본은 비워 둘 수 없습니다.");
       return;
     }
+    const order = response?.plan?.slides.find(
+      (slide) => slide.sourceOrder === sourceOrder,
+    )?.order;
+    if (!order) return;
     await editStoryPlan({ kind: "speaker-notes", order, speakerNotes });
   }
 
-  async function mutate(action: "approve" | "cancel" | "regenerate") {
+  function updateStoryDraft(
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) {
+    setStoryDrafts((current) =>
+      current.map((slide) =>
+        slide.sourceOrder === sourceOrder
+          ? { ...slide, [field]: value }
+          : slide,
+      ),
+    );
+  }
+
+  function continueToStyle() {
+    if (!response?.plan || hasUnsavedScripts) {
+      setError("대본 변경사항을 먼저 저장해 주세요.");
+      return;
+    }
+    if (
+      storyDrafts.length !== response.plan.slides.length ||
+      storyDrafts.some((slide) => !slide.title.trim() || !slide.message.trim())
+    ) {
+      setError("슬라이드 제목과 핵심 메시지를 모두 입력해 주세요.");
+      return;
+    }
+    const saved = saveStoryApprovalDraft(props.projectId, props.jobId, {
+      expectedRevision: response.plan.revision,
+      slides: storyDrafts.map((slide) => ({
+        ...slide,
+        title: slide.title.trim(),
+        message: slide.message.trim(),
+      })),
+    });
+    if (!saved) {
+      setError("스토리 변경사항을 다음 단계로 전달하지 못했습니다.");
+      return;
+    }
+    navigate(storyStyleColorPath(props.projectId, props.jobId));
+  }
+
+  async function mutate(action: "cancel" | "regenerate") {
     if (!response || mutationInFlight.current) return;
     if (action !== "cancel" && (!response.plan || hasUnsavedScripts)) {
       setError("대본 변경사항을 먼저 저장해 주세요.");
@@ -211,14 +301,6 @@ export function StoryPlanReviewPage(props: {
       setResponse(next);
       setDialogOpen(false);
       setInstruction("");
-      if (action === "approve") {
-        const job = await pollJob(next.jobId);
-        if (job.status === "succeeded") {
-          navigate(`/project/${encodeURIComponent(next.projectId)}`);
-        } else {
-          setError(storyReviewJobFailureMessage(job));
-        }
-      }
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "요청을 처리하지 못했습니다.",
@@ -243,17 +325,18 @@ export function StoryPlanReviewPage(props: {
       <StoryPlanReviewView
         activeTab={activeTab}
         busy={busy}
-        onApprove={() => void mutate("approve")}
+        onApprove={continueToStyle}
         onCancel={() => void mutate("cancel")}
         hasUnsavedScripts={hasUnsavedScripts}
         onRegenerate={() => setDialogOpen(true)}
-        onReorder={(fromOrder, toOrder) => void reorderSlides(fromOrder, toOrder)}
+        onReorder={reorderSlides}
         onSaveScript={(order) => void saveScript(order)}
         onScriptChange={(order, value) =>
           setScriptDrafts((current) => ({ ...current, [order]: value }))
         }
+        onStoryChange={updateStoryDraft}
         onTabChange={(tab) => setActiveTab(tab)}
-        response={response}
+        response={draftResponse ?? response}
         scriptDrafts={scriptDrafts}
       />
       <OrbitDialog
@@ -303,6 +386,11 @@ export function StoryPlanReviewView(props: {
   onReorder: (fromOrder: number, toOrder: number) => void;
   onSaveScript: (order: number) => void;
   onScriptChange: (order: number, value: string) => void;
+  onStoryChange: (
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) => void;
   onTabChange: (tab: StoryTab) => void;
   response: StoryPlanReviewResponse;
   scriptDrafts: Record<number, string>;
@@ -386,24 +474,13 @@ export function StoryPlanReviewView(props: {
         onChange={(tab) => props.onTabChange(tab as StoryTab)}
         tabs={[
           { id: "outline", label: "목차" },
-          { id: "script", label: "대본" },
         ]}
       >
         {props.activeTab === "outline" ? (
           <StoryOutline
             disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onReorder={props.onReorder}
-            plan={plan}
-          />
-        ) : null}
-        {props.activeTab === "script" ? (
-          <StoryScript
-            disabled={props.busy || !reviewPending}
-            drafts={props.scriptDrafts}
-            onChange={props.onScriptChange}
-            onReorder={props.onReorder}
-            onSave={props.onSaveScript}
-            reorderDisabled={props.hasUnsavedScripts}
+            onStoryChange={props.onStoryChange}
             plan={plan}
           />
         ) : null}
@@ -437,7 +514,12 @@ export function StoryPlanReviewView(props: {
         </OrbitButton>
         <div>
           <OrbitButton
-            disabled={props.busy || !reviewPending || exhausted || props.hasUnsavedScripts}
+            disabled={
+              props.busy ||
+              !reviewPending ||
+              exhausted ||
+              props.hasUnsavedScripts
+            }
             onClick={props.onRegenerate}
             variant="secondary"
           >
@@ -447,9 +529,9 @@ export function StoryPlanReviewView(props: {
             disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onClick={props.onApprove}
           >
-            이 구성으로 생성
+            스타일 선택
           </OrbitButton>
-          <span>승인 후 디자인 생성을 시작합니다.</span>
+          <span>다음 단계에서 폰트와 컬러를 선택합니다.</span>
         </div>
       </footer>
     </section>
@@ -459,6 +541,11 @@ export function StoryPlanReviewView(props: {
 function StoryOutline(props: {
   disabled?: boolean;
   onReorder: (fromOrder: number, toOrder: number) => void;
+  onStoryChange: (
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) => void;
   plan: StoryPlan;
 }) {
   return (
@@ -475,70 +562,38 @@ function StoryOutline(props: {
           <div className="story-review-card-heading">
             <div>
               <small>{slideTypeLabel(slide.slideType)}</small>
-              <h2>{slide.title}</h2>
+              <OrbitInput
+                aria-label={`${slide.order}번 슬라이드 제목`}
+                disabled={props.disabled}
+                maxLength={200}
+                onChange={(event) =>
+                  props.onStoryChange(
+                    slide.sourceOrder,
+                    "title",
+                    event.currentTarget.value,
+                  )
+                }
+                value={slide.title}
+              />
             </div>
             <time>{formatSeconds(slide.targetSeconds)}</time>
           </div>
-          <p>{slide.message}</p>
+          <OrbitTextarea
+            aria-label={`${slide.order}번 슬라이드 핵심 메시지`}
+            disabled={props.disabled}
+            maxLength={1000}
+            onChange={(event) =>
+              props.onStoryChange(
+                slide.sourceOrder,
+                "message",
+                event.currentTarget.value,
+              )
+            }
+            rows={3}
+            value={slide.message}
+          />
         </StoryCard>
       ))}
-    </div>
-  );
-}
-
-function StoryScript(props: {
-  disabled?: boolean;
-  drafts: Record<number, string>;
-  onChange: (order: number, value: string) => void;
-  onReorder: (fromOrder: number, toOrder: number) => void;
-  onSave: (order: number) => void;
-  plan: StoryPlan;
-  reorderDisabled?: boolean;
-}) {
-  return (
-    <div className="story-review-card-list">
-      {props.plan.slides.map((slide, index) => {
-        const draft = props.drafts[slide.order] ?? slide.speakerNotes;
-        const dirty = draft !== slide.speakerNotes;
-        return (
-          <StoryCard
-            disabled={props.disabled || props.reorderDisabled}
-            index={index}
-            key={slide.order}
-            onReorder={props.onReorder}
-            slide={slide}
-            total={props.plan.slides.length}
-          >
-            <div className="story-review-card-heading">
-              <div>
-                <small>{slideTypeLabel(slide.slideType)}</small>
-                <h2>{slide.title}</h2>
-              </div>
-              <time>{formatSeconds(slide.targetSeconds)}</time>
-            </div>
-            <OrbitTextarea
-              aria-label={`${slide.order}번 슬라이드 대본`}
-              disabled={props.disabled}
-              maxLength={5000}
-              onChange={(event) => props.onChange(slide.order, event.target.value)}
-              rows={6}
-              value={draft}
-            />
-            <ExternalStorySources slide={slide} />
-            <div className="story-review-script-actions">
-              <small>{draft.length}/5000자</small>
-              <OrbitButton
-                disabled={props.disabled || !dirty || !draft.trim()}
-                onClick={() => props.onSave(slide.order)}
-                variant="secondary"
-              >
-                <IconDeviceFloppy aria-hidden="true" size={16} />
-                대본 저장
-              </OrbitButton>
-            </div>
-          </StoryCard>
-        );
-      })}
     </div>
   );
 }
@@ -582,7 +637,9 @@ function StoryCard(props: {
         <button
           aria-label={`${props.slide.title} 위로 이동`}
           disabled={props.disabled || props.index === 0}
-          onClick={() => props.onReorder(props.slide.order, props.slide.order - 1)}
+          onClick={() =>
+            props.onReorder(props.slide.order, props.slide.order - 1)
+          }
           type="button"
         >
           <IconChevronUp aria-hidden="true" size={17} />
@@ -590,32 +647,15 @@ function StoryCard(props: {
         <button
           aria-label={`${props.slide.title} 아래로 이동`}
           disabled={props.disabled || props.index === props.total - 1}
-          onClick={() => props.onReorder(props.slide.order, props.slide.order + 1)}
+          onClick={() =>
+            props.onReorder(props.slide.order, props.slide.order + 1)
+          }
           type="button"
         >
           <IconChevronDown aria-hidden="true" size={17} />
         </button>
       </div>
     </article>
-  );
-}
-
-function ExternalStorySources({ slide }: { slide: StorySlide }) {
-  const sources = slide.sources.filter(
-    (source) => source.type === "web" || source.type === "uploaded",
-  );
-  if (!sources.length) return null;
-  return (
-    <aside className="story-review-script-sources" aria-label="AI가 사용한 근거">
-      <span>AI가 참고한 근거</span>
-      <ul>
-        {sources.map((source, index) => (
-          <li key={`${source.title}-${index}`}>
-            {source.title} · {sourceTypeLabel(source.type)}
-          </li>
-        ))}
-      </ul>
-    </aside>
   );
 }
 
@@ -662,44 +702,6 @@ function StoryPlanLoading(props: {
   );
 }
 
-async function requestStoryPlan(projectId: string, jobId: string) {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/story-plan`,
-    { credentials: "include" },
-  );
-  return parseStoryResponse(response);
-}
-
-async function requestStoryPlanMutation(
-  projectId: string,
-  jobId: string,
-  action: "approve" | "cancel" | "edit" | "regenerate",
-  body?: Record<string, unknown>,
-) {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/story-plan/${action}`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    },
-  );
-  return parseStoryResponse(response);
-}
-
-async function parseStoryResponse(response: Response) {
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : "요청을 처리하지 못했습니다.";
-    throw new Error(message);
-  }
-  return storyPlanReviewResponseSchema.parse(payload);
-}
-
 function navigate(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -712,13 +714,6 @@ function formatMinutes(seconds: number) {
 function formatSeconds(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function sourceTypeLabel(type: string) {
-  if (type === "web") return "웹 자료";
-  if (type === "uploaded") return "참고 자료";
-  if (type === "topic") return "사용자 입력";
-  return "생성 참고자료";
 }
 
 function slideTypeLabel(type: string) {

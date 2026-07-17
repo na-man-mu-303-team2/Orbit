@@ -31,8 +31,8 @@ export function alignSmartArtCardText(
   });
 }
 
-export class CenterSmartArtCardText2026071704000 implements MigrationInterface {
-  name = "CenterSmartArtCardText2026071704000";
+export class CenterSmartArtCardText2026071705000 implements MigrationInterface {
+  name = "CenterSmartArtCardText2026071705000";
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await this.update(queryRunner, "up");
