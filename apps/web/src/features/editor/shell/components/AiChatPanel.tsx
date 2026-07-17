@@ -2,11 +2,12 @@ import { applyDeckPatch } from "@orbit/editor-core";
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
+  DesignImageGenerationResult,
   DesignAgentProposal,
   SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
-import { IconArrowUp as ArrowUp } from "@tabler/icons-react";
+import { IconArrowUp as ArrowUp, IconPhoto as Photo } from "@tabler/icons-react";
 import {
   useState,
   type Dispatch,
@@ -15,7 +16,9 @@ import {
 } from "react";
 import {
   applyDesignAgentProposal,
-  createDesignAgentMessage
+  createDesignAgentMessage,
+  createDesignImageGeneration,
+  pollDesignImageGeneration
 } from "../../design-agent/designAgentApi";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
@@ -24,6 +27,10 @@ export type AiChatMessage = {
   role: "assistant" | "user";
   content: string;
   tone?: "error";
+  imagePreview?: {
+    result: DesignImageGenerationResult;
+    slideId: string;
+  };
 };
 
 export type AiChatState = {
@@ -45,6 +52,10 @@ type AiChatPanelProps = {
   chatState: AiChatState;
   onChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
+  onGeneratedImageInsert: (
+    result: DesignImageGenerationResult,
+    slideId: string
+  ) => boolean;
   onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   designEditingEnabled?: boolean;
 };
@@ -69,6 +80,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [isSending, setIsSending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const [mode, setMode] = useState<"design" | "image">("design");
 
   function updateMessages(
     updater: (current: AiChatMessage[]) => AiChatMessage[]
@@ -93,6 +105,27 @@ export function AiChatPanel(props: AiChatPanelProps) {
     setIsSending(true);
 
     try {
+      if (mode === "image") {
+        const slideId = props.currentSlide.slideId;
+        const generation = await createDesignImageGeneration(props.projectId, {
+          prompt: content,
+          deckId: props.deck.deckId,
+          slideId,
+          baseVersion: props.deck.version
+        });
+        const result = await pollDesignImageGeneration(generation.job.jobId);
+        updateMessages((current) => [
+          ...current,
+          {
+            id: `generated-image-${generation.job.jobId}`,
+            role: "assistant",
+            content: "이미지를 생성했습니다. 슬라이드에 추가하기 전에 확인해 주세요.",
+            imagePreview: { result, slideId }
+          }
+        ]);
+        return;
+      }
+
       const result = await createDesignAgentMessage(props.projectId, {
         ...(props.chatState.sessionId
           ? { sessionId: props.chatState.sessionId }
@@ -158,6 +191,36 @@ export function AiChatPanel(props: AiChatPanelProps) {
     }
   }
 
+  function dismissGeneratedImage(messageId: string) {
+    updateMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? { ...message, imagePreview: undefined }
+          : message
+      )
+    );
+  }
+
+  function insertGeneratedImage(message: AiChatMessage) {
+    if (!message.imagePreview) return;
+    const inserted = props.onGeneratedImageInsert(
+      message.imagePreview.result,
+      message.imagePreview.slideId
+    );
+    if (!inserted) return;
+    updateMessages((current) =>
+      current.map((candidate) =>
+        candidate.id === message.id
+          ? {
+              ...candidate,
+              content: "생성한 이미지를 슬라이드에 추가했습니다.",
+              imagePreview: undefined
+            }
+          : candidate
+      )
+    );
+  }
+
   async function handleApplyPreview() {
     if (!pendingPreview || isApplying) return;
     setIsApplying(true);
@@ -218,21 +281,71 @@ export function AiChatPanel(props: AiChatPanelProps) {
             <p className={message.tone === "error" ? "error" : undefined}>
               {message.content}
             </p>
+            {message.imagePreview ? (
+              <div className="ai-generated-image-card">
+                <img
+                  alt={message.imagePreview.result.prompt}
+                  src={message.imagePreview.result.url}
+                />
+                <p>{message.imagePreview.result.prompt}</p>
+                <div className="ai-generated-image-actions">
+                  <button
+                    type="button"
+                    disabled={!props.deck.slides.some(
+                      (slide) => slide.slideId === message.imagePreview?.slideId
+                    )}
+                    onClick={() => insertGeneratedImage(message)}
+                  >
+                    슬라이드에 추가
+                  </button>
+                  <button type="button" onClick={() => dismissGeneratedImage(message.id)}>
+                    닫기
+                  </button>
+                </div>
+                {!props.deck.slides.some(
+                  (slide) => slide.slideId === message.imagePreview?.slideId
+                ) ? (
+                  <span role="alert">대상 슬라이드가 삭제되어 추가할 수 없습니다.</span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ))}
         {isSending ? (
           <div className="ai-chat-message assistant">
             <span className="ai-chat-avatar" aria-hidden="true">AI</span>
-            <p>디자인을 검토하고 있습니다...</p>
+            <p>{mode === "image" ? "이미지를 생성하고 있습니다..." : "디자인을 검토하고 있습니다..."}</p>
           </div>
         ) : null}
       </div>
 
       <form className="ai-chat-composer" onSubmit={handleSubmit}>
+        <div aria-label="AI 작업 모드" className="ai-chat-mode-switch" role="group">
+          <button
+            aria-pressed={mode === "design"}
+            className={mode === "design" ? "active" : ""}
+            disabled={isSending}
+            type="button"
+            onClick={() => setMode("design")}
+          >
+            디자인
+          </button>
+          <button
+            aria-pressed={mode === "image"}
+            className={mode === "image" ? "active" : ""}
+            disabled={isSending}
+            type="button"
+            onClick={() => setMode("image")}
+          >
+            <Photo aria-hidden="true" size={14} /> 이미지 생성
+          </button>
+        </div>
         <textarea
           aria-label="AI에게 메시지 보내기"
           placeholder={designEditingEnabled
-            ? "바꾸고 싶은 디자인을 말씀해 주세요"
+            ? mode === "image"
+              ? "만들고 싶은 이미지를 설명해 주세요"
+              : "바꾸고 싶은 디자인을 말씀해 주세요"
             : "장표 설정에서 내용을 관리해 주세요"}
           rows={1}
           value={draft}

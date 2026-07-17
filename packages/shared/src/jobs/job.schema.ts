@@ -18,6 +18,7 @@ export const historicalJobTypeSchema = z.enum([
   "ai-template-deck-generation",
   "semantic-cue-extraction",
   "speaker-notes-suggestion",
+  "design-image-generation",
   "pptx-ooxml-generation",
   "pptx-ooxml-sync",
   "worker-health-check",

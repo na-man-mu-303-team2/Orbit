@@ -3905,6 +3905,16 @@
   justify-content: flex-end;
 }
 
+.ai-chat-message.assistant {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+}
+
+.ai-chat-message.assistant > p,
+.ai-chat-message.assistant > .ai-generated-image-card {
+  grid-column: 2;
+}
+
 .ai-chat-message p {
   max-width: calc(100% - 42px);
   margin: 0;
@@ -3943,13 +3953,14 @@
 }
 
 .ai-chat-composer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--redesign-space-2);
   min-height: 48px;
   padding: var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-4);
   border: 1px solid var(--redesign-color-outline);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-surface-container-low);
   box-shadow: var(--redesign-shadow-raised);
 }
@@ -3977,7 +3988,7 @@
   color: var(--redesign-color-on-surface-variant);
 }
 
-.ai-chat-composer button {
+.ai-chat-composer > button {
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
@@ -3990,10 +4001,102 @@
   color: var(--redesign-color-on-primary);
 }
 
-.ai-chat-composer button:disabled {
+.ai-chat-composer > button:disabled {
   background: var(--redesign-color-outline-variant);
   color: var(--redesign-color-on-surface-variant);
   cursor: default;
+}
+
+.ai-chat-mode-switch {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--redesign-space-1);
+  padding-bottom: var(--redesign-space-1);
+}
+
+.ai-chat-mode-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-1);
+  min-height: 28px;
+  padding: 0 var(--redesign-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--redesign-radius-md);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.ai-chat-mode-switch button.active {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary);
+}
+
+.ai-chat-mode-switch button:focus-visible,
+.ai-generated-image-actions button:focus-visible {
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: 2px;
+}
+
+.ai-generated-image-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.ai-generated-image-card img {
+  display: block;
+  width: 100%;
+  max-height: 210px;
+  object-fit: cover;
+  background: var(--redesign-color-surface-container);
+}
+
+.ai-generated-image-card > p {
+  max-width: none;
+  padding: var(--redesign-space-3) var(--redesign-space-3) var(--redesign-space-1);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-generated-image-actions {
+  display: flex;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-2) var(--redesign-space-3) var(--redesign-space-3);
+}
+
+.ai-generated-image-actions button {
+  min-height: 32px;
+  padding: 0 var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-low);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.ai-generated-image-actions button:first-child {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+}
+
+.ai-generated-image-actions button:disabled {
+  border-color: var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.ai-generated-image-card > span {
+  display: block;
+  padding: 0 var(--redesign-space-3) var(--redesign-space-3);
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .design-proposal-modal-backdrop {

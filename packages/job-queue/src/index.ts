@@ -16,6 +16,7 @@ import {
   focusedPracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
+  designImageGenerationJobPayloadSchema,
   activityResponseRetentionJobPayloadSchema,
   nowIso,
   type Deck,
@@ -26,6 +27,7 @@ import {
   type SemanticCueExtractionJobPayload,
   type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
+  type DesignImageGenerationJobPayload,
   type ActivityResponseRetentionJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
@@ -74,6 +76,8 @@ export const semanticCueExtractionQueueName = "semantic-cue-extraction";
 export const semanticCueExtractionJobName = "semantic-cue-extraction";
 export const speakerNotesSuggestionQueueName = "speaker-notes-suggestion";
 export const speakerNotesSuggestionJobName = "speaker-notes-suggestion";
+export const designImageGenerationQueueName = "design-image-generation";
+export const designImageGenerationJobName = "design-image-generation";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
 export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
@@ -209,6 +213,15 @@ export type SpeakerNotesSuggestionBullMqPayload =
 
 export type EnqueueSpeakerNotesSuggestionJobInput =
   SpeakerNotesSuggestionBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
+
+export type DesignImageGenerationBullMqPayload =
+  DesignImageGenerationJobPayload;
+
+export type EnqueueDesignImageGenerationJobInput =
+  DesignImageGenerationBullMqPayload & {
     driver: "bullmq" | "sqs";
     redisUrl: string;
   };
@@ -542,6 +555,28 @@ export async function enqueueSpeakerNotesSuggestionJob(
         projectId: input.projectId,
         request: input.request,
       }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueDesignImageGenerationJob(
+  input: EnqueueDesignImageGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(designImageGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      designImageGenerationJobName,
+      designImageGenerationJobPayloadSchema.parse(input),
       canonicalJobOptions(input.jobId),
     );
   } finally {

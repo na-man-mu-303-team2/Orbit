@@ -52,6 +52,7 @@ export type ImageAssetCandidate = {
 export interface GeneratedImageProvider {
   generate(input: {
     prompt: string;
+    aspectRatio?: "landscape" | "portrait" | "square";
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate>;
 }
