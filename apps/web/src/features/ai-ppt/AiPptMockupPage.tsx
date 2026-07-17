@@ -1,15 +1,18 @@
 import type {
   DeckColorCustomizationResponse,
   GenerateDeckFontOption,
+  GenerateDeckMediaPolicy,
   GenerateDeckRequest,
+  GenerateDeckReferencePolicy,
   Job,
-  StoryPlanReviewResponse,
+  AiDeckDesignSelectionResponse,
 } from "@orbit/shared";
-import { recommendGenerateDeckFonts } from "@orbit/shared";
+import { demoIds, recommendGenerateDeckFonts } from "@orbit/shared";
 import {
   IconCheck,
   IconChevronLeft,
   IconFileText,
+  IconInfoCircle,
   IconPaperclip,
   IconPlayerPlay,
   IconSparkles,
@@ -20,18 +23,16 @@ import type { DragEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
 import {
-  createProject,
+  createProjectWithoutDeck,
   deleteProject,
   uploadProjectAsset,
 } from "../projects/ProjectAssetWorkspace";
 import {
-  clearStoryApprovalDraft,
-  readStoryApprovalDraft,
-  requestStoryPlan,
-  requestStoryPlanMutation,
-  storyGenerationPath,
-  storyPlanPath,
-} from "./story-plan-api";
+  generationPath,
+  requestDesignSelection,
+  saveDesignSelection,
+  styleColorPath,
+} from "./design-selection-api";
 import "./ai-ppt-mockup.css";
 
 type Tone = "professional" | "friendly" | "confident" | "concise";
@@ -51,17 +52,90 @@ export type AiPptWizardState = {
   content: string;
   audience: string;
   tone: Tone;
+  referencePolicy: GenerateDeckReferencePolicy;
+  mediaPolicy: GenerateDeckMediaPolicy;
+};
+
+type PolicyChoiceOption<T extends string> = {
+  value: T;
+  label: string;
+  description: string;
 };
 
 const stylePackId = "brandlogy-modern";
 const defaultFontMood = "professional trustworthy Korean sans font";
-const flowSteps = ["내용 입력", "Story Review", "Style & Color"];
+const flowSteps = ["내용 입력", "Style & Color", "슬라이드 구성 미리보기"];
+
+type UploadState = {
+  status: "uploading" | "uploaded" | "failed";
+  fileId?: string;
+  error?: string;
+};
 const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "professional", label: "전문적인" },
   { value: "friendly", label: "친근한" },
   { value: "confident", label: "자신감 있는" },
   { value: "concise", label: "간결한" },
 ];
+
+export const referencePolicyOptions = [
+  {
+    value: "user-input-only",
+    label: "사용자 입력만",
+    description:
+      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다.",
+  },
+  {
+    value: "references-first",
+    label: "참고자료 우선",
+    description:
+      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다.",
+  },
+  {
+    value: "references-only",
+    label: "참고자료만 사용",
+    description:
+      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다.",
+  },
+  {
+    value: "research-first",
+    label: "웹 리서치 우선",
+    description:
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 출처가 부족해도 검증 가능한 범위에서 초안을 생성합니다.",
+  },
+] satisfies readonly PolicyChoiceOption<GenerateDeckReferencePolicy>[];
+
+export const mediaPolicyOptions = [
+  {
+    value: "minimal",
+    label: "이미지 최소화",
+    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다.",
+  },
+  {
+    value: "provided-only",
+    label: "첨부 이미지만",
+    description:
+      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다.",
+  },
+  {
+    value: "public-assets",
+    label: "공개 이미지 구조",
+    description:
+      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다.",
+  },
+  {
+    value: "ai-generated",
+    label: "AI 이미지 구조",
+    description:
+      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다.",
+  },
+  {
+    value: "hybrid",
+    label: "공식 + AI 이미지",
+    description:
+      "공식 이미지를 근거 자료로 우선 사용하고, 분위기 연출이 필요한 장면만 AI 이미지 구조로 보완합니다.",
+  },
+] satisfies readonly PolicyChoiceOption<GenerateDeckMediaPolicy>[];
 
 export const defaultPaletteOptions: PaletteOption[] = [
   {
@@ -172,7 +246,7 @@ export const defaultPaletteOptions: PaletteOption[] = [
   {
     optionId: "editorial-rose",
     name: "에디토리얼 로즈",
-    rationale: "콘텐츠와 브랜드 스토리에 어울리는 세련된 로즈 팔레트입니다.",
+    rationale: "콘텐츠와 브랜드 메시지에 어울리는 세련된 로즈 팔레트입니다.",
     palette: {
       primary: "#BE123C",
       secondary: "#9D174D",
@@ -206,6 +280,8 @@ export const initialAiPptWizardState: AiPptWizardState = {
   content: "",
   audience: "",
   tone: "professional",
+  referencePolicy: "user-input-only",
+  mediaPolicy: "minimal",
 };
 
 export function mergeAiPptContentFormData(
@@ -220,10 +296,19 @@ export function mergeAiPptContentFormData(
   return nextState;
 }
 
-export function getAiPptWizardValidationMessage(state: AiPptWizardState) {
+export function getAiPptWizardValidationMessage(
+  state: AiPptWizardState,
+  referenceFiles: File[] = [],
+) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
   if (!state.content.trim()) return "발표 내용을 입력하세요.";
   if (!state.audience.trim()) return "청중을 입력하세요.";
+  if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
+    return "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.";
+  }
+  if (state.referencePolicy === "references-first" && referenceFiles.length === 0) {
+    return "참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.";
+  }
   return "";
 }
 
@@ -233,9 +318,7 @@ export function buildAiPptGenerateDeckPayload(
   referenceFileIds: string[] = [],
   selectedFont = recommendGenerateDeckFonts(defaultFontMood)[0],
 ): GenerateDeckRequest {
-  const referencePolicy =
-    referenceFileIds.length > 0 ? "references-first" : "user-input-only";
-
+  const timing = inferAiPptTimingFromContent(state.content);
   return {
     topic: state.topic.trim(),
     prompt: state.content.trim(),
@@ -243,16 +326,16 @@ export function buildAiPptGenerateDeckPayload(
       `tone=${state.tone}`,
       `palette=${paletteOption.optionId}`,
       `font=${selectedFont.name}`,
-      `mediaPolicy=minimal`,
+      `mediaPolicy=${state.mediaPolicy}`,
       `base=${stylePackId}`,
     ].join("; "),
     brief: {
       audienceText: state.audience.trim(),
-      durationMinutes: 10,
-      referencePolicy,
+      durationMinutes: timing.targetDurationMinutes,
+      referencePolicy: state.referencePolicy,
     },
-    targetDurationMinutes: 10,
-    slideCountRange: { min: 5, max: 8 },
+    targetDurationMinutes: timing.targetDurationMinutes,
+    slideCountRange: timing.slideCountRange,
     template: "default",
     metadata: {
       audience: "general",
@@ -263,14 +346,14 @@ export function buildAiPptGenerateDeckPayload(
       stylePackId,
       visualRhythm: "clean",
       densityTarget: "medium",
-      mediaPolicy: "minimal",
+      mediaPolicy: state.mediaPolicy,
       layoutDiversity: "varied",
       paletteOverride: paletteOption.palette,
       fontOverride: fontOverrideFromOption(selectedFont),
-      referencePolicy,
+      referencePolicy: state.referencePolicy,
     },
-    visualPlanPolicy: { mediaPolicy: "minimal" },
-    referencePolicy,
+    visualPlanPolicy: { mediaPolicy: state.mediaPolicy },
+    referencePolicy: state.referencePolicy,
     referenceFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     referenceKeywords: [],
@@ -282,13 +365,161 @@ export function buildAiPptGenerateDeckPayload(
   };
 }
 
+export function inferAiPptTimingFromContent(content: string): Pick<
+  GenerateDeckRequest,
+  "targetDurationMinutes" | "slideCountRange"
+> {
+  const durationMatch = content.match(/(?:발표\s*시간(?:은|이)?\s*)?(\d{1,3})\s*분(?:짜리|간)?/u);
+  const slideMatch = content.match(
+    /(\d{1,2})\s*(?:[-~～–]\s*(\d{1,2}))?\s*(?:장|페이지|슬라이드)/u,
+  );
+  const duration = durationMatch ? Number(durationMatch[1]) : 10;
+  const firstSlideCount = slideMatch ? Number(slideMatch[1]) : 5;
+  const secondSlideCount = slideMatch?.[2] ? Number(slideMatch[2]) : undefined;
+  const validDuration = Number.isInteger(duration) && duration >= 1 && duration <= 120
+    ? duration
+    : 10;
+  const validSlideCounts = [firstSlideCount, secondSlideCount]
+    .filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isInteger(value),
+    )
+    .filter((value) => value >= 1 && value <= 20);
+  if (slideMatch && validSlideCounts.length > 0) {
+    return {
+      targetDurationMinutes: validDuration,
+      slideCountRange: {
+        min: Math.min(...validSlideCounts),
+        max: Math.max(...validSlideCounts),
+      },
+    };
+  }
+  return {
+    targetDurationMinutes: validDuration,
+    slideCountRange: { min: 5, max: 8 },
+  };
+}
+
 export function AiPptMockupPage() {
   const [form, setForm] = useState(initialAiPptWizardState);
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [uploadStates, setUploadStates] = useState<Record<string, UploadState>>({});
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const contentFormRef = useRef<HTMLFormElement>(null);
+  const projectPromiseRef = useRef<ReturnType<typeof createProjectWithoutDeck> | null>(null);
+  const projectIdRef = useRef<string | null>(null);
+  const referenceFilesRef = useRef<File[]>([]);
+  const generationStartedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      const projectId = projectIdRef.current;
+      if (projectId && !generationStartedRef.current) {
+        void deleteProject(projectId).catch(() => undefined);
+      }
+    };
+  }, []);
+
+  async function ensureProject() {
+    if (!projectPromiseRef.current) {
+      const projectPromise = createProjectWithoutDeck(
+        getProjectTitle(form.topic),
+      ).then((project) => {
+        projectIdRef.current = project.projectId;
+        return project;
+      });
+      projectPromiseRef.current = projectPromise;
+      void projectPromise.catch(() => {
+        if (projectPromiseRef.current === projectPromise) {
+          projectPromiseRef.current = null;
+          projectIdRef.current = null;
+        }
+      });
+    }
+    return projectPromiseRef.current;
+  }
+
+  async function cleanupTemporaryProjectIfUnused(projectId = projectIdRef.current) {
+    if (
+      !projectId ||
+      projectIdRef.current !== projectId ||
+      generationStartedRef.current ||
+      referenceFilesRef.current.length > 0
+    ) {
+      return;
+    }
+    projectIdRef.current = null;
+    projectPromiseRef.current = null;
+    await deleteProject(projectId).catch(() => undefined);
+  }
+
+  async function uploadReference(file: File) {
+    const key = referenceFileKey(file);
+    setUploadStates((current) => ({ ...current, [key]: { status: "uploading" } }));
+    try {
+      const project = await ensureProject();
+      const uploaded = await uploadProjectAsset(project.projectId, file, "reference-material");
+      if (!referenceFilesRef.current.some((candidate) => referenceFileKey(candidate) === key)) {
+        await deleteUploadedAsset(project.projectId, uploaded.fileId).catch(() => undefined);
+        await cleanupTemporaryProjectIfUnused(project.projectId);
+        return;
+      }
+      setUploadStates((current) => ({
+        ...current,
+        [key]: { status: "uploaded", fileId: uploaded.fileId },
+      }));
+    } catch (cause) {
+      if (!referenceFilesRef.current.some((candidate) => referenceFileKey(candidate) === key)) {
+        await cleanupTemporaryProjectIfUnused();
+        return;
+      }
+      setUploadStates((current) => ({
+        ...current,
+        [key]: {
+          status: "failed",
+          error: cause instanceof Error ? cause.message : "업로드하지 못했습니다.",
+        },
+      }));
+    }
+  }
+
+  function changeReferenceFiles(nextFiles: File[]) {
+    const previous = referenceFilesRef.current;
+    referenceFilesRef.current = nextFiles;
+    setReferenceFiles(nextFiles);
+    const nextKeys = new Set(nextFiles.map(referenceFileKey));
+    const removedFiles = previous.filter(
+      (file) => !nextKeys.has(referenceFileKey(file)),
+    );
+    for (const removed of removedFiles) {
+      const key = referenceFileKey(removed);
+      const state = uploadStates[key];
+      if (projectIdRef.current && state?.fileId) {
+        const projectId = projectIdRef.current;
+        void deleteUploadedAsset(projectId, state.fileId)
+          .catch(() => undefined)
+          .then(() => cleanupTemporaryProjectIfUnused(projectId));
+      }
+      setUploadStates((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+    const cleanupContinuesAfterUpload = removedFiles.some((file) => {
+      const state = uploadStates[referenceFileKey(file)];
+      return state?.status === "uploading" || Boolean(state?.fileId);
+    });
+    if (nextFiles.length === 0 && !cleanupContinuesAfterUpload) {
+      void cleanupTemporaryProjectIfUnused();
+    }
+    const previousKeys = new Set(previous.map(referenceFileKey));
+    for (const added of nextFiles.filter((file) => !previousKeys.has(referenceFileKey(file)))) {
+      void uploadReference(added);
+    }
+  }
 
   function updateForm<K extends keyof AiPptWizardState>(
     key: K,
@@ -302,7 +533,10 @@ export function AiPptMockupPage() {
       ? mergeAiPptContentFormData(form, new FormData(contentFormRef.current))
       : form;
     setForm(nextForm);
-    const validationMessage = getAiPptWizardValidationMessage(nextForm);
+    const validationMessage = getAiPptWizardValidationMessage(
+      nextForm,
+      referenceFiles,
+    );
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -315,20 +549,17 @@ export function AiPptMockupPage() {
     let generationStarted = false;
 
     try {
-      const project = await createProject(getProjectTitle(nextForm.topic));
+      const project = await ensureProject();
       createdProjectId = project.projectId;
-      const referenceFileIds: string[] = [];
-      for (const file of referenceFiles) {
-        setStatus(`${file.name} 업로드 중...`);
-        const uploaded = await uploadProjectAsset(
-          project.projectId,
-          file,
-          "reference-material",
-        );
-        referenceFileIds.push(uploaded.fileId);
+      await updateProjectTitle(project.projectId, getProjectTitle(nextForm.topic));
+      const referenceFileIds = referenceFiles.map(
+        (file) => uploadStates[referenceFileKey(file)]?.fileId,
+      );
+      if (referenceFileIds.some((fileId) => !fileId)) {
+        throw new Error("첨부파일 업로드가 완료된 후 계속할 수 있습니다.");
       }
 
-      setStatus("발표 스토리 구성 중...");
+      setStatus("발표 구성 생성 중...");
       const response = await fetch(
         `/api/v1/projects/${encodeURIComponent(project.projectId)}/jobs/generate-deck`,
         {
@@ -339,7 +570,7 @@ export function AiPptMockupPage() {
             buildAiPptGenerateDeckPayload(
               nextForm,
               defaultPaletteOptions[0],
-              referenceFileIds,
+              referenceFileIds as string[],
             ),
           ),
         },
@@ -353,26 +584,15 @@ export function AiPptMockupPage() {
         );
       }
 
-      const data = (await response.json()) as {
-        job: Job;
-        storyReviewRequired: boolean;
-      };
+      const data = (await response.json()) as { job: Job };
       generationStarted = true;
-      if (data.storyReviewRequired) {
-        navigateToStoryPlan(project.projectId, data.job.jobId);
-        return;
-      }
-
-      const completed = await pollJob(data.job.jobId, (job) => {
-        setStatus(getAiPptGenerationStatus(job));
-      });
-      if (completed.status === "failed") {
-        throw new Error(completed.error?.message || completed.message);
-      }
-      navigateToProject(project.projectId);
+      generationStartedRef.current = true;
+      navigateToPath(styleColorPath(project.projectId, data.job.jobId));
     } catch (submitError) {
       if (createdProjectId && !generationStarted) {
         await deleteProject(createdProjectId).catch(() => undefined);
+        projectIdRef.current = null;
+        projectPromiseRef.current = null;
       }
       setError(
         submitError instanceof Error
@@ -385,82 +605,132 @@ export function AiPptMockupPage() {
     }
   }
 
+  if (isGenerating) {
+    return <AiPptStyleStartingPage />;
+  }
+
   return (
-    <section className="ai-ppt-page">
-      <WorkspaceContainer className="ai-ppt-page-container">
-        <header className="ai-ppt-header">
-          <div>
-            <span>AI PPT</span>
-            <h1>발표 내용부터 빠르게 시작하세요</h1>
-            <p>
-              내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기 구성을
-              제안합니다.
-            </p>
-          </div>
-          <button
-            className="ai-ppt-primary"
-            type="button"
-            onClick={() => {
-              setForm(initialAiPptWizardState);
-              setReferenceFiles([]);
-              setError("");
-            }}
-          >
-            <IconSparkles size={17} />
-            처음부터 입력
-          </button>
-        </header>
-
-        <div className="ai-ppt-layout">
-          <WizardSteps activeIndex={0} />
-
-          <main className="ai-ppt-workspace ai-ppt-workspace-single">
-            <section className="ai-ppt-panel">
-              <ContentStep
-                files={referenceFiles}
-                form={form}
-                formRef={contentFormRef}
-                onChange={updateForm}
-                onFilesChange={setReferenceFiles}
-              />
-              {error ? (
-                <p className="ai-ppt-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              {status ? (
-                <p className="ai-ppt-status" role="status">
-                  {status}
-                </p>
-              ) : null}
-            </section>
-          </main>
+    <WorkspaceContainer as="section" className="ai-ppt-page">
+      <header className="ai-ppt-header">
+        <div>
+          <span>AI PPT</span>
+          <h1>발표 내용부터 빠르게 시작하세요</h1>
+          <p>
+            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 슬라이드 구성을
+            백그라운드에서 준비합니다.
+          </p>
         </div>
+        <button
+          className="ai-ppt-primary"
+          type="button"
+          onClick={() => {
+            setForm(initialAiPptWizardState);
+            changeReferenceFiles([]);
+            setError("");
+            void cleanupTemporaryProjectIfUnused();
+          }}
+        >
+          <IconSparkles size={17} />
+          처음부터 입력
+        </button>
+      </header>
 
-        <footer className="ai-ppt-footer">
-          <button className="ai-ppt-secondary" disabled type="button">
-            <IconChevronLeft size={17} />
-            이전
-          </button>
-          <button
-            className="ai-ppt-primary"
-            disabled={isGenerating}
-            type="button"
-            onClick={() => void submitGeneration()}
-          >
-            {isGenerating ? (
-              <>
-                <IconPlayerPlay size={17} /> 생성 중
-              </>
-            ) : (
-              <>
-                <IconPlayerPlay size={17} /> 스토리 만들기
-              </>
-            )}
-          </button>
-        </footer>
-      </WorkspaceContainer>
-    </section>
+      <div className="ai-ppt-layout">
+        <WizardSteps activeIndex={0} />
+
+        <main className="ai-ppt-workspace ai-ppt-workspace-single">
+          <section className="ai-ppt-panel">
+            <ContentStep
+              files={referenceFiles}
+              form={form}
+              formRef={contentFormRef}
+              onChange={updateForm}
+              onFilesChange={changeReferenceFiles}
+              onRetryUpload={(file) => void uploadReference(file)}
+              uploadStates={uploadStates}
+            />
+            {error ? (
+              <p className="ai-ppt-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {status ? (
+              <p className="ai-ppt-status" role="status">
+                {status}
+              </p>
+            ) : null}
+          </section>
+        </main>
+      </div>
+
+      <footer className="ai-ppt-footer">
+        <button className="ai-ppt-secondary" disabled type="button">
+          <IconChevronLeft size={17} />
+          이전
+        </button>
+        <button
+          className="ai-ppt-primary"
+          disabled={
+            isGenerating ||
+            Object.values(uploadStates).some((item) => item.status !== "uploaded")
+          }
+          type="button"
+          onClick={() => void submitGeneration()}
+        >
+          {isGenerating ? (
+            <>
+              <IconPlayerPlay size={17} /> Style &amp; Color 여는 중
+            </>
+          ) : referenceFiles.some(
+              (file) => uploadStates[referenceFileKey(file)]?.status !== "uploaded",
+            ) ? (
+            <>
+              <IconUpload size={17} /> 업로드 완료 후 계속
+            </>
+          ) : (
+            <>
+              <IconPlayerPlay size={17} /> 다음 단계
+            </>
+          )}
+        </button>
+      </footer>
+    </WorkspaceContainer>
+  );
+}
+
+function AiPptStyleStartingPage() {
+  const font = recommendGenerateDeckFonts(defaultFontMood)[0];
+  const palette = defaultPaletteOptions[0];
+  return (
+    <WorkspaceContainer as="section" className="ai-ppt-page">
+      <header className="ai-ppt-header">
+        <div>
+          <span>AI PPT</span>
+          <h1>Style &amp; Color</h1>
+          <p>콘텐츠 생성을 시작하면서 스타일 선택 화면을 준비하고 있습니다.</p>
+        </div>
+      </header>
+      <div className="ai-ppt-layout">
+        <WizardSteps activeIndex={1} />
+        <main className="ai-ppt-workspace">
+          <section className="ai-ppt-panel" aria-busy="true">
+            <PanelHeading
+              kicker="2. Style & Color"
+              title="폰트와 색상을 선택하세요"
+            />
+            <p className="ai-ppt-status" role="status">
+              프로젝트를 확정하고 발표 구성을 백그라운드에서 시작하는 중입니다.
+            </p>
+          </section>
+          <aside className="ai-ppt-preview-panel">
+            <MiniSlide
+              font={font}
+              palette={palette.palette}
+            />
+          </aside>
+        </main>
+      </div>
+    </WorkspaceContainer>
   );
 }
 
@@ -468,7 +738,7 @@ export function AiPptStyleColorPage(props: {
   jobId: string;
   projectId: string;
 }) {
-  const [story, setStory] = useState<StoryPlanReviewResponse | null>(null);
+  const [designState, setDesignState] = useState<AiDeckDesignSelectionResponse | null>(null);
   const [selectedPaletteId, setSelectedPaletteId] = useState(
     defaultPaletteOptions[0].optionId,
   );
@@ -496,9 +766,9 @@ export function AiPptStyleColorPage(props: {
   const fontOptions = useMemo(
     () =>
       recommendGenerateDeckFonts(
-        `${story?.styleContext?.topic ?? ""} ${story?.styleContext?.tone ?? "professional"} ${defaultFontMood}`,
+        `${designState?.styleContext.topic ?? ""} ${designState?.styleContext.tone ?? "professional"} ${defaultFontMood}`,
       ),
-    [story?.styleContext?.tone, story?.styleContext?.topic],
+    [designState?.styleContext.tone, designState?.styleContext.topic],
   );
   const selectedFont =
     fontOptions.find((font) => font.fontId === selectedFontId) ??
@@ -508,20 +778,12 @@ export function AiPptStyleColorPage(props: {
     let cancelled = false;
     async function load() {
       try {
-        const next = await requestStoryPlan(props.projectId, props.jobId);
+        const next = await requestDesignSelection(props.projectId, props.jobId);
         if (cancelled) return;
-        setStory(next);
-        if (next.status === "approved") {
-          clearStoryApprovalDraft(props.projectId, props.jobId);
-          navigateToPath(storyGenerationPath(next.projectId, next.jobId));
+        setDesignState(next);
+        if (next.selection) {
+          navigateToPath(generationPath(next.projectId, next.jobId));
           return;
-        }
-        if (
-          next.status !== "review-pending" ||
-          !next.plan ||
-          !next.styleContext
-        ) {
-          setError("확정된 스토리의 스타일 정보를 불러올 수 없습니다.");
         }
         setStatus("");
       } catch (cause) {
@@ -543,7 +805,7 @@ export function AiPptStyleColorPage(props: {
 
   async function customizePalette() {
     const instruction = palettePrompt.trim();
-    const styleContext = story?.styleContext;
+    const styleContext = designState?.styleContext;
     if (!instruction || !styleContext) {
       setError("원하는 색감이나 변경할 요소를 입력하세요.");
       return;
@@ -573,43 +835,26 @@ export function AiPptStyleColorPage(props: {
   }
 
   async function approveAndGenerate() {
-    if (!story?.plan || story.status !== "review-pending" || !selectedFont) {
-      setError("스타일을 적용할 스토리 정보를 불러오지 못했습니다.");
+    if (!designState || !selectedFont) {
+      setError("스타일을 적용할 발표 정보를 불러오지 못했습니다.");
       return;
     }
     setIsGenerating(true);
     setError("");
     setStatus("선택한 스타일을 적용하는 중...");
     try {
-      const approvalDraft = readStoryApprovalDraft(
+      const next = await saveDesignSelection(
         props.projectId,
         props.jobId,
-      );
-      if (
-        approvalDraft &&
-        approvalDraft.expectedRevision !== story.plan.revision
-      ) {
-        throw new Error(
-          "스토리 구성이 변경되었습니다. Story Review에서 다시 확인해 주세요.",
-        );
-      }
-      const next = await requestStoryPlanMutation(
-        props.projectId,
-        props.jobId,
-        "approve",
         {
-          expectedRevision: story.plan.revision,
-          ...(approvalDraft ? { slides: approvalDraft.slides } : {}),
-          designSelection: {
-            paletteOptionId: selectedPalette.optionId,
-            paletteOverride: selectedPalette.palette,
-            fontOverride: fontOverrideFromOption(selectedFont),
-          },
+          paletteOptionId: selectedPalette.optionId,
+          paletteOverride: selectedPalette.palette,
+          fontOverride: fontOverrideFromOption(selectedFont),
+          ...(palettePrompt.trim() ? { designPrompt: palettePrompt.trim() } : {}),
         },
       );
-      clearStoryApprovalDraft(props.projectId, props.jobId);
-      setStory(next);
-      navigateToPath(storyGenerationPath(next.projectId, next.jobId));
+      setDesignState(next);
+      navigateToPath(generationPath(next.projectId, next.jobId));
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "AI PPT 생성에 실패했습니다.",
@@ -621,79 +866,75 @@ export function AiPptStyleColorPage(props: {
   }
 
   return (
-    <section className="ai-ppt-page">
-      <WorkspaceContainer className="ai-ppt-page-container">
-        <header className="ai-ppt-header">
-          <div>
-            <span>AI PPT</span>
-            <h1>스토리에 어울리는 스타일을 선택하세요</h1>
-            <p>
-              컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.
-            </p>
-          </div>
-        </header>
-        <div className="ai-ppt-layout">
-          <WizardSteps activeIndex={2} />
-          <main className="ai-ppt-workspace">
-            <section className="ai-ppt-panel">
-              <StyleColorStep
-                customPalette={customPalette}
-                fontOptions={fontOptions}
-                isCustomizing={isCustomizingPalette}
-                onCustomize={() => void customizePalette()}
-                onFontSelect={setSelectedFontId}
-                onPalettePromptChange={setPalettePrompt}
-                onSelectPalette={setSelectedPaletteId}
-                palettePrompt={palettePrompt}
-                selectedFontId={selectedFont?.fontId ?? ""}
-                selectedPaletteId={selectedPalette.optionId}
-              />
-              {error ? (
-                <p className="ai-ppt-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              {status ? (
-                <p className="ai-ppt-status" role="status">
-                  {status}
-                </p>
-              ) : null}
-            </section>
-            <aside className="ai-ppt-live-preview">
-              {selectedFont ? (
-                <LivePreview
-                  selectedFont={selectedFont}
-                  selectedPalette={selectedPalette}
-                />
-              ) : null}
-            </aside>
-          </main>
+    <WorkspaceContainer as="section" className="ai-ppt-page">
+      <header className="ai-ppt-header">
+        <div>
+          <span>AI PPT</span>
+          <h1>발표에 어울리는 스타일을 선택하세요</h1>
+          <p>컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.</p>
         </div>
-        <footer className="ai-ppt-footer">
-          <button
-            className="ai-ppt-secondary"
-            disabled={isGenerating}
-            type="button"
-            onClick={() =>
-              navigateToPath(storyPlanPath(props.projectId, props.jobId))
-            }
-          >
-            <IconChevronLeft size={17} /> 이전
-          </button>
-          <button
-            className="ai-ppt-primary"
-            disabled={
-              isGenerating || isCustomizingPalette || !story?.styleContext
-            }
-            type="button"
-            onClick={() => void approveAndGenerate()}
-          >
-            <IconPlayerPlay size={17} />
-            {isGenerating ? "생성 중" : "슬라이드 생성"}
-          </button>
-        </footer>
-      </WorkspaceContainer>
-    </section>
+      </header>
+      <div className="ai-ppt-layout">
+        <WizardSteps activeIndex={1} />
+        <main className="ai-ppt-workspace">
+          <section className="ai-ppt-panel">
+            <StyleColorStep
+              customPalette={customPalette}
+              fontOptions={fontOptions}
+              isCustomizing={isCustomizingPalette}
+              onCustomize={() => void customizePalette()}
+              onFontSelect={setSelectedFontId}
+              onPalettePromptChange={setPalettePrompt}
+              onSelectPalette={setSelectedPaletteId}
+              palettePrompt={palettePrompt}
+              selectedFontId={selectedFont?.fontId ?? ""}
+              selectedPaletteId={selectedPalette.optionId}
+            />
+            {error ? (
+              <p className="ai-ppt-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {status ? (
+              <p className="ai-ppt-status" role="status">
+                {status}
+              </p>
+            ) : null}
+          </section>
+          <aside className="ai-ppt-live-preview">
+            {selectedFont ? (
+              <LivePreview
+                selectedFont={selectedFont}
+                selectedPalette={selectedPalette}
+              />
+            ) : null}
+          </aside>
+        </main>
+      </div>
+      <footer className="ai-ppt-footer">
+        <button
+          className="ai-ppt-secondary"
+          disabled={isGenerating}
+          type="button"
+          onClick={() =>
+            navigateToPath("/createdeck")
+          }
+        >
+          <IconChevronLeft size={17} /> 이전
+        </button>
+        <button
+          className="ai-ppt-primary"
+          disabled={
+            isGenerating || isCustomizingPalette || !designState?.styleContext
+          }
+          type="button"
+          onClick={() => void approveAndGenerate()}
+        >
+          <IconPlayerPlay size={17} />
+          {isGenerating ? "생성 중" : "슬라이드 생성"}
+        </button>
+      </footer>
+    </WorkspaceContainer>
   );
 }
 
@@ -728,6 +969,8 @@ function ContentStep(props: {
     value: AiPptWizardState[K],
   ) => void;
   onFilesChange: (files: File[]) => void;
+  onRetryUpload: (file: File) => void;
+  uploadStates: Record<string, UploadState>;
 }) {
   return (
     <>
@@ -778,8 +1021,67 @@ function ContentStep(props: {
       <AttachmentField
         files={props.files}
         onFilesChange={props.onFilesChange}
+        onRetryUpload={props.onRetryUpload}
+        uploadStates={props.uploadStates}
       />
+      <div className="ai-ppt-reference-policy-grid">
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>내용 구성</legend>
+          <p>발표 내용을 구성할 때 우선 사용할 근거를 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {referencePolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.referencePolicy === option.value}
+                tooltipId={`reference-policy-${option.value}`}
+                onSelect={(value) => props.onChange("referencePolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>이미지 구성</legend>
+          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {mediaPolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.mediaPolicy === option.value}
+                tooltipId={`media-policy-${option.value}`}
+                onSelect={(value) => props.onChange("mediaPolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+      </div>
     </>
+  );
+}
+
+function PolicyChoiceButton<T extends string>(props: {
+  onSelect: (value: T) => void;
+  option: PolicyChoiceOption<T>;
+  selected: boolean;
+  tooltipId: string;
+}) {
+  return (
+    <span className="ai-ppt-policy-option">
+      <button
+        aria-describedby={props.tooltipId}
+        aria-pressed={props.selected}
+        className={props.selected ? "selected" : ""}
+        onClick={() => props.onSelect(props.option.value)}
+        type="button"
+      >
+        {props.option.label}
+        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
+      </button>
+      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
+        {props.option.description}
+      </span>
+    </span>
   );
 }
 
@@ -798,7 +1100,7 @@ function StyleColorStep(props: {
   return (
     <>
       <PanelHeading
-        kicker="3. Style & Color"
+        kicker="2. Style & Color"
         title="폰트와 색상을 선택하세요"
       />
       <fieldset className="ai-ppt-style-fieldset">
@@ -815,7 +1117,7 @@ function StyleColorStep(props: {
                 {font.name}
               </strong>
               <span style={{ fontFamily: font.bodyFontFamily }}>
-                스토리를 선명하게 전달하는 문장
+                핵심을 선명하게 전달하는 문장
               </span>
               <small>{font.rationale}</small>
               <em>{font.license}</em>
@@ -1026,6 +1328,8 @@ function MiniSlide(props: {
 function AttachmentField(props: {
   files: File[];
   onFilesChange: (files: File[]) => void;
+  onRetryUpload: (file: File) => void;
+  uploadStates: Record<string, UploadState>;
 }) {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -1080,10 +1384,26 @@ function AttachmentField(props: {
       </label>
       {props.files.length ? (
         <ul className="ai-ppt-attachment-list">
-          {props.files.map((file) => (
+          {props.files.map((file) => {
+            const upload = props.uploadStates[referenceFileKey(file)];
+            return (
             <li key={referenceFileKey(file)}>
               <IconFileText size={18} />
-              <span>{file.name}</span>
+              <span>
+                {file.name}
+                <small>
+                  {upload?.status === "uploaded"
+                    ? "업로드 완료"
+                    : upload?.status === "failed"
+                      ? upload.error ?? "업로드 실패"
+                      : "업로드 중"}
+                </small>
+              </span>
+              {upload?.status === "failed" ? (
+                <button type="button" onClick={() => props.onRetryUpload(file)}>
+                  재시도
+                </button>
+              ) : null}
               <button
                 aria-label={`${file.name} 제거`}
                 type="button"
@@ -1099,7 +1419,7 @@ function AttachmentField(props: {
                 <IconTrash size={16} />
               </button>
             </li>
-          ))}
+          )})}
         </ul>
       ) : null}
     </section>
@@ -1184,11 +1504,12 @@ export async function pollJob(jobId: string, onUpdate?: (job: Job) => void) {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include",
     });
-    if (!response.ok)
+    if (!response.ok) {
       throw new Error(await readResponseText(response, "Job 조회 실패"));
+    }
     const job = (await response.json()) as Job;
     onUpdate?.(job);
-    if (["succeeded", "failed"].includes(job.status)) return job;
+    if (job.status === "succeeded" || job.status === "failed") return job;
     await new Promise((resolve) => window.setTimeout(resolve, 1_200));
   }
 }
@@ -1234,26 +1555,34 @@ function getProjectTitle(topic: string) {
   return topic.trim().slice(0, 80) || "AI PPT";
 }
 
-function getAiPptGenerationStatus(job: Job) {
-  return job.message || `AI PPT 생성 중 · ${job.progress}%`;
-}
-
-function navigateToStoryPlan(projectId: string, jobId: string) {
-  navigateToPath(storyPlanPath(projectId, jobId));
-}
-
 function navigateToPath(path: string) {
   window.history.pushState(null, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function navigateToProject(projectId: string) {
-  window.history.pushState(
-    null,
-    "",
-    `/project/${encodeURIComponent(projectId)}`,
+async function updateProjectTitle(projectId: string, title: string) {
+  const response = await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(demoIds.workspaceId)}/projects/${encodeURIComponent(projectId)}`,
+    {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+    },
   );
-  window.dispatchEvent(new PopStateEvent("popstate"));
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "프로젝트 제목을 저장하지 못했습니다."));
+  }
+}
+
+async function deleteUploadedAsset(projectId: string, fileId: string) {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(fileId)}`,
+    { method: "DELETE", credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseText(response, "첨부파일을 제거하지 못했습니다."));
+  }
 }
 
 async function readResponseText(response: Response, fallback: string) {

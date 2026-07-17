@@ -86,6 +86,19 @@ export const deckCreatedFromSchema = z.object({
   designReferences: z.array(deckCreatedFromReferenceSchema).default([])
 });
 
+export const deckGenerationQualityIssueSchema = z.object({
+  code: z.string().trim().min(1),
+  message: z.string().trim().min(1),
+  severity: z.enum(["warning", "risk"]).default("warning"),
+  slideId: deckSlideIdSchema.optional(),
+  slideOrder: z.number().int().positive().optional()
+});
+
+export const deckGenerationQualitySchema = z.object({
+  status: z.enum(["passed", "advisory", "unavailable"]),
+  issues: z.array(deckGenerationQualityIssueSchema).default([])
+});
+
 export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
   locale: z.literal("ko-KR").default("ko-KR"),
@@ -96,6 +109,7 @@ export const deckMetadataSchema = z.object({
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
+  generationQuality: deckGenerationQualitySchema.optional(),
   designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
   designProgramSnapshot: deckDesignProgramSnapshotSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()

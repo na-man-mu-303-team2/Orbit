@@ -1,5 +1,5 @@
-import { createDemoDeck } from "@orbit/editor-core";
-import type { DeckPatch } from "@orbit/shared";
+import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
+import { deckElementSchema, type DeckPatch } from "@orbit/shared";
 import type { Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import type { DecksService } from "../decks/decks.service";
@@ -257,11 +257,13 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(
       "smart_art_list_vertical_3",
     );
-    expect(savedProposal?.operations).toHaveLength(5);
-    expect(savedProposal?.operations[0]).toMatchObject({
-      type: "delete_element",
-      elementId: sourceElementId,
-    });
+    const deletedElementIds = (savedProposal?.operations ?? []).flatMap((operation) =>
+      operation.type === "delete_element" ? [operation.elementId] : [],
+    );
+    expect(deletedElementIds).toContain(sourceElementId);
+    expect(
+      (savedProposal?.operations ?? []).filter((operation) => operation.type === "add_element"),
+    ).toHaveLength(4);
     const texts = savedProposal?.operations
       .filter((op) => op.type === "add_element" && op.element.type === "text")
       .map((op) => (op.type === "add_element" ? (op.element.props as { text?: string }).text : undefined));
@@ -279,6 +281,297 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     });
     if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
       expect(groupOperation.element.props.childElementIds).toHaveLength(3);
+    }
+  });
+
+  it("replaces overlapping current-slide graphics when no elements are selected", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const canvas = deck.canvas;
+    slide.animations = [];
+    slide.actions = [];
+    slide.semanticCues = [];
+    slide.elements = [
+      deckElementSchema.parse({
+        elementId: "el_slide_background",
+        type: "rect",
+        role: "background",
+        x: 0,
+        y: 0,
+        width: canvas.width,
+        height: canvas.height,
+        zIndex: 0,
+        props: { fill: "#FFFFFF" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_header_title",
+        type: "text",
+        role: "title",
+        x: 80,
+        y: 40,
+        width: 1200,
+        height: 80,
+        zIndex: 10,
+        props: { text: "Orbit의 혁신적 분석과 피드백 제공" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_header_intro",
+        type: "text",
+        role: "body",
+        x: 80,
+        y: 130,
+        width: 1500,
+        height: 65,
+        zIndex: 11,
+        props: { text: "발표 결과를 분석해 구체적인 개선 행동을 제시합니다." },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_old_graphic_primary",
+        type: "rect",
+        role: "decoration",
+        x: 160,
+        y: 250,
+        width: 1600,
+        height: 150,
+        zIndex: 20,
+        props: { fill: "#C4B5FD" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_old_graphic_ungrouped_label",
+        type: "text",
+        role: "body",
+        x: 160,
+        y: 760,
+        width: 1600,
+        height: 60,
+        zIndex: 21,
+        props: { text: "기존 순서 그래픽과 가까운 하단 항목" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_old_graphic_tail",
+        type: "text",
+        role: "body",
+        x: 160,
+        y: 820,
+        width: 1600,
+        height: 100,
+        zIndex: 22,
+        props: { text: "기존 순서 그래픽의 하단 설명" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_old_graphic_group",
+        type: "group",
+        x: 150,
+        y: 230,
+        width: 1620,
+        height: 690,
+        zIndex: 23,
+        props: {
+          childElementIds: ["el_old_graphic_primary", "el_old_graphic_tail"],
+        },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_hidden_overlap",
+        type: "rect",
+        role: "decoration",
+        x: 200,
+        y: 280,
+        width: 500,
+        height: 120,
+        zIndex: 24,
+        visible: false,
+        props: { fill: "#111827" },
+      }),
+      deckElementSchema.parse({
+        elementId: "el_footer",
+        type: "text",
+        role: "footer",
+        x: 80,
+        y: 980,
+        width: 600,
+        height: 40,
+        zIndex: 30,
+        props: { text: "ORBIT" },
+      }),
+    ];
+
+    const messagesRepository = {
+      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      save: vi.fn(async (value: DesignAgentMessageEntity) => value),
+      find: vi.fn(async () => []),
+    } as unknown as Repository<DesignAgentMessageEntity>;
+
+    let savedProposal: DesignAgentProposalEntity | undefined;
+    const proposalsRepository = {
+      create: vi.fn(
+        (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+      ),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => {
+        savedProposal = value;
+        return value;
+      }),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-18T00:00:00.000Z",
+      })),
+    } as unknown as DecksService;
+
+    const fakeLayout = {
+      layoutId: "smart_art_process_horizontal_4",
+      layoutType: "process",
+      name: "Horizontal process",
+      itemCountMin: 4,
+      itemCountMax: 4,
+      isActive: true,
+      elements: Array.from({ length: 4 }, (_, index) => [
+        {
+          elementIdSuffix: `card_${index}`,
+          type: "rect",
+          itemIndex: index,
+          role: "decoration",
+          xFrac: 0.08 + index * 0.21,
+          yFrac: 0.34,
+          widthFrac: 0.19,
+          heightFrac: 0.36,
+          rotation: 0,
+          zIndex: 100 + index * 10,
+          props: { fill: "#EFF6FF", stroke: "#CBD5E1", strokeWidth: 1 },
+        },
+        {
+          elementIdSuffix: `title_${index}`,
+          type: "text",
+          itemIndex: index,
+          role: "title",
+          xFrac: 0.1 + index * 0.21,
+          yFrac: 0.48,
+          widthFrac: 0.15,
+          heightFrac: 0.08,
+          rotation: 0,
+          zIndex: 101 + index * 10,
+          textField: "title",
+          props: {
+            fontSize: 24,
+            fontWeight: "bold",
+            color: "#0F172A",
+            align: "left",
+            verticalAlign: "top",
+            lineHeight: 1.1,
+          },
+        },
+      ]).flat(),
+    } as unknown as SmartArtLayoutEntity;
+
+    const smartArtLayoutsService = {
+      listActiveCatalog: vi.fn(async () => [fakeLayout]),
+      findActiveById: vi.fn(async () => fakeLayout),
+    } as unknown as SmartArtLayoutsService;
+
+    const pythonClient = {
+      propose: vi.fn(async () => ({
+        message: "1, 2, 3, 4번 항목을 순차 다이어그램으로 변경했어요.",
+        interpretedIntent: {
+          target: "current-slide",
+          action: "replace with process smart art",
+        },
+        operations: [],
+        affectedElementIds: [],
+        warnings: [],
+        smartArtRequest: {
+          layoutId: "smart_art_process_horizontal_4",
+          layoutType: "process",
+          sourceElementIds: [],
+          items: [
+            { title: "발표 시간 분석" },
+            { title: "Pause 구간 감지" },
+            { title: "핵심 키워드 평가" },
+            { title: "개선 행동 검증" },
+          ],
+        },
+      })),
+    } as unknown as DesignAgentPythonClient;
+
+    const service = new DesignAgentService(
+      messagesRepository,
+      proposalsRepository,
+      decksService,
+      pythonClient,
+      smartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await service.createMessage(deck.projectId, "user_demo_1", {
+      content: "1, 2, 3, 4번을 순차 다이어그램 형태로 바꿔줘.",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(
+      "smart_art_process_horizontal_4",
+    );
+    const operations = savedProposal?.operations ?? [];
+    const deletedElementIds = operations.flatMap((operation) =>
+      operation.type === "delete_element" ? [operation.elementId] : [],
+    );
+    expect(deletedElementIds).toEqual([
+      "el_old_graphic_primary",
+      "el_old_graphic_ungrouped_label",
+      "el_old_graphic_tail",
+      "el_old_graphic_group",
+    ]);
+    expect(deletedElementIds).not.toContain("el_slide_background");
+    expect(deletedElementIds).not.toContain("el_header_title");
+    expect(deletedElementIds).not.toContain("el_header_intro");
+    expect(deletedElementIds).not.toContain("el_hidden_overlap");
+    expect(deletedElementIds).not.toContain("el_footer");
+
+    const groupOperation = operations.find(
+      (operation) => operation.type === "add_element" && operation.element.type === "group",
+    );
+    expect(groupOperation).toMatchObject({
+      type: "add_element",
+      element: {
+        type: "group",
+        props: { childElementIds: expect.any(Array) },
+      },
+    });
+    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+      expect(groupOperation.element.props.childElementIds).toHaveLength(8);
+    }
+
+    const previewResult = applyDeckPatch(deck, {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "ai",
+      operations,
+    });
+    expect(previewResult.ok).toBe(true);
+    if (previewResult.ok) {
+      const previewElementIds = previewResult.deck.slides[0]!.elements.map(
+        (element) => element.elementId,
+      );
+      expect(previewElementIds).toEqual(
+        expect.arrayContaining([
+          "el_slide_background",
+          "el_header_title",
+          "el_header_intro",
+          "el_hidden_overlap",
+          "el_footer",
+        ]),
+      );
+      expect(previewElementIds).not.toContain("el_old_graphic_primary");
+      expect(previewElementIds).not.toContain("el_old_graphic_ungrouped_label");
+      expect(previewElementIds).not.toContain("el_old_graphic_tail");
+      expect(previewElementIds).not.toContain("el_old_graphic_group");
     }
   });
 });

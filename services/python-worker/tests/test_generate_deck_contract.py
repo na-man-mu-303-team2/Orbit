@@ -15,6 +15,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 import app.main as api_module
 import app.ai.deck_generation.design_planning as design_planning_module
+import app.ai.deck_generation.source_grounding as source_grounding_module
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.deck_generation.content_planning import (
     allocate_weighted_integers,
@@ -2596,6 +2597,51 @@ def test_research_first_without_provider_reports_unavailable_safely() -> None:
     assert result.raw_input.research_issue_codes == ["provider-unavailable"]
     assert result.source_records[0].source_type == "topic"
     assert result.web_source_count == 0
+
+
+def test_references_first_stops_web_enrichment_at_the_total_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="한국어 주제",
+            referencePolicy="references-first",
+            brief={"referencePolicy": "references-first"},
+            references=[{"fileId": "file-private"}],
+            referenceContext=[
+                {
+                    "fileId": "file-private",
+                    "title": "private.pdf",
+                    "content": "Uploaded source text",
+                }
+            ],
+        )
+    )
+    client = FakeResearchOpenAIClient(
+        {"title": "unused", "slides": []},
+        [("https://example.com/report", "Report")],
+        search_aliases=["Korean topic"],
+    )
+    clock = iter([0.0, 11.0, 22.0, 33.0])
+    monkeypatch.setattr(
+        source_grounding_module.time,
+        "monotonic",
+        lambda: next(clock),
+    )
+
+    result = ground_sources(
+        raw_input,
+        current_date=date(2026, 7, 16),
+        client=client,
+    )
+
+    assert result.raw_input.web_research_timed_out is True
+    assert result.web_source_count == 0
+    assert [source.source_type for source in result.source_records] == [
+        "topic",
+        "uploaded",
+    ]
 
 
 def test_research_first_unavailable_uses_brief_instead_of_uploaded_context() -> None:

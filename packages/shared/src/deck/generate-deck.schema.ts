@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { evaluatorLensRefSchema, frozenBriefRefSchema } from "../coaching/coaching-common.schema";
+import { jobSchema } from "../jobs/job.schema";
 
 import {
   aiDeckAudienceSchema,
@@ -155,6 +156,23 @@ export const generateDeckFontOverrideSchema = z.object({
   overflowRisk: z.enum(["low", "medium", "high"]).default("medium")
 }).strict();
 
+export const generateDeckDesignSelectionSchema = z
+  .object({
+    paletteOptionId: z.string().trim().min(1).max(80),
+    paletteOverride: generateDeckPaletteOverrideSchema.required(),
+    fontOverride: generateDeckFontOverrideSchema,
+    designPrompt: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
+export const generateDeckCoverPlanSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    message: z.string().trim().min(1).max(1000),
+    audience: z.string().trim().max(500).default(""),
+  })
+  .strict();
+
 export const generateDeckVisualPlanPolicySchema = z
   .object({
     mediaPolicy: generateDeckMediaPolicySchema.default("balanced")
@@ -245,7 +263,35 @@ export const generateDeckStoredJobPayloadSchema = z
       .strict()
       .optional(),
     requestedByUserId: z.string().trim().min(1).optional(),
-    storyReviewRequired: z.boolean().default(false)
+    designSelection: generateDeckDesignSelectionSchema.optional(),
+    coverPlan: generateDeckCoverPlanSchema.optional()
+  })
+  .strict();
+
+export const generateDeckStartResponseSchema = z
+  .object({ job: jobSchema })
+  .strict();
+
+export const aiDeckDesignSelectionStatusSchema = z.enum([
+  "selecting",
+  "selected",
+  "generating",
+  "failed",
+  "cancelled",
+]);
+
+export const aiDeckDesignSelectionResponseSchema = z
+  .object({
+    jobId: z.string().trim().min(1),
+    projectId: z.string().trim().min(1),
+    status: aiDeckDesignSelectionStatusSchema,
+    styleContext: z
+      .object({
+        topic: z.string().trim().min(1),
+        tone: aiDeckToneSchema,
+      })
+      .strict(),
+    selection: generateDeckDesignSelectionSchema.nullable(),
   })
   .strict();
 
@@ -496,6 +542,15 @@ export type GenerateDeckSlideCountRange = z.infer<
 export type GenerateDeckRequest = z.infer<typeof generateDeckRequestSchema>;
 export type GenerateDeckStoredJobPayload = z.infer<
   typeof generateDeckStoredJobPayloadSchema
+>;
+export type GenerateDeckDesignSelection = z.infer<
+  typeof generateDeckDesignSelectionSchema
+>;
+export type GenerateDeckCoverPlan = z.infer<
+  typeof generateDeckCoverPlanSchema
+>;
+export type AiDeckDesignSelectionResponse = z.infer<
+  typeof aiDeckDesignSelectionResponseSchema
 >;
 export type DeckColorOptionRequest = z.infer<typeof deckColorOptionRequestSchema>;
 export type DeckColorOption = z.infer<typeof deckColorOptionSchema>;

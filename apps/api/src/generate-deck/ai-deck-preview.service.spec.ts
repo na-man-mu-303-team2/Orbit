@@ -4,6 +4,40 @@ import { describe, expect, it } from "vitest";
 import { projectAiDeckPreview } from "./ai-deck-preview.service";
 
 describe("projectAiDeckPreview", () => {
+  it("keeps a completed cover in grounding until the outline exists", () => {
+    const source = createDemoDeck();
+    const preview = projectAiDeckPreview({
+      job: {
+        job_id: "job-cover",
+        project_id: source.projectId,
+        status: "running",
+        progress: 12,
+        error: null,
+        updated_at: "2026-07-17T00:00:00.000Z",
+      },
+      expectedSlideCountRange: { min: 5, max: 8 },
+      stageRows: [{ stage: "source-grounding", status: "running" }],
+      planningRows: [],
+      imageRows: [],
+      qualityRow: null,
+      deckRow: null,
+      coverRow: {
+        payload_json: {
+          deck: { ...source, slides: source.slides.slice(0, 1) },
+          warnings: [],
+          validation: {},
+        },
+      },
+    });
+
+    expect(preview).toMatchObject({
+      status: "grounding",
+      expectedSlideCountRange: { min: 5, max: 8 },
+      outline: [],
+    });
+    expect(preview.deck?.slides).toHaveLength(1);
+  });
+
   it("reveals only the contiguous server-completed v2 prefix", () => {
     const source = createDemoDeck();
     const slides = source.slides.slice(0, 2).map((slide, index) => ({
