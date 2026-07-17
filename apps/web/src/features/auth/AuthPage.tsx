@@ -1,8 +1,7 @@
 import { IconArrowLeft, IconCheck, IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import orbitSymbol from "../../assets/orbit-symbol-v2.png";
-import { GradientButton } from "../../components/ui";
+import { GradientButton, OrbitBrand } from "../../components/ui";
 import {
   OrbitButton,
   OrbitField,
@@ -56,8 +55,7 @@ export function OrbitAuthPage(props: {
             type="button"
           >
             <IconArrowLeft aria-hidden="true" size={18} />
-            <img alt="" aria-hidden="true" src={orbitSymbol} />
-            <span>ORBIT</span>
+            <OrbitBrand />
           </button>
         </div>
       </header>

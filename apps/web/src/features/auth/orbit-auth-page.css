@@ -61,19 +61,6 @@
   color: var(--redesign-color-on-surface-variant);
 }
 
-.orbit-auth-home img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  transform: scale(1.28);
-}
-
-.orbit-auth-home span {
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-
 .orbit-auth-page button:not(.redesign-gradient-button):focus-visible,
 .orbit-auth-page .orbit-ds-input:focus-visible {
   outline: none;
@@ -303,7 +290,7 @@
     padding: 0 var(--redesign-space-md);
   }
 
-  .orbit-auth-home span {
+  .orbit-auth-home .redesign-orbit-brand-wordmark {
     display: none;
   }
 

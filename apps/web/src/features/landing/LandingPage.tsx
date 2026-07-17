@@ -21,8 +21,7 @@ import {
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
-import orbitSymbol from "../../assets/orbit-symbol-v2.png";
-import { GradientButton } from "../../components/ui";
+import { GradientButton, OrbitBrand } from "../../components/ui";
 import "../../styles/tokens.css";
 import "./landing-page.css";
 
@@ -47,8 +46,7 @@ export function LandingPage(props: { onNavigate: Navigate }) {
             onClick={() => window.scrollTo(0, 0)}
             type="button"
           >
-            <img alt="" aria-hidden="true" src={orbitSymbol} />
-            <span>ORBIT</span>
+            <OrbitBrand />
           </button>
 
           <div className="landing-header-actions">

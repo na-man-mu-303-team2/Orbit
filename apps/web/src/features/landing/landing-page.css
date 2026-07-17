@@ -49,26 +49,12 @@
 .landing-logo {
   display: inline-flex;
   align-items: center;
-  gap: var(--redesign-space-sm);
   padding: var(--redesign-space-xs);
   border: 0;
   border-radius: var(--redesign-radius);
   background: transparent;
   color: var(--redesign-color-on-surface);
   cursor: pointer;
-}
-
-.landing-logo img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  transform: scale(1.28);
-}
-
-.landing-logo span {
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 
 .landing-header-actions {

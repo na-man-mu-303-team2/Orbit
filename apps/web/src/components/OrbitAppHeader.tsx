@@ -4,7 +4,7 @@ import {
   IconLogout
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
-import orbitSymbol from "../assets/orbit-symbol-v2.png";
+import { OrbitBrand } from "./ui";
 
 export type OrbitAppNavigationItem = "home" | "project" | "rehearsal" | "reports";
 
@@ -63,8 +63,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
           onClick={() => props.onNavigate("/")}
           type="button"
         >
-          <img alt="" aria-hidden="true" src={orbitSymbol} />
-          <span>ORBIT</span>
+          <OrbitBrand />
         </button>
 
         <nav aria-label="주요 메뉴" className="orbit-app-header-nav">
