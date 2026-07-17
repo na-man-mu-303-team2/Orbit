@@ -3,7 +3,6 @@ import {
   IconAdjustmentsHorizontal as Properties,
   IconPlayerPlay as Play,
   IconLayoutSidebarRightCollapse as PanelRightClose,
-  IconLayoutSidebarRightExpand as PanelRightOpen,
   IconSparkles as Sparkles
 } from "@tabler/icons-react";
 import type { Dispatch, KeyboardEvent, PointerEvent, ReactNode, SetStateAction } from "react";
@@ -158,13 +157,13 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               </div>
             )}
           </div>
-          <section aria-label="AI 코치" className="ai-coach-dock ai-coach-persistent" id="editor-ai-panel">
+          <section aria-label="AI 어시스턴트" className="ai-coach-dock ai-coach-persistent" id="editor-ai-panel">
             <header className="ai-coach-dock-header">
-              <div><Sparkles aria-hidden="true" size={16} /><strong>AI 코치</strong></div>
-              <span aria-label="AI 코치 사용 가능" className="ai-coach-status-dot" role="status" />
+              <div><Sparkles aria-hidden="true" size={16} /><strong>AI 어시스턴트</strong></div>
+              <span aria-label="AI 어시스턴트 사용 가능" className="ai-coach-status-dot" role="status" />
             </header>
             <div className="editor-ai-coach-panel">
-              <div aria-label="AI 코치 보기" className="assistant-subtabs" role="tablist">
+              <div aria-label="AI 어시스턴트 보기" className="assistant-subtabs" role="tablist">
                 <button aria-controls="editor-ai-chat-panel" aria-selected={props.aiPanelView === "chat"} className={props.aiPanelView === "chat" ? "active" : ""} id="editor-ai-chat-tab" role="tab" tabIndex={props.aiPanelView === "chat" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("chat")} onKeyDown={handleAiPanelTabKeyDown}>채팅</button>
                 <button aria-controls="editor-ai-tools-panel" aria-selected={props.aiPanelView === "tools"} className={props.aiPanelView === "tools" ? "active" : ""} id="editor-ai-tools-tab" role="tab" tabIndex={props.aiPanelView === "tools" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("tools")} onKeyDown={handleAiPanelTabKeyDown}>검사</button>
               </div>
@@ -182,8 +181,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
         </>
       ) : (
         <div className="collapsed-right-rail">
-          <button aria-label="오른쪽 패널 펼치기" className="collapse-right-pane-button" title="오른쪽 패널 펼치기" type="button" onClick={() => props.setIsOpen(true)}><PanelRightOpen size={16} /></button>
-          <span>속성</span>
+          <button aria-label="속성 패널 펼치기" className="collapse-right-pane-button" title="속성 패널 펼치기" type="button" onClick={() => props.setIsOpen(true)}><Properties aria-hidden="true" size={16} /></button>
         </div>
       )}
     </aside>

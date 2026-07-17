@@ -1,7 +1,6 @@
 import type { Deck } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
-  IconFileText as FileText,
   IconHistory as History,
   IconHome as Home,
   IconRefresh as RefreshCw,
@@ -125,6 +124,15 @@ export function EditorTopbar(props: EditorTopbarProps) {
             <span>
               <strong>{deckTitle}</strong>
               <small>{saveStatusLabel}</small>
+              <button
+                aria-label="에디터 동기화"
+                className="refresh-top-button editor-document-sync-button"
+                title="최신 상태 동기화"
+                type="button"
+                onClick={onRefresh}
+              >
+                <RefreshCw size={14} />
+              </button>
             </span>
           </div>
           <div className="menu-row">
@@ -196,8 +204,10 @@ export function EditorTopbar(props: EditorTopbarProps) {
           statusLabel={saveStatusLabel}
         />
         {ooxmlSyncStatus ? <span className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`} title={ooxmlSyncStatus.detail}>{ooxmlSyncStatus.label}</span> : null}
-        <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button"><FileText size={17} /></button>
-        <button aria-label="버전 기록" className="editor-context-top-button" title="버전 기록" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={17} /></button>
+        {/* 에디터 상단에서는 브리프 이동 버튼을 숨긴다.
+        <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button">...</button>
+        */}
+        <button aria-label="버전 기록" className="editor-context-top-button editor-version-button" title="버전 기록" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={17} /></button>
         <PresentationMenu
           activeStartAction={activePresentationAction}
           canOpenAudienceLink={canOpenAudienceLink}
@@ -222,7 +232,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
             setActiveTopMenu(null);
           }}
         />
-        <button aria-label="에디터 새로고침" className="refresh-top-button" type="button" onClick={onRefresh}><RefreshCw size={15} /></button>
       </div>
     </header>
   );

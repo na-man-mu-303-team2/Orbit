@@ -509,8 +509,8 @@ describe("editor shell", () => {
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
-    expect(html).toContain('aria-label="AI 코치 보기"');
-    expect(html).toContain('aria-label="AI 코치 사용 가능"');
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
+    expect(html).toContain('aria-label="AI 어시스턴트 사용 가능"');
     expect(html).toContain('aria-label="디자인 속성"');
     expect(html).toContain('aria-label="애니메이션 속성"');
     expect(html).not.toContain('aria-label="애니메이션 패널"');
@@ -524,11 +524,17 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="홈으로 이동"');
     expect(html).not.toContain("topbar-brand-label");
     expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain('aria-label="에디터 동기화"');
+    expect(html.indexOf("저장됨")).toBeLessThan(
+      html.indexOf('aria-label="에디터 동기화"'),
+    );
     expect(html).toContain("파일");
     expect(html).not.toContain(">크기 조정<");
     expect(html).not.toContain("Quick edit");
     expect(html).not.toContain(">편집 중<");
     expect(html).not.toContain("템플릿");
+    expect(html).not.toContain('aria-label="브리프"');
+    expect(html).toContain('class="editor-context-top-button editor-version-button"');
     expect(html).toContain("공유");
     expect(html).toContain("리허설");
     expect(html).toContain("발표하기");
@@ -588,7 +594,7 @@ describe("editor shell", () => {
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain('aria-label="AI 코치 보기"');
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
     expect(html).toContain('id="editor-design-panel"');
     expect(html).not.toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain('hidden="" id="editor-ai-tools-panel"');

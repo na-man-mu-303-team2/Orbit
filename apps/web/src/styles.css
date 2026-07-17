@@ -1692,6 +1692,31 @@ button:disabled {
   min-height: 100vh;
 }
 
+.editor-loading-page {
+  display: grid;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  background: var(--redesign-color-background);
+  color: var(--redesign-color-on-background);
+}
+
+.editor-loading-indicator {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--redesign-color-surface-container-highest);
+  border-top-color: var(--redesign-color-primary);
+  border-radius: 50%;
+  animation: editor-loading-spin 760ms linear infinite;
+}
+
+@keyframes editor-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .project-request-page {
   align-items: center;
   display: grid;

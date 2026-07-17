@@ -1165,9 +1165,12 @@ export function EditorShell(props: { projectId?: string }) {
         }}
       />
       {isDeckLoading ? (
-        <div className="editor-loading-guard" role="status">
-          <span className="editor-loading-spinner" aria-hidden="true" />
-          <strong>발표 자료를 불러오는 중입니다</strong>
+        <div
+          aria-label="발표 자료를 불러오는 중"
+          className="editor-loading-guard"
+          role="status"
+        >
+          <span aria-hidden="true" className="editor-loading-indicator" />
         </div>
       ) : null}
 

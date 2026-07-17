@@ -122,7 +122,7 @@ export function KeywordList(props: {
           >
             <span>{keyword.text}</span>
             {keyword.required ? (
-              <small className="keyword-chip-badge">필수</small>
+              <small className="keyword-chip-badge required">필수</small>
             ) : null}
             {(usageByKeywordId?.[keyword.keywordId]?.animationIds.length ?? 0) > 0 ? (
               <small className="keyword-chip-badge">

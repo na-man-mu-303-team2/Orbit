@@ -1160,8 +1160,12 @@ export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
 
 function EditorLoadingFallback() {
   return (
-    <section className="loading-page">
-      <h1>에디터를 불러오는 중</h1>
+    <section
+      aria-label="에디터를 불러오는 중"
+      className="editor-loading-page redesign-dark"
+      role="status"
+    >
+      <span aria-hidden="true" className="editor-loading-indicator" />
     </section>
   );
 }
