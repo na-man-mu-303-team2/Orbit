@@ -168,7 +168,9 @@ test.describe("activity slides full story", () => {
       .selectOption(passcodeSession.session.sessionId);
     const resultPreview = page.getByLabel("결과 장표 미리보기");
     await expect(resultPreview).toHaveAttribute("data-state", "presenter-live");
-    await expect(resultPreview.getByText(privateText, { exact: true })).toBeVisible();
+    await expect(
+      resultPreview.getByRole("listitem").filter({ hasText: privateText })
+    ).toBeVisible();
     await expect(resultPreview.getByText("응답 1개", { exact: true })).toBeVisible();
 
     await expectOk(
