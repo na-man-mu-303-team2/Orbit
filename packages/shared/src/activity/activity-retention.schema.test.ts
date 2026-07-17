@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  activityRetentionSnapshotSchema,
   activityResponseRetentionJobPayloadSchema,
   activityResponseRetentionJobResultSchema,
 } from "./activity-retention.schema";
@@ -33,5 +34,34 @@ describe("activity response retention contracts", () => {
         rawResponse: "must-not-be-queued",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects retention snapshots containing free-text entries", () => {
+    const snapshot = {
+      activityRunId: "activity_run_1",
+      activityId: "activity_1",
+      status: "closed",
+      revision: 1,
+      responseCount: 1,
+      participantCount: 1,
+      responseRate: 100,
+      aggregates: [],
+      textEntries: [
+        {
+          entryId: "activity_text_1",
+          questionId: "question_1",
+          text: "must be deleted",
+          displayName: null,
+          moderationStatus: "approved",
+          answeredAt: null,
+          updatedAt: "2026-07-17T00:00:00.000Z",
+        },
+      ],
+    };
+
+    expect(activityRetentionSnapshotSchema.safeParse(snapshot).success).toBe(false);
+    expect(
+      activityRetentionSnapshotSchema.parse({ ...snapshot, textEntries: [] }),
+    ).toMatchObject({ textEntries: [] });
   });
 });

@@ -78,4 +78,42 @@ describe("PresentationSessionRepository", () => {
       "ON CONFLICT (project_id, session_id, audience_id) DO NOTHING"
     );
   });
+
+  it("sets the natural-expiry retention deadline when creating and updating sessions", async () => {
+    const inserted = { session_id: "session_1", status: "draft" };
+    const query = vi.fn().mockResolvedValue([inserted]);
+    const repository = new PresentationSessionRepository({} as DataSource);
+    const manager = { query } as never;
+    const now = new Date("2026-07-17T00:00:00.000Z");
+    const expiresAt = new Date("2026-07-18T00:00:00.000Z");
+
+    await repository.insert(manager, {
+      sessionId: "session_1",
+      projectId: "project_1",
+      deckId: "deck_1",
+      deckVersion: 1,
+      userId: "user_1",
+      status: "draft",
+      accessMode: "public",
+      passwordHash: null,
+      startsAt: new Date("2026-07-17T01:00:00.000Z"),
+      expiresAt,
+      now,
+    });
+    await repository.updateAccess(manager, "project_1", "session_1", {
+      status: "draft",
+      accessMode: "public",
+      passwordHash: null,
+      startsAt: new Date("2026-07-17T02:00:00.000Z"),
+      expiresAt,
+      now,
+    });
+
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "$6::timestamptz + interval '90 days'",
+    );
+    expect(String(query.mock.calls[1]?.[0])).toContain(
+      "$7::timestamptz + interval '90 days'",
+    );
+  });
 });

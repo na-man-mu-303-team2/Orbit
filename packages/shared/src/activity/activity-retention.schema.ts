@@ -24,7 +24,17 @@ export const activityResponseRetentionJobResultSchema = z
   })
   .strict();
 
-export const activityRetentionSnapshotSchema = activityPresenterResultSchema;
+export const activityRetentionSnapshotSchema = activityPresenterResultSchema.superRefine(
+  (snapshot, ctx) => {
+    if (snapshot.textEntries.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["textEntries"],
+        message: "retention snapshots cannot contain free-text entries",
+      });
+    }
+  },
+);
 
 export type ActivityResponseRetentionJobPayload = z.infer<
   typeof activityResponseRetentionJobPayloadSchema
