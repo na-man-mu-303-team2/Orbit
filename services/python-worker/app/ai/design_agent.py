@@ -1287,18 +1287,15 @@ def validate_design_proposal(
                 if warning and warning not in warnings:
                     warnings.append(warning)
 
-    unknown_affected = set(response.affected_element_ids) - valid_affected_element_ids
-    if unknown_affected:
-        raise DesignAgentGenerationError("affectedElementIds contains unknown elements.")
+    canonical_affected_element_ids = [
+        element_id
+        for element_id in response.affected_element_ids
+        if element_id in valid_affected_element_ids
+    ]
 
+    normalize_smart_art_target = False
     if response.smart_art_request is not None:
         source_ids = set(response.smart_art_request.source_element_ids)
-        selected_ids = set(request.context.selected_element_ids)
-        allows_slide_sources = response.interpreted_intent.target == "current-slide"
-        if not allows_slide_sources and not source_ids.issubset(selected_ids):
-            raise DesignAgentGenerationError(
-                "SmartArt sourceElementIds contains unselected elements."
-            )
         if not source_ids.issubset(original_elements):
             raise DesignAgentGenerationError(
                 "SmartArt sourceElementIds contains unknown elements."
@@ -1307,6 +1304,25 @@ def validate_design_proposal(
             raise DesignAgentGenerationError(
                 "SmartArt sourceElementIds contains hidden elements."
             )
+        selected_ids = set(request.context.selected_element_ids)
+        has_unselected_sources = not source_ids.issubset(selected_ids)
+        request_allows_slide_sources = _allows_unselected_slide_sources(request.question)
+        allows_slide_sources = (
+            request_allows_slide_sources
+            and (
+                response.interpreted_intent.target == "current-slide"
+                or not selected_ids
+            )
+        )
+        if has_unselected_sources and not allows_slide_sources:
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains unselected elements."
+            )
+        normalize_smart_art_target = (
+            has_unselected_sources
+            and allows_slide_sources
+            and response.interpreted_intent.target != "current-slide"
+        )
         matching_layout = next(
             (
                 layout
@@ -1347,15 +1363,32 @@ def validate_design_proposal(
         operation.model_dump(by_alias=True, exclude_none=True)
         for operation in response.operations
     ]
+    payload["affectedElementIds"] = canonical_affected_element_ids
+    if normalize_smart_art_target:
+        payload["interpretedIntent"]["target"] = "current-slide"
     payload["warnings"] = warnings[:20]
     return DesignAgentResponse.model_validate(payload)
 
 
 def _allows_unselected_slide_sources(question: str) -> bool:
     normalized = " ".join(question.lower().split())
+    selection_specific_phrases = (
+        "선택한",
+        "선택된",
+        "선택 요소",
+        "선택 영역",
+        "selected",
+        "selection",
+    )
+    if any(phrase in normalized for phrase in selection_specific_phrases):
+        return False
+
     return _is_broad_preset_request(question) or any(
         phrase in normalized
         for phrase in (
+            "다이어그램",
+            "도식",
+            "스마트아트",
             "현재 페이지",
             "이 페이지",
             "페이지 전체",
@@ -1372,6 +1405,11 @@ def _allows_unselected_slide_sources(question: str) -> bool:
             "whole slide",
             "center text",
             "centre text",
+            "smartart",
+            "smart art",
+            "process diagram",
+            "step diagram",
+            "flow diagram",
         )
     )
 
