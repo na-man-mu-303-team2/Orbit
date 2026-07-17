@@ -95,79 +95,13 @@
   box-shadow: var(--redesign-glow-primary);
 }
 
-/* Account dropdown — clean white sheet with inset items */
+/* Account dropdown — shared white menu with account context */
 
-.orbit-app-header-redesign .orbit-app-header-menu {
-  gap: 0;
-  min-width: 280px;
-  padding: var(--redesign-space-sm) 0;
-  overflow: hidden;
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: calc(var(--redesign-radius-xl) * 1.5);
-  background: var(--redesign-color-surface);
-  color: var(--redesign-color-on-surface);
-  box-shadow:
-    0 18px 48px color-mix(in srgb, var(--redesign-color-on-surface) 14%, transparent),
-    0 4px 12px color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
-  transform-origin: top right;
-  animation: workspace-menu-pop 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu-user {
-  margin: 0 var(--redesign-space-sm);
-  padding: var(--redesign-space-sm) var(--redesign-space-sm)
-    var(--redesign-space-md);
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu-user strong {
-  color: var(--redesign-color-on-surface);
-  font-size: 13px;
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu-user div span {
-  overflow: visible;
-  color: var(--redesign-color-on-surface-variant);
-  font-size: 12px;
-  white-space: normal;
-  word-break: break-all;
-  text-overflow: clip;
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu > button {
-  width: calc(100% - var(--redesign-space-md));
-  min-height: 42px;
-  margin: var(--redesign-space-xs) var(--redesign-space-sm) 0;
-  padding: 0 var(--redesign-space-sm);
-  border-radius: var(--redesign-radius-md);
-  color: var(--redesign-color-on-surface);
-  font-size: 13px;
-  transition: background-color 120ms ease;
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu > button:hover {
-  background: var(--redesign-color-surface-container);
-}
-
-.orbit-app-header-redesign .orbit-app-header-menu > button:disabled {
-  color: var(--redesign-color-outline);
-}
-
-@keyframes workspace-menu-pop {
-  from {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.97);
-  }
+.orbit-app-header-redesign .orbit-app-header-account-menu {
+  min-width: 232px;
 }
 
 .orbit-app-header-redesign button:focus-visible {
   outline: none;
   box-shadow: var(--redesign-focus-ring);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .orbit-app-header-redesign .orbit-app-header-menu {
-    animation: none;
-  }
 }
