@@ -57,6 +57,7 @@
 
 .orbit-home-shell .orbit-app-header-user,
 .orbit-home-shell .orbit-app-header-login {
+  max-width: none;
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius);
   background: var(--redesign-color-surface);
@@ -64,6 +65,13 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
+}
+
+.orbit-home-shell .orbit-app-header-user-label {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .orbit-home-shell .orbit-app-header-user:hover,
@@ -82,18 +90,70 @@
   box-shadow: var(--redesign-glow-primary);
 }
 
+/* Account dropdown — clean white sheet with inset items */
+
 .orbit-home-shell .orbit-app-header-menu {
+  gap: 0;
+  min-width: 280px;
+  padding: var(--redesign-space-sm) 0;
+  overflow: hidden;
   border: 1px solid var(--redesign-color-outline-variant);
-  background: var(--redesign-color-surface-container-high);
+  border-radius: calc(var(--redesign-radius-xl) * 1.5);
+  background: var(--redesign-color-surface);
   color: var(--redesign-color-on-surface);
+  box-shadow:
+    0 18px 48px color-mix(in srgb, var(--redesign-color-on-surface) 14%, transparent),
+    0 4px 12px color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  transform-origin: top right;
+  animation: workspace-menu-pop 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.orbit-home-shell .orbit-app-header-menu button {
-  color: var(--redesign-color-on-surface);
+.orbit-home-shell .orbit-app-header-menu-user {
+  margin: 0 var(--redesign-space-sm);
+  padding: var(--redesign-space-sm) var(--redesign-space-sm)
+    var(--redesign-space-md);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
 }
 
-.orbit-home-shell .orbit-app-header-menu button:hover {
-  background: var(--redesign-color-surface-container-highest);
+.orbit-home-shell .orbit-app-header-menu-user strong {
+  color: var(--redesign-color-on-surface);
+  font-size: 13px;
+}
+
+.orbit-home-shell .orbit-app-header-menu-user div span {
+  overflow: visible;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 12px;
+  white-space: normal;
+  word-break: break-all;
+  text-overflow: clip;
+}
+
+.orbit-home-shell .orbit-app-header-menu > button {
+  width: calc(100% - var(--redesign-space-md));
+  min-height: 42px;
+  margin: var(--redesign-space-xs) var(--redesign-space-sm) 0;
+  padding: 0 var(--redesign-space-sm);
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-surface);
+  font-size: 13px;
+  transition: background-color 120ms ease;
+}
+
+.orbit-home-shell .orbit-app-header-menu > button:hover {
+  background: var(--redesign-color-surface-container);
+}
+
+.orbit-home-shell .orbit-app-header-menu > button:disabled {
+  color: var(--redesign-color-outline);
+}
+
+@keyframes workspace-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
 }
 
 .orbit-home-shell .orbit-app-header button:focus-visible {
@@ -200,7 +260,9 @@
   background: var(--redesign-color-surface);
   color: var(--redesign-color-on-surface-variant);
   cursor: pointer;
-  transition: border-color 140ms ease, background-color 140ms ease;
+  transition: border-color 180ms ease, background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .workspace-home-create > svg {
@@ -208,42 +270,60 @@
   width: 44px;
   height: 44px;
   padding: 10px;
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-secondary) 72%,
-    var(--redesign-color-primary)
-  );
-  border-radius: var(--redesign-radius);
-  background: linear-gradient(
-    135deg,
-    var(--redesign-color-primary),
-    var(--redesign-color-secondary) 56%,
-    var(--redesign-color-tertiary)
-  );
-  background-position: 0% 50%;
-  background-size: 160% 160%;
+  border: 1px solid var(--redesign-color-primary);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-primary);
   color: var(--redesign-color-on-primary);
-  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary);
-  transition: border-color 140ms ease, color 140ms ease,
-    background-position 180ms ease, box-shadow 180ms ease, transform 140ms ease;
+  box-shadow: var(--redesign-glow-primary);
+  transition: background-color 140ms ease, box-shadow 180ms ease,
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .workspace-home-create:hover {
   border-color: color-mix(
     in srgb,
-    var(--redesign-color-primary) 50%,
+    var(--redesign-color-primary) 45%,
     var(--redesign-color-outline-variant)
   );
-  background: var(--redesign-color-surface-container-low);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary-container) 24%,
+    var(--redesign-color-surface)
+  );
+  box-shadow: 0 12px 32px
+    color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  transform: translateY(-2px);
 }
 
 .workspace-home-create:hover > svg {
-  border-color: var(--redesign-color-tertiary);
-  background-position: 100% 50%;
-  color: var(--redesign-color-on-primary);
-  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary),
-    var(--redesign-glow-tertiary);
-  transform: scale(1.04);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 88%,
+    var(--redesign-color-on-primary-container)
+  );
+  box-shadow: var(--redesign-glow-primary),
+    0 8px 20px color-mix(in srgb, var(--redesign-color-primary) 35%, transparent);
+  transform: scale(1.12) rotate(90deg);
+}
+
+.workspace-home-create:active {
+  transform: translateY(0);
+}
+
+.workspace-home-create:active > svg {
+  transform: scale(0.94) rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-home-create,
+  .workspace-home-create > svg {
+    transition: none;
+    transform: none;
+  }
+
+  .orbit-home-shell .orbit-app-header-menu {
+    animation: none;
+  }
 }
 
 /* ---------- Cards ---------- */
