@@ -77,9 +77,49 @@ describe("FillerWordPieChart", () => {
       coaching: undefined,
     }} />);
 
-    expect(html).toContain("이 기록에는 시간별 데시벨 데이터가 없습니다.");
-    expect(html).toContain("STT 시간 정보가 없어 속도 그래프를 만들지 못했습니다.");
+    expect(html).toContain(
+      "이전 분석 버전의 기록이라 시간별 데시벨 그래프가 없습니다. 새 연습부터 제공됩니다.",
+    );
+    expect(html).toContain(
+      "이전 분석 버전의 기록이라 시간별 말 속도 그래프가 없습니다. 새 연습부터 제공됩니다.",
+    );
     expect(html).toContain("이전 연습 기록에는 AI 개선점이 없습니다.");
+  });
+
+  it("v2 분석 실패는 그래프가 비어 있는 실제 이유를 표시한다", () => {
+    const baseReport = practiceReport();
+    const html = renderToStaticMarkup(<PracticeResult report={{
+      ...baseReport,
+      loudnessSamples: [],
+      speedSamples: [],
+      quality: {
+        state: "partial",
+        reasons: ["audio-analysis-unavailable", "stt-unavailable"],
+      },
+    }} />);
+
+    expect(html).toContain(
+      "오디오를 해석하지 못해 시간별 데시벨 데이터를 만들지 못했습니다.",
+    );
+    expect(html).toContain(
+      "음성 전사를 사용할 수 없어 말 속도 그래프를 만들지 못했습니다.",
+    );
+  });
+
+  it("v2 발화량이 부족하면 충분한 연습 시간을 안내한다", () => {
+    const baseReport = practiceReport();
+    const html = renderToStaticMarkup(<PracticeResult report={{
+      ...baseReport,
+      speedSamples: [],
+      quality: {
+        state: "unmeasured",
+        reasons: ["insufficient-speech"],
+      },
+    }} />);
+
+    expect(html).toContain(
+      "발화량이 부족해 말 속도 그래프를 만들지 못했습니다. 10초 이상 말해 주세요.",
+    );
   });
 
   it("개선점이 없으면 승인된 성공 문구를 그대로 표시한다", () => {

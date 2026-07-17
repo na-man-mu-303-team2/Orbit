@@ -17,11 +17,13 @@ export function PracticeReportContent({ report }: { report: SlidePracticeReport 
       <div className="editor-practice-graph-grid">
         <LoudnessBarChart
           durationMs={report.durationMs}
+          emptyMessage={getLoudnessGraphEmptyMessage(report)}
           average={report.voice.loudnessDb}
           samples={report.loudnessSamples ?? []}
         />
         <SpeedLineChart
           durationMs={report.durationMs}
+          emptyMessage={getSpeedGraphEmptyMessage(report)}
           average={report.voice.syllablesPerSecond}
           samples={report.speedSamples ?? []}
         />
@@ -33,6 +35,7 @@ export function PracticeReportContent({ report }: { report: SlidePracticeReport 
 
 export function LoudnessBarChart(props: {
   durationMs: number;
+  emptyMessage?: string;
   average: number | null;
   samples: readonly SlidePracticeLoudnessSample[];
 }) {
@@ -52,7 +55,9 @@ export function LoudnessBarChart(props: {
         <strong>평균 {formatMetric(props.average, "dBFS")}</strong>
       </header>
       {props.samples.length === 0 ? (
-        <GraphEmptyState>이 기록에는 시간별 데시벨 데이터가 없습니다.</GraphEmptyState>
+        <GraphEmptyState>
+          {props.emptyMessage ?? "이 기록에는 시간별 데시벨 데이터가 없습니다."}
+        </GraphEmptyState>
       ) : (
         <>
           <div className="editor-practice-graph-legend" aria-label="데시벨 범례">
@@ -118,6 +123,7 @@ export function LoudnessBarChart(props: {
 
 export function SpeedLineChart(props: {
   durationMs: number;
+  emptyMessage?: string;
   average: number | null;
   samples: readonly SlidePracticeSpeedSample[];
 }) {
@@ -140,7 +146,9 @@ export function SpeedLineChart(props: {
         <strong>평균 {formatMetric(props.average, "음절/초")}</strong>
       </header>
       {props.samples.length === 0 ? (
-        <GraphEmptyState>STT 시간 정보가 없어 속도 그래프를 만들지 못했습니다.</GraphEmptyState>
+        <GraphEmptyState>
+          {props.emptyMessage ?? "STT 시간 정보가 없어 속도 그래프를 만들지 못했습니다."}
+        </GraphEmptyState>
       ) : (
         <svg
           aria-label="시간별 말 속도 선 그래프"
@@ -254,6 +262,33 @@ export function PracticeCoachingCard(props: {
 
 function GraphEmptyState({ children }: { children: string }) {
   return <div className="editor-practice-graph-empty">{children}</div>;
+}
+
+export function getLoudnessGraphEmptyMessage(
+  report: Pick<SlidePracticeReport, "quality" | "reportVersion">
+) {
+  if (report.reportVersion === 1) {
+    return "이전 분석 버전의 기록이라 시간별 데시벨 그래프가 없습니다. 새 연습부터 제공됩니다.";
+  }
+  if (report.quality.reasons.includes("audio-analysis-unavailable")) {
+    return "오디오를 해석하지 못해 시간별 데시벨 데이터를 만들지 못했습니다.";
+  }
+  return "이 기록에는 시간별 데시벨 데이터가 없습니다.";
+}
+
+export function getSpeedGraphEmptyMessage(
+  report: Pick<SlidePracticeReport, "quality" | "reportVersion">
+) {
+  if (report.reportVersion === 1) {
+    return "이전 분석 버전의 기록이라 시간별 말 속도 그래프가 없습니다. 새 연습부터 제공됩니다.";
+  }
+  if (report.quality.reasons.includes("stt-unavailable")) {
+    return "음성 전사를 사용할 수 없어 말 속도 그래프를 만들지 못했습니다.";
+  }
+  if (report.quality.reasons.includes("insufficient-speech")) {
+    return "발화량이 부족해 말 속도 그래프를 만들지 못했습니다. 10초 이상 말해 주세요.";
+  }
+  return "STT 시간 정보가 없어 속도 그래프를 만들지 못했습니다.";
 }
 
 function GraphTimeTicks({ durationMs }: { durationMs: number }) {

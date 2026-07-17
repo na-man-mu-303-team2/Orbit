@@ -650,3 +650,15 @@
 - Rationale: 입력 수단과 관계없이 하나의 tracker snapshot을 기준으로 진행률·focus·자동 중앙 스크롤을 동기화하고, 트랙패드 과다 입력으로 문장을 건너뛰는 것을 막는다. 공용 프롬프터에는 optional callback만 추가해 전체 리허설의 기존 wheel 동작은 바꾸지 않는다.
 - Affected files: `apps/web/src/features/rehearsal/presenter/RehearsalScriptTeleprompter.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트, `docs/decision-log.md`.
 - Follow-up review notes: Windows 마우스 휠과 노트북 트랙패드에서 한 gesture당 한 문장만 이동하는지, 첫·마지막 문장 경계와 화살표·음성 자동 이동 복귀가 일관적인지 확인한다.
+
+## ORBIT editor slide practice graph version diagnostics
+
+- Context: 현재 소스는 `reportVersion: 2`에서 시간별 `loudnessSamples`와 `speedSamples`를 생성·저장·표시하지만, 5174 로컬 스택의 API·Worker·Python Worker는 이전 이미지였다. DB의 최근 기록은 모두 `reportVersion: 1`이고 두 sample이 없어서 Web은 그래프를 그릴 수 없었다. v1 원본 음성은 계약에 따라 이미 삭제돼 재분석할 수 없다.
+- Options considered:
+  - 그래프 재계산을 위해 raw audio 보관 기간을 늘린다.
+  - v1 기록에 평균값을 복제해 가짜 시간별 그래프를 만든다.
+  - 원본 삭제 계약을 유지하고 분석 서비스를 v2 이미지로 맞추며, v1과 v2 분석 실패의 empty state를 구분한다.
+- Final decision: raw audio와 transcript 보존 범위를 넓히거나 v1 기록을 추정 backfill하지 않는다. `orbit-editor-report-qa`의 API·Worker·Python Worker를 현재 v2 코드로 재빌드하고 새 연습부터 실제 sample을 저장한다. UI는 v1 기록, v2 audio 분석 실패, v2 STT 실패, 발화량 부족을 서로 다른 문구로 표시한다.
+- Rationale: 그래프는 원본이 아니라 분석 중 계산한 bounded 파생 sample만 필요하다. 개인정보 보존 정책을 바꾸지 않고도 신규 기록을 정확히 표시할 수 있으며, 과거 형식과 실제 분석 실패를 구분해 사용자가 재시도 방법을 알 수 있다.
+- Affected files: `apps/web/src/features/editor/practice/PracticeReportContent.tsx`, 관련 테스트, `docs/decision-log.md`. 런타임에서는 `orbit-editor-report-qa`의 `api`, `worker`, `python-worker`, `web` 이미지를 현재 소스와 맞춘다.
+- Follow-up review notes: 10초 이상 새 연습 후 DB에서 `reportVersion: 2`, `loudnessSamples > 0`, `speedSamples > 0`인지 확인한다. v2에서도 speed sample이 비면 Report STT segment timestamp 반환을, loudness sample이 비면 PCM decoder 경로를 별도로 진단한다.
