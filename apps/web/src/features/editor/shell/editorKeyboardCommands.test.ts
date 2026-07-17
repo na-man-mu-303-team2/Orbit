@@ -114,6 +114,7 @@ describe("resolveEditorKeyboardCommand", () => {
   });
 
   it.each([
+    { isCropEditing: true },
     { isInlineTextEditing: true },
     { isCustomShapeEditing: true },
   ])("suppresses mutation shortcuts during an editing mode: %o", (editingMode) => {
@@ -149,5 +150,182 @@ describe("resolveEditorKeyboardCommand", () => {
     expect(resolve({ canPaste: true, ctrlKey: true, key: "v" })).toEqual({
       type: "paste-selection",
     });
+  });
+
+  it.each([
+    { metaKey: true },
+    { ctrlKey: true }
+  ])("maps Meta and Ctrl selection/group/order commands: %o", (modifier) => {
+    expect(resolve({ key: "a", ...modifier })).toEqual({ type: "select-all" });
+    expect(resolve({ canGroup: true, key: "g", ...modifier })).toEqual({
+      type: "group-selection"
+    });
+    expect(
+      resolve({ canUngroup: true, key: "G", shiftKey: true, ...modifier })
+    ).toEqual({ type: "ungroup-selection" });
+    expect(
+      resolve({
+        code: "BracketLeft",
+        hasSelection: true,
+        key: "Unidentified",
+        ...modifier
+      })
+    ).toEqual({ direction: "backward", type: "move-selection-order" });
+    expect(
+      resolve({
+        code: "BracketRight",
+        hasSelection: true,
+        key: "Unidentified",
+        ...modifier
+      })
+    ).toEqual({ direction: "forward", type: "move-selection-order" });
+  });
+
+  it("uses event.code exclusively for bracket order commands", () => {
+    expect(
+      resolve({ ctrlKey: true, hasSelection: true, key: "[" })
+    ).toBeNull();
+    expect(
+      resolve({
+        code: "BracketLeft",
+        ctrlKey: true,
+        hasSelection: true,
+        key: "Unidentified"
+      })
+    ).toEqual({ direction: "backward", type: "move-selection-order" });
+  });
+
+  it("preserves native Cmd/Ctrl+A in editable targets", () => {
+    expect(
+      resolve({ key: "a", metaKey: true, target: targetInside("input") })
+    ).toBeNull();
+    expect(
+      resolve({
+        ctrlKey: true,
+        key: "a",
+        target: targetInside("contenteditable", "true")
+      })
+    ).toBeNull();
+  });
+
+  it("denies new mutation commands for viewers and dialog/menu targets", () => {
+    expect(
+      resolve({ canMutateDeck: false, key: "a", metaKey: true })
+    ).toBeNull();
+    expect(
+      resolve({
+        canMutateDeck: false,
+        canGroup: true,
+        ctrlKey: true,
+        key: "g"
+      })
+    ).toBeNull();
+    expect(
+      resolve({
+        canGroup: true,
+        key: "g",
+        metaKey: true,
+        target: targetInside("[role='dialog']")
+      })
+    ).toBeNull();
+    expect(
+      resolve({
+        code: "BracketRight",
+        ctrlKey: true,
+        hasSelection: true,
+        key: "]",
+        target: targetInside("[role='menu']")
+      })
+    ).toBeNull();
+    expect(
+      resolve({ canGroup: true, hasOpenModal: true, key: "g", metaKey: true })
+    ).toBeNull();
+    expect(
+      resolve({ hasOpenMenu: true, key: "a", ctrlKey: true })
+    ).toBeNull();
+  });
+
+  it("resolves exactly the highest active Escape layer", () => {
+    const allLayers = {
+      hasOpenMenu: true,
+      hasOpenModal: true,
+      hasSelection: true,
+      isCropEditing: true,
+      isCustomShapeEditing: true,
+      isInlineTextEditing: true,
+      isInsertToolActive: true,
+      key: "Escape"
+    };
+
+    expect(resolve(allLayers)).toEqual({ type: "dismiss-layer", layer: "modal" });
+    expect(resolve({ ...allLayers, hasOpenModal: false })).toEqual({
+      type: "dismiss-layer",
+      layer: "menu"
+    });
+    expect(
+      resolve({ ...allLayers, hasOpenMenu: false, hasOpenModal: false })
+    ).toEqual({ type: "dismiss-layer", layer: "crop-edit" });
+    expect(
+      resolve({
+        ...allLayers,
+        hasOpenMenu: false,
+        hasOpenModal: false,
+        isCropEditing: false
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "custom-shape-edit" });
+    expect(
+      resolve({
+        ...allLayers,
+        hasOpenMenu: false,
+        hasOpenModal: false,
+        isCropEditing: false,
+        isCustomShapeEditing: false
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "inline-text-edit" });
+    expect(
+      resolve({
+        ...allLayers,
+        hasOpenMenu: false,
+        hasOpenModal: false,
+        isCropEditing: false,
+        isCustomShapeEditing: false,
+        isInlineTextEditing: false
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "insert-tool" });
+    expect(
+      resolve({
+        ...allLayers,
+        hasOpenMenu: false,
+        hasOpenModal: false,
+        isCropEditing: false,
+        isCustomShapeEditing: false,
+        isInlineTextEditing: false,
+        isInsertToolActive: false
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "selection" });
+  });
+
+  it("allows a known modal/menu to own Escape but preserves input selection otherwise", () => {
+    expect(
+      resolve({
+        hasOpenModal: true,
+        key: "Escape",
+        target: targetInside("[role='dialog']")
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "modal" });
+    expect(
+      resolve({
+        hasOpenMenu: true,
+        key: "Escape",
+        target: targetInside("[role='menu']")
+      })
+    ).toEqual({ type: "dismiss-layer", layer: "menu" });
+    expect(
+      resolve({
+        hasSelection: true,
+        key: "Escape",
+        target: targetInside("input")
+      })
+    ).toBeNull();
   });
 });

@@ -68,6 +68,11 @@ export {
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
+  createElementOrderPatch,
+  getTopLevelElementStack
+} from "./patches/elementOrder";
+export type { ElementOrderDirection } from "./patches/elementOrder";
+export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,

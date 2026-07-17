@@ -1,24 +1,45 @@
 export type EditorKeyboardCommand =
   | { type: "copy-selection" }
   | { type: "delete-selection" }
+  | { type: "dismiss-layer"; layer: EditorEscapeLayer }
   | { type: "duplicate-selection" }
+  | { type: "group-selection" }
+  | { type: "move-selection-order"; direction: "backward" | "forward" }
   | { type: "navigate-slide"; direction: "next" | "previous" }
   | { type: "nudge-selection"; deltaX: number; deltaY: number }
   | { type: "paste-selection" }
   | { type: "redo" }
   | { type: "save"; canExecute: boolean }
+  | { type: "select-all" }
+  | { type: "ungroup-selection" }
   | { type: "undo" };
+
+export type EditorEscapeLayer =
+  | "modal"
+  | "menu"
+  | "crop-edit"
+  | "custom-shape-edit"
+  | "inline-text-edit"
+  | "insert-tool"
+  | "selection";
 
 export type EditorKeyboardCommandInput = {
   altKey?: boolean;
   canMutateDeck: boolean;
+  canGroup?: boolean;
   canPaste?: boolean;
+  canUngroup?: boolean;
+  code?: string;
   ctrlKey?: boolean;
   defaultPrevented?: boolean;
+  hasOpenMenu?: boolean;
+  hasOpenModal?: boolean;
   hasSelection?: boolean;
   hasSingleSelection?: boolean;
+  isCropEditing?: boolean;
   isCustomShapeEditing?: boolean;
   isInlineTextEditing?: boolean;
+  isInsertToolActive?: boolean;
   key: string;
   metaKey?: boolean;
   shiftKey?: boolean;
@@ -28,10 +49,23 @@ export type EditorKeyboardCommandInput = {
 export function resolveEditorKeyboardCommand(
   input: EditorKeyboardCommandInput,
 ): EditorKeyboardCommand | null {
-  if (
-    input.defaultPrevented ||
-    isEditorKeyboardCommandSuppressedTarget(input.target ?? null)
-  ) {
+  if (input.defaultPrevented) {
+    return null;
+  }
+
+  const isSuppressedTarget = isEditorKeyboardCommandSuppressedTarget(
+    input.target ?? null
+  );
+
+  if (input.key === "Escape") {
+    const escapeLayer = resolveEditorEscapeLayer(input, isSuppressedTarget);
+
+    return escapeLayer
+      ? { type: "dismiss-layer", layer: escapeLayer }
+      : null;
+  }
+
+  if (isSuppressedTarget || input.hasOpenModal || input.hasOpenMenu) {
     return null;
   }
 
@@ -51,7 +85,9 @@ export function resolveEditorKeyboardCommand(
   }
 
   const isMutationEditingBlocked = Boolean(
-    input.isInlineTextEditing || input.isCustomShapeEditing,
+    input.isCropEditing ||
+      input.isInlineTextEditing ||
+      input.isCustomShapeEditing,
   );
   if (
     !input.altKey &&
@@ -64,6 +100,32 @@ export function resolveEditorKeyboardCommand(
 
   if (!input.canMutateDeck || isMutationEditingBlocked) {
     return null;
+  }
+
+  if (!input.altKey && hasCommandModifier && !input.shiftKey && key === "a") {
+    return { type: "select-all" };
+  }
+
+  if (!input.altKey && hasCommandModifier && key === "g") {
+    if (input.shiftKey) {
+      return input.canUngroup ? { type: "ungroup-selection" } : null;
+    }
+
+    return input.canGroup ? { type: "group-selection" } : null;
+  }
+
+  if (
+    input.hasSelection &&
+    !input.altKey &&
+    hasCommandModifier &&
+    !input.shiftKey
+  ) {
+    if (input.code === "BracketLeft") {
+      return { direction: "backward", type: "move-selection-order" };
+    }
+    if (input.code === "BracketRight") {
+      return { direction: "forward", type: "move-selection-order" };
+    }
   }
 
   if (
@@ -113,6 +175,35 @@ export function resolveEditorKeyboardCommand(
 
   if (!input.altKey && hasCommandModifier && key === "v" && input.canPaste) {
     return { type: "paste-selection" };
+  }
+
+  return null;
+}
+
+function resolveEditorEscapeLayer(
+  input: EditorKeyboardCommandInput,
+  isSuppressedTarget: boolean
+): EditorEscapeLayer | null {
+  if (input.hasOpenModal) {
+    return "modal";
+  }
+  if (input.hasOpenMenu) {
+    return "menu";
+  }
+  if (input.isCropEditing) {
+    return "crop-edit";
+  }
+  if (input.isCustomShapeEditing) {
+    return "custom-shape-edit";
+  }
+  if (input.isInlineTextEditing) {
+    return "inline-text-edit";
+  }
+  if (input.isInsertToolActive) {
+    return "insert-tool";
+  }
+  if (!isSuppressedTarget && input.hasSelection) {
+    return "selection";
   }
 
   return null;

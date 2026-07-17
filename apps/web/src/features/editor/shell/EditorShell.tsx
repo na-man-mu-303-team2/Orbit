@@ -1,6 +1,7 @@
 import {
   createDemoDeck,
   createDuplicateSlidePatch,
+  createElementOrderPatch,
   getElementAnimations,
   deriveKeywordActionUsage,
   validateSlideAnimations
@@ -10,8 +11,10 @@ import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema"
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import {
   applyCanvasSelection,
-  type CanvasSelectionModifiers
+  type CanvasSelectionModifiers,
+  getSelectableCanvasElements
 } from "../canvas/utils/canvasSelection";
+import type { EditorEscapeLayer } from "./editorKeyboardCommands";
 import {
   AnimationSidePanel,
   buildAnimationKeywordTriggerPolicy,
@@ -1179,6 +1182,92 @@ export function EditorShell(props: { projectId?: string }) {
     setSelectedElementIds(elementIds);
   }
 
+  function handleSelectAllElements() {
+    setElementContextMenu(null);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setSelectedElementIds(
+      getSelectableCanvasElements(visibleElements).map(
+        (element) => element.elementId
+      )
+    );
+  }
+
+  function handleMoveSelectionOrder(direction: "backward" | "forward") {
+    if (!currentSlide) {
+      return;
+    }
+
+    const patch = createElementOrderPatch({
+      deck: workingDeckRef.current,
+      direction,
+      selectedElementIds,
+      slideId: currentSlide.slideId
+    });
+
+    if (patch) {
+      commitPatch(patch);
+    }
+  }
+
+  function handleKeyboardUngroup() {
+    if (!currentSlide || selectedElement?.type !== "group") {
+      return;
+    }
+
+    handleUngroupElement(currentSlide.slideId, selectedElement.elementId);
+  }
+
+  function handleDismissKeyboardLayer(layer: EditorEscapeLayer) {
+    switch (layer) {
+      case "modal":
+        if (isExitConfirmOpen) {
+          setIsExitConfirmOpen(false);
+          return;
+        }
+        if (isSpeakerNotesAssistantOpen) {
+          speakerNotesEditorActions.closeAssistant();
+          return;
+        }
+        if (isAudienceLinkModalOpen) {
+          setIsAudienceLinkModalOpen(false);
+          return;
+        }
+        if (isPresenceDebugOpen) {
+          setIsPresenceDebugOpen(false);
+          return;
+        }
+        if (isSharePanelOpen) {
+          setIsSharePanelOpen(false);
+        }
+        return;
+      case "menu":
+        if (elementContextMenu) {
+          setElementContextMenu(null);
+          return;
+        }
+        if (isShapeMenuOpen) {
+          setIsShapeMenuOpen(false);
+          return;
+        }
+        setActiveTopMenu(null);
+        return;
+      case "crop-edit":
+        return;
+      case "custom-shape-edit":
+        setCustomShapeEditElementId(null);
+        return;
+      case "inline-text-edit":
+        setEditingElementId(null);
+        return;
+      case "insert-tool":
+        setInsertTool("select");
+        return;
+      case "selection":
+        setSelectedElementIds([]);
+    }
+  }
+
   const historyCallbacks = {
     confirmDiscard: confirmDiscardSpeakerNotesDraft,
     onNavigate: (_nextDeck: Deck, nextSlideIndex: number) => {
@@ -1331,10 +1420,23 @@ export function EditorShell(props: { projectId?: string }) {
     canMutateDeck,
     copiedElementRef,
     editingElementId,
+    hasOpenMenu: Boolean(activeTopMenu || isShapeMenuOpen || elementContextMenu),
+    hasOpenModal: Boolean(
+      isAudienceLinkModalOpen ||
+        isExitConfirmOpen ||
+        isPresenceDebugOpen ||
+        isSharePanelOpen ||
+        isSpeakerNotesAssistantOpen
+    ),
+    insertToolActive: insertTool !== "select",
+    isCropEditing: false,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
     onDelete: handleDeleteSelectedElement,
+    onDismissLayer: handleDismissKeyboardLayer,
     onDuplicate: handleDuplicateSelectedElement,
+    onGroup: handleCreateGroupFromSelection,
+    onMoveSelectionOrder: handleMoveSelectionOrder,
     onNavigateSlide: (direction) => {
       const nextIndex = Math.min(
         deck.slides.length - 1,
@@ -1356,12 +1458,11 @@ export function EditorShell(props: { projectId?: string }) {
     onPaste: handlePasteCopiedElement,
     onRedo: handleRedo,
     onSave: () => void handleSaveDeck(),
+    onSelectAll: handleSelectAllElements,
+    onUngroup: handleKeyboardUngroup,
     onUndo: handleUndo,
     selectedElement,
-    selectedElementId,
-    selectedElementIds,
-    setCustomShapeEditElementId,
-    setSelectedElementIds
+    selectedElementIds
   });
 
   function renderSelectionInspector(instanceKey: string) {
