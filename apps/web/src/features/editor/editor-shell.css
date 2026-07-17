@@ -1580,7 +1580,7 @@
 }
 
 .slide-rail-row .slide-title {
-  padding-right: 54px;
+  padding-right: var(--redesign-space-14);
 }
 
 .slide-rail-row-actions {
@@ -1623,7 +1623,7 @@
   width: 148px;
   display: grid;
   gap: 2px;
-  padding: 6px;
+  padding: var(--redesign-space-1);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-surface-container-lowest);
@@ -1637,12 +1637,12 @@
 .slide-rail-menu button {
   min-height: 34px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--redesign-radius-md);
   background: transparent;
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-label-sm-size);
   text-align: left;
-  padding: 0 9px;
+  padding: 0 var(--redesign-space-2);
 }
 
 .slide-rail-menu button:hover:not(:disabled) {
@@ -1657,7 +1657,7 @@
 .slide-rail-drop-indicator {
   display: block;
   height: 3px;
-  margin: 3px 4px;
+  margin: 3px var(--redesign-space-1);
   border-radius: var(--redesign-radius-full);
   background: var(--redesign-color-primary);
 }
@@ -1677,9 +1677,9 @@
   z-index: 80;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--redesign-space-4);
   min-height: 48px;
-  padding: 8px 10px 8px 16px;
+  padding: var(--redesign-space-2) var(--redesign-space-3) var(--redesign-space-2) var(--redesign-space-4);
   border: 1px solid var(--redesign-color-outline);
   border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-inverse-surface);
@@ -1690,16 +1690,16 @@
 
 .editor-undo-toast button {
   min-height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 6px;
+  border: 1px solid var(--redesign-color-inverse-outline);
+  border-radius: var(--redesign-radius-md);
   background: transparent;
   color: inherit;
   font-weight: 700;
-  padding: 0 10px;
+  padding: 0 var(--redesign-space-3);
 }
 
 .editor-undo-toast button:focus-visible {
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+  box-shadow: var(--redesign-shadow-focus-inverse);
   outline: none;
 }
 
