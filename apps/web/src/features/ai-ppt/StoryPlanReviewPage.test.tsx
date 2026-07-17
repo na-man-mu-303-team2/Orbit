@@ -8,12 +8,14 @@ import {
   storyReviewJobFailureMessage,
   storyPlanPath,
   storyPlanRegenerationPollingKey,
+  storyStyleColorPath,
 } from "./StoryPlanReviewPage";
 
 const response = {
   jobId: "job-1",
   projectId: "project-1",
   status: "review-pending" as const,
+  styleContext: { topic: "ORBIT", tone: "professional" as const },
   plan: {
     revision: 2,
     regenerationCount: 1,
@@ -83,6 +85,16 @@ describe("StoryPlanReviewView", () => {
     expect(storyPlanPath("project 1", "job/1")).toBe(
       "/project/project%201/story-plan/job%2F1",
     );
+    expect(storyStyleColorPath("project 1", "job/1")).toBe(
+      "/project/project%201/style-color/job%2F1",
+    );
+  });
+
+  it("continues to Style & Color before generation approval", () => {
+    const html = renderView("outline");
+
+    expect(html).toContain("스타일 선택");
+    expect(html).toContain("다음 단계에서 폰트와 컬러를 선택합니다.");
   });
 
   it("restarts polling when regeneration begins", () => {

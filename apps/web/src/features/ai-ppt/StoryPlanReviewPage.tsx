@@ -1,8 +1,4 @@
-import {
-  storyPlanReviewResponseSchema,
-  type Job,
-  type StoryPlanReviewResponse,
-} from "@orbit/shared";
+import type { Job, StoryPlanReviewResponse } from "@orbit/shared";
 import {
   IconChevronDown,
   IconChevronUp,
@@ -21,7 +17,14 @@ import {
   OrbitTextarea,
 } from "../../design-system";
 import { pollJob } from "./AiPptMockupPage";
+import {
+  requestStoryPlan,
+  requestStoryPlanMutation,
+  storyStyleColorPath,
+} from "./story-plan-api";
 import "./story-plan-review.css";
+
+export { storyPlanPath, storyStyleColorPath } from "./story-plan-api";
 
 type StoryTab = "outline" | "script";
 type StoryPlan = NonNullable<StoryPlanReviewResponse["plan"]>;
@@ -59,10 +62,6 @@ export function storyPlanRegenerationPollingKey(
   return response?.status === "regenerating"
     ? response.plan?.regenerationCount
     : undefined;
-}
-
-export function storyPlanPath(projectId: string, jobId: string) {
-  return `/project/${encodeURIComponent(projectId)}/story-plan/${encodeURIComponent(jobId)}`;
 }
 
 export function StoryPlanReviewPage(props: {
@@ -126,9 +125,7 @@ export function StoryPlanReviewPage(props: {
     scriptDrafts,
   );
 
-  async function editStoryPlan(
-    edit: StoryPlanEdit,
-  ) {
+  async function editStoryPlan(edit: StoryPlanEdit) {
     if (!response?.plan || mutationInFlight.current) return;
     mutationInFlight.current = true;
     setBusy(true);
@@ -185,7 +182,15 @@ export function StoryPlanReviewPage(props: {
     await editStoryPlan({ kind: "speaker-notes", order, speakerNotes });
   }
 
-  async function mutate(action: "approve" | "cancel" | "regenerate") {
+  function continueToStyle() {
+    if (!response?.plan || hasUnsavedScripts) {
+      setError("대본 변경사항을 먼저 저장해 주세요.");
+      return;
+    }
+    navigate(storyStyleColorPath(props.projectId, props.jobId));
+  }
+
+  async function mutate(action: "cancel" | "regenerate") {
     if (!response || mutationInFlight.current) return;
     if (action !== "cancel" && (!response.plan || hasUnsavedScripts)) {
       setError("대본 변경사항을 먼저 저장해 주세요.");
@@ -211,14 +216,6 @@ export function StoryPlanReviewPage(props: {
       setResponse(next);
       setDialogOpen(false);
       setInstruction("");
-      if (action === "approve") {
-        const job = await pollJob(next.jobId);
-        if (job.status === "succeeded") {
-          navigate(`/project/${encodeURIComponent(next.projectId)}`);
-        } else {
-          setError(storyReviewJobFailureMessage(job));
-        }
-      }
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "요청을 처리하지 못했습니다.",
@@ -243,7 +240,7 @@ export function StoryPlanReviewPage(props: {
       <StoryPlanReviewView
         activeTab={activeTab}
         busy={busy}
-        onApprove={() => void mutate("approve")}
+        onApprove={continueToStyle}
         onCancel={() => void mutate("cancel")}
         hasUnsavedScripts={hasUnsavedScripts}
         onRegenerate={() => setDialogOpen(true)}
@@ -447,9 +444,9 @@ export function StoryPlanReviewView(props: {
             disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onClick={props.onApprove}
           >
-            이 구성으로 생성
+            스타일 선택
           </OrbitButton>
-          <span>승인 후 디자인 생성을 시작합니다.</span>
+          <span>다음 단계에서 폰트와 컬러를 선택합니다.</span>
         </div>
       </footer>
     </section>
@@ -660,44 +657,6 @@ function StoryPlanLoading(props: {
       ) : null}
     </section>
   );
-}
-
-async function requestStoryPlan(projectId: string, jobId: string) {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/story-plan`,
-    { credentials: "include" },
-  );
-  return parseStoryResponse(response);
-}
-
-async function requestStoryPlanMutation(
-  projectId: string,
-  jobId: string,
-  action: "approve" | "cancel" | "edit" | "regenerate",
-  body?: Record<string, unknown>,
-) {
-  const response = await fetch(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}/story-plan/${action}`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    },
-  );
-  return parseStoryResponse(response);
-}
-
-async function parseStoryResponse(response: Response) {
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String(payload.message)
-        : "요청을 처리하지 못했습니다.";
-    throw new Error(message);
-  }
-  return storyPlanReviewResponseSchema.parse(payload);
 }
 
 function navigate(path: string) {

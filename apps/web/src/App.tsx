@@ -37,7 +37,10 @@ import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
-import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
+import {
+  AiPptMockupPage as AiPptWizardPage,
+  AiPptStyleColorPage,
+} from "./features/ai-ppt/AiPptMockupPage";
 import { StoryPlanReviewPage } from "./features/ai-ppt/StoryPlanReviewPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import {
@@ -73,6 +76,7 @@ export type Route =
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
   | { name: "story-plan-review"; projectId: string; jobId: string }
+  | { name: "story-style-color"; projectId: string; jobId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "presentation"; projectId: string }
@@ -405,6 +409,17 @@ export function getRoute(pathname?: string, search?: string): Route {
       };
     }
 
+    const storyStyleColorMatch = normalized.match(
+      /^\/project\/([^/]+)\/style-color\/([^/]+)$/,
+    );
+    if (storyStyleColorMatch) {
+      return {
+        name: "story-style-color",
+        projectId: decodeURIComponent(storyStyleColorMatch[1]),
+        jobId: decodeURIComponent(storyStyleColorMatch[2]),
+      };
+    }
+
     const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
     if (projectMatch) {
       return {
@@ -628,6 +643,14 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "story-plan-review") {
     return (
       <StoryPlanReviewPage
+        jobId={route.jobId}
+        projectId={route.projectId}
+      />
+    );
+  }
+  if (route.name === "story-style-color") {
+    return (
+      <AiPptStyleColorPage
         jobId={route.jobId}
         projectId={route.projectId}
       />

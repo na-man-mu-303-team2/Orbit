@@ -224,6 +224,11 @@ describe("App shell routing", () => {
       projectId: "project_demo_1",
       jobId: "job-1",
     });
+    expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
+      name: "story-style-color",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
   });
 
   it("parses presenter slide-window routes with an optional session id", () => {

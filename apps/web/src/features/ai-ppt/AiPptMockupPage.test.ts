@@ -7,6 +7,7 @@ import {
   getAiPptWizardValidationMessage,
   mergeAiPptContentFormData,
   mergeReferenceFiles,
+  miniSlideFontStyles,
   pollJob,
 } from "./AiPptMockupPage";
 
@@ -108,6 +109,19 @@ describe("AI PPT simplified input", () => {
     expect(defaultPaletteOptions[8]?.palette.background).toBe("#0F172A");
   });
 
+  it("builds the existing font preview stack safely", () => {
+    expect(
+      miniSlideFontStyles({
+        headingFontFamily: 'Heading "Unsafe"',
+        bodyFontFamily: "Body Font",
+        fallbackFamily: "Arial",
+      }),
+    ).toEqual({
+      heading: { fontFamily: '"Heading Unsafe", Arial, sans-serif' },
+      body: { fontFamily: '"Body Font", Arial, sans-serif' },
+    });
+  });
+
   it("keeps one copy of duplicate attachments", () => {
     const first = new File(["a"], "brief.pdf", { lastModified: 1 });
     const duplicate = new File(["b"], "brief.pdf", { lastModified: 1 });
@@ -183,5 +197,7 @@ describe("AI PPT simplified input", () => {
     expect(source).not.toContain("putPresentationBrief");
     expect(source).not.toContain("Saved Design Pack");
     expect(source).not.toContain("referencePolicyOptions");
+    expect(source).not.toContain("/generation/${encodeURIComponent(jobId)}/story");
+    expect(source).toContain("storyPlanPath(projectId, jobId)");
   });
 });

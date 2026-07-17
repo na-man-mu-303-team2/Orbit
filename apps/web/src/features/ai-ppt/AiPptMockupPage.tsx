@@ -3,12 +3,12 @@ import type {
   GenerateDeckFontOption,
   GenerateDeckRequest,
   Job,
+  StoryPlanReviewResponse,
 } from "@orbit/shared";
 import { recommendGenerateDeckFonts } from "@orbit/shared";
 import {
   IconCheck,
   IconChevronLeft,
-  IconChevronRight,
   IconFileText,
   IconPaperclip,
   IconPlayerPlay,
@@ -17,15 +17,19 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import type { DragEvent, Ref } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createProject,
   deleteProject,
   uploadProjectAsset,
 } from "../projects/ProjectAssetWorkspace";
+import {
+  requestStoryPlan,
+  requestStoryPlanMutation,
+  storyPlanPath,
+} from "./story-plan-api";
 import "./ai-ppt-mockup.css";
 
-type StepId = "content" | "style-color";
 type Tone = "professional" | "friendly" | "confident" | "concise";
 type PaletteOverride = NonNullable<
   GenerateDeckRequest["design"]["paletteOverride"]
@@ -47,9 +51,12 @@ export type AiPptWizardState = {
 
 const stylePackId = "brandlogy-modern";
 const defaultFontMood = "professional trustworthy Korean sans font";
-const steps: Array<{ id: StepId; label: string }> = [
-  { id: "content", label: "내용 입력" },
-  { id: "style-color", label: "Style & Color" },
+const flowSteps = ["내용 입력", "Story Review", "Style & Color"];
+const toneOptions: Array<{ value: Tone; label: string }> = [
+  { value: "professional", label: "전문적인" },
+  { value: "friendly", label: "친근한" },
+  { value: "confident", label: "자신감 있는" },
+  { value: "concise", label: "간결한" },
 ];
 
 export const defaultPaletteOptions: PaletteOption[] = [
@@ -272,32 +279,12 @@ export function buildAiPptGenerateDeckPayload(
 }
 
 export function AiPptMockupPage() {
-  const [currentStep, setCurrentStep] = useState<StepId>("content");
   const [form, setForm] = useState(initialAiPptWizardState);
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
-  const [selectedPaletteId, setSelectedPaletteId] = useState(
-    defaultPaletteOptions[0].optionId,
-  );
-  const [customPalette, setCustomPalette] = useState<PaletteOption | null>(
-    null,
-  );
-  const [palettePrompt, setPalettePrompt] = useState("");
-  const [isCustomizingPalette, setIsCustomizingPalette] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const contentFormRef = useRef<HTMLFormElement>(null);
-  const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
-  const paletteOptions = useMemo(
-    () =>
-      customPalette
-        ? [...defaultPaletteOptions, customPalette]
-        : defaultPaletteOptions,
-    [customPalette],
-  );
-  const selectedPalette =
-    paletteOptions.find((option) => option.optionId === selectedPaletteId) ??
-    defaultPaletteOptions[0];
 
   function updateForm<K extends keyof AiPptWizardState>(
     key: K,
@@ -306,57 +293,12 @@ export function AiPptMockupPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function goToStep(step: StepId) {
-    setCurrentStep(step);
-    setError("");
-  }
-
-  function goNext() {
+  async function submitGeneration() {
     const nextForm = contentFormRef.current
       ? mergeAiPptContentFormData(form, new FormData(contentFormRef.current))
       : form;
     setForm(nextForm);
     const validationMessage = getAiPptWizardValidationMessage(nextForm);
-    if (validationMessage) {
-      setError(validationMessage);
-      return;
-    }
-    goToStep("style-color");
-  }
-
-  async function customizePalette() {
-    const instruction = palettePrompt.trim();
-    if (!instruction) {
-      setError("원하는 색감이나 변경할 요소를 입력하세요.");
-      return;
-    }
-
-    setIsCustomizingPalette(true);
-    setError("");
-    try {
-      const response = await fetchDeckColorCustomization({
-        topic: form.topic,
-        instruction,
-        basePalette: selectedPalette.palette,
-        stylePackId,
-        tone: form.tone,
-      });
-      const option = { ...response.option, optionId: "ai-custom" };
-      setCustomPalette(option);
-      setSelectedPaletteId(option.optionId);
-    } catch (customizationError) {
-      setError(
-        customizationError instanceof Error
-          ? customizationError.message
-          : "AI 팔레트를 만들지 못했습니다. 현재 선택은 유지됩니다.",
-      );
-    } finally {
-      setIsCustomizingPalette(false);
-    }
-  }
-
-  async function submitGeneration() {
-    const validationMessage = getAiPptWizardValidationMessage(form);
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -369,7 +311,7 @@ export function AiPptMockupPage() {
     let generationStarted = false;
 
     try {
-      const project = await createProject(getProjectTitle(form.topic));
+      const project = await createProject(getProjectTitle(nextForm.topic));
       createdProjectId = project.projectId;
       const referenceFileIds: string[] = [];
       for (const file of referenceFiles) {
@@ -391,8 +333,8 @@ export function AiPptMockupPage() {
           credentials: "include",
           body: JSON.stringify(
             buildAiPptGenerateDeckPayload(
-              form,
-              selectedPalette,
+              nextForm,
+              defaultPaletteOptions[0],
               referenceFileIds,
             ),
           ),
@@ -446,14 +388,18 @@ export function AiPptMockupPage() {
           <span>AI PPT</span>
           <h1>발표 내용부터 빠르게 시작하세요</h1>
           <p>
-            내용과 참고자료를 한 번에 입력하고, 다음 화면에서 톤과 색상을
-            정합니다.
+            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기
+            구성을 제안합니다.
           </p>
         </div>
         <button
           className="ai-ppt-primary"
           type="button"
-          onClick={() => goToStep("content")}
+          onClick={() => {
+            setForm(initialAiPptWizardState);
+            setReferenceFiles([]);
+            setError("");
+          }}
         >
           <IconSparkles size={17} />
           처음부터 입력
@@ -461,49 +407,17 @@ export function AiPptMockupPage() {
       </header>
 
       <div className="ai-ppt-layout">
-        <aside className="ai-ppt-steps" aria-label="AI PPT 생성 단계">
-          {steps.map((step, index) => (
-            <button
-              key={step.id}
-              className={[
-                "ai-ppt-step",
-                currentStep === step.id ? "active" : "",
-                index < currentStepIndex ? "done" : "",
-              ].join(" ")}
-              type="button"
-              onClick={() => (index === 0 ? goToStep(step.id) : goNext())}
-            >
-              <span>
-                {index < currentStepIndex ? <IconCheck size={14} /> : index + 1}
-              </span>
-              <strong>{step.label}</strong>
-            </button>
-          ))}
-        </aside>
+        <WizardSteps activeIndex={0} />
 
         <main className="ai-ppt-workspace ai-ppt-workspace-single">
           <section className="ai-ppt-panel">
-            {currentStep === "content" ? (
-              <ContentStep
-                files={referenceFiles}
-                form={form}
-                formRef={contentFormRef}
-                onChange={updateForm}
-                onFilesChange={setReferenceFiles}
-              />
-            ) : (
-              <StyleColorStep
-                customPalette={customPalette}
-                isCustomizing={isCustomizingPalette}
-                onChange={updateForm}
-                onCustomize={() => void customizePalette()}
-                onPalettePromptChange={setPalettePrompt}
-                onSelectPalette={setSelectedPaletteId}
-                palettePrompt={palettePrompt}
-                selectedPaletteId={selectedPalette.optionId}
-                form={form}
-              />
-            )}
+            <ContentStep
+              files={referenceFiles}
+              form={form}
+              formRef={contentFormRef}
+              onChange={updateForm}
+              onFilesChange={setReferenceFiles}
+            />
             {error ? (
               <p className="ai-ppt-error" role="alert">
                 {error}
@@ -519,39 +433,272 @@ export function AiPptMockupPage() {
       </div>
 
       <footer className="ai-ppt-footer">
-        <button
-          className="ai-ppt-secondary"
-          disabled={currentStepIndex === 0 || isGenerating}
-          type="button"
-          onClick={() => goToStep("content")}
-        >
+        <button className="ai-ppt-secondary" disabled type="button">
           <IconChevronLeft size={17} />
           이전
         </button>
         <button
           className="ai-ppt-primary"
-          disabled={isGenerating || isCustomizingPalette}
+          disabled={isGenerating}
           type="button"
-          onClick={
-            currentStep === "content" ? goNext : () => void submitGeneration()
-          }
+          onClick={() => void submitGeneration()}
         >
           {isGenerating ? (
             <>
               <IconPlayerPlay size={17} /> 생성 중
             </>
-          ) : currentStep === "style-color" ? (
-            <>
-              <IconPlayerPlay size={17} /> 스토리 만들기
-            </>
           ) : (
             <>
-              다음 <IconChevronRight size={17} />
+              <IconPlayerPlay size={17} /> 스토리 만들기
             </>
           )}
         </button>
       </footer>
     </section>
+  );
+}
+
+export function AiPptStyleColorPage(props: {
+  jobId: string;
+  projectId: string;
+}) {
+  const [story, setStory] = useState<StoryPlanReviewResponse | null>(null);
+  const [selectedPaletteId, setSelectedPaletteId] = useState(
+    defaultPaletteOptions[0].optionId,
+  );
+  const [selectedFontId, setSelectedFontId] = useState(
+    recommendGenerateDeckFonts(defaultFontMood)[0].fontId,
+  );
+  const [customPalette, setCustomPalette] = useState<PaletteOption | null>(null);
+  const [palettePrompt, setPalettePrompt] = useState("");
+  const [isCustomizingPalette, setIsCustomizingPalette] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [status, setStatus] = useState("스타일 정보를 불러오는 중...");
+  const [error, setError] = useState("");
+  const paletteOptions = useMemo(
+    () =>
+      customPalette
+        ? [...defaultPaletteOptions, customPalette]
+        : defaultPaletteOptions,
+    [customPalette],
+  );
+  const selectedPalette =
+    paletteOptions.find((option) => option.optionId === selectedPaletteId) ??
+    defaultPaletteOptions[0];
+  const fontOptions = useMemo(
+    () =>
+      recommendGenerateDeckFonts(
+        `${story?.styleContext?.topic ?? ""} ${story?.styleContext?.tone ?? "professional"} ${defaultFontMood}`,
+      ),
+    [story?.styleContext?.tone, story?.styleContext?.topic],
+  );
+  const selectedFont =
+    fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const next = await requestStoryPlan(props.projectId, props.jobId);
+        if (cancelled) return;
+        setStory(next);
+        if (next.status === "approved") {
+          setStatus("슬라이드를 생성하는 중...");
+          const job = await pollJob(next.jobId);
+          if (!cancelled && job.status === "succeeded") {
+            navigateToProject(next.projectId);
+          } else if (!cancelled) {
+            setError(job.error?.message || job.message);
+          }
+          return;
+        }
+        if (
+          next.status !== "review-pending" ||
+          !next.plan ||
+          !next.styleContext
+        ) {
+          setError("확정된 스토리의 스타일 정보를 불러올 수 없습니다.");
+        }
+        setStatus("");
+      } catch (cause) {
+        if (!cancelled) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "스타일 정보를 불러오지 못했습니다.",
+          );
+          setStatus("");
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.jobId, props.projectId]);
+
+  async function customizePalette() {
+    const instruction = palettePrompt.trim();
+    const styleContext = story?.styleContext;
+    if (!instruction || !styleContext) {
+      setError("원하는 색감이나 변경할 요소를 입력하세요.");
+      return;
+    }
+    setIsCustomizingPalette(true);
+    setError("");
+    try {
+      const response = await fetchDeckColorCustomization({
+        topic: styleContext.topic,
+        instruction,
+        basePalette: selectedPalette.palette,
+        stylePackId,
+        tone: styleContext.tone,
+      });
+      const option = { ...response.option, optionId: "ai-custom" };
+      setCustomPalette(option);
+      setSelectedPaletteId(option.optionId);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "AI 팔레트를 만들지 못했습니다. 현재 선택은 유지됩니다.",
+      );
+    } finally {
+      setIsCustomizingPalette(false);
+    }
+  }
+
+  async function approveAndGenerate() {
+    if (!story?.plan || story.status !== "review-pending" || !selectedFont) {
+      setError("스타일을 적용할 스토리 정보를 불러오지 못했습니다.");
+      return;
+    }
+    setIsGenerating(true);
+    setError("");
+    setStatus("선택한 스타일을 적용하는 중...");
+    try {
+      const next = await requestStoryPlanMutation(
+        props.projectId,
+        props.jobId,
+        "approve",
+        {
+          expectedRevision: story.plan.revision,
+          designSelection: {
+            paletteOptionId: selectedPalette.optionId,
+            paletteOverride: selectedPalette.palette,
+            fontOverride: fontOverrideFromOption(selectedFont),
+          },
+        },
+      );
+      setStory(next);
+      setStatus("슬라이드를 생성하는 중...");
+      const job = await pollJob(next.jobId, (current) => {
+        setStatus(getAiPptGenerationStatus(current));
+      });
+      if (job.status === "failed") {
+        throw new Error(job.error?.message || job.message);
+      }
+      navigateToProject(next.projectId);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "AI PPT 생성에 실패했습니다.",
+      );
+      setStatus("");
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  return (
+    <section className="ai-ppt-page">
+      <header className="ai-ppt-header">
+        <div>
+          <span>AI PPT</span>
+          <h1>스토리에 어울리는 스타일을 선택하세요</h1>
+          <p>컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.</p>
+        </div>
+      </header>
+      <div className="ai-ppt-layout">
+        <WizardSteps activeIndex={2} />
+        <main className="ai-ppt-workspace">
+          <section className="ai-ppt-panel">
+            <StyleColorStep
+              customPalette={customPalette}
+              fontOptions={fontOptions}
+              isCustomizing={isCustomizingPalette}
+              onCustomize={() => void customizePalette()}
+              onFontSelect={setSelectedFontId}
+              onPalettePromptChange={setPalettePrompt}
+              onSelectPalette={setSelectedPaletteId}
+              palettePrompt={palettePrompt}
+              selectedFontId={selectedFont?.fontId ?? ""}
+              selectedPaletteId={selectedPalette.optionId}
+            />
+            {error ? (
+              <p className="ai-ppt-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {status ? (
+              <p className="ai-ppt-status" role="status">
+                {status}
+              </p>
+            ) : null}
+          </section>
+          <aside className="ai-ppt-live-preview">
+            {selectedFont ? (
+              <LivePreview
+                selectedFont={selectedFont}
+                selectedPalette={selectedPalette}
+              />
+            ) : null}
+          </aside>
+        </main>
+      </div>
+      <footer className="ai-ppt-footer">
+        <button
+          className="ai-ppt-secondary"
+          disabled={isGenerating}
+          type="button"
+          onClick={() =>
+            navigateToPath(storyPlanPath(props.projectId, props.jobId))
+          }
+        >
+          <IconChevronLeft size={17} /> 이전
+        </button>
+        <button
+          className="ai-ppt-primary"
+          disabled={
+            isGenerating || isCustomizingPalette || !story?.styleContext
+          }
+          type="button"
+          onClick={() => void approveAndGenerate()}
+        >
+          <IconPlayerPlay size={17} />
+          {isGenerating ? "생성 중" : "슬라이드 생성"}
+        </button>
+      </footer>
+    </section>
+  );
+}
+
+function WizardSteps({ activeIndex }: { activeIndex: number }) {
+  return (
+    <aside className="ai-ppt-steps" aria-label="AI PPT 생성 단계">
+      {flowSteps.map((label, index) => (
+        <div
+          className={[
+            "ai-ppt-step",
+            index === activeIndex ? "active" : "",
+            index < activeIndex ? "done" : "",
+          ].join(" ")}
+          key={label}
+        >
+          <span>{index < activeIndex ? <IconCheck size={14} /> : index + 1}</span>
+          <strong>{label}</strong>
+        </div>
+      ))}
+    </aside>
   );
 }
 
@@ -596,6 +743,21 @@ function ContentStep(props: {
           onChange={(value) => props.onChange("audience", value)}
         />
       </form>
+      <fieldset className="ai-ppt-style-fieldset">
+        <legend>발표 톤</legend>
+        <div className="ai-ppt-tone-grid">
+          {toneOptions.map((tone) => (
+            <button
+              key={tone.value}
+              className={props.form.tone === tone.value ? "selected" : ""}
+              type="button"
+              onClick={() => props.onChange("tone", tone.value)}
+            >
+              {tone.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
       <AttachmentField
         files={props.files}
         onFilesChange={props.onFilesChange}
@@ -606,42 +768,40 @@ function ContentStep(props: {
 
 function StyleColorStep(props: {
   customPalette: PaletteOption | null;
-  form: AiPptWizardState;
+  fontOptions: GenerateDeckFontOption[];
   isCustomizing: boolean;
-  onChange: <K extends keyof AiPptWizardState>(
-    key: K,
-    value: AiPptWizardState[K],
-  ) => void;
   onCustomize: () => void;
+  onFontSelect: (fontId: string) => void;
   onPalettePromptChange: (value: string) => void;
   onSelectPalette: (optionId: string) => void;
   palettePrompt: string;
+  selectedFontId: string;
   selectedPaletteId: string;
 }) {
-  const tones: Array<{ value: Tone; label: string }> = [
-    { value: "professional", label: "전문적인" },
-    { value: "friendly", label: "친근한" },
-    { value: "confident", label: "자신감 있는" },
-    { value: "concise", label: "간결한" },
-  ];
-
   return (
     <>
       <PanelHeading
-        kicker="2. Style & Color"
-        title="발표 톤과 색상을 선택하세요"
+        kicker="3. Style & Color"
+        title="폰트와 색상을 선택하세요"
       />
       <fieldset className="ai-ppt-style-fieldset">
-        <legend>발표 톤</legend>
-        <div className="ai-ppt-tone-grid">
-          {tones.map((tone) => (
+        <legend>폰트</legend>
+        <div className="ai-ppt-font-grid">
+          {props.fontOptions.map((font) => (
             <button
-              key={tone.value}
-              className={props.form.tone === tone.value ? "selected" : ""}
+              key={font.fontId}
+              className={props.selectedFontId === font.fontId ? "selected" : ""}
               type="button"
-              onClick={() => props.onChange("tone", tone.value)}
+              onClick={() => props.onFontSelect(font.fontId)}
             >
-              {tone.label}
+              <strong style={{ fontFamily: font.headingFontFamily }}>
+                {font.name}
+              </strong>
+              <span style={{ fontFamily: font.bodyFontFamily }}>
+                스토리를 선명하게 전달하는 문장
+              </span>
+              <small>{font.rationale}</small>
+              <em>{font.license}</em>
             </button>
           ))}
         </div>
@@ -733,6 +893,108 @@ function PaletteSwatches(props: { palette: Required<PaletteOverride> }) {
         <i key={`${color}-${index}`} style={{ background: color }} />
       ))}
     </span>
+  );
+}
+
+function LivePreview(props: {
+  selectedFont: GenerateDeckFontOption;
+  selectedPalette: PaletteOption;
+}) {
+  return (
+    <div className="ai-ppt-preview-card">
+      <div className="ai-ppt-preview-top">
+        <span>Live Preview</span>
+        <strong>
+          {props.selectedPalette.name} · {props.selectedFont.name}
+        </strong>
+      </div>
+      <div className="ai-ppt-slide-grid">
+        <MiniSlide
+          font={props.selectedFont}
+          palette={props.selectedPalette.palette}
+        />
+        <MiniSlide
+          dense
+          font={props.selectedFont}
+          palette={props.selectedPalette.palette}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function miniSlideFontStyles(
+  font: Pick<
+    GenerateDeckFontOption,
+    "headingFontFamily" | "bodyFontFamily" | "fallbackFamily"
+  >,
+) {
+  const stack = (family: string) =>
+    `"${family.replaceAll('"', "")}", ${font.fallbackFamily}, sans-serif`;
+  return {
+    heading: { fontFamily: stack(font.headingFontFamily) },
+    body: { fontFamily: stack(font.bodyFontFamily) },
+  };
+}
+
+function MiniSlide(props: {
+  dense?: boolean;
+  font: GenerateDeckFontOption;
+  palette: Required<PaletteOverride>;
+}) {
+  const fontStyles = miniSlideFontStyles(props.font);
+  const { palette } = props;
+  return (
+    <div
+      className={[
+        "ai-ppt-mini-slide",
+        props.dense ? "ai-ppt-mini-slide-dense" : "ai-ppt-mini-slide-cover",
+      ].join(" ")}
+      style={{
+        background: palette.background,
+        borderColor: palette.border,
+        color: palette.text,
+        ...fontStyles.body,
+      }}
+    >
+      <i className="ai-ppt-mini-top-rule" style={{ background: palette.primary }} />
+      <header className="ai-ppt-mini-section" style={fontStyles.heading}>
+        <span style={{ color: palette.primary }}>01</span>
+        <b>발표 디자인</b>
+      </header>
+      {props.dense ? (
+        <main className="ai-ppt-mini-body-recipe">
+          {[palette.primary, palette.secondary, palette.accentColor].map(
+            (color, index) => (
+              <section key={`${color}-${index}`} style={{ borderColor: palette.border }}>
+                <i style={{ background: color }} />
+                <strong style={fontStyles.heading}>
+                  {index === 0 ? "과정" : index === 1 ? "핵심" : "근거"}
+                </strong>
+                <p style={{ background: palette.muted }} />
+              </section>
+            ),
+          )}
+        </main>
+      ) : (
+        <main className="ai-ppt-mini-cover-recipe">
+          <section>
+            <strong style={fontStyles.heading}>핵심 메시지</strong>
+            <p style={fontStyles.body}>발표 흐름과 실행안</p>
+          </section>
+          <aside style={{ background: palette.muted, borderColor: palette.border }}>
+            <i style={{ background: palette.primary }} />
+            <span style={{ borderColor: palette.border }} />
+            <span style={{ borderColor: palette.border }} />
+            <span style={{ borderColor: palette.border }} />
+          </aside>
+        </main>
+      )}
+      <i
+        className="ai-ppt-mini-bottom-rule"
+        style={{ background: palette.secondary }}
+      />
+    </div>
   );
 }
 
@@ -952,11 +1214,11 @@ function getAiPptGenerationStatus(job: Job) {
 }
 
 function navigateToStoryPlan(projectId: string, jobId: string) {
-  window.history.pushState(
-    null,
-    "",
-    `/project/${encodeURIComponent(projectId)}/generation/${encodeURIComponent(jobId)}/story`,
-  );
+  navigateToPath(storyPlanPath(projectId, jobId));
+}
+
+function navigateToPath(path: string) {
+  window.history.pushState(null, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 

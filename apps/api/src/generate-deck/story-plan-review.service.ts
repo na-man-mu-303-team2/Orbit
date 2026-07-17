@@ -1,10 +1,12 @@
 import {
   generateDeckRepairReasonSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   storyPlanApproveRequestSchema,
   storyPlanEditRequestSchema,
   storyPlanRegenerateRequestSchema,
   storyPlanReviewResponseSchema,
+  type StoryPlanApproveRequest,
   type StoryPlanEditRequest,
   type StoryPlanReviewResponse,
 } from "@orbit/shared";
@@ -23,6 +25,7 @@ const jobRowSchema = z.object({
   job_id: z.string().min(1),
   project_id: z.string().min(1),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
+  payload: z.unknown().optional(),
   error: jobErrorSchema.nullable().optional(),
 });
 const reviewRowSchema = z.object({
@@ -144,16 +147,47 @@ export class StoryPlanReviewService {
       const artifact = firstRow(
         await manager.query(
           `
-            SELECT artifact_id
+            SELECT artifact_id, payload_json
             FROM ai_deck_planning_artifacts
             WHERE pipeline_job_id = $1
               AND project_id = $2
               AND stage = 'content-planning'
+            FOR UPDATE
           `,
           [jobId, projectId],
         ),
       );
       const artifactId = z.string().uuid().parse(artifact?.artifact_id);
+      if (request.designSelection) {
+        const contentPayload = applyStoryPlanDesignSelection(
+          artifact?.payload_json,
+          request.designSelection,
+          storyStyleContext(state.job.payload)?.tone ?? "professional",
+        );
+        const jobPayload = applyStoredJobDesignSelection(
+          state.job.payload,
+          request.designSelection,
+        );
+        await manager.query(
+          `
+            UPDATE ai_deck_planning_artifacts
+            SET payload_json = $3::jsonb, updated_at = now()
+            WHERE pipeline_job_id = $1
+              AND project_id = $2
+              AND stage = 'content-planning'
+          `,
+          [jobId, projectId, contentPayload],
+        );
+        await manager.query(
+          `
+            UPDATE jobs
+            SET payload = $3::jsonb, updated_at = now()
+            WHERE job_id = $1 AND project_id = $2
+              AND type = 'ai-deck-generation'
+          `,
+          [jobId, projectId, jobPayload],
+        );
+      }
       await manager.query(
         `
           UPDATE ai_deck_story_reviews
@@ -340,7 +374,7 @@ async function loadStorySnapshot(
   const job = firstRow(
     await db.query(
       `
-        SELECT job_id, project_id, status, error
+        SELECT job_id, project_id, status, payload, error
         FROM jobs
         WHERE job_id = $1 AND project_id = $2
           AND type = 'ai-deck-generation'
@@ -385,7 +419,7 @@ async function lockStoryState(
   const job = firstRow(
     await manager.query(
       `
-        SELECT job_id, project_id, status, error
+        SELECT job_id, project_id, status, payload, error
         FROM jobs
         WHERE job_id = $1 AND project_id = $2
           AND type = 'ai-deck-generation'
@@ -534,6 +568,71 @@ export function applyStoryPlanEdit(
   };
 }
 
+type StoryPlanDesignSelection = NonNullable<
+  StoryPlanApproveRequest["designSelection"]
+>;
+
+export function applyStoryPlanDesignSelection(
+  rawPayload: unknown,
+  selection: StoryPlanDesignSelection,
+  tone: string,
+): unknown {
+  const payload = contentArtifactPayloadSchema.parse(rawPayload);
+  return {
+    ...payload,
+    rawInput: {
+      ...payload.rawInput,
+      design_prompt: designPromptForSelection(selection, tone),
+      design: {
+        ...recordValue(payload.rawInput.design),
+        paletteOverride: selection.paletteOverride,
+        fontOverride: selection.fontOverride,
+      },
+    },
+  };
+}
+
+function applyStoredJobDesignSelection(
+  rawPayload: unknown,
+  selection: StoryPlanDesignSelection,
+) {
+  const payload = generateDeckStoredJobPayloadSchema.parse(rawPayload);
+  return {
+    ...payload,
+    request: {
+      ...payload.request,
+      designPrompt: designPromptForSelection(
+        selection,
+        payload.request.metadata.tone,
+      ),
+      design: {
+        ...payload.request.design,
+        paletteOverride: selection.paletteOverride,
+        fontOverride: selection.fontOverride,
+      },
+    },
+  };
+}
+
+function designPromptForSelection(
+  selection: StoryPlanDesignSelection,
+  tone: string,
+) {
+  return [
+    `tone=${tone}`,
+    `palette=${selection.paletteOptionId}`,
+    `font=${selection.fontOverride.name}`,
+    "mediaPolicy=minimal",
+    "base=brandlogy-modern",
+  ].join("; ");
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export function projectStoryPlanReview(
   snapshot: StorySnapshot,
 ): StoryPlanReviewResponse {
@@ -566,9 +665,20 @@ export function projectStoryPlanReview(
     jobId: job.job_id,
     projectId: job.project_id,
     status,
+    styleContext: storyStyleContext(job.payload),
     plan,
     error,
   });
+}
+
+function storyStyleContext(rawPayload: unknown) {
+  const payload = generateDeckStoredJobPayloadSchema.safeParse(rawPayload);
+  return payload.success
+    ? {
+        topic: payload.data.request.topic,
+        tone: payload.data.request.metadata.tone,
+      }
+    : null;
 }
 
 function projectPlan(
