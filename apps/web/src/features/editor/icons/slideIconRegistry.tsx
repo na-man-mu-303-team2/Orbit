@@ -1,6 +1,32 @@
 import {
-  IconAlertTriangle, IconArrowRight, IconAward, IconBriefcase, IconBuilding,
+  IconAlertTriangle,
+  IconArrowBackUp,
+  IconArrowBigRight,
+  IconArrowBounce,
+  IconArrowCurveLeft,
+  IconArrowCurveRight,
+  IconArrowDown,
+  IconArrowDownLeft,
+  IconArrowDownRight,
+  IconArrowFork,
+  IconArrowForwardUp,
+  IconArrowLeft,
+  IconArrowLoopLeft,
+  IconArrowLoopRight,
+  IconArrowMerge,
+  IconArrowNarrowRight,
+  IconArrowRight,
+  IconArrowsExchange,
+  IconArrowsJoin,
+  IconArrowsLeftRight,
+  IconArrowsSplit,
+  IconArrowsUpDown,
+  IconArrowUp,
+  IconArrowUpLeft,
+  IconArrowUpRight,
+  IconAward, IconBriefcase, IconBuilding,
   IconBulb, IconCalendar, IconChartBar, IconChartLine, IconCheck,
+  IconChevronRight,
   IconCircleCheck, IconClock, IconCloud, IconCoin, IconDatabase,
   IconDeviceLaptop, IconFlag, IconGlobe, IconHeart, IconHelpCircle,
   IconInfoCircle, IconLock, IconMail, IconMapPin,
@@ -12,12 +38,52 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { presentationArrowAssets } from "../assets/presentationArrowAssets";
+
 export type SlideIconDefinition = {
+  category: "arrow" | "general";
+  defaultHeight?: number;
+  defaultWidth?: number;
   Icon: TablerIcon;
   keywords: string[];
   label: string;
   name: string;
 };
+
+export const slideArrowIconDefinitions: SlideIconDefinition[] =
+  presentationArrowAssets.map((assetDefinition) => ({
+    ...assetDefinition,
+    category: "arrow" as const,
+    keywords: ["화살표", "장표", "PPT", ...assetDefinition.keywords],
+  }));
+
+const directionalIconDefinitions: SlideIconDefinition[] = [
+  icon("arrow-right", "오른쪽 방향", IconArrowRight, ["다음", "진행"]),
+  icon("arrow-left", "왼쪽 방향", IconArrowLeft, ["이전", "뒤로"]),
+  icon("arrow-up", "위쪽 방향", IconArrowUp, ["상단", "상승"]),
+  icon("arrow-down", "아래쪽 방향", IconArrowDown, ["하단", "하강"]),
+  icon("arrow-up-right", "오른쪽 위 방향", IconArrowUpRight, ["우상향", "성장"]),
+  icon("arrow-down-right", "오른쪽 아래 방향", IconArrowDownRight, ["우하향"]),
+  icon("arrow-up-left", "왼쪽 위 방향", IconArrowUpLeft, ["좌상향"]),
+  icon("arrow-down-left", "왼쪽 아래 방향", IconArrowDownLeft, ["좌하향"]),
+  icon("arrow-narrow-right", "가는 방향", IconArrowNarrowRight, ["얇은", "다음"]),
+  icon("arrow-big-right", "굵은 방향", IconArrowBigRight, ["강조", "다음"]),
+  icon("chevron-right", "꺾쇠 방향", IconChevronRight, ["단계", "프로세스"]),
+  icon("arrows-left-right", "좌우 방향", IconArrowsLeftRight, ["양방향", "수평"]),
+  icon("arrows-up-down", "상하 방향", IconArrowsUpDown, ["양방향", "수직"]),
+  icon("arrows-exchange", "교환 방향", IconArrowsExchange, ["전환", "교체"]),
+  icon("arrow-curve-left", "왼쪽 곡선 방향", IconArrowCurveLeft, ["곡선", "회전"]),
+  icon("arrow-curve-right", "오른쪽 곡선 방향", IconArrowCurveRight, ["곡선", "회전"]),
+  icon("arrow-back-up", "되돌아가기", IconArrowBackUp, ["실행 취소", "복귀"]),
+  icon("arrow-forward-up", "다시 실행", IconArrowForwardUp, ["재실행", "복귀"]),
+  icon("arrow-loop-left", "왼쪽 순환", IconArrowLoopLeft, ["루프", "반복"]),
+  icon("arrow-loop-right", "오른쪽 순환", IconArrowLoopRight, ["루프", "반복"]),
+  icon("arrows-split", "분기 방향", IconArrowsSplit, ["분할", "갈래"]),
+  icon("arrows-join", "결합 방향", IconArrowsJoin, ["합류", "통합"]),
+  icon("arrow-merge", "병합 방향", IconArrowMerge, ["합치기", "통합"]),
+  icon("arrow-fork", "포크 방향", IconArrowFork, ["분기", "선택"]),
+  icon("arrow-bounce", "전환 방향", IconArrowBounce, ["전환", "흐름"]),
+];
 
 export const slideIconDefinitions: SlideIconDefinition[] = [
   icon("trending-up", "성장", IconTrendingUp, ["상승", "매출", "성과"]),
@@ -61,18 +127,22 @@ export const slideIconDefinitions: SlideIconDefinition[] = [
   icon("phone", "전화", IconPhone, ["연락", "상담"]),
   icon("message-circle", "대화", IconMessageCircle, ["채팅", "소통"]),
   icon("search", "검색", IconSearch, ["탐색", "조사"]),
-  icon("arrow-right", "다음", IconArrowRight, ["이동", "진행"]),
-  icon("sparkles", "강조", IconSparkles, ["AI", "특징"])
+  icon("sparkles", "강조", IconSparkles, ["AI", "특징"]),
+  ...directionalIconDefinitions,
+  ...slideArrowIconDefinitions,
 ];
 
 export function createSlideIconDataUrl(definition: SlideIconDefinition, color: string) {
   const markup = renderToStaticMarkup(createElement(definition.Icon, {
-    color, height: 96, stroke: 2, width: 96,
+    color,
+    height: definition.defaultHeight ?? 96,
+    stroke: 2,
+    width: definition.defaultWidth ?? 96,
     xmlns: "http://www.w3.org/2000/svg"
   }));
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
 }
 
 function icon(name: string, label: string, Icon: TablerIcon, keywords: string[]): SlideIconDefinition {
-  return { Icon, keywords, label, name };
+  return { category: "general", Icon, keywords, label, name };
 }

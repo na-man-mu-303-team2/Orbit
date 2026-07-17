@@ -191,17 +191,18 @@ export function useEditorCanvasCommands(args: {
   function addIconElement(icon: SlideIconDefinition, color: string) {
     if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
-    const size = 96;
-    const x = Math.max(0, (args.deck.canvas.width - size) / 2);
-    const y = Math.max(0, (args.deck.canvas.height - size) / 2);
+    const width = icon.defaultWidth ?? 96;
+    const height = icon.defaultHeight ?? 96;
+    const x = Math.max(0, (args.deck.canvas.width - width) / 2);
+    const y = Math.max(0, (args.deck.canvas.height - height) / 2);
     args.commitPatch((currentDeck) => createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
       elementId,
       type: "svg",
       role: "decoration",
       x,
       y,
-      width: size,
-      height: size,
+      width,
+      height,
       rotation: 0,
       opacity: 1,
       zIndex: getNextElementZIndex(args.currentSlide!.elements),
