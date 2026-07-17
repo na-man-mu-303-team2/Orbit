@@ -9,6 +9,7 @@ import {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const zipMimeType = "application/zip";
 
 const storage: Pick<StoragePort, "putObject" | "getSignedReadUrl"> = {
   getSignedReadUrl: vi.fn(async () => "http://storage.local/current.pptx"),
@@ -130,6 +131,103 @@ describe("processDeckExportJob", () => {
         String(sql).includes("FROM template_blueprints"),
       ),
     ).toBe(false);
+  });
+
+  it("renders a generic deck PPTX into an all-slide PNG ZIP", async () => {
+    const deck = createDeck("ai");
+    const { dataSource, query } = createExportDataSource({
+      deckVersion: 1,
+      blueprint: null,
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === "http://localhost:8000/ai/export-deck-pptx") {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ format: "pptx" });
+        return new Response(
+          JSON.stringify({
+            contentBase64: Buffer.from("materialized-pptx").toString("base64"),
+            warnings: ["pptx warning"],
+          }),
+        );
+      }
+      expect(String(input)).toBe("http://localhost:8000/ai/export-pptx-png-zip");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        contentBase64: Buffer.from("materialized-pptx").toString("base64"),
+      });
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("png-zip").toString("base64"),
+          warnings: ["render warning"],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck, "png"),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({
+      format: "png",
+      warnings: ["pptx warning", "render warning"],
+    });
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: Buffer.from("png-zip"),
+        contentType: zipMimeType,
+        key: expect.stringMatching(/\.zip$/),
+      }),
+    );
+    const insertCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO project_assets"),
+    );
+    expect(insertCall?.[1]).toEqual(
+      expect.arrayContaining(["Export.zip", zipMimeType]),
+    );
+  });
+
+  it("renders the current imported OOXML package directly into a PNG ZIP", async () => {
+    const deck = createDeck("import");
+    const { dataSource } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-a",
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      if (String(input) === "http://storage.local/current.pptx") {
+        return new Response("current-package-bytes");
+      }
+      expect(String(input)).toBe("http://localhost:8000/ai/export-pptx-png-zip");
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("imported-png-zip").toString("base64"),
+          warnings: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck, "png"),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ format: "png" });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "http://localhost:8000/ai/export-deck-pptx",
+      expect.anything(),
+    );
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({ body: Buffer.from("imported-png-zip") }),
+    );
   });
 
   it.each([
@@ -360,12 +458,12 @@ function templateBlueprint(syncedDeckVersion: number) {
   };
 }
 
-function exportPayload(deck: Deck) {
+function exportPayload(deck: Deck, format: "pptx" | "png" = "pptx") {
   return {
     jobId: "job-export",
     projectId: "project-a",
     deck,
-    format: "pptx",
+    format,
   };
 }
 
