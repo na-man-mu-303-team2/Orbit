@@ -47,7 +47,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
 }
 
 describe("SpeakerNotesPanel", () => {
-  it("접힌 상태에서는 아이콘 없이 대본 레이블과 한 줄 미리보기를 표시한다", () => {
+  it("접힌 상태에서는 대본 레이블과 한 줄 미리보기, 펼치기 아이콘을 표시한다", () => {
     const html = renderPanel(false);
 
     expect(html).toContain("speaker-notes-collapsed-label\">대본");
@@ -55,7 +55,8 @@ describe("SpeakerNotesPanel", () => {
     expect(html).not.toContain("speaker-notes-preview");
     expect(html).toContain("speaker-notes-collapsed-preview");
     expect(html).toContain(createDemoDeck().slides[0]?.speakerNotes ?? "");
-    expect(html).not.toContain("speaker-notes-toggle-chevron");
+    expect(html).toContain("speaker-notes-toggle-chevron");
+    expect(html).toContain("tabler-icon-chevron-up");
   });
 
   it("대본, QnA, 리포트 탭과 대본 내부의 압축 액션을 렌더링한다", () => {

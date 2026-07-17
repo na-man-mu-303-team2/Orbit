@@ -510,7 +510,7 @@ describe("editor shell", () => {
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
     expect(html).toContain('aria-label="AI 어시스턴트 보기"');
-    expect(html).toContain('aria-label="AI 어시스턴트 사용 가능"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
     expect(html).toContain('aria-label="디자인 속성"');
     expect(html).toContain('aria-label="애니메이션 속성"');
     expect(html).not.toContain('aria-label="애니메이션 패널"');
@@ -542,6 +542,8 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
     expect(html).toContain('aria-label="오른쪽 패널 접기"');
+    expect(html).toContain('aria-label="AI 어시스턴트 접기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
     expect(html).toContain('id="editor-ai-panel"');
     expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
     expect(html).toContain('id="editor-design-panel"');

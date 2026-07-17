@@ -2,6 +2,7 @@ import type { Keyword, Slide } from "@orbit/shared";
 import {
   IconCheck as Check,
   IconChevronDown as ChevronDown,
+  IconChevronUp as ChevronUp,
   IconGripHorizontal as GripHorizontal,
   IconWand as Wand,
   IconX as X
@@ -146,6 +147,11 @@ export function SpeakerNotesPanel(props: {
             <span className="speaker-notes-collapsed-preview">
               {notesPreview || "대본을 추가하려면 클릭하세요."}
             </span>
+            <ChevronUp
+              aria-hidden="true"
+              className="speaker-notes-toggle-chevron"
+              size={16}
+            />
           </button>
         )}
       </div>

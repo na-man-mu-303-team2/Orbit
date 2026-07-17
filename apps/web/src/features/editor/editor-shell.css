@@ -2298,7 +2298,7 @@
   color: var(--redesign-color-on-background);
   display: flex;
   gap: 0;
-  inset: var(--editor-topbar-height, 48px) 0 0;
+  inset: 0;
   justify-content: center;
   pointer-events: auto;
   position: fixed;
@@ -10529,4 +10529,53 @@ body.is-resizing-speaker-notes {
     .stage-top-controls > .canvas-zoom-controls {
     margin-right: var(--collapsed-panel-zoom-clearance);
   }
+}
+
+/* Properties and AI share the right dock vertically. The inspector can still
+ * collapse into its symmetric icon rail, while AI collapses independently to
+ * its compact header so the property workspace can reclaim the height. */
+.orbit-shell.editor-professional .ai-pane:not(.collapsed).assistant-collapsed {
+  grid-template-rows:
+    var(--editor-chrome-height)
+    minmax(0, 1fr)
+    var(--editor-chrome-height);
+}
+
+.orbit-shell.editor-professional .ai-coach-dock.ai-coach-persistent.is-collapsed {
+  grid-template-rows: var(--editor-chrome-height);
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .editor-ai-coach-panel[hidden] {
+  display: none;
+}
+
+.orbit-shell.editor-professional .ai-coach-dock-header .ai-coach-collapse-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .ai-coach-dock-header .ai-coach-collapse-button:hover {
+  border: 0;
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .ai-chat-panel {
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding-bottom: 0;
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .ai-chat-history {
+  min-height: 0;
+  overflow-y: auto;
 }

@@ -1,10 +1,13 @@
 import type { ApplyDesignAgentProposalResponse, Deck, SemanticCue, Slide } from "@orbit/shared";
 import {
   IconAdjustmentsHorizontal as Properties,
-  IconPlayerPlay as Play,
+  IconChevronDown as ChevronDown,
+  IconChevronUp as ChevronUp,
   IconLayoutSidebarRightCollapse as PanelRightClose,
+  IconPlayerPlay as Play,
   IconSparkles as Sparkles
 } from "@tabler/icons-react";
+import { useState } from "react";
 import type { Dispatch, KeyboardEvent, PointerEvent, ReactNode, SetStateAction } from "react";
 
 import { SourceLedgerPanel } from "../../ai/quality/SourceLedgerPanel";
@@ -61,6 +64,7 @@ type EditorRightPanelProps = {
 
 export function EditorRightPanel(props: EditorRightPanelProps) {
   const hasElementSelection = props.selectedElementIds.length === 1;
+  const [isAssistantCollapsed, setIsAssistantCollapsed] = useState(false);
 
   function handleAiPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -74,7 +78,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   }
 
   return (
-    <aside className={`ai-pane ${props.isOpen ? "" : "collapsed"}`}>
+    <aside className={`ai-pane ${props.isOpen ? "" : "collapsed"} ${isAssistantCollapsed ? "assistant-collapsed" : ""}`}>
       {props.isOpen ? (
         <>
           <button aria-label="오른쪽 패널 크기 조정" className="right-pane-resizer" type="button" onPointerDown={props.onResizeStart} />
@@ -118,7 +122,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 </button>
               </div>
               <button aria-label="오른쪽 패널 접기" className="collapse-right-pane-button" title="오른쪽 패널 접기" type="button" onClick={() => props.setIsOpen(false)}>
-                <PanelRightClose size={16} />
+                <PanelRightClose aria-hidden="true" size={16} />
               </button>
             </div>
           </div>
@@ -157,12 +161,21 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               </div>
             )}
           </div>
-          <section aria-label="AI 어시스턴트" className="ai-coach-dock ai-coach-persistent" id="editor-ai-panel">
+          <section aria-label="AI 어시스턴트" className={`ai-coach-dock ai-coach-persistent ${isAssistantCollapsed ? "is-collapsed" : ""}`} id="editor-ai-panel">
             <header className="ai-coach-dock-header">
               <div><Sparkles aria-hidden="true" size={16} /><strong>AI 어시스턴트</strong></div>
-              <span aria-label="AI 어시스턴트 사용 가능" className="ai-coach-status-dot" role="status" />
+              <button
+                aria-expanded={!isAssistantCollapsed}
+                aria-label={isAssistantCollapsed ? "AI 어시스턴트 펼치기" : "AI 어시스턴트 접기"}
+                className="ai-coach-collapse-button"
+                title={isAssistantCollapsed ? "AI 어시스턴트 펼치기" : "AI 어시스턴트 접기"}
+                type="button"
+                onClick={() => setIsAssistantCollapsed((collapsed) => !collapsed)}
+              >
+                {isAssistantCollapsed ? <ChevronUp aria-hidden="true" size={16} /> : <ChevronDown aria-hidden="true" size={16} />}
+              </button>
             </header>
-            <div className="editor-ai-coach-panel">
+            <div className="editor-ai-coach-panel" hidden={isAssistantCollapsed}>
               <div aria-label="AI 어시스턴트 보기" className="assistant-subtabs" role="tablist">
                 <button aria-controls="editor-ai-chat-panel" aria-selected={props.aiPanelView === "chat"} className={props.aiPanelView === "chat" ? "active" : ""} id="editor-ai-chat-tab" role="tab" tabIndex={props.aiPanelView === "chat" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("chat")} onKeyDown={handleAiPanelTabKeyDown}>채팅</button>
                 <button aria-controls="editor-ai-tools-panel" aria-selected={props.aiPanelView === "tools"} className={props.aiPanelView === "tools" ? "active" : ""} id="editor-ai-tools-tab" role="tab" tabIndex={props.aiPanelView === "tools" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("tools")} onKeyDown={handleAiPanelTabKeyDown}>검사</button>
