@@ -89,6 +89,7 @@ export function ProjectListPage(props: {
       className={`orbit-project-hub orbit-project-explorer${
         isRehearsal ? " rehearsal-project-picker" : ""
       }`}
+      width="content"
     >
       <header className="orbit-hub-heading">
         <div>

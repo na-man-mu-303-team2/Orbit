@@ -1,12 +1,23 @@
 .redesign-workspace-container {
+  --redesign-workspace-page-gap: var(--redesign-space-6);
+  --redesign-workspace-page-padding-start: var(--redesign-space-12);
+  --redesign-workspace-page-padding-end: var(--redesign-space-18);
+
   box-sizing: border-box;
   width: min(100%, var(--redesign-layout-workspace-max-width));
   margin-inline: auto;
   padding-inline: var(--redesign-layout-workspace-margin);
 }
 
-@media (max-width: 760px) {
+.redesign-workspace-container--content {
+  width: min(100%, var(--redesign-layout-content-max-width));
+}
+
+@media (max-width: 767px) {
   .redesign-workspace-container {
+    --redesign-workspace-page-padding-start: var(--redesign-space-6);
+    --redesign-workspace-page-padding-end: var(--redesign-space-12);
+
     padding-inline: var(--redesign-space-4);
   }
 }
