@@ -483,6 +483,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.dataSource,
             this.config.PYTHON_WORKER_URL,
             job.data,
+            (event) => this.logger.info(
+              event,
+              "Slide question guide web research completed.",
+            ),
           ),
       },
     ];

@@ -19,15 +19,16 @@ describe("processSlideQuestionGuideGenerationJob", () => {
 
   it("stores private canonical items while keeping the Job result identifier-only", async () => {
     const harness = createHarness();
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      items: [0, 1, 2].map((index) => generatedItem(index)),
-      model: "deterministic-grounded-v1",
-    })));
+    const events: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      [0, 1, 2].map((index) => generatedItem(index)),
+    ))));
 
     const job = await processSlideQuestionGuideGenerationJob(
       harness.dataSource,
       "http://python-worker:8000",
       payload,
+      (event) => events.push(event),
     );
 
     expect(job.status).toBe("succeeded");
@@ -42,6 +43,23 @@ describe("processSlideQuestionGuideGenerationJob", () => {
     });
     expect(JSON.stringify(job.result)).not.toContain("questionText");
     expect(harness.insertedItems).toHaveLength(3);
+    expect(harness.storedResearch).toEqual({
+      status: "unavailable",
+      attempts: 2,
+      officialSourceCount: 0,
+      issueCodes: ["no-citations"],
+      researchedAt: "2026-07-17T00:00:00.000Z",
+    });
+    expect(events).toEqual([{
+      event: "slide_question_guide.web_research.completed",
+      projectId: "project-1",
+      guideId: "guide-1",
+      status: "unavailable",
+      attempts: 2,
+      officialSourceCount: 0,
+      issueCodes: ["no-citations"],
+    }]);
+    expect(JSON.stringify(events)).not.toContain("http");
   });
 
   it("rejects a provider source hash that was not in the frozen source snapshot", async () => {
@@ -51,10 +69,7 @@ describe("processSlideQuestionGuideGenerationJob", () => {
       ...items[0],
       sourceRefs: [{ ...slideRef(), contentHash: "c".repeat(64) }],
     };
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      items,
-      model: "deterministic-grounded-v1",
-    })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(items))));
 
     const job = await processSlideQuestionGuideGenerationJob(
       harness.dataSource,
@@ -66,10 +81,60 @@ describe("processSlideQuestionGuideGenerationJob", () => {
     expect(job.result).toBeNull();
     expect(harness.insertedItems).toHaveLength(0);
   });
+
+  it("accepts only an official web source returned in the provider allowlist", async () => {
+    const harness = createHarness();
+    const webSource = webRef();
+    const items: Array<Record<string, unknown>> = [0, 1, 2].map((index) => ({
+      ...generatedItem(index),
+      keyConcepts: [{ label: "공식 근거", sourceRefs: [webSource] }],
+      sourceRefs: [webSource],
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      items,
+      [webSource],
+    ))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(harness.insertedItems).toHaveLength(3);
+    expect(harness.storedResearch?.officialSourceCount).toBe(1);
+  });
+
+  it("rejects a web citation that is not in the provider allowlist", async () => {
+    const harness = createHarness();
+    const items: Array<Record<string, unknown>> = [0, 1, 2].map((index) => generatedItem(index));
+    items[0] = {
+      ...items[0],
+      sourceRefs: [webRef()],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(items))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(harness.insertedItems).toHaveLength(0);
+  });
 });
 
 function createHarness() {
   const insertedItems: unknown[] = [];
+  let storedResearch: {
+    status: string;
+    attempts: number;
+    officialSourceCount: number;
+    issueCodes: string[];
+    researchedAt: string | null;
+  } | null = null;
   const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.startsWith("SELECT * FROM slide_question_guides")) return [guideRow()];
@@ -96,6 +161,15 @@ function createHarness() {
     if (normalized.startsWith("INSERT INTO slide_question_guide_items")) {
       insertedItems.push(parameters[4]);
     }
+    if (normalized.startsWith("UPDATE slide_question_guides SET status = 'succeeded'")) {
+      storedResearch = {
+        status: String(parameters[3]),
+        attempts: Number(parameters[4]),
+        officialSourceCount: Number(parameters[5]),
+        issueCodes: parameters[6] as string[],
+        researchedAt: parameters[7] === null ? null : String(parameters[7]),
+      };
+    }
     return [];
   });
   const dataSource = {
@@ -104,7 +178,11 @@ function createHarness() {
       callback({ query: managerQuery })
     )),
   } as unknown as DataSource;
-  return { dataSource, insertedItems };
+  return {
+    dataSource,
+    insertedItems,
+    get storedResearch() { return storedResearch; },
+  };
 }
 
 function guideRow() {
@@ -158,6 +236,44 @@ function referenceRef() {
     fileId: "file-1",
     chunkId: "chunk-1",
     contentHash: referenceHash,
+  };
+}
+
+function webRef() {
+  return {
+    kind: "web" as const,
+    sourceId: "web:official-1",
+    url: "https://example.edu/program",
+    title: "공식 교육과정",
+    authority: "official" as const,
+    contentHash: "c".repeat(64),
+    retrievedAt: "2026-07-17T00:00:00.000Z",
+  };
+}
+
+function providerResponse(
+  items: Array<Record<string, unknown>>,
+  webSources: ReturnType<typeof webRef>[] = [],
+) {
+  return {
+    items,
+    model: "deterministic-grounded-v2",
+    research: webSources.length > 0
+      ? {
+          status: "succeeded",
+          attempts: 1,
+          officialSourceCount: webSources.length,
+          issueCodes: [],
+          researchedAt: "2026-07-17T00:00:00.000Z",
+        }
+      : {
+          status: "unavailable",
+          attempts: 2,
+          officialSourceCount: 0,
+          issueCodes: ["no-citations"],
+          researchedAt: "2026-07-17T00:00:00.000Z",
+        },
+    webSources,
   };
 }
 

@@ -4,7 +4,9 @@ import {
   slideQuestionGuideItemSchema,
   slideQuestionGuideJobPayloadSchema,
   slideQuestionGuideJobResultSchema,
+  slideQuestionGuideResearchSchema,
   slideQuestionGuideSourceSnapshotSchema,
+  slideQuestionGuideWebSourceRefSchema,
   type Job,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
@@ -14,7 +16,17 @@ const generatedItemSchema = slideQuestionGuideItemCoreSchema.omit({ questionId: 
 const responseSchema = z.object({
   items: z.array(generatedItemSchema).length(3),
   model: z.string().trim().min(1).max(100),
-}).strict();
+  research: slideQuestionGuideResearchSchema,
+  webSources: z.array(slideQuestionGuideWebSourceRefSchema).max(5),
+}).strict().superRefine((response, context) => {
+  if (response.research.officialSourceCount !== response.webSources.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["research", "officialSourceCount"],
+      message: "Official source count must match the returned web source allowlist",
+    });
+  }
+});
 const briefContextSchema = z.object({
   audience: z.enum(["novice", "practitioner", "decision-maker"]),
   purpose: z.enum(["inform", "persuade", "teach", "report"]),
@@ -34,6 +46,7 @@ export async function processSlideQuestionGuideGenerationJob(
   dataSource: DataSource,
   pythonWorkerUrl: string,
   rawPayload: unknown,
+  onEvent?: (event: SlideQuestionGuideResearchBusinessEvent) => void,
 ): Promise<Job> {
   const payload = slideQuestionGuideJobPayloadSchema.parse(rawPayload);
   const guide = firstRow(await dataSource.query(
@@ -110,7 +123,16 @@ export async function processSlideQuestionGuideGenerationJob(
     });
     if (!response.ok) throw new Error("SLIDE_QUESTION_GUIDE_PROVIDER_FAILED");
     const generated = responseSchema.parse(await response.json());
-    validateSourceRefs(generated.items, sourceSnapshot, references);
+    onEvent?.({
+      event: "slide_question_guide.web_research.completed",
+      projectId: payload.projectId,
+      guideId: payload.guideId,
+      status: generated.research.status,
+      attempts: generated.research.attempts,
+      officialSourceCount: generated.research.officialSourceCount,
+      issueCodes: generated.research.issueCodes,
+    });
+    validateSourceRefs(generated.items, sourceSnapshot, references, generated.webSources);
     const generatedAt = new Date().toISOString();
     const items = generated.items.map((item, index) => slideQuestionGuideItemSchema.parse({
       ...item,
@@ -139,9 +161,21 @@ export async function processSlideQuestionGuideGenerationJob(
       await manager.query(
         `UPDATE slide_question_guides SET
           status = 'succeeded', model = $3, error_code = NULL,
-          generated_at = $4, updated_at = $4
+          research_status = $4, research_attempts = $5,
+          official_source_count = $6, research_issue_codes = $7,
+          researched_at = $8, generated_at = $9, updated_at = $9
          WHERE guide_id = $1 AND project_id = $2`,
-        [payload.guideId, payload.projectId, generated.model, generatedAt],
+        [
+          payload.guideId,
+          payload.projectId,
+          generated.model,
+          generated.research.status,
+          generated.research.attempts,
+          generated.research.officialSourceCount,
+          generated.research.issueCodes,
+          generated.research.researchedAt,
+          generatedAt,
+        ],
       );
     });
 
@@ -177,6 +211,7 @@ function validateSourceRefs(
   items: z.infer<typeof responseSchema>["items"],
   sourceSnapshot: z.infer<typeof slideQuestionGuideSourceSnapshotSchema>,
   references: Array<Record<string, unknown>>,
+  webSources: Array<z.infer<typeof slideQuestionGuideWebSourceRefSchema>>,
 ) {
   const allowedReferences = new Set(
     references.map((reference) => (
@@ -187,15 +222,39 @@ function validateSourceRefs(
     ...item.sourceRefs,
     ...item.keyConcepts.flatMap((concept) => concept.sourceRefs),
   ]);
+  const allowedWebSources = new Set(webSources.map(webSourceKey));
   for (const reference of sourceRefs) {
     const allowed = reference.kind === "slide"
       ? reference.slideId === sourceSnapshot.slideId
         && reference.deckVersion === sourceSnapshot.deckVersion
         && reference.contentHash === sourceSnapshot.contentHash
-      : allowedReferences.has(`${reference.fileId}:${reference.chunkId}:${reference.contentHash}`);
+      : reference.kind === "reference"
+        ? allowedReferences.has(`${reference.fileId}:${reference.chunkId}:${reference.contentHash}`)
+        : allowedWebSources.has(webSourceKey(reference));
     if (!allowed) throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_NOT_APPROVED");
   }
 }
+
+function webSourceKey(reference: z.infer<typeof slideQuestionGuideWebSourceRefSchema>) {
+  return JSON.stringify([
+    reference.sourceId,
+    reference.url,
+    reference.title,
+    reference.authority,
+    reference.contentHash,
+    reference.retrievedAt,
+  ]);
+}
+
+export type SlideQuestionGuideResearchBusinessEvent = {
+  event: "slide_question_guide.web_research.completed";
+  projectId: string;
+  guideId: string;
+  status: "succeeded" | "unavailable";
+  attempts: number;
+  officialSourceCount: number;
+  issueCodes: string[];
+};
 
 function updateJob(
   dataSource: DataSource,
