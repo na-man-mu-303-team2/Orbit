@@ -4,7 +4,9 @@ import {
   IconLogout
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+import "../styles/tokens.css";
 import { OrbitBrand } from "./ui";
+import "./orbit-app-header.css";
 
 export type OrbitAppNavigationItem = "home" | "project" | "rehearsal" | "reports";
 
@@ -55,7 +57,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
   }, [isMenuOpen]);
 
   return (
-    <header className="orbit-app-header">
+    <header className="orbit-app-header orbit-app-header-redesign">
       <div className="orbit-app-header-inner">
         <button
           aria-label="ORBIT 홈으로 이동"
