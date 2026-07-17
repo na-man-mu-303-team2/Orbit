@@ -1,0 +1,84 @@
+.text-context-toolbar {
+  align-items: center;
+  background: rgb(17 24 39 / 96%);
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 24%);
+  color: #f8fafc;
+  display: flex;
+  gap: 6px;
+  max-width: calc(100vw - 24px);
+  min-height: 42px;
+  overflow-x: auto;
+  padding: 6px;
+  z-index: 80;
+}
+
+.text-context-toolbar button,
+.text-context-toolbar input,
+.text-context-toolbar select {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #0f172a;
+  font: inherit;
+  min-height: 30px;
+}
+
+.text-context-toolbar button {
+  min-width: 30px;
+  padding: 4px 7px;
+}
+
+.text-context-toolbar button[aria-pressed="true"],
+.text-context-toolbar button[aria-pressed="mixed"] {
+  background: #dbeafe;
+  border-color: #60a5fa;
+  color: #1d4ed8;
+}
+
+.text-context-toolbar button:disabled,
+.text-context-toolbar input:disabled,
+.text-context-toolbar select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.text-context-toolbar-field {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.text-context-toolbar-field > span {
+  font-size: 11px;
+}
+
+.text-context-toolbar-font select {
+  max-width: 150px;
+}
+
+.text-context-toolbar-size {
+  display: flex;
+}
+
+.text-context-toolbar-size input {
+  border-radius: 0;
+  max-width: 58px;
+  text-align: center;
+}
+
+.text-context-toolbar-size button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.text-context-toolbar-size button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.text-context-toolbar-color input {
+  cursor: pointer;
+  padding: 2px;
+  width: 34px;
+}
