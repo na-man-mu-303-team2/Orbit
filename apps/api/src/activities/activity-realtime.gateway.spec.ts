@@ -3,6 +3,20 @@ import { createHmac } from "node:crypto";
 import type { Socket } from "socket.io";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@orbit/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@orbit/config")>();
+  return {
+    ...actual,
+    loadOrbitConfig: () => ({
+      APP_ENV: "test",
+      WEB_ORIGIN: "http://localhost:5173",
+      SESSION_SECRET: "activity-test-session-secret",
+      COOKIE_SECRET: "activity-test-cookie-secret",
+      AUTH_COOKIE_SECURE: false
+    })
+  };
+});
+
 import { authSessionCookieName } from "../auth/auth.constants";
 import {
   audienceAccessCookieName,

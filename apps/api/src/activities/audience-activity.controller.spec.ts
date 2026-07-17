@@ -5,6 +5,20 @@ import {
 } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@orbit/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@orbit/config")>();
+  return {
+    ...actual,
+    loadOrbitConfig: () => ({
+      APP_ENV: "test",
+      WEB_ORIGIN: "http://localhost:5173",
+      SESSION_SECRET: "activity-test-session-secret",
+      COOKIE_SECRET: "activity-test-cookie-secret",
+      AUTH_COOKIE_SECURE: false
+    })
+  };
+});
+
 import { AudienceActivityController } from "./audience-activity.controller";
 
 describe("AudienceActivityController", () => {
