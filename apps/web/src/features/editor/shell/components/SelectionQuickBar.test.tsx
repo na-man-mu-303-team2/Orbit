@@ -82,6 +82,14 @@ describe("SelectionQuickBar", () => {
     );
 
     expect(html).toContain('aria-label="텍스트 맞춤 축소"');
+    expect(html).toContain("위치");
+    expect(html).toContain("레이아웃");
+    expect(html).toContain("외형");
+    expect(html).toContain('aria-label="왼쪽 정렬"');
+    expect(html).toContain('aria-label="오른쪽 정렬"');
+    expect(html).toContain('aria-label="위쪽 정렬"');
+    expect(html).toContain('aria-label="아래쪽 정렬"');
+    expect(html).toContain("불투명도 (%)");
     expect(html).toContain('aria-label="세로 가운데 정렬"');
     expect(html).not.toContain("애니메이션 편집");
   });
