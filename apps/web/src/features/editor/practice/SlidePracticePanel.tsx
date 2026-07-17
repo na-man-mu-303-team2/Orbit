@@ -1,6 +1,8 @@
-import type { Deck, Slide } from "@orbit/shared";
+import type { Deck, Slide, SlidePracticeReport } from "@orbit/shared";
 import { useEffect, useMemo, useRef } from "react";
 
+import { FillerWordPieChart } from "./FillerWordPieChart";
+import "./slide-practice.css";
 import { flushOfflinePracticeReports } from "./slidePracticeApi";
 import { useSlidePracticeSession } from "./useSlidePracticeSession";
 
@@ -75,25 +77,28 @@ export function SlidePracticePanel(props: {
   );
 }
 
-function PracticeResult({ report }: { report: NonNullable<ReturnType<typeof useSlidePracticeSession>["report"]> }) {
+export function PracticeResult({ report }: { report: SlidePracticeReport }) {
   return (
     <div className="editor-practice-result">
-      <div className={`editor-practice-style style-${report.style.mode}`}>
-        <strong>{styleLabel(report.style.mode)}</strong>
-        <span>{report.style.message}</span>
+      <FillerWordPieChart
+        details={report.fillers.details}
+        totalCount={report.fillers.totalCount}
+      />
+      <div className="editor-practice-summary">
+        <div className={`editor-practice-style style-${report.style.mode}`}>
+          <strong>{styleLabel(report.style.mode)}</strong>
+          <span>{report.style.message}</span>
+        </div>
+        <dl className="editor-practice-metrics">
+          <div><dt>습관어</dt><dd>{report.fillers.totalCount}회</dd></div>
+          <div><dt>말 속도</dt><dd>{formatMetric(report.voice.syllablesPerSecond, "음절/초")}</dd></div>
+          <div><dt>쉼 비율</dt><dd>{Math.round(report.voice.pauseRatio * 100)}%</dd></div>
+          <div><dt>피치 폭</dt><dd>{formatMetric(report.voice.pitchSpanHz, "Hz")}</dd></div>
+        </dl>
+        {report.quality.state !== "measured" ? (
+          <p className="editor-practice-quality">일부 지표는 측정하지 못했습니다: {report.quality.reasons.join(", ")}</p>
+        ) : null}
       </div>
-      <dl className="editor-practice-metrics">
-        <div><dt>습관어</dt><dd>{report.fillers.totalCount}회</dd></div>
-        <div><dt>말 속도</dt><dd>{formatMetric(report.voice.syllablesPerSecond, "음절/초")}</dd></div>
-        <div><dt>쉼 비율</dt><dd>{Math.round(report.voice.pauseRatio * 100)}%</dd></div>
-        <div><dt>피치 폭</dt><dd>{formatMetric(report.voice.pitchSpanHz, "Hz")}</dd></div>
-      </dl>
-      {report.fillers.details.length > 0 ? (
-        <p className="editor-practice-fillers">{report.fillers.details.map((detail) => `${detail.word} ${detail.count}회`).join(" · ")}</p>
-      ) : null}
-      {report.quality.state !== "measured" ? (
-        <p className="editor-practice-quality">일부 지표는 측정하지 못했습니다: {report.quality.reasons.join(", ")}</p>
-      ) : null}
     </div>
   );
 }

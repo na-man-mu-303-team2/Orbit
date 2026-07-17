@@ -1,0 +1,134 @@
+.orbit-shell .editor-practice-result {
+  display: grid;
+  gap: 14px;
+}
+
+.orbit-shell .editor-practice-filler-chart {
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.orbit-shell .editor-practice-filler-chart > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-practice-filler-chart h3,
+.orbit-shell .editor-practice-filler-chart p {
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-filler-chart h3 {
+  font-size: 15px;
+}
+
+.orbit-shell .editor-practice-filler-chart header p {
+  color: var(--orbit-ds-text-muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.orbit-shell .editor-practice-filler-chart header > strong {
+  color: #5546d4;
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-filler-chart-body {
+  align-items: center;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(170px, 220px) minmax(240px, 360px);
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.orbit-shell .editor-practice-filler-pie {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 220px;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-filler-legend {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0 auto;
+  max-width: 360px;
+  padding: 0;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-filler-legend-item {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 10px minmax(72px, 1fr) max-content 38px;
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-filler-legend-color {
+  border-radius: 50%;
+  height: 10px;
+  width: 10px;
+}
+
+.orbit-shell .editor-practice-filler-legend-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-filler-legend-item > strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell .editor-practice-filler-legend-item > span:last-child {
+  color: var(--orbit-ds-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.orbit-shell .editor-practice-filler-empty {
+  color: var(--orbit-ds-text-muted);
+  font-size: 13px;
+  padding: 24px 0 10px;
+  text-align: center;
+}
+
+.orbit-shell .editor-practice-summary {
+  border-top: 1px solid var(--orbit-ds-border);
+  padding-top: 14px;
+}
+
+@media (max-width: 860px) {
+  .orbit-shell .editor-practice-filler-chart-body {
+    gap: 16px;
+    grid-template-columns: minmax(140px, 190px) minmax(220px, 320px);
+  }
+
+  .orbit-shell .editor-practice-filler-pie {
+    max-width: 190px;
+  }
+}
+
+@media (max-width: 620px) {
+  .orbit-shell .editor-practice-filler-chart-body {
+    grid-template-columns: 1fr;
+  }
+
+  .orbit-shell .editor-practice-filler-pie {
+    max-width: 200px;
+  }
+
+  .orbit-shell .editor-practice-summary > .editor-practice-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
