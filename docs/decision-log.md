@@ -446,6 +446,18 @@
 - Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `packages/shared/src/jobs/job.schema.ts`, `packages/job-queue/src/index.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_guides.py`, `docs/contracts.md`.
 - Follow-up review notes: OpenAI model이나 prompt를 바꿀 때도 worker의 allowlisted source reference 검증과 insufficient remediation을 유지하고, `prompt_version`을 올려 별도 cache identity로 취급한다.
 
+## ORBIT editor slide question official web research
+
+- Context: 슬라이드와 승인 참고자료만으로는 외부 프로그램·기관·제품의 구체적인 사실을 답하기 어려워 `insufficient`가 반복되지만, 무제한 검색이나 웹 원문 저장은 비용·privacy·prompt injection·출처 위조 위험을 만든다.
+- Options considered:
+  - 검색 결과 전체와 본문을 guide 또는 Job에 저장한다.
+  - 검색 결과를 검증하지 않고 질문 생성 모델에 그대로 전달한다.
+  - 제한된 slide title·Brief 용어만 최대 2회 검색하고, 별도 strict 판정에서 official로 확인된 cited excerpt만 생성 중 메모리에서 사용한다.
+- Final decision: 신규 guide는 `schemaVersion: 2`, `promptVersion: slide-question-guide-v2`를 사용하며 과거 v1 guide는 계속 읽는다. OpenAI Responses `web_search`는 slide title과 bounded `challengeTopics`·terminology만 질의에 사용하고 최대 2회 실행한다. 검색 citation은 공급된 source ID만 반환할 수 있는 strict vetting을 거쳐 정부·학교·회사·표준기관·프로그램 운영 주체의 official source만 최대 5개 허용한다. worker는 Python response의 별도 web source allowlist와 item source ref의 URL·제목·hash·조회시각을 정확히 대조한다. DB에는 검색 상태·시도 횟수·공식 출처 수·issue code·조회시각과 표시용 source metadata만 저장하고 검색어·웹 원문·cited excerpt는 저장하거나 로그에 남기지 않는다. 검색이 실패하면 기존 slide·승인 참고자료 생성으로 degrade한다.
+- Rationale: 예상 질문의 외부 사실 근거를 보강하면서도 검색 질의로 전송되는 project-private 텍스트와 영구 보존 데이터를 최소화하고, 모델이 임의 URL을 출처처럼 추가하지 못하게 한다. 검색 장애가 기존 질문 생성을 막지 않으며 사용자에게 fallback 여부와 클릭 가능한 공식 출처를 명확히 보여준다.
+- Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/database/migrations/2026071702000-AddSlideQuestionGuideWebResearch.ts`, `apps/api/src/slide-question-guides/slide-question-guides.service.ts`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_web_research.py`, `services/python-worker/app/slide_question_guides.py`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `docs/contracts.md`.
+- Follow-up review notes: 실제 provider 비용과 official source 성공률은 staging에서 aggregate event의 `status`, `attempts`, `officialSourceCount`, `issueCodes`만으로 점검한다. URL, 질의, slide/reference 원문은 운영 로그에 추가하지 않는다. domain allowlist가 필요한 regulated project는 별도 정책과 UI 승인을 거쳐 도입한다.
+
 ## ORBIT editor practice rollout and transcription fallback
 
 - Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 기존 per-session 체크박스가 연습 시작 흐름을 복잡하게 만들었다. 외부 실시간 전사로 전환하더라도 raw audio와 transcript를 영구 저장하지 않는 기존 privacy boundary는 유지해야 한다.
