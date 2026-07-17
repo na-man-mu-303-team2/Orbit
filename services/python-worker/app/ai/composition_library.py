@@ -1960,6 +1960,7 @@ def normalize_design_program(
     force_dark: bool = False,
     media_policy: str = "hybrid",
     media_budget: int = 4,
+    preserve_slide_types: bool = False,
 ) -> DeckDesignProgram:
     if len(program.slides) != len(slides):
         raise CompositionCompileError("Design Program slide count mismatch")
@@ -1971,6 +1972,7 @@ def normalize_design_program(
         force_dark=force_dark,
         media_policy=media_policy,
         media_budget=media_budget,
+        preserve_slide_types=preserve_slide_types,
     )
     for index, (direction, selected) in enumerate(
         zip(normalized.slides, selected_ids, strict=True)
@@ -2016,16 +2018,22 @@ def _select_composition_sequence(
     force_dark: bool,
     media_policy: str,
     media_budget: int,
+    preserve_slide_types: bool,
 ) -> list[CompositionId]:
     candidates_by_slide: list[tuple[CompositionId, ...]] = []
     for index, (direction, slide) in enumerate(zip(program.slides, slides, strict=True)):
         slide_type = _composition_slide_type(slide)
-        if index == 0:
-            slide_type = "cover"
-        elif index == len(slides) - 1:
-            slide_type = "summary"
+        if not preserve_slide_types:
+            if index == 0:
+                slide_type = "cover"
+            elif index == len(slides) - 1:
+                slide_type = "summary"
         item_count = len(_items(slide))
-        preferred = "cta-closing" if index == len(slides) - 1 else direction.composition_id
+        preferred = (
+            "cta-closing"
+            if index == len(slides) - 1 and not preserve_slide_types
+            else direction.composition_id
+        )
         candidates = tuple(
             candidate
             for candidate in dict.fromkeys(

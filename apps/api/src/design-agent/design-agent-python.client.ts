@@ -22,7 +22,7 @@ export class DesignAgentPythonClient {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(60_000),
       });
     } catch (error) {
       throw new BadGatewayException(

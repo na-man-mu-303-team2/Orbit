@@ -242,6 +242,14 @@ describe("App shell routing", () => {
     });
   });
 
+  it("matches Story Review before the generic project route", () => {
+    expect(getRoute("/project/project_demo_1/story-plan/job-1")).toEqual({
+      name: "story-plan-review",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+  });
+
   it("parses presenter slide-window routes with an optional session id", () => {
     expect(getRoute("/present/deck_demo_1", "?sessionId=session_demo_1")).toEqual({
       name: "present",

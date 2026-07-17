@@ -9,10 +9,10 @@
 | 시점 | 실행 항목 | 목적 |
 | --- | --- | --- |
 | docs-only PR | 변경 Markdown UTF-8 읽기 확인 | 구현과 무관한 PR에서 코드 테스트 미실행 사유를 PR 본문에 남김 |
-| 모든 PR | Environment Contract CI: `node infra/scripts/check-env.mjs` | 환경 예시 파일의 키 누락·불일치·중복·필수값 공백을 빠르게 차단 |
+| 모든 PR | Environment Contract CI: `node infra/scripts/check-env.mjs`, `node --test infra/scripts/personal-staging-env.test.mjs` | 환경 예시 파일의 키 누락·불일치·중복·필수값 공백, 개인 서버 source/delivery 정책·Compose 전달 누락과 자동 동기화 wiring을 빠르게 차단 |
 | automation-only PR | Environment Contract CI와 automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증 |
 | app/API/shared/worker/compose/env/lockfile PR | Environment Contract CI; TypeScript CI: `pnpm build`, `pnpm lint`, `pnpm test`; 수동: Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | 환경 계약과 빠른 TypeScript 회귀를 자동 확인하고, Python/Compose 계층은 필요 시 수동 확인 |
-| `develop` push | Environment Contract CI와 TypeScript CI 자동 실행, 환경 계약 성공 뒤 개인 서버 배포 | merge 후 환경 계약과 base branch TypeScript 조합 검증 |
+| `develop` push | Environment Contract CI와 TypeScript CI 자동 실행, 안전한 repo default의 Doppler 동기화, 개인 서버 full 배포 | merge 후 환경 계약과 base branch TypeScript 조합을 검증하고 누락된 일반 설정을 수동 작업 없이 적용 |
 | Doppler `orbit / stg` 변경 | `Deploy Personal Staging`의 `environment-only` 실행, 서버 env preflight, Compose config, API/root health check | 유효한 secret 변경만 앱 컨테이너에 재적용하고 누락·공백이면 기존 컨테이너 유지 |
 | `main` push | 자동 CI 없음 | release branch 조합 검증은 필요 시 수동으로 실행 |
 | 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |

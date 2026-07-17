@@ -4,6 +4,7 @@ import { DataSource, DataSourceOptions } from "typeorm";
 import { SavedDesignPackEntity } from "../saved-design-packs/saved-design-pack.entity";
 import { DesignAgentMessageEntity } from "../design-agent/design-agent-message.entity";
 import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal.entity";
+import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
@@ -47,6 +48,8 @@ import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
 import { ExpandPresentationSessionsForActivities2026071701000 } from "./migrations/2026071701000-ExpandPresentationSessionsForActivities";
 import { CreateActivityRuntime2026071702000 } from "./migrations/2026071702000-CreateActivityRuntime";
+import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
+import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -64,7 +67,8 @@ export const databaseOptions: DataSourceOptions = {
     RehearsalRunEntity,
     SavedDesignPackEntity,
     DesignAgentMessageEntity,
-    DesignAgentProposalEntity
+    DesignAgentProposalEntity,
+    SmartArtLayoutEntity
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -104,6 +108,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckExecutionArtifacts2026071602000,
     AddRehearsalAudioRetention2026071603000,
     AddRehearsalTranscriptArtifacts2026071603000,
+    CreateAiDeckStoryReviews2026071604000,
+    CreateSmartArtLayouts2026071701000,
     ExpandPresentationSessionsForActivities2026071701000,
     CreateActivityRuntime2026071702000
   ],

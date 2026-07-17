@@ -34,6 +34,10 @@ from app.main import _planning_failure_detail
             "Art Director could not create a valid design plan.",
             "ART_DIRECTOR_INVALID_RESPONSE",
         ),
+        (
+            "No composition supports summary with 4 content items",
+            "DESIGN_COMPOSITION_UNSUPPORTED",
+        ),
     ],
 )
 def test_planning_failure_detail_uses_safe_reason_codes(

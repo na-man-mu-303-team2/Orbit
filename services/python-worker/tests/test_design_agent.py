@@ -155,6 +155,49 @@ def test_allows_an_unspecified_alignment() -> None:
     assert result.interpreted_intent.alignment is None
 
 
+def test_allows_smart_art_to_replace_selected_elements() -> None:
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["smartArtRequest"] = {
+        "layoutType": "process",
+        "sourceElementIds": ["el_image"],
+        "items": [
+            {"title": "기획", "description": None},
+            {"title": "개발", "description": None},
+        ],
+    }
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.source_element_ids == ["el_image"]
+
+
+def test_rejects_unselected_smart_art_sources() -> None:
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["smartArtRequest"] = {
+        "layoutType": "list",
+        "sourceElementIds": ["el_unselected"],
+        "items": [{"title": "기획", "description": None}],
+    }
+
+    with pytest.raises(DesignAgentGenerationError, match="unselected elements"):
+        generate_design_proposal(
+            request_payload(),
+            model="test-model",
+            api_key=None,
+            client=FakeClient(payload),
+        )
+
+
 def test_allows_adding_a_rounded_card_and_text() -> None:
     payload = proposal_payload()
     payload["operations"] = [
