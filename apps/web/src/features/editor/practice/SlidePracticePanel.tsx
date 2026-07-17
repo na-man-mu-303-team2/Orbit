@@ -1,5 +1,5 @@
 import type { Deck, Slide, SlidePracticeReport } from "@orbit/shared";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { FillerWordPieChart } from "./FillerWordPieChart";
 import "./slide-practice.css";
@@ -11,19 +11,15 @@ export function SlidePracticePanel(props: {
   deck: Deck;
   slide: Slide | null;
   onReportCreated: () => void;
+  showInlineResult?: boolean;
 }) {
   const lastReportedSessionRef = useRef<string | null>(null);
-  const biasPhrases = useMemo(() => [
-    ...(props.slide?.keywords.map((keyword) => keyword.text) ?? []),
-    props.slide?.title ?? "",
-  ].filter(Boolean), [props.slide]);
   const session = useSlidePracticeSession({
     projectId: props.projectId,
     deckId: props.deck.deckId,
     deckVersion: props.deck.version,
     slideId: props.slide?.slideId ?? null,
     slideOrder: props.slide?.order ?? 0,
-    biasPhrases,
   });
 
   useEffect(() => {
@@ -60,19 +56,17 @@ export function SlidePracticePanel(props: {
             type="button"
             onClick={() => void session.start()}
           >
-            {busy ? "준비 중…" : "연습 시작"}
+            {session.state === "stopping" ? "분석 중…" : session.state === "starting" ? "준비 중…" : "연습 시작"}
           </button>
         )}
       </div>
-      {recording || session.finalTranscript || session.interimTranscript ? (
+      {recording ? (
         <div className="editor-practice-transcript" aria-live="polite">
-          <span>{session.finalTranscript}</span>
-          <span className="interim">{session.interimTranscript}</span>
-          {!session.finalTranscript && !session.interimTranscript ? "말을 시작해 주세요." : null}
+          녹음 중입니다. 연습을 종료하면 서버에서 전사와 목소리 지표를 분석합니다.
         </div>
       ) : null}
       {session.message ? <p className="editor-practice-message" role="status">{session.message}</p> : null}
-      {session.report ? <PracticeResult report={session.report} /> : null}
+      {session.report && props.showInlineResult !== false ? <PracticeResult report={session.report} /> : null}
     </div>
   );
 }
@@ -86,21 +80,48 @@ export function PracticeResult({ report }: { report: SlidePracticeReport }) {
       />
       <div className="editor-practice-summary">
         <div className={`editor-practice-style style-${report.style.mode}`}>
-          <strong>{styleLabel(report.style.mode)}</strong>
-          <span>{report.style.message}</span>
+          <strong>{report.quality.state === "unmeasured" ? "판단 보류" : styleLabel(report.style.mode)}</strong>
+          <div className="editor-practice-style-copy">
+            <span>{displayStyleMessage(report)}</span>
+            {report.style.evidenceLabels.length > 0 ? (
+              <div className="editor-practice-style-evidence">
+                <span>판단 근거</span>
+                <ul aria-label="목소리 유형 판단 근거">
+                  {report.style.evidenceLabels.map((label) => <li key={label}>{label}</li>)}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         </div>
         <dl className="editor-practice-metrics">
           <div><dt>습관어</dt><dd>{report.fillers.totalCount}회</dd></div>
-          <div><dt>말 속도</dt><dd>{formatMetric(report.voice.syllablesPerSecond, "음절/초")}</dd></div>
+          <div><dt>말 속도</dt><dd>{formatPracticePace(report.syllableCount, report.voice.syllablesPerSecond)}</dd></div>
           <div><dt>쉼 비율</dt><dd>{Math.round(report.voice.pauseRatio * 100)}%</dd></div>
           <div><dt>피치 폭</dt><dd>{formatMetric(report.voice.pitchSpanHz, "Hz")}</dd></div>
+          <div><dt>음량</dt><dd>{formatLoudness(report.voice.loudnessDb)}</dd></div>
         </dl>
         {report.quality.state !== "measured" ? (
-          <p className="editor-practice-quality">일부 지표는 측정하지 못했습니다: {report.quality.reasons.join(", ")}</p>
+          <p className="editor-practice-quality">
+            일부 지표는 측정하지 못했습니다: {describePracticeQuality({
+              durationMs: report.durationMs,
+              reasons: report.quality.reasons,
+              syllableCount: report.syllableCount,
+            })}
+          </p>
         ) : null}
       </div>
     </div>
   );
+}
+
+function displayStyleMessage(report: SlidePracticeReport) {
+  if (report.style.mode === "lullaby") {
+    return "오늘 목소리는 잠수 모드예요. 수면 위로 한 걸음";
+  }
+  if (report.style.mode === "turbo") {
+    return "오늘 목소리에 기분 좋은 가속이 붙었어요";
+  }
+  return report.style.message;
 }
 
 function formatDuration(durationMs: number) {
@@ -112,6 +133,46 @@ function formatMetric(value: number | null, unit: string) {
   return value === null ? "측정 안 됨" : `${value.toFixed(1)} ${unit}`;
 }
 
+export function formatPracticePace(syllableCount: number, value: number | null) {
+  return syllableCount === 0 ? "측정 안 됨" : formatMetric(value, "음절/초");
+}
+
+export function formatLoudness(value: number | null) {
+  return formatMetric(value, "dBFS");
+}
+
+export function describePracticeQuality(input: {
+  durationMs: number;
+  reasons: SlidePracticeReport["quality"]["reasons"];
+  syllableCount: number;
+}) {
+  return input.reasons.flatMap((reason) => {
+    if (reason === "insufficient-speech") {
+      const details: string[] = [];
+      if (input.syllableCount < 5) {
+        details.push(`전사된 음절이 ${input.syllableCount}개입니다. 정확한 속도 측정에는 5음절 이상 필요합니다.`);
+      }
+      if (input.durationMs < 3_000) {
+        details.push(`연습 시간이 ${(input.durationMs / 1_000).toFixed(1)}초입니다. 3초 이상 연습해 주세요.`);
+      }
+      return details.length > 0 ? details : ["연습 분량이 충분하지 않습니다."];
+    }
+    return [{
+      "audio-analysis-unavailable": "목소리 분석을 사용할 수 없습니다.",
+      "baseline-unavailable": "평소 목소리 비교 기준을 사용할 수 없습니다.",
+      "low-audio-quality": "음질이 낮아 일부 목소리 지표를 측정하지 못했습니다.",
+      "pitch-unavailable": "피치 변화를 측정하지 못했습니다.",
+      "stt-unavailable": "음성 전사를 사용할 수 없어 말 속도와 습관어를 측정하지 못했습니다.",
+    }[reason]];
+  }).join(" ");
+}
+
 function styleLabel(mode: "lullaby" | "turbo" | "announcer" | "cloud" | "neutral") {
-  return { lullaby: "자장가형", turbo: "터보형", announcer: "아나운서형", cloud: "구름형", neutral: "안정형" }[mode];
+  return {
+    lullaby: "자장가형",
+    turbo: "터보형",
+    announcer: "이전 기준 · 아나운서형",
+    cloud: "이전 기준 · 구름형",
+    neutral: "판단 보류",
+  }[mode];
 }

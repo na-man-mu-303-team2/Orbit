@@ -6814,6 +6814,10 @@ body.is-resizing-speaker-notes {
   padding: 14px 18px 22px;
 }
 
+.orbit-shell .editor-practice-report-tab > .editor-practice-history {
+  border-top: 1px solid var(--orbit-ds-border);
+}
+
 .orbit-shell .editor-practice-history-list {
   display: grid;
   gap: 9px;
@@ -6884,6 +6888,11 @@ body.is-resizing-speaker-notes {
   display: grid;
   gap: 10px;
   padding-top: 14px;
+}
+
+.orbit-shell .editor-practice-history-detail.latest {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .orbit-shell .editor-practice-history-detail > header {

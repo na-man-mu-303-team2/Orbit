@@ -1,4 +1,6 @@
 import {
+  createSlidePracticeAnalysisResponseSchema,
+  slidePracticeAnalysisResultResponseSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
   voiceBaselineRecordSchema,
@@ -7,6 +9,7 @@ import {
   type VoiceBaselineMetrics,
   type VoiceBaselineRecord,
 } from "@orbit/shared";
+import { normalizeCoachingAudioMimeType } from "../../coaching/coachingAudioMimeType";
 
 const pendingReportStoreName = "pending-reports";
 const databaseName = "orbit-slide-practice";
@@ -44,6 +47,87 @@ export async function listSlidePracticeReports(input: {
   );
   if (!response.ok) throw new Error(await responseMessage(response, "연습 기록을 불러오지 못했습니다."));
   return slidePracticeReportListResponseSchema.parse(await response.json());
+}
+
+export async function submitSlidePracticeAudio(input: {
+  projectId: string;
+  practiceSessionId: string;
+  deckId: string;
+  deckVersion: number;
+  slideId: string;
+  slideOrder: number;
+  startedAt: string;
+  deviceIdHash: string | null;
+  blob: Blob;
+  durationMs: number;
+}) {
+  const createResponse = await fetch(
+    `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-practice-analyses`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientRequestId: crypto.randomUUID(),
+        practiceSessionId: input.practiceSessionId,
+        deckId: input.deckId,
+        deckVersion: input.deckVersion,
+        slideId: input.slideId,
+        slideOrder: input.slideOrder,
+        startedAt: input.startedAt,
+        mimeType: normalizeCoachingAudioMimeType(input.blob.type),
+        size: input.blob.size,
+        deviceIdHash: input.deviceIdHash,
+      }),
+    },
+  );
+  if (!createResponse.ok) {
+    throw new Error(await responseMessage(createResponse, "연습 분석을 준비하지 못했습니다."));
+  }
+  const created = createSlidePracticeAnalysisResponseSchema.parse(await createResponse.json());
+  if (!created.upload) throw new Error("연습 녹음 업로드 정보를 찾지 못했습니다.");
+  const uploadResponse = await fetch(created.upload.uploadUrl, {
+    method: created.upload.method,
+    headers: created.upload.headers,
+    body: input.blob,
+  });
+  if (!uploadResponse.ok) throw new Error("연습 녹음을 업로드하지 못했습니다.");
+
+  const completeResponse = await fetch(
+    `/api/v1/slide-practice-analyses/${encodeURIComponent(created.analysis.analysisId)}/audio/complete`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fileId: created.upload.fileId,
+        durationMs: input.durationMs,
+      }),
+    },
+  );
+  if (!completeResponse.ok) {
+    throw new Error(await responseMessage(completeResponse, "연습 분석을 시작하지 못했습니다."));
+  }
+  let result = slidePracticeAnalysisResultResponseSchema.parse(await completeResponse.json());
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (result.analysis.status === "succeeded") {
+      if (result.report) return result.report;
+      throw new Error("완료된 연습 분석 결과를 찾지 못했습니다.");
+    }
+    if (result.analysis.status === "failed" || result.analysis.status === "cancelled") {
+      throw new Error("서버에서 연습 음성을 분석하지 못했습니다. 다시 시도해 주세요.");
+    }
+    await delay(1_000);
+    const statusResponse = await fetch(
+      `/api/v1/slide-practice-analyses/${encodeURIComponent(created.analysis.analysisId)}`,
+      { credentials: "include" },
+    );
+    if (!statusResponse.ok) {
+      throw new Error(await responseMessage(statusResponse, "연습 분석 상태를 확인하지 못했습니다."));
+    }
+    result = slidePracticeAnalysisResultResponseSchema.parse(await statusResponse.json());
+  }
+  throw new Error("연습 분석 시간이 오래 걸리고 있습니다. 잠시 후 연습 기록에서 확인해 주세요.");
 }
 
 export async function getVoiceBaseline(deviceIdHash: string): Promise<VoiceBaselineRecord | null> {
@@ -148,4 +232,8 @@ async function responseMessage(response: Response, fallback: string) {
   } catch {
     return fallback;
   }
+}
+
+function delay(durationMs: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, durationMs));
 }

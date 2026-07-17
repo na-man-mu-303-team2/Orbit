@@ -108,6 +108,58 @@
   padding-top: 14px;
 }
 
+.orbit-shell .editor-practice-style-copy {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-style-evidence {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.orbit-shell .editor-practice-style-evidence > span {
+  color: var(--orbit-ds-text-muted);
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding-top: 3px;
+}
+
+.orbit-shell .editor-practice-style-evidence ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.orbit-shell .editor-practice-style-evidence li {
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: 999px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  padding: 2px 7px;
+}
+
+.orbit-shell .editor-practice-summary > .editor-practice-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-history-item .editor-practice-history-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-history-metrics strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 @media (max-width: 860px) {
   .orbit-shell .editor-practice-filler-chart-body {
     gap: 16px;
@@ -116,6 +168,10 @@
 
   .orbit-shell .editor-practice-filler-pie {
     max-width: 190px;
+  }
+
+  .orbit-shell .editor-practice-summary > .editor-practice-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -129,6 +185,10 @@
   }
 
   .orbit-shell .editor-practice-summary > .editor-practice-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orbit-shell .editor-practice-history-item .editor-practice-history-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

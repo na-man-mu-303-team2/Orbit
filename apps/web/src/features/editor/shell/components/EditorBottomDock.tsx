@@ -5,7 +5,6 @@ import {
   IconFileText as FileText,
   IconGripHorizontal as GripHorizontal,
   IconMessageQuestion as MessageQuestion,
-  IconMicrophone as Microphone,
 } from "@tabler/icons-react";
 import {
   cloneElement,
@@ -22,7 +21,7 @@ import { SlidePracticePanel } from "../../practice/SlidePracticePanel";
 import { SlideQuestionGuidePanel } from "../../practice/SlideQuestionGuidePanel";
 import type { SpeakerNotesPanelProps } from "./SpeakerNotesPanel";
 
-type DockTab = "notes" | "practice" | "questions" | "analysis";
+type DockTab = "notes" | "questions" | "report";
 
 export function EditorBottomDock(props: {
   projectId: string;
@@ -63,7 +62,7 @@ export function EditorBottomDock(props: {
   }, []);
 
   useEffect(() => {
-    if ((activeTab === "practice" || activeTab === "analysis") && !featureFlags.practice) setActiveTab("notes");
+    if (activeTab === "report" && !featureFlags.practice) setActiveTab("notes");
     if (activeTab === "questions" && !featureFlags.questions) setActiveTab("notes");
   }, [activeTab, featureFlags]);
 
@@ -99,9 +98,8 @@ export function EditorBottomDock(props: {
       <div className="editor-bottom-dock-header">
         <div aria-label="슬라이드 도구" className="editor-bottom-dock-tabs" role="tablist">
           <DockTabButton active={activeTab === "notes"} icon={<FileText size={16} />} label="발표 메모" onClick={() => selectTab("notes")} />
-          {featureFlags.practice ? <DockTabButton active={activeTab === "practice"} disabled={notesEditing} icon={<Microphone size={16} />} label="바로 연습" onClick={() => selectTab("practice")} /> : null}
           {featureFlags.questions ? <DockTabButton active={activeTab === "questions"} disabled={notesEditing} icon={<MessageQuestion size={16} />} label="예상 질문" onClick={() => selectTab("questions")} /> : null}
-          {featureFlags.practice ? <DockTabButton active={activeTab === "analysis"} disabled={notesEditing} icon={<ChartBar size={16} />} label="연습 기록" onClick={() => selectTab("analysis")} /> : null}
+          {featureFlags.practice ? <DockTabButton active={activeTab === "report"} disabled={notesEditing} icon={<ChartBar size={16} />} label="리포트" onClick={() => selectTab("report")} /> : null}
         </div>
         <button
           aria-expanded={props.isExpanded}
@@ -118,14 +116,6 @@ export function EditorBottomDock(props: {
         <div hidden={activeTab !== "notes"} role="tabpanel">
           {cloneElement(props.notesPanel, { embedded: true, isExpanded: props.isExpanded, isResizing: false })}
         </div>
-        {featureFlags.practice ? <div hidden={activeTab !== "practice"} role="tabpanel">
-          <SlidePracticePanel
-            deck={props.deck}
-            projectId={props.projectId}
-            slide={props.currentSlide}
-            onReportCreated={() => setHistoryRefreshToken((current) => current + 1)}
-          />
-        </div> : null}
         {featureFlags.questions ? <div hidden={activeTab !== "questions"} role="tabpanel">
           <SlideQuestionGuidePanel
             deck={props.deck}
@@ -134,7 +124,14 @@ export function EditorBottomDock(props: {
             slide={props.currentSlide}
           />
         </div> : null}
-        {featureFlags.practice ? <div hidden={activeTab !== "analysis"} role="tabpanel">
+        {featureFlags.practice ? <div className="editor-practice-report-tab" hidden={activeTab !== "report"} role="tabpanel">
+          <SlidePracticePanel
+            deck={props.deck}
+            projectId={props.projectId}
+            showInlineResult={false}
+            slide={props.currentSlide}
+            onReportCreated={() => setHistoryRefreshToken((current) => current + 1)}
+          />
           <SlidePracticeHistoryPanel
             deck={props.deck}
             projectId={props.projectId}

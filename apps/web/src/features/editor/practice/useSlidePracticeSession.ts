@@ -5,20 +5,57 @@ import type {
 } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 
-import { createLiveSttPort } from "../../rehearsal/stt/liveSttEngineRegistry";
-import type { LiveSttPort } from "../../rehearsal/stt/liveSttPort";
-import { analyzeKoreanFillers, countSpokenSyllables } from "./fillerAnalyzer";
-import { BrowserPcmVoiceAnalyzer } from "./pcmVoiceAnalyzer";
+import { useFocusedPracticeAudio, type FocusedPracticeCapture } from "../../coaching/useFocusedPracticeAudio";
+import type { LiveSttResult } from "../../rehearsal/stt/liveSttPort";
 import {
-  enqueueOfflinePracticeReport,
   getStableDeviceIdHash,
   getVoiceBaseline,
-  persistSlidePracticeReport,
+  submitSlidePracticeAudio,
   upsertVoiceBaseline,
 } from "./slidePracticeApi";
-import { classifyVoiceStyle } from "./voiceStyleClassifier";
 
 type PracticeSessionState = "idle" | "starting" | "recording" | "stopping" | "completed" | "error";
+
+const slidePracticeAudioConstraints: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: false,
+};
+
+export type PracticeTranscriptState = {
+  finalParts: string[];
+  interim: string;
+};
+
+export function createPracticeTranscriptState(): PracticeTranscriptState {
+  return { finalParts: [], interim: "" };
+}
+
+export function updatePracticeTranscript(
+  current: PracticeTranscriptState,
+  result: Pick<LiveSttResult, "isFinal" | "text">,
+): PracticeTranscriptState {
+  const text = result.text.trim();
+  if (!text) return current;
+  if (result.isFinal) {
+    return { finalParts: [...current.finalParts, text], interim: "" };
+  }
+  return { ...current, interim: text };
+}
+
+export function finalizePracticeTranscript(state: PracticeTranscriptState) {
+  return [...state.finalParts, state.interim]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function shouldUpdateVoiceBaseline(
+  qualityState: SlidePracticeReport["quality"]["state"],
+  activeSpeechMs: number,
+) {
+  return qualityState !== "unmeasured" && activeSpeechMs >= 5_000;
+}
 
 export function useSlidePracticeSession(input: {
   projectId: string;
@@ -26,24 +63,16 @@ export function useSlidePracticeSession(input: {
   deckVersion: number;
   slideId: string | null;
   slideOrder: number;
-  biasPhrases: string[];
 }) {
+  const audio = useFocusedPracticeAudio(300_000, slidePracticeAudioConstraints);
   const [state, setState] = useState<PracticeSessionState>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [interimTranscript, setInterimTranscript] = useState("");
-  const [finalTranscript, setFinalTranscript] = useState("");
   const [report, setReport] = useState<SlidePracticeReport | null>(null);
   const [message, setMessage] = useState("");
-  const streamRef = useRef<MediaStream | null>(null);
-  const analyzerRef = useRef<BrowserPcmVoiceAnalyzer | null>(null);
-  const sttRef = useRef<LiveSttPort | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const transcriptPartsRef = useRef<string[]>([]);
-  const confidencesRef = useRef<number[]>([]);
-  const sttEngineRef = useRef<"web-speech" | "openai-realtime" | "none">("none");
   const deviceIdHashRef = useRef<string | null>(null);
-  const baselineRef = useRef<VoiceBaselineRecord | null>(null);
+  const submittingRef = useRef(false);
   const sessionSnapshotRef = useRef<{
     practiceSessionId: string;
     slideId: string;
@@ -58,19 +87,9 @@ export function useSlidePracticeSession(input: {
     setState("starting");
     setMessage("");
     setReport(null);
-    setInterimTranscript("");
-    setFinalTranscript("");
-    transcriptPartsRef.current = [];
-    confidencesRef.current = [];
-    sttEngineRef.current = "none";
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
-      });
-      streamRef.current = stream;
-      const analyzer = new BrowserPcmVoiceAnalyzer();
-      analyzerRef.current = analyzer;
-      await analyzer.start(stream);
+      deviceIdHashRef.current = await getStableDeviceIdHash().catch(() => null);
+      await audio.start();
       const startedAt = Date.now();
       startedAtRef.current = startedAt;
       sessionSnapshotRef.current = {
@@ -83,184 +102,88 @@ export function useSlidePracticeSession(input: {
       };
       timerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
       setElapsedMs(0);
-
-      try {
-        deviceIdHashRef.current = await getStableDeviceIdHash();
-        baselineRef.current = await getVoiceBaseline(deviceIdHashRef.current).catch(() => null);
-      } catch {
-        deviceIdHashRef.current = null;
-        baselineRef.current = null;
-      }
-
-      const webSpeech = createLiveSttPort("web-speech", { projectId: input.projectId });
-      attachStt(webSpeech);
-      try {
-        await webSpeech.start({
-          language: "ko",
-          audioSource: stream,
-          biasPhrases: input.biasPhrases.map((text) => ({ text, weight: 0.8, source: "keyword" })),
-        });
-        sttRef.current = webSpeech;
-        sttEngineRef.current = "web-speech";
-      } catch (webSpeechError) {
-        await webSpeech.dispose();
-        const fallback = createLiveSttPort("openai-realtime", { projectId: input.projectId });
-        attachStt(fallback);
-        try {
-          await fallback.start({ language: "ko", audioSource: stream });
-          sttRef.current = fallback;
-          sttEngineRef.current = "openai-realtime";
-          setMessage("온디바이스 전사를 사용할 수 없어 서버 실시간 전사로 전환했습니다.");
-        } catch {
-          await fallback.dispose();
-          setMessage(webSpeechError instanceof Error
-            ? `${webSpeechError.message} 서버 실시간 전사도 사용할 수 없어 목소리 분석만 계속합니다.`
-            : "전사는 사용할 수 없지만 목소리 분석은 계속합니다.");
-        }
-      }
       setState("recording");
     } catch (error) {
-      cleanupMedia();
+      clearTimer();
       setState("error");
       setMessage(error instanceof Error ? error.message : "마이크를 시작하지 못했습니다.");
     }
   }
 
   async function stop() {
-    if (state !== "recording" || !startedAtRef.current || !sessionSnapshotRef.current) return;
+    if (state !== "recording" || !sessionSnapshotRef.current || submittingRef.current) return;
     setState("stopping");
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-    const durationMs = Math.max(1, Date.now() - startedAtRef.current);
-    setElapsedMs(durationMs);
-    await sttRef.current?.stop().catch(() => undefined);
-    await sttRef.current?.dispose();
-    sttRef.current = null;
-    const transcript = transcriptPartsRef.current.join(" ").trim();
-    setFinalTranscript(transcript);
-    setInterimTranscript("");
-    const syllableCount = countSpokenSyllables(transcript);
-    const analyzer = analyzerRef.current;
-    if (!analyzer) {
-      cleanupMedia();
-      setState("error");
-      setMessage("음성 분석기를 찾지 못했습니다. 다시 연습해 주세요.");
-      return;
-    }
-    let voice: SlidePracticeReport["voice"];
+    clearTimer();
     try {
-      voice = await analyzer.stop(syllableCount);
-    } catch {
-      cleanupMedia();
+      const capture = await audio.stop();
+      await finishCapture(capture);
+    } catch (error) {
       setState("error");
-      setMessage("목소리 분석을 완료하지 못했습니다. 다시 연습해 주세요.");
-      return;
-    } finally {
-      analyzerRef.current = null;
-      stopTracks();
+      setMessage(error instanceof Error ? error.message : "연습 녹음을 완료하지 못했습니다.");
     }
-    const fillers = analyzeKoreanFillers(transcript);
-    const qualityReasons: SlidePracticeReport["quality"]["reasons"] = [];
-    if (syllableCount < 5 || durationMs < 3_000) qualityReasons.push("insufficient-speech");
-    if (sttEngineRef.current === "none") qualityReasons.push("stt-unavailable");
-    if (voice.pitchMedianHz === null) qualityReasons.push("pitch-unavailable");
-    const qualityState = qualityReasons.includes("insufficient-speech")
-      ? "unmeasured"
-      : qualityReasons.length > 0 ? "partial" : "measured";
+  }
+
+  async function finishCapture(capture: FocusedPracticeCapture) {
+    if (submittingRef.current) return;
     const snapshot = sessionSnapshotRef.current;
-    const nextReport: SlidePracticeReport = {
-      reportVersion: 1,
-      metricDefinitionVersion: 1,
-      classifierVersion: 1,
-      practiceSessionId: snapshot.practiceSessionId,
-      projectId: input.projectId,
-      deckId: snapshot.deckId,
-      deckVersion: snapshot.deckVersion,
-      slideId: snapshot.slideId,
-      slideOrder: snapshot.slideOrder,
-      startedAt: snapshot.startedAt,
-      durationMs,
-      syllableCount,
-      meanRecognitionConfidence: confidencesRef.current.length > 0
-        ? confidencesRef.current.reduce((total, confidence) => total + confidence, 0) / confidencesRef.current.length
-        : null,
-      fillers: { policyVersion: 1, totalCount: fillers.totalCount, details: fillers.details },
-      voice,
-      style: classifyVoiceStyle(voice, baselineRef.current?.metrics ?? null),
-      quality: { state: qualityState, reasons: Array.from(new Set(qualityReasons)) },
-      source: {
-        kind: "browser",
-        sttEngine: sttEngineRef.current,
-        deviceIdHash: deviceIdHashRef.current,
-        baselineVersion: baselineRef.current?.baselineVersion ?? null,
-      },
-    };
-    setReport(nextReport);
-    const request = { clientRequestId: crypto.randomUUID(), report: nextReport };
+    if (!snapshot) throw new Error("연습 세션 정보를 찾지 못했습니다.");
+    submittingRef.current = true;
+    const durationMs = Math.min(300_000, capture.durationMs);
+    setElapsedMs(durationMs);
+    setMessage("녹음을 업로드하고 서버에서 말 속도·쉼·피치·음량·습관어를 분석하고 있습니다.");
     try {
-      await persistSlidePracticeReport(request);
-      setMessage("연습 결과를 안전하게 저장했습니다. 전사 원문과 음성은 저장하지 않았습니다.");
-    } catch {
-      try {
-        await enqueueOfflinePracticeReport(request);
-        setMessage("오프라인 보관함에 저장했습니다. 연결되면 자동으로 동기화합니다.");
-      } catch {
-        setMessage("분석은 완료했지만 서버와 오프라인 보관함에 저장하지 못했습니다.");
-      }
+      const nextReport = await submitSlidePracticeAudio({
+        projectId: input.projectId,
+        practiceSessionId: snapshot.practiceSessionId,
+        deckId: snapshot.deckId,
+        deckVersion: snapshot.deckVersion,
+        slideId: snapshot.slideId,
+        slideOrder: snapshot.slideOrder,
+        startedAt: snapshot.startedAt,
+        deviceIdHash: deviceIdHashRef.current,
+        blob: capture.blob,
+        durationMs,
+      });
+      setReport(nextReport);
+      setMessage("서버 분석을 완료했습니다. 전사 원문은 저장하지 않으며 원본 음성은 분석 후 삭제됩니다.");
+      void updateBaseline(nextReport);
+      setState("completed");
+    } finally {
+      submittingRef.current = false;
     }
-    void updateBaseline(voice);
-    setState("completed");
   }
 
-  function attachStt(port: LiveSttPort) {
-    port.onResult((result) => {
-      if (result.isFinal) {
-        transcriptPartsRef.current.push(result.text);
-        setFinalTranscript(transcriptPartsRef.current.join(" "));
-        setInterimTranscript("");
-        if (typeof result.confidence === "number") confidencesRef.current.push(result.confidence);
-      } else {
-        setInterimTranscript(result.text);
-      }
-    });
-    port.onError((error) => setMessage(`${error.message} 목소리 분석은 계속합니다.`));
-  }
-
-  async function updateBaseline(voice: SlidePracticeReport["voice"]) {
+  async function updateBaseline(nextReport: SlidePracticeReport) {
     const deviceIdHash = deviceIdHashRef.current;
-    if (!deviceIdHash || voice.activeSpeechMs < 5_000) return;
-    const previous = baselineRef.current;
+    if (!deviceIdHash || !shouldUpdateVoiceBaseline(nextReport.quality.state, nextReport.voice.activeSpeechMs)) return;
+    const previous: VoiceBaselineRecord | null = await getVoiceBaseline(deviceIdHash).catch(() => null);
     const sampleCount = Math.min(10_000, (previous?.sampleCount ?? 0) + 1);
-    const metrics = mergeBaseline(previous?.metrics ?? null, voice, sampleCount);
+    const metrics = mergeBaseline(previous?.metrics ?? null, nextReport.voice, sampleCount);
     await upsertVoiceBaseline({ deviceIdHash, sampleCount, metrics }).catch(() => undefined);
   }
 
-  function stopTracks() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  }
-
-  function cleanupMedia() {
+  function clearTimer() {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    void sttRef.current?.dispose();
-    sttRef.current = null;
-    void analyzerRef.current?.cancel();
-    analyzerRef.current = null;
-    stopTracks();
   }
 
-  useEffect(() => cleanupMedia, []);
+  useEffect(() => () => clearTimer(), []);
 
   useEffect(() => {
-    if (state === "recording" && elapsedMs >= 300_000) void stop();
-  }, [elapsedMs, state]);
+    const capture = audio.automaticCapture;
+    if (!capture || state !== "recording" || submittingRef.current) return;
+    audio.clearAutomaticCapture();
+    clearTimer();
+    setState("stopping");
+    void finishCapture(capture).catch((error) => {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "연습 녹음을 완료하지 못했습니다.");
+    });
+  }, [audio.automaticCapture, state]);
 
   return {
     state,
     elapsedMs,
-    interimTranscript,
-    finalTranscript,
     report,
     message,
     start,

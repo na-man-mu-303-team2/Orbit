@@ -58,9 +58,68 @@ describe("FillerWordPieChart", () => {
       html.indexOf("editor-practice-summary"),
     );
     expect(html).toContain("자장가형");
+    expect(html).toContain("오늘 목소리는 잠수 모드예요. 수면 위로 한 걸음");
+    expect(html).not.toContain("자장가처럼 차분해요.");
     expect(html).toContain("17.5 음절/초");
     expect(html).toContain("87%");
     expect(html).toContain("34.3 Hz");
+    expect(html).toContain("-20.0 dBFS");
+    expect(html).toContain("판단 근거");
+    expect(html).toContain("낮은 말 속도");
+  });
+
+  it("과거 터보형 기록도 새 멘트로 표시한다", () => {
+    const baseReport = practiceReport();
+    const html = renderToStaticMarkup(<PracticeResult report={{
+      ...baseReport,
+      style: {
+        ...baseReport.style,
+        mode: "turbo",
+        message: "빠른 구간이 뚜렷해요.",
+      },
+    }} />);
+
+    expect(html).toContain("오늘 목소리에 기분 좋은 가속이 붙었어요");
+    expect(html).not.toContain("빠른 구간이 뚜렷해요.");
+  });
+
+  it("측정 불충분 결과는 기본형 대신 판단 보류와 측정 불가 음량을 표시한다", () => {
+    const baseReport = practiceReport();
+    const html = renderToStaticMarkup(<PracticeResult report={{
+      ...baseReport,
+      classifierVersion: 2,
+      voice: { ...baseReport.voice, loudnessDb: null },
+      style: {
+        mode: "neutral",
+        confidence: 0,
+        evidenceLabels: ["연습 분량이 부족해요"],
+        message: "연습 분량이 부족해 목소리 유형을 판단하지 않았습니다.",
+      },
+      quality: { state: "unmeasured", reasons: ["insufficient-speech"] },
+    }} />);
+
+    expect(html).toContain("판단 보류");
+    expect(html).not.toContain("기본형");
+    expect(html).toContain("연습 분량이 부족해요");
+    expect(html).toContain("측정 안 됨");
+  });
+
+  it("v3에서 두 유형 조건이 없으면 측정 결과도 판단 보류로 표시한다", () => {
+    const baseReport = practiceReport();
+    const html = renderToStaticMarkup(<PracticeResult report={{
+      ...baseReport,
+      classifierVersion: 3,
+      style: {
+        mode: "neutral",
+        confidence: 0,
+        evidenceLabels: ["자장가형·터보형 조건이 뚜렷하지 않아요"],
+        message: "자장가형 또는 터보형 조건이 뚜렷하지 않아 유형 판단을 보류했습니다.",
+      },
+    }} />);
+
+    expect(html).toContain("판단 보류");
+    expect(html).not.toContain("기본형");
+    expect(html).toContain("자장가형·터보형 조건이 뚜렷하지 않아요");
   });
 });
 

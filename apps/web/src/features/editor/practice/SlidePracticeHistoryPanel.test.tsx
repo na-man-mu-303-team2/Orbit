@@ -10,38 +10,37 @@ afterEach(() => {
 });
 
 describe("PracticeHistoryContent", () => {
-  it("최신 5개만 표시하고 선택한 기록을 바로 연습 상세 화면으로 렌더링한다", () => {
-    const reports = Array.from({ length: 6 }, (_, index) => practiceReport(index));
+  it("가장 최근 기록 1개를 바로 연습 상세 화면으로 렌더링한다", () => {
+    const reports = [practiceReport(0), practiceReport(1)];
     const html = renderToStaticMarkup(
-      <PracticeHistoryContent
-        reports={reports}
-        selectedReportId="report-2"
-        onSelect={() => undefined}
-      />,
+      <PracticeHistoryContent reports={reports} />,
     );
 
-    expect(html.match(/editor-practice-history-item/g)).toHaveLength(5);
-    expect(html).toContain("aria-pressed=\"true\"");
-    expect(html).toContain("선택한 저장 기록");
+    expect(html).not.toContain("editor-practice-history-item");
+    expect(html).toContain("최근 저장 기록");
     expect(html).toContain("습관어 사용 비율");
-    expect(html).toContain("기록 2의 목소리 스타일");
-    expect(html).not.toContain("기록 5의 목소리 스타일");
+    expect(html).toContain("기록 0의 목소리 스타일");
+    expect(html).not.toContain("기록 1의 목소리 스타일");
+    expect(html).toContain("판단 보류");
+    expect(html).not.toContain("기본형");
+    expect(html).toContain("판단 근거");
+    expect(html).toContain("-20.0 dBFS");
   });
 
-  it("기록을 선택하기 전에는 상세 안내를 표시한다", () => {
+  it("저장 기록의 음량을 측정하지 못한 경우에도 상태를 명시한다", () => {
+    const baseReport = practiceReport(0);
     const html = renderToStaticMarkup(
-      <PracticeHistoryContent
-        reports={[practiceReport(0)]}
-        selectedReportId={null}
-        onSelect={() => undefined}
-      />,
+      <PracticeHistoryContent reports={[{
+          ...baseReport,
+          voice: { ...baseReport.voice, loudnessDb: null },
+        }]} />,
     );
 
-    expect(html).toContain("기록을 선택하면 연습 종료 직후와 같은 상세 결과");
-    expect(html).not.toContain("선택한 저장 기록");
+    expect(html).toContain("음량");
+    expect(html).toContain("측정 안 됨");
   });
 
-  it("DB 저장 기록을 최신 5개로 제한해 요청한다", async () => {
+  it("DB 저장 기록을 최신 1개로 제한해 요청한다", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       reports: [],
       nextCursor: null,
@@ -52,11 +51,11 @@ describe("PracticeHistoryContent", () => {
       projectId: "project-1",
       deckId: "deck-1",
       slideId: "slide-1",
-      limit: 5,
+      limit: 1,
     });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/v1/projects/project-1/slide-practice-reports?deckId=deck-1&slideId=slide-1&limit=5",
+      "/api/v1/projects/project-1/slide-practice-reports?deckId=deck-1&slideId=slide-1&limit=1",
       { credentials: "include" },
     );
   });
