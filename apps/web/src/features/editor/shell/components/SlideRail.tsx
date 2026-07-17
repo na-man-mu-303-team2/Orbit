@@ -8,6 +8,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import {
@@ -21,6 +22,7 @@ import {
   getSlideRailKeyboardTargetSlideId,
   type SlideRailItem,
 } from "../slideRailModel";
+import { IdBadge } from "./EditorIdBadge";
 
 export type SlideRailProps = {
   canMutate: boolean;
@@ -32,7 +34,9 @@ export type SlideRailProps = {
   onMove: (slideId: string, direction: "down" | "up") => void;
   onReorder: (orderedSlideIds: readonly string[]) => void;
   onSelect: (slideId: string) => void;
+  showIds?: boolean;
   thumbnailBackgrounds?: Readonly<Record<string, string>>;
+  thumbnailContents?: Readonly<Record<string, ReactNode>>;
   viewMode: "list" | "thumbnail";
 };
 
@@ -178,8 +182,9 @@ export function SlideRail(props: SlideRailProps) {
                 <span aria-hidden="true" className="slide-number">{item.index + 1}</span>
                 <span className="slide-title">
                   <span className="slide-title-text">{item.title}</span>
+                  {props.showIds ? <IdBadge id={item.slideId} /> : null}
                 </span>
-                {!props.collapsed ? (
+                {!props.collapsed && props.viewMode === "thumbnail" ? (
                   <span
                     aria-hidden="true"
                     className="slide-thumb orbit-thumb"
@@ -187,7 +192,9 @@ export function SlideRail(props: SlideRailProps) {
                       aspectRatio: props.canvasAspectRatio,
                       background: props.thumbnailBackgrounds?.[item.slideId],
                     }}
-                  />
+                  >
+                    {props.thumbnailContents?.[item.slideId]}
+                  </span>
                 ) : null}
               </button>
 
@@ -204,7 +211,7 @@ export function SlideRail(props: SlideRailProps) {
                   <button
                     aria-controls={menuId}
                     aria-expanded={isMenuOpen}
-                    aria-haspopup="menu"
+                    aria-haspopup="true"
                     aria-label={`${item.title} 메뉴`}
                     className="slide-rail-menu-button"
                     ref={(node) => setButtonRef(menuButtonRefs.current, item.slideId, node)}

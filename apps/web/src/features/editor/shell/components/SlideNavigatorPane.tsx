@@ -10,19 +10,25 @@ import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ActivitySpecialSlideThumbnail } from "../../../activity-slides";
 import type { SlidePanelView } from "../editorShellUiStore";
+import type { SlideRailItem } from "../slideRailModel";
 import { buildSlideThumbBackground } from "../utils/editorLayout";
-import { IdBadge } from "./EditorIdBadge";
 import { EmptyPanel } from "./EditorStateNotice";
+import { SlideRail } from "./SlideRail";
 
 export function SlideNavigatorPane(props: {
-  currentSlideIndex: number;
+  canMutate: boolean;
   deck: Deck;
+  items: readonly SlideRailItem[];
   isCollapsed: boolean;
   onAddActivitySlide: (template: ActivityTemplate) => void;
   onAddActivityResultsSlide: () => void;
   onAddSlide: () => void;
+  onDeleteSlide: (slideId: string) => void;
+  onDuplicateSlide: (slideId: string) => void;
+  onMoveSlide: (slideId: string, direction: "down" | "up") => void;
+  onReorderSlides: (orderedSlideIds: readonly string[]) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onSelectSlide: (index: number) => void;
+  onSelectSlide: (slideId: string) => void;
   onSetView: (view: SlidePanelView) => void;
   onToggleCollapsed: () => void;
   showIds: boolean;
@@ -59,55 +65,47 @@ export function SlideNavigatorPane(props: {
       </div>
 
       {!props.isCollapsed ? (
-        <div className={`slides-list ${props.view}-view`}>
+        <div className="slides-pane-content">
           {hasSlides ? (
-            props.deck.slides.map((slide, index) => {
-              const slideTitle = slide.title || `슬라이드 ${index + 1}`;
-
-              return (
-                <button
-                  aria-label={`슬라이드 ${index + 1}: ${slideTitle}`}
-                  className={`slide-item ${index === props.currentSlideIndex ? "active" : ""}`}
-                  key={slide.slideId}
-                  type="button"
-                  onClick={() => props.onSelectSlide(index)}
-                >
-                  <span className="slide-item-meta">
-                    <span className="slide-number">{index + 1}</span>
-                    {props.view === "list" ? (
-                      <span className="slide-item-title">{slideTitle}</span>
-                    ) : null}
-                  </span>
-                  {props.view === "thumbnail" ? (
-                    <span
-                      className="slide-thumb orbit-thumb"
-                      style={{
-                        aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
-                        background:
-                          slide.kind === "content"
-                            ? buildSlideThumbBackground(
-                                slide,
-                                props.deck,
-                                props.slideThumbnailUrls[slide.slideId],
-                              )
-                            : undefined,
-                      }}
-                    >
-                      {slide.kind === "activity" ||
-                      slide.kind === "activity-results" ? (
-                        <ActivitySpecialSlideThumbnail
-                          deck={props.deck}
-                          slide={slide}
-                        />
-                      ) : null}
-                    </span>
-                  ) : null}
-                  {props.view === "list" && props.showIds ? (
-                    <IdBadge id={slide.slideId} />
-                  ) : null}
-                </button>
-              );
-            })
+            <SlideRail
+              canMutate={props.canMutate}
+              canvasAspectRatio={`${props.deck.canvas.width} / ${props.deck.canvas.height}`}
+              items={props.items}
+              onDelete={props.onDeleteSlide}
+              onDuplicate={props.onDuplicateSlide}
+              onMove={props.onMoveSlide}
+              onReorder={props.onReorderSlides}
+              onSelect={props.onSelectSlide}
+              showIds={props.showIds}
+              thumbnailBackgrounds={Object.fromEntries(
+                props.deck.slides.map((slide) => [
+                  slide.slideId,
+                  slide.kind === "content"
+                    ? buildSlideThumbBackground(
+                        slide,
+                        props.deck,
+                        props.slideThumbnailUrls[slide.slideId]
+                      )
+                    : ""
+                ])
+              )}
+              thumbnailContents={Object.fromEntries(
+                props.deck.slides
+                  .filter(
+                    (slide) =>
+                      slide.kind === "activity" || slide.kind === "activity-results"
+                  )
+                  .map((slide) => [
+                    slide.slideId,
+                    <ActivitySpecialSlideThumbnail
+                      deck={props.deck}
+                      key={slide.slideId}
+                      slide={slide}
+                    />
+                  ])
+              )}
+              viewMode={props.view}
+            />
           ) : (
             <EmptyPanel
               title="슬라이드 없음"
