@@ -1113,6 +1113,14 @@ export function EditorShell(props: { projectId?: string }) {
             void health.refetch();
             void deckQuery.refetch();
           }}
+          onRenameDeckTitle={(title) => {
+            commitPatch((currentDeck) => ({
+              baseVersion: currentDeck.version,
+              deckId: currentDeck.deckId,
+              operations: [{ type: "update_deck", title }],
+              source: "user"
+            }));
+          }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
           onStartRehearsal={() => void handleStartRehearsal()}
@@ -1389,7 +1397,13 @@ export function EditorShell(props: { projectId?: string }) {
               onSetCustomShapeEditElementId: setCustomShapeEditElementId,
               onSetInsertTool: setInsertTool,
               onOpenElementContextMenu: handleOpenElementContextMenu,
-              onSelectElement: handleElementSelection
+              onSelectElement: handleElementSelection,
+              onSelectElements: (elementIds) => {
+                setElementContextMenu(null);
+                setEditingElementId(null);
+                setCustomShapeEditElementId(null);
+                setSelectedElementIds(elementIds);
+              }
             }}
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}

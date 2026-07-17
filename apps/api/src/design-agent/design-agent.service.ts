@@ -128,6 +128,7 @@ export class DesignAgentService {
         ? await this.expandSmartArtRequest(
             aiResult.smartArtRequest,
             input.context,
+            input.content,
           )
         : [];
       const operations = [...aiResult.operations, ...smartArtOperations];
@@ -315,6 +316,7 @@ export class DesignAgentService {
   private async expandSmartArtRequest(
     smartArtRequest: SmartArtRequest,
     context: DesignAgentContext,
+    question: string,
   ): Promise<DeckPatchOperation[]> {
     const selectedElementIds = new Set(context.selectedElementIds);
     const visibleElementIds = new Set(
@@ -322,10 +324,16 @@ export class DesignAgentService {
         .filter((element) => element.visible !== false)
         .map((element) => element.elementId),
     );
+    const allowsSlideSources = allowsUnselectedSmartArtSources(question);
     for (const elementId of smartArtRequest.sourceElementIds) {
-      if (!selectedElementIds.has(elementId) || !visibleElementIds.has(elementId)) {
+      if (
+        !visibleElementIds.has(elementId) ||
+        (!allowsSlideSources && !selectedElementIds.has(elementId))
+      ) {
         throw new BadRequestException(
-          "SmartArt sourceElementIds must reference visible selected elements.",
+          allowsSlideSources
+            ? "SmartArt sourceElementIds must reference visible slide elements."
+            : "SmartArt sourceElementIds must reference visible selected elements.",
         );
       }
     }
@@ -350,6 +358,28 @@ export class DesignAgentService {
   }
 }
 
+export function allowsUnselectedSmartArtSources(question: string) {
+  const normalized = question.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  return [
+    "현재 페이지",
+    "이 페이지",
+    "페이지 전체",
+    "현재 슬라이드",
+    "이 슬라이드",
+    "슬라이드 전체",
+    "가운데 텍스트",
+    "중앙 텍스트",
+    "current page",
+    "this page",
+    "whole page",
+    "current slide",
+    "this slide",
+    "whole slide",
+    "center text",
+    "centre text",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
 export function buildSmartArtOperations(
   layout: SmartArtLayoutEntity,
   items: SmartArtItem[],
@@ -361,6 +391,14 @@ export function buildSmartArtOperations(
   const operations: DeckPatchOperation[] = sourceElementIds.map((elementId) =>
     deckPatchOperationSchema.parse({ type: "delete_element", slideId, elementId }),
   );
+  const generatedElements: Array<{
+    elementId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    zIndex: number;
+  }> = [];
 
   for (const template of layout.elements) {
     if (template.itemIndex !== null && template.itemIndex >= items.length) continue;
@@ -371,24 +409,59 @@ export function buildSmartArtOperations(
       props.text = (template.textField === "title" ? item.title : item.description) ?? "";
     }
 
+    const element = {
+      elementId: `el_smartart_${instanceId}_${template.elementIdSuffix}`,
+      type: template.type,
+      role: template.role,
+      x: template.xFrac * canvas.width,
+      y: template.yFrac * canvas.height,
+      width: template.widthFrac * canvas.width,
+      height: template.heightFrac * canvas.height,
+      rotation: template.rotation,
+      opacity: 1,
+      zIndex: template.zIndex,
+      locked: false,
+      visible: true,
+      props,
+    };
+    operations.push(
+      deckPatchOperationSchema.parse({
+        type: "add_element",
+        slideId,
+        element,
+      }),
+    );
+    generatedElements.push(element);
+  }
+
+  if (generatedElements.length > 0) {
+    const minX = Math.min(...generatedElements.map((element) => element.x));
+    const minY = Math.min(...generatedElements.map((element) => element.y));
+    const maxX = Math.max(
+      ...generatedElements.map((element) => element.x + element.width),
+    );
+    const maxY = Math.max(
+      ...generatedElements.map((element) => element.y + element.height),
+    );
     operations.push(
       deckPatchOperationSchema.parse({
         type: "add_element",
         slideId,
         element: {
-          elementId: `el_smartart_${instanceId}_${template.elementIdSuffix}`,
-          type: template.type,
-          role: template.role,
-          x: template.xFrac * canvas.width,
-          y: template.yFrac * canvas.height,
-          width: template.widthFrac * canvas.width,
-          height: template.heightFrac * canvas.height,
-          rotation: template.rotation,
+          elementId: `el_smartart_${instanceId}_group`,
+          type: "group",
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+          rotation: 0,
           opacity: 1,
-          zIndex: template.zIndex,
+          zIndex: Math.max(...generatedElements.map((element) => element.zIndex)) + 1,
           locked: false,
           visible: true,
-          props,
+          props: {
+            childElementIds: generatedElements.map((element) => element.elementId),
+          },
         },
       }),
     );
