@@ -103,6 +103,27 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain("disabled");
   });
 
+  it("녹음 업로드 연결 실패를 음성 인식 오류와 구분한다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalBottomPanel
+        elapsedMs={12_000}
+        message="연습 녹음 업로드 서버에 연결하지 못했습니다."
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        practiceState="error"
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain("녹음 업로드 실패");
+    expect(html).toContain("연습 녹음 업로드 서버에 연결하지 못했습니다.");
+    expect(html).not.toContain("Failed to fetch");
+  });
+
   it("오른쪽 패널에 현재 슬라이드와 체크포인트를 표시한다", () => {
     const slide = createDemoDeck().slides[0]!;
     const html = renderToStaticMarkup(

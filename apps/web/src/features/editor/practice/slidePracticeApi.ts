@@ -61,7 +61,7 @@ export async function submitSlidePracticeAudio(input: {
   blob: Blob;
   durationMs: number;
 }) {
-  const createResponse = await fetch(
+  const createResponse = await fetchWithNetworkError(
     `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-practice-analyses`,
     {
       method: "POST",
@@ -80,20 +80,25 @@ export async function submitSlidePracticeAudio(input: {
         deviceIdHash: input.deviceIdHash,
       }),
     },
+    "연습 분석 서버에 연결하지 못했습니다.",
   );
   if (!createResponse.ok) {
     throw new Error(await responseMessage(createResponse, "연습 분석을 준비하지 못했습니다."));
   }
   const created = createSlidePracticeAnalysisResponseSchema.parse(await createResponse.json());
   if (!created.upload) throw new Error("연습 녹음 업로드 정보를 찾지 못했습니다.");
-  const uploadResponse = await fetch(created.upload.uploadUrl, {
-    method: created.upload.method,
-    headers: created.upload.headers,
-    body: input.blob,
-  });
+  const uploadResponse = await fetchWithNetworkError(
+    created.upload.uploadUrl,
+    {
+      method: created.upload.method,
+      headers: created.upload.headers,
+      body: input.blob,
+    },
+    "연습 녹음 업로드 서버에 연결하지 못했습니다.",
+  );
   if (!uploadResponse.ok) throw new Error("연습 녹음을 업로드하지 못했습니다.");
 
-  const completeResponse = await fetch(
+  const completeResponse = await fetchWithNetworkError(
     `/api/v1/slide-practice-analyses/${encodeURIComponent(created.analysis.analysisId)}/audio/complete`,
     {
       method: "POST",
@@ -104,6 +109,7 @@ export async function submitSlidePracticeAudio(input: {
         durationMs: input.durationMs,
       }),
     },
+    "연습 분석 시작 요청을 보내지 못했습니다.",
   );
   if (!completeResponse.ok) {
     throw new Error(await responseMessage(completeResponse, "연습 분석을 시작하지 못했습니다."));
@@ -118,9 +124,10 @@ export async function submitSlidePracticeAudio(input: {
       throw new Error("서버에서 연습 음성을 분석하지 못했습니다. 다시 시도해 주세요.");
     }
     await delay(1_000);
-    const statusResponse = await fetch(
+    const statusResponse = await fetchWithNetworkError(
       `/api/v1/slide-practice-analyses/${encodeURIComponent(created.analysis.analysisId)}`,
       { credentials: "include" },
+      "연습 분석 상태 서버에 연결하지 못했습니다.",
     );
     if (!statusResponse.ok) {
       throw new Error(await responseMessage(statusResponse, "연습 분석 상태를 확인하지 못했습니다."));
@@ -236,4 +243,16 @@ async function responseMessage(response: Response, fallback: string) {
 
 function delay(durationMs: number) {
   return new Promise((resolve) => window.setTimeout(resolve, durationMs));
+}
+
+async function fetchWithNetworkError(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  message: string,
+) {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error(message);
+  }
 }

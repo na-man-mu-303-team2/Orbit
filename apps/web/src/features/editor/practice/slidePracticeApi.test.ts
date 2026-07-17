@@ -51,6 +51,42 @@ describe("submitSlidePracticeAudio", () => {
     expect(createBody).not.toHaveProperty("transcript");
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
+
+  it("shows an upload-specific message when the browser cannot reach the upload URL", async () => {
+    const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+      const url = String(request);
+      if (url.endsWith("/slide-practice-analyses")) {
+        return new Response(JSON.stringify({
+          analysis: analysis("uploading", null),
+          upload: {
+            fileId: "file-audio",
+            projectId: "project-1",
+            uploadUrl: "http://localhost:5173/api/v1/projects/project-1/assets/file-audio/content",
+            method: "PUT",
+            headers: { "content-type": "audio/webm" },
+            expiresAt: "2026-07-17T00:15:00.000Z",
+            purpose: "slide-practice-audio",
+          },
+        }), { status: 201 });
+      }
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(submitSlidePracticeAudio({
+      projectId: "project-1",
+      practiceSessionId: "practice-1",
+      deckId: "deck-1",
+      deckVersion: 2,
+      slideId: "slide-1",
+      slideOrder: 0,
+      startedAt: "2026-07-17T00:00:00.000Z",
+      deviceIdHash: "device-hash",
+      blob: new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
+      durationMs: 10_000,
+    })).rejects.toThrow("연습 녹음 업로드 서버에 연결하지 못했습니다.");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
 });
 
 function analysis(status: "uploading" | "succeeded", reportId: string | null) {

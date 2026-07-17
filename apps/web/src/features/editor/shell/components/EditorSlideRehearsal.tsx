@@ -104,7 +104,7 @@ export function EditorSlideRehearsalBottomPanel(
             className={`editor-slide-rehearsal-live-dot ${isRecording ? "active" : ""}`}
           />
           <strong>음성 인식</strong>
-          <span>{getRehearsalStatusLabel(props.practiceState)}</span>
+          <span>{getRehearsalStatusLabel(props.practiceState, props.message)}</span>
           <span className="editor-slide-rehearsal-script-progress">
             대본 {visibleProgress.progressPercent}%
           </span>
@@ -391,7 +391,7 @@ export function formatRehearsalTime(elapsedSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getRehearsalStatusLabel(state: PracticeSessionState) {
+function getRehearsalStatusLabel(state: PracticeSessionState, message: string) {
   switch (state) {
     case "starting":
       return "준비 중";
@@ -402,6 +402,8 @@ function getRehearsalStatusLabel(state: PracticeSessionState) {
     case "completed":
       return "분석 완료";
     case "error":
+      if (message.includes("업로드")) return "녹음 업로드 실패";
+      if (message.includes("마이크")) return "마이크 확인 필요";
       return "연결 확인 필요";
     default:
       return "대기 중";
