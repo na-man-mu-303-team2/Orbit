@@ -18,7 +18,7 @@ import { DecksService } from "../decks/decks.service";
 import { JobsService } from "../jobs/jobs.service";
 import { sha256Canonical } from "../practice-goals/evaluation-plan";
 
-const promptVersion = "slide-question-guide-v1";
+const promptVersion = "slide-question-guide-v2";
 const listQuerySchema = z.object({
   deckId: z.string().trim().min(1).max(128),
   slideId: z.string().trim().min(1).max(128).optional(),
@@ -69,7 +69,7 @@ export class SlideQuestionGuidesService {
           guide_id, project_id, deck_id, deck_version, slide_id, slide_content_hash, source_snapshot_json,
           client_request_id, status, generation_job_id, created_by, question_count,
           schema_version, prompt_version, model, error_code, created_at, updated_at, generated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'queued',NULL,$9,3,1,$10,NULL,NULL,$11,$11,NULL)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'queued',NULL,$9,3,2,$10,NULL,NULL,$11,$11,NULL)`,
         [
           guideId,
           projectId,
@@ -188,7 +188,7 @@ export class SlideQuestionGuidesService {
        WHERE project_id = $1 AND guide_id = $2 ORDER BY question_order`,
       [row.project_id, row.guide_id],
     );
-    return slideQuestionGuideSchema.parse({
+    const guide = {
       schemaVersion: row.schema_version,
       guideId: row.guide_id,
       projectId: row.project_id,
@@ -200,7 +200,21 @@ export class SlideQuestionGuidesService {
       generatedAt: toIso(row.generated_at),
       promptVersion: row.prompt_version,
       model: row.model,
-    });
+    };
+    if (Number(row.schema_version) === 2) {
+      return slideQuestionGuideSchema.parse({
+        ...guide,
+        schemaVersion: 2,
+        research: {
+          status: row.research_status,
+          attempts: Number(row.research_attempts),
+          officialSourceCount: Number(row.official_source_count),
+          issueCodes: jsonArray(row.research_issue_codes),
+          researchedAt: row.researched_at ? toIso(row.researched_at) : null,
+        },
+      });
+    }
+    return slideQuestionGuideSchema.parse({ ...guide, schemaVersion: 1 });
   }
 
   private assertEnabled() {
@@ -218,6 +232,17 @@ function firstRow(value: unknown): Record<string, any> | null {
 
 function toIso(value: unknown) {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+}
+
+function jsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function collectSlideText(value: unknown): string {
