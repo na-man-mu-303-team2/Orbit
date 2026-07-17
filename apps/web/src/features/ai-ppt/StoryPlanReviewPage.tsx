@@ -21,16 +21,20 @@ import {
   OrbitTabs,
   OrbitTextarea,
 } from "../../design-system";
-import { pollJob } from "./AiPptMockupPage";
 import {
   requestStoryPlan,
   requestStoryPlanMutation,
   saveStoryApprovalDraft,
+  storyGenerationPath,
   storyStyleColorPath,
 } from "./story-plan-api";
 import "./story-plan-review.css";
 
-export { storyPlanPath, storyStyleColorPath } from "./story-plan-api";
+export {
+  storyGenerationPath,
+  storyPlanPath,
+  storyStyleColorPath,
+} from "./story-plan-api";
 
 type StoryTab = "outline" | "script";
 type StoryPlan = NonNullable<StoryPlanReviewResponse["plan"]>;
@@ -106,12 +110,7 @@ export function StoryPlanReviewPage(props: {
         if (next.status === "planning" || next.status === "regenerating") {
           timer = setTimeout(load, 1200);
         } else if (next.status === "approved") {
-          const job = await pollJob(next.jobId);
-          if (!cancelled && job.status === "succeeded") {
-            navigate(`/project/${encodeURIComponent(next.projectId)}`);
-          } else if (!cancelled) {
-            setError(storyReviewJobFailureMessage(job));
-          }
+          navigate(storyGenerationPath(next.projectId, next.jobId));
         }
       } catch (cause) {
         if (!cancelled) {

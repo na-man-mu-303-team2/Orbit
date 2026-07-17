@@ -41,6 +41,7 @@ import {
   AiPptMockupPage as AiPptWizardPage,
   AiPptStyleColorPage,
 } from "./features/ai-ppt/AiPptMockupPage";
+import { AiDeckGenerationPage } from "./features/ai-ppt/AiDeckGenerationPage";
 import { StoryPlanReviewPage } from "./features/ai-ppt/StoryPlanReviewPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import {
@@ -77,6 +78,7 @@ export type Route =
   | { name: "project-history"; projectId: string }
   | { name: "story-plan-review"; projectId: string; jobId: string }
   | { name: "story-style-color"; projectId: string; jobId: string }
+  | { name: "ai-deck-generation"; projectId: string; jobId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "presentation"; projectId: string }
@@ -256,7 +258,6 @@ async function fetchProjectAccess(
   }
   return response.json() as Promise<ProjectAccessResponse>;
 }
-
 async function requestProjectAccess(
   projectId: string,
   role: Exclude<ProjectMemberRole, "owner">,
@@ -417,6 +418,17 @@ export function getRoute(pathname?: string, search?: string): Route {
         name: "story-style-color",
         projectId: decodeURIComponent(storyStyleColorMatch[1]),
         jobId: decodeURIComponent(storyStyleColorMatch[2]),
+      };
+    }
+
+    const aiDeckGenerationMatch = normalized.match(
+      /^\/project\/([^/]+)\/generation\/([^/]+)$/,
+    );
+    if (aiDeckGenerationMatch) {
+      return {
+        name: "ai-deck-generation",
+        projectId: decodeURIComponent(aiDeckGenerationMatch[1]),
+        jobId: decodeURIComponent(aiDeckGenerationMatch[2]),
       };
     }
 
@@ -651,6 +663,14 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "story-style-color") {
     return (
       <AiPptStyleColorPage
+        jobId={route.jobId}
+        projectId={route.projectId}
+      />
+    );
+  }
+  if (route.name === "ai-deck-generation") {
+    return (
+      <AiDeckGenerationPage
         jobId={route.jobId}
         projectId={route.projectId}
       />

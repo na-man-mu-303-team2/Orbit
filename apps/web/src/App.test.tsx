@@ -229,6 +229,11 @@ describe("App shell routing", () => {
       projectId: "project_demo_1",
       jobId: "job-1",
     });
+    expect(getRoute("/project/project_demo_1/generation/job-1")).toEqual({
+      name: "ai-deck-generation",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
   });
 
   it("parses presenter slide-window routes with an optional session id", () => {
@@ -297,7 +302,6 @@ describe("App shell routing", () => {
     });
   });
 });
-
 describe("public and authentication surfaces", () => {
   it("renders the public landing conversion path without unsupported auth actions", () => {
     const html = renderToStaticMarkup(

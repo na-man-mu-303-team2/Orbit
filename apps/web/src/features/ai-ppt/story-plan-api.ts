@@ -17,6 +17,10 @@ export function storyStyleColorPath(projectId: string, jobId: string) {
   return `/project/${encodeURIComponent(projectId)}/style-color/${encodeURIComponent(jobId)}`;
 }
 
+export function storyGenerationPath(projectId: string, jobId: string) {
+  return `/project/${encodeURIComponent(projectId)}/generation/${encodeURIComponent(jobId)}`;
+}
+
 function storyApprovalDraftKey(projectId: string, jobId: string) {
   return `orbit:story-approval:${projectId}:${jobId}`;
 }

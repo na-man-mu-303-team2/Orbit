@@ -158,11 +158,13 @@ Semantic color는 작은 status와 validation에만 쓴다. 큰 배경 면으로
 
 ### AI 발표자료 생성
 
-- 생성 흐름은 `내용 입력 → Story Review → Style & Color` 순서로 표시한다.
+- 생성 흐름은 `내용 입력 → Story Review → Style & Color → 생성 미리보기` 순서로 표시한다.
 - 내용 입력 화면은 발표 주제, 발표 내용, 청중, 발표 톤 4개와 복수 참고자료 첨부를 한 면에 둔다. 발표 시간과 슬라이드 수는 노출하지 않는다.
 - Style & Color 화면은 기존 추천 폰트 선택과 live preview, 기본 팔레트 9개를 제공하고, 열 번째 AI 타일에서 선택 팔레트의 일부 변경 또는 새 분위기 추천을 자연어로 요청한다.
 - AI 팔레트 요청이 실패하면 선택 표시와 기존 색상은 유지하고 타일 가까이에 오류를 표시한다.
 - 내용 입력 Primary action은 `스토리 만들기`, Story Review의 다음 action은 `스타일 선택`, 최종 Style & Color action은 `슬라이드 생성`이다.
+- 생성 미리보기는 편집 도구 없이 왼쪽에 전체 목차와 장 번호를 먼저 표시한다. 미완성 장표는 blur skeleton과 `생성 중 | 생성 예정` 상태를 사용하고, 완료된 연속 순서의 장표만 중앙 읽기 전용 canvas에 공개한다.
+- 최종 품질 확인 중에는 결과가 달라질 수 있다는 amber 안내를 표시하고, publication 완료 후에만 일반 editor로 전환한다. `prefers-reduced-motion`에서는 순차 fade 효과를 생략한다.
 
 ### 에디터
 
