@@ -32,6 +32,7 @@ import {
   getDisplayIdLabel,
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
+import type { CanvasSelectionModifiers } from "../utils/canvasSelection";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -69,7 +70,7 @@ export function EditableElementNode(props: {
   }) => void;
   onMountNode: (node: Konva.Group | null) => void;
   onOpenContextMenu: (clientX: number, clientY: number) => void;
-  onSelect: (append: boolean) => void;
+  onSelect: (modifiers: CanvasSelectionModifiers) => void;
 }) {
   const {
     accentColor,
@@ -126,9 +127,13 @@ export function EditableElementNode(props: {
     setPreviewFrame(null);
   }, [element.height, element.rotation, element.width, element.x, element.y]);
 
-  function handlePointerSelect(append: boolean) {
+  function handlePointerSelect(modifiers: CanvasSelectionModifiers) {
+    const hasSelectionModifier = Boolean(
+      modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey
+    );
+
     if (
-      !append &&
+      !hasSelectionModifier &&
       element.type === "text" &&
       isSelected &&
       selectedCount === 1
@@ -137,15 +142,22 @@ export function EditableElementNode(props: {
       return;
     }
 
-    onSelect(append);
+    onSelect(modifiers);
   }
 
   return (
     <Group
       draggable={
-        !disablePointerEvents && !customShapeEditDraft
+        !disablePointerEvents &&
+        !customShapeEditDraft &&
+        element.role !== "background"
       }
-      listening={!disablePointerEvents}
+      listening={
+        !disablePointerEvents &&
+        (presentationState?.visible ?? element.visible)
+      }
+      orbitElementId={element.elementId}
+      orbitElementRole={element.role}
       opacity={
         (presentationState?.visible ?? element.visible)
           ? (presentationState?.opacity ?? element.opacity)
@@ -157,9 +169,17 @@ export function EditableElementNode(props: {
       scaleY={presentationState?.scaleY ?? 1}
       x={frame.x}
       y={frame.y}
-      onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
-        handlePointerSelect(Boolean(event.evt.shiftKey))
-      }
+      onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (element.role === "background") {
+          return;
+        }
+
+        handlePointerSelect({
+          ctrlKey: event.evt.ctrlKey,
+          metaKey: event.evt.metaKey,
+          shiftKey: event.evt.shiftKey
+        });
+      }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
@@ -173,7 +193,7 @@ export function EditableElementNode(props: {
 
         event.evt.preventDefault();
         if (!shouldKeepSelection) {
-          onSelect(false);
+          onSelect({});
         }
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
@@ -192,7 +212,11 @@ export function EditableElementNode(props: {
           rotation: event.target.rotation(),
         });
       }}
-      onTap={() => handlePointerSelect(false)}
+      onTap={() => {
+        if (element.role !== "background") {
+          handlePointerSelect({});
+        }
+      }}
       onTransform={(event: Konva.KonvaEventObject<Event>) => {
         if (element.type !== "text") {
           return;

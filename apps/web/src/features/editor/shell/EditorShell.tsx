@@ -9,6 +9,10 @@ import { demoIds } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import {
+  applyCanvasSelection,
+  type CanvasSelectionModifiers
+} from "../canvas/utils/canvasSelection";
+import {
   AnimationSidePanel,
   buildAnimationKeywordTriggerPolicy,
   maxAnimationPaneWidth,
@@ -1141,23 +1145,38 @@ export function EditorShell(props: { projectId?: string }) {
     );
   }
 
-  function handleElementSelection(elementId: string, options?: { append?: boolean }) {
-    setElementContextMenu(null);
-    setCustomShapeEditElementId((current) =>
-      current === elementId && !options?.append ? current : null
+  function handleElementSelection(
+    elementId: string,
+    modifiers: CanvasSelectionModifiers = {}
+  ) {
+    const hasSelectionModifier = Boolean(
+      modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey
     );
 
-    if (options?.append) {
+    setElementContextMenu(null);
+    setCustomShapeEditElementId((current) =>
+      current === elementId && !hasSelectionModifier ? current : null
+    );
+
+    if (hasSelectionModifier) {
       setEditingElementId(null);
-      setSelectedElementIds((current) =>
-        current.includes(elementId)
-          ? current.filter((currentElementId) => currentElementId !== elementId)
-          : [...current, elementId]
-      );
-      return;
     }
 
-    setSelectedElementIds([elementId]);
+    setSelectedElementIds((current) =>
+      applyCanvasSelection({
+        currentSelection: current,
+        elements: visibleElements,
+        hitElementIds: [elementId],
+        modifiers
+      })
+    );
+  }
+
+  function handleMarqueeSelection(elementIds: string[]) {
+    setElementContextMenu(null);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setSelectedElementIds(elementIds);
   }
 
   const historyCallbacks = {
@@ -1248,9 +1267,11 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     setSelectedElementIds((current) =>
-      current.filter((elementId) =>
-        currentSlide?.elements.some((element) => element.elementId === elementId)
-      )
+      applyCanvasSelection({
+        currentSelection: [],
+        elements: currentSlide?.elements ?? [],
+        hitElementIds: current
+      })
     );
   }, [currentSlide]);
 
@@ -1753,7 +1774,8 @@ export function EditorShell(props: { projectId?: string }) {
               onSetCustomShapeEditElementId: setCustomShapeEditElementId,
               onSetInsertTool: setInsertTool,
               onOpenElementContextMenu: handleOpenElementContextMenu,
-              onSelectElement: handleElementSelection
+              onSelectElement: handleElementSelection,
+              onSelectElements: handleMarqueeSelection
             }}
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}

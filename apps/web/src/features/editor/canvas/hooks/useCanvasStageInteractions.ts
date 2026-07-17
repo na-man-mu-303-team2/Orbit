@@ -1,13 +1,96 @@
-import type { CustomShapeElementProps } from "@orbit/shared";
+import type { CustomShapeElementProps, DeckElement } from "@orbit/shared";
 import type Konva from "konva";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   createCustomShapeNode,
   type CanvasPoint,
   updateCustomShapeNodeHandle
 } from "../custom-shape/geometry";
+import {
+  applyCanvasSelection,
+  type CanvasRect,
+  type CanvasSelectionModifiers,
+  getMarqueeSelectionElementIds,
+  hasReachedCanvasMarqueeThreshold,
+  normalizeCanvasSelectionRect
+} from "../utils/canvasSelection";
 import type { CustomShapeEditDraft, CustomShapeInsertDraft } from "./types";
+
+type MarqueeSession = {
+  currentSelection: string[];
+  end: CanvasPoint;
+  endScreen: CanvasPoint;
+  modifiers: CanvasSelectionModifiers;
+  start: CanvasPoint;
+  startScreen: CanvasPoint;
+  surfaceElementId: string | null;
+};
+
+type MarqueeSurface = {
+  elementId: string | null;
+};
+
+export function resolveCanvasMarqueeSelection(args: {
+  currentSelection: readonly string[];
+  elements: readonly DeckElement[];
+  end: CanvasPoint;
+  endScreen: CanvasPoint;
+  modifiers: CanvasSelectionModifiers;
+  start: CanvasPoint;
+  startScreen: CanvasPoint;
+  surfaceElementId: string | null;
+}): string[] {
+  const isMarquee = hasReachedCanvasMarqueeThreshold({
+    start: args.startScreen,
+    end: args.endScreen
+  });
+  const hitElementIds = isMarquee
+    ? getMarqueeSelectionElementIds({
+        elements: args.elements,
+        rect: normalizeCanvasSelectionRect(args.start, args.end)
+      })
+    : args.surfaceElementId
+      ? [args.surfaceElementId]
+      : [];
+
+  return applyCanvasSelection({
+    currentSelection: args.currentSelection,
+    elements: args.elements,
+    hitElementIds,
+    modifiers: args.modifiers
+  });
+}
+
+function getMarqueeSurface(target: Konva.Node, stage: Konva.Stage): MarqueeSurface | null {
+  if (target === stage) {
+    return { elementId: null };
+  }
+
+  let current: Konva.Node | null = target;
+
+  while (current && current !== stage) {
+    if (current.getAttr("orbitElementRole") === "background") {
+      const elementId = current.getAttr("orbitElementId");
+
+      return {
+        elementId: typeof elementId === "string" ? elementId : null
+      };
+    }
+
+    current = current.getParent();
+  }
+
+  return null;
+}
+
+function getSelectionModifiers(event: PointerEvent): CanvasSelectionModifiers {
+  return {
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey
+  };
+}
 
 export function useCanvasStageInteractions(args: {
   customShapeEditDraft: CustomShapeEditDraft | null;
@@ -18,7 +101,10 @@ export function useCanvasStageInteractions(args: {
   } | null;
   editingElementId: string | null;
   insertTool: "select" | "text" | "rect" | "ellipse" | "line" | "customShape";
-  onClearSelection: () => void;
+  isMarqueeInteractionBlocked?: boolean;
+  marqueeElements: readonly DeckElement[];
+  selectedElementIds: readonly string[];
+  onCommitSelection: (elementIds: string[]) => void;
   onCreateElement: (
     draft:
       | { type: "text"; x: number; y: number; width: number; height: number }
@@ -77,7 +163,10 @@ export function useCanvasStageInteractions(args: {
     draftElement,
     editingElementId,
     insertTool,
-    onClearSelection,
+    isMarqueeInteractionBlocked = false,
+    marqueeElements,
+    selectedElementIds,
+    onCommitSelection,
     onCreateElement,
     onCreateCustomShape,
     onMarkTextBlurForClear,
@@ -87,8 +176,10 @@ export function useCanvasStageInteractions(args: {
     setDraftElement,
     stageScale
   } = args;
+  const marqueeSessionRef = useRef<MarqueeSession | null>(null);
+  const [marqueeSession, setMarqueeSession] = useState<MarqueeSession | null>(null);
 
-  function getCanvasPointerPosition(event: Konva.KonvaEventObject<MouseEvent>) {
+  function getCanvasPointerPosition(event: Konva.KonvaEventObject<PointerEvent>) {
     const pointer = event.target.getStage()?.getPointerPosition();
 
     if (!pointer) {
@@ -96,15 +187,43 @@ export function useCanvasStageInteractions(args: {
     }
 
     return {
-      x: pointer.x / stageScale,
-      y: pointer.y / stageScale
+      canvas: {
+        x: pointer.x / stageScale,
+        y: pointer.y / stageScale
+      },
+      screen: pointer
     };
   }
 
-  return useMemo(
+  function updateMarqueeSession(nextSession: MarqueeSession | null) {
+    marqueeSessionRef.current = nextSession;
+    setMarqueeSession(nextSession);
+  }
+
+  const cancelMarquee = useCallback(() => {
+    if (!marqueeSessionRef.current) {
+      return false;
+    }
+
+    marqueeSessionRef.current = null;
+    setMarqueeSession(null);
+    return true;
+  }, []);
+
+  const handlers = useMemo(
     () => ({
-      onMouseDown(event: Konva.KonvaEventObject<MouseEvent>) {
-        if (event.target !== event.target.getStage()) {
+      onPointerDown(event: Konva.KonvaEventObject<PointerEvent>) {
+        const stage = event.target.getStage();
+
+        if (!stage) {
+          return;
+        }
+
+        if (event.evt.button !== 0) {
+          return;
+        }
+
+        if (insertTool !== "select" && event.target !== stage) {
           return;
         }
 
@@ -121,12 +240,15 @@ export function useCanvasStageInteractions(args: {
 
         if (insertTool === "customShape") {
           setCustomShapeInsertDraft((current) => {
-            const nextNodes = [...(current?.nodes ?? []), createCustomShapeNode(pointer)];
+            const nextNodes = [
+              ...(current?.nodes ?? []),
+              createCustomShapeNode(pointer.canvas)
+            ];
 
             return {
               activeNodeIndex: nextNodes.length - 1,
               nodes: nextNodes,
-              pointer
+              pointer: pointer.canvas
             };
           });
           return;
@@ -135,13 +257,22 @@ export function useCanvasStageInteractions(args: {
         if (insertTool !== "select") {
           setDraftElement({
             type: insertTool as "text" | "rect" | "ellipse" | "line",
-            start: pointer,
-            end: pointer
+            start: pointer.canvas,
+            end: pointer.canvas
           });
           return;
         }
 
-        if (customShapeEditDraft?.selectedNodeIndex !== null) {
+        const marqueeSurface = getMarqueeSurface(event.target, stage);
+
+        if (!marqueeSurface) {
+          return;
+        }
+
+        if (
+          customShapeEditDraft &&
+          customShapeEditDraft.selectedNodeIndex !== null
+        ) {
           setCustomShapeEditDraft((current) =>
             current
               ? {
@@ -153,10 +284,35 @@ export function useCanvasStageInteractions(args: {
           return;
         }
 
-        onClearSelection();
+        if (customShapeEditDraft || isMarqueeInteractionBlocked) {
+          return;
+        }
+
+        updateMarqueeSession({
+          currentSelection: [...selectedElementIds],
+          end: pointer.canvas,
+          endScreen: pointer.screen,
+          modifiers: getSelectionModifiers(event.evt),
+          start: pointer.canvas,
+          startScreen: pointer.screen,
+          surfaceElementId: marqueeSurface.elementId
+        });
       },
-      onMouseMove(event: Konva.KonvaEventObject<MouseEvent>) {
+      onPointerMove(event: Konva.KonvaEventObject<PointerEvent>) {
         const pointer = getCanvasPointerPosition(event);
+
+        if (insertTool === "select" && marqueeSessionRef.current) {
+          if (!pointer) {
+            return;
+          }
+
+          updateMarqueeSession({
+            ...marqueeSessionRef.current,
+            end: pointer.canvas,
+            endScreen: pointer.screen
+          });
+          return;
+        }
 
         if (insertTool === "customShape") {
           if (!pointer) {
@@ -171,7 +327,7 @@ export function useCanvasStageInteractions(args: {
             if (current.activeNodeIndex === null) {
               return {
                 ...current,
-                pointer
+                pointer: pointer.canvas
               };
             }
 
@@ -179,10 +335,10 @@ export function useCanvasStageInteractions(args: {
               ...current,
               nodes: current.nodes.map((node, index) =>
                 index === current.activeNodeIndex
-                  ? updateCustomShapeNodeHandle(node, "out", pointer)
+                  ? updateCustomShapeNodeHandle(node, "out", pointer.canvas)
                   : node
               ),
-              pointer
+              pointer: pointer.canvas
             };
           });
           return;
@@ -196,12 +352,39 @@ export function useCanvasStageInteractions(args: {
           current
             ? {
                 ...current,
-                end: pointer
+                end: pointer.canvas
               }
             : current
         );
       },
-      onMouseUp() {
+      onPointerUp(event: Konva.KonvaEventObject<PointerEvent>) {
+        if (insertTool === "select" && marqueeSessionRef.current) {
+          const currentSession = marqueeSessionRef.current;
+          const pointer = getCanvasPointerPosition(event);
+          const completedSession = pointer
+            ? {
+                ...currentSession,
+                end: pointer.canvas,
+                endScreen: pointer.screen
+              }
+            : currentSession;
+
+          updateMarqueeSession(null);
+          onCommitSelection(
+            resolveCanvasMarqueeSelection({
+              currentSelection: completedSession.currentSelection,
+              elements: marqueeElements,
+              end: completedSession.end,
+              endScreen: completedSession.endScreen,
+              modifiers: getSelectionModifiers(event.evt),
+              start: completedSession.start,
+              startScreen: completedSession.startScreen,
+              surfaceElementId: completedSession.surfaceElementId
+            })
+          );
+          return;
+        }
+
         if (insertTool === "customShape") {
           setCustomShapeInsertDraft((current) =>
             current
@@ -244,15 +427,32 @@ export function useCanvasStageInteractions(args: {
       draftElement,
       editingElementId,
       insertTool,
-      onClearSelection,
+      isMarqueeInteractionBlocked,
+      marqueeElements,
+      onCommitSelection,
       onCreateElement,
       onCreateCustomShape,
       onMarkTextBlurForClear,
       normalizeDraftRect,
+      selectedElementIds,
       setCustomShapeEditDraft,
       setCustomShapeInsertDraft,
       setDraftElement,
       stageScale
     ]
   );
+  const marqueeRect: CanvasRect | null =
+    marqueeSession &&
+    hasReachedCanvasMarqueeThreshold({
+      start: marqueeSession.startScreen,
+      end: marqueeSession.endScreen
+    })
+      ? normalizeCanvasSelectionRect(marqueeSession.start, marqueeSession.end)
+      : null;
+
+  return {
+    ...handlers,
+    cancelMarquee,
+    marqueeRect
+  };
 }

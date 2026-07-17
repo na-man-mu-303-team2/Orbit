@@ -40,6 +40,7 @@ import {
   commitCustomShapeEditGeometry,
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
+import type { CanvasSelectionModifiers } from "./utils/canvasSelection";
 import {
   getHighlightOverlayElements,
   HighlightOverlay,
@@ -316,7 +317,11 @@ export function EditableCanvas(props: {
   }) => void;
   onSetCustomShapeEditElementId: (elementId: string | null) => void;
   onSetInsertTool: (tool: InsertTool) => void;
-  onSelectElement: (elementId: string, options?: { append?: boolean }) => void;
+  onSelectElement: (
+    elementId: string,
+    modifiers?: CanvasSelectionModifiers
+  ) => void;
+  onSelectElements?: (elementIds: string[]) => void;
 }) {
   const {
     customShapeEditElementId,
@@ -343,7 +348,8 @@ export function EditableCanvas(props: {
     onOpenElementContextMenu,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
-    onSelectElement
+    onSelectElement,
+    onSelectElements = onClearSelection
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
@@ -457,42 +463,38 @@ export function EditableCanvas(props: {
     setCustomShapeInsertDraft
   });
 
-  useCanvasBackgroundPointerCapture({
-    enabled: !disableInteractions,
-    customShapeEditDraft,
-    deck,
-    editingElementId,
-    insertTool,
-    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
-    onClearSelection,
-    onMarkTextBlurForClear: () => {
-      pendingTextBlurActionRef.current = "clear-selection";
-    },
-    selectedElementIds,
-    setCustomShapeEditDraft,
-    slide,
-    stageRef,
-    stageScale,
-    visibleElements
-  });
-
   const stageMouseHandlers = useCanvasStageInteractions({
     customShapeEditDraft,
     draftElement,
     editingElementId,
     insertTool,
+    isMarqueeInteractionBlocked: Boolean(customShapeEditElementId),
+    marqueeElements: visibleElements,
     normalizeDraftRect,
-    onClearSelection,
+    onCommitSelection: onSelectElements,
     onCreateElement,
     onCreateCustomShape,
     onMarkTextBlurForClear: () => {
       pendingTextBlurActionRef.current = "clear-selection";
     },
+    selectedElementIds,
     setCustomShapeEditDraft,
     setCustomShapeInsertDraft,
     setDraftElement,
     stageScale
   });
+
+  useCanvasBackgroundPointerCapture({
+    enabled: !disableInteractions,
+    onCancelMarquee: stageMouseHandlers.cancelMarquee,
+    stageRef
+  });
+
+  useEffect(() => {
+    if (disableInteractions) {
+      stageMouseHandlers.cancelMarquee();
+    }
+  }, [disableInteractions, stageMouseHandlers.cancelMarquee]);
 
   return (
     <div
@@ -507,9 +509,13 @@ export function EditableCanvas(props: {
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
-        onMouseDown={disableInteractions ? undefined : stageMouseHandlers.onMouseDown}
-        onMouseMove={disableInteractions ? undefined : stageMouseHandlers.onMouseMove}
-        onMouseUp={disableInteractions ? undefined : stageMouseHandlers.onMouseUp}
+        onPointerDown={
+          disableInteractions ? undefined : stageMouseHandlers.onPointerDown
+        }
+        onPointerMove={
+          disableInteractions ? undefined : stageMouseHandlers.onPointerMove
+        }
+        onPointerUp={disableInteractions ? undefined : stageMouseHandlers.onPointerUp}
       >
         <Layer>
           {visibleElements.map((element) => (
@@ -549,8 +555,8 @@ export function EditableCanvas(props: {
                   slideId: slide.slideId
                 })
               }
-              onSelect={(append) =>
-                onSelectElement(element.elementId, { append })
+              onSelect={(modifiers) =>
+                onSelectElement(element.elementId, modifiers)
               }
             />
           ))}
@@ -585,6 +591,17 @@ export function EditableCanvas(props: {
                 width: 1,
                 height: 1
               })}
+            />
+          ) : null}
+          {!disableInteractions && stageMouseHandlers.marqueeRect ? (
+            <Rect
+              dash={[10, 6]}
+              fill="rgba(37, 99, 235, 0.08)"
+              listening={false}
+              stroke="#2563eb"
+              strokeScaleEnabled={false}
+              strokeWidth={2}
+              {...stageMouseHandlers.marqueeRect}
             />
           ) : null}
           <Transformer
