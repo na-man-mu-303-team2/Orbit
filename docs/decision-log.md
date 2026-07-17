@@ -626,3 +626,15 @@
 - Rationale: 한 번의 마이크 권한과 동일한 오디오 입력으로 실시간 프롬프터와 기존 서버 리포트를 함께 제공한다. 서버의 말 속도·쉼·pitch·음량·습관어 분석 및 저장 계약은 그대로 유지하고, live transcript의 보존 범위를 넓히지 않는다.
 - Affected files: `apps/web/src/features/coaching/useFocusedPracticeAudio.ts`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`, `docs/decision-log.md`.
 - Follow-up review notes: 로컬 Chrome에서 `연습 시작` 한 번에 `getUserMedia`가 한 번만 호출되는지, 확정 문장마다 진행률과 중앙 스크롤이 이동하는지, 수동 이전·다음과 자동 복귀가 동작하는지, 종료 직전 발화가 누락되지 않는지, 완료 뒤 리포트 탭의 최신 DB 기록이 표시되는지 확인한다. live transcript, raw audio, 발표 메모 원문은 운영 로그에 남기지 않는다.
+
+## ORBIT editor one-slide rehearsal prompter tracker reuse
+
+- Context: 한 장 연습의 프롬프터가 누적 transcript 안에 대본 문장 전체가 포함되는지만 비교해, STT가 한 문장을 여러 partial/final 조각으로 나누면 문장 완료와 다음 문장 focus 이동을 놓쳤다. 반면 전체 리허설은 조각난 lexical evidence를 누적하고 final 경계에서만 문장을 확정하는 `createSpeechTracker`를 이미 사용한다.
+- Options considered:
+  - 한 장 연습의 문자열 포함 조건만 완화한다.
+  - 한 장 연습 전용 누적 matcher를 새로 만든다.
+  - 기존 `createSpeechTracker`와 `createRehearsalScriptPrompterRows`를 한 장 연습에서도 재사용한다.
+- Final decision: 한 장 연습의 live STT 결과를 기존 `createSpeechTracker`에 그대로 전달하고, tracker snapshot의 `prompterProgress`를 공용 프롬프터 row 변환에 사용한다. partial은 lexical evidence만 누적하고 final에서 확정된 경우에만 다음 문장으로 focus를 옮긴다. 수동 이전·다음도 같은 tracker의 manual API를 사용한다. 마지막 문장 완료 시 슬라이드 자동 전환은 하지 않으며 현재 한 장 연습의 slide별 녹음·리포트 경계를 유지한다.
+- Rationale: 전체 리허설에서 검증된 final deduplication, 조각 누적, 문장 commit 규칙을 재사용해 서로 다른 진행 판정 기준을 만들지 않는다. live transcript는 계속 브라우저 메모리의 프롬프터 제어에만 사용하고 API, Job, DB, 로그에는 추가하지 않는다.
+- Affected files: `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트, `docs/decision-log.md`.
+- Follow-up review notes: 조각난 partial 뒤 final에서 정확히 한 문장만 진행하는지, 같은 final 재수신이 두 번 진행되지 않는지, focus 변경 시 중앙 스크롤이 실행되는지, 마지막 문장 완료 후 현재 슬라이드가 유지되는지 브라우저에서 확인한다.

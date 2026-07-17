@@ -9,13 +9,13 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { createRehearsalScriptPrompterRows } from "../../../rehearsal/panel/rehearsalScriptPrompter";
 import {
   RehearsalScriptTeleprompter,
   type RehearsalScriptTeleprompterRow
 } from "../../../rehearsal/presenter/RehearsalScriptTeleprompter";
 import { createDefaultPhraseExtractor } from "../../../rehearsal/speech/phraseExtractor";
-import type { ExtractedSentence } from "../../../rehearsal/speech/speechTrackingEvents";
-import { normalizeLiveTranscriptText } from "../../../rehearsal/stt/liveTranscriptText";
+import type { SpeechTrackerSnapshot } from "../../../rehearsal/speech/speechTrackingEvents";
 import type { PracticeSessionState } from "../../practice/useSlidePracticeSession";
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
 
@@ -28,6 +28,8 @@ export function EditorSlideRehearsalBottomPanel(
   props: EditorSlideRehearsalSummaryProps & {
     elapsedMs: number;
     message: string;
+    onNextSentence: () => SpeechTrackerSnapshot | null;
+    onPreviousSentence: () => SpeechTrackerSnapshot | null;
     onStart: () => void;
     onStop: () => void;
     practiceState: PracticeSessionState;
@@ -39,11 +41,10 @@ export function EditorSlideRehearsalBottomPanel(
   const scriptProgress = useMemo(
     () =>
       createEditorSlideRehearsalScriptProgress({
-        finalTranscript: props.state.finalTranscript,
-        interimTranscript: props.state.interimTranscript,
-        slide: props.slide
+        slide: props.slide,
+        speechTrackerSnapshot: props.state.speechTrackerSnapshot
       }),
-    [props.slide, props.state.finalTranscript, props.state.interimTranscript]
+    [props.slide, props.state.speechTrackerSnapshot]
   );
   const [followMode, setFollowMode] = useState<"auto" | "manual">("auto");
   const [manualCompletedCount, setManualCompletedCount] = useState(0);
@@ -70,16 +71,14 @@ export function EditorSlideRehearsalBottomPanel(
   }, [props.practiceState]);
 
   function moveManually(offset: -1 | 1) {
-    const currentCount =
-      followMode === "auto"
-        ? automaticCompletedCount
-        : manualCompletedCount;
+    const speechTrackerSnapshot =
+      offset === -1
+        ? props.onPreviousSentence()
+        : props.onNextSentence();
+    if (!speechTrackerSnapshot) return;
     setFollowMode("manual");
     setManualCompletedCount(
-      Math.min(
-        scriptProgress.rows.length,
-        Math.max(0, currentCount + offset)
-      )
+      speechTrackerSnapshot.prompterProgress?.committedSentenceIds.length ?? 0
     );
   }
 
@@ -241,9 +240,8 @@ export function createManualScriptProgress(
 }
 
 export function createEditorSlideRehearsalScriptProgress(input: {
-  finalTranscript: string;
-  interimTranscript: string;
   slide: Slide;
+  speechTrackerSnapshot: SpeechTrackerSnapshot | null;
 }): {
   focusSentenceId: string | null;
   progressPercent: number;
@@ -272,66 +270,37 @@ export function createEditorSlideRehearsalScriptProgress(input: {
     };
   }
 
-  const finalTranscript = normalizeLiveTranscriptText(input.finalTranscript);
-  const liveTranscript = normalizeLiveTranscriptText(
-    `${input.finalTranscript} ${input.interimTranscript}`
-  );
-  const finalMatchedIndexes = sentences
-    .filter((sentence) => sentenceMatchesTranscript(sentence, finalTranscript))
-    .map((sentence) => sentence.index);
-  const liveMatchedIndexes = sentences
-    .filter((sentence) => sentenceMatchesTranscript(sentence, liveTranscript))
-    .map((sentence) => sentence.index);
-  const lastCommittedIndex = Math.max(-1, ...finalMatchedIndexes);
-  const lastLiveIndex = Math.max(-1, ...liveMatchedIndexes);
-  const committedCount = Math.min(lastCommittedIndex + 1, sentences.length);
-  const focusIndex =
-    committedCount === sentences.length
-      ? sentences.length
-      : Math.min(
-          Math.max(lastCommittedIndex + 1, lastLiveIndex, 0),
-          sentences.length - 1
-        );
+  const speechTrackerSnapshot = input.speechTrackerSnapshot;
+  const prompterRows = createRehearsalScriptPrompterRows({
+    sentences,
+    coveredSentenceIds: speechTrackerSnapshot?.coveredSentenceIds ?? [],
+    coveredSentenceMatchKinds:
+      speechTrackerSnapshot?.coveredSentenceMatchKinds,
+    prompterProgress: speechTrackerSnapshot?.prompterProgress
+  });
+  const focusSentenceId =
+    prompterRows.find((row) => row.isFocusTarget)?.sentence.sentenceId ?? null;
+  const matchableSentenceCount =
+    speechTrackerSnapshot?.matchableSentenceCount ??
+    sentences.filter((sentence) => sentence.matchable).length;
+  const committedSentenceCount =
+    speechTrackerSnapshot?.prompterProgress?.committedSentenceIds.length ?? 0;
 
   return {
-    focusSentenceId: sentences[focusIndex]?.sentenceId ?? null,
-    progressPercent: Math.round((committedCount / sentences.length) * 100),
-    rows: sentences.map(
-      (sentence): RehearsalScriptTeleprompterRow => ({
-        id: sentence.sentenceId,
-        isFocusTarget: sentence.index === focusIndex,
-        status:
-          sentence.index < focusIndex
-            ? "covered"
-            : sentence.index === focusIndex
-              ? "current"
-              : sentence.index === focusIndex + 1
-                ? "next"
-                : "pending",
-        text: sentence.text
+    focusSentenceId,
+    progressPercent:
+      matchableSentenceCount > 0
+        ? Math.round((committedSentenceCount / matchableSentenceCount) * 100)
+        : 0,
+    rows: prompterRows.map(
+      (row): RehearsalScriptTeleprompterRow => ({
+        id: row.sentence.sentenceId,
+        isFocusTarget: row.isFocusTarget,
+        status: row.status,
+        text: row.sentence.text
       })
     )
   };
-}
-
-function sentenceMatchesTranscript(
-  sentence: ExtractedSentence,
-  normalizedTranscript: string
-) {
-  if (!normalizedTranscript) return false;
-  const normalizedSentence = normalizeLiveTranscriptText(sentence.text);
-  if (
-    normalizedSentence.length >= 4 &&
-    normalizedTranscript.includes(normalizedSentence)
-  ) {
-    return true;
-  }
-
-  return sentence.candidates.some(
-    (candidate) =>
-      candidate.normalizedText.length >= 4 &&
-      normalizedTranscript.includes(candidate.normalizedText)
-  );
 }
 
 export function EditorSlideRehearsalRightPanel(

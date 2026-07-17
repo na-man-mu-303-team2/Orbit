@@ -2,6 +2,13 @@ import type { Slide } from "@orbit/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LiveSttAudioLevelEvent } from "../../../rehearsal/liveStt";
+import {
+  createSpeechTracker,
+  type SpeechTracker
+} from "../../../rehearsal/speech/speechTracker";
+import type {
+  SpeechTrackerSnapshot
+} from "../../../rehearsal/speech/speechTrackingEvents";
 import { createLiveSttPort } from "../../../rehearsal/stt/liveSttEngineRegistry";
 import {
   type LiveSttBiasPhrase,
@@ -28,6 +35,7 @@ export type EditorSlideRehearsalState = {
   finalTranscript: string;
   hitKeywordIds: string[];
   interimTranscript: string;
+  speechTrackerSnapshot: SpeechTrackerSnapshot | null;
   status: EditorSlideRehearsalStatus;
 };
 
@@ -44,6 +52,7 @@ const initialState: EditorSlideRehearsalState = {
   finalTranscript: "",
   hitKeywordIds: [],
   interimTranscript: "",
+  speechTrackerSnapshot: null,
   status: "idle"
 };
 
@@ -63,6 +72,7 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
   const activeSlideRef = useRef<Slide | null>(null);
+  const speechTrackerRef = useRef<SpeechTracker | null>(null);
 
   const releaseResources = useCallback(async (flushFinalResults = false) => {
     const port = portRef.current;
@@ -99,10 +109,12 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       if (sessionRef.current !== sessionId) return;
 
       activeSlideRef.current = slide;
+      speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
+        speechTrackerSnapshot: speechTrackerRef.current.snapshot(),
         status: "starting"
       });
 
@@ -153,16 +165,25 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
             }
             const finalTranscript = committedTranscriptRef.current;
             const interimTranscript = result.isFinal ? "" : result.text.trim();
-            const transcript = appendTranscript(finalTranscript, interimTranscript);
+            const transcript = appendTranscript(
+              finalTranscript,
+              interimTranscript
+            );
             const activeSlide = activeSlideRef.current;
+            const speechTracker = speechTrackerRef.current;
+            speechTracker?.acceptResult(result);
+            const speechTrackerSnapshot = speechTracker?.snapshot() ?? null;
 
             setState((current) => ({
               ...current,
               finalTranscript,
-              hitKeywordIds: activeSlide
-                ? getHitSlideKeywordIds(activeSlide, transcript)
-                : [],
-              interimTranscript
+              hitKeywordIds:
+                speechTrackerSnapshot?.hitKeywordIds ??
+                (activeSlide
+                  ? getHitSlideKeywordIds(activeSlide, transcript)
+                  : []),
+              interimTranscript,
+              speechTrackerSnapshot
             }));
           }),
           port.onError((error) => {
@@ -209,10 +230,12 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       sessionRef.current += 1;
       void releaseResources();
       activeSlideRef.current = slide;
+      speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
+        speechTrackerSnapshot: speechTrackerRef.current.snapshot(),
         status: "idle"
       });
     },
@@ -240,9 +263,26 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     sessionRef.current += 1;
     await releaseResources();
     activeSlideRef.current = null;
+    speechTrackerRef.current = null;
     committedTranscriptRef.current = "";
     setState(initialState);
   }, [releaseResources]);
+
+  const moveToNextSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.manualNextPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
+
+  const moveToPreviousSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.manualPreviousPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
 
   useEffect(() => {
     if (state.status !== "listening") return;
@@ -263,7 +303,23 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     [releaseResources]
   );
 
-  return { enter, exit, start, state, stop };
+  return {
+    enter,
+    exit,
+    moveToNextSentence,
+    moveToPreviousSentence,
+    start,
+    state,
+    stop
+  };
+}
+
+export function createEditorSlideRehearsalSpeechTracker(slide: Slide) {
+  return createSpeechTracker({
+    keywords: slide.keywords,
+    slideId: slide.slideId,
+    speakerNotes: slide.speakerNotes
+  });
 }
 
 export function buildEditorSlideRehearsalBiasPhrases(

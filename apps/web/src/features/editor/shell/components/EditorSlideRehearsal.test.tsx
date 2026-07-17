@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
+import { createEditorSlideRehearsalSpeechTracker } from "../hooks/useEditorSlideRehearsal";
 import {
   createEditorSlideRehearsalScriptProgress,
   createManualScriptProgress,
@@ -21,6 +22,7 @@ const listeningState: EditorSlideRehearsalState = {
   finalTranscript: "발표를 시작합니다",
   hitKeywordIds: ["kw_1"],
   interimTranscript: "현재 슬라이드는",
+  speechTrackerSnapshot: null,
   status: "listening"
 };
 
@@ -31,6 +33,8 @@ describe("EditorSlideRehearsal", () => {
       <EditorSlideRehearsalBottomPanel
         elapsedMs={65_000}
         message=""
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="recording"
@@ -58,6 +62,8 @@ describe("EditorSlideRehearsal", () => {
       <EditorSlideRehearsalBottomPanel
         elapsedMs={65_000}
         message="서버 분석을 완료했습니다."
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="completed"
@@ -80,6 +86,8 @@ describe("EditorSlideRehearsal", () => {
       <EditorSlideRehearsalBottomPanel
         elapsedMs={12_000}
         message="녹음을 업로드하고 서버에서 분석하고 있습니다."
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="stopping"
@@ -136,15 +144,37 @@ describe("EditorSlideRehearsal", () => {
     expect(formatRehearsalTime(125)).toBe("02:05");
   });
 
-  it("확정된 음성에 맞춰 다음 대본 문장으로 진행한다", () => {
+  it("조각난 음성을 final 경계에서 확정해 다음 대본 문장으로 진행한다", () => {
     const slide = createDemoDeck().slides[0]!;
     slide.speakerNotes =
       "첫 번째 핵심 내용을 차분하게 설명합니다. 두 번째 비교 결과를 이어서 설명합니다.";
+    const tracker = createEditorSlideRehearsalSpeechTracker(slide);
+
+    tracker.acceptResult({
+      isFinal: false,
+      text: "첫 번째 핵심 내용을",
+      timestampMs: [0, 400]
+    });
+    tracker.acceptResult({
+      isFinal: false,
+      text: "차분하게 설명합니다",
+      timestampMs: [400, 800]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      committedSentenceIds: [],
+      currentSentenceId: "sentence_1"
+    });
+
+    tracker.acceptResult({
+      isFinal: true,
+      text: "차분하게 설명합니다",
+      timestampMs: [800, 1_000]
+    });
 
     const progress = createEditorSlideRehearsalScriptProgress({
-      finalTranscript: "첫 번째 핵심 내용을 차분하게 설명합니다",
-      interimTranscript: "",
-      slide
+      slide,
+      speechTrackerSnapshot: tracker.snapshot()
     });
 
     expect(progress.progressPercent).toBe(50);
