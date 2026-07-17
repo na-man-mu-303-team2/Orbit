@@ -179,7 +179,7 @@ export function createSlideWindowDeckSnapshot(
 function createSlideWindowSlideSnapshot(
   slide: Deck["slides"][number],
 ): Deck["slides"][number] {
-  return {
+  const common = {
     actions: [],
     animations: slide.animations,
     elements: slide.elements,
@@ -194,6 +194,18 @@ function createSlideWindowSlideSnapshot(
     thumbnailUrl: slide.thumbnailUrl,
     title: slide.title,
   };
+
+  if (slide.kind === "activity") {
+    return { ...common, kind: "activity", activity: slide.activity };
+  }
+  if (slide.kind === "activity-results") {
+    return {
+      ...common,
+      kind: "activity-results",
+      activityResult: slide.activityResult,
+    };
+  }
+  return { ...common, kind: "content" };
 }
 
 export function parsePresentationChannelMessage(

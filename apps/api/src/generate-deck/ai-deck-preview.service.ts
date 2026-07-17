@@ -1,5 +1,6 @@
 import {
   aiDeckPreviewResponseSchema,
+  deckShellSchema,
   deckSchema,
   generateDeckResponseSchema,
   jobErrorSchema,
@@ -66,7 +67,7 @@ const layoutManifestSlideSchema = z.object({
 const layoutV2PayloadSchema = z
   .object({
     artifactVersion: z.literal(2),
-    deckShell: deckSchema.omit({ slides: true }),
+    deckShell: deckShellSchema,
     slides: z.array(layoutManifestSlideSchema).min(1),
     warnings: z.array(z.string()),
   })

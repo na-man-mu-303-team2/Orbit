@@ -7,6 +7,7 @@ import { SourceLedgerPanel } from "./SourceLedgerPanel";
 describe("SourceLedgerPanel", () => {
   it("shows deduplicated current-slide sources with authority and links", () => {
     const slide = {
+      kind: "content",
       slideId: "slide_1",
       order: 1,
       title: "Current facts",
@@ -59,6 +60,7 @@ describe("SourceLedgerPanel", () => {
 
   it("shows image provider, usage basis, and separate source URLs", () => {
     const slide = {
+      kind: "content",
       slideId: "slide_1",
       order: 1,
       title: "Official visual",

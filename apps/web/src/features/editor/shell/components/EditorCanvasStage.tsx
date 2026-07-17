@@ -3,6 +3,11 @@ import type Konva from "konva";
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from "react";
 
 import {
+  ActivityResultSlideRenderer,
+  ActivitySlidePreview,
+  findActivityResultSource
+} from "../../../activity-slides";
+import {
   EditableCanvas,
   HiddenSlideRenderStages
 } from "../../canvas/EditorCanvas";
@@ -35,11 +40,32 @@ export function EditorCanvasStage(props: EditorCanvasStageProps) {
               ...buildSlideBackgroundStyle(props.currentSlide, props.deck)
             }}
           >
-            <EditableCanvas
-              {...props.editableCanvasProps}
-              deck={props.deck}
-              slide={props.currentSlide}
-            />
+            {props.currentSlide.kind === "activity" ? (
+              <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
+                <ActivitySlidePreview role="audience" slide={props.currentSlide} />
+              </div>
+            ) : props.currentSlide.kind === "activity-results" ? (
+              <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
+                <ActivityResultSlideRenderer
+                  presenterResult={null}
+                  publicResult={null}
+                  role="presenter"
+                  run={null}
+                  scale={props.stageScale}
+                  slide={props.currentSlide}
+                  source={findActivityResultSource(
+                    props.deck,
+                    props.currentSlide.activityResult.sourceActivityId
+                  )}
+                />
+              </div>
+            ) : (
+              <EditableCanvas
+                {...props.editableCanvasProps}
+                deck={props.deck}
+                slide={props.currentSlide}
+              />
+            )}
           </div>
           {props.renderingDeck ? (
             <HiddenSlideRenderStages deck={props.renderingDeck} stageRefs={props.slideRenderStageRefs} />

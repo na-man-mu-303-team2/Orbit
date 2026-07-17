@@ -15,10 +15,12 @@ import {
   getPresenceUserLabel
 } from "../hooks/useProjectPresence";
 import { EditorExitConfirmModal } from "./EditorExitConfirmModal";
+import { DeckExportDialog } from "./DeckExportDialog";
 import { ShareAccessModal } from "./ShareAccessModal";
 
 export function EditorModals(props: {
   audienceLink: {
+    deckId: string;
     isOpen: boolean;
     onClose: () => void;
     projectId: string;
@@ -27,6 +29,7 @@ export function EditorModals(props: {
     isOpen: boolean;
     modalProps: ComponentProps<typeof EditorExitConfirmModal>;
   };
+  exportDialog: ComponentProps<typeof DeckExportDialog>;
   presence: {
     isOpen: boolean;
     lastPresenceAt: string | null;
@@ -54,6 +57,9 @@ export function EditorModals(props: {
             <EditorExitConfirmModal {...props.exitConfirm.modalProps} />,
             document.body
           )
+        : null}
+      {props.exportDialog.open
+        ? createPortal(<DeckExportDialog {...props.exportDialog} />, document.body)
         : null}
       {props.presence.isOpen
         ? createPortal(

@@ -1,5 +1,5 @@
 import {
-  deckSchema,
+  deckShellSchema,
   generateDeckResponseSchema,
   type AiDeckGenerationStage,
 } from "@orbit/shared";
@@ -83,7 +83,7 @@ export const layoutManifestSlideSchema = z
 const layoutCompileV2ArtifactPayloadSchema = z
   .object({
     artifactVersion: z.literal(2),
-    deckShell: deckSchema.omit({ slides: true }),
+    deckShell: deckShellSchema,
     slides: z.array(layoutManifestSlideSchema).min(1),
     warnings: z.array(z.string()),
   })

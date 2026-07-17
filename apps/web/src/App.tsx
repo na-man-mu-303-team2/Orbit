@@ -64,6 +64,7 @@ import { PresentationWorkspace } from "./features/presentation/PresentationWorks
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
+import { ActivityResultsPage } from "./features/activity-slides";
 
 export type Route =
   | { name: "design-system" }
@@ -76,11 +77,13 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
+  | { name: "activity-results"; projectId: string; sessionId: string }
   | { name: "story-plan-review"; projectId: string; jobId: string }
   | { name: "story-style-color"; projectId: string; jobId: string }
   | { name: "ai-deck-generation"; projectId: string; jobId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "audience-activity"; sessionId: string; activityId: string }
   | { name: "presentation"; projectId: string }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
@@ -355,6 +358,15 @@ export function getRoute(pathname?: string, search?: string): Route {
       return { name: "deck-render" };
     }
 
+    const audienceActivityMatch = normalized.match(/^\/audience\/([^/]+)\/a\/([^/]+)$/);
+    if (audienceActivityMatch) {
+      return {
+        name: "audience-activity",
+        sessionId: decodeURIComponent(audienceActivityMatch[1]),
+        activityId: decodeURIComponent(audienceActivityMatch[2]),
+      };
+    }
+
     const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
     if (audienceSessionMatch) {
       return {
@@ -396,6 +408,17 @@ export function getRoute(pathname?: string, search?: string): Route {
       return {
         name: "project-history",
         projectId: decodeURIComponent(projectHistoryMatch[1]),
+      };
+    }
+
+    const activityResultsMatch = normalized.match(
+      /^\/project\/([^/]+)\/presentation-sessions\/([^/]+)\/results$/,
+    );
+    if (activityResultsMatch) {
+      return {
+        name: "activity-results",
+        projectId: decodeURIComponent(activityResultsMatch[1]),
+        sessionId: decodeURIComponent(activityResultsMatch[2]),
       };
     }
 
@@ -578,6 +601,7 @@ export function shouldWaitForAuthResolution(route: Route) {
     "mockup",
     "report-mockup",
     "audience-session",
+    "audience-activity",
     "present",
     "deck-render",
     "not-found",
@@ -596,6 +620,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "rehearsal" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
+    route.name !== "audience-activity" &&
     route.name !== "deck-render"
   );
 }
@@ -652,6 +677,16 @@ function renderRoute(route: Route, user?: AuthUser) {
       </ProjectAccessGate>
     );
   }
+  if (route.name === "activity-results") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <ActivityResultsPage
+          projectId={route.projectId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
+    );
+  }
   if (route.name === "story-plan-review") {
     return (
       <StoryPlanReviewPage
@@ -680,6 +715,14 @@ function renderRoute(route: Route, user?: AuthUser) {
     return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
+  }
+  if (route.name === "audience-activity") {
+    return (
+      <AudienceSessionPage
+        activityId={route.activityId}
+        sessionId={route.sessionId}
+      />
+    );
   }
   if (route.name === "presentation") {
     return (

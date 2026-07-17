@@ -131,6 +131,13 @@ describe("App shell routing", () => {
     expect(
       shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
     ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "audience-activity",
+        sessionId: "session-1",
+        activityId: "activity-1"
+      })
+    ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
@@ -181,6 +188,14 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
+  it("parses the canonical direct audience activity route", () => {
+    expect(getRoute("/audience/session_1/a/activity_1")).toEqual({
+      name: "audience-activity",
+      sessionId: "session_1",
+      activityId: "activity_1"
+    });
+  });
+
   it("renders the production AI PPT wizard from the createdeck route", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(authMeQueryKey, {
@@ -215,6 +230,15 @@ describe("App shell routing", () => {
     expect(getRoute("/project/project_demo_1/history")).toEqual({
       name: "project-history",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/project/project_demo_1/presentation-sessions/session_demo_1/results",
+      ),
+    ).toEqual({
+      name: "activity-results",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
     });
   });
 

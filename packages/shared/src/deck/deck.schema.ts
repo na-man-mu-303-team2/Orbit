@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  activityDefinitionSchema,
+  activityResultDefinitionSchema
+} from "../activity/activity-definition.schema";
 import { animationSchema } from "./animation.schema";
 import {
   deckCompositionBackgroundModeSchema,
@@ -279,8 +283,13 @@ export const slideAiNotesSchema = z
   })
   .default({});
 
-export const slideSchema = z
-  .object({
+export const slideKindSchema = z.enum([
+  "content",
+  "activity",
+  "activity-results"
+]);
+
+const slideBaseSchema = z.object({
     slideId: deckSlideIdSchema,
     order: slideOrderSchema,
     title: z.string().default(""),
@@ -294,7 +303,46 @@ export const slideSchema = z
     animations: z.array(animationSchema).default([]),
     actions: z.array(slideActionSchema).default([]),
     aiNotes: slideAiNotesSchema.optional()
+  });
+
+export const contentSlideSchema = slideBaseSchema.extend({
+  kind: z.literal("content")
+});
+
+export const activitySlideSchema = slideBaseSchema
+  .extend({
+    kind: z.literal("activity"),
+    activity: activityDefinitionSchema
   })
+  .strict();
+
+export const activityResultsSlideSchema = slideBaseSchema
+  .extend({
+    kind: z.literal("activity-results"),
+    activityResult: activityResultDefinitionSchema
+  })
+  .strict();
+
+const normalizedSlideSchema = z.discriminatedUnion("kind", [
+  contentSlideSchema,
+  activitySlideSchema,
+  activityResultsSlideSchema
+]);
+
+export type Slide = z.infer<typeof normalizedSlideSchema>;
+
+export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
+  .preprocess((input) => {
+    if (
+      typeof input === "object" &&
+      input !== null &&
+      !Array.isArray(input) &&
+      !("kind" in input)
+    ) {
+      return { ...input, kind: "content" };
+    }
+    return input;
+  }, normalizedSlideSchema)
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
     const elementIds = new Set(slide.elements.map((element) => element.elementId));
@@ -447,7 +495,7 @@ export const slideSchema = z
     });
   });
 
-export const deckSchema = z.object({
+const deckObjectSchema = z.object({
   deckId: deckIdSchema,
   projectId: z.string().min(1),
   title: z.string().min(1),
@@ -459,7 +507,40 @@ export const deckSchema = z.object({
   slides: z.array(slideSchema).min(1)
 });
 
+export const deckShellSchema = deckObjectSchema.omit({ slides: true });
+
+export const deckSchema = deckObjectSchema.superRefine((deck, ctx) => {
+  const activityIds = new Set<string>();
+  const hasActivitySlides = deck.slides.some(
+    (slide) => slide.kind === "activity" || slide.kind === "activity-results"
+  );
+
+  if (hasActivitySlides && deck.canvas.preset !== "wide-16-9") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["canvas", "preset"],
+      message: "Decks with Activity slides must use the wide-16-9 canvas"
+    });
+  }
+
+  deck.slides.forEach((slide, index) => {
+    if (slide.kind !== "activity") {
+      return;
+    }
+
+    if (activityIds.has(slide.activity.activityId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slides", index, "activity", "activityId"],
+        message: "activity IDs must be unique within a Deck"
+      });
+    }
+    activityIds.add(slide.activity.activityId);
+  });
+});
+
 export type Deck = z.infer<typeof deckSchema>;
+export type DeckShell = z.infer<typeof deckShellSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;
@@ -471,7 +552,10 @@ export type DeckDesignProgramSnapshot = z.infer<
   typeof deckDesignProgramSnapshotSchema
 >;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
-export type Slide = z.infer<typeof slideSchema>;
+export type SlideKind = z.infer<typeof slideKindSchema>;
+export type ContentSlide = z.infer<typeof contentSlideSchema>;
+export type ActivitySlide = z.infer<typeof activitySlideSchema>;
+export type ActivityResultsSlide = z.infer<typeof activityResultsSlideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
 export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;

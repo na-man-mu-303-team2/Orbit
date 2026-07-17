@@ -1,5 +1,4 @@
 import { loadOrbitConfig } from "@orbit/config";
-import type { Request, Response } from "express";
 import {
   Body,
   Controller,
@@ -7,55 +6,69 @@ import {
   Param,
   Post,
   Req,
-  Res,
-  UnauthorizedException
+  Res
 } from "@nestjs/common";
-import { verifyAudienceAccessSessionRequestSchema } from "@orbit/shared";
-import { verifyAudienceAccessSessionResponseSchema } from "@orbit/shared";
+import { joinAudiencePresentationRequestSchema } from "@orbit/shared";
+import type { Response } from "express";
+
 import { parseRequest } from "../common/zod-request";
 import {
   audienceAccessCookieName,
   audienceAccessCookieOptions,
   createAudienceAccessToken,
+  createAudienceId,
   verifyAudienceAccessToken
 } from "./audience-access-cookie";
 import { PresentationSessionsService } from "./presentation-sessions.service";
-
-type SignedCookieRequest = Request & {
-  signedCookies?: Record<string, string | false | undefined>;
-};
+import {
+  assertAudienceJsonSameOrigin,
+  getAudienceClientAddress,
+  getUserAgent,
+  requireAudienceIdentity,
+  type SignedCookieRequest
+} from "./audience-request-security";
 
 @Controller("api/v1/audience-sessions")
 export class AudienceSessionsController {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
 
-  constructor(
-    private readonly presentationSessionsService: PresentationSessionsService
-  ) {}
+  constructor(private readonly presentationSessionsService: PresentationSessionsService) {}
 
-  @Post(":sessionId/verify")
-  async verify(
+  @Get(":sessionId/public")
+  getPublic(@Param("sessionId") sessionId: string) {
+    return this.presentationSessionsService.getAudiencePublicInfo(sessionId);
+  }
+
+  @Post(":sessionId/join")
+  async join(
     @Param("sessionId") sessionId: string,
     @Body() body: unknown,
-    @Req() request: Request,
+    @Req() request: SignedCookieRequest,
     @Res({ passthrough: true }) response: Response
   ) {
-    const input = parseRequest(verifyAudienceAccessSessionRequestSchema, body ?? {});
-    const result = await this.presentationSessionsService.verifyAudienceAccess(
+    assertAudienceJsonSameOrigin(this.config, request);
+    const input = parseRequest(joinAudiencePresentationRequestSchema, body ?? {});
+    const userAgent = getUserAgent(request);
+    const existing = getSignedAudienceAccessToken(request);
+    const existingPayload = existing
+      ? verifyAudienceAccessToken(this.config, existing, userAgent)
+      : null;
+    const audienceId =
+      existingPayload?.sessionId === sessionId
+        ? existingPayload.audienceId
+        : createAudienceId();
+    const result = await this.presentationSessionsService.joinAudience(
       sessionId,
-      input.passcode
+      input,
+      audienceId,
+      getAudienceClientAddress(request)
     );
 
     response.cookie(
       audienceAccessCookieName,
-      createAudienceAccessToken(
-        this.config,
-        result.session,
-        getUserAgent(request)
-      ),
+      createAudienceAccessToken(this.config, result.session, userAgent, audienceId),
       audienceAccessCookieOptions(this.config, result.session.expiresAt)
     );
-
     return result;
   }
 
@@ -64,37 +77,9 @@ export class AudienceSessionsController {
     @Param("sessionId") sessionId: string,
     @Req() request: SignedCookieRequest
   ) {
-    const token = getSignedAudienceAccessToken(request);
-    if (!token) {
-      throw new UnauthorizedException("Audience access required");
-    }
-
-    const payload = verifyAudienceAccessToken(
-      this.config,
-      token,
-      getUserAgent(request)
-    );
-    if (!payload || payload.sessionId !== sessionId) {
-      throw new UnauthorizedException("Audience access required");
-    }
-
-    const session = await this.presentationSessionsService.getOpenSessionById(
-      sessionId
-    );
-    if (session.projectId !== payload.projectId) {
-      throw new UnauthorizedException("Audience access required");
-    }
-
-    return verifyAudienceAccessSessionResponseSchema.parse({
-      verified: true,
-      session
-    });
+    const payload = requireAudienceIdentity(this.config, request, sessionId);
+    return this.presentationSessionsService.getAudienceAccess(sessionId, payload.projectId);
   }
-}
-
-function getUserAgent(request: Request): string {
-  const value = request.headers["user-agent"];
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
 function getSignedAudienceAccessToken(request: SignedCookieRequest): string | null {
