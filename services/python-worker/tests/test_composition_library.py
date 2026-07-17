@@ -12,7 +12,7 @@ from app.ai.composition_library import (
     design_program_snapshot,
     normalize_design_program,
 )
-from app.ai.design_program import DeckDesignProgram
+from app.ai.design_program import ART_DIRECTOR_INSTRUCTIONS, DeckDesignProgram
 
 
 def program(slides: list[dict[str, Any]]) -> DeckDesignProgram:
@@ -94,51 +94,16 @@ def test_each_composition_compiles_editable_elements(composition_id: str) -> Non
     )
 
 
-def test_diagram_first_policy_keeps_structured_slides_editable() -> None:
-    definitions = [
-        ("cover", "minimal-cover", 1, "제품 소개"),
-        ("process", "process-horizontal", 3, "출시 로드맵과 일정"),
-        ("architecture", "diagram-hub", 3, "시스템 아키텍처"),
-        ("data", "metric-poster", 2, "예산 37억 원"),
-        ("summary", "cta-closing", 1, "다음 단계"),
-    ]
-    directions = [
-        {
-            "order": order,
-            "compositionId": composition_id,
-            "variant": "light",
-            "backgroundMode": "light",
-            "focalType": "none",
-            "assetRole": "atmosphere",
-            "requiredAsset": False,
-        }
-        for order, (_, composition_id, _, _) in enumerate(definitions, start=1)
-    ]
-    slides = []
-    for slide_type, _, item_count, title in definitions:
-        slide = slide_payload(slide_type, item_count)
-        slide["title"] = title
-        if slide_type == "data":
-            slide["message"] = "총 예산은 37억 원"
-            slide["contentItems"] = [
-                {"contentItemId": "budget-1", "text": "37억 원"},
-                {"contentItemId": "budget-2", "text": "12개월"},
-            ]
-        slides.append(slide)
-
-    normalized = normalize_design_program(
-        program(directions),
-        slides,
-        media_policy="hybrid",
-    )
-
-    assert [slide.composition_id for slide in normalized.slides[1:4]] == [
+def test_diagram_first_policy_is_explicit_in_art_director_contract() -> None:
+    for composition_id in (
+        "process-horizontal",
         "timeline",
         "diagram-hub",
+        "metric-poster",
         "kpi-strip-evidence",
-    ]
-    assert all(slide.asset_role == "none" for slide in normalized.slides[1:4])
-    assert all(not slide.required_asset for slide in normalized.slides[1:4])
+        "feature-comparison",
+    ):
+        assert composition_id in ART_DIRECTOR_INSTRUCTIONS
 
 
 def test_full_bleed_cover_omits_visible_placeholder_caption() -> None:

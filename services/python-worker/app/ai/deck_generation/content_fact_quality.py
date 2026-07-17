@@ -39,7 +39,9 @@ ACTOR = re.compile(
 NEGATION_MARKERS = ("금지", "불가", "아님", "않", "제외", "없", "못")
 EXCEPTION_MARKERS = ("예외", "단,", "다만", "제외")
 MODAL_MARKERS = ("필수", "의무", "해야", "가능", "권장", "허용")
-EXPLICIT_IDENTIFIER = re.compile(r"\b[A-Z][A-Z0-9_-]{3,}\b")
+EXPLICIT_IDENTIFIER = re.compile(
+    r"(?<![A-Z0-9_-])[A-Z][A-Z0-9_-]{3,}(?![A-Z0-9_-])"
+)
 QUOTED_PHRASE = re.compile(r"[\"'“‘]([^\"'”’]{2,80})[\"'”’]")
 USER_REQUIRED_MARKERS = ("반드시 포함", "주의", "제외", "예외", "조건", "금지")
 
@@ -120,7 +122,10 @@ def apply_explicit_user_placements(
     raw_input: RawInput,
     plan: GeneratedStoryPlan,
 ) -> GeneratedStoryPlan:
-    prompt = unicodedata.normalize("NFKC", raw_input.prompt)
+    prompt = unicodedata.normalize(
+        "NFKC",
+        f"{raw_input.prompt}\n{raw_input.design_prompt}",
+    )
     if "표지" not in prompt:
         return plan
     element_role: Literal["title", "subtitle", "message", "body"] | None = (
