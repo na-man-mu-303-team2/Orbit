@@ -32,11 +32,12 @@ export async function listSlidePracticeReports(input: {
   projectId: string;
   deckId?: string;
   slideId?: string;
+  limit?: number;
 }): Promise<SlidePracticeReportListResponse> {
   const search = new URLSearchParams();
   if (input.deckId) search.set("deckId", input.deckId);
   if (input.slideId) search.set("slideId", input.slideId);
-  search.set("limit", "30");
+  search.set("limit", String(input.limit ?? 30));
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-practice-reports?${search}`,
     { credentials: "include" },
