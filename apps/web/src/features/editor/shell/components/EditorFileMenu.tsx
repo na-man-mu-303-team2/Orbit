@@ -1,3 +1,5 @@
+import { DropdownMenu, DropdownMenuItem } from "../../../../components/ui";
+
 export type EditorFileMenuVariant = "dark" | "soft-gray" | "white";
 
 export type EditorFileMenuItem = {
@@ -9,6 +11,7 @@ export type EditorFileMenuItem = {
 };
 
 type EditorFileMenuProps = {
+  align?: "start" | "end";
   groups: Array<{
     items: EditorFileMenuItem[];
     label?: string;
@@ -20,35 +23,40 @@ type EditorFileMenuProps = {
 
 export function EditorFileMenu(props: EditorFileMenuProps) {
   const variant = props.variant ?? "dark";
+  const dropdownVariant = variant === "white" ? "white" : "black";
 
   return (
-    <div
+    <DropdownMenu
+      align={props.align ?? "start"}
       className={`editor-file-menu editor-file-menu--${variant}`}
       data-variant={variant}
-      role="menu"
+      variant={dropdownVariant}
     >
       <div className="editor-file-menu-context">
         <strong>{props.title}</strong>
         <span>{props.subtitle}</span>
       </div>
       {props.groups.map((group, groupIndex) => (
-        <section className="editor-file-menu-group" key={`${group.label ?? "menu"}-${groupIndex}`}>
-          {group.label ? <span className="editor-file-menu-group-label">{group.label}</span> : null}
+        <section
+          className="editor-file-menu-group"
+          key={`${group.label ?? "menu"}-${groupIndex}`}
+        >
+          {group.label ? (
+            <span className="editor-file-menu-group-label">{group.label}</span>
+          ) : null}
           {group.items.map((item) => (
-            <button
+            <DropdownMenuItem
               className="editor-file-menu-item"
               disabled={item.disabled}
               key={item.id}
-              role="menuitem"
-              type="button"
               onClick={item.onSelect}
             >
-              <span>{item.label}</span>
+              <span className="editor-file-menu-item-label">{item.label}</span>
               {item.meta ? <small>{item.meta}</small> : null}
-            </button>
+            </DropdownMenuItem>
           ))}
         </section>
       ))}
-    </div>
+    </DropdownMenu>
   );
 }

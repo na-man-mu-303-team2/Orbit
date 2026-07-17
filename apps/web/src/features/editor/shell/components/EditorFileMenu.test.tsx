@@ -1,10 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  EditorFileMenu,
-  type EditorFileMenuVariant
-} from "./EditorFileMenu";
+import { EditorFileMenu, type EditorFileMenuVariant } from "./EditorFileMenu";
 
 describe("EditorFileMenu", () => {
   it.each<EditorFileMenuVariant>(["dark", "soft-gray", "white"])(
@@ -19,10 +16,10 @@ describe("EditorFileMenu", () => {
                   id: "save",
                   label: "저장",
                   meta: "저장됨",
-                  onSelect: vi.fn()
-                }
-              ]
-            }
+                  onSelect: vi.fn(),
+                },
+              ],
+            },
           ]}
           subtitle="프레젠테이션 · 1920 × 1080px"
           title="테스트 발표"
@@ -32,6 +29,7 @@ describe("EditorFileMenu", () => {
 
       expect(html).toContain(`editor-file-menu--${variant}`);
       expect(html).toContain(`data-variant="${variant}"`);
+      expect(html).toContain("redesign-dropdown-menu");
       expect(html).toContain('role="menuitem"');
       expect(html).toContain("저장됨");
     },

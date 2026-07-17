@@ -4,7 +4,7 @@ import {
   IconHistory as History,
   IconHome as Home,
   IconRefresh as RefreshCw,
-  IconShare as Share2
+  IconShare as Share2,
 } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
 
@@ -12,7 +12,7 @@ import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
 import {
   getPresenceUserInitial,
   getPresenceUserLabel,
-  type ProjectPresenceUser
+  type ProjectPresenceUser,
 } from "../hooks/useProjectPresence";
 import { EditorSaveControl } from "./EditorSaveControl";
 import { EditorFileMenu } from "./EditorFileMenu";
@@ -94,7 +94,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     saveStatusLabel,
     setActiveTopMenu,
     showLoadedFileLabel,
-    saving
+    saving,
   } = props;
 
   useEffect(() => {
@@ -144,72 +144,115 @@ export function EditorTopbar(props: EditorTopbarProps) {
               label="홈으로 이동"
               onClick={onExitToHome}
             />
-            <TopMenuButton activeTopMenu={activeTopMenu} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
-          </div>
-
-          {activeTopMenu === "file" ? (
-            <EditorFileMenu
-              groups={[
-                {
-                  items: [
+            <div className="editor-file-menu-anchor">
+              <TopMenuButton
+                activeTopMenu={activeTopMenu}
+                label="파일"
+                menu="file"
+                setActiveTopMenu={setActiveTopMenu}
+              />
+              {activeTopMenu === "file" ? (
+                <EditorFileMenu
+                  align="start"
+                  groups={[
                     {
-                      id: "import",
-                      label: "PPTX 가져오기...",
-                      meta: pptxImportMeta,
-                      onSelect: onImportPptx
+                      items: [
+                        {
+                          id: "import",
+                          label: "PPTX 가져오기...",
+                          meta: pptxImportMeta,
+                          onSelect: onImportPptx,
+                        },
+                        {
+                          id: "save",
+                          label: saving ? "저장 중..." : "저장",
+                          meta: saveMenuMeta,
+                          onSelect: onSave,
+                        },
+                      ],
                     },
                     {
-                      id: "save",
-                      label: saving ? "저장 중..." : "저장",
-                      meta: saveMenuMeta,
-                      onSelect: onSave
-                    }
-                  ]
-                },
-                {
-                  items: [
-                    {
-                      disabled: isPptxExporting,
-                      id: "export-pptx",
-                      label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기...",
-                      meta: pptxExportMessage,
-                      onSelect: onExportPptx
-                    }
-                  ],
-                  label: "내보내기"
-                }
-              ]}
-              subtitle={`프레젠테이션 · ${canvas.width} × ${canvas.height}px`}
-              title={deckTitle}
-              variant="dark"
-            />
-          ) : null}
+                      items: [
+                        {
+                          disabled: isPptxExporting,
+                          id: "export-pptx",
+                          label: isPptxExporting
+                            ? "PPTX 내보내는 중..."
+                            : "PPTX 내보내기...",
+                          meta: pptxExportMessage,
+                          onSelect: onExportPptx,
+                        },
+                      ],
+                      label: "내보내기",
+                    },
+                  ]}
+                  subtitle={`프레젠테이션 · ${canvas.width} × ${canvas.height}px`}
+                  title={deckTitle}
+                  variant="dark"
+                />
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="top-actions">
         {projectPresenceUsers.length > 0 ? (
-          <button aria-label="소켓 접속 상태 보기" className="presence-avatar-trigger" type="button" onClick={onOpenPresenceDebug}>
+          <button
+            aria-label="소켓 접속 상태 보기"
+            className="presence-avatar-trigger"
+            type="button"
+            onClick={onOpenPresenceDebug}
+          >
             {projectPresenceUsers.slice(0, 4).map((user) => (
-              <span className="avatar" key={`${user.id}-${user.connectedAt}`} title={getPresenceUserLabel(user)}>{getPresenceUserInitial(user)}</span>
+              <span
+                className="avatar"
+                key={`${user.id}-${user.connectedAt}`}
+                title={getPresenceUserLabel(user)}
+              >
+                {getPresenceUserInitial(user)}
+              </span>
             ))}
-            {projectPresenceUsers.length > 4 ? <span className="avatar presence-avatar-more">+{projectPresenceUsers.length - 4}</span> : null}
+            {projectPresenceUsers.length > 4 ? (
+              <span className="avatar presence-avatar-more">
+                +{projectPresenceUsers.length - 4}
+              </span>
+            ) : null}
           </button>
         ) : null}
         <EditorSaveControl
           disabled={isDeckLoading || isUsingFallbackDeck}
-          emptyStateLabel={showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"}
+          emptyStateLabel={
+            showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"
+          }
           isSaving={saving}
           lastSavedAtLabel={lastSavedAtLabel}
           onSave={onSave}
           recoveryHint={recoveryHint}
           statusLabel={saveStatusLabel}
         />
-        {ooxmlSyncStatus ? <span className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`} title={ooxmlSyncStatus.detail}>{ooxmlSyncStatus.label}</span> : null}
+        {ooxmlSyncStatus ? (
+          <span
+            className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
+            title={ooxmlSyncStatus.detail}
+          >
+            {ooxmlSyncStatus.label}
+          </span>
+        ) : null}
         {/* 에디터 상단에서는 브리프 이동 버튼을 숨긴다.
         <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button">...</button>
         */}
-        <button aria-label="버전 기록" className="editor-context-top-button editor-version-button" title="버전 기록" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={17} /></button>
+        <button
+          aria-label="버전 기록"
+          className="editor-context-top-button editor-version-button"
+          title="버전 기록"
+          onClick={() => {
+            window.location.href = `/project/${encodeURIComponent(projectId)}/history`;
+          }}
+          type="button"
+        >
+          <History size={17} />
+        </button>
         <PresentationMenu
           activeStartAction={activePresentationAction}
           canOpenAudienceLink={canOpenAudienceLink}
@@ -219,7 +262,11 @@ export function EditorTopbar(props: EditorTopbarProps) {
           onOpenAudienceLink={onOpenAudienceLink}
           onStartPresentation={onStartPresentation}
           onStartRehearsal={onStartRehearsal}
-          onToggle={() => setActiveTopMenu((current) => current === "presentation" ? null : "presentation")}
+          onToggle={() =>
+            setActiveTopMenu((current) =>
+              current === "presentation" ? null : "presentation",
+            )
+          }
         />
         <EditorIconButton
           aria-expanded={isSharePanelOpen}
@@ -228,7 +275,11 @@ export function EditorTopbar(props: EditorTopbarProps) {
           disabled={!canManageShare || isSharePermissionLoading}
           icon={<Share2 size={17} />}
           label="공유"
-          title={canManageShare ? "프로젝트 공유" : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."}
+          title={
+            canManageShare
+              ? "프로젝트 공유"
+              : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
+          }
           onClick={() => {
             if (!canManageShare) return;
             onOpenShare();
@@ -253,7 +304,11 @@ function TopMenuButton(props: {
       aria-haspopup="menu"
       className={`top-menu-button ${active ? "active" : ""}`}
       type="button"
-      onClick={() => props.setActiveTopMenu((current) => current === props.menu ? null : props.menu)}
+      onClick={() =>
+        props.setActiveTopMenu((current) =>
+          current === props.menu ? null : props.menu,
+        )
+      }
     >
       {props.label} <ChevronDown size={14} />
     </button>

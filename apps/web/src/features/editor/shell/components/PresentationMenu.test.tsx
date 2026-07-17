@@ -30,6 +30,8 @@ describe("PresentationMenu", () => {
     expect(getButtonTag(html, 'aria-label="슬라이드 한 장 리허설"')).toContain(
       "disabled",
     );
+    expect(html).toContain("redesign-dropdown-menu-black");
+    expect(html).toContain("editor-presentation-menu");
     expect(html).toContain("청중 링크·QR");
   });
 
@@ -71,6 +73,13 @@ describe("PresentationMenu", () => {
     );
     expect(rehearsalButton).not.toContain("disabled");
     expect(rehearsalButton).toContain('aria-pressed="true"');
+    expect(getButtonTag(html, 'class="editor-present-button"')).toContain(
+      "disabled",
+    );
+    expect(getButtonTag(html, 'aria-label="발표 메뉴 열기"')).toContain(
+      "disabled",
+    );
+    expect(html).toContain("rehearsal-disabled");
     expect(html).toContain("tabler-icon-edit");
     expect(html).not.toContain("tabler-icon-microphone");
   });

@@ -45,6 +45,30 @@
   --redesign-dropdown-text: var(--redesign-color-inverse-on-surface);
 }
 
+.redesign-dark .redesign-dropdown-menu-black {
+  --redesign-dropdown-background: var(--redesign-color-surface-container-lowest);
+  --redesign-dropdown-border: var(--redesign-color-outline-variant);
+  --redesign-dropdown-hover: var(--redesign-color-surface-container-high);
+  --redesign-dropdown-icon: var(--redesign-color-on-surface-variant);
+  --redesign-dropdown-text: var(--redesign-color-on-surface);
+}
+
+.redesign-dark .redesign-dropdown-menu-white {
+  --redesign-dropdown-background: var(--redesign-color-inverse-surface);
+  --redesign-dropdown-border: color-mix(
+    in srgb,
+    var(--redesign-color-inverse-on-surface) 18%,
+    transparent
+  );
+  --redesign-dropdown-hover: color-mix(
+    in srgb,
+    var(--redesign-color-inverse-on-surface) 8%,
+    transparent
+  );
+  --redesign-dropdown-icon: var(--redesign-color-inverse-on-surface);
+  --redesign-dropdown-text: var(--redesign-color-inverse-on-surface);
+}
+
 .redesign-dropdown-menu-start {
   left: 0;
   transform-origin: top left;
