@@ -5,7 +5,10 @@ import type { ComponentType } from "react";
 import { useEffect } from "react";
 
 import { getTableContextActionStates } from "../../shell/hooks/useEditorCanvasCommands";
-import type { TableCellTarget } from "../../shell/editorShellUiStore";
+import type {
+  TableCellTarget,
+  TableOperationRequest,
+} from "../../shell/editorShellUiStore";
 import { useEditorShellUiStore } from "../../shell/editorShellUiStore";
 import type { CanvasSelectionModifiers } from "../utils/canvasSelection";
 import { TableCellEditorOverlay } from "./TableCellEditorOverlay";
@@ -31,6 +34,25 @@ export function clearDisabledTableInteraction(args: {
   if (args.editingElementId === args.elementId) {
     args.setEditingElementId(null);
   }
+}
+
+export function createTableCellTextUpdateRequest(args: {
+  columnIndex: number;
+  elementId: string;
+  initialText: string;
+  rowIndex: number;
+  slideId: string;
+  text: string;
+}): TableOperationRequest | null {
+  if (args.text === args.initialText) return null;
+  return {
+    action: "updateCellText",
+    columnIndex: args.columnIndex,
+    elementId: args.elementId,
+    rowIndex: args.rowIndex,
+    slideId: args.slideId,
+    text: args.text,
+  };
 }
 
 export function TableCellHitTargets(props: {
@@ -223,16 +245,17 @@ export function TableCellHitTargets(props: {
           }}
           rowIndex={activeCellLayout.rowIndex}
           stageScale={props.stageScale}
-          onCommit={(text) =>
-            setTableOperationRequest({
-              action: "updateCellText",
+          onCommit={(text) => {
+            const request = createTableCellTextUpdateRequest({
               columnIndex: activeCellLayout.columnIndex,
               elementId: props.element.elementId,
+              initialText: activeCellLayout.cell.text,
               rowIndex: activeCellLayout.rowIndex,
               slideId: props.slide.slideId,
               text,
-            })
-          }
+            });
+            if (request) setTableOperationRequest(request);
+          }}
           onFinish={() => setEditingElementId(null)}
         />
       ) : null}

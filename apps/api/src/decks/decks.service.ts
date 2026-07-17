@@ -122,6 +122,7 @@ type OoxmlTemplateBlueprint = TemplateBlueprintRow & {
 type OoxmlPreflightContext = {
   templateBlueprint?: TemplateBlueprint;
   pendingAuthoredElementKeys: ReadonlySet<string>;
+  workingElements: ReadonlyMap<string, DeckElement>;
 };
 
 type PptxOoxmlSyncJobInput = {
@@ -998,6 +999,7 @@ export class DecksService {
       templateBlueprint,
       pendingAuthoredElementKeys:
         pendingAuthoredElementKeysFromPatchRows(patchRows),
+      workingElements: new Map(),
     };
   }
 
@@ -1887,8 +1889,17 @@ const ooxmlSupportedTextPropsFields = new Set([
   "bullet",
 ]);
 
+const ooxmlSupportedAuthoredTablePropsFields = new Set([
+  "rows",
+  "rowHeights",
+  "columnWidths",
+]);
+
 function emptyOoxmlPreflightContext(): OoxmlPreflightContext {
-  return { pendingAuthoredElementKeys: new Set() };
+  return {
+    pendingAuthoredElementKeys: new Set(),
+    workingElements: new Map(),
+  };
 }
 
 function ooxmlElementKey(slideId: string, elementId: string): string {
@@ -1934,6 +1945,42 @@ function updatePendingAuthoredElementKeys(
   }
 }
 
+function updateWorkingElements(
+  working: Map<string, DeckElement>,
+  operation: DeckPatchOperation,
+): void {
+  if (operation.type === "add_element") {
+    working.set(
+      ooxmlElementKey(operation.slideId, operation.element.elementId),
+      operation.element,
+    );
+    return;
+  }
+  if (operation.type === "update_element_props") {
+    const key = ooxmlElementKey(operation.slideId, operation.elementId);
+    const element = working.get(key);
+    if (element) {
+      working.set(key, {
+        ...element,
+        props: { ...element.props, ...operation.props },
+      } as DeckElement);
+    }
+    return;
+  }
+  if (operation.type === "delete_element") {
+    working.delete(ooxmlElementKey(operation.slideId, operation.elementId));
+    return;
+  }
+  if (operation.type === "add_slide") {
+    for (const element of operation.slide.elements) {
+      working.set(
+        ooxmlElementKey(operation.slide.slideId, element.elementId),
+        element,
+      );
+    }
+  }
+}
+
 function assertOoxmlPatchOperationsAreSupported(
   currentDeck: Deck,
   nextDeck: Deck,
@@ -1943,6 +1990,15 @@ function assertOoxmlPatchOperationsAreSupported(
   const pendingAuthoredElementKeys = new Set(
     preflightContext.pendingAuthoredElementKeys,
   );
+  const workingElements = new Map(preflightContext.workingElements);
+  for (const slide of currentDeck.slides) {
+    for (const element of slide.elements) {
+      workingElements.set(
+        ooxmlElementKey(slide.slideId, element.elementId),
+        element,
+      );
+    }
+  }
   for (const operation of operations) {
     const reasonCode = ooxmlUnsupportedOperationReason(
       currentDeck,
@@ -1951,10 +2007,12 @@ function assertOoxmlPatchOperationsAreSupported(
       {
         ...preflightContext,
         pendingAuthoredElementKeys,
+        workingElements,
       },
     );
     if (!reasonCode) {
       updatePendingAuthoredElementKeys(pendingAuthoredElementKeys, operation);
+      updateWorkingElements(workingElements, operation);
       continue;
     }
 
@@ -2007,6 +2065,9 @@ function ooxmlUnsupportedOperationReason(
     operation.type === "delete_element"
   ) {
     const element =
+      preflightContext.workingElements.get(
+        ooxmlElementKey(operation.slideId, operation.elementId),
+      ) ??
       findOoxmlElement(currentDeck, operation.slideId, operation.elementId) ??
       findOoxmlElement(nextDeck, operation.slideId, operation.elementId);
     if (!element?.ooxmlOrigin) return "ELEMENT_PROVENANCE_MISSING";
@@ -2160,10 +2221,142 @@ function ooxmlElementPropsUnsupportedReason(
       : null;
   }
 
-  if (element.type === "table" && element.ooxmlOrigin === "imported") {
-    if (!capabilities?.tableCellText) return "TABLE_CELL_CAPABILITY_UNSAFE";
+  if (element.type === "table") {
+    const nextProps = { ...element.props, ...props } as typeof element.props;
+    if (element.ooxmlOrigin === "imported") {
+      if (
+        capabilities?.tableCellText !== true ||
+        !ooxmlImportedTableCellTextPatchIsSafe(
+          element.props,
+          props,
+          nextProps,
+        ) ||
+        !ooxmlSourceMappingSupportsTableCellText(
+          currentDeck,
+          slideId,
+          element,
+          preflightContext.templateBlueprint,
+        )
+      ) {
+        return "TABLE_CELL_CAPABILITY_UNSAFE";
+      }
+      return null;
+    }
+    if (
+      !Object.prototype.hasOwnProperty.call(props, "rows") ||
+      (element.props.rows.length !== nextProps.rows.length &&
+        !Object.prototype.hasOwnProperty.call(props, "rowHeights")) ||
+      ((element.props.rows[0]?.length ?? 0) !==
+        (nextProps.rows[0]?.length ?? 0) &&
+        !Object.prototype.hasOwnProperty.call(props, "columnWidths")) ||
+      fields.some(
+        (field) => !ooxmlSupportedAuthoredTablePropsFields.has(field),
+      ) ||
+      (findOoxmlElement(currentDeck, slideId, element.elementId) !==
+        undefined &&
+        isDeepStrictEqual(element.props, nextProps)) ||
+      !authoredOoxmlSerializerSupportsElement({
+        ...element,
+        props: nextProps,
+      })
+    ) {
+      return "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+    return null;
   }
   return "PROPS_FIELDS_UNSUPPORTED";
+}
+
+function ooxmlImportedTableCellTextPatchIsSafe(
+  current: Extract<DeckElement, { type: "table" }>["props"],
+  patch: Record<string, unknown>,
+  next: Extract<DeckElement, { type: "table" }>["props"],
+): boolean {
+  if (
+    Object.keys(patch).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(patch, "rows") ||
+    !ooxmlTableGridIsSupported(current) ||
+    !ooxmlTableGridIsSupported(next) ||
+    !isDeepStrictEqual(current.columnWidths, next.columnWidths) ||
+    !isDeepStrictEqual(current.rowHeights, next.rowHeights) ||
+    current.rows.length !== next.rows.length
+  ) {
+    return false;
+  }
+
+  let changedCellCount = 0;
+  for (let rowIndex = 0; rowIndex < current.rows.length; rowIndex += 1) {
+    const currentRow = current.rows[rowIndex]!;
+    const nextRow = next.rows[rowIndex]!;
+    if (currentRow.length !== nextRow.length) return false;
+    for (
+      let columnIndex = 0;
+      columnIndex < currentRow.length;
+      columnIndex += 1
+    ) {
+      const currentCell = currentRow[columnIndex]!;
+      const nextCell = nextRow[columnIndex]!;
+      const { text: currentText, ...currentStyle } = currentCell;
+      const { text: nextText, ...nextStyle } = nextCell;
+      if (!isDeepStrictEqual(currentStyle, nextStyle)) return false;
+      if (currentText !== nextText) {
+        if (currentText.split("\n").length !== nextText.split("\n").length) {
+          return false;
+        }
+        changedCellCount += 1;
+      }
+      if (changedCellCount > 1) return false;
+    }
+  }
+  return changedCellCount === 1;
+}
+
+function ooxmlTableGridIsSupported(
+  props: Extract<DeckElement, { type: "table" }>["props"],
+): boolean {
+  const columnCount = props.rows[0]?.length ?? 0;
+  if (
+    props.rows.length === 0 ||
+    props.rows.length > 1_000 ||
+    columnCount === 0 ||
+    columnCount > 1_000 ||
+    props.rows.length * columnCount > 10_000
+  ) {
+    return false;
+  }
+  if (props.rows.some((row) => row.length !== columnCount)) return false;
+  if (
+    props.columnWidths !== undefined &&
+    props.columnWidths.length !== columnCount
+  ) {
+    return false;
+  }
+  if (
+    props.rowHeights !== undefined &&
+    props.rowHeights.length !== props.rows.length
+  ) {
+    return false;
+  }
+  return props.rows.every((row) =>
+    row.every(
+      (cell) =>
+        cell.colSpan === 1 &&
+        cell.rowSpan === 1 &&
+        (cell.fill === "transparent" ||
+          (typeof cell.fill === "string" &&
+            /^#[0-9a-f]{6}$/i.test(cell.fill))) &&
+        ooxmlTableFontWeightIsSupported(cell.fontWeight),
+    ),
+  );
+}
+
+function ooxmlTableFontWeightIsSupported(
+  value: Extract<
+    DeckElement,
+    { type: "table" }
+  >["props"]["rows"][number][number]["fontWeight"],
+): boolean {
+  return value === "normal" || value === "bold";
 }
 
 function ooxmlSourceMappingSupportsRichText(
@@ -2200,6 +2393,54 @@ function ooxmlSourceMappingSupportsRichText(
     sourceRichText === element.ooxmlEditCapabilities?.richText &&
     sourceRichText !== undefined &&
     sourceRichText !== "none"
+  );
+}
+
+function ooxmlSourceMappingSupportsTableCellText(
+  currentDeck: Deck,
+  slideId: string,
+  element: Extract<DeckElement, { type: "table" }>,
+  templateBlueprint: TemplateBlueprint | undefined,
+): boolean {
+  if (!templateBlueprint || element.ooxmlOrigin !== "imported") return false;
+  const slideIndex =
+    currentDeck.slides.findIndex((slide) => slide.slideId === slideId) + 1;
+  const mappedSlide =
+    slideIndex > 0
+      ? templateBlueprint.slides.find(
+          (slide) => slide.slideIndex === slideIndex,
+        )
+      : undefined;
+  if (!mappedSlide?.sourceSlidePart) return false;
+  const sources = mappedSlide.elementSources.filter(
+    (source) => source.elementId === element.elementId,
+  );
+  if (sources.length !== 1 || !ooxmlTableGridIsSupported(element.props)) {
+    return false;
+  }
+
+  const source = sources[0]!;
+  const locators = source.tableCellLocators;
+  const columnCount = element.props.rows[0]!.length;
+  const cellCount = element.props.rows.length * columnCount;
+  if (
+    source.elementType !== "table" ||
+    source.sourceType !== "table" ||
+    source.ooxmlOrigin !== element.ooxmlOrigin ||
+    source.writable !== true ||
+    source.fallbackReason !== undefined ||
+    source.slidePart !== mappedSlide.sourceSlidePart ||
+    source.ooxmlEditCapabilities?.tableCellText !==
+      element.ooxmlEditCapabilities?.tableCellText ||
+    source.ooxmlEditCapabilities?.tableCellText !== true ||
+    locators?.length !== cellCount
+  ) {
+    return false;
+  }
+  return locators.every(
+    (locator, index) =>
+      locator.rowIndex === Math.floor(index / columnCount) &&
+      locator.columnIndex === index % columnCount,
   );
 }
 
@@ -2269,6 +2510,10 @@ function authoredOoxmlSerializerSupportsElement(element: DeckElement): boolean {
       element.props.focusX === 0.5 &&
       element.props.focusY === 0.5
     );
+  }
+
+  if (element.type === "table") {
+    return ooxmlTableGridIsSupported(element.props);
   }
 
   if (element.type !== "rect") return false;

@@ -58,6 +58,8 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "SOURCE_PROVENANCE_UNSAFE",
   "SHARED_SHAPE_COHORT_UNSAFE",
   "SYNC_RESPONSE_INCOMPLETE",
+  "TABLE_CELL_CAPABILITY_UNSAFE",
+  "TABLE_STRUCTURE_UNSUPPORTED",
 ]);
 
 const ooxmlAppliedOperationSchema = z

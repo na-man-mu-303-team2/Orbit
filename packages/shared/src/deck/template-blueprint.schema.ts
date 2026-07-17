@@ -151,6 +151,22 @@ export const templateElementSourceSchema = z
     fallbackReason: z.string().min(1).optional(),
   })
   .superRefine((source, ctx) => {
+    if (source.ooxmlEditCapabilities?.tableCellText === true) {
+      const hasAuthoritativeTableSource =
+        source.elementType === "table" &&
+        source.sourceType === "table" &&
+        source.writable &&
+        source.fallbackReason === undefined &&
+        source.tableCellLocators !== undefined;
+      if (!hasAuthoritativeTableSource) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "table cell text capability requires an authoritative writable table source",
+          path: ["ooxmlEditCapabilities", "tableCellText"],
+        });
+      }
+    }
     if (
       source.tableCellLocators &&
       (source.sourceType !== "table" ||
@@ -177,7 +193,10 @@ export const templateBlueprintSlotSchema = z.object({
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
-  sourceSlidePart: z.string().regex(/^ppt\/slides\/slide[^/]+\.xml$/).optional(),
+  sourceSlidePart: z
+    .string()
+    .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+    .optional(),
   ooxmlOrigin: ooxmlOriginSchema.optional(),
   ooxmlMotionCapabilities: ooxmlMotionCapabilitiesSchema.optional(),
   cloneSourceSlideIndex: z.number().int().positive().optional(),

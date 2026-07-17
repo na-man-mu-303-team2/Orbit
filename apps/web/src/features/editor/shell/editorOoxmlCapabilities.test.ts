@@ -878,6 +878,317 @@ describe("resolveOoxmlEditCapability", () => {
     ).toMatchObject({ enabled: false });
   });
 
+  it("allows only an actual single-cell imported table text patch", () => {
+    const deck = importedDeck();
+    const table = importedElement(tableElement(), {
+      richText: "none",
+      crop: "none",
+      tableCellText: true,
+      frame: true,
+      delete: true,
+      imageSource: false,
+    });
+    expect(table.type).toBe("table");
+    if (table.type !== "table") throw new Error("expected table element");
+    deck.slides[0]!.elements = [table];
+    const patch = (props: Record<string, unknown>) => ({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user" as const,
+      operations: [
+        {
+          type: "update_element_props" as const,
+          slideId: deck.slides[0]!.slideId,
+          elementId: table.elementId,
+          props,
+        },
+      ],
+    });
+    const rows = table.props.rows.map((row) =>
+      row.map((cell) => ({ ...cell })),
+    );
+    rows[0]![1]!.text = "Edited B";
+    expect(resolveOoxmlPatchCapability(deck, patch({ rows }))).toMatchObject({
+      enabled: true,
+      reasonCode: "SUPPORTED",
+    });
+
+    const multiRows = table.props.rows.map((row) =>
+      row.map((cell) => ({ ...cell })),
+    );
+    multiRows[0]![0]!.text = "Edited A";
+    multiRows[1]![1]!.text = "Edited D";
+    const styleRows = table.props.rows.map((row) =>
+      row.map((cell) => ({ ...cell })),
+    );
+    styleRows[0]![0]!.fill = "#000000";
+    const paragraphRows = table.props.rows.map((row) =>
+      row.map((cell) => ({ ...cell })),
+    );
+    paragraphRows[0]![0]!.text = `${paragraphRows[0]![0]!.text}\nSecond paragraph`;
+    const insertedRows = [
+      ...table.props.rows.map((row) => row.map((cell) => ({ ...cell }))),
+      table.props.rows[0]!.map((cell) => ({ ...cell })),
+    ];
+
+    for (const props of [
+      { rows: table.props.rows },
+      { rows: multiRows },
+      { rows: styleRows },
+      { rows: paragraphRows },
+      { borderColor: "#000000", borderWidth: 2 },
+      { columnWidths: [200, 280] },
+      { rows: insertedRows },
+    ]) {
+      expect(resolveOoxmlPatchCapability(deck, patch(props))).toMatchObject({
+        enabled: false,
+        reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+      });
+    }
+  });
+
+  it("allows authored rectangular table add and structure updates", () => {
+    const deck = importedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const table = { ...tableElement(), ooxmlOrigin: "authored" as const };
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: table,
+        feature: "add-element",
+        slide: deck.slides[0]!,
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+
+    deck.slides[0]!.elements = [table];
+    const rows = table.props.rows.map((row) =>
+      row.map((cell) => ({ ...cell })),
+    );
+    rows.push([
+      { ...rows[0]![0]!, text: "E" },
+      { ...rows[0]![1]!, text: "F" },
+    ]);
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: {
+              rows,
+              rowHeights: [40, 40, 40],
+              columnWidths: [200, 280],
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+  });
+
+  it("keeps lossy authored table font weights and sparse patches fail closed", () => {
+    const deck = importedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const table = { ...tableElement(), ooxmlOrigin: "authored" as const };
+    table.props.rows[0]![0]!.fontWeight = "medium";
+    table.props.rows[0]![1]!.fontWeight = 700;
+    for (const fontWeight of ["medium", 700] as const) {
+      table.props.rows[0]![0]!.fontWeight = fontWeight;
+      expect(
+        resolveOoxmlEditCapability({
+          deck,
+          element: table,
+          feature: "add-element",
+          slide: deck.slides[0]!,
+        }),
+      ).toMatchObject({
+        enabled: false,
+        reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+      });
+    }
+
+    table.props.rows[0]![0]!.fontWeight = "normal";
+    table.props.rows[0]![1]!.fontWeight = "normal";
+    deck.slides[0]!.elements = [table];
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { borderColor: "#0F172A", borderWidth: 2 },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { columnWidths: [200, 280] },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+
+    table.props.rowHeights = undefined;
+    const insertedRows = [
+      ...table.props.rows.map((row) => row.map((cell) => ({ ...cell }))),
+      table.props.rows[0]!.map((cell) => ({ ...cell })),
+    ];
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { rows: insertedRows },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+  });
+
+  it("rejects authored tables beyond the serializer grid limits", () => {
+    const deck = importedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const source = tableElement();
+    const oversizedProps = [
+      {
+        ...source.props,
+        rows: Array.from({ length: 1_001 }, () => [
+          { ...source.props.rows[0]![0]! },
+        ]),
+        columnWidths: [480],
+        rowHeights: Array.from({ length: 1_001 }, () => 1),
+      },
+      {
+        ...source.props,
+        rows: Array.from({ length: 101 }, () =>
+          Array.from({ length: 100 }, () => ({
+            ...source.props.rows[0]![0]!,
+          })),
+        ),
+        columnWidths: Array.from({ length: 100 }, () => 4.8),
+        rowHeights: Array.from({ length: 101 }, () => 1.2),
+      },
+    ];
+
+    for (const props of oversizedProps) {
+      const table = {
+        ...source,
+        ooxmlOrigin: "authored" as const,
+        props,
+      };
+      expect(
+        resolveOoxmlEditCapability({
+          deck,
+          element: table,
+          feature: "add-element",
+          slide: deck.slides[0]!,
+        }),
+      ).toMatchObject({
+        enabled: false,
+        reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+      });
+    }
+  });
+
+  it.each([
+    ["empty", { rows: [], columnWidths: [], rowHeights: [] }],
+    [
+      "jagged",
+      {
+        rows: [[{ text: "A" }, { text: "B" }], [{ text: "C" }]],
+        columnWidths: [240, 240],
+        rowHeights: [60, 60],
+      },
+    ],
+    [
+      "merged",
+      {
+        rows: [[{ text: "A", colSpan: 2 }, { text: "B" }]],
+        columnWidths: [240, 240],
+        rowHeights: [120],
+      },
+    ],
+    [
+      "track mismatch",
+      {
+        rows: [[{ text: "A" }, { text: "B" }]],
+        columnWidths: [480],
+        rowHeights: [120],
+      },
+    ],
+    [
+      "unsupported style",
+      {
+        rows: [
+          [
+            {
+              text: "A",
+              fill: {
+                type: "linear-gradient",
+                angle: 0,
+                stops: [
+                  { offset: 0, color: "#FFFFFF" },
+                  { offset: 1, color: "#000000" },
+                ],
+              },
+            },
+          ],
+        ],
+        columnWidths: [480],
+        rowHeights: [120],
+      },
+    ],
+  ] as const)("rejects authored table %s serialization", (_, props) => {
+    const deck = importedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const table = {
+      ...tableElement(),
+      ooxmlOrigin: "authored" as const,
+      props,
+    } as unknown as Extract<DeckElement, { type: "table" }>;
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: table,
+        feature: "add-element",
+        slide: deck.slides[0]!,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+  });
+
   it("keeps safe main-sequence provenance disabled until the serializer is ready", () => {
     const deck = importedDeck();
     for (const coverage of ["absent", "complete"] as const) {
@@ -985,5 +1296,46 @@ function imageElement(): Extract<DeckElement, { type: "image" }> {
       focusX: 0.5,
       focusY: 0.5,
     },
+  };
+}
+
+function tableElement(): Extract<DeckElement, { type: "table" }> {
+  return {
+    elementId: "el_table_capability",
+    type: "table",
+    x: 0,
+    y: 0,
+    width: 480,
+    height: 120,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: {
+      rows: [
+        [tableCell("A"), tableCell("B")],
+        [tableCell("C"), tableCell("D")],
+      ],
+      columnWidths: [240, 240],
+      rowHeights: [60, 60],
+      borderColor: "#CBD5E1",
+      borderWidth: 1,
+    },
+  };
+}
+
+function tableCell(text: string) {
+  return {
+    text,
+    fill: "#FFFFFF" as const,
+    fontSize: 18,
+    fontWeight: "normal" as const,
+    align: "left" as const,
+    verticalAlign: "middle" as const,
+    borderColor: "#CBD5E1" as const,
+    borderWidth: 1,
+    colSpan: 1,
+    rowSpan: 1,
   };
 }

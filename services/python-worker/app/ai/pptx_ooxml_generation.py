@@ -29,7 +29,14 @@ from app.ai.pptx_design_importer import (
     build_quality_report,
 )
 from app.ai.pptx_ooxml_vector_importer import (
+    OoxmlScale,
+    direct_graphic_frame_table,
     import_pptx_design_with_optional_ooxml_vector,
+    table_cell_locators,
+    table_column_widths,
+    table_row_heights,
+    table_rows,
+    theme_color_map,
 )
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -44,9 +51,32 @@ IMAGE_REL_TYPE = (
 )
 P_SP = f"{{{PML_NS}}}sp"
 P_PIC = f"{{{PML_NS}}}pic"
+P_GRAPHIC_FRAME = f"{{{PML_NS}}}graphicFrame"
 A_T = f"{{{DML_NS}}}t"
 A_BLIP = f"{{{DML_NS}}}blip"
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+TABLE_GRAPHIC_DATA_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
+SUPPORTED_TABLE_PROPS = {
+    "rows",
+    "columnWidths",
+    "rowHeights",
+    "borderColor",
+    "borderWidth",
+}
+SUPPORTED_TABLE_CELL_PROPS = {
+    "text",
+    "fill",
+    "textColor",
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "align",
+    "verticalAlign",
+    "borderColor",
+    "borderWidth",
+    "colSpan",
+    "rowSpan",
+}
 
 SUPPORTED_TEXT_PROPS = {
     "text",
@@ -158,6 +188,8 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "SOURCE_PROVENANCE_UNSAFE",
     "SHARED_SHAPE_COHORT_UNSAFE",
     "SYNC_RESPONSE_INCOMPLETE",
+    "TABLE_CELL_CAPABILITY_UNSAFE",
+    "TABLE_STRUCTURE_UNSUPPORTED",
 ]
 
 
@@ -536,10 +568,8 @@ def imported_element_capabilities(
     image_source_writable = False
     crop_capability = "none"
     rich_text_capability = "none"
-    if (
-        slide_root is not None
-        and bool(source.get("writable", False))
-    ):
+    table_cell_text_writable = False
+    if slide_root is not None and bool(source.get("writable", False)):
         shape, _parent = find_shape_by_id(
             slide_root,
             str(source.get("shapeId", "")),
@@ -548,6 +578,7 @@ def imported_element_capabilities(
             shape_cohort_size == 1
             and shape is not None
             and not has_group_shape_ancestor(slide_root, shape)
+            and element_type != "table"
         )
         crop_capability = imported_image_crop_capability(
             element_type,
@@ -555,7 +586,8 @@ def imported_element_capabilities(
             shape,
         )
         image_source_writable = (
-            crop_capability == "picture" and direct_image_blip(shape, source) is not None
+            crop_capability == "picture"
+            and direct_image_blip(shape, source) is not None
         )
         if (
             element_type == "text"
@@ -563,14 +595,84 @@ def imported_element_capabilities(
             and not source.get("fallbackReason")
         ):
             rich_text_capability = rich_text_capability_for_shape(shape)
+        table_cell_text_writable = (
+            shape_cohort_size == 1
+            and element_type == "table"
+            and shape is not None
+            and not source.get("fallbackReason")
+            and table_cell_text_capability_for_shape(shape, source)
+        )
     return {
         "richText": rich_text_capability,
         "crop": crop_capability,
-        "tableCellText": False,
+        "tableCellText": table_cell_text_writable,
         "frame": frame_writable,
         "delete": frame_writable and motion_coverage == "absent",
         "imageSource": image_source_writable,
     }
+
+
+def table_cell_text_capability_for_shape(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+) -> bool:
+    if (
+        shape.tag != P_GRAPHIC_FRAME
+        or str(source.get("sourceType", "")) != "table"
+        or not bool(source.get("writable", False))
+        or source.get("fallbackReason")
+    ):
+        return False
+    locators, diagnostics = table_cell_locators(
+        shape,
+        slide_index=0,
+        shape_id=str(source.get("shapeId", "")),
+    )
+    declared_locators = source.get("tableCellLocators")
+    if diagnostics or not locators or declared_locators != locators:
+        return False
+    table = direct_graphic_frame_table(shape)
+    return table is not None and all(
+        table_cell_text_body_is_safe(cell)
+        for row in direct_local_children(table, "tr")
+        for cell in direct_local_children(row, "tc")
+    )
+
+
+def table_cell_text_body_is_safe(cell: ET.Element[Any]) -> bool:
+    body = first_local_child(cell, "txBody")
+    if body is None:
+        return False
+    paragraphs = direct_local_children(body, "p")
+    if not paragraphs:
+        return False
+    if any(
+        local_name(child) not in {"bodyPr", "lstStyle", "p", "extLst"}
+        for child in list(body)
+    ):
+        return False
+    for paragraph in paragraphs:
+        if any(
+            local_name(child) not in {"pPr", "r", "endParaRPr"}
+            for child in list(paragraph)
+        ):
+            return False
+        runs = direct_local_children(paragraph, "r")
+        if len(runs) > 1:
+            return False
+        if not runs:
+            continue
+        run = runs[0]
+        if any(local_name(child) not in {"rPr", "t"} for child in list(run)):
+            return False
+        if len(direct_local_children(run, "t")) != 1:
+            return False
+        if (
+            first_local_descendant(run, "hlinkClick") is not None
+            or first_local_descendant(run, "hlinkMouseOver") is not None
+        ):
+            return False
+    return True
 
 
 def rich_text_capability_for_shape(shape: ET.Element[Any]) -> str:
@@ -594,19 +696,25 @@ def rich_text_capability_for_shape(shape: ET.Element[Any]) -> str:
             if paragraph_child_name not in {"pPr", "r", "br", "endParaRPr"}:
                 return "none"
             if paragraph_child_name in {"r", "br"}:
-                allowed_children = {"rPr", "t"} if paragraph_child_name == "r" else {"rPr"}
+                allowed_children = (
+                    {"rPr", "t"} if paragraph_child_name == "r" else {"rPr"}
+                )
                 if any(
                     local_name(run_child) not in allowed_children
                     for run_child in list(paragraph_child)
                 ):
                     return "none"
-                if paragraph_child_name == "r" and len(
-                    [
-                        run_child
-                        for run_child in list(paragraph_child)
-                        if local_name(run_child) == "t"
-                    ]
-                ) != 1:
+                if (
+                    paragraph_child_name == "r"
+                    and len(
+                        [
+                            run_child
+                            for run_child in list(paragraph_child)
+                            if local_name(run_child) == "t"
+                        ]
+                    )
+                    != 1
+                ):
                     return "none"
             if first_local_descendant(paragraph_child, "hlinkClick") is not None:
                 capability = "style-only"
@@ -671,8 +779,7 @@ def apply_patch_operations_to_package(
         slide_parts = {
             source_slide_part(slide)
             for slide in template_blueprint.get("slides", [])
-            if isinstance(slide, dict)
-            and source_slide_part(slide)
+            if isinstance(slide, dict) and source_slide_part(slide)
         }
         slide_parts.update(
             str(item.get("slidePart", ""))
@@ -764,7 +871,7 @@ def apply_sync_operation(
             return "ADD_ELEMENT_FAILED"
         if not operation_slide_part or operation_slide_part not in package_entries:
             return "SLIDE_PART_MISSING"
-        if str(element.get("type", "")) not in {"text", "rect", "image"}:
+        if str(element.get("type", "")) not in {"text", "rect", "image", "table"}:
             return "ADD_ELEMENT_TYPE_UNSUPPORTED"
         if add_element_has_unsupported_advanced_props(element):
             return "PROPS_FIELDS_UNSUPPORTED"
@@ -815,7 +922,20 @@ def apply_sync_operation(
         props = operation.get("props")
         if not isinstance(props, dict) or not props:
             return "PROPS_FIELDS_UNSUPPORTED"
-        props_reason = validate_source_props_update(source, shape, props)
+        source_shape_cohort_size = sum(
+            1
+            for candidate in sources.values()
+            if str(candidate.get("slidePart", "")) == slide_part
+            and str(candidate.get("shapeId", "")) == str(source.get("shapeId", ""))
+        )
+        props_reason = validate_source_props_update(
+            source,
+            shape,
+            props,
+            scale,
+            source_package,
+            source_shape_cohort_size,
+        )
         if props_reason is not None:
             return props_reason
         shape_changed = update_shape_props(
@@ -855,6 +975,12 @@ def apply_sync_operation(
             return "GROUPED_FRAME_UNSUPPORTED"
         if geometry_fields:
             update_shape_frame(shape, frame, scale)
+            if (
+                source.get("elementType") == "table"
+                and source.get("ooxmlOrigin") == "authored"
+                and not resize_authored_table_tracks_to_frame(shape)
+            ):
+                return "TABLE_STRUCTURE_UNSUPPORTED"
             if (
                 source.get("elementType") == "image"
                 and not picture_has_explicit_crop(shape)
@@ -936,7 +1062,9 @@ def add_element_has_unsupported_advanced_props(element: dict[str, Any]) -> bool:
     if element_type == "rect":
         fill = props.get("fill", "transparent")
         return (
-            not (fill == "transparent" or isinstance(fill, str) and valid_hex_color(fill))
+            not (
+                fill == "transparent" or isinstance(fill, str) and valid_hex_color(fill)
+            )
             or props.get("stroke", "transparent") != "transparent"
             or float(props.get("strokeWidth", 0)) != 0
             or float(props.get("borderRadius", 0)) != 0
@@ -951,6 +1079,8 @@ def add_element_has_unsupported_advanced_props(element: dict[str, Any]) -> bool:
             or float(props.get("focusX", 0.5)) != 0.5
             or float(props.get("focusY", 0.5)) != 0.5
         )
+    if element_type == "table":
+        return not valid_table_props(props)
     return False
 
 
@@ -958,9 +1088,36 @@ def validate_source_props_update(
     source: dict[str, Any],
     shape: ET.Element[Any],
     props: dict[str, Any],
+    scale: PackageFrameScale,
+    source_package: zipfile.ZipFile,
+    source_shape_cohort_size: int,
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     prop_names = set(props)
     element_type = str(source.get("elementType", ""))
+    if prop_names and prop_names.issubset(SUPPORTED_TABLE_PROPS):
+        if element_type != "table" or shape.tag != P_GRAPHIC_FRAME:
+            return "ELEMENT_TYPE_MISMATCH"
+        declared_capability = dict_value(source, "ooxmlEditCapabilities").get(
+            "tableCellText"
+        )
+        if (
+            declared_capability is not True
+            or source_shape_cohort_size != 1
+            or not table_cell_text_capability_for_shape(shape, source)
+        ):
+            return "TABLE_CELL_CAPABILITY_UNSAFE"
+        if not valid_table_props(props):
+            return "TABLE_STRUCTURE_UNSUPPORTED"
+        if source.get("ooxmlOrigin") == "authored":
+            return None
+        if source.get("ooxmlOrigin") != "imported":
+            return "TABLE_CELL_CAPABILITY_UNSAFE"
+        return validate_imported_table_props_update(
+            shape,
+            props,
+            scale,
+            source_package,
+        )
     if prop_names and prop_names.issubset(SUPPORTED_TEXT_PROPS):
         if element_type != "text" or shape.tag != P_SP:
             return "ELEMENT_TYPE_MISMATCH"
@@ -1004,6 +1161,214 @@ def validate_source_props_update(
                 return "CROP_CAPABILITY_UNSAFE"
         return None
     return "PROPS_FIELDS_UNSUPPORTED"
+
+
+def validate_imported_table_props_update(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+    source_package: zipfile.ZipFile,
+) -> PptxOoxmlUnsupportedReasonCode | None:
+    table = direct_graphic_frame_table(shape)
+    if table is None:
+        return "TABLE_CELL_CAPABILITY_UNSAFE"
+    ooxml_scale = OoxmlScale(
+        canvas_width=scale.canvas_width,
+        canvas_height=scale.canvas_height,
+        slide_width_emu=scale.slide_width_emu,
+        slide_height_emu=scale.slide_height_emu,
+    )
+    actual_rows = table_rows(table, ooxml_scale, theme_color_map(source_package))
+    target_rows = props.get("rows")
+    if (
+        not isinstance(target_rows, list)
+        or len(target_rows) != len(actual_rows)
+        or any(
+            not isinstance(target_row, list) or len(target_row) != len(actual_row)
+            for target_row, actual_row in zip(target_rows, actual_rows, strict=True)
+        )
+    ):
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+
+    changed_text_count = 0
+    xml_rows = direct_local_children(table, "tr")
+    for row_index, (target_row, actual_row) in enumerate(
+        zip(target_rows, actual_rows, strict=True)
+    ):
+        xml_cells = direct_local_children(xml_rows[row_index], "tc")
+        for column_index, (target_cell, actual_cell) in enumerate(
+            zip(target_row, actual_row, strict=True)
+        ):
+            if not isinstance(target_cell, dict):
+                return "TABLE_STRUCTURE_UNSUPPORTED"
+            if not table_cell_non_text_equal(target_cell, actual_cell):
+                return "TABLE_STRUCTURE_UNSUPPORTED"
+            if str(target_cell.get("text", "")) != str(actual_cell.get("text", "")):
+                changed_text_count += 1
+                if not table_cell_text_can_set(
+                    xml_cells[column_index],
+                    str(target_cell.get("text", "")),
+                ):
+                    return "TABLE_STRUCTURE_UNSUPPORTED"
+    if changed_text_count != 1:
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+
+    if "columnWidths" in props and not numeric_track_values_equal(
+        props.get("columnWidths"), table_column_widths(table, ooxml_scale)
+    ):
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+    if "rowHeights" in props and not numeric_track_values_equal(
+        props.get("rowHeights"), table_row_heights(table, ooxml_scale)
+    ):
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+    if "borderColor" in props and not table_value_equal(
+        props.get("borderColor"), "#CBD5E1"
+    ):
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+    if "borderWidth" in props and not table_value_equal(props.get("borderWidth"), 1):
+        return "TABLE_STRUCTURE_UNSUPPORTED"
+    return None
+
+
+def table_cell_non_text_equal(
+    target: dict[str, Any],
+    actual: dict[str, Any],
+) -> bool:
+    if set(target) - SUPPORTED_TABLE_CELL_PROPS:
+        return False
+    defaults: dict[str, Any] = {
+        "fill": "transparent",
+        "fontSize": 18,
+        "fontWeight": "normal",
+        "align": "left",
+        "verticalAlign": "middle",
+        "borderColor": "#CBD5E1",
+        "borderWidth": 1,
+        "colSpan": 1,
+        "rowSpan": 1,
+    }
+    for key in SUPPORTED_TABLE_CELL_PROPS - {"text"}:
+        target_value = target.get(key, defaults.get(key))
+        actual_value = actual.get(key, defaults.get(key))
+        if not table_value_equal(target_value, actual_value):
+            return False
+    return True
+
+
+def numeric_track_values_equal(target: Any, actual: list[int]) -> bool:
+    return (
+        isinstance(target, list)
+        and len(target) == len(actual)
+        and all(
+            table_value_equal(left, right)
+            for left, right in zip(target, actual, strict=True)
+        )
+    )
+
+
+def table_value_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return math.isclose(float(left), float(right), rel_tol=1e-4, abs_tol=0.1)
+    if isinstance(left, str) and isinstance(right, str):
+        if valid_hex_color(left) and valid_hex_color(right):
+            return left.upper() == right.upper()
+    return bool(left == right)
+
+
+def valid_table_props(props: dict[str, Any]) -> bool:
+    if not props or set(props) - SUPPORTED_TABLE_PROPS:
+        return False
+    rows = props.get("rows")
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 1000:
+        return False
+    if not isinstance(rows[0], list) or not 1 <= len(rows[0]) <= 1000:
+        return False
+    column_count = len(rows[0])
+    if len(rows) * column_count > 10_000:
+        return False
+    if any(not isinstance(row, list) or len(row) != column_count for row in rows):
+        return False
+    if any(
+        not isinstance(cell, dict) or not valid_table_cell_props(cell)
+        for row in rows
+        for cell in row
+    ):
+        return False
+    if not valid_table_tracks(props.get("columnWidths"), column_count):
+        return False
+    if not valid_table_tracks(props.get("rowHeights"), len(rows)):
+        return False
+    border_color = props.get("borderColor", "#CBD5E1")
+    border_width = props.get("borderWidth", 1)
+    return (
+        isinstance(border_color, str)
+        and valid_hex_color(border_color)
+        and finite_table_number(border_width, minimum=0)
+    )
+
+
+def valid_table_cell_props(cell: dict[str, Any]) -> bool:
+    if set(cell) - SUPPORTED_TABLE_CELL_PROPS:
+        return False
+    text = cell.get("text", "")
+    fill = cell.get("fill", "transparent")
+    text_color = cell.get("textColor")
+    font_family = cell.get("fontFamily")
+    font_weight = cell.get("fontWeight", "normal")
+    return (
+        isinstance(text, str)
+        and isinstance(fill, str)
+        and (fill == "transparent" or valid_hex_color(fill))
+        and (
+            text_color is None
+            or isinstance(text_color, str)
+            and valid_hex_color(text_color)
+        )
+        and (font_family is None or isinstance(font_family, str) and bool(font_family))
+        and finite_table_number(cell.get("fontSize", 18), minimum=0, strict=True)
+        and valid_table_font_weight(font_weight)
+        and cell.get("align", "left") in {"left", "center", "right", "justify"}
+        and cell.get("verticalAlign", "middle") in {"top", "middle", "bottom"}
+        and isinstance(cell.get("borderColor", "#CBD5E1"), str)
+        and valid_hex_color(str(cell.get("borderColor", "#CBD5E1")))
+        and finite_table_number(cell.get("borderWidth", 1), minimum=0)
+        and valid_positive_integer(cell.get("colSpan", 1))
+        and valid_positive_integer(cell.get("rowSpan", 1))
+        and int(cell.get("colSpan", 1)) == 1
+        and int(cell.get("rowSpan", 1)) == 1
+    )
+
+
+def valid_table_tracks(value: Any, count: int) -> bool:
+    return value is None or (
+        isinstance(value, list)
+        and len(value) == count
+        and all(finite_table_number(item, minimum=0, strict=True) for item in value)
+    )
+
+
+def valid_table_font_weight(value: Any) -> bool:
+    return isinstance(value, str) and value in {"normal", "bold"}
+
+
+def valid_positive_integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def finite_table_number(
+    value: Any,
+    *,
+    minimum: float,
+    strict: bool = False,
+) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and (float(value) > minimum if strict else float(value) >= minimum)
+    )
 
 
 def normalized_image_crop(value: Any) -> dict[str, float] | None:
@@ -1063,8 +1428,7 @@ def valid_text_props(props: dict[str, Any]) -> bool:
 
     runs = props.get("runs")
     if runs is not None and (
-        not isinstance(runs, list)
-        or any(not valid_text_run(run) for run in runs)
+        not isinstance(runs, list) or any(not valid_text_run(run) for run in runs)
     ):
         return False
     paragraphs = props.get("paragraphs")
@@ -1098,8 +1462,10 @@ def valid_text_paragraph(value: Any) -> bool:
     if "bullet" in value and not valid_text_bullet(value.get("bullet")):
         return False
     runs = value.get("runs")
-    return runs is None or isinstance(runs, list) and all(
-        valid_text_run(run) for run in runs
+    return (
+        runs is None
+        or isinstance(runs, list)
+        and all(valid_text_run(run) for run in runs)
     )
 
 
@@ -1109,8 +1475,7 @@ def valid_text_run(value: Any) -> bool:
         and not set(value) - SUPPORTED_TEXT_RUN_PROPS
         and isinstance(value.get("text", ""), str)
         and valid_text_style_values(value)
-        and value.get("baseline", "normal")
-        in {"normal", "superscript", "subscript"}
+        and value.get("baseline", "normal") in {"normal", "superscript", "subscript"}
     )
 
 
@@ -1124,8 +1489,7 @@ def valid_text_style_values(value: dict[str, Any]) -> bool:
         return False
     font_weight = value.get("fontWeight")
     if font_weight is not None and (
-        not isinstance(font_weight, str)
-        or font_weight not in {"normal", "bold"}
+        not isinstance(font_weight, str) or font_weight not in {"normal", "bold"}
     ):
         return False
     for key in ("italic", "underline"):
@@ -1381,8 +1745,7 @@ def shared_shape_operation_plan(
                     ),
                 )
             redundant_indexes.update(
-                operation_index
-                for operation_index, _operation in operation_round[1:]
+                operation_index for operation_index, _operation in operation_round[1:]
             )
 
     return redundant_indexes, None
@@ -1419,9 +1782,19 @@ def find_shape_by_id(
 ) -> tuple[ET.Element[Any] | None, ET.Element[Any] | None]:
     for parent in root.iter():
         for child in list(parent):
-            if child.tag not in {P_SP, P_PIC}:
+            if child.tag not in {P_SP, P_PIC, P_GRAPHIC_FRAME}:
                 continue
-            c_nv_pr = first_local_descendant(child, "cNvPr")
+            non_visual_name = {
+                P_SP: "nvSpPr",
+                P_PIC: "nvPicPr",
+                P_GRAPHIC_FRAME: "nvGraphicFramePr",
+            }[child.tag]
+            non_visual = first_local_child(child, non_visual_name)
+            c_nv_pr = (
+                first_local_child(non_visual, "cNvPr")
+                if non_visual is not None
+                else None
+            )
             if c_nv_pr is not None and c_nv_pr.get("id") == shape_id:
                 return child, parent
     return None, None
@@ -1451,7 +1824,10 @@ def direct_image_blip(
     current_relationship_id = (
         str(blip.get(f"{{{REL_NS}}}embed", "")) if blip is not None else ""
     )
-    if not expected_relationship_id or current_relationship_id != expected_relationship_id:
+    if (
+        not expected_relationship_id
+        or current_relationship_id != expected_relationship_id
+    ):
         return None
     return blip
 
@@ -1494,6 +1870,16 @@ def update_shape_props(
     element_id: str,
 ) -> bool:
     changed = False
+    if source.get("elementType") == "table":
+        if source.get("ooxmlOrigin") == "imported":
+            changed = sync_imported_table_cell_text(shape, props)
+        else:
+            changed = replace_authored_table_subtree(shape, props, scale)
+        if not changed or not refresh_table_source_locators(shape, source):
+            warnings.append(f"OOXML table sync skipped for {element_id}.")
+            return False
+        updated_sources[source_key] = dict(source)
+        return True
     if source.get("elementType") == "text":
         return sync_text_shape(shape, props, source, scale)
     if "alt" in props:
@@ -1559,6 +1945,117 @@ def update_shape_props(
         return True
     warnings.append(f"OOXML prop sync skipped for {element_id}.")
     return False
+
+
+def sync_imported_table_cell_text(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+) -> bool:
+    table = direct_graphic_frame_table(shape)
+    target_rows = props.get("rows")
+    if table is None or not isinstance(target_rows, list):
+        return False
+    changed_cell: tuple[ET.Element[Any], str] | None = None
+    rows = direct_local_children(table, "tr")
+    for row_index, row in enumerate(rows):
+        cells = direct_local_children(row, "tc")
+        if row_index >= len(target_rows) or not isinstance(
+            target_rows[row_index], list
+        ):
+            return False
+        for column_index, cell in enumerate(cells):
+            target_cell = target_rows[row_index][column_index]
+            if not isinstance(target_cell, dict):
+                return False
+            target_text = str(target_cell.get("text", ""))
+            if target_text == table_cell_text_value(cell):
+                continue
+            if changed_cell is not None or not table_cell_text_can_set(
+                cell, target_text
+            ):
+                return False
+            changed_cell = (cell, target_text)
+    if changed_cell is None:
+        return False
+    cell, target_text = changed_cell
+    return set_table_cell_text_value(cell, target_text)
+
+
+def table_cell_text_value(cell: ET.Element[Any]) -> str:
+    body = first_local_child(cell, "txBody")
+    if body is None:
+        return ""
+    return "\n".join(
+        "".join(text_run_value(run) for run in direct_local_children(paragraph, "r"))
+        for paragraph in direct_local_children(body, "p")
+    )
+
+
+def table_cell_text_can_set(cell: ET.Element[Any], value: str) -> bool:
+    body = first_local_child(cell, "txBody")
+    return (
+        body is not None
+        and table_cell_text_body_is_safe(cell)
+        and len(value.split("\n")) == len(direct_local_children(body, "p"))
+    )
+
+
+def set_table_cell_text_value(cell: ET.Element[Any], value: str) -> bool:
+    if not table_cell_text_can_set(cell, value):
+        return False
+    body = first_local_child(cell, "txBody")
+    if body is None:
+        return False
+    for paragraph, paragraph_text in zip(
+        direct_local_children(body, "p"),
+        value.split("\n"),
+        strict=True,
+    ):
+        runs = direct_local_children(paragraph, "r")
+        if runs:
+            text_node = first_local_child(runs[0], "t")
+            if text_node is None:
+                return False
+            set_text_node_value(text_node, paragraph_text)
+            continue
+        if not paragraph_text:
+            continue
+        run = ET.Element(f"{{{DML_NS}}}r")
+        end_properties = first_local_child(paragraph, "endParaRPr")
+        if end_properties is not None:
+            run_properties = copy.deepcopy(end_properties)
+            run_properties.tag = f"{{{DML_NS}}}rPr"
+            run.append(run_properties)
+        ET.SubElement(run, A_T)
+        text_node = first_local_child(run, "t")
+        if text_node is None:
+            return False
+        set_text_node_value(text_node, paragraph_text)
+        insert_at = (
+            list(paragraph).index(end_properties)
+            if end_properties is not None
+            else len(paragraph)
+        )
+        paragraph.insert(insert_at, run)
+    return True
+
+
+def refresh_table_source_locators(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+) -> bool:
+    locators, diagnostics = table_cell_locators(
+        shape,
+        slide_index=0,
+        shape_id=str(source.get("shapeId", "")),
+    )
+    if diagnostics or not locators:
+        return False
+    source["tableCellLocators"] = locators
+    capabilities = dict_value(source, "ooxmlEditCapabilities")
+    capabilities["tableCellText"] = table_cell_text_capability_for_shape(shape, source)
+    source["ooxmlEditCapabilities"] = capabilities
+    return capabilities["tableCellText"] is True
 
 
 def decode_image_data_url(value: Any) -> tuple[str, bytes] | str:
@@ -1676,19 +2173,13 @@ def sync_text_shape(
     source: dict[str, Any],
     scale: PackageFrameScale,
 ) -> bool:
-    if (
-        set(props) == {"text"}
-        and str(props.get("text", "")) == text_body_value(shape)
-    ):
+    if set(props) == {"text"} and str(props.get("text", "")) == text_body_value(shape):
         return True
     paragraphs = text_sync_paragraphs(shape, props)
     if paragraphs is None:
         return False
     body = ensure_text_body(shape)
-    if (
-        dict_value(source, "ooxmlEditCapabilities").get("richText")
-        == "style-only"
-    ):
+    if dict_value(source, "ooxmlEditCapabilities").get("richText") == "style-only":
         paragraphs = preserve_existing_run_boundaries(body, paragraphs)
     equal_spans = text_equal_spans(
         text_body_value(shape),
@@ -1726,9 +2217,7 @@ def text_sync_paragraphs(
     if body is None:
         return [{"text": "", "runs": []}]
     paragraph_style = {
-        key: props[key]
-        for key in ("align", "lineHeight", "bullet")
-        if key in props
+        key: props[key] for key in ("align", "lineHeight", "bullet") if key in props
     }
     paragraphs: list[dict[str, Any]] = []
     for paragraph in direct_local_children(body, "p"):
@@ -2023,7 +2512,9 @@ def existing_text_run_templates(
                     TextRunTemplate(
                         start=offset,
                         end=offset + length,
-                        run_properties=copy.deepcopy(r_pr) if r_pr is not None else None,
+                        run_properties=copy.deepcopy(r_pr)
+                        if r_pr is not None
+                        else None,
                     )
                 )
                 offset += length
@@ -2033,7 +2524,9 @@ def existing_text_run_templates(
                     TextRunTemplate(
                         start=offset,
                         end=offset + 1,
-                        run_properties=copy.deepcopy(r_pr) if r_pr is not None else None,
+                        run_properties=copy.deepcopy(r_pr)
+                        if r_pr is not None
+                        else None,
                     )
                 )
                 offset += 1
@@ -2166,8 +2659,7 @@ def text_equal_spans(source: str, target: str) -> list[TextEqualSpan]:
     prefix_length = 0
     shared_length = min(len(source), len(target))
     while (
-        prefix_length < shared_length
-        and source[prefix_length] == target[prefix_length]
+        prefix_length < shared_length and source[prefix_length] == target[prefix_length]
     ):
         prefix_length += 1
 
@@ -2369,9 +2861,7 @@ def current_run_style(
     if size > 0:
         current["fontSize"] = font_size_from_ooxml(size, scale)
     if r_pr.get("b") is not None:
-        current["fontWeight"] = (
-            "bold" if r_pr.get("b") in {"1", "true"} else "normal"
-        )
+        current["fontWeight"] = "bold" if r_pr.get("b") in {"1", "true"} else "normal"
     if r_pr.get("i") is not None:
         current["italic"] = r_pr.get("i") in {"1", "true"}
     if r_pr.get("u") is not None:
@@ -2543,10 +3033,7 @@ def paragraph_spacing_canvas(
     if points is None:
         return 0
     return round(
-        int_value(points.get("val"), 0)
-        / 100
-        * 12700
-        * canvas_average_scale(scale),
+        int_value(points.get("val"), 0) / 100 * 12700 * canvas_average_scale(scale),
         3,
     )
 
@@ -2594,9 +3081,7 @@ def is_bold_text_weight(value: Any) -> bool:
 
 
 def text_run_value(run: ET.Element[Any]) -> str:
-    return "".join(
-        node.text or "" for node in run.iter() if local_name(node) == "t"
-    )
+    return "".join(node.text or "" for node in run.iter() if local_name(node) == "t")
 
 
 def text_paragraph_value(paragraph: ET.Element[Any]) -> str:
@@ -2728,6 +3213,10 @@ def add_element_to_slide_xml(
             image_dimensions(image_blob),
         )
         source_type = "image"
+    elif element_type == "table":
+        shape = table_graphic_frame_element(next_shape_id, element, scale)
+        source_type = "table"
+        relationship_id = None
     else:
         warnings.append(f"OOXML add_element skipped for {element_type}.")
         return None
@@ -2748,7 +3237,7 @@ def add_element_to_slide_xml(
         "ooxmlEditCapabilities": {
             "richText": "full" if element_type == "text" else "none",
             "crop": "picture" if element_type == "image" else "none",
-            "tableCellText": False,
+            "tableCellText": element_type == "table",
             "frame": True,
             "delete": True,
             "imageSource": element_type == "image",
@@ -2760,6 +3249,11 @@ def add_element_to_slide_xml(
     }
     if relationship_id is not None:
         source["relationshipId"] = relationship_id
+    if element_type == "table" and not refresh_table_source_locators(shape, source):
+        warnings.append(
+            f"OOXML authored table locator creation failed for {element_id}."
+        )
+        return None
     return source
 
 
@@ -2798,15 +3292,12 @@ def route_operations_to_source_parts(
         if is_safe_slide_part(str(operation.get("sourceSlidePart", ""))):
             routed.append(operation)
             continue
-        operation_slide_index = slide_index_from_id(
-            str(operation.get("slideId", ""))
-        )
+        operation_slide_index = slide_index_from_id(str(operation.get("slideId", "")))
         slide = next(
             (
                 candidate
                 for candidate in slides
-                if int_value(candidate.get("slideIndex"), 0)
-                == operation_slide_index
+                if int_value(candidate.get("slideIndex"), 0) == operation_slide_index
             ),
             None,
         )
@@ -2918,6 +3409,308 @@ def picture_shape_element(
         f"{{{DML_NS}}}avLst",
     )
     return picture
+
+
+def table_graphic_frame_element(
+    shape_id: int,
+    element: dict[str, Any],
+    scale: PackageFrameScale,
+) -> ET.Element[Any]:
+    frame = ET.Element(P_GRAPHIC_FRAME)
+    non_visual = ET.SubElement(frame, f"{{{PML_NS}}}nvGraphicFramePr")
+    ET.SubElement(
+        non_visual,
+        f"{{{PML_NS}}}cNvPr",
+        {"id": str(shape_id), "name": "Orbit table"},
+    )
+    ET.SubElement(non_visual, f"{{{PML_NS}}}cNvGraphicFramePr")
+    ET.SubElement(non_visual, f"{{{PML_NS}}}nvPr")
+    update_shape_frame(frame, element, scale)
+    graphic = ET.SubElement(frame, f"{{{DML_NS}}}graphic")
+    graphic_data = ET.SubElement(
+        graphic,
+        f"{{{DML_NS}}}graphicData",
+        {"uri": TABLE_GRAPHIC_DATA_URI},
+    )
+    _x, _y, width, height = frame_to_emu(element, scale)
+    graphic_data.append(
+        table_subtree_element(dict_value(element, "props"), width, height, scale)
+    )
+    return frame
+
+
+def replace_authored_table_subtree(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+) -> bool:
+    if shape.tag != P_GRAPHIC_FRAME:
+        return False
+    graphic = first_local_child(shape, "graphic")
+    graphic_data = (
+        first_local_child(graphic, "graphicData") if graphic is not None else None
+    )
+    table = direct_graphic_frame_table(shape)
+    frame_size = graphic_frame_size_emu(shape)
+    if graphic_data is None or table is None or frame_size is None:
+        return False
+    width, height = frame_size
+    rows = props.get("rows")
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], list):
+        return False
+    column_count = len(rows[0])
+    row_count = len(rows)
+    preserved_column_widths = (
+        table_column_tracks_emu(table, column_count)
+        if "columnWidths" not in props
+        else None
+    )
+    preserved_row_heights = (
+        table_row_tracks_emu(table, row_count) if "rowHeights" not in props else None
+    )
+    if ("columnWidths" not in props and preserved_column_widths is None) or (
+        "rowHeights" not in props and preserved_row_heights is None
+    ):
+        return False
+    replacement = table_subtree_element(
+        props,
+        width,
+        height,
+        scale,
+        column_widths_emu=preserved_column_widths,
+        row_heights_emu=preserved_row_heights,
+    )
+    table_index = list(graphic_data).index(table)
+    graphic_data.remove(table)
+    graphic_data.insert(table_index, replacement)
+    return True
+
+
+def graphic_frame_size_emu(shape: ET.Element[Any]) -> tuple[int, int] | None:
+    xfrm = first_local_child(shape, "xfrm")
+    ext = first_local_child(xfrm, "ext") if xfrm is not None else None
+    if ext is None:
+        return None
+    width = int_value(ext.get("cx"), 0)
+    height = int_value(ext.get("cy"), 0)
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def resize_authored_table_tracks_to_frame(shape: ET.Element[Any]) -> bool:
+    table = direct_graphic_frame_table(shape)
+    frame_size = graphic_frame_size_emu(shape)
+    if table is None or frame_size is None:
+        return False
+    grid = first_local_child(table, "tblGrid")
+    columns = direct_local_children(grid, "gridCol") if grid is not None else []
+    rows = direct_local_children(table, "tr")
+    if not columns or not rows:
+        return False
+    column_weights = [int_value(column.get("w"), 0) for column in columns]
+    row_weights = [int_value(row.get("h"), 0) for row in rows]
+    if any(value <= 0 for value in column_weights + row_weights):
+        return False
+    widths = normalized_table_tracks_emu(
+        column_weights,
+        total=frame_size[0],
+        count=len(columns),
+    )
+    heights = normalized_table_tracks_emu(
+        row_weights,
+        total=frame_size[1],
+        count=len(rows),
+    )
+    for column, width in zip(columns, widths, strict=True):
+        column.set("w", str(width))
+    for row, height in zip(rows, heights, strict=True):
+        row.set("h", str(height))
+    return True
+
+
+def table_subtree_element(
+    props: dict[str, Any],
+    frame_width_emu: int,
+    frame_height_emu: int,
+    scale: PackageFrameScale,
+    *,
+    column_widths_emu: list[int] | None = None,
+    row_heights_emu: list[int] | None = None,
+) -> ET.Element[Any]:
+    rows = cast(list[list[dict[str, Any]]], props["rows"])
+    row_count = len(rows)
+    column_count = len(rows[0])
+    table = ET.Element(f"{{{DML_NS}}}tbl")
+    ET.SubElement(table, f"{{{DML_NS}}}tblPr")
+    grid = ET.SubElement(table, f"{{{DML_NS}}}tblGrid")
+    column_widths = column_widths_emu or normalized_table_tracks_emu(
+        props.get("columnWidths"),
+        total=max(column_count, frame_width_emu),
+        count=column_count,
+    )
+    row_heights = row_heights_emu or normalized_table_tracks_emu(
+        props.get("rowHeights"),
+        total=max(row_count, frame_height_emu),
+        count=row_count,
+    )
+    for width in column_widths:
+        ET.SubElement(grid, f"{{{DML_NS}}}gridCol", {"w": str(width)})
+    for row_index, (row_payload, height) in enumerate(
+        zip(rows, row_heights, strict=True)
+    ):
+        row = ET.SubElement(table, f"{{{DML_NS}}}tr", {"h": str(height)})
+        for cell_payload in row_payload:
+            row.append(table_cell_element(cell_payload, props, row_index, scale))
+    return table
+
+
+def table_column_tracks_emu(
+    table: ET.Element[Any],
+    expected_count: int,
+) -> list[int] | None:
+    grid = first_local_child(table, "tblGrid")
+    if grid is None:
+        return None
+    tracks = [
+        int_value(column.get("w"), 0)
+        for column in direct_local_children(grid, "gridCol")
+    ]
+    return tracks if len(tracks) == expected_count and all(tracks) else None
+
+
+def table_row_tracks_emu(
+    table: ET.Element[Any],
+    expected_count: int,
+) -> list[int] | None:
+    tracks = [int_value(row.get("h"), 0) for row in direct_local_children(table, "tr")]
+    return tracks if len(tracks) == expected_count and all(tracks) else None
+
+
+def normalized_table_tracks_emu(
+    tracks: Any,
+    *,
+    total: int,
+    count: int,
+) -> list[int]:
+    weights = (
+        [float(value) for value in tracks]
+        if isinstance(tracks, list) and tracks
+        else [1.0] * count
+    )
+    maximum = max(weights)
+    scaled = [weight / maximum for weight in weights]
+    distributable = max(0, total - count)
+    exact_extras = [distributable * weight / sum(scaled) for weight in scaled]
+    floor_extras = [math.floor(value) for value in exact_extras]
+    normalized = [1 + value for value in floor_extras]
+    remainder = distributable - sum(floor_extras)
+    order = sorted(
+        range(count),
+        key=lambda index: (-(exact_extras[index] - floor_extras[index]), index),
+    )
+    for index in order[:remainder]:
+        normalized[index] += 1
+    return normalized
+
+
+def table_cell_element(
+    cell_payload: dict[str, Any],
+    table_props: dict[str, Any],
+    row_index: int,
+    scale: PackageFrameScale,
+) -> ET.Element[Any]:
+    cell = ET.Element(f"{{{DML_NS}}}tc")
+    body = ET.SubElement(cell, f"{{{DML_NS}}}txBody")
+    ET.SubElement(body, f"{{{DML_NS}}}bodyPr")
+    ET.SubElement(body, f"{{{DML_NS}}}lstStyle")
+    text = str(cell_payload.get("text", ""))
+    for paragraph_text in text.split("\n"):
+        paragraph = ET.SubElement(body, f"{{{DML_NS}}}p")
+        align = {
+            "center": "ctr",
+            "right": "r",
+            "justify": "just",
+        }.get(str(cell_payload.get("align", "left")), "l")
+        ET.SubElement(paragraph, f"{{{DML_NS}}}pPr", {"algn": align})
+        run = ET.SubElement(paragraph, f"{{{DML_NS}}}r")
+        run_properties = ET.SubElement(
+            run,
+            f"{{{DML_NS}}}rPr",
+            {
+                "lang": "ko-KR",
+                "sz": str(font_size_to_ooxml(cell_payload.get("fontSize", 18), scale)),
+                "b": "1"
+                if is_bold_text_weight(cell_payload.get("fontWeight", "normal"))
+                else "0",
+            },
+        )
+        text_color = str(cell_payload.get("textColor") or "#000000")
+        text_fill = ET.SubElement(run_properties, f"{{{DML_NS}}}solidFill")
+        ET.SubElement(
+            text_fill,
+            f"{{{DML_NS}}}srgbClr",
+            {"val": text_color[1:].upper()},
+        )
+        font_family = cell_payload.get("fontFamily")
+        if isinstance(font_family, str) and font_family:
+            ET.SubElement(
+                run_properties,
+                f"{{{DML_NS}}}latin",
+                {"typeface": font_family},
+            )
+            ET.SubElement(
+                run_properties,
+                f"{{{DML_NS}}}ea",
+                {"typeface": font_family},
+            )
+        text_node = ET.SubElement(run, A_T)
+        set_text_node_value(text_node, paragraph_text)
+
+    anchor = {
+        "top": "t",
+        "bottom": "b",
+    }.get(str(cell_payload.get("verticalAlign", "middle")), "ctr")
+    cell_properties = ET.SubElement(
+        cell,
+        f"{{{DML_NS}}}tcPr",
+        {"anchor": anchor},
+    )
+    border_color = str(
+        cell_payload.get("borderColor") or table_props.get("borderColor") or "#CBD5E1"
+    )
+    border_width = cell_payload.get(
+        "borderWidth",
+        table_props.get("borderWidth", 1),
+    )
+    for border_name in ("lnL", "lnR", "lnT", "lnB"):
+        line = ET.SubElement(
+            cell_properties,
+            f"{{{DML_NS}}}{border_name}",
+            {"w": str(table_border_width_to_emu(border_width, scale))},
+        )
+        if float(border_width) <= 0:
+            ET.SubElement(line, f"{{{DML_NS}}}noFill")
+        else:
+            line_fill = ET.SubElement(line, f"{{{DML_NS}}}solidFill")
+            ET.SubElement(
+                line_fill,
+                f"{{{DML_NS}}}srgbClr",
+                {"val": border_color[1:].upper()},
+            )
+    fill = str(cell_payload.get("fill", "transparent"))
+    if fill == "transparent":
+        ET.SubElement(cell_properties, f"{{{DML_NS}}}noFill")
+    else:
+        solid_fill = ET.SubElement(cell_properties, f"{{{DML_NS}}}solidFill")
+        ET.SubElement(
+            solid_fill,
+            f"{{{DML_NS}}}srgbClr",
+            {"val": fill[1:].upper()},
+        )
+    return cell
+
+
+def table_border_width_to_emu(value: Any, scale: PackageFrameScale) -> int:
+    return max(0, round(float(value) / canvas_average_scale(scale)))
 
 
 VISUAL_SHAPE_NAMES = {"cxnSp", "graphicFrame", "grpSp", "pic", "sp"}
@@ -3105,12 +3898,9 @@ def picture_uses_contain_fit(picture: ET.Element[Any]) -> bool:
     if src_rect is None:
         return False
     values = [
-        int_value(src_rect.get(edge), 0) / 100_000
-        for edge in ("l", "t", "r", "b")
+        int_value(src_rect.get(edge), 0) / 100_000 for edge in ("l", "t", "r", "b")
     ]
-    return any(value < 0 for value in values) and not any(
-        value > 0 for value in values
-    )
+    return any(value < 0 for value in values) and not any(value > 0 for value in values)
 
 
 def picture_has_explicit_crop(shape: ET.Element[Any]) -> bool:
@@ -3136,11 +3926,7 @@ def set_picture_crop_source_rect(
         return False
     children = list(blip_fill)
     blip_index = next(
-        (
-            index
-            for index, child in enumerate(children)
-            if local_name(child) == "blip"
-        ),
+        (index for index, child in enumerate(children) if local_name(child) == "blip"),
         -1,
     )
     if blip_index < 0:
@@ -3209,11 +3995,7 @@ def set_picture_contain_source_rect(
 
     children = list(blip_fill)
     blip_index = next(
-        (
-            index
-            for index, child in enumerate(children)
-            if local_name(child) == "blip"
-        ),
+        (index for index, child in enumerate(children) if local_name(child) == "blip"),
         -1,
     )
     blip_fill.insert(
@@ -3259,6 +4041,16 @@ def ensure_shape_properties(shape: ET.Element[Any]) -> ET.Element[Any]:
 
 
 def ensure_xfrm(shape: ET.Element[Any]) -> ET.Element[Any]:
+    if shape.tag == P_GRAPHIC_FRAME:
+        xfrm = first_local_child(shape, "xfrm")
+        if xfrm is None:
+            non_visual = first_local_child(shape, "nvGraphicFramePr")
+            insert_at = (
+                list(shape).index(non_visual) + 1 if non_visual is not None else 0
+            )
+            xfrm = ET.Element(f"{{{PML_NS}}}xfrm")
+            shape.insert(insert_at, xfrm)
+        return xfrm
     sp_pr = ensure_shape_properties(shape)
     xfrm = first_local_child(sp_pr, "xfrm")
     if xfrm is None:
@@ -3341,9 +4133,7 @@ def first_local_child(element: ET.Element[Any], name: str) -> ET.Element[Any] | 
     return None
 
 
-def direct_local_children(
-    element: ET.Element[Any], name: str
-) -> list[ET.Element[Any]]:
+def direct_local_children(element: ET.Element[Any], name: str) -> list[ET.Element[Any]]:
     return [child for child in list(element) if local_name(child) == name]
 
 

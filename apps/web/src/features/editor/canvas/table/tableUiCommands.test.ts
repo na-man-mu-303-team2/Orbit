@@ -114,4 +114,20 @@ describe("table UI commands", () => {
     });
     expect(states.insertColumnLeft).toMatchObject({ enabled: false });
   });
+
+  it("enables structural actions for an authored table in an imported Deck", () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const element = {
+      ...tableElement(),
+      ooxmlOrigin: "authored" as const,
+    };
+    deck.slides[0]!.elements = [element];
+
+    const states = getTableContextActionStates({ deck, element });
+
+    expect(states.insertRowAbove).toEqual({ enabled: true, reason: null });
+    expect(states.insertColumnLeft).toEqual({ enabled: true, reason: null });
+  });
 });

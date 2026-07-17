@@ -674,6 +674,108 @@ function createTextElementSource(
   };
 }
 
+function createTableElement(
+  elementId: string,
+  ooxmlOrigin: "imported" | "authored",
+  tableCellText = ooxmlOrigin === "imported",
+): Extract<DeckElement, { type: "table" }> {
+  return deckSchema.parse({
+    ...createDeck(),
+    slides: [
+      {
+        ...createDeck().slides[0]!,
+        elements: [
+          {
+            elementId,
+            type: "table",
+            ooxmlOrigin,
+            ...(ooxmlOrigin === "imported"
+              ? {
+                  ooxmlEditCapabilities: {
+                    richText: "none",
+                    crop: "none",
+                    tableCellText,
+                    frame: true,
+                    delete: true,
+                    imageSource: false,
+                  },
+                }
+              : {}),
+            x: 100,
+            y: 120,
+            width: 480,
+            height: 120,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            locked: false,
+            visible: true,
+            props: {
+              rows: [
+                [
+                  { text: "A", fill: "#FFFFFF" },
+                  { text: "B", fill: "#FFFFFF" },
+                ],
+                [
+                  { text: "C", fill: "#FFFFFF" },
+                  { text: "D", fill: "#FFFFFF" },
+                ],
+              ],
+              columnWidths: [240, 240],
+              rowHeights: [60, 60],
+            },
+          },
+        ],
+      },
+    ],
+  }).slides[0]!.elements[0] as Extract<DeckElement, { type: "table" }>;
+}
+
+function createTableElementSource(
+  element: Extract<DeckElement, { type: "table" }>,
+  locatorRows = element.props.rows.length,
+  locatorColumns = element.props.rows[0]?.length ?? 0,
+): TemplateElementSource {
+  return {
+    elementId: element.elementId,
+    elementType: "table",
+    ooxmlOrigin: element.ooxmlOrigin,
+    ooxmlEditCapabilities: {
+      richText: "none",
+      crop: "none",
+      tableCellText: true,
+      frame: true,
+      delete: true,
+      imageSource: false,
+    },
+    slidePart: "ppt/slides/slide1.xml",
+    shapeId: "9",
+    sourceType: "table",
+    writable: true,
+    tableCellLocators: Array.from(
+      { length: locatorRows * locatorColumns },
+      (_, index) => ({
+        rowIndex: Math.floor(index / locatorColumns),
+        columnIndex: index % locatorColumns,
+        fingerprint: index.toString(16).padStart(64, "0"),
+      }),
+    ),
+  };
+}
+
+function createImportedTableDeck(): Deck {
+  const base = createImportedDeck();
+  return deckSchema.parse({
+    ...base,
+    slides: [
+      {
+        ...base.slides[0]!,
+        elements: [createTableElement("el_imported_table", "imported")],
+      },
+    ],
+  });
+}
+
 function createUpdateTitlePatch(
   deck: Deck,
   title: string,
@@ -2203,6 +2305,668 @@ describe("DecksService", () => {
     );
 
     expect(error.details).toContain("reasonCode=RICH_TEXT_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("allows exactly one imported table cell text update with authoritative locators", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_table_cell",
+    );
+    const deck = createImportedTableDeck();
+    const table = deck.slides[0]!.elements[0]!;
+    expect(table.type).toBe("table");
+    if (table.type !== "table") throw new Error("expected table");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTableElementSource(table),
+    ]);
+    const rows = cloneJson(table.props.rows);
+    rows[0]![1]!.text = "Edited B";
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { rows },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck.version).toBe(2);
+    expect(
+      (
+        response.deck.slides[0]!.elements[0] as Extract<
+          DeckElement,
+          { type: "table" }
+        >
+      ).props.rows[0]![1]!.text,
+    ).toBe("Edited B");
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it("preflights sequential imported table cell edits against working state", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_table_batch",
+    );
+    const deck = createImportedTableDeck();
+    const table = deck.slides[0]!.elements[0]!;
+    expect(table.type).toBe("table");
+    if (table.type !== "table") throw new Error("expected table");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTableElementSource(table),
+    ]);
+    const rowsAfterFirstEdit = cloneJson(table.props.rows);
+    rowsAfterFirstEdit[0]![0]!.text = "Edited A";
+    const rowsAfterSecondEdit = cloneJson(rowsAfterFirstEdit);
+    rowsAfterSecondEdit[0]![1]!.text = "Edited B";
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { rows: rowsAfterFirstEdit },
+          },
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { rows: rowsAfterSecondEdit },
+          },
+        ],
+      },
+    });
+
+    const saved = response.deck.slides[0]!.elements[0]!;
+    expect(saved.type).toBe("table");
+    if (saved.type !== "table") throw new Error("expected table");
+    expect(saved.props.rows[0]![0]!.text).toBe("Edited A");
+    expect(saved.props.rows[0]![1]!.text).toBe("Edited B");
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "no-op",
+      (table: Extract<DeckElement, { type: "table" }>) => ({
+        rows: cloneJson(table.props.rows),
+      }),
+    ],
+    [
+      "multiple cells",
+      (table: Extract<DeckElement, { type: "table" }>) => {
+        const rows = cloneJson(table.props.rows);
+        rows[0]![0]!.text = "Edited A";
+        rows[1]![1]!.text = "Edited D";
+        return { rows };
+      },
+    ],
+    [
+      "cell style",
+      (table: Extract<DeckElement, { type: "table" }>) => {
+        const rows = cloneJson(table.props.rows);
+        rows[0]![0]!.fill = "#000000";
+        return { rows };
+      },
+    ],
+    [
+      "paragraph count change",
+      (table: Extract<DeckElement, { type: "table" }>) => {
+        const rows = cloneJson(table.props.rows);
+        rows[0]![0]!.text = `${rows[0]![0]!.text}\nSecond paragraph`;
+        return { rows };
+      },
+    ],
+    [
+      "top-level border style",
+      () => ({ borderColor: "#000000", borderWidth: 2 }),
+    ],
+    ["column tracks", () => ({ columnWidths: [200, 280] })],
+    [
+      "row insertion",
+      (table: Extract<DeckElement, { type: "table" }>) => ({
+        rows: [...cloneJson(table.props.rows), cloneJson(table.props.rows[0]!)],
+      }),
+    ],
+  ] as const)(
+    "rejects imported table %s edits before persistence",
+    async (_, createProps) => {
+      const { dataSource, service } = createOoxmlSyncService(
+        "job_sync_imported_table_rejected",
+      );
+      const deck = createImportedTableDeck();
+      const table = deck.slides[0]!.elements[0]!;
+      expect(table.type).toBe("table");
+      if (table.type !== "table") throw new Error("expected table");
+      await service.putDeck(deck.projectId, { deck });
+      seedOoxmlBlueprint(dataSource, deck, deck.version, [
+        createTableElementSource(table),
+      ]);
+
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_element_props",
+                  slideId: deck.slides[0]!.slideId,
+                  elementId: table.elementId,
+                  props: createProps(table),
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+
+      expect(error.details).toContain(
+        "reasonCode=TABLE_CELL_CAPABILITY_UNSAFE",
+      );
+      expect(dataSource.patchRows).toHaveLength(0);
+      expect(dataSource.decks.get(deck.projectId)).toMatchObject({
+        version: 1,
+      });
+    },
+  );
+
+  it.each([
+    ["missing source mapping", () => []],
+    [
+      "incomplete locators",
+      (table: Extract<DeckElement, { type: "table" }>) => [
+        createTableElementSource(table, 1, 2),
+      ],
+    ],
+    [
+      "forged capability",
+      (table: Extract<DeckElement, { type: "table" }>) => {
+        const source = createTableElementSource(table);
+        return [
+          {
+            ...source,
+            ooxmlEditCapabilities: {
+              ...source.ooxmlEditCapabilities!,
+              tableCellText: false,
+            },
+          },
+        ];
+      },
+    ],
+    [
+      "duplicate source mapping",
+      (table: Extract<DeckElement, { type: "table" }>) => [
+        createTableElementSource(table),
+        createTableElementSource(table),
+      ],
+    ],
+  ] as const)(
+    "rejects imported table edits with %s",
+    async (_, createSources) => {
+      const { dataSource, service } = createOoxmlSyncService(
+        "job_sync_imported_table_bad_source",
+      );
+      const deck = createImportedTableDeck();
+      const table = deck.slides[0]!.elements[0]!;
+      expect(table.type).toBe("table");
+      if (table.type !== "table") throw new Error("expected table");
+      await service.putDeck(deck.projectId, { deck });
+      seedOoxmlBlueprint(dataSource, deck, deck.version, createSources(table));
+      const rows = cloneJson(table.props.rows);
+      rows[0]![0]!.text = "Forged edit";
+
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_element_props",
+                  slideId: deck.slides[0]!.slideId,
+                  elementId: table.elementId,
+                  props: { rows },
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+
+      expect(error.details).toContain(
+        "reasonCode=TABLE_CELL_CAPABILITY_UNSAFE",
+      );
+      expect(dataSource.patchRows).toHaveLength(0);
+    },
+  );
+
+  it("allows authored table add and rectangular structure updates", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_authored_table", "authored");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+    const rows = cloneJson(table.props.rows);
+    rows.push([
+      { ...cloneJson(rows[0]![0]!), text: "E" },
+      { ...cloneJson(rows[0]![1]!), text: "F" },
+    ]);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: table,
+          },
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: {
+              rows,
+              rowHeights: [40, 40, 40],
+              columnWidths: [200, 280],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck.version).toBe(2);
+    expect(response.deck.slides[0]!.elements.at(-1)).toMatchObject({
+      elementId: table.elementId,
+      ooxmlOrigin: "authored",
+      props: { rowHeights: [40, 40, 40], columnWidths: [200, 280] },
+    });
+  });
+
+  it("preflights batched authored table structure and cell edits sequentially", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_batch",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_authored_table_batch", "authored");
+    deck.slides[0]!.elements = [table];
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTableElementSource(table),
+    ]);
+    const structuredRows = cloneJson(table.props.rows);
+    structuredRows.push([
+      { ...cloneJson(structuredRows[0]![0]!), text: "E" },
+      { ...cloneJson(structuredRows[0]![1]!), text: "F" },
+    ]);
+    const editedRows = cloneJson(structuredRows);
+    editedRows[2]![1]!.text = "Edited F";
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: {
+              rows: structuredRows,
+              rowHeights: [40, 40, 40],
+              columnWidths: [200, 280],
+            },
+          },
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: table.elementId,
+            props: { rows: editedRows },
+          },
+        ],
+      },
+    });
+
+    const saved = response.deck.slides[0]!.elements[0]!;
+    expect(saved.type).toBe("table");
+    if (saved.type !== "table") throw new Error("expected table");
+    expect(saved.props.rows[2]![1]!.text).toBe("Edited F");
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it.each(["medium", 700] as const)(
+    "rejects authored table %s font weight before persistence",
+    async (fontWeight) => {
+      const { dataSource, service } = createOoxmlSyncService(
+        "job_sync_authored_table_weights",
+      );
+      const deck = createImportedDeck();
+      const table = createTableElement("el_authored_table_weights", "authored");
+      table.props.rows[0]![0]!.fontWeight = fontWeight;
+      await service.putDeck(deck.projectId, { deck });
+      seedOoxmlBlueprint(dataSource, deck);
+
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "add_element",
+                  slideId: deck.slides[0]!.slideId,
+                  element: table,
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+
+      expect(error.details).toContain(
+        "reasonCode=ADD_ELEMENT_SERIALIZER_UNSUPPORTED",
+      );
+      expect(dataSource.patchRows).toHaveLength(0);
+    },
+  );
+
+  it("keeps authored table border-only updates fail closed until sparse sync is supported", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_border",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_authored_table_border", "authored");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: table,
+              },
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: table.elementId,
+                props: { borderColor: "#0F172A", borderWidth: 2 },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("keeps authored table track-only updates fail closed until sparse sync is supported", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_tracks",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_authored_table_tracks", "authored");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: table,
+              },
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: table.elementId,
+                props: { columnWidths: [200, 280] },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("requires a new row track when an authored table row is inserted", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_missing_row_track",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement(
+      "el_authored_table_missing_row_track",
+      "authored",
+    );
+    table.props.rowHeights = undefined;
+    const rows = cloneJson(table.props.rows);
+    rows.push(cloneJson(rows[0]!));
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: table,
+              },
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: table.elementId,
+                props: { rows },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      "1,001 rows",
+      (table: Extract<DeckElement, { type: "table" }>) => ({
+        ...table.props,
+        rows: Array.from({ length: 1_001 }, () => [
+          { ...table.props.rows[0]![0]! },
+        ]),
+        columnWidths: [480],
+        rowHeights: Array.from({ length: 1_001 }, () => 1),
+      }),
+    ],
+    [
+      "more than 10,000 cells",
+      (table: Extract<DeckElement, { type: "table" }>) => ({
+        ...table.props,
+        rows: Array.from({ length: 101 }, () =>
+          Array.from({ length: 100 }, () => ({
+            ...table.props.rows[0]![0]!,
+          })),
+        ),
+        columnWidths: Array.from({ length: 100 }, () => 4.8),
+        rowHeights: Array.from({ length: 101 }, () => 1.2),
+      }),
+    ],
+  ] as const)("rejects authored tables with %s", async (_, createProps) => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_limit",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_authored_table_limit", "authored");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: { ...table, props: createProps(table) },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=ADD_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it.each([
+    ["empty", { rows: [], columnWidths: [], rowHeights: [] }],
+    [
+      "jagged",
+      {
+        rows: [[{ text: "A" }, { text: "B" }], [{ text: "C" }]],
+        columnWidths: [240, 240],
+        rowHeights: [60, 60],
+      },
+    ],
+    [
+      "merged",
+      {
+        rows: [[{ text: "A", colSpan: 2 }, { text: "B" }]],
+        columnWidths: [240, 240],
+        rowHeights: [120],
+      },
+    ],
+    [
+      "track mismatch",
+      {
+        rows: [[{ text: "A" }, { text: "B" }]],
+        columnWidths: [480],
+        rowHeights: [120],
+      },
+    ],
+    [
+      "unsupported style",
+      {
+        rows: [
+          [
+            {
+              text: "A",
+              fill: {
+                type: "linear-gradient",
+                angle: 0,
+                stops: [
+                  { offset: 0, color: "#FFFFFF" },
+                  { offset: 1, color: "#000000" },
+                ],
+              },
+            },
+          ],
+        ],
+        columnWidths: [480],
+        rowHeights: [120],
+      },
+    ],
+  ] as const)("rejects authored table %s serialization", async (_, props) => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_table_rejected",
+    );
+    const deck = createImportedDeck();
+    const table = createTableElement("el_invalid_authored_table", "authored");
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: { ...table, props } as unknown as typeof table,
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=ADD_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
     expect(dataSource.patchRows).toHaveLength(0);
   });
 

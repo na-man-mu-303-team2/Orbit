@@ -10,6 +10,7 @@ import {
 } from "../../shell/editorShellUiStore";
 import {
   clearDisabledTableInteraction,
+  createTableCellTextUpdateRequest,
   TableCellHitTargets,
 } from "./TableCellHitTargets";
 
@@ -166,5 +167,29 @@ describe("TableCellHitTargets", () => {
 
     expect(setActiveTableCell).toHaveBeenCalledWith(null);
     expect(setEditingElementId).toHaveBeenCalledWith(null);
+  });
+
+  it("suppresses an unchanged cell editor commit", () => {
+    const base = {
+      columnIndex: 1,
+      elementId: "el_table_hit",
+      initialText: "A2",
+      rowIndex: 0,
+      slideId: "slide_1",
+    };
+
+    expect(
+      createTableCellTextUpdateRequest({ ...base, text: "A2" }),
+    ).toBeNull();
+    expect(
+      createTableCellTextUpdateRequest({ ...base, text: "Edited A2" }),
+    ).toEqual({
+      action: "updateCellText",
+      columnIndex: 1,
+      elementId: "el_table_hit",
+      rowIndex: 0,
+      slideId: "slide_1",
+      text: "Edited A2",
+    });
   });
 });

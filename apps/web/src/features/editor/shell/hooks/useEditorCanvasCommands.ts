@@ -117,7 +117,7 @@ export function getTableContextActionStates(args: {
       const capability = resolveOoxmlEditCapability({
         deck: args.deck,
         element: args.element,
-        feature: "element-properties",
+        feature: "table-structure",
       });
       if (!capability.enabled) {
         structureDisabledReason =

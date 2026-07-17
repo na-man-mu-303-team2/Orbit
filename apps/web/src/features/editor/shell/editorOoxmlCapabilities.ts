@@ -23,6 +23,7 @@ export type OoxmlEditFeature =
   | "rich-text-style"
   | "slide-properties"
   | "table-cell-text"
+  | "table-structure"
   | "transition";
 
 export type OoxmlEditCapabilityReasonCode =
@@ -74,6 +75,12 @@ const supportedAuthoredTextProps = new Set([
   "writingMode",
   "lineHeight",
   "bullet",
+]);
+
+const supportedAuthoredTablePatchProps = new Set([
+  "rows",
+  "rowHeights",
+  "columnWidths",
 ]);
 
 export function resolveOoxmlEditCapability(
@@ -343,6 +350,49 @@ function resolveElementPropsCapability(
     });
   }
 
+  if (element?.type === "table") {
+    const nextProps = { ...element.props, ...props } as typeof element.props;
+    const targetElement = { ...element, props: nextProps };
+    if (element.ooxmlOrigin === "imported") {
+      return resolveOoxmlEditCapability({
+        deck,
+        element: targetElement,
+        feature: importedTableCellTextPatchIsSafe(
+          element.props,
+          props,
+          nextProps,
+        )
+          ? "table-cell-text"
+          : "element-properties",
+      });
+    }
+    if (
+      Object.keys(props).length === 0 ||
+      !Object.prototype.hasOwnProperty.call(props, "rows") ||
+      (element.props.rows.length !== nextProps.rows.length &&
+        !Object.prototype.hasOwnProperty.call(props, "rowHeights")) ||
+      ((element.props.rows[0]?.length ?? 0) !==
+        (nextProps.rows[0]?.length ?? 0) &&
+        !Object.prototype.hasOwnProperty.call(props, "columnWidths")) ||
+      Object.keys(props).some(
+        (key) => !supportedAuthoredTablePatchProps.has(key),
+      ) ||
+      valuesEqual(element.props, nextProps) ||
+      !authoredSerializerSupportsElement(targetElement)
+    ) {
+      return resolveOoxmlEditCapability({
+        deck,
+        element: targetElement,
+        feature: "element-properties",
+      });
+    }
+    return resolveOoxmlEditCapability({
+      deck,
+      element: targetElement,
+      feature: "table-cell-text",
+    });
+  }
+
   return resolveOoxmlEditCapability({
     deck,
     element,
@@ -360,7 +410,6 @@ function resolveElementPropsFeature(
   ) {
     return "image-source";
   }
-  if (element?.type === "table" && "data" in props) return "table-cell-text";
   if (element?.type === "text") {
     return Object.keys(props).some((key) =>
       ["paragraphs", "runs", "text"].includes(key),
@@ -456,7 +505,7 @@ function resolveImportedElementCapability(
       : importedCropUnsupported();
   }
   if (feature === "table-cell-text") {
-    return capabilities.tableCellText
+    return element.type === "table" && capabilities.tableCellText
       ? supported
       : importedFeatureUnsupported();
   }
@@ -503,6 +552,17 @@ function resolveAuthoredElementCapability(
       : denied(
           "AUTHORED_SERIALIZER_UNSUPPORTED",
           "이 텍스트 구조를 OOXML에 갱신하는 serializer가 아직 없습니다.",
+        );
+  }
+  if (
+    (feature === "table-cell-text" || feature === "table-structure") &&
+    element.type === "table"
+  ) {
+    return authoredSerializerSupportsElement(element)
+      ? supported
+      : denied(
+          "AUTHORED_SERIALIZER_UNSUPPORTED",
+          "이 표 구조를 OOXML에 갱신하는 serializer가 아직 없습니다.",
         );
   }
   if (feature === "image-source") {
@@ -594,6 +654,9 @@ function authoredSerializerSupportsElement(element: DeckElement): boolean {
       element.props.focusY === 0.5
     );
   }
+  if (element.type === "table") {
+    return tableGridIsSupported(element.props);
+  }
   return (
     element.type === "rect" &&
     typeof element.props.fill === "string" &&
@@ -604,6 +667,130 @@ function authoredSerializerSupportsElement(element: DeckElement): boolean {
     element.props.borderRadius === 0 &&
     element.props.dash === undefined &&
     element.props.shadow === undefined
+  );
+}
+
+function importedTableCellTextPatchIsSafe(
+  current: Extract<DeckElement, { type: "table" }>["props"],
+  patch: Record<string, unknown>,
+  next: Extract<DeckElement, { type: "table" }>["props"],
+): boolean {
+  if (
+    Object.keys(patch).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(patch, "rows") ||
+    !tableGridIsSupported(current) ||
+    !tableGridIsSupported(next) ||
+    !valuesEqual(current.columnWidths, next.columnWidths) ||
+    !valuesEqual(current.rowHeights, next.rowHeights) ||
+    current.rows.length !== next.rows.length
+  ) {
+    return false;
+  }
+
+  let changedCellCount = 0;
+  for (let rowIndex = 0; rowIndex < current.rows.length; rowIndex += 1) {
+    const currentRow = current.rows[rowIndex]!;
+    const nextRow = next.rows[rowIndex]!;
+    if (currentRow.length !== nextRow.length) return false;
+    for (
+      let columnIndex = 0;
+      columnIndex < currentRow.length;
+      columnIndex += 1
+    ) {
+      const currentCell = currentRow[columnIndex]!;
+      const nextCell = nextRow[columnIndex]!;
+      const { text: currentText, ...currentStyle } = currentCell;
+      const { text: nextText, ...nextStyle } = nextCell;
+      if (!valuesEqual(currentStyle, nextStyle)) return false;
+      if (currentText !== nextText) {
+        if (currentText.split("\n").length !== nextText.split("\n").length) {
+          return false;
+        }
+        changedCellCount += 1;
+      }
+      if (changedCellCount > 1) return false;
+    }
+  }
+  return changedCellCount === 1;
+}
+
+function tableGridIsSupported(
+  props: Extract<DeckElement, { type: "table" }>["props"],
+): boolean {
+  const columnCount = props.rows[0]?.length ?? 0;
+  if (
+    props.rows.length === 0 ||
+    props.rows.length > 1_000 ||
+    columnCount === 0 ||
+    columnCount > 1_000 ||
+    props.rows.length * columnCount > 10_000
+  ) {
+    return false;
+  }
+  if (props.rows.some((row) => row.length !== columnCount)) return false;
+  if (
+    props.columnWidths !== undefined &&
+    props.columnWidths.length !== columnCount
+  ) {
+    return false;
+  }
+  if (
+    props.rowHeights !== undefined &&
+    props.rowHeights.length !== props.rows.length
+  ) {
+    return false;
+  }
+  return props.rows.every((row) =>
+    row.every(
+      (cell) =>
+        cell.colSpan === 1 &&
+        cell.rowSpan === 1 &&
+        (cell.fill === "transparent" ||
+          (typeof cell.fill === "string" &&
+            /^#[0-9a-f]{6}$/i.test(cell.fill))) &&
+        tableFontWeightIsSupported(cell.fontWeight),
+    ),
+  );
+}
+
+function tableFontWeightIsSupported(
+  value: Extract<
+    DeckElement,
+    { type: "table" }
+  >["props"]["rows"][number][number]["fontWeight"],
+): boolean {
+  return value === "normal" || value === "bold";
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => valuesEqual(value, right[index]))
+    );
+  }
+  if (
+    typeof left !== "object" ||
+    left === null ||
+    typeof right !== "object" ||
+    right === null
+  ) {
+    return false;
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        valuesEqual(leftRecord[key], rightRecord[key]),
+    )
   );
 }
 
@@ -698,6 +885,7 @@ function isElementFeature(feature: OoxmlEditFeature): boolean {
     "rich-text-content",
     "rich-text-style",
     "table-cell-text",
+    "table-structure",
   ].includes(feature);
 }
 
