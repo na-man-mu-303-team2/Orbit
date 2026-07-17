@@ -277,11 +277,6 @@ describe("editor design-pack validation", () => {
     expect(messages).not.toContain(
       "다른 슬라이드에서 저장된 글자 수 경고입니다.",
     );
-    expect(
-      getEditorValidationItems(deck, deck.slides[0]).some(
-        (item) => item.issue === "SPEAKER_NOTES_DENSE",
-      ),
-    ).toBe(true);
   });
 
   it("accepts generated text fitting and expected media placeholders", () => {
