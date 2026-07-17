@@ -4,6 +4,7 @@ from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 import re
 import time
+from typing import Literal
 import unicodedata
 
 from app.ai.deck_generation.models import (
@@ -122,7 +123,7 @@ def apply_explicit_user_placements(
     prompt = unicodedata.normalize("NFKC", raw_input.prompt)
     if "표지" not in prompt:
         return plan
-    element_role = (
+    element_role: Literal["title", "subtitle", "message", "body"] | None = (
         "subtitle"
         if any(marker in prompt for marker in ("부제", "서브타이틀"))
         else "title"
@@ -461,7 +462,7 @@ def validate_slide_detail(
         )
         if order != target.order:
             continue
-        fact = next(
+        placement_fact = next(
             (
                 item
                 for item in raw_input.critical_facts
@@ -471,8 +472,8 @@ def validate_slide_detail(
         )
         obligation = obligations.get(constraint.target_id)
         canonical = (
-            fact.canonical_text
-            if fact
+            placement_fact.canonical_text
+            if placement_fact
             else obligation.canonical_text
             if obligation
             else ""
@@ -530,7 +531,7 @@ def _target_order(
     source_refs: list[str],
     slide_text: dict[int, str],
     slide_refs: dict[int, set[str]],
-    placements: dict[str, object],
+    placements: dict[str, PlacementConstraint],
 ) -> int:
     constraint = placements.get(target_id)
     if constraint is not None:
@@ -561,7 +562,7 @@ def _fact_target_order(
     source_refs: list[str],
     slide_text: dict[int, str],
     slide_refs: dict[int, set[str]],
-    placements: dict[str, object],
+    placements: dict[str, PlacementConstraint],
 ) -> int:
     constraint = placements.get(fact.fact_id)
     if constraint is not None:

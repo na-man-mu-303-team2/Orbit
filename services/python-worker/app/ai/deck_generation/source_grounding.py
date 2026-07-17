@@ -1015,13 +1015,13 @@ def design_pack_source_ledgers(
         obligation = obligations.get(obligation_id)
         if obligation is None:
             continue
-        source_id = next(
+        obligation_source_id = next(
             (source_id for source_id in obligation.source_refs if source_id in records),
             None,
         )
-        if source_id is None:
+        if obligation_source_id is None:
             continue
-        record = records[source_id]
+        record = records[obligation_source_id]
         ledger = {
             "claim": obligation.canonical_text,
             "source": record.url or record.title or record.file_id or record.source_id,
