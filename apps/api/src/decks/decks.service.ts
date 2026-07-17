@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
   applyDeckPatch,
+  getRichTextSemanticText,
   removeLegacyAiGeneratedTitleAnimations,
 } from "@orbit/editor-core";
 import type { ApplyDeckPatchError } from "@orbit/editor-core";
@@ -1868,6 +1869,24 @@ const ooxmlSupportedFrameFields = new Set([
   "zIndex",
 ]);
 
+const ooxmlSupportedTextPropsFields = new Set([
+  "text",
+  "runs",
+  "paragraphs",
+  "bodyInset",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "italic",
+  "underline",
+  "color",
+  "align",
+  "verticalAlign",
+  "writingMode",
+  "lineHeight",
+  "bullet",
+]);
+
 function emptyOoxmlPreflightContext(): OoxmlPreflightContext {
   return { pendingAuthoredElementKeys: new Set() };
 }
@@ -2057,19 +2076,49 @@ function ooxmlElementPropsUnsupportedReason(
   const capabilities = element.ooxmlEditCapabilities;
 
   if (element.type === "text") {
+    if (fields.some((field) => !ooxmlSupportedTextPropsFields.has(field))) {
+      return "PROPS_FIELDS_UNSUPPORTED";
+    }
+    const nextProps = { ...element.props, ...props } as typeof element.props;
+    if (!ooxmlTextProjectionIsConsistent(element.props, props, nextProps)) {
+      return element.ooxmlOrigin === "imported"
+        ? "RICH_TEXT_CAPABILITY_UNSAFE"
+        : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+    const semanticTextChanged =
+      getRichTextSemanticText(element.props) !==
+      getRichTextSemanticText(nextProps);
+    if (!ooxmlTextPropsFontWeightsAreSupported(nextProps)) {
+      return element.ooxmlOrigin === "imported"
+        ? "RICH_TEXT_CAPABILITY_UNSAFE"
+        : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
     if (element.ooxmlOrigin === "imported") {
-      if (fields.includes("text") && capabilities?.richText !== "full") {
+      if (
+        !ooxmlSourceMappingSupportsRichText(
+          currentDeck,
+          slideId,
+          element,
+          preflightContext.templateBlueprint,
+        )
+      ) {
         return "RICH_TEXT_CAPABILITY_UNSAFE";
       }
-      if (!fields.includes("text") && capabilities?.richText === "none") {
+      if (
+        capabilities?.richText === "none" ||
+        (capabilities?.richText === "style-only" && semanticTextChanged)
+      ) {
         return "RICH_TEXT_CAPABILITY_UNSAFE";
       }
-    } else if (!authoredOoxmlSerializerSupportsElement(element)) {
+    } else if (
+      !authoredOoxmlSerializerSupportsElement({
+        ...element,
+        props: nextProps,
+      })
+    ) {
       return "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
     }
-    return fields.length === 1 && fields[0] === "text"
-      ? null
-      : "PROPS_FIELDS_UNSUPPORTED";
+    return null;
   }
 
   if (element.type === "image") {
@@ -2115,6 +2164,43 @@ function ooxmlElementPropsUnsupportedReason(
     if (!capabilities?.tableCellText) return "TABLE_CELL_CAPABILITY_UNSAFE";
   }
   return "PROPS_FIELDS_UNSUPPORTED";
+}
+
+function ooxmlSourceMappingSupportsRichText(
+  currentDeck: Deck,
+  slideId: string,
+  element: Extract<DeckElement, { type: "text" }>,
+  templateBlueprint: TemplateBlueprint | undefined,
+): boolean {
+  if (!templateBlueprint || element.ooxmlOrigin !== "imported") return false;
+  const slideIndex =
+    currentDeck.slides.findIndex((slide) => slide.slideId === slideId) + 1;
+  const mappedSlide =
+    slideIndex > 0
+      ? templateBlueprint.slides.find(
+          (slide) => slide.slideIndex === slideIndex,
+        )
+      : undefined;
+  if (!mappedSlide) return false;
+  const sources = mappedSlide.elementSources.filter(
+    (source) => source.elementId === element.elementId,
+  );
+  if (sources.length !== 1) return false;
+
+  const source = sources[0]!;
+  const sourceRichText = source.ooxmlEditCapabilities?.richText;
+  return (
+    source.elementType === "text" &&
+    source.ooxmlOrigin === element.ooxmlOrigin &&
+    source.writable === true &&
+    source.fallbackReason === undefined &&
+    mappedSlide.sourceSlidePart !== undefined &&
+    source.slidePart === mappedSlide.sourceSlidePart &&
+    ["placeholder", "shape", "slide"].includes(source.sourceType) &&
+    sourceRichText === element.ooxmlEditCapabilities?.richText &&
+    sourceRichText !== undefined &&
+    sourceRichText !== "none"
+  );
 }
 
 function ooxmlSourceMappingSupportsImageCrop(
@@ -2168,23 +2254,12 @@ function authoredOoxmlSerializerSupportsElement(element: DeckElement): boolean {
   if (element.opacity !== 1 || element.locked || !element.visible) return false;
 
   if (element.type === "text") {
-    const supportedProps = new Set([
-      "text",
-      "bodyInset",
-      "fontFamily",
-      "fontSize",
-      "fontWeight",
-      "italic",
-      "underline",
-      "color",
-      "align",
-      "verticalAlign",
-      "lineHeight",
-    ]);
     return (
-      Object.keys(element.props).every((key) => supportedProps.has(key)) &&
-      (element.props.fontWeight === "normal" ||
-        element.props.fontWeight === "bold")
+      Object.keys(element.props).every((key) =>
+        ooxmlSupportedTextPropsFields.has(key),
+      ) &&
+      ooxmlTextPropsFontWeightsAreSupported(element.props) &&
+      ooxmlTextPropsProjectionIsConsistent(element.props)
     );
   }
 
@@ -2208,6 +2283,71 @@ function authoredOoxmlSerializerSupportsElement(element: DeckElement): boolean {
     element.props.strokeWidth === 0 &&
     element.props.borderRadius === 0
   );
+}
+
+function ooxmlTextPropsFontWeightsAreSupported(
+  props: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  return (
+    ooxmlTextFontWeightIsSupported(props.fontWeight) &&
+    (props.runs ?? []).every((run) =>
+      ooxmlTextFontWeightIsSupported(run.fontWeight),
+    ) &&
+    (props.paragraphs ?? []).every(
+      (paragraph) =>
+        ooxmlTextFontWeightIsSupported(paragraph.fontWeight) &&
+        (paragraph.runs ?? []).every((run) =>
+          ooxmlTextFontWeightIsSupported(run.fontWeight),
+        ),
+    )
+  );
+}
+
+function ooxmlTextProjectionIsConsistent(
+  current: Extract<DeckElement, { type: "text" }>["props"],
+  patch: Record<string, unknown>,
+  next: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  if (
+    current.paragraphs !== undefined &&
+    Object.prototype.hasOwnProperty.call(patch, "runs") &&
+    Array.isArray(patch.runs) &&
+    patch.runs.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(patch, "paragraphs")
+  ) {
+    return false;
+  }
+  return ooxmlTextPropsProjectionIsConsistent(next);
+}
+
+function ooxmlTextPropsProjectionIsConsistent(
+  props: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  if (
+    props.paragraphs?.some((paragraph) => {
+      const projection = paragraph.runs?.length
+        ? paragraph.runs.map((run) => run.text).join("")
+        : paragraph.text;
+      return paragraph.text !== projection;
+    })
+  ) {
+    return false;
+  }
+  const semantic = getRichTextSemanticText(props);
+  if (props.text !== semantic) return false;
+  return !(
+    props.paragraphs?.length === 1 &&
+    props.runs?.length &&
+    props.runs.map((run) => run.text).join("") !== semantic
+  );
+}
+
+function ooxmlTextFontWeightIsSupported(
+  value:
+    | Extract<DeckElement, { type: "text" }>["props"]["fontWeight"]
+    | undefined,
+): boolean {
+  return value === undefined || value === "normal" || value === "bold";
 }
 
 function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {

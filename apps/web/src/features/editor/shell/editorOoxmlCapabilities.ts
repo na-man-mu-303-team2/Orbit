@@ -1,4 +1,4 @@
-import { applyDeckPatch } from "@orbit/editor-core";
+import { applyDeckPatch, getRichTextSemanticText } from "@orbit/editor-core";
 import type {
   Deck,
   DeckElement,
@@ -57,6 +57,24 @@ const supported = Object.freeze<OoxmlEditCapability>({
 });
 
 const importedAnimationMainSequenceSerializerReady = false;
+
+const supportedAuthoredTextProps = new Set([
+  "text",
+  "runs",
+  "paragraphs",
+  "bodyInset",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "italic",
+  "underline",
+  "color",
+  "align",
+  "verticalAlign",
+  "writingMode",
+  "lineHeight",
+  "bullet",
+]);
 
 export function resolveOoxmlEditCapability(
   input: ResolveOoxmlEditCapabilityInput,
@@ -287,6 +305,44 @@ function resolveElementPropsCapability(
     }
   }
 
+  if (element?.type === "text") {
+    const propKeys = Object.keys(props);
+    if (
+      propKeys.length === 0 ||
+      propKeys.some((key) => !supportedAuthoredTextProps.has(key))
+    ) {
+      return resolveOoxmlEditCapability({
+        deck,
+        element,
+        feature: "element-properties",
+      });
+    }
+    const nextProps = { ...element.props, ...props } as typeof element.props;
+    if (!textProjectionIsConsistent(element.props, props, nextProps)) {
+      return resolveOoxmlEditCapability({
+        deck,
+        element: { ...element, props: nextProps },
+        feature: "element-properties",
+      });
+    }
+    if (!textPropsFontWeightsAreSupported(nextProps)) {
+      return resolveOoxmlEditCapability({
+        deck,
+        element: { ...element, props: nextProps },
+        feature: "element-properties",
+      });
+    }
+    return resolveOoxmlEditCapability({
+      deck,
+      element: { ...element, props: nextProps },
+      feature:
+        getRichTextSemanticText(element.props) ===
+        getRichTextSemanticText(nextProps)
+          ? "rich-text-style"
+          : "rich-text-content",
+    });
+  }
+
   return resolveOoxmlEditCapability({
     deck,
     element,
@@ -438,8 +494,11 @@ function resolveAuthoredElementCapability(
           "이 이미지 자르기를 OOXML에 보존하는 serializer가 아직 없습니다.",
         );
   }
-  if (feature === "rich-text-content" && element.type === "text") {
-    return !element.props.paragraphs?.length && !element.props.runs?.length
+  if (
+    (feature === "rich-text-content" || feature === "rich-text-style") &&
+    element.type === "text"
+  ) {
+    return authoredSerializerSupportsElement(element)
       ? supported
       : denied(
           "AUTHORED_SERIALIZER_UNSUPPORTED",
@@ -521,12 +580,11 @@ function authoredSerializerSupportsElement(element: DeckElement): boolean {
   if (element.opacity !== 1 || element.locked || !element.visible) return false;
   if (element.type === "text") {
     return (
-      !element.props.paragraphs?.length &&
-      !element.props.runs?.length &&
-      element.props.writingMode === undefined &&
-      element.props.bullet === undefined &&
-      (element.props.fontWeight === "normal" ||
-        element.props.fontWeight === "bold")
+      Object.keys(element.props).every((key) =>
+        supportedAuthoredTextProps.has(key),
+      ) &&
+      textPropsFontWeightsAreSupported(element.props) &&
+      textPropsProjectionIsConsistent(element.props)
     );
   }
   if (element.type === "image") {
@@ -547,6 +605,71 @@ function authoredSerializerSupportsElement(element: DeckElement): boolean {
     element.props.dash === undefined &&
     element.props.shadow === undefined
   );
+}
+
+function textPropsFontWeightsAreSupported(
+  props: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  return (
+    textFontWeightIsSupported(props.fontWeight) &&
+    (props.runs ?? []).every((run) =>
+      textFontWeightIsSupported(run.fontWeight),
+    ) &&
+    (props.paragraphs ?? []).every(
+      (paragraph) =>
+        textFontWeightIsSupported(paragraph.fontWeight) &&
+        (paragraph.runs ?? []).every((run) =>
+          textFontWeightIsSupported(run.fontWeight),
+        ),
+    )
+  );
+}
+
+function textProjectionIsConsistent(
+  current: Extract<DeckElement, { type: "text" }>["props"],
+  patch: Record<string, unknown>,
+  next: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  if (
+    current.paragraphs !== undefined &&
+    Object.prototype.hasOwnProperty.call(patch, "runs") &&
+    Array.isArray(patch.runs) &&
+    patch.runs.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(patch, "paragraphs")
+  ) {
+    return false;
+  }
+  return textPropsProjectionIsConsistent(next);
+}
+
+function textPropsProjectionIsConsistent(
+  props: Extract<DeckElement, { type: "text" }>["props"],
+): boolean {
+  if (
+    props.paragraphs?.some((paragraph) => {
+      const projection = paragraph.runs?.length
+        ? paragraph.runs.map((run) => run.text).join("")
+        : paragraph.text;
+      return paragraph.text !== projection;
+    })
+  ) {
+    return false;
+  }
+  const semantic = getRichTextSemanticText(props);
+  if (props.text !== semantic) return false;
+  return !(
+    props.paragraphs?.length === 1 &&
+    props.runs?.length &&
+    props.runs.map((run) => run.text).join("") !== semantic
+  );
+}
+
+function textFontWeightIsSupported(
+  value:
+    | Extract<DeckElement, { type: "text" }>["props"]["fontWeight"]
+    | undefined,
+): boolean {
+  return value === undefined || value === "normal" || value === "bold";
 }
 
 function genericExportSupportsElement(element: DeckElement): boolean {

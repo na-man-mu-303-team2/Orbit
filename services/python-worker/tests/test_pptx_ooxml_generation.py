@@ -49,7 +49,8 @@ def test_pure_generation_preserves_package_entries_and_source_text(
     assert all(
         source["elementType"]
         and source["ooxmlOrigin"] == "imported"
-        and source["ooxmlEditCapabilities"]["richText"] == "none"
+        and source["ooxmlEditCapabilities"]["richText"]
+        == ("full" if source["elementType"] == "text" else "none")
         and source["ooxmlEditCapabilities"]["crop"]
         == (
             "picture"
@@ -143,7 +144,7 @@ def test_generation_includes_imported_image_assets(tmp_path: Path) -> None:
     assert base64.b64decode(image_asset.content_base64).startswith(b"\x89PNG")
 
 
-def test_sync_pptx_ooxml_rejects_imported_text_capability_atomically(
+def test_sync_pptx_ooxml_applies_imported_full_text_and_frame_atomically(
     tmp_path: Path,
 ) -> None:
     pptx_path = sample_pptx(tmp_path)
@@ -181,13 +182,14 @@ def test_sync_pptx_ooxml_rejects_imported_text_capability_atomically(
             },
         ],
     )
-    assert current_package_bytes(result.assets) == original_bytes
-    assert result.applied_operations == []
-    assert len(result.unsupported_operations) == 1
-    assert (
-        result.unsupported_operations[0].reason_code
-        == "RICH_TEXT_CAPABILITY_UNSAFE"
-    )
+    package = current_package_bytes(result.assets)
+    assert package != original_bytes
+    assert b"Synced Title" in shape_xml(package, title_slot["source"]["shapeId"])
+    assert [item.operation_type for item in result.applied_operations] == [
+        "update_element_props",
+        "update_element_frame",
+    ]
+    assert result.unsupported_operations == []
 
 
 def test_sync_pptx_ooxml_applies_imported_frame_patch(tmp_path: Path) -> None:
@@ -356,6 +358,54 @@ def test_sync_pptx_ooxml_applies_consistent_shared_shape_operations_once(
         shape_xml(current_package_bytes(deleted.assets), cohort[0]["shapeId"])
 
 
+def test_sync_pptx_ooxml_edits_shared_shape_text_without_changing_geometry(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_split_fill_text_shape_pptx(tmp_path)
+    original_package = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    target = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element.get("props", {}).get("text") == "Shared native fill and text"
+    )
+    source = source_for_element(
+        generated.template_blueprint["slides"][0]["elementSources"],
+        target["elementId"],
+    )
+    assert source["ooxmlEditCapabilities"]["richText"] == "full"
+    original_shape_properties = shape_child_xml(
+        original_package,
+        source["shapeId"],
+        "spPr",
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": target["elementId"],
+                "props": {"fontWeight": "bold"},
+            }
+        ],
+    )
+
+    assert result.unsupported_operations == []
+    assert len(result.applied_operations) == 1
+    package_bytes = current_package_bytes(result.assets)
+    assert (
+        shape_child_xml(package_bytes, source["shapeId"], "spPr")
+        == original_shape_properties
+    )
+    assert b'b="1"' in shape_child_xml(package_bytes, source["shapeId"], "txBody")
+
+
 def test_sync_pptx_ooxml_partial_frame_fails_without_changing_package(
     tmp_path: Path,
 ) -> None:
@@ -442,6 +492,62 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
     assert {
         key: reimported_target[key] for key in ("x", "y", "width", "height", "rotation")
     } == original_frame
+
+
+def test_sync_pptx_ooxml_edits_grouped_child_text_without_changing_group_frame(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_scaled_group_pptx(tmp_path)
+    original_package = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    target = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element.get("props", {}).get("text") == "Grouped frame target"
+    )
+    source = source_for_element(
+        generated.template_blueprint["slides"][0]["elementSources"],
+        target["elementId"],
+    )
+    assert source["ooxmlEditCapabilities"]["richText"] == "full"
+    original_shape_properties = shape_child_xml(
+        original_package,
+        source["shapeId"],
+        "spPr",
+    )
+    original_group_properties = containing_group_properties_xml(
+        original_package,
+        source["shapeId"],
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": target["elementId"],
+                "props": {"italic": True},
+            }
+        ],
+    )
+
+    assert result.unsupported_operations == []
+    assert len(result.applied_operations) == 1
+    package_bytes = current_package_bytes(result.assets)
+    assert (
+        shape_child_xml(package_bytes, source["shapeId"], "spPr")
+        == original_shape_properties
+    )
+    assert (
+        containing_group_properties_xml(package_bytes, source["shapeId"])
+        == original_group_properties
+    )
+    assert b'i="1"' in shape_child_xml(package_bytes, source["shapeId"], "txBody")
 
 
 def test_sync_pptx_ooxml_applies_imported_picture_crop(
@@ -948,11 +1054,19 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     )
     assert all(
         source["ooxmlOrigin"] == "authored"
-        and source["ooxmlEditCapabilities"]["richText"] == "none"
         and source["ooxmlEditCapabilities"]["tableCellText"] is False
         and source["ooxmlEditCapabilities"]["frame"] is True
         and source["ooxmlEditCapabilities"]["delete"] is True
         for source in added_sources.values()
+    )
+    assert added_sources["el_added_text"]["ooxmlEditCapabilities"]["richText"] == (
+        "full"
+    )
+    assert added_sources["el_added_rect"]["ooxmlEditCapabilities"]["richText"] == (
+        "none"
+    )
+    assert added_sources["el_added_image"]["ooxmlEditCapabilities"]["richText"] == (
+        "none"
     )
     assert added_sources["el_added_image"]["ooxmlEditCapabilities"]["crop"] == (
         "picture"
@@ -986,7 +1100,7 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         added_sources["el_added_text"]["shapeId"],
     )
     assert b'<a:pPr algn="ctr">' in added_text_xml
-    assert b'sz="3000"' in added_text_xml
+    assert b'sz="1500"' in added_text_xml
     assert b'b="1"' in added_text_xml
     assert b'i="1"' in added_text_xml
     assert b'u="sng"' in added_text_xml
@@ -2288,6 +2402,46 @@ def shape_xml(
         if c_nv_pr is not None and c_nv_pr.get("id") == shape_id:
             return ET.tostring(shape)
     raise AssertionError(f"shape not found: {shape_id}")
+
+
+def shape_child_xml(
+    package_bytes: bytes,
+    shape_id: str,
+    child_name: str,
+    slide_part: str = "ppt/slides/slide1.xml",
+) -> bytes:
+    shape = ET.fromstring(shape_xml(package_bytes, shape_id, slide_part))
+    child = next(
+        (node for node in list(shape) if node.tag.endswith(child_name)),
+        None,
+    )
+    if child is None:
+        raise AssertionError(f"shape child not found: {shape_id}/{child_name}")
+    return ET.tostring(child)
+
+
+def containing_group_properties_xml(
+    package_bytes: bytes,
+    shape_id: str,
+    slide_part: str = "ppt/slides/slide1.xml",
+) -> bytes:
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        root = ET.fromstring(package.read(slide_part))
+    for group in root.iter():
+        if not group.tag.endswith("grpSp"):
+            continue
+        if not any(
+            node.tag.endswith("cNvPr") and node.get("id") == shape_id
+            for node in group.iter()
+        ):
+            continue
+        properties = next(
+            (node for node in list(group) if node.tag.endswith("grpSpPr")),
+            None,
+        )
+        if properties is not None:
+            return ET.tostring(properties)
+    raise AssertionError(f"containing group not found: {shape_id}")
 
 
 def slide_visual_shape_ids(package_bytes: bytes) -> list[str]:

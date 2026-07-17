@@ -651,6 +651,29 @@ function createImageElementSource(
   };
 }
 
+function createTextElementSource(
+  element: DeckElement,
+  richText: "none" | "style-only" | "full",
+): TemplateElementSource {
+  return {
+    elementId: element.elementId,
+    elementType: "text",
+    ooxmlOrigin: element.ooxmlOrigin,
+    ooxmlEditCapabilities: {
+      richText,
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+      imageSource: false,
+    },
+    slidePart: "ppt/slides/slide1.xml",
+    shapeId: "8",
+    sourceType: "slide",
+    writable: true,
+  };
+}
+
 function createUpdateTitlePatch(
   deck: Deck,
   title: string,
@@ -1746,6 +1769,591 @@ describe("DecksService", () => {
     expect(dataSource.patchRows).toHaveLength(0);
   });
 
+  it("allows imported canonical rich-text updates only with a matching authoritative source", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_rich_text_full",
+    );
+    const deck = createImportedDeck({
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+    });
+    const element = deck.slides[0]!.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTextElementSource(element, "full"),
+    ]);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: element.elementId,
+            props: {
+              text: "Updated title\nSecond paragraph",
+              writingMode: "vertical-270",
+              paragraphs: [
+                {
+                  text: "Updated title",
+                  runs: [
+                    {
+                      text: "Updated ",
+                      fontWeight: "bold",
+                      baseline: "normal",
+                    },
+                    {
+                      text: "title",
+                      italic: true,
+                      underline: true,
+                      baseline: "normal",
+                    },
+                  ],
+                  align: "left",
+                  lineHeight: 1.2,
+                },
+                {
+                  text: "Second paragraph",
+                  runs: [{ text: "Second paragraph", baseline: "normal" }],
+                  align: "left",
+                  lineHeight: 1.2,
+                  bullet: { enabled: true, character: "•", indent: 24 },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck.version).toBe(2);
+    expect(response.deck.slides[0]!.elements[0]!.props).toMatchObject({
+      text: "Updated title\nSecond paragraph",
+      writingMode: "vertical-270",
+      paragraphs: [
+        expect.objectContaining({
+          runs: [
+            expect.objectContaining({ fontWeight: "bold", text: "Updated " }),
+            expect.objectContaining({ italic: true, text: "title" }),
+          ],
+        }),
+        expect.objectContaining({
+          bullet: expect.objectContaining({ enabled: true }),
+        }),
+      ],
+    });
+
+    const plainTextResponse = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: response.deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: element.elementId,
+            props: {
+              text: "Plain text regression",
+              paragraphs: [
+                {
+                  text: "Plain text regression",
+                  runs: [{ text: "Plain text regression", baseline: "normal" }],
+                  align: "left",
+                  lineHeight: 1.2,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(plainTextResponse.deck).toMatchObject({ version: 3 });
+    expect(plainTextResponse.deck.slides[0]!.elements[0]!.props).toMatchObject({
+      text: "Plain text regression",
+    });
+
+    for (const inconsistentProps of [
+      { text: "Text-only divergence" },
+      {
+        runs: [
+          {
+            text: "Runs-only divergence",
+            baseline: "normal" as const,
+          },
+        ],
+      },
+      {
+        paragraphs: [
+          {
+            text: "Paragraph-only divergence",
+            runs: [
+              {
+                text: "Paragraph-only divergence",
+                baseline: "normal" as const,
+              },
+            ],
+          },
+        ],
+      },
+    ]) {
+      const inconsistent = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: plainTextResponse.deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_element_props",
+                  slideId: deck.slides[0]!.slideId,
+                  elementId: element.elementId,
+                  props: inconsistentProps,
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+      expect(inconsistent.details).toContain(
+        "reasonCode=RICH_TEXT_CAPABILITY_UNSAFE",
+      );
+    }
+    expect(dataSource.patchRows).toHaveLength(2);
+
+    const unsupportedWeight = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: plainTextResponse.deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: element.elementId,
+                props: { fontWeight: "semibold" },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(unsupportedWeight.details).toContain(
+      "reasonCode=RICH_TEXT_CAPABILITY_UNSAFE",
+    );
+    expect(dataSource.patchRows).toHaveLength(2);
+  });
+
+  it("allows style-only rich-text patches only when semantic text is unchanged", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_rich_text_style_only",
+    );
+    const base = createImportedDeck({
+      richText: "style-only",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+    });
+    const sourceElement = base.slides[0]!.elements[0]!;
+    if (sourceElement.type !== "text") throw new Error("expected text");
+    const deck = deckSchema.parse({
+      ...base,
+      slides: [
+        {
+          ...base.slides[0]!,
+          elements: [
+            {
+              ...sourceElement,
+              props: {
+                ...sourceElement.props,
+                paragraphs: [
+                  {
+                    text: sourceElement.props.text,
+                    runs: [
+                      {
+                        text: sourceElement.props.text,
+                        baseline: "normal",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const element = deck.slides[0]!.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTextElementSource(element, "style-only"),
+    ]);
+
+    const styleResponse = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: element.elementId,
+            props: {
+              paragraphs: [
+                {
+                  text: "Imported text",
+                  runs: [
+                    {
+                      text: "Imported text",
+                      italic: true,
+                      underline: true,
+                      baseline: "normal",
+                    },
+                  ],
+                  align: "left",
+                  lineHeight: 1.2,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(styleResponse.deck.version).toBe(2);
+    const styledElement = styleResponse.deck.slides[0]!.elements[0]!;
+    expect(styledElement.type).toBe("text");
+    if (styledElement.type !== "text") throw new Error("expected text");
+    expect(styledElement.props.paragraphs?.[0]?.runs?.[0]).toMatchObject({
+      italic: true,
+      underline: true,
+    });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: styleResponse.deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: element.elementId,
+                props: {
+                  text: "Hyperlink or field content changed",
+                  paragraphs: [
+                    {
+                      text: "Hyperlink or field content changed",
+                      runs: [
+                        {
+                          text: "Hyperlink or field content changed",
+                          baseline: "normal",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=RICH_TEXT_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it("rejects forged authoritative rich-text source capability", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_rich_text_forged",
+    );
+    const deck = createImportedDeck({
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+    });
+    const element = deck.slides[0]!.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTextElementSource(element, "style-only"),
+    ]);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: element.elementId,
+                props: { text: "Forged full-capability edit" },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=RICH_TEXT_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("rejects imported rich-text updates when the authoritative source is missing", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_rich_text_missing_source",
+    );
+    const deck = createImportedDeck({
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+    });
+    const element = deck.slides[0]!.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: element.elementId,
+                props: { text: "Missing source mapping edit" },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=RICH_TEXT_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("rejects imported text when both Deck and source explicitly disable rich text", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_imported_rich_text_none",
+    );
+    const deck = createImportedDeck({
+      richText: "none",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: true,
+    });
+    const element = deck.slides[0]!.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createTextElementSource(element, "none"),
+    ]);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: element.elementId,
+                props: { fontSize: 40 },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=RICH_TEXT_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("allows authored canonical rich-text add and sequential update", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_rich_text",
+    );
+    const deck = createImportedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+    const authored = deckSchema.parse({
+      ...deck,
+      slides: [
+        {
+          ...deck.slides[0]!,
+          elements: [
+            {
+              ...createTextElement("el_authored_rich", "Authored rich"),
+              props: {
+                ...createTextElement("el_authored_rich", "Authored rich").props,
+                paragraphs: [
+                  {
+                    text: "Authored rich",
+                    runs: [
+                      {
+                        text: "Authored ",
+                        fontWeight: "bold",
+                        baseline: "normal",
+                      },
+                      { text: "rich", italic: true, baseline: "normal" },
+                    ],
+                    align: "left",
+                    lineHeight: 1.2,
+                  },
+                ],
+                runs: [
+                  {
+                    text: "Authored ",
+                    fontWeight: "bold",
+                    baseline: "normal",
+                  },
+                  { text: "rich", italic: true, baseline: "normal" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }).slides[0]!.elements[0]!;
+    expect(authored.type).toBe("text");
+    if (authored.type !== "text") throw new Error("expected text");
+
+    const added = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: authored,
+          },
+        ],
+      },
+    });
+
+    expect(added.deck.slides[0]!.elements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elementId: authored.elementId,
+          ooxmlOrigin: "authored",
+          props: expect.objectContaining({ paragraphs: expect.any(Array) }),
+        }),
+      ]),
+    );
+
+    const updated = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: added.deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: authored.elementId,
+            props: {
+              text: "Authored updated",
+              paragraphs: [
+                {
+                  text: "Authored updated",
+                  runs: [
+                    {
+                      text: "Authored updated",
+                      underline: true,
+                      baseline: "normal",
+                    },
+                  ],
+                  align: "left",
+                  lineHeight: 1.2,
+                },
+              ],
+              runs: [
+                {
+                  text: "Authored updated",
+                  underline: true,
+                  baseline: "normal",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(updated.deck.version).toBe(3);
+    expect(
+      updated.deck.slides[0]!.elements.find(
+        (candidate) => candidate.elementId === authored.elementId,
+      )?.props,
+    ).toMatchObject({ text: "Authored updated" });
+
+    const unsupported = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: updated.deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: authored.elementId,
+                props: { fontWeight: "semibold" },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(unsupported.details).toContain(
+      "reasonCode=AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(2);
+  });
+
   it("rejects unsupported imported capabilities and operation families", async () => {
     const { dataSource, service } = createOoxmlSyncService(
       "job_sync_unsupported_matrix",
@@ -1858,6 +2466,117 @@ describe("DecksService", () => {
     expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
   });
 
+  it("rejects inconsistent authored text additions before persistence", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_projection",
+    );
+    const deck = createImportedDeck({
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: false,
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const baseElement = createTextElement("el_inconsistent_authored", "A");
+    const inconsistent = {
+      ...baseElement,
+      ooxmlOrigin: "authored" as const,
+      props: {
+        ...baseElement.props,
+        text: "A",
+        runs: [],
+        paragraphs: [
+          {
+            text: "B",
+            runs: [{ text: "B", baseline: "normal" as const }],
+            align: "left" as const,
+            lineHeight: 1.2,
+            spaceBefore: 0,
+            spaceAfter: 0,
+            indent: 0,
+          },
+        ],
+      },
+    };
+    const addOperation = {
+      type: "add_element" as const,
+      slideId: deck.slides[0]!.slideId,
+      element: inconsistent,
+    };
+
+    for (const action of [
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [addOperation],
+          },
+        }),
+      () =>
+        service.putDeck(deck.projectId, {
+          baseVersion: deck.version,
+          deck: {
+            ...deck,
+            slides: [
+              {
+                ...deck.slides[0]!,
+                elements: [...deck.slides[0]!.elements, inconsistent],
+              },
+            ],
+          },
+        }),
+    ]) {
+      const error = await expectDeckApiError(
+        action,
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+      expect(error.details).toContain(
+        "reasonCode=ADD_ELEMENT_SERIALIZER_UNSUPPORTED",
+      );
+    }
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
+
+    const consistent = {
+      ...inconsistent,
+      elementId: "el_consistent_authored",
+      props: {
+        ...inconsistent.props,
+        text: "A",
+        paragraphs: [
+          {
+            ...inconsistent.props.paragraphs[0]!,
+            text: "A",
+            runs: [],
+          },
+        ],
+      },
+    };
+    await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: consistent,
+          },
+        ],
+      },
+    });
+
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 2 });
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
   it("rejects an unsupported imported full diff but allows package-neutral fields", async () => {
     const { dataSource, service } = createOoxmlSyncService(
       "job_sync_neutral_full_put",
@@ -1945,18 +2664,9 @@ describe("DecksService", () => {
       ],
     });
     await service.putDeck(imported.projectId, { deck: imported });
-    dataSource.templateBlueprintRows.push({
-      template_id: "template_file_1",
-      project_id: imported.projectId,
-      deck_id: imported.deckId,
-      blueprint_json: {
-        templateId: "template_file_1",
-        sourceFileId: "file_1",
-        currentPackageFileId: "file_current",
-        ooxmlSyncedDeckVersion: 1,
-        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
-      },
-    });
+    seedOoxmlBlueprint(dataSource, imported, imported.version, [
+      createTextElementSource(imported.slides[0]!.elements[0]!, "full"),
+    ]);
 
     const requested = deckSchema.parse({
       ...imported,

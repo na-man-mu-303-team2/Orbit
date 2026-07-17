@@ -118,6 +118,136 @@ describe("resolveOoxmlEditCapability", () => {
     }
   });
 
+  it("treats a canonical style-only patch as safe only when semantic text is unchanged", () => {
+    const deck = importedDeck();
+    const source = deck.slides[0]!.elements[0]!;
+    expect(source.type).toBe("text");
+    if (source.type !== "text") throw new Error("expected text element");
+    const text = importedElement(
+      {
+        ...source,
+        props: {
+          ...source.props,
+          paragraphs: [
+            {
+              text: source.props.text,
+              runs: [{ text: source.props.text, baseline: "normal" }],
+              align: "left",
+              lineHeight: 1.2,
+              spaceBefore: 0,
+              spaceAfter: 0,
+              indent: 0,
+            },
+          ],
+        },
+      },
+      {
+        richText: "style-only",
+        crop: "none",
+        tableCellText: false,
+      },
+    );
+    deck.slides[0]!.elements[0] = text;
+    const patch = (props: Record<string, unknown>) => ({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user" as const,
+      operations: [
+        {
+          type: "update_element_props" as const,
+          slideId: deck.slides[0]!.slideId,
+          elementId: text.elementId,
+          props,
+        },
+      ],
+    });
+
+    expect(
+      resolveOoxmlPatchCapability(
+        deck,
+        patch({
+          paragraphs: [
+            {
+              text: source.props.text,
+              runs: [
+                {
+                  text: source.props.text,
+                  italic: true,
+                  underline: true,
+                  baseline: "normal",
+                },
+              ],
+              align: "left",
+              lineHeight: 1.2,
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+
+    expect(
+      resolveOoxmlPatchCapability(
+        deck,
+        patch({
+          text: "Destructive hyperlink or field edit",
+          paragraphs: [
+            {
+              text: "Destructive hyperlink or field edit",
+              runs: [
+                {
+                  text: "Destructive hyperlink or field edit",
+                  baseline: "normal",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
+
+    expect(
+      resolveOoxmlPatchCapability(deck, patch({ fontWeight: "semibold" })),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
+
+    deck.slides[0]!.elements[0] = importedElement(text, {
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+    });
+    for (const inconsistentProps of [
+      { text: "Text-only divergence" },
+      {
+        runs: [{ text: "Runs-only divergence", baseline: "normal" as const }],
+      },
+      {
+        paragraphs: [
+          {
+            text: "Paragraph-only divergence",
+            runs: [
+              {
+                text: "Paragraph-only divergence",
+                baseline: "normal" as const,
+              },
+            ],
+          },
+        ],
+      },
+    ]) {
+      expect(
+        resolveOoxmlPatchCapability(deck, patch(inconsistentProps)),
+      ).toMatchObject({
+        enabled: false,
+        reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+      });
+    }
+  });
+
   it("keeps read-only and malformed imported crop sources fail closed", () => {
     const deck = importedDeck();
     const readOnlyImage = importedElement(imageElement(), {
@@ -497,7 +627,7 @@ describe("resolveOoxmlEditCapability", () => {
     });
   });
 
-  it("allows plain text updates on authored OOXML text only", () => {
+  it("allows plain and canonical rich-text updates on authored OOXML text", () => {
     const deck = importedDeck();
     const element = deck.slides[0]!.elements[0]!;
     expect(element.type).toBe("text");
@@ -514,18 +644,71 @@ describe("resolveOoxmlEditCapability", () => {
         feature: "rich-text-content",
       }),
     ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
-    expect(
-      resolveOoxmlEditCapability({
-        deck,
-        element: {
-          ...element,
-          ooxmlOrigin: "authored",
-          props: {
-            ...element.props,
-            runs: [{ text: element.props.text, baseline: "normal" }],
+    const canonical: DeckElement = {
+      ...element,
+      ooxmlOrigin: "authored",
+      props: {
+        ...element.props,
+        runs: [
+          { text: "Demo ", fontWeight: "bold", baseline: "normal" },
+          { text: "title", italic: true, baseline: "normal" },
+        ],
+        paragraphs: [
+          {
+            text: "Demo title",
+            runs: [
+              { text: "Demo ", fontWeight: "bold", baseline: "normal" },
+              { text: "title", italic: true, baseline: "normal" },
+            ],
+            align: "left",
+            lineHeight: 1.2,
+            spaceBefore: 0,
+            spaceAfter: 0,
+            indent: 0,
+            bullet: { enabled: true, character: "•", indent: 24 },
           },
-        },
-        feature: "rich-text-content",
+        ],
+        text: "Demo title",
+        writingMode: "vertical-270",
+      },
+    };
+
+    for (const feature of ["rich-text-content", "rich-text-style"] as const) {
+      expect(
+        resolveOoxmlEditCapability({ deck, element: canonical, feature }),
+      ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    }
+
+    deck.slides[0]!.elements[0] = canonical;
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: canonical.elementId,
+            props: canonical.props,
+          },
+        ],
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: canonical.elementId,
+            props: { fontWeight: "semibold" },
+          },
+        ],
       }),
     ).toMatchObject({
       enabled: false,
@@ -545,6 +728,103 @@ describe("resolveOoxmlEditCapability", () => {
       resolveOoxmlEditCapability({
         deck,
         element: { ...source, ooxmlOrigin: "authored" },
+        feature: "add-element",
+        slide,
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: {
+          ...source,
+          ooxmlOrigin: "authored",
+          props: {
+            ...source.props,
+            text: "Projection A",
+            runs: [],
+            paragraphs: [
+              {
+                text: "Projection B",
+                runs: [{ text: "Projection B", baseline: "normal" }],
+                align: "left",
+                lineHeight: 1.2,
+                spaceBefore: 0,
+                spaceAfter: 0,
+                indent: 0,
+              },
+            ],
+          },
+        },
+        feature: "add-element",
+        slide,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: {
+          ...source,
+          ooxmlOrigin: "authored",
+          props: {
+            ...source.props,
+            text: "Empty runs fallback",
+            runs: [],
+            paragraphs: [
+              {
+                text: "Empty runs fallback",
+                runs: [],
+                align: "left",
+                lineHeight: 1.2,
+                spaceBefore: 0,
+                spaceAfter: 0,
+                indent: 0,
+              },
+            ],
+          },
+        },
+        feature: "duplicate-element",
+        slide,
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: {
+          ...source,
+          ooxmlOrigin: "authored",
+          props: {
+            ...source.props,
+            text: "Canonical authored",
+            runs: [
+              {
+                text: "Canonical authored",
+                underline: true,
+                baseline: "normal",
+              },
+            ],
+            paragraphs: [
+              {
+                text: "Canonical authored",
+                runs: [
+                  {
+                    text: "Canonical authored",
+                    underline: true,
+                    baseline: "normal",
+                  },
+                ],
+                align: "left",
+                lineHeight: 1.2,
+                spaceBefore: 0,
+                spaceAfter: 0,
+                indent: 0,
+              },
+            ],
+            writingMode: "vertical-270",
+          },
+        },
         feature: "add-element",
         slide,
       }),
