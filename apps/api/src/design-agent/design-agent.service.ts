@@ -77,12 +77,22 @@ export class DesignAgentService {
     );
 
     try {
+      const availableSmartArtLayouts = (
+        await this.smartArtLayoutsService.listActiveCatalog()
+      ).map((layout) => ({
+        layoutId: layout.layoutId,
+        layoutType: layout.layoutType,
+        name: layout.name,
+        itemCountMin: layout.itemCountMin,
+        itemCountMax: layout.itemCountMax,
+      }));
       const aiResult = await this.pythonClient.propose({
         projectId,
         sessionId,
         question: input.content,
         context: input.context,
         history,
+        availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
       });
       const responseNow = new Date();
@@ -128,7 +138,7 @@ export class DesignAgentService {
         ? await this.expandSmartArtRequest(
             aiResult.smartArtRequest,
             input.context,
-            input.content,
+            aiResult.interpretedIntent.target,
           )
         : [];
       const operations = [...aiResult.operations, ...smartArtOperations];
@@ -188,6 +198,7 @@ export class DesignAgentService {
         requestMessage: toMessageDto(requestMessage),
         responseMessage: toMessageDto(responseMessage),
         ...(proposal ? { proposal: toProposalDto(proposal) } : {}),
+        uiAction: aiResult.uiAction,
       });
     } catch (error) {
       requestMessage.status = "failed";
@@ -316,7 +327,7 @@ export class DesignAgentService {
   private async expandSmartArtRequest(
     smartArtRequest: SmartArtRequest,
     context: DesignAgentContext,
-    question: string,
+    target: "selected-elements" | "current-slide",
   ): Promise<DeckPatchOperation[]> {
     const selectedElementIds = new Set(context.selectedElementIds);
     const visibleElementIds = new Set(
@@ -324,7 +335,7 @@ export class DesignAgentService {
         .filter((element) => element.visible !== false)
         .map((element) => element.elementId),
     );
-    const allowsSlideSources = allowsUnselectedSmartArtSources(question);
+    const allowsSlideSources = target === "current-slide";
     for (const elementId of smartArtRequest.sourceElementIds) {
       if (
         !visibleElementIds.has(elementId) ||
@@ -338,13 +349,17 @@ export class DesignAgentService {
       }
     }
 
-    const layout = await this.smartArtLayoutsService.findByTypeAndItemCount(
-      smartArtRequest.layoutType,
-      smartArtRequest.items.length,
+    const layout = await this.smartArtLayoutsService.findActiveById(
+      smartArtRequest.layoutId,
     );
-    if (!layout) {
+    if (
+      !layout ||
+      layout.layoutType !== smartArtRequest.layoutType ||
+      smartArtRequest.items.length < layout.itemCountMin ||
+      smartArtRequest.items.length > layout.itemCountMax
+    ) {
       throw new BadRequestException(
-        `SmartArt layout is unavailable: ${smartArtRequest.layoutType}/${smartArtRequest.items.length}`,
+        `SmartArt layout is unavailable: ${smartArtRequest.layoutId}/${smartArtRequest.items.length}`,
       );
     }
 
@@ -360,7 +375,40 @@ export class DesignAgentService {
 
 export function allowsUnselectedSmartArtSources(question: string) {
   const normalized = question.toLocaleLowerCase().replace(/\s+/g, " ").trim();
-  return [
+  const broadPresetRequest = [
+    "꾸며줘",
+    "꾸며 줘",
+    "디자인해줘",
+    "디자인 해줘",
+    "보기 좋게",
+    "예쁘게",
+    "이쁘게",
+    "재디자인",
+    "다른 디자인",
+    "다른 스타일",
+    "다르게",
+    "재구성",
+    "구성 바꿔",
+    "구성을 바꿔",
+    "reconfigure",
+    "redesign",
+    "another design",
+    "beautify",
+    "decorate",
+  ].some((phrase) => normalized.includes(phrase));
+  const explicitSmallEdit = [
+    "색상만",
+    "색만",
+    "글자 크기",
+    "폰트만",
+    "정렬만",
+    "위치만",
+    "간격만",
+    "투명도",
+    "회전",
+    "애니메이션",
+  ].some((phrase) => normalized.includes(phrase));
+  return (broadPresetRequest && !explicitSmallEdit) || [
     "현재 페이지",
     "이 페이지",
     "페이지 전체",

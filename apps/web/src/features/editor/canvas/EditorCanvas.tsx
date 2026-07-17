@@ -10,6 +10,7 @@ import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import {
   Layer as KonvaLayer,
+  Line as KonvaLine,
   Rect as KonvaRect,
   Stage as KonvaStage,
   Transformer as KonvaTransformer
@@ -36,7 +37,9 @@ import {
   useSyncCustomShapeEditDraft
 } from "./hooks/useSyncCustomShapeEditDraft";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
+import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
 import {
+  type CanvasSnapGuide,
   commitCustomShapeEditGeometry,
   getElementsIntersectingSelectionRect,
   normalizeDraftRect
@@ -52,6 +55,7 @@ export { getRenderableSlideElements } from "../../slides/rendering";
 type KonvaComponent = ComponentType<any>;
 
 const Layer = KonvaLayer as unknown as KonvaComponent;
+const Line = KonvaLine as unknown as KonvaComponent;
 const Rect = KonvaRect as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
 const Transformer = KonvaTransformer as unknown as KonvaComponent;
@@ -355,6 +359,7 @@ export function EditableCanvas(props: {
     start: CanvasPoint;
     end: CanvasPoint;
   } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<CanvasSnapGuide[]>([]);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -568,9 +573,23 @@ export function EditableCanvas(props: {
                   slideId: slide.slideId
                 })
               }
+              onSnapGuidesChange={setSnapGuides}
+              snapThreshold={8 / Math.max(stageScale, 0.01)}
               onSelect={(append) =>
                 onSelectElement(element.elementId, { append })
               }
+            />
+          ))}
+          {snapGuides.map((guide) => (
+            <Line
+              dash={[8 / Math.max(stageScale, 0.01), 5 / Math.max(stageScale, 0.01)]}
+              key={`${guide.axis}-${guide.position}`}
+              listening={false}
+              points={guide.axis === "x"
+                ? [guide.position, 0, guide.position, deck.canvas.height]
+                : [0, guide.position, deck.canvas.width, guide.position]}
+              stroke="#ec4899"
+              strokeWidth={1.5 / Math.max(stageScale, 0.01)}
             />
           ))}
           {visibleElements
@@ -651,17 +670,26 @@ export function EditableCanvas(props: {
         </Layer>
       </Stage>
       {editingElementId ? (
-        <InlineTextEditorOverlay
-          deck={deck}
-          element={
-            visibleElements.find((candidate) => candidate.elementId === editingElementId) ??
-            null
-          }
-          slide={slide}
-          stageScale={stageScale}
-          onCommitProps={onCommitElementProps}
-          onFinishEditing={handleInlineTextEditingFinish}
-        />
+        <>
+          <InlineTextEditorOverlay
+            deck={deck}
+            element={
+              visibleElements.find((candidate) => candidate.elementId === editingElementId) ?? null
+            }
+            slide={slide}
+            stageScale={stageScale}
+            onCommitProps={onCommitElementProps}
+            onFinishEditing={handleInlineTextEditingFinish}
+          />
+          <InlineDataEditorOverlay
+            element={
+              visibleElements.find((candidate) => candidate.elementId === editingElementId) ?? null
+            }
+            stageScale={stageScale}
+            onCommitProps={onCommitElementProps}
+            onFinishEditing={handleInlineTextEditingFinish}
+          />
+        </>
       ) : null}
       {insertTool === "customShape" ? (
         <div className="canvas-mode-hint">

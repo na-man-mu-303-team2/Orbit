@@ -1,4 +1,10 @@
-import type { ApplyDesignAgentProposalResponse, Deck, SemanticCue, Slide } from "@orbit/shared";
+import type {
+  ApplyDesignAgentProposalResponse,
+  Deck,
+  SemanticCue,
+  Slide,
+  SpeakerNotesSuggestionMode
+} from "@orbit/shared";
 import {
   IconLayoutSidebarRightCollapse as PanelRightClose,
   IconLayoutSidebarRightExpand as PanelRightOpen
@@ -36,6 +42,7 @@ type EditorRightPanelProps = {
   onApplyAllValidationTextOverflow: () => void;
   onHighlightElementIds: (elementIds: string[]) => void;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
+  onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   onResizeStart: (event: PointerEvent<HTMLButtonElement>) => void;
   onSemanticCueChange: (semanticCues: SemanticCue[]) => void;
   onSemanticCueExtract: (force: boolean) => void;
@@ -100,7 +107,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 <button aria-controls="editor-ai-tools-panel" aria-selected={props.aiPanelView === "tools"} className={props.aiPanelView === "tools" ? "active" : ""} id="editor-ai-tools-tab" role="tab" tabIndex={props.aiPanelView === "tools" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("tools")} onKeyDown={handleAiPanelTabKeyDown}>검사</button>
               </div>
               <div aria-labelledby="editor-ai-chat-tab" className="assistant-panel-subview" hidden={props.aiPanelView !== "chat"} id="editor-ai-chat-panel" role="tabpanel">
-                <AiChatPanel projectId={props.projectId} deck={props.deck} currentSlide={props.currentSlide} selectedElementIds={props.selectedElementIds} chatState={props.aiChatState} onChatStateChange={props.onAiChatStateChange} onProposalApplied={props.onProposalApplied} />
+                <AiChatPanel projectId={props.projectId} deck={props.deck} currentSlide={props.currentSlide} selectedElementIds={props.selectedElementIds} chatState={props.aiChatState} onChatStateChange={props.onAiChatStateChange} onProposalApplied={props.onProposalApplied} onSpeakerNotesAssistantRequest={props.onSpeakerNotesAssistantRequest} />
               </div>
               <div aria-labelledby="editor-ai-tools-tab" className="assistant-panel-subview editor-ai-tools-subview" hidden={props.aiPanelView !== "tools"} id="editor-ai-tools-panel" role="tabpanel">
                 <PptxImportQualityPanel state={props.pptxImportState} />

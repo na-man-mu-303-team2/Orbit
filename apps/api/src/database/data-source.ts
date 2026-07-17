@@ -50,6 +50,7 @@ import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/202607160400
 import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
 import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702000-AddSmartArtTemplateLayouts";
 import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703000-IncreaseSmartArtTypography";
+import { CenterSmartArtCardText2026071704000 } from "./migrations/2026071704000-CenterSmartArtCardText";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -111,7 +112,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckStoryReviews2026071604000,
     CreateSmartArtLayouts2026071701000,
     AddSmartArtTemplateLayouts2026071702000,
-    IncreaseSmartArtTypography2026071703000
+    IncreaseSmartArtTypography2026071703000,
+    CenterSmartArtCardText2026071704000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

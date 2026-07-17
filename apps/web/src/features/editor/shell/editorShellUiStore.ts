@@ -52,6 +52,7 @@ type EditorShellUiStateValues = {
   elementContextMenu: ElementContextMenuState | null;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
+  isIconPanelOpen: boolean;
   isAudienceLinkModalOpen: boolean;
   isDataViewOpen: boolean;
   isExitConfirmOpen: boolean;
@@ -85,6 +86,7 @@ type EditorShellUiStateActions = {
   ) => void;
   setInsertTool: (updater: EditorShellUiUpdater<InsertTool>) => void;
   setIsAnimationPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsIconPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsAudienceLinkModalOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsDataViewOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsExitConfirmOpen: (updater: EditorShellUiUpdater<boolean>) => void;
@@ -117,6 +119,7 @@ export const editorShellUiInitialState: EditorShellUiStateValues = {
   elementContextMenu: null,
   insertTool: "select",
   isAnimationPanelOpen: false,
+  isIconPanelOpen: false,
   isAudienceLinkModalOpen: false,
   isDataViewOpen: false,
   isExitConfirmOpen: false,
@@ -144,6 +147,7 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
       editingElementId: null,
       elementContextMenu: null,
       insertTool: "select",
+      isIconPanelOpen: false,
       isAudienceLinkModalOpen: false,
       isExitConfirmOpen: false,
       isShapeMenuOpen: false,
@@ -189,6 +193,10 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
   setIsAnimationPanelOpen: (updater) =>
     set((state) => ({
       isAnimationPanelOpen: resolveUpdater(state.isAnimationPanelOpen, updater)
+    })),
+  setIsIconPanelOpen: (updater) =>
+    set((state) => ({
+      isIconPanelOpen: resolveUpdater(state.isIconPanelOpen, updater)
     })),
   setIsAudienceLinkModalOpen: (updater) =>
     set((state) => ({

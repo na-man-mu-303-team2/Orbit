@@ -9,6 +9,7 @@ import pytest
 from app.ai.design_agent import (
     DesignAgentGenerationError,
     DesignAgentRequest,
+    _build_deterministic_preset_proposal,
     design_agent_system_prompt,
     generate_design_proposal,
 )
@@ -58,6 +59,25 @@ def request_payload(*, locked: bool = False) -> DesignAgentRequest:
                 "theme": {"name": "Business"},
             },
             "history": [],
+            "availableSmartArtLayouts": [
+                {
+                    "layoutId": f"smart_art_{layout_type}_{item_count}",
+                    "layoutType": layout_type,
+                    "name": f"{layout_type} {item_count}",
+                    "itemCountMin": item_count,
+                    "itemCountMax": item_count,
+                }
+                for layout_type, item_counts in {
+                    "list": (3,),
+                    "process": (2, 3, 4, 5),
+                    "card_grid": (3, 4),
+                    "comparison": (2,),
+                    "classification_grid": (4,),
+                    "timeline": (4,),
+                    "metric_cards": (3,),
+                }.items()
+                for item_count in item_counts
+            ],
             "capabilities": {
                 "version": "1",
                 "operations": [
@@ -123,6 +143,52 @@ def test_rejects_operations_outside_canvas() -> None:
         )
 
 
+def test_fits_added_elements_inside_canvas() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "add_element",
+            "slideId": "slide_1",
+            "element": {
+                "elementId": "el_explanation",
+                "type": "rect",
+                "role": "decoration",
+                "x": 1850,
+                "y": 1000,
+                "width": 400,
+                "height": 200,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 2,
+                "locked": False,
+                "visible": True,
+                "props": {
+                    "fill": "#FFFFFF",
+                    "stroke": "#CBD5E1",
+                    "strokeWidth": 1,
+                    "borderRadius": 12,
+                },
+            },
+        }
+    ]
+    payload["affectedElementIds"] = ["el_explanation"]
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    operation = result.operations[0]
+    assert operation.type == "add_element"
+    assert operation.element.x == 1520
+    assert operation.element.y == 880
+    assert result.warnings == [
+        "Added element frame was adjusted to fit inside the slide canvas."
+    ]
+
+
 def test_allows_operations_targeting_legacy_locked_elements() -> None:
     result = generate_design_proposal(
         request_payload(locked=True),
@@ -143,12 +209,34 @@ def test_prompt_uses_actual_canvas_dimensions() -> None:
     assert "Explicit graph or chart requests take precedence over SmartArt" in prompt
     assert "Explicit table or tabular-format requests also take precedence" in prompt
     assert "Only use fade-in and fade-out effects" in prompt
+    assert "open-speaker-notes-assistant" in prompt
+
+
+def test_accepts_speaker_notes_assistant_ui_action() -> None:
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["uiAction"] = {
+        "type": "open-speaker-notes-assistant",
+        "mode": "naturalize",
+    }
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.ui_action is not None
+    assert result.ui_action.mode == "naturalize"
 
 
 def test_allows_adding_fade_animation_to_visible_element() -> None:
     request = request_payload()
     request.capabilities.operations.append("add_animation")
     payload = proposal_payload()
+    payload["interpretedIntent"]["target"] = "current-slide"
     payload["operations"] = [{
         "type": "add_animation",
         "slideId": "slide_1",
@@ -244,6 +332,7 @@ def test_allows_smart_art_to_replace_selected_elements() -> None:
     payload["operations"] = []
     payload["affectedElementIds"] = []
     payload["smartArtRequest"] = {
+        "layoutId": "smart_art_process_2",
         "layoutType": "process",
         "sourceElementIds": ["el_image"],
         "items": [
@@ -263,11 +352,204 @@ def test_allows_smart_art_to_replace_selected_elements() -> None:
     assert result.smart_art_request.source_element_ids == ["el_image"]
 
 
+def test_routes_broad_beautify_request_to_metric_card_preset_without_llm() -> None:
+    request = request_payload()
+    request.question = "현재 페이지를 보기 좋게 꾸며줘"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_years",
+            "type": "text",
+            "role": "body",
+            "visible": True,
+            "props": {"text": "2024\n2025\n2026"},
+        },
+        {
+            "elementId": "el_people",
+            "type": "text",
+            "role": "body",
+            "visible": True,
+            "props": {"text": "100명\n300명\n1000명"},
+        },
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = _build_deterministic_preset_proposal(request)
+    assert result is not None
+
+    assert client.responses.calls == []
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.layout_type == "metric_cards"
+    assert [item.title for item in result.smart_art_request.items] == ["2024", "2025", "2026"]
+    assert [item.description for item in result.smart_art_request.items] == [
+        "100명", "300명", "1000명"
+    ]
+    assert result.smart_art_request.source_element_ids == ["el_years", "el_people"]
+
+
+def test_keeps_explicit_small_edit_out_of_preset_routing() -> None:
+    request = request_payload()
+    request.question = "글자 색상만 파란색으로 바꿔서 꾸며줘"
+    client = FakeClient(proposal_payload())
+
+    generate_design_proposal(request, model="test-model", api_key=None, client=client)
+
+    assert len(client.responses.calls) == 1
+
+
+def test_routes_reconfigure_wording_to_whole_slide_preset() -> None:
+    request = request_payload()
+    request.question = "현재 디자인 재구성좀 해줘"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_years",
+            "type": "text",
+            "role": "body",
+            "visible": True,
+            "props": {"text": "2024\n2025\n2026"},
+        },
+        {
+            "elementId": "el_values",
+            "type": "text",
+            "role": "body",
+            "visible": True,
+            "props": {"text": "100명\n300명\n1000명"},
+        },
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = _build_deterministic_preset_proposal(request)
+    assert result is not None
+
+    assert client.responses.calls == []
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.source_element_ids == ["el_years", "el_values"]
+
+
+def test_replaces_existing_smart_art_with_a_different_preset() -> None:
+    request = request_payload()
+    request.question = "좀 다른 디자인 없어?"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_smartart_old_oval_0",
+            "type": "customShape",
+            "visible": True,
+            "zIndex": 100,
+            "props": {},
+        },
+        *[
+            {
+                "elementId": f"el_smartart_old_title_{index}",
+                "type": "text",
+                "visible": True,
+                "zIndex": 102 + index * 10,
+                "props": {"text": year},
+            }
+            for index, year in enumerate(("2024", "2025", "2026"))
+        ],
+        *[
+            {
+                "elementId": f"el_smartart_old_desc_{index}",
+                "type": "text",
+                "visible": True,
+                "zIndex": 103 + index * 10,
+                "props": {"text": value},
+            }
+            for index, value in enumerate(("100명", "300명", "1000명"))
+        ],
+        {
+            "elementId": "el_smartart_old_group",
+            "type": "group",
+            "visible": True,
+            "zIndex": 200,
+            "props": {"childElementIds": []},
+        },
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = _build_deterministic_preset_proposal(request)
+    assert result is not None
+
+    assert client.responses.calls == []
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.layout_type == "metric_cards"
+    assert set(result.smart_art_request.source_element_ids) == {
+        str(element["elementId"]) for element in request.context.slide["elements"]
+    }
+    assert [item.description for item in result.smart_art_request.items] == [
+        "100명", "300명", "1000명"
+    ]
+
+
+def test_alternative_design_recovers_individual_year_value_elements() -> None:
+    request = request_payload()
+    request.question = "another design"
+    request.context.selected_element_ids = []
+    years = ("2023", "2024", "2025", "2026")
+    values = ("100명", "300명", "1000명")
+    request.context.slide["elements"] = [
+        *[
+            {
+                "elementId": f"el_oval_{index}",
+                "type": "ellipse",
+                "visible": True,
+                "x": index * 200,
+                "y": 100,
+                "props": {},
+            }
+            for index in range(4)
+        ],
+        *[
+            {
+                "elementId": f"el_year_{index}",
+                "type": "text",
+                "role": "body",
+                "visible": True,
+                "x": index * 200,
+                "y": 120,
+                "props": {"text": year},
+            }
+            for index, year in enumerate(years)
+        ],
+        *[
+            {
+                "elementId": f"el_value_{index}",
+                "type": "text",
+                "role": "body",
+                "visible": True,
+                "x": index * 200,
+                "y": 260,
+                "props": {"text": value},
+            }
+            for index, value in enumerate(values)
+        ],
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = _build_deterministic_preset_proposal(request)
+    assert result is not None
+
+    assert client.responses.calls == []
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.layout_type == "timeline"
+    assert [item.title for item in result.smart_art_request.items] == list(years)
+    assert [item.description for item in result.smart_art_request.items] == [
+        *values,
+        None,
+    ]
+    assert set(result.smart_art_request.source_element_ids) == {
+        str(element["elementId"]) for element in request.context.slide["elements"]
+    }
+
+
 def test_rejects_unselected_smart_art_sources() -> None:
     payload = proposal_payload()
     payload["operations"] = []
     payload["affectedElementIds"] = []
     payload["smartArtRequest"] = {
+        "layoutId": "smart_art_list_3",
         "layoutType": "list",
         "sourceElementIds": ["el_unselected"],
         "items": [{"title": "기획", "description": None}],
@@ -287,12 +569,17 @@ def test_allows_visible_unselected_smart_art_sources_for_current_page_request() 
     request.question = "현재 페이지 가운데 텍스트를 스마트아트로 꾸며줘"
     request.context.selected_element_ids = []
     payload = proposal_payload()
+    payload["interpretedIntent"]["target"] = "current-slide"
     payload["operations"] = []
     payload["affectedElementIds"] = []
     payload["smartArtRequest"] = {
+        "layoutId": "smart_art_list_3",
         "layoutType": "list",
         "sourceElementIds": ["el_image"],
-        "items": [{"title": "중심 항목", "description": None}],
+        "items": [
+            {"title": f"항목 {index + 1}", "description": None}
+            for index in range(3)
+        ],
     }
 
     result = generate_design_proposal(
@@ -332,6 +619,7 @@ def test_accepts_ppt_derived_smart_art_layout_types() -> None:
     payload["operations"] = []
     payload["affectedElementIds"] = []
     payload["smartArtRequest"] = {
+        "layoutId": "smart_art_timeline_4",
         "layoutType": "timeline",
         "sourceElementIds": [],
         "items": [

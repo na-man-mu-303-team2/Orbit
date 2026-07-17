@@ -86,6 +86,7 @@ import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
 import { EditorCanvasStage } from "./components/EditorCanvasStage";
 import { EditorToolbar } from "./components/EditorToolbar";
+import { IconLibrarySidePanel } from "./components/IconLibrarySidePanel";
 import {
   EditorRightPanel,
   type AiPanelView,
@@ -194,6 +195,10 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const setIsAnimationPanelOpen = useEditorShellUiStore(
     (state) => state.setIsAnimationPanelOpen
+  );
+  const isIconPanelOpen = useEditorShellUiStore((state) => state.isIconPanelOpen);
+  const setIsIconPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsIconPanelOpen
   );
   const isRightPanelOpen = useEditorShellUiStore((state) => state.isRightPanelOpen);
   const setIsRightPanelOpen = useEditorShellUiStore(
@@ -939,7 +944,15 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function openAnimationInspector() {
+    setIsIconPanelOpen(false);
     setIsAnimationPanelOpen(true);
+  }
+
+  function toggleIconLibrary() {
+    setIsIconPanelOpen((current) => {
+      if (!current) setIsAnimationPanelOpen(false);
+      return !current;
+    });
   }
 
   function handleSelectSlideAnimationFromPanel(animation: DeckAnimation) {
@@ -1199,7 +1212,7 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
+        className={`editor-panel ${isAnimationPanelOpen || isIconPanelOpen ? "animation-panel-open" : ""} ${
           isRightPanelOpen ? "" : "right-panel-closed"
         } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
         aria-label="Presentation editor"
@@ -1230,6 +1243,13 @@ export function EditorShell(props: { projectId?: string }) {
           slideThumbnailUrls={slideThumbnailUrls}
           view={slidePanelView}
         />
+        {isIconPanelOpen ? (
+          <IconLibrarySidePanel
+            accentColor={currentSlide?.style.accentColor ?? deck.theme.accentColor}
+            onClose={() => setIsIconPanelOpen(false)}
+            onInsert={editorCanvasActions.addIconElement}
+          />
+        ) : null}
         {isAnimationPanelOpen ? (
           <AnimationSidePanel
             animations={selectedElementAnimations}
@@ -1291,11 +1311,13 @@ export function EditorShell(props: { projectId?: string }) {
             canUseCurrentSlide={Boolean(currentSlide)}
             insertTool={insertTool}
             isAnimationPanelOpen={isAnimationPanelOpen}
+            isIconPanelOpen={isIconPanelOpen}
             isImageUploadPending={isImageUploadPending}
             isShapeMenuOpen={isShapeMenuOpen}
             onAddChart={handleAddChartElement}
             onAddText={handleAddTextElement}
             onOpenAnimation={openAnimationInspector}
+            onOpenIconLibrary={toggleIconLibrary}
             onOpenImagePicker={() => {
               if (currentSlide) {
                 openImageFilePicker({ slideId: currentSlide.slideId, type: "insert" });
@@ -1508,6 +1530,7 @@ export function EditorShell(props: { projectId?: string }) {
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
           onProposalApplied={handleDesignAgentProposalApplied}
+          onSpeakerNotesAssistantRequest={speakerNotesEditorActions.openAssistantAndGenerate}
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}

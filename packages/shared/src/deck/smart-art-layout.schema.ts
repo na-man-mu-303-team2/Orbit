@@ -19,9 +19,18 @@ export const smartArtItemSchema = z.object({
 });
 
 export const smartArtRequestSchema = z.object({
+  layoutId: z.string().trim().min(1),
   layoutType: smartArtLayoutTypeSchema,
   sourceElementIds: z.array(deckElementIdSchema).max(100).default([]),
   items: z.array(smartArtItemSchema).min(1).max(12)
+});
+
+export const availableSmartArtLayoutSchema = z.object({
+  layoutId: z.string().trim().min(1),
+  layoutType: smartArtLayoutTypeSchema,
+  name: z.string().trim().min(1),
+  itemCountMin: z.number().int().positive(),
+  itemCountMax: z.number().int().positive()
 });
 
 export const smartArtElementTemplateTextFieldSchema = z.enum(["title", "description"]);
@@ -55,6 +64,7 @@ export const smartArtLayoutSchema = z.object({
 export type SmartArtLayoutType = z.infer<typeof smartArtLayoutTypeSchema>;
 export type SmartArtItem = z.infer<typeof smartArtItemSchema>;
 export type SmartArtRequest = z.infer<typeof smartArtRequestSchema>;
+export type AvailableSmartArtLayout = z.infer<typeof availableSmartArtLayoutSchema>;
 export type SmartArtElementTemplateTextField = z.infer<
   typeof smartArtElementTemplateTextFieldSchema
 >;

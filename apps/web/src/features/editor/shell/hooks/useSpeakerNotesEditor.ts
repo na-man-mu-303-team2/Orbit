@@ -116,8 +116,11 @@ export function useSpeakerNotesEditor(args: {
     setIsAssistantOpen(true);
   }
 
-  async function generateSuggestion() {
-    const requestedSlideId = assistantSource?.slideId;
+  async function generateSuggestion(options?: {
+    mode?: SpeakerNotesSuggestionMode;
+    slideId?: string;
+  }) {
+    const requestedSlideId = options?.slideId ?? assistantSource?.slideId;
     if (!requestedSlideId || assistantStatus === "running") return;
 
     setAssistantStatus("running");
@@ -129,8 +132,9 @@ export function useSpeakerNotesEditor(args: {
       const requestSlide = requestDeck.slides.find((slide) => slide.slideId === requestedSlideId);
       if (!requestSlide) throw new Error("현재 슬라이드를 찾을 수 없습니다.");
 
+      const preferredMode = options?.mode ?? assistantMode;
       const requestMode = requestSlide.speakerNotes.trim()
-        ? assistantMode === "draft" ? "naturalize" : assistantMode
+        ? preferredMode === "draft" ? "naturalize" : preferredMode
         : "draft";
       const source = {
         slideId: requestSlide.slideId,
@@ -159,6 +163,23 @@ export function useSpeakerNotesEditor(args: {
       setAssistantStatus("failed");
       setAssistantError(toEditorErrorMessage(error));
     }
+  }
+
+  function openAssistantAndGenerate(mode: SpeakerNotesSuggestionMode) {
+    if (!args.currentSlide || assistantStatus === "running") return;
+    const source = {
+      slideId: args.currentSlide.slideId,
+      baseVersion: args.deck.version,
+      notes: args.currentSlide.speakerNotes
+    };
+    const requestMode = source.notes.trim() ? (mode === "draft" ? "naturalize" : mode) : "draft";
+    setAssistantSource(source);
+    setAssistantMode(requestMode);
+    setAssistantStatus("idle");
+    setAssistantResult(null);
+    setAssistantError("");
+    setIsAssistantOpen(true);
+    void generateSuggestion({ mode: requestMode, slideId: source.slideId });
   }
 
   function applySuggestion() {
@@ -287,6 +308,7 @@ export function useSpeakerNotesEditor(args: {
       confirmDiscardDraft,
       generateSuggestion,
       openAssistant,
+      openAssistantAndGenerate,
       resetEditState,
       saveEdit,
       setAssistantMode,

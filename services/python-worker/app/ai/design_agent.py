@@ -58,6 +58,24 @@ class DesignAgentCapabilities(BaseModel):
     can_modify_locked_elements: bool = Field(alias="canModifyLockedElements")
 
 
+class AvailableSmartArtLayout(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    layout_id: str = Field(alias="layoutId", min_length=1)
+    layout_type: Literal[
+        "list",
+        "process",
+        "card_grid",
+        "comparison",
+        "classification_grid",
+        "timeline",
+        "metric_cards",
+    ] = Field(alias="layoutType")
+    name: str = Field(min_length=1)
+    item_count_min: int = Field(alias="itemCountMin", gt=0)
+    item_count_max: int = Field(alias="itemCountMax", gt=0)
+
+
 class DesignAgentRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -66,6 +84,11 @@ class DesignAgentRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2_000)
     context: DesignAgentContext
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
+    available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
+        default_factory=list,
+        alias="availableSmartArtLayouts",
+        max_length=200,
+    )
     capabilities: DesignAgentCapabilities
 
 
@@ -403,6 +426,7 @@ class SmartArtItem(BaseModel):
 class SmartArtRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    layout_id: str = Field(alias="layoutId", min_length=1)
     layout_type: Literal[
         "list",
         "process",
@@ -436,6 +460,13 @@ class DesignAgentIntent(BaseModel):
     action: str = Field(min_length=1, max_length=1_000)
 
 
+class DesignAgentUiAction(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["open-speaker-notes-assistant"]
+    mode: Literal["draft", "shorten", "naturalize", "emphasize"]
+
+
 class DesignAgentResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -451,6 +482,7 @@ class DesignAgentResponse(BaseModel):
     smart_art_request: SmartArtRequest | None = Field(
         default=None, alias="smartArtRequest"
     )
+    ui_action: DesignAgentUiAction | None = Field(default=None, alias="uiAction")
 
 
 class DesignAgentGenerationError(RuntimeError):
@@ -516,6 +548,7 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                     "type": ["object", "null"],
                     "additionalProperties": False,
                     "properties": {
+                        "layoutId": {"type": "string", "minLength": 1},
                         "layoutType": {
                             "type": "string",
                             "enum": [
@@ -555,7 +588,22 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                             },
                         },
                     },
-                    "required": ["layoutType", "sourceElementIds", "items"],
+                    "required": ["layoutId", "layoutType", "sourceElementIds", "items"],
+                },
+                "uiAction": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["open-speaker-notes-assistant"],
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["draft", "shorten", "naturalize", "emphasize"],
+                        },
+                    },
+                    "required": ["type", "mode"],
                 },
             },
             "required": [
@@ -565,6 +613,7 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                 "affectedElementIds",
                 "warnings",
                 "smartArtRequest",
+                "uiAction",
             ],
         },
     }
@@ -610,6 +659,281 @@ def generate_design_proposal(
         raise
     except Exception as error:
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
+
+
+def _build_deterministic_preset_proposal(
+    request: DesignAgentRequest,
+) -> DesignAgentResponse | None:
+    if not _is_broad_preset_request(request.question):
+        return None
+
+    visible_elements = [
+        element
+        for element in request.context.slide.get("elements", [])
+        if isinstance(element, dict)
+        and element.get("visible") is not False
+        and element.get("elementId")
+    ]
+    existing_smart_art = _extract_existing_smart_art(visible_elements)
+    if existing_smart_art is not None:
+        existing_items, current_layout = existing_smart_art
+        source_ids = [
+            str(element["elementId"])
+            for element in visible_elements
+            if str(element["elementId"]).startswith("el_smartart_")
+        ]
+        layout_type = _alternate_preset_layout_type(existing_items, current_layout)
+        return _preset_proposal(request, existing_items, layout_type, source_ids, False)
+
+    visible_text_elements = [
+        element
+        for element in visible_elements
+        if element.get("type") == "text"
+        and element.get("visible") is not False
+        and element.get("elementId")
+        and isinstance(element.get("props"), dict)
+        and str(element["props"].get("text", "")).strip()
+    ]
+    selected_ids = set(request.context.selected_element_ids)
+    selected_text_elements = [
+        element for element in visible_text_elements if element.get("elementId") in selected_ids
+    ]
+    source_elements = selected_text_elements or visible_text_elements
+    non_title_elements = [
+        element for element in source_elements if element.get("role") != "title"
+    ]
+    if non_title_elements:
+        source_elements = non_title_elements
+
+    items = _extract_preset_items(source_elements)
+    if items is None:
+        return None
+
+    current_layout = _infer_visual_layout(visible_elements, len(items))
+    if _is_alternative_design_request(request.question):
+        layout_type = _alternate_preset_layout_type(items, current_layout)
+        source_ids = [str(element["elementId"]) for element in visible_elements]
+    else:
+        layout_type = _preset_layout_type(items)
+        source_ids = [str(element["elementId"]) for element in source_elements]
+    return _preset_proposal(
+        request, items, layout_type, source_ids, bool(selected_text_elements)
+    )
+
+
+def _preset_proposal(
+    request: DesignAgentRequest,
+    items: list[dict[str, str | None]],
+    layout_type: str,
+    source_ids: list[str],
+    selected_target: bool,
+) -> DesignAgentResponse:
+    layout = next(
+        (
+            candidate
+            for candidate in request.available_smart_art_layouts
+            if candidate.layout_type == layout_type
+            and candidate.item_count_min <= len(items) <= candidate.item_count_max
+        ),
+        None,
+    )
+    if layout is None:
+        raise DesignAgentGenerationError(
+            f"No active SmartArt layout supports {layout_type}/{len(items)}."
+        )
+    return DesignAgentResponse.model_validate({
+        "message": "현재 슬라이드의 내용을 분석해 검증된 프리셋으로 재구성했습니다.",
+        "interpretedIntent": {
+            "target": "selected-elements" if selected_target else "current-slide",
+            "action": request.question,
+            "alignment": None,
+        },
+        "operations": [],
+        "affectedElementIds": [],
+        "warnings": [],
+        "smartArtRequest": {
+            "layoutId": layout.layout_id,
+            "layoutType": layout_type,
+            "sourceElementIds": source_ids,
+            "items": items,
+        },
+    })
+
+
+def _extract_existing_smart_art(
+    elements: list[dict[str, Any]],
+) -> tuple[list[dict[str, str | None]], str | None] | None:
+    instances: dict[str, list[dict[str, Any]]] = {}
+    for element in elements:
+        match = re.match(r"^el_smartart_([^_]+)_(.+)$", str(element.get("elementId", "")))
+        if match:
+            instances.setdefault(match.group(1), []).append(element)
+    if not instances:
+        return None
+
+    instance_elements = max(
+        instances.values(),
+        key=lambda values: max((int(value.get("zIndex", 0)) for value in values), default=0),
+    )
+    titles: dict[int, str] = {}
+    descriptions: dict[int, str] = {}
+    suffixes: list[str] = []
+    for element in instance_elements:
+        element_id = str(element.get("elementId", ""))
+        suffix = re.sub(r"^el_smartart_[^_]+_", "", element_id)
+        suffixes.append(suffix)
+        props = element.get("props")
+        if not isinstance(props, dict) or not str(props.get("text", "")).strip():
+            continue
+        title_match = re.match(r"(?:title|text)_(\d+)$", suffix)
+        description_match = re.match(r"(?:desc|description)_(\d+)$", suffix)
+        if title_match:
+            titles[int(title_match.group(1))] = str(props["text"]).strip()
+        elif description_match:
+            descriptions[int(description_match.group(1))] = str(props["text"]).strip()
+    if not 2 <= len(titles) <= 5:
+        return None
+
+    current_layout = (
+        "card_grid" if any(suffix.startswith("oval_") for suffix in suffixes)
+        else "metric_cards" if any(suffix.startswith("metric_") for suffix in suffixes)
+        else "list" if any(suffix.startswith("row_bg_") for suffix in suffixes)
+        else "process" if any("connector" in suffix for suffix in suffixes)
+        else None
+    )
+    return ([
+        {"title": titles[index], "description": descriptions.get(index)}
+        for index in sorted(titles)
+    ], current_layout)
+
+
+def _alternate_preset_layout_type(
+    items: list[dict[str, str | None]], current_layout: str | None
+) -> str:
+    alternatives = _ranked_preset_layout_types(items)
+    if current_layout in alternatives and len(alternatives) > 1:
+        alternatives.remove(current_layout)
+    return alternatives[0]
+
+
+def _ranked_preset_layout_types(
+    items: list[dict[str, str | None]],
+) -> list[str]:
+    candidates = {
+        2: ["comparison", "process"],
+        3: ["metric_cards", "card_grid", "process", "list"],
+        4: ["card_grid", "classification_grid", "timeline", "process"],
+        5: ["process"],
+    }[len(items)]
+    titles = [str(item.get("title") or "") for item in items]
+    descriptions = [str(item.get("description") or "") for item in items]
+    all_years = all(re.search(r"(?:19|20)\d{2}", title) for title in titles)
+    has_numeric_descriptions = any(re.search(r"\d", value) for value in descriptions)
+    scores = {candidate: 0 for candidate in candidates}
+    scores["process"] = 10
+    if "card_grid" in scores:
+        scores["card_grid"] = 20
+    if "classification_grid" in scores:
+        scores["classification_grid"] = 15
+    if "comparison" in scores:
+        scores["comparison"] = 30
+    if "list" in scores:
+        scores["list"] = 5
+    if "metric_cards" in scores:
+        scores["metric_cards"] = 45 if has_numeric_descriptions else 15
+    if "timeline" in scores:
+        scores["timeline"] = 60 if all_years else 10
+    return sorted(candidates, key=lambda candidate: scores[candidate], reverse=True)
+
+
+def _preset_layout_type(items: list[dict[str, str | None]]) -> str:
+    return _ranked_preset_layout_types(items)[0]
+
+
+def _extract_preset_items(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, str | None]] | None:
+    columns = [
+        [line.strip() for line in str(element["props"]["text"]).splitlines() if line.strip()]
+        for element in elements
+    ]
+    columns = [column for column in columns if column]
+    if len(columns) == 2 and max(len(column) for column in columns) >= 2:
+        item_count = max(len(column) for column in columns)
+        if 2 <= item_count <= 5:
+            return [
+                {
+                    "title": columns[0][index] if index < len(columns[0]) else f"Item {index + 1}",
+                    "description": columns[1][index] if index < len(columns[1]) else None,
+                }
+                for index in range(item_count)
+            ]
+
+    singleton_elements = [
+        element for element, column in zip(elements, columns, strict=False) if len(column) == 1
+    ]
+    year_elements = [
+        element
+        for element in singleton_elements
+        if re.fullmatch(r"(?:19|20)\d{2}(?:년)?", str(element["props"]["text"]).strip())
+    ]
+    if 2 <= len(year_elements) <= 5:
+        year_ids = {str(element["elementId"]) for element in year_elements}
+        value_elements = [
+            element for element in singleton_elements if str(element["elementId"]) not in year_ids
+        ]
+        year_elements.sort(key=lambda element: (float(element.get("x", 0)), float(element.get("y", 0))))
+        value_elements.sort(key=lambda element: (float(element.get("x", 0)), float(element.get("y", 0))))
+        return [
+            {
+                "title": str(year["props"]["text"]).strip(),
+                "description": (
+                    str(value_elements[index]["props"]["text"]).strip()
+                    if index < len(value_elements)
+                    else None
+                ),
+            }
+            for index, year in enumerate(year_elements)
+        ]
+
+    flattened = [line for column in columns for line in column]
+    if 2 <= len(flattened) <= 5:
+        return [{"title": line, "description": None} for line in flattened]
+    return None
+
+
+def _infer_visual_layout(elements: list[dict[str, Any]], item_count: int) -> str | None:
+    visible_types = [str(element.get("type", "")) for element in elements]
+    if sum(element_type in {"ellipse", "customShape"} for element_type in visible_types) >= item_count:
+        return "card_grid"
+    if visible_types.count("rect") >= item_count:
+        return "classification_grid" if item_count == 4 else "card_grid"
+    return None
+
+
+def _is_alternative_design_request(question: str) -> bool:
+    normalized = " ".join(question.lower().split())
+    return any(
+        token in normalized
+        for token in ("다른 디자인", "다른 스타일", "다르게", "another design")
+    )
+
+
+def _is_broad_preset_request(question: str) -> bool:
+    normalized = " ".join(question.lower().split())
+    broad_tokens = (
+        "꾸며줘", "꾸며 줘", "디자인해줘", "디자인 해줘", "보기 좋게",
+        "예쁘게", "이쁘게", "재디자인", "다른 디자인", "다른 스타일", "다르게",
+        "재구성", "구성 바꿔", "구성을 바꿔", "reconfigure",
+        "redesign", "another design", "beautify", "decorate",
+    )
+    explicit_small_edit_tokens = (
+        "색상만", "색만", "글자 크기", "폰트만", "정렬만", "이동해",
+        "위치만", "간격만", "투명도", "회전", "애니메이션",
+    )
+    return any(token in normalized for token in broad_tokens) and not any(
+        token in normalized for token in explicit_small_edit_tokens
+    )
 
 
 def _build_deterministic_animation_proposal(
@@ -811,11 +1135,18 @@ def design_agent_system_prompt(
         "When the user requests new text, write concise content using existing slide context. "
         "Preserve text meaning. Avoid overlap, keep every element inside the canvas, "
         "maintain visual hierarchy, and emit the smallest necessary set of operations. "
+        "Broad requests such as '꾸며줘', '보기 좋게', '디자인해줘', beautify, or redesign "
+        "mean a substantial composition redesign, not a minor frame or color adjustment. "
+        "Prefer smartArtRequest and a server-side preset for those broad requests whenever "
+        "the visible content can form two to five items. "
         f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
         "If the user asks to turn a list of items, steps, or comparisons into a diagram "
         "(e.g. '스마트아트', 'SmartArt', a process/step diagram, a card layout), do NOT "
         "compute shape coordinates yourself and do NOT emit add_element operations for it. "
-        "Instead set smartArtRequest with a layoutType ('list' for a simple bulleted or "
+        "Choose exactly one entry from availableSmartArtLayouts whose item-count range fits "
+        "the extracted items. Return that entry's exact layoutId and layoutType; never invent "
+        "a layout. Prefer a different layoutId from the one represented on the slide when the "
+        "user asks for another design. Instead set smartArtRequest with a layoutType ('list' for a simple bulleted or "
         "numbered list, 'process' for sequential steps, 'card_grid' for parallel items such "
         "as team members or features, 'comparison' for two alternatives, "
         "'classification_grid' for four categories, 'timeline' for four chronological "
@@ -839,6 +1170,11 @@ def design_agent_system_prompt(
         "element opacity or visibility. For requests such as 'make this appear softly', use "
         "fade-in; for 'make this disappear softly', use fade-out. "
         "Do not claim the proposal has already been applied."
+        " When the user asks to create, rewrite, shorten, naturalize, emphasize, or improve "
+        "speaker notes/presenter notes/발표 메모, do not emit slide design operations. Set "
+        "uiAction to open-speaker-notes-assistant and choose mode draft for empty-note creation, "
+        "shorten for shorter notes, emphasize for stronger key points, or naturalize for general "
+        "rewriting. Set uiAction to null for all other requests."
     )
 
 
@@ -847,6 +1183,10 @@ def design_agent_user_prompt(request: DesignAgentRequest) -> str:
         "question": request.question,
         "context": request.context.model_dump(by_alias=True),
         "history": [item.model_dump() for item in request.history],
+        "availableSmartArtLayouts": [
+            layout.model_dump(by_alias=True)
+            for layout in request.available_smart_art_layouts
+        ],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
@@ -914,6 +1254,10 @@ def validate_design_proposal(
             continue
 
         if isinstance(operation, AddElementOperation):
+            if _fit_added_element_to_canvas(request.context.canvas, operation):
+                frame_warning = "Added element frame was adjusted to fit inside the slide canvas."
+                if frame_warning not in warnings:
+                    warnings.append(frame_warning)
             element = operation.element.model_dump(by_alias=True)
             element_id = operation.element.element_id
             if operation.element.type not in addable_types:
@@ -950,7 +1294,7 @@ def validate_design_proposal(
     if response.smart_art_request is not None:
         source_ids = set(response.smart_art_request.source_element_ids)
         selected_ids = set(request.context.selected_element_ids)
-        allows_slide_sources = _allows_unselected_slide_sources(request.question)
+        allows_slide_sources = response.interpreted_intent.target == "current-slide"
         if not allows_slide_sources and not source_ids.issubset(selected_ids):
             raise DesignAgentGenerationError(
                 "SmartArt sourceElementIds contains unselected elements."
@@ -962,6 +1306,24 @@ def validate_design_proposal(
         if any(original_elements[element_id].get("visible") is False for element_id in source_ids):
             raise DesignAgentGenerationError(
                 "SmartArt sourceElementIds contains hidden elements."
+            )
+        matching_layout = next(
+            (
+                layout
+                for layout in request.available_smart_art_layouts
+                if layout.layout_id == response.smart_art_request.layout_id
+            ),
+            None,
+        )
+        if (
+            matching_layout is None
+            or matching_layout.layout_type != response.smart_art_request.layout_type
+            or not matching_layout.item_count_min
+            <= len(response.smart_art_request.items)
+            <= matching_layout.item_count_max
+        ):
+            raise DesignAgentGenerationError(
+                "SmartArt layoutId is not an available layout for the item count."
             )
         directly_targeted_ids = {
             operation.element_id
@@ -991,7 +1353,7 @@ def validate_design_proposal(
 
 def _allows_unselected_slide_sources(question: str) -> bool:
     normalized = " ".join(question.lower().split())
-    return any(
+    return _is_broad_preset_request(question) or any(
         phrase in normalized
         for phrase in (
             "현재 페이지",
@@ -1027,6 +1389,19 @@ def _validate_frame_bounds(
         raise DesignAgentGenerationError("Operation produced an invalid element size.")
     if x + width > canvas.width or y + height > canvas.height:
         raise DesignAgentGenerationError("Operation places an element outside the canvas.")
+
+
+def _fit_added_element_to_canvas(
+    canvas: DesignAgentCanvas,
+    operation: AddElementOperation,
+) -> bool:
+    element = operation.element
+    original = (element.x, element.y, element.width, element.height)
+    element.width = min(element.width, canvas.width)
+    element.height = min(element.height, canvas.height)
+    element.x = min(max(element.x, 0), canvas.width - element.width)
+    element.y = min(max(element.y, 0), canvas.height - element.height)
+    return original != (element.x, element.y, element.width, element.height)
 
 
 def _image_aspect_warning(
