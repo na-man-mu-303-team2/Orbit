@@ -510,7 +510,7 @@ export function AiPptStyleColorPage(props: {
         setStory(next);
         if (next.status === "approved") {
           clearStoryApprovalDraft(props.projectId, props.jobId);
-          navigate(storyGenerationPath(next.projectId, next.jobId));
+          navigateToPath(storyGenerationPath(next.projectId, next.jobId));
           return;
         }
         if (
@@ -606,7 +606,7 @@ export function AiPptStyleColorPage(props: {
       );
       clearStoryApprovalDraft(props.projectId, props.jobId);
       setStory(next);
-      navigate(storyGenerationPath(next.projectId, next.jobId));
+      navigateToPath(storyGenerationPath(next.projectId, next.jobId));
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "AI PPT 생성에 실패했습니다.",
