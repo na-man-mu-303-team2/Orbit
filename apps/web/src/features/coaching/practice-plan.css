@@ -11,6 +11,7 @@
 .practice-goal-list li + li { border-top: 1px solid var(--redesign-color-outline-variant); }
 .practice-goal-row { align-items: center; background: var(--redesign-color-light-surface); border: 0; color: var(--redesign-color-on-surface); cursor: pointer; display: grid; gap: var(--redesign-space-4); grid-template-columns: 38px minmax(0, 1fr) auto; min-height: 108px; padding: var(--redesign-space-4) var(--redesign-space-5); text-align: left; width: 100%; }
 .practice-goal-row[aria-pressed="true"] { background: var(--redesign-color-secondary-container); }
+.practice-goal-row[aria-pressed="true"] .practice-goal-priority { color: var(--redesign-color-on-secondary-container); }
 .practice-goal-row:focus-visible { border-radius: var(--redesign-radius); box-shadow: var(--redesign-focus-ring); outline: none; }
 .practice-goal-priority { color: var(--redesign-color-secondary); font-family: var(--redesign-font-family); font-size: var(--redesign-type-label-sm-size); font-weight: 700; }
 .practice-goal-row small, .practice-goal-row strong { display: block; }
