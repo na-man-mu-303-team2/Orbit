@@ -11789,6 +11789,15 @@ body.is-resizing-speaker-notes {
   transition: opacity var(--redesign-duration-slow) var(--redesign-ease-standard), border-right-width var(--redesign-duration-slow) var(--redesign-ease-standard);
 }
 
+.orbit-shell.editor-professional .slides-pane-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.orbit-shell.editor-professional .slides-pane-content > .slide-rail {
+  height: 100%;
+}
+
 .orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode {
   grid-template-columns:
     var(--slides-pane-width, 184px)
