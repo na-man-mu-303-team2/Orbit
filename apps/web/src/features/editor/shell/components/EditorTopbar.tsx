@@ -254,7 +254,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
                   ]}
                   subtitle={`프레젠테이션 · ${canvas.width} × ${canvas.height}px`}
                   title={deckTitle}
-                  variant="dark"
+                  variant="white"
                 />
               ) : null}
             </div>

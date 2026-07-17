@@ -50,19 +50,23 @@
 }
 
 .redesign-dark .redesign-dropdown-menu-white {
-  --redesign-dropdown-background: var(--redesign-color-inverse-surface);
+  --redesign-dropdown-background: var(--redesign-color-light-surface);
   --redesign-dropdown-border: color-mix(
     in srgb,
-    var(--redesign-color-inverse-on-surface) 18%,
+    var(--redesign-color-on-light) 14%,
     transparent
   );
   --redesign-dropdown-hover: color-mix(
     in srgb,
-    var(--redesign-color-inverse-on-surface) 8%,
+    var(--redesign-color-on-light) 6%,
     transparent
   );
-  --redesign-dropdown-icon: var(--redesign-color-inverse-on-surface);
-  --redesign-dropdown-text: var(--redesign-color-inverse-on-surface);
+  --redesign-dropdown-icon: color-mix(
+    in srgb,
+    var(--redesign-color-on-light) 64%,
+    transparent
+  );
+  --redesign-dropdown-text: var(--redesign-color-on-light);
 }
 
 .redesign-dropdown-menu-start {

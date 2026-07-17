@@ -92,7 +92,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
           <DropdownMenu
             align="end"
             className="editor-presentation-menu"
-            variant="black"
+            variant="white"
           >
             <DropdownMenuItem
               aria-label="발표 시작"

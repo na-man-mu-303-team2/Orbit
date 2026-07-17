@@ -9890,8 +9890,8 @@ body.is-resizing-speaker-notes {
   line-height: 0;
 }
 
-/* File menu variants. Dark is used by the editor; soft-gray and var(--redesign-color-light-surface) are
- * available for lighter application surfaces without duplicating markup. */
+/* File menu variants share the application dropdown markup. The editor uses
+ * the light variant to match the account menu on the home surface. */
 .orbit-shell .editor-file-menu {
   --editor-file-menu-background: var(--redesign-color-surface-container-low);
   --editor-file-menu-border: var(--redesign-color-outline-variant);
@@ -9925,11 +9925,11 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell .editor-file-menu--white {
-  --editor-file-menu-background: var(--redesign-color-inverse-surface);
-  --editor-file-menu-border: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 18%, transparent);
-  --editor-file-menu-text: var(--redesign-color-inverse-on-surface);
-  --editor-file-menu-muted: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 64%, transparent);
-  --editor-file-menu-hover: color-mix(in srgb, var(--redesign-color-primary) 16%, transparent);
+  --editor-file-menu-background: var(--redesign-dropdown-background);
+  --editor-file-menu-border: var(--redesign-dropdown-border);
+  --editor-file-menu-text: var(--redesign-dropdown-text);
+  --editor-file-menu-muted: var(--redesign-dropdown-icon);
+  --editor-file-menu-hover: var(--redesign-dropdown-hover);
 }
 
 .orbit-shell .editor-file-menu-context {

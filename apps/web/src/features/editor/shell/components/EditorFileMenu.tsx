@@ -22,7 +22,7 @@ type EditorFileMenuProps = {
 };
 
 export function EditorFileMenu(props: EditorFileMenuProps) {
-  const variant = props.variant ?? "dark";
+  const variant = props.variant ?? "white";
   const dropdownVariant = variant === "white" ? "white" : "black";
 
   return (
