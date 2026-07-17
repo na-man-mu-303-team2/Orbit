@@ -120,4 +120,37 @@ describe("ActivityResultSlideRenderer", () => {
     expect(html).toContain("공개 전 원문 sentinel");
     expect(html).toContain("pending");
   });
+
+  it("renders approved audience text as escaped plain text", () => {
+    const maliciousText = '<img src=x onerror="alert(1)">';
+    const html = renderToStaticMarkup(
+      <ActivityResultSlideRenderer
+        presenterResult={{
+          ...presenterResult,
+          textEntries: [
+            {
+              ...presenterResult.textEntries[0]!,
+              text: maliciousText,
+              moderationStatus: "approved"
+            }
+          ]
+        }}
+        publicResult={null}
+        role="presenter"
+        run={run}
+        slide={{
+          ...resultSlide,
+          activityResult: {
+            ...resultSlide.activityResult,
+            layout: "approved-text"
+          }
+        }}
+        source={source}
+      />
+    );
+
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain('onerror="alert(1)"');
+  });
 });

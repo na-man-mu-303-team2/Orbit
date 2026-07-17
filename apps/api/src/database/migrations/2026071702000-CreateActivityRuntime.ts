@@ -47,6 +47,17 @@ export class CreateActivityRuntime2026071702000 implements MigrationInterface {
       ON activity_runs (project_id, session_id, created_at DESC)
     `);
     await queryRunner.query(`
+      UPDATE presentation_sessions sessions
+      SET active_activity_run_id = NULL
+      WHERE active_activity_run_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM activity_runs runs
+          WHERE runs.project_id = sessions.project_id
+            AND runs.activity_run_id = sessions.active_activity_run_id
+        )
+    `);
+    await queryRunner.query(`
       ALTER TABLE presentation_sessions
       ADD CONSTRAINT fk_presentation_sessions_active_activity_run
       FOREIGN KEY (project_id, active_activity_run_id)
@@ -120,6 +131,11 @@ export class CreateActivityRuntime2026071702000 implements MigrationInterface {
     await queryRunner.query(`
       ALTER TABLE presentation_sessions
       DROP CONSTRAINT IF EXISTS fk_presentation_sessions_active_activity_run
+    `);
+    await queryRunner.query(`
+      UPDATE presentation_sessions
+      SET active_activity_run_id = NULL
+      WHERE active_activity_run_id IS NOT NULL
     `);
     await queryRunner.query(`DROP TABLE IF EXISTS activity_result_snapshots`);
     await queryRunner.query(`DROP INDEX IF EXISTS idx_activity_text_entries_response_status`);

@@ -81,6 +81,57 @@ describe("processDeckExportJob", () => {
     ).toBe(true);
   });
 
+  it("uses the generic exporter for imported Activity decks and sends only static content", async () => {
+    const deck = createActivityDeck("import");
+    const original = structuredClone(deck);
+    const { dataSource, query, transaction } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-a",
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://localhost:8000/ai/export-deck-pptx");
+      const body = JSON.parse(String(init?.body));
+      expect(JSON.stringify(body)).toContain(
+        "실시간 참여는 발표 중 제공됩니다.",
+      );
+      expect(JSON.stringify(body)).toContain(
+        "발표 세션을 선택하면 결과를 포함할 수 있습니다",
+      );
+      expect(
+        body.deck.slides.every(
+          (slide: Deck["slides"][number]) => slide.kind === "content",
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(body)).not.toMatch(/speaker secret|joinCode|qr/i);
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("generic-pptx").toString("base64"),
+          warnings: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck).toEqual(original);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("FROM template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
   it.each([
     ["a different current deck", "deck_b"],
     ["no current deck row", null],
@@ -379,6 +430,53 @@ function createDeck(sourceType: "ai" | "import"): Deck {
         semanticCues: [],
         animations: [],
         actions: [],
+      },
+    ],
+  };
+}
+
+function createActivityDeck(sourceType: "ai" | "import"): Deck {
+  const deck = createDeck(sourceType);
+  const base = deck.slides[0];
+  return {
+    ...deck,
+    slides: [
+      {
+        ...base,
+        kind: "activity",
+        title: "참여",
+        speakerNotes: "speaker secret",
+        activity: {
+          activityId: "activity_1",
+          template: "satisfaction",
+          title: "발표 만족도",
+          description: "",
+          questions: [
+            {
+              questionId: "question_1",
+              type: "rating",
+              prompt: "발표가 유익했나요?",
+              required: true,
+              leftLabel: "아니요",
+              rightLabel: "그래요",
+            },
+          ],
+          allowDisplayName: false,
+          hideResultsUntilReveal: true,
+        },
+      },
+      {
+        ...base,
+        slideId: "slide_2",
+        order: 2,
+        kind: "activity-results",
+        title: "결과",
+        speakerNotes: "speaker secret",
+        activityResult: {
+          sourceActivityId: "activity_1",
+          display: "live",
+          layout: "summary",
+        },
       },
     ],
   };

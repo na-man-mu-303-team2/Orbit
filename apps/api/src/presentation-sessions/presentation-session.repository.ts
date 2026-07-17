@@ -189,8 +189,9 @@ export class PresentationSessionRepository {
       `
         UPDATE presentation_sessions
         SET status = 'ended', active_activity_run_id = NULL,
-            ended_at = $2, closed_at = $2,
-            raw_responses_delete_after = $2 + interval '90 days', updated_at = $2
+            ended_at = $2::timestamptz, closed_at = $2::timestamptz,
+            raw_responses_delete_after = $2::timestamptz + interval '90 days',
+            updated_at = $2::timestamptz
         WHERE project_id = $1 AND session_id = ANY($3::text[])
       `,
       [projectId, now, sessionIds]
@@ -297,17 +298,17 @@ export class PresentationSessionRepository {
       `,
       [projectId, sessionId, now]
     );
-    const rows = await manager.query<PresentationSessionRow[]>(
+    await manager.query(
       `
         UPDATE presentation_sessions
         SET status = 'ended', active_activity_run_id = NULL,
-            ended_at = $3, closed_at = $3,
-            raw_responses_delete_after = $3 + interval '90 days', updated_at = $3
+            ended_at = $3::timestamptz, closed_at = $3::timestamptz,
+            raw_responses_delete_after = $3::timestamptz + interval '90 days',
+            updated_at = $3::timestamptz
         WHERE project_id = $1 AND session_id = $2
-        RETURNING ${sessionColumns}
       `,
       [projectId, sessionId, now]
     );
-    return rows[0] ?? null;
+    return this.findById(manager, projectId, sessionId, false);
   }
 }

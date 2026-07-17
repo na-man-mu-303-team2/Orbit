@@ -26,7 +26,10 @@ const sessionRow = {
   updated_at: "2026-07-17T00:00:00.000Z"
 };
 
-function createService(overrides: Partial<PresentationSessionRepository> = {}) {
+function createService(
+  overrides: Partial<PresentationSessionRepository> = {},
+  audienceRateLimit?: { consumeJoin: ReturnType<typeof vi.fn> }
+) {
   const manager = {} as never;
   const repository = {
     transaction: vi.fn(async (work) => work(manager)),
@@ -51,7 +54,14 @@ function createService(overrides: Partial<PresentationSessionRepository> = {}) {
     ...overrides
   } as unknown as PresentationSessionRepository;
   const logger = { info: vi.fn() } as never;
-  return { repository, service: new PresentationSessionsService(repository, logger) };
+  return {
+    repository,
+    service: new PresentationSessionsService(
+      repository,
+      logger,
+      audienceRateLimit as never
+    )
+  };
 }
 
 describe("PresentationSessionsService", () => {
@@ -110,7 +120,8 @@ describe("PresentationSessionsService", () => {
   });
 
   it("allows a public audience session to join without a passcode", async () => {
-    const { service } = createService();
+    const audienceRateLimit = { consumeJoin: vi.fn() };
+    const { service } = createService({}, audienceRateLimit);
 
     await expect(service.joinAudience("session_existing", {})).resolves.toMatchObject({
       verified: true,
@@ -120,6 +131,38 @@ describe("PresentationSessionsService", () => {
         accessMode: "public"
       }
     });
+    expect(audienceRateLimit.consumeJoin).not.toHaveBeenCalled();
+  });
+
+  it("returns the fixed 429 before verifying an excessive passcode attempt", async () => {
+    const limitError = Object.assign(new Error("Too many audience requests"), {
+      status: 429
+    });
+    const audienceRateLimit = {
+      consumeJoin: vi.fn().mockRejectedValue(limitError)
+    };
+    const { service } = createService(
+      {
+        findAccessibleBySessionId: vi.fn().mockResolvedValue({
+          ...sessionRow,
+          access_mode: "passcode",
+          session_password_hash: "hash"
+        })
+      },
+      audienceRateLimit
+    );
+
+    await expect(
+      service.joinAudience(
+        "session_existing",
+        { passcode: "wrong-passcode" },
+        "203.0.113.10"
+      )
+    ).rejects.toBe(limitError);
+    expect(audienceRateLimit.consumeJoin).toHaveBeenCalledWith(
+      "session_existing",
+      "203.0.113.10"
+    );
   });
 
   it("uses one generalized error for a closed session or invalid access", async () => {

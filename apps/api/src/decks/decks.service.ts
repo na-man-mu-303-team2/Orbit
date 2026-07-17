@@ -199,12 +199,22 @@ export class DecksService {
 
     const request = deckExportRequestSchema.parse(body ?? {});
     const { deck } = await this.getDeck(projectId);
+    if (request.presentationSessionId) {
+      await this.assertExportSession(
+        projectId,
+        deck.deckId,
+        request.presentationSessionId,
+      );
+    }
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "deck-export",
       payload: {
         deckId: deck.deckId,
         format: request.format,
+        ...(request.presentationSessionId
+          ? { presentationSessionId: request.presentationSessionId }
+          : {}),
       },
     });
 
@@ -217,7 +227,19 @@ export class DecksService {
         projectId,
         deck,
         format: request.format,
+        ...(request.presentationSessionId
+          ? { presentationSessionId: request.presentationSessionId }
+          : {}),
       });
+      this.logger?.info(
+        {
+          event: "deck_export.enqueued",
+          jobId: queuedJob.jobId,
+          projectId,
+          presentationSessionId: request.presentationSessionId,
+        },
+        "Deck export job enqueued.",
+      );
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
         status: "failed",
@@ -235,6 +257,29 @@ export class DecksService {
     }
 
     return { job: jobSchema.parse(queuedJob) };
+  }
+
+  private async assertExportSession(
+    projectId: string,
+    deckId: string,
+    sessionId: string,
+  ) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT session_id
+        FROM presentation_sessions
+        WHERE project_id = $1 AND deck_id = $2 AND session_id = $3
+          AND results_deleted_at IS NULL
+        LIMIT 1
+      `,
+      [projectId, deckId, sessionId],
+    );
+    if (!rows[0]) {
+      throw new HttpException(
+        "Presentation session not found for export",
+        HttpStatus.NOT_FOUND,
+      );
+    }
   }
 
   async putDeck(projectId: string, body: unknown): Promise<PutDeckResponse> {

@@ -6,8 +6,10 @@ export const deckExportFormatSchema = z.literal("pptx");
 
 export const deckExportRequestSchema = z
   .object({
-    format: deckExportFormatSchema.default("pptx")
+    format: deckExportFormatSchema.default("pptx"),
+    presentationSessionId: z.string().trim().min(1).optional(),
   })
+  .strict()
   .default({});
 
 export const deckExportJobResultSchema = z.object({

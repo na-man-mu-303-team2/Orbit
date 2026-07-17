@@ -10,13 +10,17 @@ import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import { projectActivityDeckForStaticExport } from "./activity-export-projection";
 
-const deckExportPayloadSchema = z.object({
-  jobId: z.string().min(1),
-  projectId: z.string().min(1),
-  deck: deckSchema,
-  format: deckExportFormatSchema,
-});
+const deckExportPayloadSchema = z
+  .object({
+    jobId: z.string().min(1),
+    projectId: z.string().min(1),
+    deck: deckSchema,
+    format: deckExportFormatSchema,
+    presentationSessionId: z.string().trim().min(1).optional(),
+  })
+  .strict();
 
 const pythonExportResponseSchema = z.object({
   contentBase64: z.string().min(1),
@@ -96,6 +100,9 @@ export async function processDeckExportJob(
   }
 
   const payload = payloadResult.data;
+  const containsActivitySlides = payload.deck.slides.some(
+    (slide) => slide.kind === "activity" || slide.kind === "activity-results",
+  );
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 20,
@@ -104,6 +111,29 @@ export async function processDeckExportJob(
     error: null,
   });
 
+  let exportPayload: DeckExportPayload;
+  try {
+    exportPayload = {
+      ...payload,
+      deck: await projectActivityDeckForStaticExport(
+        dataSource,
+        payload.projectId,
+        payload.deck,
+        payload.presentationSessionId,
+      ),
+    };
+  } catch (error) {
+    return failJob(
+      dataSource,
+      payload.jobId,
+      20,
+      "DECK_EXPORT_ACTIVITY_PROJECTION_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Activity slide export projection failed.",
+    );
+  }
+
   const readyAttempts = Math.max(1, options.ooxmlReadyAttempts ?? 5);
   const readyDelayMs = Math.max(0, options.ooxmlReadyDelayMs ?? 1_000);
   try {
@@ -111,7 +141,8 @@ export async function processDeckExportJob(
       const imported = await exportImportedDeckIfReady(
         dataSource,
         storage,
-        payload,
+        exportPayload,
+        containsActivitySlides,
       );
       if (imported.kind === "completed") return imported.job;
       if (imported.kind === "generic") break;
@@ -142,12 +173,12 @@ export async function processDeckExportJob(
       dataSource,
       storage,
       payload.projectId,
-      payload.deck,
+      exportPayload.deck,
     );
     response = await fetch(workerUrl(pythonWorkerUrl, "/ai/export-deck-pptx"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deck: exportDeck, format: payload.format }),
+      body: JSON.stringify({ deck: exportDeck, format: exportPayload.format }),
       signal: AbortSignal.timeout(120_000),
     });
   } catch (error) {
@@ -212,7 +243,11 @@ async function exportImportedDeckIfReady(
   dataSource: DataSource,
   storage: Pick<StoragePort, "putObject" | "getSignedReadUrl">,
   payload: DeckExportPayload,
+  containsActivitySlides = false,
 ): Promise<ImportedExportResult> {
+  if (containsActivitySlides) {
+    return { kind: "generic" };
+  }
   const templateBlueprint = await loadOoxmlTemplateBlueprint(
     dataSource,
     payload.projectId,

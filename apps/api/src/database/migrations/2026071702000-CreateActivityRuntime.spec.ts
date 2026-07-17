@@ -16,6 +16,7 @@ describe("CreateActivityRuntime migration", () => {
     expect(sql).toContain("uq_activity_responses_run_audience");
     expect(sql).toContain("uq_activity_text_entries_response_question");
     expect(sql).toContain("fk_presentation_sessions_active_activity_run");
+    expect(sql).toContain("NOT EXISTS");
   });
 
   it("drops the circular session foreign key before child tables", async () => {
@@ -25,6 +26,7 @@ describe("CreateActivityRuntime migration", () => {
 
     const statements = query.mock.calls.map(([value]) => value);
     expect(statements[0]).toContain("fk_presentation_sessions_active_activity_run");
+    expect(statements[1]).toContain("SET active_activity_run_id = NULL");
     expect(statements.at(-1)).toContain("DROP TABLE IF EXISTS activity_runs");
   });
 });

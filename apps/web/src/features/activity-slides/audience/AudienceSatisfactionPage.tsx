@@ -27,6 +27,7 @@ import {
   type SatisfactionDraft,
   type SatisfactionDraftErrors
 } from "./activityFormModel";
+import { connectAudienceActivityRealtime } from "../model/activityRealtimeClient";
 import "./audience-satisfaction.css";
 
 type AudienceMode = "loading" | "join" | "waiting" | "form" | "receipt" | "error";
@@ -40,6 +41,7 @@ export function AudienceSatisfactionPage(props: {
   const [sessionTitle, setSessionTitle] = useState("발표 참여");
   const [passcode, setPasscode] = useState("");
   const [hasAccess, setHasAccess] = useState(false);
+  const [accessProjectId, setAccessProjectId] = useState<string | null>(null);
   const [current, setCurrent] = useState<GetAudienceActivityResponse | null>(null);
   const [pending, setPending] = useState<GetAudienceActivityResponse | null>(null);
   const [ignoredActivityId, setIgnoredActivityId] = useState<string | null>(null);
@@ -84,8 +86,11 @@ export function AudienceSatisfactionPage(props: {
           return;
         }
         try {
-          await activityApi.getAudienceAccess(props.sessionId);
-          if (!cancelled) setHasAccess(true);
+          const access = await activityApi.getAudienceAccess(props.sessionId);
+          if (!cancelled) {
+            setAccessProjectId(access.session.projectId);
+            setHasAccess(true);
+          }
         } catch {
           if (!cancelled) setMode("join");
         }
@@ -120,33 +125,72 @@ export function AudienceSatisfactionPage(props: {
     return () => { cancelled = true; };
   }, [hasAccess, props.activityId, props.sessionId, showActivity]);
 
-  useEffect(() => {
-    if (!hasAccess) return;
-    let cancelled = false;
-    async function refreshActiveActivity() {
-      try {
-        const next = (await activityApi.getAudienceActiveActivity(props.sessionId)).activity;
+  const refreshActiveActivity = useCallback(async () => {
+    try {
+      const next = (await activityApi.getAudienceActiveActivity(props.sessionId)).activity;
+      if (!next) {
+        if (!current) setMode("waiting");
+        return;
+      }
+      if (next.activityId === current?.activityId) {
         if (
-          cancelled ||
-          !next ||
-          next.activityId === current?.activityId ||
-          next.activityId === ignoredActivityId
-        ) return;
-        if (mode === "form" && isDirty && hasSatisfactionDraft(draft)) {
-          setPending(next);
+          next.run.activityRunId === current.run.activityRunId &&
+          next.run.revision <= current.run.revision
+        ) {
           return;
         }
-        showActivity(next);
-      } catch {
-        // Reconnect and the next HTTP poll restore the authoritative snapshot.
+        setCurrent(next);
+        return;
       }
+      if (next.activityId === ignoredActivityId) return;
+      if (mode === "form" && isDirty && hasSatisfactionDraft(draft)) {
+        setPending(next);
+        return;
+      }
+      showActivity(next);
+    } catch {
+      // Reconnect and the next HTTP poll restore the authoritative snapshot.
     }
-    const timer = window.setInterval(() => void refreshActiveActivity(), 2_000);
+  }, [current, draft, ignoredActivityId, isDirty, mode, props.sessionId, showActivity]);
+  const refreshActiveActivityRef = useRef(refreshActiveActivity);
+  const realtimeConnectionRef = useRef<
+    ReturnType<typeof connectAudienceActivityRealtime> | null
+  >(null);
+
+  useEffect(() => {
+    refreshActiveActivityRef.current = refreshActiveActivity;
+  }, [refreshActiveActivity]);
+
+  useEffect(() => {
+    if (!hasAccess || !accessProjectId) return;
+    const connection = connectAudienceActivityRealtime({
+      current: current
+        ? { revision: current.run.revision, runId: current.run.activityRunId }
+        : null,
+      onRefresh: () => refreshActiveActivityRef.current(),
+      projectId: accessProjectId,
+      sessionId: props.sessionId
+    });
+    realtimeConnectionRef.current = connection;
     return () => {
-      cancelled = true;
-      window.clearInterval(timer);
+      realtimeConnectionRef.current = null;
+      connection.disconnect();
     };
-  }, [current?.activityId, draft, hasAccess, ignoredActivityId, isDirty, mode, props.sessionId, showActivity]);
+  }, [accessProjectId, hasAccess, props.sessionId]);
+
+  useEffect(() => {
+    realtimeConnectionRef.current?.sync(
+      current
+        ? { revision: current.run.revision, runId: current.run.activityRunId }
+        : null
+    );
+  }, [current?.run.activityRunId, current?.run.revision]);
+
+  useEffect(() => {
+    if (!hasAccess) return;
+    const timer = window.setInterval(() => void refreshActiveActivity(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [hasAccess, refreshActiveActivity]);
 
   useEffect(() => {
     if (mode === "receipt" && typeof window !== "undefined") {
@@ -159,10 +203,11 @@ export function AudienceSatisfactionPage(props: {
     setErrorMessage("");
     setMode("loading");
     try {
-      await activityApi.joinAudience(
+      const access = await activityApi.joinAudience(
         props.sessionId,
         accessMode === "passcode" ? { passcode } : {}
       );
+      setAccessProjectId(access.session.projectId);
       setHasAccess(true);
     } catch (error) {
       setErrorMessage(toMessage(error, "입장 비밀번호를 확인해 주세요."));
