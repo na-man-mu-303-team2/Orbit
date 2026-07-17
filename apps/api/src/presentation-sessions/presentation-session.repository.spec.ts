@@ -15,4 +15,49 @@ describe("PresentationSessionRepository", () => {
     expect(sql).toContain("projects.title AS project_title");
     expect(sql).toContain("WHERE sessions.session_id = $1");
   });
+
+  it("casts the shared close timestamp before adding the retention interval", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([{ session_id: "session_1" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const repository = new PresentationSessionRepository({} as DataSource);
+
+    await repository.closeActive(
+      { query } as never,
+      "project_1",
+      new Date("2026-07-17T01:00:00.000Z")
+    );
+
+    const closeSql = String(query.mock.calls[2]?.[0]);
+    expect(closeSql).toContain("raw_responses_delete_after = $2::timestamptz");
+    expect(closeSql).toContain("updated_at = $2::timestamptz");
+  });
+
+  it("reloads the canonical session row after closing", async () => {
+    const live = { session_id: "session_1", status: "live" };
+    const ended = { ...live, deck_id: "deck_1", deck_version: 1, status: "ended" };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce([live])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([ended]);
+    const repository = new PresentationSessionRepository({} as DataSource);
+
+    await expect(
+      repository.close(
+        { query } as never,
+        "project_1",
+        "session_1",
+        new Date("2026-07-17T01:00:00.000Z")
+      )
+    ).resolves.toEqual(ended);
+
+    expect(String(query.mock.calls[3]?.[0])).toContain(
+      "WHERE project_id = $1 AND session_id = $2"
+    );
+    expect(String(query.mock.calls[3]?.[0])).not.toContain("FOR UPDATE");
+  });
 });
