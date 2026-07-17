@@ -122,6 +122,24 @@ export class PresentationSessionRepository {
     return rows[0] ?? null;
   }
 
+  async registerAudience(
+    projectId: string,
+    sessionId: string,
+    audienceId: string,
+    joinedAt = new Date()
+  ): Promise<void> {
+    await this.dataSource.query(
+      `
+        INSERT INTO presentation_session_audiences (
+          project_id, session_id, audience_id, joined_at
+        )
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (project_id, session_id, audience_id) DO NOTHING
+      `,
+      [projectId, sessionId, audienceId, joinedAt]
+    );
+  }
+
   async findAudienceInfo(sessionId: string): Promise<AudiencePresentationSessionRow | null> {
     const rows = await this.dataSource.query<AudiencePresentationSessionRow[]>(
       `

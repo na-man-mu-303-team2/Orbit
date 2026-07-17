@@ -47,6 +47,7 @@ function createService(
       raw_responses_delete_after: "2026-10-15T01:00:00.000Z"
     }),
     findAccessibleBySessionId: vi.fn().mockResolvedValue(sessionRow),
+    registerAudience: vi.fn().mockResolvedValue(undefined),
     findAudienceInfo: vi.fn().mockResolvedValue({
       ...sessionRow,
       project_title: "ORBIT 발표"
@@ -121,9 +122,16 @@ describe("PresentationSessionsService", () => {
 
   it("allows a public audience session to join without a passcode", async () => {
     const audienceRateLimit = { consumeJoin: vi.fn() };
-    const { service } = createService({}, audienceRateLimit);
+    const { repository, service } = createService({}, audienceRateLimit);
 
-    await expect(service.joinAudience("session_existing", {})).resolves.toMatchObject({
+    await expect(
+      service.joinAudience(
+        "session_existing",
+        {},
+        "audience_1",
+        "203.0.113.10"
+      )
+    ).resolves.toMatchObject({
       verified: true,
       session: {
         sessionId: "session_existing",
@@ -132,6 +140,11 @@ describe("PresentationSessionsService", () => {
       }
     });
     expect(audienceRateLimit.consumeJoin).not.toHaveBeenCalled();
+    expect(repository.registerAudience).toHaveBeenCalledWith(
+      "project_1",
+      "session_existing",
+      "audience_1"
+    );
   });
 
   it("returns the fixed 429 before verifying an excessive passcode attempt", async () => {
@@ -156,6 +169,7 @@ describe("PresentationSessionsService", () => {
       service.joinAudience(
         "session_existing",
         { passcode: "wrong-passcode" },
+        "audience_1",
         "203.0.113.10"
       )
     ).rejects.toBe(limitError);
@@ -170,7 +184,9 @@ describe("PresentationSessionsService", () => {
       findAccessibleBySessionId: vi.fn().mockResolvedValue(null)
     });
 
-    await expect(service.joinAudience("session_closed", {})).rejects.toMatchObject({
+    await expect(
+      service.joinAudience("session_closed", {}, "audience_1")
+    ).rejects.toMatchObject({
       message: "Invalid audience session or passcode"
     });
   });

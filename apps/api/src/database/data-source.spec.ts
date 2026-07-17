@@ -92,5 +92,8 @@ describe("databaseOptions", () => {
     expect(names.indexOf("CreateActivityRuntime2026071702000")).toBeGreaterThan(
       names.indexOf("ExpandPresentationSessionsForActivities2026071701000"),
     );
+    expect(
+      names.indexOf("CreatePresentationSessionAudienceRegistry2026071703000")
+    ).toBeGreaterThan(names.indexOf("CreateActivityRuntime2026071702000"));
   });
 });
