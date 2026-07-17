@@ -1,10 +1,12 @@
+import { normalizeRichTextProps } from "@orbit/editor-core";
 import {
   maxAssetUploadSizeBytes,
   type CustomShapeNode,
   type Deck,
   type DeckCanvas,
   type DeckElement,
-  type Slide
+  type Slide,
+  type TextElementProps
 } from "@orbit/shared";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
@@ -40,7 +42,10 @@ import {
   completeImageCropDraft,
   ImageCropOverlay
 } from "./image/ImageCropOverlay";
-import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
+import {
+  InlineTextEditorOverlay,
+  type InlineTextEditorController
+} from "./text/InlineTextEditorOverlay";
 import { TextContextToolbar } from "./text/TextContextToolbar";
 import {
   commitCustomShapeEditGeometry,
@@ -371,6 +376,7 @@ export function EditableCanvas(props: {
     onSelectElements = onClearSelection
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
+  const inlineTextEditorRef = useRef<InlineTextEditorController | null>(null);
   const altSnapBypassRef = useRef(false);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(
@@ -395,6 +401,10 @@ export function EditableCanvas(props: {
     end: number;
     start: number;
   } | null>(null);
+  const [editingTextDraft, setEditingTextDraft] = useState<{
+    elementId: string;
+    props: TextElementProps;
+  } | null>(null);
   const selectedTextElement =
     selectedElementIds.length === 1
       ? (visibleElements.find(
@@ -403,6 +413,14 @@ export function EditableCanvas(props: {
             candidate.type === "text"
         ) ?? null)
       : null;
+  const textToolbarElement =
+    selectedTextElement &&
+    editingTextDraft?.elementId === selectedTextElement.elementId
+      ? { ...selectedTextElement, props: editingTextDraft.props }
+      : selectedTextElement;
+  const textEditCompositeId = editingElementId
+    ? `inline-text-edit-${editingElementId}`
+    : undefined;
   const imageCropElement =
     !disableInteractions &&
     imageCropElementId &&
@@ -462,6 +480,7 @@ export function EditableCanvas(props: {
   useEffect(() => {
     pendingTextBlurActionRef.current = null;
     setActiveTextRange(null);
+    setEditingTextDraft(null);
   }, [editingElementId]);
 
   useSyncCustomShapeEditDraft({
@@ -501,14 +520,20 @@ export function EditableCanvas(props: {
     onFinishEditing();
   }
 
-  function handleTextSelection(event: React.SyntheticEvent<HTMLDivElement>) {
-    const target = event.target;
-    if (!(target instanceof HTMLTextAreaElement) || !editingElementId) return;
-    setActiveTextRange({
-      elementId: editingElementId,
-      end: target.selectionEnd,
-      start: target.selectionStart
-    });
+  function handleTextToolbarCommit(
+    elementId: string,
+    props: Record<string, unknown>
+  ) {
+    if (editingElementId === elementId && inlineTextEditorRef.current) {
+      const nextProps = normalizeRichTextProps({
+        ...inlineTextEditorRef.current.getDraftProps(),
+        ...props
+      } as TextElementProps);
+      inlineTextEditorRef.current.applyDraftProps(nextProps);
+      setEditingTextDraft({ elementId, props: nextProps });
+      return;
+    }
+    onCommitElementProps(elementId, props);
   }
 
   useCanvasKeyboardShortcuts({
@@ -644,7 +669,6 @@ export function EditableCanvas(props: {
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
       ref={setContainerElement}
-      onSelectCapture={handleTextSelection}
     >
       <Stage
         className="konva-canvas-layer"
@@ -839,15 +863,20 @@ export function EditableCanvas(props: {
           }}
         />
       ) : null}
-      {selectedTextElement &&
+      {textToolbarElement &&
       !imageCropElement &&
       insertTool === "select" &&
       !customShapeEditElementId ? (
         <TextContextToolbar
           deck={deck}
-          element={selectedTextElement}
+          editCompositeId={
+            editingElementId === textToolbarElement.elementId
+              ? textEditCompositeId
+              : undefined
+          }
+          element={textToolbarElement}
           range={
-            activeTextRange?.elementId === selectedTextElement.elementId
+            activeTextRange?.elementId === textToolbarElement.elementId
               ? activeTextRange
               : null
           }
@@ -855,20 +884,35 @@ export function EditableCanvas(props: {
           slide={slide}
           stageElement={containerElement}
           stageScale={stageScale}
-          onCommitProps={onCommitElementProps}
+          onCommitProps={handleTextToolbarCommit}
+          onEditCompositeBlur={(nextTarget) =>
+            inlineTextEditorRef.current?.handleCompositeBlur(nextTarget)
+          }
+          onPreserveRange={() => inlineTextEditorRef.current?.preserveRange()}
         />
       ) : null}
       {!canvasInteractionDisabled && editingElementId ? (
         <InlineTextEditorOverlay
           deck={deck}
+          editCompositeId={textEditCompositeId}
           element={
             visibleElements.find((candidate) => candidate.elementId === editingElementId) ??
             null
           }
+          key={editingElementId}
+          ref={inlineTextEditorRef}
           slide={slide}
           stageScale={stageScale}
           onCommitProps={onCommitElementProps}
+          onDraftPropsChange={(props) =>
+            setEditingTextDraft({ elementId: editingElementId, props })
+          }
           onFinishEditing={handleInlineTextEditingFinish}
+          onRangeChange={(range) =>
+            setActiveTextRange(
+              range ? { elementId: editingElementId, ...range } : null
+            )
+          }
         />
       ) : null}
       {!disableInteractions && insertTool === "customShape" ? (
