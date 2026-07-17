@@ -1,14 +1,11 @@
 import type { Deck } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
-  IconCloud as Cloud,
-  IconDownload as Download,
   IconFileText as FileText,
   IconHistory as History,
   IconHome as Home,
   IconRefresh as RefreshCw,
-  IconShare as Share2,
-  IconUpload as Upload
+  IconShare as Share2
 } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
 
@@ -19,6 +16,8 @@ import {
   type ProjectPresenceUser
 } from "../hooks/useProjectPresence";
 import { EditorSaveControl } from "./EditorSaveControl";
+import { EditorFileMenu } from "./EditorFileMenu";
+import { EditorIconButton } from "./EditorIconButton";
 import { PresentationMenu } from "./PresentationMenu";
 
 type EditorTopbarProps = {
@@ -118,24 +117,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
     };
   }, [activeTopMenu, setActiveTopMenu]);
 
-  const fileMenuItems = [
-    { action: "import", icon: Upload, label: "PPTX 가져오기", meta: pptxImportMeta },
-    {
-      action: "save",
-      icon: Cloud,
-      label: saving ? "저장 중..." : "저장",
-      meta: saveMenuMeta
-    }
-  ];
-  const exportMenuItem = {
-    action: "pptx",
-    disabled: isPptxExporting,
-    icon: Download,
-    label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
-    meta: pptxExportMessage
-  };
-  const ExportIcon = exportMenuItem.icon;
-
   return (
     <header className="app-topbar" ref={topbarRef}>
       <div className="topbar-left">
@@ -147,40 +128,51 @@ export function EditorTopbar(props: EditorTopbarProps) {
             </span>
           </div>
           <div className="menu-row">
-            <button aria-label="ORBIT 홈으로 이동" className="top-icon-button" title="홈으로 이동" type="button" onClick={onExitToHome}>
-              <Home size={15} />
-            </button>
+            <EditorIconButton
+              className="editor-home-button"
+              icon={<Home size={16} />}
+              label="홈으로 이동"
+              onClick={onExitToHome}
+            />
             <TopMenuButton activeTopMenu={activeTopMenu} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
           </div>
 
           {activeTopMenu === "file" ? (
-            <div className="file-menu-popover" role="menu">
-              <div className="file-menu-header">
-                <div>
-                  <strong>{deckTitle}</strong>
-                  <span>프레젠테이션 · {canvas.width} × {canvas.height}px</span>
-                </div>
-              </div>
-              <div className="file-menu-list">
-                {fileMenuItems.map(({ action, icon: Icon, label, meta }) => (
-                  <button
-                    className="file-menu-item"
-                    key={action}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => action === "import" ? onImportPptx() : onSave()}
-                  >
-                    <span className="file-menu-label"><Icon size={16} />{label}</span>
-                    <span className="file-menu-meta">{meta ? <small>{meta}</small> : null}</span>
-                  </button>
-                ))}
-                <span className="menu-section-label">내보내기</span>
-                <button className="file-menu-item" disabled={exportMenuItem.disabled} role="menuitem" type="button" onClick={onExportPptx}>
-                  <span className="file-menu-label"><ExportIcon size={16} />{exportMenuItem.label}</span>
-                  <span className="file-menu-meta">{exportMenuItem.meta ? <small>{exportMenuItem.meta}</small> : null}</span>
-                </button>
-              </div>
-            </div>
+            <EditorFileMenu
+              groups={[
+                {
+                  items: [
+                    {
+                      id: "import",
+                      label: "PPTX 가져오기...",
+                      meta: pptxImportMeta,
+                      onSelect: onImportPptx
+                    },
+                    {
+                      id: "save",
+                      label: saving ? "저장 중..." : "저장",
+                      meta: saveMenuMeta,
+                      onSelect: onSave
+                    }
+                  ]
+                },
+                {
+                  items: [
+                    {
+                      disabled: isPptxExporting,
+                      id: "export-pptx",
+                      label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기...",
+                      meta: pptxExportMessage,
+                      onSelect: onExportPptx
+                    }
+                  ],
+                  label: "내보내기"
+                }
+              ]}
+              subtitle={`프레젠테이션 · ${canvas.width} × ${canvas.height}px`}
+              title={deckTitle}
+              variant="dark"
+            />
           ) : null}
         </div>
       </div>
@@ -216,19 +208,20 @@ export function EditorTopbar(props: EditorTopbarProps) {
           onStartRehearsal={onStartRehearsal}
           onToggle={() => setActiveTopMenu((current) => current === "presentation" ? null : "presentation")}
         />
-        <button
+        <EditorIconButton
           aria-expanded={isSharePanelOpen}
           aria-haspopup="dialog"
           className="share-top-button"
           disabled={!canManageShare || isSharePermissionLoading}
+          icon={<Share2 size={17} />}
+          label="공유"
           title={canManageShare ? "프로젝트 공유" : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."}
-          type="button"
           onClick={() => {
             if (!canManageShare) return;
             onOpenShare();
             setActiveTopMenu(null);
           }}
-        ><Share2 size={17} /><span className="visually-hidden">공유</span></button>
+        />
         <button aria-label="에디터 새로고침" className="refresh-top-button" type="button" onClick={onRefresh}><RefreshCw size={15} /></button>
       </div>
     </header>

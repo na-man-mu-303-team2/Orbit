@@ -5,6 +5,8 @@ import {
   IconPlayerPlay
 } from "@tabler/icons-react";
 
+import { EditorIconButton } from "./EditorIconButton";
+
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
   canOpenAudienceLink: boolean;
@@ -30,16 +32,14 @@ export function PresentationMenu(props: PresentationMenuProps) {
 
   return (
     <>
-      <button
-        aria-label={activeStartAction === "rehearsal" ? "리허설 준비 중" : "리허설"}
+      <EditorIconButton
         className="editor-rehearsal-button"
         disabled={!canStartPresentation}
+        icon={<IconMicrophone size={16} />}
+        label={activeStartAction === "rehearsal" ? "리허설 준비 중" : "리허설"}
         title="리허설"
-        type="button"
         onClick={onStartRehearsal}
-      >
-        <IconMicrophone aria-hidden="true" size={16} />
-      </button>
+      />
       <div className="top-action-menu">
         <div className={`editor-presentation-split ${isOpen ? "active" : ""}`}>
           <button

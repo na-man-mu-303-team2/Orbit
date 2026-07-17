@@ -14,9 +14,12 @@ import type {
   TextElementProps
 } from "@orbit/shared";
 import {
+  IconAlignBoxCenterMiddle as AlignMiddle,
   IconAlignCenter as AlignCenter,
   IconArrowDown as ArrowDown,
   IconArrowUp as ArrowUp,
+  IconArrowsMinimize as Shrink,
+  IconCircleCheck as ClosePath,
   IconEye as Eye,
   IconEyeOff as EyeOff,
   IconPencil as PenLine
@@ -35,7 +38,6 @@ import {
   measureTextContentBounds
 } from "../../canvas/text/textLayout";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
-import { buildAnimationSummary } from "./animation";
 import { IdBadge } from "./EditorIdBadge";
 
 type TextFitContext = {
@@ -77,12 +79,10 @@ export function SelectionQuickBar(props: {
   showIds: boolean;
 }) {
   const {
-    animations,
     animationDiagnostics,
     customShapeEditActive,
     canvas,
     element,
-    onOpenAnimationEditor,
     onChangeFrame,
     onChangeProps,
     onChangeSlideStyle,
@@ -193,10 +193,6 @@ export function SelectionQuickBar(props: {
 
   const showOpacityControl = element.type !== "text";
   const showMeta = showIds;
-  const animationSummary = buildAnimationSummary(animations, {
-    emptyLabel: "애니메이션 없음"
-  });
-
   return (
     <section className="selection-quickbar" data-testid="editor-element-quickbar">
       {showMeta ? (
@@ -245,13 +241,15 @@ export function SelectionQuickBar(props: {
               <AlignCenter size={16} />
             </button>
             <button
-              className="quickbar-action-chip"
+              aria-label="세로 가운데 정렬"
+              className="quickbar-toggle"
+              title="세로 가운데 정렬"
               type="button"
               onClick={() =>
                 onChangeFrame({ y: Math.round((canvas.height - element.height) / 2) })
               }
             >
-              세로 가운데
+              <AlignMiddle aria-hidden="true" size={16} />
             </button>
           </>
         ) : null}
@@ -280,23 +278,6 @@ export function SelectionQuickBar(props: {
           onClick={() => onChangeFrame({ visible: !element.visible })}
         >
           {element.visible ? <Eye size={16} /> : <EyeOff size={16} />}
-        </button>
-        {element.type === "image" || element.type === "svg" ? (
-          <span className="quickbar-inline-hint">
-            우클릭해 이미지를 바꿀 수 있습니다
-          </span>
-        ) : null}
-        <div className="quickbar-divider" />
-        <span className={`quickbar-status-pill ${animationSummary.tone}`}>
-          {animationSummary.label}
-        </span>
-        <button
-          className="quickbar-action-chip"
-          type="button"
-          onClick={onOpenAnimationEditor}
-        >
-          <span>애니메이션 편집</span>
-          <PenLine aria-hidden="true" size={14} />
         </button>
       </div>
     </section>
@@ -372,11 +353,13 @@ function ElementQuickBarFields(props: {
           onChange={(value) => onChangeProps({ verticalAlign: value })}
         />
         <button
-          className="quickbar-action-chip"
+          aria-label="텍스트 맞춤 축소"
+          className="quickbar-toggle"
+          title="맞춤 축소"
           type="button"
           onClick={() => onChangeProps(createShrinkToFitTextProps(element))}
         >
-          맞춤 축소
+          <Shrink aria-hidden="true" size={16} />
         </button>
       </>
     );
@@ -452,19 +435,22 @@ function ElementQuickBarFields(props: {
     return (
       <>
         <button
+          aria-label="노드 편집"
           className={`quickbar-action-chip ${customShapeEditActive ? "active" : ""}`}
+          title="노드 편집"
           type="button"
           onClick={onToggleCustomShapeEdit}
         >
-          <PenLine size={14} />
-          노드 편집
+          <PenLine aria-hidden="true" size={15} />
         </button>
         <button
+          aria-label={customShapeProps.closed ? "경로 열기" : "경로 닫기"}
           className={`quickbar-action-chip ${customShapeProps.closed ? "active" : ""}`}
+          title={customShapeProps.closed ? "경로 열기" : "경로 닫기"}
           type="button"
           onClick={onToggleCustomShapeClosed}
         >
-          경로 닫기
+          <ClosePath aria-hidden="true" size={15} />
         </button>
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
@@ -1164,13 +1150,17 @@ function PropertyColorField(props: {
   return (
     <label className={["property-field", className].filter(Boolean).join(" ")}>
       <span>{label}</span>
-      <input
-        type="color"
-        value={draftValue}
-        onBlur={(event) => commitValue(event.target.value)}
-        onChange={(event) => setDraftValue(event.target.value)}
-        onInput={(event) => setDraftValue((event.target as HTMLInputElement).value)}
-      />
+      <span className="property-color-control">
+        <input
+          aria-label={`${label} 색상 선택`}
+          type="color"
+          value={draftValue}
+          onBlur={(event) => commitValue(event.target.value)}
+          onChange={(event) => setDraftValue(event.target.value)}
+          onInput={(event) => setDraftValue((event.target as HTMLInputElement).value)}
+        />
+        <code>{draftValue.toUpperCase()}</code>
+      </span>
     </label>
   );
 }

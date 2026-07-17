@@ -10,11 +10,15 @@ import type { CSSProperties } from "react";
 import { resolveEditorAssetUrl } from "../../shared/editorAssetUrl";
 
 const defaultEditorStageScale = 0.44;
-const maximumEditorStageScale = 0.66;
+const maximumEditorStageScale = 1;
 const compactEditorBreakpoint = 760;
 const compactEditorCanvasInset = 32;
 const fittedEditorCanvasHorizontalInset = 48;
-const fittedEditorCanvasVerticalInset = 64;
+const fittedEditorCanvasVerticalInset = 96;
+
+export const minimumEditorStageScale = 0.1;
+export const maximumManualEditorStageScale = 2;
+export const editorStageScaleStep = 0.05;
 
 export const defaultImageInsertFrame = {
   height: 240,
@@ -63,6 +67,21 @@ export function getResponsiveEditorStageScale(
     defaultEditorStageScale,
     Math.max(0.16, availableWidth / canvasWidth)
   );
+}
+
+export function clampEditorStageScale(scale: number) {
+  return Math.min(
+    maximumManualEditorStageScale,
+    Math.max(minimumEditorStageScale, scale)
+  );
+}
+
+export function getNextEditorStageScale(
+  scale: number,
+  direction: "in" | "out"
+) {
+  const delta = direction === "in" ? editorStageScaleStep : -editorStageScaleStep;
+  return clampEditorStageScale(Math.round((scale + delta) * 100) / 100);
 }
 
 export function buildSlideThumbBackground(

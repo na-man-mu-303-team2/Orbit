@@ -8410,3 +8410,1595 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional *::-webkit-scrollbar-thumb:hover {
   background: var(--redesign-color-outline);
 }
+
+/* Reference workbench ------------------------------------------------------
+ * Maps the supplied production-suite layout onto ORBIT's bright Redesign
+ * System tokens. Existing editing, motion, notes, and AI behavior stays intact. */
+.orbit-shell.editor-professional {
+  --editor-chrome-height: 48px;
+  --editor-topbar-height: var(--editor-chrome-height);
+  --editor-bottom-panel-height: clamp(220px, 32vh, 320px);
+  --page: var(--redesign-color-background);
+  --surface: var(--redesign-color-surface-container-low);
+  --surface-soft: var(--redesign-color-surface-container);
+  --raise: var(--redesign-color-surface-container-high);
+  --raise-strong: var(--redesign-color-surface-container-highest);
+  --ink: var(--redesign-color-on-surface);
+  --ink-soft: color-mix(in srgb, var(--redesign-color-on-surface) 84%, var(--redesign-color-on-surface-variant));
+  --muted: var(--redesign-color-on-surface-variant);
+  --line: var(--redesign-color-outline-variant);
+  --line-strong: color-mix(in srgb, var(--redesign-color-outline) 56%, var(--redesign-color-outline-variant));
+  --blue: var(--redesign-color-primary);
+  --blue-strong: var(--redesign-color-on-primary-container);
+  --blue-border: color-mix(in srgb, var(--redesign-color-primary) 48%, var(--redesign-color-outline-variant));
+  --blue-soft: color-mix(in srgb, var(--redesign-color-primary) 12%, var(--redesign-color-surface-container-low));
+  --on-accent: var(--redesign-color-on-primary);
+  --shadow-ink: var(--redesign-color-on-surface);
+  background: var(--page);
+  color: var(--ink);
+  color-scheme: light;
+}
+
+.orbit-shell.editor-professional.editor-app-shell {
+  grid-template-rows: var(--editor-topbar-height) minmax(0, 1fr);
+}
+
+.orbit-shell.editor-professional .app-topbar {
+  height: var(--editor-topbar-height);
+  min-height: var(--editor-topbar-height);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .topbar-left,
+.orbit-shell.editor-professional .menu-stack,
+.orbit-shell.editor-professional .menu-row {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.orbit-shell.editor-professional .menu-stack {
+  flex-direction: row;
+  gap: 12px;
+  height: 100%;
+}
+
+.orbit-shell.editor-professional .menu-row {
+  order: -1;
+  gap: 3px;
+  height: auto;
+  padding: 0 12px 0 0;
+  border-right: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .editor-document-title {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.orbit-shell.editor-professional .editor-document-title > span {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.orbit-shell.editor-professional .editor-document-title strong {
+  max-width: min(34vw, 440px);
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell.editor-professional .editor-document-title small {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.orbit-shell.editor-professional .top-icon-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  width: auto;
+  min-width: 30px;
+  padding: 0 7px;
+}
+
+.orbit-shell.editor-professional .menu-row > .top-icon-button:first-child {
+  display: inline-flex;
+}
+
+.orbit-shell.editor-professional .topbar-brand-label {
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.orbit-shell.editor-professional .top-menu-button {
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--ink-soft);
+}
+
+.orbit-shell.editor-professional .top-actions {
+  gap: 5px;
+}
+
+.orbit-shell.editor-professional .top-actions button {
+  min-height: 32px;
+  border-radius: var(--redesign-radius);
+}
+
+.orbit-shell.editor-professional .editor-present-button {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-accent);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-shell.editor-professional .slides-pane {
+  background: var(--surface);
+  border-right: 1px solid var(--line-strong);
+}
+
+.orbit-shell.editor-professional .slides-pane-header {
+  min-height: 42px;
+  padding: 0 9px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .slides-pane-title strong {
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orbit-shell.editor-professional .slides-list {
+  gap: 12px;
+  padding: 10px 8px 14px;
+}
+
+.orbit-shell.editor-professional .slide-item {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .slide-item .slide-thumb {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--redesign-radius);
+  background-color: var(--surface-soft);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
+}
+
+.orbit-shell.editor-professional .slide-item.active .slide-thumb {
+  border-color: var(--blue);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-shell.editor-professional .slide-number {
+  top: 5px;
+  left: 5px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.orbit-shell.editor-professional .slide-item.active .slide-number {
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.orbit-shell.editor-professional .slide-item-title {
+  display: block;
+  overflow: hidden;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell.editor-professional .slide-item.active .slide-item-title {
+  color: var(--blue-strong);
+}
+
+.orbit-shell.editor-professional .side-footer {
+  min-height: 42px;
+  border-top: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .canvas-scroll {
+  background-color: var(--page);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--redesign-color-outline) 34%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+.orbit-shell.editor-professional .canvas-shell,
+.orbit-shell.editor-professional .editor-canvas-shell {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--redesign-radius-sm);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--line) 55%, transparent),
+    0 20px 42px color-mix(in srgb, var(--shadow-ink) 14%, transparent);
+}
+
+.orbit-shell.editor-professional .ai-pane:not(.collapsed) {
+  position: relative;
+  display: grid;
+  grid-template-rows: 40px minmax(150px, 1fr) minmax(220px, 0.9fr);
+  overflow: hidden;
+  border-left: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.orbit-shell.editor-professional .inspector-header,
+.orbit-shell.editor-professional .ai-coach-dock-header {
+  min-height: 40px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.orbit-shell.editor-professional .inspector-title strong,
+.orbit-shell.editor-professional .ai-coach-dock-header strong {
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orbit-shell.editor-professional .inspector-panel-slot {
+  min-height: 0;
+  overflow: auto;
+}
+
+.orbit-shell.editor-professional .inspector-panel-slot .editor-design-panel {
+  gap: 8px;
+  padding: 12px;
+}
+
+.orbit-shell.editor-professional .ai-coach-dock.ai-coach-persistent {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  width: auto;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--redesign-color-surface-container-lowest);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .ai-coach-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--blue);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .editor-ai-coach-panel {
+  grid-template-rows: 32px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  padding: 8px;
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .assistant-subtabs {
+  min-height: 32px;
+  padding: 1px;
+  border-radius: var(--redesign-radius-sm);
+}
+
+.orbit-shell.editor-professional .ai-coach-dock .assistant-subtabs button {
+  min-height: 28px;
+}
+
+.orbit-shell.editor-professional .ai-chat-message p,
+.orbit-shell.editor-professional .ai-chat-composer {
+  border-radius: var(--redesign-radius);
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel {
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.orbit-shell.editor-professional .animation-side-pane {
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.orbit-shell.editor-professional .animation-side-pane-content {
+  grid-template-rows: 40px minmax(0, 1fr) 46px;
+}
+
+.orbit-shell.editor-professional .animation-side-pane-header {
+  min-height: 40px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.orbit-shell.editor-professional .animation-side-pane-scroll {
+  overflow: auto;
+}
+
+.orbit-shell.editor-professional .animation-side-pane-body .animation-inspector-panel {
+  align-items: stretch;
+  display: grid;
+  grid-auto-columns: minmax(220px, 1fr);
+  grid-auto-flow: column;
+  gap: 0;
+  min-width: max-content;
+  height: 100%;
+  padding: 0;
+}
+
+.orbit-shell.editor-professional .animation-inspector-panel > * {
+  min-width: 220px;
+  border-right: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .animation-panel-section,
+.orbit-shell.editor-professional .animation-panel-selection-card {
+  align-content: start;
+  height: 100%;
+  overflow: auto;
+}
+
+.orbit-shell.editor-professional .animation-side-pane-footer {
+  padding: 6px 8px;
+}
+
+.orbit-shell.editor-professional .animation-panel-preview-button {
+  min-height: 32px;
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-accent);
+}
+
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional .editor-panel,
+  .orbit-shell.editor-professional .editor-panel:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      minmax(0, 1fr)
+      clamp(280px, var(--right-pane-width, 304px), 360px);
+    grid-template-rows: minmax(0, 1fr) auto;
+    padding-top: 0;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.right-panel-closed,
+  .orbit-shell.editor-professional .editor-panel.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      minmax(0, 1fr)
+      var(--right-pane-collapsed-width, 44px);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open,
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      minmax(0, 2fr)
+      minmax(240px, 1fr)
+      clamp(280px, var(--right-pane-width, 304px), 360px);
+    grid-template-rows: minmax(0, 1fr) var(--editor-bottom-panel-height);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open.right-panel-closed,
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      minmax(0, 2fr)
+      minmax(240px, 1fr)
+      var(--right-pane-collapsed-width, 44px);
+  }
+
+  .orbit-shell.editor-professional .stage-pane,
+  .orbit-shell.editor-professional .stage-top-controls,
+  .orbit-shell.editor-professional .stage-top-controls:has(.selection-quickbar) {
+    display: contents;
+  }
+
+  .orbit-shell.editor-professional .slides-pane {
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
+    align-self: start;
+    display: flex;
+    flex-direction: row;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: center;
+    z-index: 18;
+    width: auto;
+    min-height: 38px;
+    margin-top: 12px;
+    padding: 3px 6px;
+    overflow: visible;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--redesign-radius-lg);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: 0 10px 26px color-mix(in srgb, var(--shadow-ink) 12%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .tool-group,
+  .orbit-shell.editor-professional .editor-toolbar .tool-group:first-child {
+    align-items: center;
+    flex-direction: row;
+    gap: 2px;
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .tool-button,
+  .orbit-shell.editor-professional .editor-toolbar .icon-button {
+    color: var(--muted);
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .tool-button:hover,
+  .orbit-shell.editor-professional .editor-toolbar .icon-button:hover {
+    border-color: var(--line);
+    background: var(--raise);
+    color: var(--ink);
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .tool-button.active,
+  .orbit-shell.editor-professional .editor-toolbar .icon-button.selected-tool {
+    border-color: var(--blue-border);
+    background: var(--blue-soft);
+    color: var(--blue);
+    box-shadow: var(--redesign-glow-primary);
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .shape-menu-anchor .tool-button {
+    width: 42px;
+  }
+
+  .orbit-shell.editor-professional .editor-toolbar .shape-menu-anchor .tool-button > svg:last-child {
+    display: block;
+  }
+
+  .orbit-shell.editor-professional .toolbar-divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 3px;
+    background: var(--line);
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar {
+    align-self: start;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: center;
+    z-index: 17;
+    width: min(calc(100% - 32px), 880px);
+    margin: 58px 16px 0;
+  }
+
+  .orbit-shell.editor-professional .stage-pane > .canvas-scroll {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 70px 24px 24px;
+  }
+
+  .orbit-shell.editor-professional .stage-pane > .stage-speaker-notes-panel {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .orbit-shell.editor-professional .ai-pane {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .stage-top-controls > .editor-toolbar,
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .stage-top-controls > .selection-quickbar,
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .stage-pane > .canvas-scroll {
+    grid-column: 2 / 4;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .animation-side-pane {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .stage-pane > .stage-speaker-notes-panel {
+    grid-column: 3;
+    grid-row: 2;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .ai-pane {
+    grid-column: 4;
+    grid-row: 1 / 3;
+  }
+
+  .orbit-shell.editor-professional .editor-panel.animation-panel-open .stage-speaker-notes-panel.expanded {
+    height: 100%;
+    max-height: none;
+  }
+}
+
+/* Dark workbench and flat inspector controls. */
+.orbit-shell.editor-professional.redesign-dark {
+  color-scheme: dark;
+}
+
+.orbit-shell.editor-professional.redesign-dark .inspector-panel-slot {
+  padding: 0;
+  background: var(--surface);
+}
+
+.orbit-shell.editor-professional.redesign-dark .inspector-panel-slot .editor-design-panel {
+  gap: 0;
+  padding: 16px;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .orbit-ds-eyebrow {
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.12em;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel h3 {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel > p {
+  margin: 0 0 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel > .selection-quickbar {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel > .selection-quickbar .selection-quickbar-fields {
+  align-items: start;
+  display: grid;
+  gap: 18px 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  width: 100%;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field > span:first-child {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  line-height: 1.2;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 2px 7px;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control input[type="color"] {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control input[type="color"]::-webkit-color-swatch,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control code {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--redesign-font-family);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field input:not([type="color"]),
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field select,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field textarea {
+  min-height: 34px;
+  padding: 0 2px 7px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field input:not([type="color"]):hover,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field select:hover,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field textarea:hover,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control:hover {
+  border-bottom-color: var(--muted);
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field input:not([type="color"]):focus,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field select:focus,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .compact-property-field textarea:focus,
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel .property-color-control:focus-within {
+  border-bottom-color: var(--blue);
+  box-shadow: 0 1px 0 var(--blue);
+}
+
+.orbit-shell.editor-professional.redesign-dark .editor-design-panel [data-testid="editor-slide-quickbar"] .compact-property-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.orbit-shell.editor-professional.redesign-dark .ai-coach-dock .assistant-subtabs {
+  gap: 14px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.orbit-shell.editor-professional.redesign-dark .ai-coach-dock .assistant-subtabs button,
+.orbit-shell.editor-professional.redesign-dark .ai-coach-dock .assistant-subtabs button.active {
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.orbit-shell.editor-professional.redesign-dark .ai-coach-dock .assistant-subtabs button.active {
+  border-bottom-color: var(--blue);
+  color: var(--ink);
+}
+
+.orbit-shell.editor-professional .ai-pane:not(.collapsed) {
+  grid-template-rows: 40px minmax(260px, 1.35fr) minmax(180px, 0.65fr);
+}
+
+/* The expanded navigator uses a protected minimum width, but the collapsed
+ * state intentionally removes that track and leaves only its floating reopen
+ * control. Keep every panel combination on the same zero-width first track. */
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed,
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed:has(.selection-quickbar) {
+    grid-template-columns:
+      0
+      minmax(0, 1fr)
+      clamp(280px, var(--right-pane-width, 304px), 360px);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.right-panel-closed,
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      0
+      minmax(0, 1fr)
+      var(--right-pane-collapsed-width, 44px);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.animation-panel-open,
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.animation-panel-open:has(.selection-quickbar) {
+    grid-template-columns:
+      0
+      minmax(0, 2fr)
+      minmax(240px, 1fr)
+      clamp(280px, var(--right-pane-width, 304px), 360px);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.animation-panel-open.right-panel-closed,
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed.animation-panel-open.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      0
+      minmax(0, 2fr)
+      minmax(240px, 1fr)
+      var(--right-pane-collapsed-width, 44px);
+  }
+
+  .orbit-shell.editor-professional .editor-panel.slides-panel-collapsed .slides-pane {
+    width: 0;
+    min-width: 0;
+  }
+}
+
+/* Compact inspector modes: design and motion share the right property pane. */
+.orbit-shell.editor-professional .inspector-actions,
+.orbit-shell.editor-professional .inspector-mode-switch {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+}
+
+.orbit-shell.editor-professional .inspector-mode-switch {
+  padding: 2px;
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional .inspector-mode-switch button,
+.orbit-shell.editor-professional .inspector-icon-action {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell.editor-professional .inspector-mode-switch button:hover,
+.orbit-shell.editor-professional .inspector-icon-action:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .inspector-mode-switch button.active {
+  background: var(--redesign-color-surface-container-highest);
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .inspector-mode-count {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: grid;
+  place-items: center;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional .inspector-animation-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+}
+
+.orbit-shell.editor-professional .inspector-animation-actions .orbit-ds-eyebrow {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties > .animation-inspector-panel {
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  overflow: auto;
+  background: transparent;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-selection-card,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-form-card,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-empty {
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-section {
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  background: transparent;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-section + .animation-panel-section {
+  border-top: 0;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-effect-button,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-existing-item,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-order-item {
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-effect-button:hover,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-existing-item:hover,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-order-item:hover {
+  background: var(--redesign-color-surface-container-high);
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-effect-button small,
+.orbit-shell.editor-professional .inspector-animation-properties .animation-panel-selection-copy > span {
+  display: none;
+}
+
+.orbit-shell.editor-professional .inspector-animation-properties input,
+.orbit-shell.editor-professional .inspector-animation-properties select {
+  border: 0;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Property actions use neutral icon buttons instead of labeled cards. */
+.orbit-shell.editor-professional .editor-design-panel .quickbar-toggle,
+.orbit-shell.editor-professional .editor-design-panel .quickbar-action-chip {
+  display: inline-grid;
+  place-items: center;
+  justify-self: start;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .editor-design-panel .quickbar-toggle:hover,
+.orbit-shell.editor-professional .editor-design-panel .quickbar-action-chip:hover {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .editor-design-panel .quickbar-toggle.active,
+.orbit-shell.editor-professional .editor-design-panel .quickbar-action-chip.active {
+  background: color-mix(in srgb, var(--redesign-color-primary) 14%, transparent);
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .editor-design-panel .quickbar-inline-hint {
+  grid-column: 1 / -1;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* Speaker notes keep one compact title row and icon-only actions. */
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-header {
+  min-height: 44px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action,
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action.assistant,
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action.primary {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action:hover,
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action.assistant:hover {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-action.primary {
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-icon {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell.editor-professional.redesign-dark .canvas-scroll {
+  background-color: color-mix(
+    in srgb,
+    var(--redesign-color-surface-bright) 72%,
+    var(--redesign-color-outline)
+  );
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--redesign-color-outline) 26%, transparent) 1px,
+    transparent 1px
+  );
+}
+
+/* Canvas-only zoom keeps the initial slide fitted without making the browser
+ * viewport scroll. Manual zoom may overflow inside this workspace only. */
+.orbit-shell.editor-professional .canvas-scroll {
+  overscroll-behavior: contain;
+  padding-top: 60px;
+}
+
+.orbit-shell.editor-professional .konva-wrap {
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: var(--editor-chrome-height);
+  min-height: var(--editor-chrome-height);
+  padding: 0;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls button:hover {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls button.active {
+  background: transparent;
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls button:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls button:focus-visible {
+  outline: 1px solid var(--redesign-color-primary);
+  outline-offset: -1px;
+}
+
+.orbit-shell.editor-professional .canvas-zoom-controls span {
+  min-width: 28px;
+  font-family: var(--orbit-ds-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
+    height: var(--editor-chrome-height);
+    min-height: var(--editor-chrome-height);
+    box-sizing: border-box;
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
+    align-self: start;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    z-index: 18;
+    margin: 12px 24px 0 0;
+  }
+
+  .orbit-shell.editor-professional .stage-pane > .canvas-scroll,
+  .orbit-shell.editor-professional .editor-panel:has(.selection-quickbar) .stage-pane > .canvas-scroll {
+    padding: 60px 24px 24px;
+  }
+}
+
+/* Shared editor action buttons: home, share, and rehearsal use one control. */
+.orbit-shell.editor-professional .editor-icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .editor-icon-action:hover:not(:disabled),
+.orbit-shell.editor-professional .editor-icon-action[aria-expanded="true"] {
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .editor-icon-action:focus-visible {
+  outline: 1px solid var(--redesign-color-primary);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .editor-icon-action:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.orbit-shell.editor-professional .editor-icon-action-glyph {
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+
+/* File menu variants. Dark is used by the editor; soft-gray and white are
+ * available for lighter application surfaces without duplicating markup. */
+.orbit-shell .editor-file-menu {
+  --editor-file-menu-background: var(--redesign-color-surface-container-low);
+  --editor-file-menu-border: var(--redesign-color-outline-variant);
+  --editor-file-menu-text: var(--redesign-color-on-surface);
+  --editor-file-menu-muted: var(--redesign-color-on-surface-variant);
+  --editor-file-menu-hover: var(--redesign-color-surface-container-high);
+
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 70;
+  width: min(320px, calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid var(--editor-file-menu-border);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--editor-file-menu-background);
+  color: var(--editor-file-menu-text);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--shadow-ink) 34%, transparent);
+}
+
+.orbit-shell .editor-file-menu--soft-gray {
+  --editor-file-menu-background: color-mix(
+    in srgb,
+    var(--redesign-color-inverse-surface) 78%,
+    var(--redesign-color-outline)
+  );
+  --editor-file-menu-border: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 24%, transparent);
+  --editor-file-menu-text: var(--redesign-color-inverse-on-surface);
+  --editor-file-menu-muted: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 68%, transparent);
+  --editor-file-menu-hover: color-mix(in srgb, var(--redesign-color-primary) 20%, transparent);
+}
+
+.orbit-shell .editor-file-menu--white {
+  --editor-file-menu-background: var(--redesign-color-inverse-surface);
+  --editor-file-menu-border: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 18%, transparent);
+  --editor-file-menu-text: var(--redesign-color-inverse-on-surface);
+  --editor-file-menu-muted: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 64%, transparent);
+  --editor-file-menu-hover: color-mix(in srgb, var(--redesign-color-primary) 16%, transparent);
+}
+
+.orbit-shell .editor-file-menu-context {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--editor-file-menu-border);
+}
+
+.orbit-shell .editor-file-menu-context strong,
+.orbit-shell .editor-file-menu-context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-file-menu-context strong {
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.orbit-shell .editor-file-menu-context span,
+.orbit-shell .editor-file-menu-item small,
+.orbit-shell .editor-file-menu-group-label {
+  color: var(--editor-file-menu-muted);
+  font-size: 10px;
+}
+
+.orbit-shell .editor-file-menu-group {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+}
+
+.orbit-shell .editor-file-menu-group + .editor-file-menu-group {
+  border-top: 1px solid var(--editor-file-menu-border);
+}
+
+.orbit-shell .editor-file-menu-group-label {
+  padding: 5px 9px 3px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.orbit-shell .editor-file-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  background: transparent;
+  color: var(--editor-file-menu-text);
+  text-align: left;
+}
+
+.orbit-shell .editor-file-menu-item:hover:not(:disabled),
+.orbit-shell .editor-file-menu-item:focus-visible {
+  background: var(--editor-file-menu-hover);
+  color: var(--editor-file-menu-text);
+  outline: none;
+}
+
+.orbit-shell .editor-file-menu-item:active:not(:disabled) {
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+}
+
+.orbit-shell .editor-file-menu-item:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.orbit-shell .editor-file-menu-item > span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-file-menu-item small {
+  flex: 0 1 auto;
+  overflow: hidden;
+  max-width: 130px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Stable slide navigator cards. The thumbnail and metadata own separate rows,
+ * so asynchronous thumbnail rendering cannot overlap the next slide. */
+.orbit-shell.editor-professional .slides-list.thumbnail-view {
+  gap: 10px;
+  grid-auto-rows: max-content;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: auto;
+  min-height: 0;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--redesign-radius);
+  background: transparent;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item:hover {
+  border-color: var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item.active {
+  border-color: var(--redesign-color-primary);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 8%,
+    var(--redesign-color-surface-container-low)
+  );
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-thumb {
+  display: block;
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-sm);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item.active .slide-thumb {
+  border-color: var(--redesign-color-primary);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .slide-item-meta {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-number {
+  position: static;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item.active .slide-number {
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item-title {
+  display: block;
+  min-width: 0;
+  padding: 2px 0 0;
+  overflow: visible;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.orbit-shell.editor-professional .slides-list .slide-item.active .slide-item-title {
+  color: var(--redesign-color-on-surface);
+}
+
+/* List view is a true outline: no slide-sized thumbnail or fixed card height. */
+.orbit-shell.editor-professional .slides-list.list-view {
+  gap: 2px;
+  grid-auto-rows: max-content;
+  padding: 8px 6px 12px;
+}
+
+.orbit-shell.editor-professional .slides-list.list-view .slide-item {
+  align-items: stretch;
+  min-height: 40px;
+  padding: 7px 8px;
+  border-color: transparent;
+  border-radius: var(--redesign-radius-sm);
+}
+
+.orbit-shell.editor-professional .slides-list.list-view .slide-item-meta {
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  justify-items: start;
+  width: 100%;
+}
+
+.orbit-shell.editor-professional .slides-list.list-view .slide-item-title {
+  justify-self: stretch;
+  width: 100%;
+  padding-top: 1px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.orbit-shell.editor-professional .slides-pane.collapsed .collapse-slides-button {
+  width: 36px;
+  height: 36px;
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .menu-row {
+  gap: 6px;
+}
+
+.orbit-shell.editor-professional .history-nav-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Thumbnail numbers sit on the slide preview; list numbers remain in-flow. */
+.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-item-meta {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: block;
+}
+
+.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-number {
+  border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 72%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-surface-container-lowest) 88%,
+    transparent
+  );
+  color: var(--redesign-color-on-surface);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--shadow-ink) 22%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.orbit-shell.editor-professional .slides-list.list-view .slide-item-meta {
+  position: static;
+}
+
+/* Script, QnA, and report share one compact tabbed preparation panel. */
+.orbit-shell.editor-professional .stage-speaker-notes-panel.expanded .script-panel-header {
+  gap: 8px;
+  padding: 0 8px 0 12px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs {
+  align-self: stretch;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button {
+  position: relative;
+  min-width: 72px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: transparent;
+  content: "";
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button:hover:not(:disabled) {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button.active {
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button.active::after {
+  background: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button:focus-visible,
+.orbit-shell.editor-professional .speaker-notes-collapse-button:focus-visible {
+  outline: 1px solid var(--redesign-color-primary);
+  outline-offset: -2px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapse-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapse-button:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapse-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.orbit-shell.editor-professional .speaker-notes-action-row {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 40px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional .speaker-notes-action-row .script-panel-actions {
+  padding: 0;
+}
+
+.orbit-shell.editor-professional .speaker-notes-empty-panel {
+  display: grid;
+  place-content: center;
+  min-height: 150px;
+  padding: 24px;
+  color: var(--redesign-color-on-surface-variant);
+  text-align: center;
+}
+
+.orbit-shell.editor-professional .speaker-notes-empty-panel strong {
+  color: var(--redesign-color-on-surface);
+  font-size: 12px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-empty-panel p {
+  max-width: 360px;
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* Navigation controls stay visually lightweight in the editor chrome. */
+.orbit-shell.editor-professional .editor-home-button,
+.orbit-shell.editor-professional .collapse-slides-button,
+.orbit-shell.editor-professional .slides-pane.collapsed .collapse-slides-button {
+  border: 0;
+  border-color: transparent;
+}
+
+.orbit-shell.editor-professional .editor-home-button:hover:not(:disabled),
+.orbit-shell.editor-professional .collapse-slides-button:hover:not(:disabled) {
+  border: 0;
+  border-color: transparent;
+}

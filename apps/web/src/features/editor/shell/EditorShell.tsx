@@ -8,10 +8,8 @@ import { demoIds } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import {
-  AnimationSidePanel,
+  AnimationInspectorPanel,
   buildAnimationKeywordTriggerPolicy,
-  maxAnimationPaneWidth,
-  minAnimationPaneWidth,
   toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
 } from "./components/animation";
@@ -88,8 +86,7 @@ import { EditorCanvasStage } from "./components/EditorCanvasStage";
 import { EditorToolbar } from "./components/EditorToolbar";
 import {
   EditorRightPanel,
-  type AiPanelView,
-  type RightPanelView
+  type AiPanelView
 } from "./components/EditorRightPanel";
 import {
   fetchDeck,
@@ -200,7 +197,6 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
-  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("design");
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
   const [aiChatState, setAiChatState] = useState(() =>
     createInitialAiChatState(projectId)
@@ -214,12 +210,6 @@ export function EditorShell(props: { projectId?: string }) {
   const slidesPaneWidth = useEditorShellUiStore((state) => state.slidesPaneWidth);
   const setSlidesPaneWidth = useEditorShellUiStore(
     (state) => state.setSlidesPaneWidth
-  );
-  const animationPaneWidth = useEditorShellUiStore(
-    (state) => state.animationPaneWidth
-  );
-  const setAnimationPaneWidth = useEditorShellUiStore(
-    (state) => state.setAnimationPaneWidth
   );
   const rightPaneWidth = useEditorShellUiStore((state) => state.rightPaneWidth);
   const setRightPaneWidth = useEditorShellUiStore((state) => state.setRightPaneWidth);
@@ -344,7 +334,6 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
-    setRightPanelView("design");
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
@@ -583,7 +572,11 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const {
     canvasViewportRef: editorCanvasViewportRef,
-    stageScale
+    fitStageToViewport,
+    isStageFitToViewport,
+    stageScale,
+    zoomIn: zoomCanvasIn,
+    zoomOut: zoomCanvasOut
   } = useEditorViewport({
     canvas: deck.canvas,
     isRightPanelOpen,
@@ -941,6 +934,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function openAnimationInspector() {
     setIsAnimationPanelOpen(true);
+    setIsRightPanelOpen(true);
   }
 
   function handleSelectSlideAnimationFromPanel(animation: DeckAnimation) {
@@ -977,20 +971,6 @@ export function EditorShell(props: { projectId?: string }) {
       startWidth: rightPaneWidth
     });
   }
-
-  function handleAnimationPaneResizeStart(
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) {
-    beginHorizontalPaneResize({
-      direction: "expand-right",
-      event,
-      maxWidth: maxAnimationPaneWidth,
-      minWidth: minAnimationPaneWidth,
-      onWidthChange: setAnimationPaneWidth,
-      startWidth: animationPaneWidth
-    });
-  }
-
 
   useEffect(() => {
     if (
@@ -1192,13 +1172,12 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
-          isRightPanelOpen ? "" : "right-panel-closed"
-        } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
+        className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
+          isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
+        }`}
         aria-label="Presentation editor"
         style={
           {
-            "--animation-pane-width": `${animationPaneWidth}px`,
             "--slides-pane-width": `${
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
             }px`,
@@ -1223,62 +1202,6 @@ export function EditorShell(props: { projectId?: string }) {
           slideThumbnailUrls={slideThumbnailUrls}
           view={slidePanelView}
         />
-        {isAnimationPanelOpen ? (
-          <AnimationSidePanel
-            animations={selectedElementAnimations}
-            canPlaySlideAnimations={canPlayCurrentSlideAnimations}
-            canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
-            element={selectedAnimationPanelElement}
-            isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
-            keywordOptions={animationPanelKeywordOptions}
-            keywordTriggerRestrictionMessage={
-              animationKeywordTriggerPolicy.restrictionMessage
-            }
-            keywordTriggerWarningMessage={
-              animationKeywordTriggerPolicy.warningMessage
-            }
-            preferredAnimationId={animationPanelFocusedAnimationId}
-            selectedKeywordId={selectedKeywordId}
-            selectedKeywordLabel={selectedKeyword?.text ?? null}
-            selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
-            slideAnimations={currentSlideAnimations}
-            slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
-              if (!currentSlide || !selectedAnimationPanelElement) {
-                return;
-              }
-
-              handleAddAnimation(
-                currentSlide.slideId,
-                selectedAnimationPanelElement.elementId,
-                keywordId,
-                keywordOccurrenceId,
-                draft
-              );
-            }}
-            showIds={showIds}
-            onClose={() => setIsAnimationPanelOpen(false)}
-            onPlaySlideAnimations={playCurrentSlideAnimations}
-            onResizeStart={handleAnimationPaneResizeStart}
-            onDeleteAnimation={(animationId) => {
-              if (!currentSlide) {
-                return;
-              }
-
-              handleDeleteAnimation(currentSlide.slideId, animationId);
-            }}
-            onSelectKeyword={handleSelectKeyword}
-            onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
-            onUpdateAnimation={(animationId, animation) => {
-              if (!currentSlide) {
-                return;
-              }
-
-              handleUpdateAnimation(currentSlide.slideId, animationId, animation);
-            }}
-          />
-        ) : null}
-
         <section className="stage-pane">
           <EditorToolbar
             canUseCurrentSlide={Boolean(currentSlide)}
@@ -1286,6 +1209,7 @@ export function EditorShell(props: { projectId?: string }) {
             isAnimationPanelOpen={isAnimationPanelOpen}
             isImageUploadPending={isImageUploadPending}
             isShapeMenuOpen={isShapeMenuOpen}
+            isStageFitToViewport={isStageFitToViewport}
             onAddChart={handleAddChartElement}
             onAddText={handleAddTextElement}
             onOpenAnimation={openAnimationInspector}
@@ -1298,40 +1222,13 @@ export function EditorShell(props: { projectId?: string }) {
             onSelectTool={() => setInsertTool("select")}
             onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
             onUndo={handleUndo}
+            onFitStageToViewport={fitStageToViewport}
+            onZoomIn={zoomCanvasIn}
+            onZoomOut={zoomCanvasOut}
             redoDisabled={redoStack.length === 0}
             selectedElementAnimationCount={selectedElementAnimations.length}
-            selectionProperties={
-              selectedElementIds.length > 1 ? null : (
-                <EditorSelectionProperties
-                  animations={selectedElementAnimations}
-                  animationDiagnostics={currentSlideAnimationDiagnostics}
-                  canvas={deck.canvas}
-                  customShapeEditActive={isCustomShapeEditingSelection}
-                  element={selectedElement}
-                  instanceKey="toolbar-properties"
-                  onChangeElementFrame={handleElementFrameChange}
-                  onChangeElementProps={handleElementPropsChange}
-                  onChangeSlideStyle={(style) => {
-                    if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);
-                  }}
-                  onChangeTheme={handleThemeChange}
-                  onCloseInlineEditing={() => setEditingElementId(null)}
-                  onCommitCustomShapeGeometry={handleCommitCustomShapeGeometry}
-                  onDeleteAnimation={handleDeleteAnimation}
-                  onOpenAnimationEditor={openAnimationInspector}
-                  onToggleCustomShapeEdit={(elementId) =>
-                    setCustomShapeEditElementId((current) =>
-                      current === elementId ? null : elementId
-                    )
-                  }
-                  selectedKeywordLabel={selectedKeyword?.text ?? null}
-                  showIds={showIds}
-                  slide={selectedElement ? currentSlide : null}
-                  theme={deck.theme}
-                />
-              )
-            }
             shapeMenuButtonRef={shapeMenuButtonRef}
+            stageScale={stageScale}
             undoDisabled={undoStack.length === 0}
           />
 
@@ -1458,6 +1355,54 @@ export function EditorShell(props: { projectId?: string }) {
         <EditorRightPanel
           aiChatState={aiChatState}
           aiPanelView={aiPanelView}
+          animationCount={selectedElementAnimations.length}
+          animationProperties={
+            <AnimationInspectorPanel
+              animations={selectedElementAnimations}
+              canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
+              element={selectedAnimationPanelElement}
+              keywordOptions={animationPanelKeywordOptions}
+              keywordTriggerRestrictionMessage={
+                animationKeywordTriggerPolicy.restrictionMessage
+              }
+              keywordTriggerWarningMessage={
+                animationKeywordTriggerPolicy.warningMessage
+              }
+              preferredAnimationId={animationPanelFocusedAnimationId}
+              selectedKeywordId={selectedKeywordId}
+              selectedKeywordLabel={selectedKeyword?.text ?? null}
+              selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
+              slideAnimations={currentSlideAnimations}
+              slideElements={currentSlide?.elements ?? []}
+              onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
+                if (!currentSlide || !selectedAnimationPanelElement) {
+                  return;
+                }
+
+                handleAddAnimation(
+                  currentSlide.slideId,
+                  selectedAnimationPanelElement.elementId,
+                  keywordId,
+                  keywordOccurrenceId,
+                  draft
+                );
+              }}
+              onDeleteAnimation={(animationId) => {
+                if (currentSlide) {
+                  handleDeleteAnimation(currentSlide.slideId, animationId);
+                }
+              }}
+              onSelectKeyword={handleSelectKeyword}
+              onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
+              onUpdateAnimation={(animationId, animation) => {
+                if (currentSlide) {
+                  handleUpdateAnimation(currentSlide.slideId, animationId, animation);
+                }
+              }}
+              showIds={showIds}
+            />
+          }
+          canPlayAnimations={canPlayCurrentSlideAnimations}
           currentSlide={currentSlide}
           deck={deck}
           designProperties={
@@ -1466,8 +1411,7 @@ export function EditorShell(props: { projectId?: string }) {
               animationDiagnostics={currentSlideAnimationDiagnostics}
               canvas={deck.canvas}
               customShapeEditActive={isCustomShapeEditingSelection}
-              element={null}
-              instanceKey="design-properties"
+              element={selectedElementIds.length === 1 ? selectedElement : null}
               onChangeElementFrame={handleElementFrameChange}
               onChangeElementProps={handleElementPropsChange}
               onChangeSlideStyle={(style) => {
@@ -1491,22 +1435,24 @@ export function EditorShell(props: { projectId?: string }) {
           }
           editorValidationItems={editorValidationItems}
           isOpen={isRightPanelOpen}
+          isAnimationPropertiesOpen={isAnimationPanelOpen}
+          isPlayingAnimations={isPlayingCurrentSlideAnimations}
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
           onProposalApplied={handleDesignAgentProposalApplied}
+          onPlayAnimations={playCurrentSlideAnimations}
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
           onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
           pptxImportState={pptxImportState}
-          rightPanelView={rightPanelView}
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
+          setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
-          setRightPanelView={setRightPanelView}
         />
       </section>
 

@@ -27,7 +27,7 @@ describe("PresentationMenu", () => {
     expect(getButtonTag(html, 'class="editor-present-button"')).toContain(
       "disabled",
     );
-    expect(getButtonTag(html, 'class="editor-rehearsal-button"')).toContain(
+    expect(getButtonTag(html, 'aria-label="리허설"')).toContain(
       "disabled",
     );
     expect(html).toContain("청중 링크·QR");

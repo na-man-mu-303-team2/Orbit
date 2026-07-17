@@ -2,7 +2,6 @@ import type { Deck } from "@orbit/shared";
 import {
   IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
-  IconLayoutSidebarLeftExpand as PanelLeftOpen,
   IconList as List,
   IconPlus as Plus
 } from "@tabler/icons-react";
@@ -40,55 +39,53 @@ export function SlideNavigatorPane(props: {
           </div>
         ) : null}
         <button
-          aria-label={props.isCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
+          aria-label={props.isCollapsed ? "슬라이드 목록 열기" : "슬라이드 패널 접기"}
           className="collapse-slides-button"
           type="button"
-          title={props.isCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
+          title={props.isCollapsed ? "슬라이드 목록 열기" : "슬라이드 패널 접기"}
           onClick={props.onToggleCollapsed}
         >
-          {props.isCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {props.isCollapsed ? <List aria-hidden="true" size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
-      {props.isCollapsed ? (
-        <div className="collapsed-slide-rail">
-          {props.deck.slides.map((slide, index) => (
-            <button
-              className={`rail-slide-button ${index === props.currentSlideIndex ? "active" : ""}`}
-              key={slide.slideId}
-              type="button"
-              title={slide.title || `슬라이드 ${index + 1}`}
-              onClick={() => props.onSelectSlide(index)}
-            >
-              {index + 1}
-            </button>
-          ))}
-        </div>
-      ) : (
+      {!props.isCollapsed ? (
         <div className={`slides-list ${props.view}-view`}>
           {hasSlides ? (
-            props.deck.slides.map((slide, index) => (
-              <button
-                className={`slide-item ${index === props.currentSlideIndex ? "active" : ""}`}
-                key={slide.slideId}
-                type="button"
-                onClick={() => props.onSelectSlide(index)}
-              >
-                <span className="slide-number">{index + 1}</span>
-                {props.showIds ? <IdBadge id={slide.slideId} /> : null}
-                <span
-                  className="slide-thumb orbit-thumb"
-                  style={{
-                    aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
-                    background: buildSlideThumbBackground(
-                      slide,
-                      props.deck,
-                      props.slideThumbnailUrls[slide.slideId]
-                    )
-                  }}
-                />
-              </button>
-            ))
+            props.deck.slides.map((slide, index) => {
+              const slideTitle = slide.title || `슬라이드 ${index + 1}`;
+
+              return (
+                <button
+                  aria-label={`슬라이드 ${index + 1}: ${slideTitle}`}
+                  className={`slide-item ${index === props.currentSlideIndex ? "active" : ""}`}
+                  key={slide.slideId}
+                  type="button"
+                  onClick={() => props.onSelectSlide(index)}
+                >
+                  <span className="slide-item-meta">
+                    <span className="slide-number">{index + 1}</span>
+                    {props.view === "list" ? (
+                      <span className="slide-item-title">{slideTitle}</span>
+                    ) : null}
+                  </span>
+                  {props.view === "thumbnail" ? (
+                    <span
+                      className="slide-thumb orbit-thumb"
+                      style={{
+                        aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
+                        background: buildSlideThumbBackground(
+                          slide,
+                          props.deck,
+                          props.slideThumbnailUrls[slide.slideId]
+                        )
+                      }}
+                    />
+                  ) : null}
+                  {props.view === "list" && props.showIds ? <IdBadge id={slide.slideId} /> : null}
+                </button>
+              );
+            })
           ) : (
             <EmptyPanel
               title="슬라이드 없음"
@@ -96,7 +93,7 @@ export function SlideNavigatorPane(props: {
             />
           )}
         </div>
-      )}
+      ) : null}
 
       {!props.isCollapsed ? (
         <div className="side-footer">

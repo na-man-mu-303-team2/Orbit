@@ -1,6 +1,6 @@
 import {
-  IconArrowBackUp,
-  IconArrowForwardUp,
+  IconArrowLeft,
+  IconArrowRight,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
   IconPhotoPlus as ImagePlus,
@@ -9,9 +9,10 @@ import {
   IconSparkles as Sparkles,
   IconTypography as Type
 } from "@tabler/icons-react";
-import type { ReactNode, RefObject } from "react";
+import type { RefObject } from "react";
 
 import type { InsertTool } from "../editorShellUiStore";
+import { EditorZoomControls } from "./EditorZoomControls";
 
 type EditorToolbarProps = {
   canUseCurrentSlide: boolean;
@@ -19,6 +20,7 @@ type EditorToolbarProps = {
   isAnimationPanelOpen: boolean;
   isImageUploadPending: boolean;
   isShapeMenuOpen: boolean;
+  isStageFitToViewport: boolean;
   onAddChart: () => void;
   onAddText: () => void;
   onOpenAnimation: () => void;
@@ -27,10 +29,13 @@ type EditorToolbarProps = {
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
   onUndo: () => void;
+  onFitStageToViewport: () => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
   redoDisabled: boolean;
   selectedElementAnimationCount: number;
-  selectionProperties: ReactNode;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
+  stageScale: number;
   undoDisabled: boolean;
 };
 
@@ -40,10 +45,10 @@ export function EditorToolbar(props: EditorToolbarProps) {
       <div className="editor-toolbar">
         <div className="tool-group">
           <button aria-label="실행 취소" className="icon-button history-nav-button" disabled={props.undoDisabled} title="Undo" type="button" onClick={props.onUndo}>
-            <IconArrowBackUp className="history-nav-icon" size={17} />
+            <IconArrowLeft className="history-nav-icon" size={20} stroke={2} />
           </button>
           <button aria-label="다시 실행" className="icon-button history-nav-button" disabled={props.redoDisabled} title="Redo" type="button" onClick={props.onRedo}>
-            <IconArrowForwardUp className="history-nav-icon" size={17} />
+            <IconArrowRight className="history-nav-icon" size={20} stroke={2} />
           </button>
           <button aria-label="선택 도구" className={`icon-button ${props.insertTool === "select" ? "selected-tool" : ""}`} title="Select" type="button" onClick={props.onSelectTool}>
             <MousePointer2 size={14} />
@@ -84,7 +89,13 @@ export function EditorToolbar(props: EditorToolbarProps) {
           </button>
         </div>
       </div>
-      {props.selectionProperties}
+      <EditorZoomControls
+        isFitToViewport={props.isStageFitToViewport}
+        onFitToViewport={props.onFitStageToViewport}
+        onZoomIn={props.onZoomIn}
+        onZoomOut={props.onZoomOut}
+        scale={props.stageScale}
+      />
     </div>
   );
 }
