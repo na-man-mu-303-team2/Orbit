@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import copy
+import difflib
 import importlib
 import json
 import math
@@ -41,6 +43,27 @@ P_SP = f"{{{PML_NS}}}sp"
 P_PIC = f"{{{PML_NS}}}pic"
 A_T = f"{{{DML_NS}}}t"
 A_BLIP = f"{{{DML_NS}}}blip"
+XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+SUPPORTED_TEXT_PROPS = {
+    "text", "runs", "paragraphs", "bodyInset", "fontFamily", "fontSize",
+    "fontWeight", "italic", "underline", "color", "align", "verticalAlign",
+    "writingMode", "lineHeight", "bullet",
+}
+SUPPORTED_TEXT_PARAGRAPH_PROPS = {
+    "text", "runs", "fontFamily", "fontSize", "fontWeight", "italic",
+    "underline", "color", "align", "lineHeight", "spaceBefore", "spaceAfter",
+    "indent", "bullet",
+}
+SUPPORTED_TEXT_RUN_PROPS = {
+    "text", "fontFamily", "fontSize", "fontWeight", "italic", "underline",
+    "color", "baseline",
+}
+SUPPORTED_TEXT_STYLE_PROPS = {
+    "fontFamily", "fontSize", "fontWeight", "italic", "underline", "color",
+    "baseline",
+}
+MAX_TEXT_DIFF_MATRIX_CELLS = 250_000
 
 ET.register_namespace("p", PML_NS)
 ET.register_namespace("a", DML_NS)
@@ -81,6 +104,7 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "ADD_ELEMENT_FAILED",
     "ADD_ELEMENT_TYPE_UNSUPPORTED",
     "CROP_CAPABILITY_UNSAFE",
+    "RICH_TEXT_CAPABILITY_UNSAFE",
     "ELEMENT_TYPE_MISMATCH",
     "FRAME_FIELDS_UNSUPPORTED",
     "GROUPED_FRAME_UNSUPPORTED",
@@ -151,6 +175,28 @@ class PackageFrameScale:
     canvas_height: int
     slide_width_emu: int
     slide_height_emu: int
+
+
+@dataclass(frozen=True)
+class TextRunTemplate:
+    start: int
+    end: int
+    run_properties: ET.Element[Any] | None
+
+
+@dataclass(frozen=True)
+class TextEqualSpan:
+    target_start: int
+    target_end: int
+    source_start: int
+    source_end: int
+
+
+@dataclass(frozen=True)
+class TextParagraphTemplate:
+    start: int
+    end: int
+    paragraph: ET.Element[Any]
 
 
 def generate_pptx_ooxml(
@@ -424,6 +470,7 @@ def imported_element_capabilities(
     frame_writable = False
     image_source_writable = False
     crop_capability = "none"
+    rich_text_capability = "none"
     if (
         slide_root is not None
         and bool(source.get("writable", False))
@@ -446,14 +493,55 @@ def imported_element_capabilities(
             crop_capability == "picture"
             and direct_image_blip(shape, source) is not None
         )
+        if (
+            element_type == "text"
+            and shape is not None
+            and not source.get("fallbackReason")
+        ):
+            rich_text_capability = rich_text_capability_for_shape(shape)
     return {
-        "richText": "none",
+        "richText": rich_text_capability,
         "crop": crop_capability,
         "tableCellText": False,
         "frame": frame_writable,
         "delete": False,
         "imageSource": image_source_writable,
     }
+
+
+def rich_text_capability_for_shape(shape: ET.Element[Any]) -> str:
+    if shape.tag != P_SP:
+        return "none"
+    body = first_local_child(shape, "txBody")
+    if body is None:
+        return "none"
+
+    capability = "full"
+    for child in list(body):
+        child_name = local_name(child)
+        if child_name in {"bodyPr", "lstStyle", "extLst"}:
+            continue
+        if child_name != "p":
+            return "none"
+        for paragraph_child in list(child):
+            paragraph_child_name = local_name(paragraph_child)
+            if paragraph_child_name == "fld":
+                return "none"
+            if paragraph_child_name not in {"pPr", "r", "br", "endParaRPr"}:
+                return "none"
+            if paragraph_child_name in {"r", "br"}:
+                allowed = {"rPr", "t"} if paragraph_child_name == "r" else {"rPr"}
+                if any(local_name(item) not in allowed for item in paragraph_child):
+                    return "none"
+                if paragraph_child_name == "r" and sum(
+                    local_name(item) == "t" for item in paragraph_child
+                ) != 1:
+                    return "none"
+            if first_local_descendant(paragraph_child, "hlinkClick") is not None:
+                capability = "style-only"
+            if first_local_descendant(paragraph_child, "hlinkMouseOver") is not None:
+                capability = "style-only"
+    return capability
 
 
 def imported_image_crop_capability(
@@ -635,6 +723,7 @@ def apply_sync_operation(
             shape,
             props,
             source,
+            scale,
             slide_part,
             package_entries,
             added_entries,
@@ -711,22 +800,7 @@ def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
     ):
         return True
     if element_type == "text":
-        return set(props) - {
-            "text",
-            "fontSize",
-            "fontWeight",
-            "align",
-            "verticalAlign",
-            "lineHeight",
-        } != set() or any(
-            (
-                props.get("fontSize", 24) != 24,
-                props.get("fontWeight", "normal") != "normal",
-                props.get("align", "left") != "left",
-                props.get("verticalAlign", "top") != "top",
-                props.get("lineHeight", 1.2) != 1.2,
-            )
-        )
+        return not valid_text_props(props)
     if element_type == "rect":
         fill = props.get("fill", "transparent")
         return (
@@ -756,9 +830,25 @@ def validate_source_props_update(
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     prop_names = set(props)
     element_type = str(source.get("elementType", ""))
-    if prop_names == {"text"}:
+    if prop_names and prop_names.issubset(SUPPORTED_TEXT_PROPS):
         if element_type != "text" or shape.tag != P_SP:
             return "ELEMENT_TYPE_MISMATCH"
+        if not valid_text_props(props):
+            return "PROPS_FIELDS_UNSUPPORTED"
+        capability = dict_value(source, "ooxmlEditCapabilities").get("richText")
+        actual_capability = rich_text_capability_for_shape(shape)
+        if capability not in {"full", "style-only"} or capability != actual_capability:
+            return "RICH_TEXT_CAPABILITY_UNSAFE"
+        if capability == "style-only":
+            if text_props_has_content_projection(props):
+                target_text = canonical_text_value(props)
+                if target_text is None or target_text != text_body_value(shape):
+                    return "RICH_TEXT_CAPABILITY_UNSAFE"
+            if set(props) != {"text"} and text_props_has_content_projection(props):
+                target = canonical_text_paragraphs(props)
+                body = first_local_child(shape, "txBody")
+                if body is None or target is None or not style_only_paragraphs_match(body, target):
+                    return "RICH_TEXT_CAPABILITY_UNSAFE"
         return None
     if prop_names and prop_names.issubset({"src", "alt", "crop"}):
         capabilities = dict_value(source, "ooxmlEditCapabilities")
@@ -780,6 +870,189 @@ def validate_source_props_update(
                 return "CROP_CAPABILITY_UNSAFE"
         return None
     return "PROPS_FIELDS_UNSUPPORTED"
+
+
+def valid_text_props(props: dict[str, Any]) -> bool:
+    if set(props) - SUPPORTED_TEXT_PROPS:
+        return False
+    if "text" in props and not isinstance(props.get("text"), str):
+        return False
+    if not valid_text_style_values(props):
+        return False
+    if props.get("align", "left") not in {"left", "center", "right", "justify"}:
+        return False
+    if props.get("verticalAlign", "top") not in {"top", "middle", "bottom"}:
+        return False
+    if props.get("writingMode", "horizontal") not in {"horizontal", "vertical-270"}:
+        return False
+    if not valid_positive_number(props.get("lineHeight", 1.2)):
+        return False
+    if not valid_text_body_inset(props.get("bodyInset")):
+        return False
+    if "bullet" in props and not valid_text_bullet(props.get("bullet")):
+        return False
+    runs = props.get("runs")
+    if runs is not None and (
+        not isinstance(runs, list) or any(not valid_text_run(run) for run in runs)
+    ):
+        return False
+    paragraphs = props.get("paragraphs")
+    if paragraphs is not None and (
+        not isinstance(paragraphs, list)
+        or any(not valid_text_paragraph(item) for item in paragraphs)
+    ):
+        return False
+    return not text_props_has_content_projection(props) or canonical_text_paragraphs(props) is not None
+
+
+def valid_text_paragraph(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) - SUPPORTED_TEXT_PARAGRAPH_PROPS:
+        return False
+    if "text" in value and not isinstance(value.get("text"), str):
+        return False
+    if not valid_text_style_values(value):
+        return False
+    if value.get("align", "left") not in {"left", "center", "right", "justify"}:
+        return False
+    if not valid_positive_number(value.get("lineHeight", 1.2)):
+        return False
+    if any(key in value and not valid_nonnegative_number(value.get(key)) for key in ("spaceBefore", "spaceAfter")):
+        return False
+    if "indent" in value and not valid_finite_number(value.get("indent")):
+        return False
+    if "bullet" in value and not valid_text_bullet(value.get("bullet")):
+        return False
+    runs = value.get("runs")
+    return runs is None or isinstance(runs, list) and all(valid_text_run(run) for run in runs)
+
+
+def valid_text_run(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and not set(value) - SUPPORTED_TEXT_RUN_PROPS
+        and isinstance(value.get("text", ""), str)
+        and valid_text_style_values(value)
+        and value.get("baseline", "normal") in {"normal", "superscript", "subscript"}
+    )
+
+
+def valid_text_style_values(value: dict[str, Any]) -> bool:
+    font_family = value.get("fontFamily")
+    if font_family is not None and (not isinstance(font_family, str) or not font_family):
+        return False
+    if "fontSize" in value and not valid_positive_number(value.get("fontSize")):
+        return False
+    weight = value.get("fontWeight")
+    if weight is not None and weight not in {"normal", "bold"}:
+        return False
+    if any(key in value and not isinstance(value.get(key), bool) for key in ("italic", "underline")):
+        return False
+    color = value.get("color")
+    return color is None or isinstance(color, str) and valid_hex_color(color)
+
+
+def valid_text_bullet(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and not set(value) - {"enabled", "character", "indent"}
+        and isinstance(value.get("enabled", False), bool)
+        and isinstance(value.get("character", "\u2022"), str)
+        and bool(value.get("character", "\u2022"))
+        and valid_nonnegative_number(value.get("indent", 0))
+    )
+
+
+def valid_text_body_inset(value: Any) -> bool:
+    return value is None or (
+        isinstance(value, dict)
+        and not set(value) - {"left", "right", "top", "bottom"}
+        and all(valid_nonnegative_number(item) for item in value.values())
+    )
+
+
+def valid_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def valid_positive_number(value: Any) -> bool:
+    return valid_finite_number(value) and float(value) > 0
+
+
+def valid_nonnegative_number(value: Any) -> bool:
+    return valid_finite_number(value) and float(value) >= 0
+
+
+def canonical_text_value(props: dict[str, Any]) -> str | None:
+    paragraphs = canonical_text_paragraphs(props)
+    if paragraphs is None:
+        return None
+    return "\n".join(str(paragraph["text"]) for paragraph in paragraphs)
+
+
+def text_props_has_content_projection(props: dict[str, Any]) -> bool:
+    return any(key in props for key in ("text", "runs", "paragraphs"))
+
+
+def canonical_text_paragraphs(props: dict[str, Any]) -> list[dict[str, Any]] | None:
+    raw_paragraphs = props.get("paragraphs")
+    if isinstance(raw_paragraphs, list):
+        paragraphs: list[dict[str, Any]] = []
+        for raw in raw_paragraphs:
+            if not isinstance(raw, dict):
+                return None
+            paragraph = copy.deepcopy(raw)
+            raw_runs = paragraph.get("runs")
+            if isinstance(raw_runs, list) and raw_runs:
+                if any(not isinstance(run, dict) for run in raw_runs):
+                    return None
+                runs = [copy.deepcopy(run) for run in raw_runs]
+                text = "".join(str(run.get("text", "")) for run in runs)
+                if "text" in paragraph and paragraph.get("text") != text:
+                    return None
+            else:
+                text = str(paragraph.get("text", ""))
+                runs = [{"text": text}] if text else []
+            paragraph.update({"text": text, "runs": runs})
+            paragraphs.append(paragraph)
+        paragraphs = paragraphs or [{"text": "", "runs": []}]
+        value = "\n".join(str(item["text"]) for item in paragraphs)
+        return None if "text" in props and props.get("text") != value else paragraphs
+    raw_runs = props.get("runs")
+    if isinstance(raw_runs, list) and raw_runs:
+        paragraphs = [{"text": "", "runs": []}]
+        for raw in raw_runs:
+            if not isinstance(raw, dict):
+                return None
+            pieces = str(raw.get("text", "")).split("\n")
+            for index, piece in enumerate(pieces):
+                if piece or len(pieces) == 1:
+                    run = copy.deepcopy(raw)
+                    run["text"] = piece
+                    paragraphs[-1]["runs"].append(run)
+                    paragraphs[-1]["text"] += piece
+                if index < len(pieces) - 1:
+                    paragraphs.append({"text": "", "runs": []})
+        value = "\n".join(str(item["text"]) for item in paragraphs)
+        return None if "text" in props and props.get("text") != value else paragraphs
+    text = str(props.get("text", ""))
+    return [{"text": part, "runs": [{"text": part}] if part else []} for part in text.split("\n")]
+
+
+def text_body_value(shape: ET.Element[Any]) -> str:
+    body = first_local_child(shape, "txBody")
+    if body is None:
+        return ""
+    paragraphs: list[str] = []
+    for paragraph in direct_local_children(body, "p"):
+        parts: list[str] = []
+        for child in paragraph:
+            name = local_name(child)
+            if name in {"r", "fld"}:
+                parts.append("".join(node.text or "" for node in child.iter() if local_name(node) == "t"))
+            elif name == "br":
+                parts.append("\n")
+        paragraphs.append("".join(parts))
+    return "\n".join(paragraphs)
 
 
 def normalized_image_crop(value: Any) -> dict[str, float] | None:
@@ -924,6 +1197,7 @@ def update_shape_props(
     shape: ET.Element[Any],
     props: dict[str, Any],
     source: dict[str, Any],
+    scale: PackageFrameScale,
     slide_part: str,
     package_entries: dict[str, bytes],
     added_entries: dict[str, bytes],
@@ -933,9 +1207,8 @@ def update_shape_props(
     element_id: str,
 ) -> bool:
     changed = False
-    if "text" in props:
-        replace_shape_text(shape, str(props.get("text") or ""))
-        return True
+    if source.get("elementType") == "text":
+        return sync_text_shape(shape, props, source, scale)
     if "src" in props:
         if source.get("fallbackReason"):
             warnings.append(f"OOXML fallback source preserved for {element_id}.")
@@ -1084,17 +1357,976 @@ def safe_package_token(value: str) -> str:
     return token or "image"
 
 
-def replace_shape_text(shape: ET.Element[Any], text: str) -> None:
-    nodes = list(shape.iter(A_T))
-    if not nodes:
-        tx_body = ensure_text_body(shape)
-        paragraph = ET.SubElement(tx_body, f"{{{DML_NS}}}p")
-        run = ET.SubElement(paragraph, f"{{{DML_NS}}}r")
-        ET.SubElement(run, f"{{{DML_NS}}}t")
-        nodes = list(shape.iter(A_T))
-    nodes[0].text = text
-    for node in nodes[1:]:
-        node.text = ""
+def sync_text_shape(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+    source: dict[str, Any],
+    scale: PackageFrameScale,
+) -> bool:
+    if (
+        set(props) == {"text"}
+        and str(props.get("text", "")) == text_body_value(shape)
+    ):
+        return True
+    paragraphs = text_sync_paragraphs(shape, props)
+    if paragraphs is None:
+        return False
+    body = ensure_text_body(shape)
+    if (
+        dict_value(source, "ooxmlEditCapabilities").get("richText")
+        == "style-only"
+    ):
+        paragraphs = preserve_existing_run_boundaries(body, paragraphs)
+    equal_spans = text_equal_spans(
+        text_body_value(shape),
+        "\n".join(str(paragraph.get("text", "")) for paragraph in paragraphs),
+    )
+    apply_text_body_properties(body, props, scale)
+    authored = source.get("ooxmlOrigin") == "authored"
+    if text_structure_matches(body, paragraphs):
+        patch_matching_text_structure(body, paragraphs, props, scale, authored)
+    else:
+        rebuild_text_structure(
+            body,
+            paragraphs,
+            props,
+            scale,
+            authored,
+            equal_spans,
+        )
+    return True
+
+
+def text_sync_paragraphs(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    redundant_text_projection = (
+        "text" in props
+        and "runs" not in props
+        and "paragraphs" not in props
+        and str(props.get("text", "")) == text_body_value(shape)
+    )
+    if text_props_has_content_projection(props) and not redundant_text_projection:
+        return canonical_text_paragraphs(props)
+    body = first_local_child(shape, "txBody")
+    if body is None:
+        return [{"text": "", "runs": []}]
+    paragraph_style = {
+        key: props[key]
+        for key in ("align", "lineHeight", "bullet")
+        if key in props
+    }
+    paragraphs: list[dict[str, Any]] = []
+    for paragraph in direct_local_children(body, "p"):
+        runs: list[dict[str, Any]] = []
+        for child in list(paragraph):
+            name = local_name(child)
+            if name == "r":
+                runs.append({"text": text_run_value(child)})
+            elif name == "br":
+                runs.append({"text": "\n"})
+        paragraphs.append(
+            {
+                "text": "".join(str(run["text"]) for run in runs),
+                "runs": runs,
+                **paragraph_style,
+            }
+        )
+    return paragraphs or [{"text": "", "runs": [], **paragraph_style}]
+
+
+def style_only_paragraphs_match(
+    body: ET.Element[Any],
+    paragraphs: list[dict[str, Any]],
+) -> bool:
+    existing = [
+        text_paragraph_value(paragraph)
+        for paragraph in direct_local_children(body, "p")
+    ]
+    target = [str(paragraph.get("text", "")) for paragraph in paragraphs]
+    return existing == target
+
+
+def preserve_existing_run_boundaries(
+    body: ET.Element[Any],
+    paragraphs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    existing_paragraphs = direct_local_children(body, "p")
+    if len(existing_paragraphs) != len(paragraphs):
+        return paragraphs
+    result: list[dict[str, Any]] = []
+    for existing, target in zip(existing_paragraphs, paragraphs, strict=True):
+        text = str(target.get("text", ""))
+        target_runs = target.get("runs", [])
+        if not isinstance(target_runs, list):
+            result.append(target)
+            continue
+        boundaries = {0, utf16_length(text)}
+        offset = 0
+        for child in list(existing):
+            name = local_name(child)
+            if name == "r":
+                offset += utf16_length(text_run_value(child))
+                boundaries.add(offset)
+            elif name == "br":
+                offset += 1
+                boundaries.add(offset)
+        target_intervals: list[tuple[int, int, dict[str, Any]]] = []
+        offset = 0
+        for target_run in target_runs:
+            if not isinstance(target_run, dict):
+                continue
+            end = offset + utf16_length(str(target_run.get("text", "")))
+            target_intervals.append((offset, end, target_run))
+            boundaries.update({offset, end})
+            offset = end
+        ordered = sorted(boundaries)
+        rebuilt_runs: list[dict[str, Any]] = []
+        for start, end in zip(ordered, ordered[1:]):
+            if start == end:
+                continue
+            target_run = next(
+                (
+                    run
+                    for run_start, run_end, run in target_intervals
+                    if run_start <= start < run_end
+                ),
+                {},
+            )
+            rebuilt_runs.append(
+                {
+                    **copy.deepcopy(target_run),
+                    "text": utf16_slice(text, start, end),
+                }
+            )
+        result.append({**copy.deepcopy(target), "runs": rebuilt_runs})
+    return result
+
+
+def apply_text_body_properties(
+    body: ET.Element[Any],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+) -> None:
+    if (
+        "verticalAlign" not in props
+        and "writingMode" not in props
+        and "bodyInset" not in props
+    ):
+        return
+    body_pr = first_local_child(body, "bodyPr")
+    if body_pr is None:
+        body_pr = ET.Element(f"{{{DML_NS}}}bodyPr")
+        body.insert(0, body_pr)
+    if "verticalAlign" in props:
+        body_pr.set(
+            "anchor",
+            {"top": "t", "middle": "ctr", "bottom": "b"}.get(
+                str(props.get("verticalAlign", "top")),
+                "t",
+            ),
+        )
+    if "writingMode" in props:
+        body_pr.set(
+            "vert",
+            "vert270" if props.get("writingMode") == "vertical-270" else "horz",
+        )
+    if "bodyInset" in props:
+        inset = dict_value(props, "bodyInset")
+        for key, attribute, converter in (
+            ("left", "lIns", canvas_x_to_emu),
+            ("right", "rIns", canvas_x_to_emu),
+            ("top", "tIns", canvas_y_to_emu),
+            ("bottom", "bIns", canvas_y_to_emu),
+        ):
+            if key in inset:
+                body_pr.set(attribute, str(converter(inset[key], scale)))
+
+
+def text_structure_matches(
+    body: ET.Element[Any],
+    paragraphs: list[dict[str, Any]],
+) -> bool:
+    existing_paragraphs = direct_local_children(body, "p")
+    if len(existing_paragraphs) != len(paragraphs):
+        return False
+    for existing, target in zip(existing_paragraphs, paragraphs, strict=True):
+        content = [
+            child
+            for child in list(existing)
+            if local_name(child) not in {"pPr", "endParaRPr"}
+        ]
+        if any(local_name(child) != "r" for child in content):
+            return False
+        target_runs = target.get("runs", [])
+        if not isinstance(target_runs, list) or len(content) != len(target_runs):
+            return False
+        if any(
+            text_run_value(run) != str(target_run.get("text", ""))
+            for run, target_run in zip(content, target_runs, strict=True)
+        ):
+            return False
+    return True
+
+
+def patch_matching_text_structure(
+    body: ET.Element[Any],
+    paragraphs: list[dict[str, Any]],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+    authored: bool,
+) -> None:
+    raw_paragraphs = props.get("paragraphs")
+    for paragraph_index, (paragraph, target) in enumerate(
+        zip(direct_local_children(body, "p"), paragraphs, strict=True)
+    ):
+        desired_paragraph = desired_paragraph_style(props, target, authored)
+        patch_paragraph_properties(paragraph, desired_paragraph, scale)
+        raw_paragraph = (
+            raw_paragraphs[paragraph_index]
+            if isinstance(raw_paragraphs, list)
+            and paragraph_index < len(raw_paragraphs)
+            and isinstance(raw_paragraphs[paragraph_index], dict)
+            else None
+        )
+        raw_runs = raw_paragraph.get("runs") if raw_paragraph is not None else None
+        has_explicit_runs = isinstance(raw_runs, list) and bool(raw_runs)
+        existing_runs = direct_local_children(paragraph, "r")
+        target_runs = target.get("runs", [])
+        for run, target_run in zip(existing_runs, target_runs, strict=True):
+            desired_run = desired_run_style(
+                props,
+                target,
+                target_run,
+                authored=authored,
+                has_explicit_runs=has_explicit_runs,
+            )
+            patch_run_properties(run, desired_run, scale)
+
+
+def rebuild_text_structure(
+    body: ET.Element[Any],
+    paragraphs: list[dict[str, Any]],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+    authored: bool,
+    equal_spans: list[TextEqualSpan],
+) -> None:
+    existing_paragraphs = direct_local_children(body, "p")
+    run_templates = existing_text_run_templates(existing_paragraphs)
+    paragraph_templates = existing_text_paragraph_templates(existing_paragraphs)
+    raw_paragraphs = props.get("paragraphs")
+    rebuilt: list[ET.Element[Any]] = []
+    logical_offset = 0
+    for paragraph_index, target in enumerate(paragraphs):
+        paragraph_text_length = utf16_length(str(target.get("text", "")))
+        source_start, source_end = map_target_interval_to_source(
+            logical_offset,
+            logical_offset + paragraph_text_length,
+            equal_spans,
+        )
+        paragraph_template_record = nearest_text_paragraph_template(
+            paragraph_templates,
+            source_start,
+            source_end,
+        )
+        paragraph_template = (
+            paragraph_template_record.paragraph
+            if paragraph_template_record is not None
+            else None
+        )
+        paragraph = ET.Element(f"{{{DML_NS}}}p")
+        if paragraph_template is not None:
+            p_pr = first_local_child(paragraph_template, "pPr")
+            if p_pr is not None:
+                paragraph.append(copy.deepcopy(p_pr))
+        patch_paragraph_properties(
+            paragraph,
+            desired_paragraph_style(props, target, authored),
+            scale,
+        )
+        raw_paragraph = (
+            raw_paragraphs[paragraph_index]
+            if isinstance(raw_paragraphs, list)
+            and paragraph_index < len(raw_paragraphs)
+            and isinstance(raw_paragraphs[paragraph_index], dict)
+            else None
+        )
+        raw_runs = raw_paragraph.get("runs") if raw_paragraph is not None else None
+        has_explicit_runs = isinstance(raw_runs, list) and bool(raw_runs)
+        target_runs = target.get("runs", [])
+        for target_run in target_runs if isinstance(target_runs, list) else []:
+            run_text = str(target_run.get("text", ""))
+            desired_run = desired_run_style(
+                props,
+                target,
+                target_run,
+                authored=authored,
+                has_explicit_runs=has_explicit_runs,
+            )
+            append_rebuilt_run_content(
+                paragraph,
+                run_text,
+                logical_offset,
+                desired_run,
+                run_templates,
+                equal_spans,
+                scale,
+            )
+            logical_offset += utf16_length(run_text)
+        if paragraph_template is not None:
+            end_properties = first_local_child(paragraph_template, "endParaRPr")
+            if end_properties is not None:
+                paragraph.append(copy.deepcopy(end_properties))
+        rebuilt.append(paragraph)
+        if paragraph_index < len(paragraphs) - 1:
+            logical_offset += 1
+
+    children = list(body)
+    paragraph_indexes = [
+        index for index, child in enumerate(children) if local_name(child) == "p"
+    ]
+    insertion_index = paragraph_indexes[0] if paragraph_indexes else len(children)
+    for paragraph in existing_paragraphs:
+        body.remove(paragraph)
+    for offset, paragraph in enumerate(rebuilt):
+        body.insert(insertion_index + offset, paragraph)
+
+
+def existing_text_run_templates(
+    paragraphs: list[ET.Element[Any]],
+) -> list[TextRunTemplate]:
+    templates: list[TextRunTemplate] = []
+    offset = 0
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        for child in list(paragraph):
+            name = local_name(child)
+            if name == "r":
+                text = text_run_value(child)
+                length = utf16_length(text)
+                r_pr = first_local_child(child, "rPr")
+                templates.append(
+                    TextRunTemplate(
+                        start=offset,
+                        end=offset + length,
+                        run_properties=copy.deepcopy(r_pr) if r_pr is not None else None,
+                    )
+                )
+                offset += length
+            elif name == "br":
+                r_pr = first_local_child(child, "rPr")
+                templates.append(
+                    TextRunTemplate(
+                        start=offset,
+                        end=offset + 1,
+                        run_properties=copy.deepcopy(r_pr) if r_pr is not None else None,
+                    )
+                )
+                offset += 1
+        if paragraph_index < len(paragraphs) - 1:
+            offset += 1
+    return templates
+
+
+def existing_text_paragraph_templates(
+    paragraphs: list[ET.Element[Any]],
+) -> list[TextParagraphTemplate]:
+    templates: list[TextParagraphTemplate] = []
+    offset = 0
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        length = utf16_length(text_paragraph_value(paragraph))
+        templates.append(
+            TextParagraphTemplate(
+                start=offset,
+                end=offset + length,
+                paragraph=paragraph,
+            )
+        )
+        offset += length
+        if paragraph_index < len(paragraphs) - 1:
+            offset += 1
+    return templates
+
+
+def append_rebuilt_run_content(
+    paragraph: ET.Element[Any],
+    text: str,
+    start: int,
+    desired_style: dict[str, Any],
+    templates: list[TextRunTemplate],
+    equal_spans: list[TextEqualSpan],
+    scale: PackageFrameScale,
+) -> None:
+    offset = start
+    pieces = text.split("\n")
+    for piece_index, piece in enumerate(pieces):
+        if piece or len(pieces) == 1:
+            run = ET.SubElement(paragraph, f"{{{DML_NS}}}r")
+            source_start, source_end = map_target_interval_to_source(
+                offset,
+                offset + utf16_length(piece),
+                equal_spans,
+            )
+            template = nearest_text_run_template(
+                templates,
+                source_start,
+                source_end,
+            )
+            if template is not None and template.run_properties is not None:
+                run.append(copy.deepcopy(template.run_properties))
+            patch_run_properties(run, desired_style, scale)
+            text_node = ET.SubElement(run, A_T)
+            set_text_node_value(text_node, piece)
+            offset += utf16_length(piece)
+        if piece_index < len(pieces) - 1:
+            line_break = ET.SubElement(paragraph, f"{{{DML_NS}}}br")
+            source_start, source_end = map_target_interval_to_source(
+                offset,
+                offset + 1,
+                equal_spans,
+            )
+            template = nearest_text_run_template(
+                templates,
+                source_start,
+                source_end,
+            )
+            if template is not None and template.run_properties is not None:
+                line_break.append(copy.deepcopy(template.run_properties))
+            patch_run_properties(line_break, desired_style, scale)
+            offset += 1
+
+
+def nearest_text_run_template(
+    templates: list[TextRunTemplate],
+    start: int,
+    end: int,
+) -> TextRunTemplate | None:
+    overlapping = [
+        template
+        for template in templates
+        if max(start, template.start) < min(end, template.end)
+    ]
+    if overlapping:
+        return max(
+            overlapping,
+            key=lambda template: min(end, template.end) - max(start, template.start),
+        )
+    return min(
+        templates,
+        key=lambda template: min(
+            abs(start - template.start),
+            abs(start - template.end),
+        ),
+        default=None,
+    )
+
+
+def nearest_text_paragraph_template(
+    templates: list[TextParagraphTemplate],
+    start: int,
+    end: int,
+) -> TextParagraphTemplate | None:
+    overlapping = [
+        template
+        for template in templates
+        if max(start, template.start) < min(end, template.end)
+    ]
+    if overlapping:
+        return max(
+            overlapping,
+            key=lambda template: min(end, template.end) - max(start, template.start),
+        )
+    return min(
+        templates,
+        key=lambda template: min(
+            abs(start - template.start),
+            abs(start - template.end),
+        ),
+        default=None,
+    )
+
+
+def text_equal_spans(source: str, target: str) -> list[TextEqualSpan]:
+    source_offsets = utf16_prefix_offsets(source)
+    target_offsets = utf16_prefix_offsets(target)
+    prefix_length = 0
+    shared_length = min(len(source), len(target))
+    while (
+        prefix_length < shared_length
+        and source[prefix_length] == target[prefix_length]
+    ):
+        prefix_length += 1
+
+    suffix_length = 0
+    source_remaining = len(source) - prefix_length
+    target_remaining = len(target) - prefix_length
+    while (
+        suffix_length < min(source_remaining, target_remaining)
+        and source[len(source) - suffix_length - 1]
+        == target[len(target) - suffix_length - 1]
+    ):
+        suffix_length += 1
+
+    spans: list[TextEqualSpan] = []
+    if prefix_length:
+        spans.append(
+            TextEqualSpan(
+                target_start=0,
+                target_end=target_offsets[prefix_length],
+                source_start=0,
+                source_end=source_offsets[prefix_length],
+            )
+        )
+
+    source_middle_end = len(source) - suffix_length
+    target_middle_end = len(target) - suffix_length
+    source_middle = source[prefix_length:source_middle_end]
+    target_middle = target[prefix_length:target_middle_end]
+    if (
+        source_middle
+        and target_middle
+        and len(source_middle) * len(target_middle) <= MAX_TEXT_DIFF_MATRIX_CELLS
+    ):
+        matcher = difflib.SequenceMatcher(
+            a=source_middle,
+            b=target_middle,
+            autojunk=False,
+        )
+        spans.extend(
+            TextEqualSpan(
+                target_start=target_offsets[prefix_length + match.b],
+                target_end=target_offsets[prefix_length + match.b + match.size],
+                source_start=source_offsets[prefix_length + match.a],
+                source_end=source_offsets[prefix_length + match.a + match.size],
+            )
+            for match in matcher.get_matching_blocks()
+            if match.size > 0
+        )
+
+    if suffix_length:
+        spans.append(
+            TextEqualSpan(
+                target_start=target_offsets[target_middle_end],
+                target_end=target_offsets[len(target)],
+                source_start=source_offsets[source_middle_end],
+                source_end=source_offsets[len(source)],
+            )
+        )
+    return spans
+
+
+def map_target_interval_to_source(
+    start: int,
+    end: int,
+    equal_spans: list[TextEqualSpan],
+) -> tuple[int, int]:
+    overlaps: list[tuple[int, TextEqualSpan]] = []
+    for span in equal_spans:
+        overlap_start = max(start, span.target_start)
+        overlap_end = min(end, span.target_end)
+        if overlap_start < overlap_end:
+            overlaps.append((overlap_end - overlap_start, span))
+    if overlaps:
+        _length, span = max(overlaps, key=lambda item: item[0])
+        overlap_start = max(start, span.target_start)
+        overlap_end = min(end, span.target_end)
+        return (
+            span.source_start + overlap_start - span.target_start,
+            span.source_start + overlap_end - span.target_start,
+        )
+
+    preceding = [span for span in equal_spans if span.target_end <= start]
+    if preceding:
+        position = max(preceding, key=lambda span: span.target_end).source_end
+        return position, position
+    following = [span for span in equal_spans if span.target_start >= end]
+    if following:
+        position = min(following, key=lambda span: span.target_start).source_start
+        return position, position
+    return 0, 0
+
+
+def desired_paragraph_style(
+    props: dict[str, Any],
+    paragraph: dict[str, Any],
+    authored: bool,
+) -> dict[str, Any]:
+    keys = {"align", "lineHeight", "spaceBefore", "spaceAfter", "indent", "bullet"}
+    desired: dict[str, Any] = {}
+    if authored:
+        for key in ("align", "lineHeight", "bullet"):
+            if key in props:
+                desired[key] = props[key]
+    for key in keys:
+        if key in paragraph:
+            desired[key] = paragraph[key]
+    return desired
+
+
+def desired_run_style(
+    props: dict[str, Any],
+    paragraph: dict[str, Any],
+    run: dict[str, Any],
+    *,
+    authored: bool,
+    has_explicit_runs: bool,
+) -> dict[str, Any]:
+    desired: dict[str, Any] = {}
+    if authored or not has_explicit_runs:
+        for source in (props, paragraph):
+            for key in SUPPORTED_TEXT_STYLE_PROPS:
+                if key in source:
+                    desired[key] = source[key]
+    for key in SUPPORTED_TEXT_STYLE_PROPS:
+        if key in run:
+            desired[key] = run[key]
+    return desired
+
+
+def patch_run_properties(
+    run: ET.Element[Any],
+    desired: dict[str, Any],
+    scale: PackageFrameScale,
+) -> None:
+    current = current_run_style(first_local_child(run, "rPr"), scale)
+    differences = {
+        key: value
+        for key, value in desired.items()
+        if key in SUPPORTED_TEXT_STYLE_PROPS
+        and not text_style_values_equal(current.get(key), value)
+    }
+    if not differences:
+        return
+    r_pr = ensure_run_properties(run)
+    if "fontFamily" in differences:
+        for name in ("latin", "ea"):
+            font = first_local_child(r_pr, name)
+            if font is None:
+                font = ET.SubElement(r_pr, f"{{{DML_NS}}}{name}")
+            font.set("typeface", str(differences["fontFamily"]))
+    if "fontSize" in differences:
+        r_pr.set("sz", str(font_size_to_ooxml(differences["fontSize"], scale)))
+    if "fontWeight" in differences:
+        r_pr.set("b", "1" if is_bold_text_weight(differences["fontWeight"]) else "0")
+    if "italic" in differences:
+        r_pr.set("i", "1" if differences["italic"] else "0")
+    if "underline" in differences:
+        r_pr.set("u", "sng" if differences["underline"] else "none")
+    if "baseline" in differences:
+        baseline = differences["baseline"]
+        if baseline == "superscript":
+            r_pr.set("baseline", "30000")
+        elif baseline == "subscript":
+            r_pr.set("baseline", "-25000")
+        else:
+            r_pr.attrib.pop("baseline", None)
+    if "color" in differences:
+        for child in list(r_pr):
+            if local_name(child) in {
+                "solidFill",
+                "gradFill",
+                "noFill",
+                "pattFill",
+                "blipFill",
+            }:
+                r_pr.remove(child)
+        color_fill = ET.Element(f"{{{DML_NS}}}solidFill")
+        ET.SubElement(
+            color_fill,
+            f"{{{DML_NS}}}srgbClr",
+            {"val": str(differences["color"])[1:].upper()},
+        )
+        r_pr.insert(0, color_fill)
+
+
+def current_run_style(
+    r_pr: ET.Element[Any] | None,
+    scale: PackageFrameScale,
+) -> dict[str, Any]:
+    if r_pr is None:
+        return {"baseline": "normal"}
+    current: dict[str, Any] = {"baseline": "normal"}
+    for name in ("latin", "ea", "cs"):
+        font = first_local_child(r_pr, name)
+        if font is not None and font.get("typeface"):
+            current["fontFamily"] = str(font.get("typeface"))
+            break
+    size = int_value(r_pr.get("sz"), 0)
+    if size > 0:
+        current["fontSize"] = font_size_from_ooxml(size, scale)
+    if r_pr.get("b") is not None:
+        current["fontWeight"] = (
+            "bold" if r_pr.get("b") in {"1", "true"} else "normal"
+        )
+    if r_pr.get("i") is not None:
+        current["italic"] = r_pr.get("i") in {"1", "true"}
+    if r_pr.get("u") is not None:
+        current["underline"] = r_pr.get("u") not in {"0", "false", "none"}
+    solid_fill = first_local_child(r_pr, "solidFill")
+    srgb = first_local_child(solid_fill, "srgbClr") if solid_fill is not None else None
+    if srgb is not None and srgb.get("val"):
+        current["color"] = f"#{str(srgb.get('val')).upper()}"
+    baseline = int_value(r_pr.get("baseline"), 0)
+    if baseline > 0:
+        current["baseline"] = "superscript"
+    elif baseline < 0:
+        current["baseline"] = "subscript"
+    return current
+
+
+def ensure_run_properties(run: ET.Element[Any]) -> ET.Element[Any]:
+    r_pr = first_local_child(run, "rPr")
+    if r_pr is not None:
+        return r_pr
+    r_pr = ET.Element(f"{{{DML_NS}}}rPr", {"lang": "ko-KR"})
+    run.insert(0, r_pr)
+    return r_pr
+
+
+def patch_paragraph_properties(
+    paragraph: ET.Element[Any],
+    desired: dict[str, Any],
+    scale: PackageFrameScale,
+) -> None:
+    current = current_paragraph_style(first_local_child(paragraph, "pPr"), scale)
+    differences = {
+        key: value
+        for key, value in desired.items()
+        if not text_style_values_equal(current.get(key), value)
+    }
+    if not differences:
+        return
+    p_pr = first_local_child(paragraph, "pPr")
+    if p_pr is None:
+        p_pr = ET.Element(f"{{{DML_NS}}}pPr")
+        paragraph.insert(0, p_pr)
+    if "align" in differences:
+        p_pr.set(
+            "algn",
+            {"left": "l", "center": "ctr", "right": "r", "justify": "just"}.get(
+                str(differences["align"]),
+                "l",
+            ),
+        )
+    if "indent" in differences:
+        p_pr.set("marL", str(canvas_x_to_signed_emu(differences["indent"], scale)))
+    if "lineHeight" in differences:
+        set_paragraph_spacing_percent(p_pr, "lnSpc", differences["lineHeight"])
+    if "spaceBefore" in differences:
+        set_paragraph_spacing_points(p_pr, "spcBef", differences["spaceBefore"], scale)
+    if "spaceAfter" in differences:
+        set_paragraph_spacing_points(p_pr, "spcAft", differences["spaceAfter"], scale)
+    if "bullet" in differences:
+        for child in list(p_pr):
+            if local_name(child) in {"buNone", "buChar", "buAutoNum"}:
+                p_pr.remove(child)
+        bullet = differences["bullet"]
+        if isinstance(bullet, dict) and bullet.get("enabled"):
+            ET.SubElement(
+                p_pr,
+                f"{{{DML_NS}}}buChar",
+                {"char": str(bullet.get("character", "\u2022"))},
+            )
+            p_pr.set(
+                "marL",
+                str(canvas_x_to_signed_emu(bullet.get("indent", 0), scale)),
+            )
+        else:
+            ET.SubElement(p_pr, f"{{{DML_NS}}}buNone")
+
+
+def current_paragraph_style(
+    p_pr: ET.Element[Any] | None,
+    scale: PackageFrameScale,
+) -> dict[str, Any]:
+    if p_pr is None:
+        return {
+            "align": "left",
+            "lineHeight": 1.15,
+            "spaceBefore": 0,
+            "spaceAfter": 0,
+            "indent": 0,
+        }
+    current: dict[str, Any] = {
+        "align": {
+            "ctr": "center",
+            "r": "right",
+            "just": "justify",
+        }.get(str(p_pr.get("algn", "l")), "left"),
+        "lineHeight": paragraph_spacing_percent(p_pr, "lnSpc", 1.15),
+        "spaceBefore": paragraph_spacing_canvas(p_pr, "spcBef", scale),
+        "spaceAfter": paragraph_spacing_canvas(p_pr, "spcAft", scale),
+        "indent": round(int_value(p_pr.get("marL"), 0) * canvas_x_scale(scale), 3),
+    }
+    bullet = first_local_child(p_pr, "buChar")
+    if bullet is not None:
+        current["bullet"] = {
+            "enabled": True,
+            "character": str(bullet.get("char", "\u2022")),
+            "indent": max(0, current["indent"]),
+        }
+    elif first_local_child(p_pr, "buNone") is not None:
+        current["bullet"] = {"enabled": False, "character": "\u2022", "indent": 0}
+    return current
+
+
+def set_paragraph_spacing_percent(
+    p_pr: ET.Element[Any],
+    name: str,
+    value: Any,
+) -> None:
+    spacing = first_local_child(p_pr, name)
+    if spacing is None:
+        spacing = ET.SubElement(p_pr, f"{{{DML_NS}}}{name}")
+    for child in list(spacing):
+        spacing.remove(child)
+    ET.SubElement(
+        spacing,
+        f"{{{DML_NS}}}spcPct",
+        {"val": str(round(float(value) * 100000))},
+    )
+
+
+def set_paragraph_spacing_points(
+    p_pr: ET.Element[Any],
+    name: str,
+    value: Any,
+    scale: PackageFrameScale,
+) -> None:
+    spacing = first_local_child(p_pr, name)
+    if spacing is None:
+        spacing = ET.SubElement(p_pr, f"{{{DML_NS}}}{name}")
+    for child in list(spacing):
+        spacing.remove(child)
+    ET.SubElement(
+        spacing,
+        f"{{{DML_NS}}}spcPts",
+        {"val": str(canvas_spacing_to_ooxml(value, scale))},
+    )
+
+
+def paragraph_spacing_percent(
+    p_pr: ET.Element[Any],
+    name: str,
+    fallback: float,
+) -> float:
+    spacing = first_local_child(p_pr, name)
+    percentage = first_local_child(spacing, "spcPct") if spacing is not None else None
+    return (
+        int_value(percentage.get("val"), round(fallback * 100000)) / 100000
+        if percentage is not None
+        else fallback
+    )
+
+
+def paragraph_spacing_canvas(
+    p_pr: ET.Element[Any],
+    name: str,
+    scale: PackageFrameScale,
+) -> float:
+    spacing = first_local_child(p_pr, name)
+    points = first_local_child(spacing, "spcPts") if spacing is not None else None
+    if points is None:
+        return 0
+    return round(
+        int_value(points.get("val"), 0)
+        / 100
+        * 12700
+        * canvas_average_scale(scale),
+        3,
+    )
+
+
+def font_size_from_ooxml(size: int, scale: PackageFrameScale) -> float:
+    return round(size / 100 * 12700 * canvas_average_scale(scale), 3)
+
+
+def font_size_to_ooxml(value: Any, scale: PackageFrameScale) -> int:
+    return max(1, round(float(value) / (12700 * canvas_average_scale(scale)) * 100))
+
+
+def canvas_spacing_to_ooxml(value: Any, scale: PackageFrameScale) -> int:
+    return max(0, round(float(value) / (12700 * canvas_average_scale(scale)) * 100))
+
+
+def canvas_x_scale(scale: PackageFrameScale) -> float:
+    return scale.canvas_width / scale.slide_width_emu
+
+
+def canvas_average_scale(scale: PackageFrameScale) -> float:
+    return (
+        scale.canvas_width / scale.slide_width_emu
+        + scale.canvas_height / scale.slide_height_emu
+    ) / 2
+
+
+def canvas_x_to_signed_emu(value: Any, scale: PackageFrameScale) -> int:
+    return round(float(value) * scale.slide_width_emu / scale.canvas_width)
+
+
+def text_style_values_equal(current: Any, desired: Any) -> bool:
+    if isinstance(current, (int, float)) and isinstance(desired, (int, float)):
+        return math.isclose(float(current), float(desired), rel_tol=1e-4, abs_tol=0.01)
+    if isinstance(current, str) and isinstance(desired, str):
+        if valid_hex_color(current) and valid_hex_color(desired):
+            return current.upper() == desired.upper()
+    return bool(current == desired)
+
+
+def is_bold_text_weight(value: Any) -> bool:
+    return value in {"semibold", "bold"} or (
+        isinstance(value, int) and not isinstance(value, bool) and value >= 600
+    )
+
+
+def text_run_value(run: ET.Element[Any]) -> str:
+    return "".join(
+        node.text or "" for node in run.iter() if local_name(node) == "t"
+    )
+
+
+def text_paragraph_value(paragraph: ET.Element[Any]) -> str:
+    parts: list[str] = []
+    for child in list(paragraph):
+        name = local_name(child)
+        if name in {"r", "fld"}:
+            parts.append(text_run_value(child))
+        elif name == "br":
+            parts.append("\n")
+    return "".join(parts)
+
+
+def set_text_node_value(node: ET.Element[Any], value: str) -> None:
+    node.text = value
+    if value != value.strip():
+        node.set(XML_SPACE, "preserve")
+    else:
+        node.attrib.pop(XML_SPACE, None)
+
+
+def utf16_length(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+def utf16_prefix_offsets(value: str) -> list[int]:
+    offsets = [0]
+    for character in value:
+        offsets.append(offsets[-1] + utf16_length(character))
+    return offsets
+
+
+def utf16_slice(value: str, start: int, end: int) -> str:
+    encoded = value.encode("utf-16-le")
+    return encoded[start * 2 : end * 2].decode("utf-16-le")
+
+
+def canvas_x_to_emu(value: Any, scale: PackageFrameScale) -> int:
+    return round(float(value) * scale.slide_width_emu / scale.canvas_width)
+
+
+def canvas_y_to_emu(value: Any, scale: PackageFrameScale) -> int:
+    return round(float(value) * scale.slide_height_emu / scale.canvas_height)
 
 
 def update_shape_frame(
@@ -1297,7 +2529,7 @@ def add_element_to_slide_xml(
         "elementType": element_type,
         "ooxmlOrigin": "authored",
         "ooxmlEditCapabilities": {
-            "richText": "none",
+            "richText": "full" if element_type == "text" else "none",
             "crop": "picture" if element_type == "image" else "none",
             "tableCellText": False,
             "frame": True,
@@ -1325,11 +2557,15 @@ def text_shape_element(
     scale: PackageFrameScale,
 ) -> ET.Element[Any]:
     shape = base_shape_element(shape_id, "Orbit text", element, scale)
-    tx_body = ensure_text_body(shape)
-    paragraph = ET.SubElement(tx_body, f"{{{DML_NS}}}p")
-    run = ET.SubElement(paragraph, f"{{{DML_NS}}}r")
-    ET.SubElement(run, f"{{{DML_NS}}}t").text = str(
-        dict_value(element, "props").get("text", "")
+    sync_text_shape(
+        shape,
+        dict_value(element, "props"),
+        {
+            "elementType": "text",
+            "ooxmlOrigin": "authored",
+            "ooxmlEditCapabilities": {"richText": "full"},
+        },
+        scale,
     )
     return shape
 
@@ -1613,6 +2849,12 @@ def first_local_child(element: ET.Element[Any], name: str) -> ET.Element[Any] | 
         if local_name(child) == name:
             return child
     return None
+
+
+def direct_local_children(
+    element: ET.Element[Any], name: str
+) -> list[ET.Element[Any]]:
+    return [child for child in list(element) if local_name(child) == name]
 
 
 def first_local_descendant(
