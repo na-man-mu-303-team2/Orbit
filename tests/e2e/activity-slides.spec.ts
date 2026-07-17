@@ -159,7 +159,13 @@ test.describe("activity slides full story", () => {
     await page.locator(".slide-item").nth(1).click();
     await page.getByRole("tab", { name: "디자인" }).click();
     await expect(page.getByText("연결 결과 장표", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("결과 장표 미리보기")).toBeVisible();
+    await page
+      .getByLabel("미리 볼 발표 세션")
+      .selectOption(passcodeSession.session.sessionId);
+    const resultPreview = page.getByLabel("결과 장표 미리보기");
+    await expect(resultPreview).toHaveAttribute("data-state", "presenter-live");
+    await expect(resultPreview.getByText(privateText, { exact: true })).toBeVisible();
+    await expect(resultPreview.getByText("응답 1개", { exact: true })).toBeVisible();
 
     await expectOk(
       await page.request.post(
