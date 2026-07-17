@@ -2,6 +2,7 @@ import { ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyStoryPlanApprovalDraft,
   applyStoryPlanDesignSelection,
   applyStoryPlanEdit,
   projectStoryPlanReview,
@@ -77,10 +78,9 @@ describe("StoryPlanReviewService", () => {
     expect(JSON.stringify(response)).not.toContain("source-secret");
     expect(JSON.stringify(response)).not.toContain("secret.example");
     expect(JSON.stringify(response)).not.toContain("raw secret content");
-    expect(response.plan?.qualityWarnings.map((warning) => warning.code)).toEqual([
-      "RESEARCH_PARTIAL",
-      "AUTO_REPAIRED",
-    ]);
+    expect(
+      response.plan?.qualityWarnings.map((warning) => warning.code),
+    ).toEqual(["RESEARCH_PARTIAL", "AUTO_REPAIRED"]);
     expect(response.styleContext).toEqual({ topic: "ORBIT", tone: "friendly" });
   });
 
@@ -127,7 +127,10 @@ describe("StoryPlanReviewService", () => {
     });
     expect(reordered).toMatchObject({
       contentPlan: {
-        outline: { slide_titles: ["둘째", "첫째"], slideTitles: ["둘째", "첫째"] },
+        outline: {
+          slide_titles: ["둘째", "첫째"],
+          slideTitles: ["둘째", "첫째"],
+        },
         slidePlans: [
           { order: 1, title: "둘째" },
           { order: 2, title: "첫째" },
@@ -163,27 +166,92 @@ describe("StoryPlanReviewService", () => {
     ).toThrow(ConflictException);
   });
 
+  it("applies approval titles, messages, and order while preserving generation fields", () => {
+    const first = artifact.payload_json.contentPlan.slidePlans[0]!;
+    const payload = {
+      ...artifact.payload_json,
+      contentPlan: {
+        ...artifact.payload_json.contentPlan,
+        slidePlans: [
+          { ...first, order: 1, title: "첫째", source_refs: ["source-secret"] },
+          {
+            ...first,
+            order: 2,
+            title: "둘째",
+            slide_type: "problem",
+            speaker_notes: "보존할 대본",
+            target_seconds: 45,
+          },
+        ],
+        slideCount: 2,
+      },
+    };
+
+    const approved = applyStoryPlanApprovalDraft(payload, [
+      { sourceOrder: 2, title: "수정한 둘째", message: "수정한 메시지" },
+      { sourceOrder: 1, title: "수정한 첫째", message: "첫 메시지" },
+    ]);
+
+    expect(approved).toMatchObject({
+      contentPlan: {
+        outline: {
+          slide_titles: ["수정한 둘째", "수정한 첫째"],
+          slideTitles: ["수정한 둘째", "수정한 첫째"],
+        },
+        slidePlans: [
+          {
+            order: 1,
+            title: "수정한 둘째",
+            message: "수정한 메시지",
+            slide_type: "problem",
+            speaker_notes: "보존할 대본",
+            target_seconds: 45,
+          },
+          { order: 2, source_refs: ["source-secret"] },
+        ],
+      },
+    });
+    expect(() =>
+      applyStoryPlanApprovalDraft(payload, [
+        { sourceOrder: 1, title: "중복", message: "중복" },
+        { sourceOrder: 1, title: "중복", message: "중복" },
+      ]),
+    ).toThrow(ConflictException);
+  });
+
   it("rejects stale approval before creating a design checkpoint", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("FROM ai_deck_story_reviews")) {
-        return [{ status: "review-pending", revision: 2, regeneration_count: 0 }];
+        return [
+          { status: "review-pending", revision: 2, regeneration_count: 0 },
+        ];
       }
       if (sql.includes("FROM jobs")) {
-        return [{ job_id: "job-1", project_id: "project-1", status: "running" }];
+        return [
+          { job_id: "job-1", project_id: "project-1", status: "running" },
+        ];
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     });
     const dataSource = {
-      transaction: vi.fn(async (run: (manager: { query: typeof query }) => unknown) =>
-        run({ query }),
+      transaction: vi.fn(
+        async (run: (manager: { query: typeof query }) => unknown) =>
+          run({ query }),
       ),
     };
-    const service = new StoryPlanReviewService(dataSource as never, { info: vi.fn() } as never);
+    const service = new StoryPlanReviewService(
+      dataSource as never,
+      { info: vi.fn() } as never,
+    );
 
     await expect(
       service.approve("project-1", "job-1", { expectedRevision: 1 }),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO ai_deck_generation_stages"))).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO ai_deck_generation_stages"),
+      ),
+    ).toBe(false);
   });
 });
 

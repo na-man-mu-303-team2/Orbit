@@ -31,6 +31,7 @@ const response = {
     slides: [
       {
         order: 1,
+        sourceOrder: 1,
         slideType: "summary",
         title: "핵심",
         message: "핵심 메시지",
@@ -38,9 +39,21 @@ const response = {
         targetSeconds: 60,
         sourceState: "attention" as const,
         sources: [
-          { title: "사용자 입력", type: "topic" as const, authority: "unknown" as const },
-          { title: "공식 안내", type: "web" as const, authority: "official" as const },
-          { title: "참고 문서", type: "uploaded" as const, authority: "unknown" as const },
+          {
+            title: "사용자 입력",
+            type: "topic" as const,
+            authority: "unknown" as const,
+          },
+          {
+            title: "공식 안내",
+            type: "web" as const,
+            authority: "official" as const,
+          },
+          {
+            title: "참고 문서",
+            type: "uploaded" as const,
+            authority: "unknown" as const,
+          },
         ],
       },
     ],
@@ -55,13 +68,11 @@ const callbacks = {
   onReorder: () => undefined,
   onSaveScript: () => undefined,
   onScriptChange: () => undefined,
+  onStoryChange: () => undefined,
   onTabChange: () => undefined,
 };
 
-function renderView(
-  activeTab: "outline" | "script",
-  current = response,
-) {
+function renderView(activeTab: "outline" | "script", current = response) {
   return renderToStaticMarkup(
     <StoryPlanReviewView
       {...callbacks}
@@ -95,6 +106,13 @@ describe("StoryPlanReviewView", () => {
 
     expect(html).toContain("스타일 선택");
     expect(html).toContain("다음 단계에서 폰트와 컬러를 선택합니다.");
+  });
+
+  it("renders editable slide titles and core messages", () => {
+    const html = renderView("outline");
+
+    expect(html).toContain('aria-label="1번 슬라이드 제목"');
+    expect(html).toContain('aria-label="1번 슬라이드 핵심 메시지"');
   });
 
   it("restarts polling when regeneration begins", () => {
@@ -134,9 +152,9 @@ describe("StoryPlanReviewView", () => {
     const slides = response.plan.slides;
 
     expect(hasUnsavedStoryScripts(slides, {})).toBe(false);
-    expect(
-      hasUnsavedStoryScripts(slides, { 1: slides[0]!.speakerNotes }),
-    ).toBe(false);
+    expect(hasUnsavedStoryScripts(slides, { 1: slides[0]!.speakerNotes })).toBe(
+      false,
+    );
     expect(hasUnsavedStoryScripts(slides, { 1: "수정한 대본" })).toBe(true);
   });
 
@@ -165,24 +183,27 @@ describe("StoryPlanReviewView", () => {
   it.each([
     ["cancelled", "생성이 취소되었습니다.", null],
     ["failed", "구성을 만들지 못했습니다.", "이야기 구성을 만들지 못했습니다."],
-  ] as const)("renders the terminal %s state without a plan", (status, copy, errorMessage) => {
-    const html = renderToStaticMarkup(
-      <StoryPlanReviewView
-        {...callbacks}
-        activeTab="outline"
-        response={{
-          ...response,
-          status,
-          plan: null,
-          error: errorMessage
-            ? { code: "PYTHON_WORKER_PLANNING_FAILED", message: errorMessage }
-            : null,
-        }}
-        scriptDrafts={{}}
-      />,
-    );
+  ] as const)(
+    "renders the terminal %s state without a plan",
+    (status, copy, errorMessage) => {
+      const html = renderToStaticMarkup(
+        <StoryPlanReviewView
+          {...callbacks}
+          activeTab="outline"
+          response={{
+            ...response,
+            status,
+            plan: null,
+            error: errorMessage
+              ? { code: "PYTHON_WORKER_PLANNING_FAILED", message: errorMessage }
+              : null,
+          }}
+          scriptDrafts={{}}
+        />,
+      );
 
-    expect(html).toContain(copy);
-    if (errorMessage) expect(html).toContain(errorMessage);
-  });
+      expect(html).toContain(copy);
+      if (errorMessage) expect(html).toContain(errorMessage);
+    },
+  );
 });
