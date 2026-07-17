@@ -1,5 +1,6 @@
 import {
   IconChevronDown,
+  IconEdit,
   IconLink,
   IconMicrophone,
   IconPlayerPlay
@@ -11,6 +12,7 @@ type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
   canOpenAudienceLink: boolean;
   canStartPresentation: boolean;
+  isSlideRehearsalActive?: boolean;
   isOpen: boolean;
   onOpenAudienceLink: () => void;
   onStartPresentation: () => void;
@@ -23,6 +25,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
     activeStartAction = null,
     canOpenAudienceLink,
     canStartPresentation,
+    isSlideRehearsalActive = false,
     isOpen,
     onOpenAudienceLink,
     onStartPresentation,
@@ -33,11 +36,28 @@ export function PresentationMenu(props: PresentationMenuProps) {
   return (
     <>
       <EditorIconButton
-        className="editor-rehearsal-button"
-        disabled={!canStartPresentation}
-        icon={<IconMicrophone size={16} />}
-        label={activeStartAction === "rehearsal" ? "리허설 준비 중" : "리허설"}
-        title="리허설"
+        aria-pressed={isSlideRehearsalActive}
+        className={`editor-rehearsal-button ${isSlideRehearsalActive ? "active" : ""}`}
+        disabled={!canStartPresentation && !isSlideRehearsalActive}
+        icon={
+          isSlideRehearsalActive ? (
+            <IconEdit size={16} />
+          ) : (
+            <IconMicrophone size={16} />
+          )
+        }
+        label={
+          isSlideRehearsalActive
+            ? "에디터로 돌아가기"
+            : activeStartAction === "rehearsal"
+              ? "리허설 준비 중"
+              : "슬라이드 한 장 리허설"
+        }
+        title={
+          isSlideRehearsalActive
+            ? "에디터로 돌아가기"
+            : "슬라이드 한 장 리허설"
+        }
         onClick={onStartRehearsal}
       />
       <div className="top-action-menu">

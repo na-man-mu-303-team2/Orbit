@@ -4,8 +4,10 @@ import {
   IconChevronDown as ChevronDown,
   IconChevronUp as ChevronUp,
   IconLayoutSidebarRightCollapse as PanelRightClose,
+  IconMicrophone,
   IconPlayerPlay as Play,
-  IconSparkles as Sparkles
+  IconSparkles as Sparkles,
+  IconX
 } from "@tabler/icons-react";
 import { useState } from "react";
 import type { Dispatch, KeyboardEvent, PointerEvent, ReactNode, SetStateAction } from "react";
@@ -44,6 +46,7 @@ type EditorRightPanelProps = {
   onAiChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onApplyAllValidationTextOverflow: () => void;
   onHighlightElementIds: (elementIds: string[]) => void;
+  onExitRehearsal?: () => void;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
   onPlayAnimations: () => void;
   onResizeStart: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -55,6 +58,8 @@ type EditorRightPanelProps = {
   ) => void;
   projectId: string;
   pptxImportState: PptxImportState;
+  rehearsalPanel?: ReactNode;
+  rehearsalTitle?: string;
   selectedElementIds: string[];
   semanticCueExtractionState: SemanticCueExtractionUiState;
   setAiPanelView: Dispatch<SetStateAction<AiPanelView>>;
@@ -78,8 +83,29 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   }
 
   return (
-    <aside className={`ai-pane ${props.isOpen ? "" : "collapsed"} ${isAssistantCollapsed ? "assistant-collapsed" : ""}`}>
-      {props.isOpen ? (
+    <aside className={`ai-pane ${props.isOpen ? "" : "collapsed"} ${isAssistantCollapsed ? "assistant-collapsed" : ""} ${props.rehearsalPanel ? "rehearsal-mode" : ""}`}>
+      {props.isOpen && props.rehearsalPanel ? (
+        <>
+          <button aria-label="오른쪽 패널 크기 조정" className="right-pane-resizer" type="button" onPointerDown={props.onResizeStart} />
+          <div className="inspector-header editor-slide-rehearsal-header">
+            <div className="inspector-title">
+              <IconMicrophone aria-hidden="true" size={15} />
+              <strong>{props.rehearsalTitle ?? "슬라이드 리허설"}</strong>
+            </div>
+            <button
+              aria-label="슬라이드 리허설 종료"
+              className="collapse-right-pane-button"
+              title="슬라이드 리허설 종료"
+              type="button"
+              onClick={props.onExitRehearsal}
+            >
+              <IconX aria-hidden="true" size={16} />
+            </button>
+          </div>
+          <div className="editor-slide-rehearsal-panel">{props.rehearsalPanel}</div>
+        </>
+      ) : null}
+      {props.isOpen && !props.rehearsalPanel ? (
         <>
           <button aria-label="오른쪽 패널 크기 조정" className="right-pane-resizer" type="button" onPointerDown={props.onResizeStart} />
           <div className="inspector-header">
@@ -192,11 +218,11 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
             </div>
           </section>
         </>
-      ) : (
+      ) : !props.isOpen ? (
         <div className="collapsed-right-rail">
           <button aria-label="속성 패널 펼치기" className="collapse-right-pane-button" title="속성 패널 펼치기" type="button" onClick={() => props.setIsOpen(true)}><Properties aria-hidden="true" size={16} /></button>
         </div>
-      )}
+      ) : null}
     </aside>
   );
 }

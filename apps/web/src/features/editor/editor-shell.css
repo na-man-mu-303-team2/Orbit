@@ -10579,3 +10579,670 @@ body.is-resizing-speaker-notes {
   min-height: 0;
   overflow-y: auto;
 }
+
+/* Single-slide rehearsal keeps the editor canvas in place while replacing the
+ * supporting panes with live speech recognition and rehearsal guidance. */
+.orbit-shell.editor-professional .editor-icon-action.editor-rehearsal-button,
+.orbit-shell.editor-professional
+  .editor-icon-action.editor-rehearsal-button:hover:not(:disabled) {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: var(--on-accent);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-shell.editor-professional
+  .editor-icon-action.editor-rehearsal-button.active,
+.orbit-shell.editor-professional
+  .editor-icon-action.editor-rehearsal-button[aria-pressed="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--blue) 76%,
+    var(--redesign-color-on-surface)
+  );
+  background: color-mix(
+    in srgb,
+    var(--blue) 82%,
+    var(--redesign-color-on-surface)
+  );
+}
+
+.orbit-shell.editor-professional .ai-pane.rehearsal-mode:not(.collapsed),
+.orbit-shell.editor-professional
+  .ai-pane.rehearsal-mode:not(.collapsed).assistant-collapsed {
+  grid-template-rows: var(--editor-chrome-height) minmax(0, 1fr);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-header {
+  border-bottom-color: var(--blue-border);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary-container) 44%,
+    var(--surface)
+  );
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-header
+  .inspector-title
+  svg {
+  color: var(--blue);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-panel {
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-side {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  min-height: 100%;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-side > section {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-summary {
+  display: grid;
+  gap: 7px;
+  border-top: 2px solid var(--blue);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-summary > strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-summary > p,
+.orbit-shell.editor-professional .editor-slide-rehearsal-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-checkpoints
+  header
+  strong,
+.orbit-shell.editor-professional .editor-slide-rehearsal-notes > strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-checkpoints
+  header
+  span {
+  color: var(--blue);
+  font-family: var(--orbit-ds-font-mono);
+  font-size: 10px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 6px;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints li.hit {
+  border-left-color: var(--blue);
+  background: var(--redesign-color-primary-container);
+  color: var(--ink);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-checkpoints
+  li.hit
+  > svg {
+  color: var(--blue);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints li small {
+  padding: 1px 4px;
+  border-radius: var(--redesign-radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-tertiary) 14%,
+    transparent
+  );
+  color: var(--redesign-color-tertiary);
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-notes p {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  min-height: 200px;
+  border-top: 2px solid var(--blue);
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary-container) 30%,
+    var(--redesign-color-surface-container-lowest)
+  );
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-heading,
+.orbit-shell.editor-professional .editor-slide-rehearsal-controls,
+.orbit-shell.editor-professional .editor-slide-rehearsal-meter {
+  display: flex;
+  align-items: center;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-heading {
+  gap: 7px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-heading strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-heading
+  > span:last-child {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-heading
+  .editor-slide-rehearsal-script-progress {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+  color: var(--blue);
+  font-family: var(--orbit-ds-font-mono);
+  font-weight: 700;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-outline);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-live-dot.active {
+  background: var(--blue);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-controls {
+  gap: 8px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-time {
+  color: var(--muted);
+  font-family: var(--orbit-ds-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-stop,
+.orbit-shell.editor-professional .editor-slide-rehearsal-restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--redesign-radius);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-stop:hover,
+.orbit-shell.editor-professional .editor-slide-rehearsal-restart:hover {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  > .rehearsal-teleprompter-band {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: var(--orbit-ds-ink);
+  color: var(--orbit-ds-canvas);
+  text-align: left;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-lyrics {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 56px clamp(28px, 7vw, 96px);
+  scroll-padding-block: 56px;
+  scrollbar-color: color-mix(in srgb, var(--orbit-ds-canvas) 34%, transparent)
+    transparent;
+  scrollbar-width: thin;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-lyrics:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -4px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line {
+  margin: 0 0 22px;
+  color: color-mix(in srgb, var(--orbit-ds-canvas) 34%, transparent);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.5;
+  text-align: center;
+  transition:
+    color 180ms ease,
+    font-size 180ms ease,
+    opacity 180ms ease;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-covered,
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-paraphrased {
+  color: color-mix(in srgb, var(--orbit-ds-canvas) 22%, transparent);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-next {
+  color: color-mix(in srgb, var(--orbit-ds-canvas) 68%, transparent);
+  font-weight: 700;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-current {
+  color: var(--orbit-ds-canvas);
+  font-size: 21px;
+  font-weight: 780;
+  opacity: 1;
+  text-shadow: none;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-progress {
+  display: none;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 0.8fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-prompter {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-prompter > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-prompter
+  > header
+  strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-prompter
+  > header
+  button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-script-viewport {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 14px 14px;
+  scroll-behavior: smooth;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-list {
+  gap: 2px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 9px;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row
+  > span {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 9px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row
+  p,
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--current
+  p,
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--covered
+  p {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--current {
+  border-left-color: var(--blue);
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--current
+  > span {
+  background: var(--blue);
+  color: var(--redesign-color-on-primary);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--next {
+  color: var(--ink);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row--covered {
+  color: var(--redesign-color-outline);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-script-viewport
+  .presenter-script-row
+  em {
+  align-self: center;
+  padding: 2px 6px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 8px;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-live-transcript {
+  display: grid;
+  align-content: start;
+  grid-template-rows: 28px auto minmax(0, 1fr);
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 12px;
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-live-label {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-meter {
+  gap: 8px;
+  color: var(--blue);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-meter-track {
+  flex: 1;
+  height: 3px;
+  overflow: hidden;
+  background: var(--raise-strong);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  transition: width 90ms linear;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-transcript {
+  max-height: none;
+  margin: 0;
+  overflow: auto;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-transcript
+  > span:not(.editor-slide-rehearsal-error):not(
+    .editor-slide-rehearsal-placeholder
+  ) {
+  color: var(--muted);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-placeholder {
+  color: var(--muted);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-error {
+  color: var(--redesign-color-error);
+}
+
+.orbit-shell.editor-professional.slide-rehearsal-light {
+  color-scheme: light;
+}
+
+.orbit-shell.editor-professional
+  .editor-panel.slide-rehearsal-mode
+  .stage-pane
+  > .canvas-scroll {
+  background-image: none;
+  background-size: auto;
+}
+
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode {
+    grid-template-rows: minmax(0, 1fr) clamp(200px, 28vh, 280px);
+  }
+}
+
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional
+    .stage-pane
+    > .editor-slide-rehearsal-bottom {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 860px) {
+  .orbit-shell.editor-professional .editor-slide-rehearsal-bottom-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(120px, 1fr) auto;
+  }
+
+  .orbit-shell.editor-professional .editor-slide-rehearsal-prompter {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* Slide rehearsal transition ------------------------------------------------
+ * Entering rehearsal mode closes the slide navigator with a slide-away
+ * animation and raises the teleprompter panel from the bottom edge. */
+
+.orbit-shell.editor-professional .editor-panel {
+  transition: grid-template-columns 720ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.orbit-shell.editor-professional .slides-pane {
+  min-width: 0;
+  overflow: hidden;
+  transition: opacity 420ms ease, border-right-width 720ms ease;
+}
+
+.orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode {
+  grid-template-columns:
+    0px
+    minmax(0, 1fr)
+    var(--right-pane-width, 480px);
+}
+
+.orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode.right-panel-closed {
+  grid-template-columns:
+    0px
+    minmax(0, 1fr)
+    var(--right-pane-collapsed-width, 52px);
+}
+
+.orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode .slides-pane {
+  border-right-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Teleprompter panel rises from the bottom, script fades in a beat later */
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom {
+  overflow: hidden;
+  animation: editor-rehearsal-bottom-rise 760ms 160ms
+    cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom-body {
+  animation: editor-rehearsal-script-fade 640ms 560ms ease-out both;
+}
+
+@keyframes editor-rehearsal-bottom-rise {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+}
+
+@keyframes editor-rehearsal-script-fade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-shell.editor-professional .editor-panel,
+  .orbit-shell.editor-professional .slides-pane {
+    transition: none;
+  }
+
+  .orbit-shell.editor-professional .editor-slide-rehearsal-bottom,
+  .orbit-shell.editor-professional .editor-slide-rehearsal-bottom-body {
+    animation: none;
+  }
+}

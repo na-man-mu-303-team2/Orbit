@@ -4,7 +4,7 @@ import {
   deriveKeywordActionUsage,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
-import { demoIds } from "@orbit/shared";
+import { demoIds, type Slide } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import {
@@ -79,6 +79,10 @@ import {
   SpeakerNotesAssistantDialog
 } from "./components/SpeakerNotesAssistantDialog";
 import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
+import {
+  EditorSlideRehearsalBottomPanel,
+  EditorSlideRehearsalRightPanel
+} from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
@@ -112,6 +116,10 @@ import {
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
+import {
+  useEditorSlideRehearsal,
+  type EditorSlideRehearsalState
+} from "./hooks/useEditorSlideRehearsal";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 export {
   applyDeckPatchAcknowledgement,
@@ -297,6 +305,10 @@ export function EditorShell(props: { projectId?: string }) {
   const [semanticCueExtractionState, setSemanticCueExtractionState] =
     useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
   const editorStageRef = useRef<Konva.Stage | null>(null);
+  const panelStateBeforeRehearsalRef = useRef<{
+    isRightPanelOpen: boolean;
+    isSlidesPaneCollapsed: boolean;
+  } | null>(null);
   const ooxmlSyncJob = useOoxmlSyncJob();
 
   const health = useQuery({
@@ -424,6 +436,45 @@ export function EditorShell(props: { projectId?: string }) {
     !isDeckError;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
   const {
+    enter: enterSlideRehearsal,
+    exit: exitSlideRehearsal,
+    start: startSlideRehearsal,
+    state: slideRehearsalState,
+    stop: stopSlideRehearsal
+  } = useEditorSlideRehearsal({ projectId });
+  const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
+  const [slideRehearsalReport, setSlideRehearsalReport] = useState<{
+    slide: Slide;
+    state: EditorSlideRehearsalState;
+  } | null>(null);
+  const rehearsalSlide =
+    deck.slides.find(
+      (slide) => slide.slideId === slideRehearsalState.activeSlideId
+    ) ?? currentSlide;
+
+  function handleSelectSlideForNavigator(index: number) {
+    if (!isSlideRehearsalActive) {
+      handleSelectSlideIndex(index);
+      return;
+    }
+    if (index === currentSlideIndex) return;
+
+    const nextSlide = deck.slides[index];
+    if (!nextSlide) return;
+
+    resetSpeakerNotesEditState(nextSlide.speakerNotes);
+    speakerNotesEditorActions.closeAssistant();
+    setCurrentSlideIndex(index);
+    if (
+      slideRehearsalState.status === "listening" ||
+      slideRehearsalState.status === "starting"
+    ) {
+      void startSlideRehearsal(nextSlide);
+    } else {
+      enterSlideRehearsal(nextSlide);
+    }
+  }
+  const {
     actions: speakerNotesEditorActions,
     state: speakerNotesEditorState
   } = useSpeakerNotesEditor({
@@ -533,8 +584,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
   const {
     activeStartAction: activePresentationAction,
-    startPresentation: handleStartPresentation,
-    startRehearsal: handleStartRehearsal
+    startPresentation: handleStartPresentation
   } = useEditorPresentationActions({
     applyPersistedDeck,
     commitSpeakerNotesDraftIfDirty,
@@ -552,7 +602,7 @@ export function EditorShell(props: { projectId?: string }) {
     workingDeckRef
   });
   const canStartPresentation =
-    canOpenAudienceLink && !activePresentationAction;
+    canOpenAudienceLink && !activePresentationAction && !isSlideRehearsalActive;
   const saveStatusLabel = getEditorStatusLabel({
     isDeckError,
     isDeckLoading,
@@ -937,6 +987,65 @@ export function EditorShell(props: { projectId?: string }) {
     setIsRightPanelOpen(true);
   }
 
+  async function handleExitSlideRehearsal() {
+    const previousPanelState = panelStateBeforeRehearsalRef.current;
+    panelStateBeforeRehearsalRef.current = null;
+    await exitSlideRehearsal();
+
+    if (previousPanelState) {
+      setIsSlidesPaneCollapsed(previousPanelState.isSlidesPaneCollapsed);
+      setIsRightPanelOpen(previousPanelState.isRightPanelOpen);
+    }
+  }
+
+  async function handleFinishSlideRehearsal() {
+    const reportSlide = rehearsalSlide;
+    const reportState: EditorSlideRehearsalState = {
+      ...slideRehearsalState,
+      audioLevelPercent: 0,
+      interimTranscript: "",
+      status: "stopped"
+    };
+    await stopSlideRehearsal();
+    if (reportSlide) {
+      setSlideRehearsalReport({ slide: reportSlide, state: reportState });
+    }
+    await handleExitSlideRehearsal();
+    setIsRightPanelOpen(true);
+  }
+
+  function beginSlideRehearsalMode(slide: Slide) {
+    setSlideRehearsalReport(null);
+    panelStateBeforeRehearsalRef.current = {
+      isRightPanelOpen,
+      isSlidesPaneCollapsed
+    };
+    setActiveTopMenu(null);
+    setIsRightPanelOpen(true);
+    setIsAnimationPanelOpen(false);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    speakerNotesEditorActions.closeAssistant();
+    enterSlideRehearsal(slide);
+  }
+
+  function handleToggleSlideRehearsal() {
+    if (isSlideRehearsalActive) {
+      void handleExitSlideRehearsal();
+      return;
+    }
+    if (!currentSlide || !commitSpeakerNotesDraftIfDirty()) return;
+    beginSlideRehearsalMode(currentSlide);
+  }
+
+  function handleRestartFromRehearsalReport() {
+    const report = slideRehearsalReport;
+    if (!report) return;
+    beginSlideRehearsalMode(report.slide);
+    void startSlideRehearsal(report.slide);
+  }
+
   function handleSelectSlideAnimationFromPanel(animation: DeckAnimation) {
     setAnimationPanelFocusedAnimationId(animation.animationId);
     setEditingElementId(null);
@@ -982,6 +1091,11 @@ export function EditorShell(props: { projectId?: string }) {
       clearSelectedKeyword();
     }
   }, [currentSlide, selectedKeywordId]);
+
+  useEffect(() => {
+    panelStateBeforeRehearsalRef.current = null;
+    void exitSlideRehearsal();
+  }, [exitSlideRehearsal, projectId]);
 
   useEffect(() => {
     setSelectedElementIds((current) =>
@@ -1064,7 +1178,11 @@ export function EditorShell(props: { projectId?: string }) {
     <>
       <main
         aria-busy={isDeckLoading}
-        className={`editor-app-shell orbit-shell editor-professional redesign-dark ${isDeckLoading ? "is-deck-loading" : ""}`}
+        className={`editor-app-shell orbit-shell editor-professional ${
+          isSlideRehearsalActive
+            ? "slide-rehearsal-active slide-rehearsal-light"
+            : "redesign-dark"
+        } ${isDeckLoading ? "is-deck-loading" : ""}`}
       >
         <EditorTopbar
           activePresentationAction={activePresentationAction}
@@ -1078,6 +1196,7 @@ export function EditorShell(props: { projectId?: string }) {
           isPptxExporting={isPptxExporting}
           isSharePanelOpen={isSharePanelOpen}
           isSharePermissionLoading={isSharePermissionLoading}
+          isSlideRehearsalActive={isSlideRehearsalActive}
           isUsingFallbackDeck={isUsingFallbackDeck}
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
           ooxmlSyncStatus={ooxmlSyncStatus}
@@ -1096,7 +1215,7 @@ export function EditorShell(props: { projectId?: string }) {
           }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
-          onStartRehearsal={() => void handleStartRehearsal()}
+          onStartRehearsal={handleToggleSlideRehearsal}
           projectId={projectId}
           projectPresenceUsers={projectPresenceUsers}
           pptxExportMessage={pptxExportError || pptxExportStatus}
@@ -1177,7 +1296,7 @@ export function EditorShell(props: { projectId?: string }) {
       <section
         className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
           isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
-        }`}
+          } ${isSlideRehearsalActive ? "slide-rehearsal-mode" : ""}`}
         aria-label="Presentation editor"
         style={
           {
@@ -1196,7 +1315,7 @@ export function EditorShell(props: { projectId?: string }) {
           isCollapsed={isSlidesPaneCollapsed}
           onAddSlide={handleAddSlide}
           onResizeStart={handleSlidesPaneResizeStart}
-          onSelectSlide={handleSelectSlideIndex}
+          onSelectSlide={handleSelectSlideForNavigator}
           onSetView={setSlidePanelView}
           onToggleCollapsed={() =>
             setIsSlidesPaneCollapsed((current) => !current)
@@ -1206,34 +1325,36 @@ export function EditorShell(props: { projectId?: string }) {
           view={slidePanelView}
         />
         <section className="stage-pane">
-          <EditorToolbar
-            canUseCurrentSlide={Boolean(currentSlide)}
-            insertTool={insertTool}
-            isAnimationPanelOpen={isAnimationPanelOpen}
-            isImageUploadPending={isImageUploadPending}
-            isShapeMenuOpen={isShapeMenuOpen}
-            isStageFitToViewport={isStageFitToViewport}
-            onAddChart={handleAddChartElement}
-            onAddText={handleAddTextElement}
-            onOpenAnimation={openAnimationInspector}
-            onOpenImagePicker={() => {
-              if (currentSlide) {
-                openImageFilePicker({ slideId: currentSlide.slideId, type: "insert" });
-              }
-            }}
-            onRedo={handleRedo}
-            onSelectTool={() => setInsertTool("select")}
-            onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
-            onUndo={handleUndo}
-            onFitStageToViewport={fitStageToViewport}
-            onZoomIn={zoomCanvasIn}
-            onZoomOut={zoomCanvasOut}
-            redoDisabled={redoStack.length === 0}
-            selectedElementAnimationCount={selectedElementAnimations.length}
-            shapeMenuButtonRef={shapeMenuButtonRef}
-            stageScale={stageScale}
-            undoDisabled={undoStack.length === 0}
-          />
+          {!isSlideRehearsalActive ? (
+            <EditorToolbar
+              canUseCurrentSlide={Boolean(currentSlide)}
+              insertTool={insertTool}
+              isAnimationPanelOpen={isAnimationPanelOpen}
+              isImageUploadPending={isImageUploadPending}
+              isShapeMenuOpen={isShapeMenuOpen}
+              isStageFitToViewport={isStageFitToViewport}
+              onAddChart={handleAddChartElement}
+              onAddText={handleAddTextElement}
+              onOpenAnimation={openAnimationInspector}
+              onOpenImagePicker={() => {
+                if (currentSlide) {
+                  openImageFilePicker({ slideId: currentSlide.slideId, type: "insert" });
+                }
+              }}
+              onRedo={handleRedo}
+              onSelectTool={() => setInsertTool("select")}
+              onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
+              onUndo={handleUndo}
+              onFitStageToViewport={fitStageToViewport}
+              onZoomIn={zoomCanvasIn}
+              onZoomOut={zoomCanvasOut}
+              redoDisabled={redoStack.length === 0}
+              selectedElementAnimationCount={selectedElementAnimations.length}
+              shapeMenuButtonRef={shapeMenuButtonRef}
+              stageScale={stageScale}
+              undoDisabled={undoStack.length === 0}
+            />
+          ) : null}
 
           <EditorCanvasStage
             assistantDialog={
@@ -1256,7 +1377,8 @@ export function EditorShell(props: { projectId?: string }) {
             deck={deck}
             editableCanvasProps={{
               customShapeEditElementId,
-              disableInteractions: isPlayingCurrentSlideAnimations,
+                disableInteractions:
+                  isPlayingCurrentSlideAnimations || isSlideRehearsalActive,
               editingElementId,
               elementStates: animationPreviewElementStates,
               insertTool,
@@ -1297,62 +1419,71 @@ export function EditorShell(props: { projectId?: string }) {
             stageScale={stageScale}
           />
 
-          <SpeakerNotesPanel
-            contentRef={speakerNotesContentRef}
-            currentSlide={currentSlide}
-            draft={speakerNotesDraft}
-            guidance={speakerNotesLengthGuidance}
-            height={speakerNotesPanelHeight}
-            isEditing={isSpeakerNotesEditing}
-            isExpanded={isSpeakerNotesPanelExpanded}
-            isResizing={isSpeakerNotesPanelResizing}
-            maxHeight={getSpeakerNotesPanelMaxHeight()}
-            minHeight={minSpeakerNotesPanelHeight}
-            onCancelEdit={handleCancelSpeakerNotesEdit}
-            onClearKeyword={clearSelectedKeyword}
-            onDeleteKeyword={() => {
-              if (currentSlide && selectedKeyword) {
-                handleDeleteSelectedKeyword(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId
-                );
-              }
-            }}
-            onDraftChange={setSpeakerNotesDraft}
-            onOpenAssistant={handleOpenSpeakerNotesAssistant}
-            onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
-            onResizeStart={handleSpeakerNotesResizeStart}
-            onSaveEdit={handleSaveSpeakerNotesEdit}
-            onSelectKeyword={handleSelectKeyword}
-            onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-            onStartEdit={handleStartSpeakerNotesEdit}
-            onToggleAdvanceSlide={() => {
-              if (currentSlide && selectedKeyword) {
-                handleToggleAdvanceSlideKeyword(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId,
-                  !(selectedKeywordUsage?.advancesSlide ?? false)
-                );
-              }
-            }}
-            onTogglePanel={handleToggleSpeakerNotesPanel}
-            onToggleRequired={() => {
-              if (currentSlide && selectedKeyword) {
-                handleToggleKeywordRequired(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId,
-                  selectedKeywordOccurrenceKey
-                );
-              }
-            }}
-            selectedKeyword={selectedKeyword}
-            selectedKeywordId={selectedKeywordId}
-            selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
-            selectedKeywordRequiredActive={selectedKeywordRequiredActive}
-            selectedKeywordUsage={selectedKeywordUsage}
-            showIds={showIds}
-            usageByKeywordId={currentSlideKeywordUsage}
-          />
+            {isSlideRehearsalActive && rehearsalSlide ? (
+              <EditorSlideRehearsalBottomPanel
+                onRestart={() => void startSlideRehearsal(rehearsalSlide)}
+                onStop={() => void handleFinishSlideRehearsal()}
+                slide={rehearsalSlide}
+                state={slideRehearsalState}
+              />
+            ) : (
+              <SpeakerNotesPanel
+                contentRef={speakerNotesContentRef}
+                currentSlide={currentSlide}
+                draft={speakerNotesDraft}
+                guidance={speakerNotesLengthGuidance}
+                height={speakerNotesPanelHeight}
+                isEditing={isSpeakerNotesEditing}
+                isExpanded={isSpeakerNotesPanelExpanded}
+                isResizing={isSpeakerNotesPanelResizing}
+                maxHeight={getSpeakerNotesPanelMaxHeight()}
+                minHeight={minSpeakerNotesPanelHeight}
+                onCancelEdit={handleCancelSpeakerNotesEdit}
+                onClearKeyword={clearSelectedKeyword}
+                onDeleteKeyword={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleDeleteSelectedKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId
+                    );
+                  }
+                }}
+                onDraftChange={setSpeakerNotesDraft}
+                onOpenAssistant={handleOpenSpeakerNotesAssistant}
+                onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
+                onResizeStart={handleSpeakerNotesResizeStart}
+                onSaveEdit={handleSaveSpeakerNotesEdit}
+                onSelectKeyword={handleSelectKeyword}
+                onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                onStartEdit={handleStartSpeakerNotesEdit}
+                onToggleAdvanceSlide={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleToggleAdvanceSlideKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      !(selectedKeywordUsage?.advancesSlide ?? false)
+                    );
+                  }
+                }}
+                onTogglePanel={handleToggleSpeakerNotesPanel}
+                onToggleRequired={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleToggleKeywordRequired(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      selectedKeywordOccurrenceKey
+                    );
+                  }
+                }}
+                selectedKeyword={selectedKeyword}
+                selectedKeywordId={selectedKeywordId}
+                selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
+                selectedKeywordRequiredActive={selectedKeywordRequiredActive}
+                selectedKeywordUsage={selectedKeywordUsage}
+                showIds={showIds}
+                usageByKeywordId={currentSlideKeywordUsage}
+              />
+            )}
         </section>
 
         <EditorRightPanel
@@ -1443,6 +1574,11 @@ export function EditorShell(props: { projectId?: string }) {
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
+            onExitRehearsal={
+              isSlideRehearsalActive
+                ? () => void handleExitSlideRehearsal()
+                : () => setSlideRehearsalReport(null)
+            }
           onProposalApplied={handleDesignAgentProposalApplied}
           onPlayAnimations={playCurrentSlideAnimations}
           onResizeStart={handleRightPaneResizeStart}
@@ -1451,6 +1587,26 @@ export function EditorShell(props: { projectId?: string }) {
           onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
           pptxImportState={pptxImportState}
+            rehearsalPanel={
+              isSlideRehearsalActive && rehearsalSlide ? (
+                <EditorSlideRehearsalRightPanel
+                  onRestart={() => void startSlideRehearsal(rehearsalSlide)}
+                  onStop={() => void handleFinishSlideRehearsal()}
+                  slide={rehearsalSlide}
+                  state={slideRehearsalState}
+                />
+              ) : slideRehearsalReport ? (
+                <EditorSlideRehearsalRightPanel
+                  onRestart={handleRestartFromRehearsalReport}
+                  onStop={() => setSlideRehearsalReport(null)}
+                  slide={slideRehearsalReport.slide}
+                  state={slideRehearsalReport.state}
+                />
+              ) : undefined
+            }
+          rehearsalTitle={
+            isSlideRehearsalActive ? "슬라이드 리허설" : "리허설 리포트"
+          }
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}

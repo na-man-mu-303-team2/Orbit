@@ -31,6 +31,7 @@ type EditorTopbarProps = {
   isPptxExporting: boolean;
   isSharePanelOpen: boolean;
   isSharePermissionLoading: boolean;
+  isSlideRehearsalActive: boolean;
   isUsingFallbackDeck: boolean;
   lastSavedAtLabel: string | null;
   ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
@@ -70,6 +71,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     isPptxExporting,
     isSharePanelOpen,
     isSharePermissionLoading,
+    isSlideRehearsalActive,
     isUsingFallbackDeck,
     lastSavedAtLabel,
     ooxmlSyncStatus,
@@ -212,6 +214,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
           activeStartAction={activePresentationAction}
           canOpenAudienceLink={canOpenAudienceLink}
           canStartPresentation={canStartPresentation}
+          isSlideRehearsalActive={isSlideRehearsalActive}
           isOpen={activeTopMenu === "presentation"}
           onOpenAudienceLink={onOpenAudienceLink}
           onStartPresentation={onStartPresentation}

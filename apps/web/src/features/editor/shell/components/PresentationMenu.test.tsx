@@ -27,7 +27,7 @@ describe("PresentationMenu", () => {
     expect(getButtonTag(html, 'class="editor-present-button"')).toContain(
       "disabled",
     );
-    expect(getButtonTag(html, 'aria-label="리허설"')).toContain(
+    expect(getButtonTag(html, 'aria-label="슬라이드 한 장 리허설"')).toContain(
       "disabled",
     );
     expect(html).toContain("청중 링크·QR");
@@ -49,5 +49,29 @@ describe("PresentationMenu", () => {
     expect(getButtonTag(html, 'aria-label="발표 메뉴 열기"')).toContain(
       "disabled",
     );
+  });
+
+  it("슬라이드 리허설 중에는 편집 버튼으로 에디터에 돌아갈 수 있다", () => {
+    const html = renderToStaticMarkup(
+      <PresentationMenu
+        canOpenAudienceLink
+        canStartPresentation={false}
+        isOpen={false}
+        isSlideRehearsalActive
+        onOpenAudienceLink={vi.fn()}
+        onStartPresentation={vi.fn()}
+        onStartRehearsal={vi.fn()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const rehearsalButton = getButtonTag(
+      html,
+      'aria-label="에디터로 돌아가기"',
+    );
+    expect(rehearsalButton).not.toContain("disabled");
+    expect(rehearsalButton).toContain('aria-pressed="true"');
+    expect(html).toContain("tabler-icon-edit");
+    expect(html).not.toContain("tabler-icon-microphone");
   });
 });
