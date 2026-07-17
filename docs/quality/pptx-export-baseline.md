@@ -98,17 +98,24 @@ manifest나 baseline 계약에 넣지 않는다.
 
 static screenshot으로 확인할 수 없는 항목은 PPTX ZIP 내부의 slide XML을 검사한다.
 
-| assertion code                | 검사 대상                                    |
-| ----------------------------- | -------------------------------------------- |
-| `OOXML_TRANSITION_COUNT`      | `p:transition`                               |
-| `OOXML_TIMING_SLIDE_COUNT`    | `p:timing`이 있는 slide 수                   |
-| `OOXML_IMAGE_CROP_COUNT`      | `a:srcRect` 수, fixture 기대값 `1`           |
-| `OOXML_IMAGE_CROP_LEFT`       | 유일한 `a:srcRect@l`, fixture 기대값 `20000` |
-| `OOXML_IMAGE_CROP_TOP`        | 유일한 `a:srcRect@t`, fixture 기대값 `10000` |
-| `OOXML_IMAGE_CROP_RIGHT`      | 유일한 `a:srcRect@r`, fixture 기대값 `15000` |
-| `OOXML_IMAGE_CROP_BOTTOM`     | 유일한 `a:srcRect@b`, fixture 기대값 `5000`  |
-| `OOXML_CHART_REFERENCE_COUNT` | `c:chart`                                    |
-| `OOXML_TABLE_COUNT`           | `a:tbl`                                      |
+| assertion code                               | 검사 대상                                    |
+| -------------------------------------------- | -------------------------------------------- |
+| `OOXML_TRANSITION_COUNT`                     | `p:transition`, fixture 기대값 `1`           |
+| `OOXML_TRANSITION_DURATION_MS_TOTAL`         | transition duration 합, fixture 기대값 `600` |
+| `OOXML_TIMING_SLIDE_COUNT`                   | `p:timing`이 있는 slide 수, fixture 기대값 `1` |
+| `OOXML_ANIMATION_EFFECT_COUNT`               | animation effect 수, fixture 기대값 `4`      |
+| `OOXML_ANIMATION_DURATION_MS_TOTAL`           | animation duration 합, fixture 기대값 `1650` |
+| `OOXML_ANIMATION_ON_SLIDE_ENTER_COUNT`       | on-slide-enter 수, fixture 기대값 `1`        |
+| `OOXML_ANIMATION_ON_CLICK_COUNT`             | on-click 수, fixture 기대값 `1`              |
+| `OOXML_ANIMATION_WITH_PREVIOUS_COUNT`        | with-previous 수, fixture 기대값 `1`         |
+| `OOXML_ANIMATION_AFTER_PREVIOUS_COUNT`       | after-previous 수, fixture 기대값 `1`        |
+| `OOXML_IMAGE_CROP_COUNT`                     | `a:srcRect` 수, fixture 기대값 `1`           |
+| `OOXML_IMAGE_CROP_LEFT`                      | 유일한 `a:srcRect@l`, fixture 기대값 `20000` |
+| `OOXML_IMAGE_CROP_TOP`                       | 유일한 `a:srcRect@t`, fixture 기대값 `10000` |
+| `OOXML_IMAGE_CROP_RIGHT`                     | 유일한 `a:srcRect@r`, fixture 기대값 `15000` |
+| `OOXML_IMAGE_CROP_BOTTOM`                    | 유일한 `a:srcRect@b`, fixture 기대값 `5000`  |
+| `OOXML_CHART_REFERENCE_COUNT`                | `c:chart`, fixture 기대값 `1`                |
+| `OOXML_TABLE_COUNT`                          | `a:tbl`, fixture 기대값 `1`                  |
 
 crop은 네 edge의 합이나 평균으로 판정하지 않고 `l`, `t`, `r`, `b`를 각각 비교한다.
 따라서 한 edge의 오차를 반대쪽 edge 값으로 보상해도 통과하지 않는다.
@@ -151,24 +158,28 @@ baseline을 별도 리뷰한다.
 
 ## 현재 승인 baseline
 
-2026-07-17에 A7 crop serialization, B1 text inset 수정과 stable warning probe가 반영된 fixture로 명시적
-report-only full runner를 실행했다. 두 run은 다음 값을 동일하게 산출해 결정성 검사를
-통과했고, portable 계약을
-`tools/pptx-accuracy/baselines/export-fidelity-baseline.json`으로 승인했다.
+2026-07-17에 crop, rich text, table, transition, 4-mode animation과 stable warning
+probe가 반영된 fixture로 full runner를 실행했다. 저장소의 portable baseline JSON은
+현재 승인 계약이다. 이 revision에 로컬로 남아 있는 primary artifact는 승인 이후
+`baseline-delta` mode로 실행한 runner 1회(`runCount=2`)의 검증 결과이며, 두 내부 run은
+다음 값을 동일하게 산출해 결정성 검사를 통과했다.
 
 | 항목                         | 값                                                                 |
 | ---------------------------- | ------------------------------------------------------------------ |
-| fixture SHA-256              | `9867d4bfafcdd8703634f20fdad910444a4754b3b4f3358178ff62dc1159de72` |
-| artifact aggregate SHA-256   | `2d2f0091cfbed09b3673354a68da6f9cb2a63e21cff265489256c0dfa722a220` |
-| metric payload SHA-256       | `c201fe3f1feb11936154516cdce188d87853b597ee2786f24fd44c619c88d2f9` |
-| average / minimum / p50 SSIM | `0.900350` / `0.864600` / `0.900350`                               |
-| average / maximum color MAE  | `0.019656` / `0.022789`                                            |
+| fixture SHA-256              | `df187aa733caaa05a7a7bafb7db4749125f2559097df6b6935a05d95791d1416` |
+| artifact aggregate SHA-256   | `09c58b8c0636c1cb88e031cd7a9ace3eb2825bab06012a5eff4b693eb5f87460` |
+| metric payload SHA-256       | `13d47fd24dacde1c026f91ddd9c6111b21bd67c5b7a0ef0487f73185e44eb2d4` |
+| average / minimum / p50 SSIM | `0.903550` / `0.871000` / `0.903550`                               |
+| average / maximum color MAE  | `0.019612` / `0.022700`                                            |
 | evaluated / missing / total  | `2` / `0` / `2`                                                    |
 
-승인 수집 mode는 `report-only`였으며 결정성·infrastructure gate를 통과했다. crop count와
-네 edge, chart, table을 포함한 semantic assertion 7건이 통과한다.
-`OOXML_TRANSITION_COUNT`, `OOXML_TIMING_SLIDE_COUNT` 2건은 expected `1`, actual `0`으로
-실패하며 C1~C3 구현 전 갭을 정직하게 고정한다. 이후 actual이 baseline보다 멀어지거나
-기존 pass가 fail로 바뀌면 delta gate가 실패한다. infrastructure failure, 이미지 누락·크기 불일치, browser capture
-환경 불일치, exporter warning reconciliation 불일치는 report-only에서도 즉시
-실패한다.
+원래 후보를 수집한 `report-only` artifact는 이 worktree에 보존되어 있지 않다. 따라서
+현재 artifact는 metric·결정성·승인 baseline 대비 delta를 증명하지만, 후보 수집에서
+승인까지의 독립 provenance는 문서상 **OPEN**이다. 이 누락을 `baseline-delta` 결과로
+대체해 승인 수집 mode였다고 주장하지 않는다. transition 1개/600ms, timing slide 1개,
+animation 4개/1,650ms, 4가지
+start mode 각 1개, crop count와 네 edge, chart, table을 포함한 semantic
+assertion 16건이 모두 통과한다. 이후 actual이 baseline보다 멀어지거나 기존
+pass가 fail로 바뀌면 delta gate가 실패한다. infrastructure failure, 이미지
+누락·크기 불일치, browser capture 환경 불일치, exporter warning reconciliation
+불일치는 report-only와 baseline-delta 둘 다 즉시 실패한다.

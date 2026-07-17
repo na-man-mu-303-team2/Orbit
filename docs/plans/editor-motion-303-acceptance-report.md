@@ -26,9 +26,13 @@
 | Modeled-effect downgrade warning |                                 15 |                           15 | 통과 |
 | Slide 8 interactive/media        |                  entrance에서 제외 |                       제외됨 | 통과 |
 | Split fill/text target           |                    synthetic group |   3개 synthetic group target | 통과 |
-| Unresolved target                | animation 미생성 + bounded warning |                            0 | 통과 |
+| Unresolved target                | actual fixture에서의 발생 건수     |                            0 | 경로 미발생 |
 
 `p:set`과 `p:animEffect`가 같은 target을 반복해도 logical effect가 중복 생성되지 않았다. `p14:dur=700`이 `spd=med` fallback보다 우선했고, Choice/Fallback pair는 slide당 transition 하나로 복원됐다.
+
+이 actual fixture에서는 unresolved target 경로가 발생하지 않았다. unresolved target일 때
+animation을 만들지 않고 bounded warning만 남기는 동작은 synthetic parser test가 담당하며,
+이 real-file 결과만으로 해당 오류 경로를 직접 통과했다고 판정하지 않는다.
 
 ## Coverage와 진단
 
@@ -47,9 +51,12 @@
   - `excluded=4`
 - 진단은 visual quality score를 차감하지 않는 별도 motion 집계로 기록된다.
 
-Slide 8의 제외 branch는 `mediacall` 2개, `tmRoot` 직속 `video` 1개,
-`interactiveSeq` 1개다. 내부 media behavior는 wrapper와 중복 집계하지 않으며,
-네 outermost branch 모두 entrance effect 파싱 대상에서 제외하고 raw OOXML로 보존한다.
+Slide 8의 논리적 제외 진단은 media 3건과 `interactiveSeq` 1건으로 총
+4건이다. raw byte-preservation의 outermost range는 독립 media branch 2개와
+`interactiveSeq` branch 1개의 총 3개이며, `interactiveSeq` 안의 `mediacall`은
+상위 range에 포함된다. 내부 media behavior는 wrapper와 중복 집계하지 않고,
+모든 제외 branch를 entrance effect 파싱 대상에서 빼며 해당 outermost range를
+raw OOXML로 보존한다.
 
 ## Package 보존 검증
 
