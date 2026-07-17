@@ -51,7 +51,8 @@ jobs:
   sync-personal-staging-env:
     if: >-
       inputs.deployment_mode == 'full' &&
-      inputs.trigger_source == 'develop-push' &&
+      (inputs.trigger_source == 'develop-push' ||
+      inputs.trigger_source == 'manual') &&
       github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 5

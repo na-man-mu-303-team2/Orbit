@@ -186,3 +186,26 @@ test("develop deploy syncs safe Doppler defaults before server deployment", () =
     /needs\.sync-personal-staging-env\.result == 'success'/,
   );
 });
+
+test("manual full recovery uses the existing dispatch and serialized develop sync path", () => {
+  const contractWorkflow = fs.readFileSync(
+    ".github/workflows/environment-contract-ci.yml",
+    "utf8",
+  );
+  const deployWorkflow = fs.readFileSync(
+    ".github/workflows/deploy-personal-staging.yml",
+    "utf8",
+  );
+
+  assert.doesNotMatch(contractWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(deployWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(deployWorkflow, /^          - manual$/m);
+  assert.match(
+    deployWorkflow,
+    /inputs\.deployment_mode == 'full' &&[\s\S]*inputs\.trigger_source == 'develop-push' \|\|\s+inputs\.trigger_source == 'manual'\)[\s\S]*github\.ref == 'refs\/heads\/develop'/,
+  );
+  assert.match(
+    deployWorkflow,
+    /^concurrency:\s+group: personal-staging-deploy\s+cancel-in-progress: false$/m,
+  );
+});

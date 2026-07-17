@@ -434,3 +434,16 @@
 - Rationale: sudoers가 허용하는 root 진입점을 작고 안정적으로 유지하면서 정책 중복과 stale wrapper drift를 제거한다. `bash -lc` 문자열 조합 없이 인자 경계를 보존하고, checkout의 검토된 deploy script가 `full`과 `environment-only`의 유일한 구현이 된다. 배포가 자기 root wrapper를 자동 변경하지 않으므로 권한 상승 경계도 별도 운영 승인 아래 유지된다.
 - Affected files: `infra/scripts/orbit-deploy-personal-staging-wrapper.sh`, `infra/scripts/personal-staging-wrapper.test.mjs`, `.github/workflows/environment-contract-ci.yml`, `package.json`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: PR merge 전에 개인 서버에서 검토된 wrapper를 root 전용 백업 후 원자적으로 설치하고 `root:root 0750`, `bash -n`, 저장소 원본과 checksum 일치, 잘못된 mode probe의 `Invalid deployment mode.` 응답을 확인한다. 서버 HEAD가 최신 `develop`과 일치하는지 확인한 뒤 새 `environment-only` run에서 Git pull, image build, migration이 실행되지 않는지 검증한다.
+
+## ORBIT personal staging fresh-run recovery
+
+- Context: GitHub Environment의 `DOPPLER_STG_SYNC_TOKEN`을 교체한 뒤 기존 `develop` workflow run을 재실행해도 called workflow의 `DOPPLER_TOKEN`이 빈 문자열로 해석되었다. 같은 run ID의 attempt만 반복하면 token 등록 시점 문제와 reusable workflow 경계 문제를 구분할 수 없다. sync job만 상위 workflow로 옮기면 Doppler webhook의 `environment-only` 배포가 sync와 full 배포 사이에 끼어들 수 있고, 기본 브랜치가 `main`인 저장소에서 `develop`에만 새 `workflow_dispatch`를 추가하면 GitHub가 수동 trigger를 제공하지 않는다.
+- Options considered:
+  - 기존 실패 run의 failed job을 계속 재실행한다.
+  - Doppler sync job만 상위 Environment Contract CI로 옮긴다.
+  - `develop`의 Environment Contract CI에 새 `workflow_dispatch`를 추가한다.
+  - 기본 브랜치에도 이미 존재하는 `Deploy Personal Staging` 수동 entrypoint의 `develop + full + manual` 실행을 복구 경로로 사용한다.
+- Final decision: 기존 `Deploy Personal Staging` workflow를 `develop`, `full`, `manual`로 수동 실행하면 `develop-push`와 같은 Doppler sync를 먼저 실행한다. 자동 push, 수동 full 복구, Doppler webhook 배포는 모두 `personal-staging-deploy` concurrency group을 유지한다. 새 top-level dispatch, Repository secret, `secrets: inherit`는 추가하지 않는다.
+- Rationale: 기본 브랜치에 이미 등록된 수동 entrypoint로 완전히 새로운 run ID를 만들면서 sync와 서버 배포 사이의 순서를 보존한다. Environment secret 경계를 유지하고 token이 비어 있으면 self-hosted runner 배포 전에 중단한다.
+- Affected files: `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/personal-staging-env.test.mjs`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR merge push로 생성된 새 run ID에서 token 존재 확인, Doppler sync, full 배포를 순서대로 확인한다. 계속 빈 문자열이면 reusable workflow 경계를 원인으로 확정하고 환경 계약, sync, full deploy 전체 체인을 하나의 workflow 및 같은 concurrency 경계로 이동한다. 성공하면 기존 run 재실행 또는 secret 등록 시점 문제로 분류하고 현재 구조를 유지한다. 이후 수동 `develop + full + manual` run도 같은 검증에 사용할 수 있다.
