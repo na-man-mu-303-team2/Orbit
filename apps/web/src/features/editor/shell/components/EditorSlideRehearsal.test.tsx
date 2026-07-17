@@ -51,6 +51,7 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain('aria-label="발표 대본 프롬프터"');
     expect(html).toContain("rehearsal-teleprompter-current");
     expect(html).toContain('data-auto-scroll="true"');
+    expect(html).toContain('data-wheel-navigation="sentence"');
     expect(html).toContain('aria-label="자동 따라가기 끄기"');
     expect(html).toContain('aria-label="이전 대본 문장"');
     expect(html).toContain('aria-label="다음 대본 문장"');

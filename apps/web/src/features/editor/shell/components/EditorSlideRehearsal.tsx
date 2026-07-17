@@ -75,11 +75,12 @@ export function EditorSlideRehearsalBottomPanel(
       offset === -1
         ? props.onPreviousSentence()
         : props.onNextSentence();
-    if (!speechTrackerSnapshot) return;
+    if (!speechTrackerSnapshot) return false;
     setFollowMode("manual");
     setManualCompletedCount(
       speechTrackerSnapshot.prompterProgress?.committedSentenceIds.length ?? 0
     );
+    return true;
   }
 
   function toggleFollowMode() {
@@ -151,6 +152,9 @@ export function EditorSlideRehearsalBottomPanel(
       </header>
       <RehearsalScriptTeleprompter
         focusScopeId={props.slide.slideId}
+        onWheelNavigate={(direction) => {
+          moveManually(direction === "next" ? 1 : -1);
+        }}
         progressPercent={visibleProgress.progressPercent}
         rows={visibleProgress.rows}
       >

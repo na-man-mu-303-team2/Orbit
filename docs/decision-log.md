@@ -638,3 +638,15 @@
 - Rationale: 전체 리허설에서 검증된 final deduplication, 조각 누적, 문장 commit 규칙을 재사용해 서로 다른 진행 판정 기준을 만들지 않는다. live transcript는 계속 브라우저 메모리의 프롬프터 제어에만 사용하고 API, Job, DB, 로그에는 추가하지 않는다.
 - Affected files: `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트, `docs/decision-log.md`.
 - Follow-up review notes: 조각난 partial 뒤 final에서 정확히 한 문장만 진행하는지, 같은 final 재수신이 두 번 진행되지 않는지, focus 변경 시 중앙 스크롤이 실행되는지, 마지막 문장 완료 후 현재 슬라이드가 유지되는지 브라우저에서 확인한다.
+
+## ORBIT editor one-slide rehearsal wheel sentence navigation
+
+- Context: 한 장 리허설의 마우스 휠과 트랙패드는 대본 영역을 픽셀 단위로만 스크롤해, 음성 인식과 화살표가 사용하는 `SpeechTracker` 문장 위치와 화면 위치가 서로 달라질 수 있었다. 트랙패드는 한 동작에서도 여러 wheel event를 연속 발생시킨다.
+- Options considered:
+  - 브라우저 기본 픽셀 스크롤을 유지한다.
+  - 휠마다 즉시 문장을 이동한다.
+  - 한 휠 gesture의 delta를 누적해 임계값을 넘을 때 문장 하나만 이동하고, 기존 manual prompter API를 호출한다.
+- Final decision: 한 장 리허설에서만 휠 아래를 다음 문장, 휠 위를 이전 문장으로 연결한다. pixel·line·page delta를 정규화하고 24px 임계값과 180ms gesture 종료 기준을 적용해 한 gesture가 여러 문장을 건너뛰지 않게 한다. 문장 이동은 화살표와 같은 `manualNextPrompter`·`manualPreviousPrompter` 경로를 사용하며 마지막 문장에서 슬라이드를 전환하지 않는다.
+- Rationale: 입력 수단과 관계없이 하나의 tracker snapshot을 기준으로 진행률·focus·자동 중앙 스크롤을 동기화하고, 트랙패드 과다 입력으로 문장을 건너뛰는 것을 막는다. 공용 프롬프터에는 optional callback만 추가해 전체 리허설의 기존 wheel 동작은 바꾸지 않는다.
+- Affected files: `apps/web/src/features/rehearsal/presenter/RehearsalScriptTeleprompter.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트, `docs/decision-log.md`.
+- Follow-up review notes: Windows 마우스 휠과 노트북 트랙패드에서 한 gesture당 한 문장만 이동하는지, 첫·마지막 문장 경계와 화살표·음성 자동 이동 복귀가 일관적인지 확인한다.
