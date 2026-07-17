@@ -62,6 +62,8 @@ def test_generates_three_grounded_questions_with_strict_ai_output() -> None:
     assert generation_input["slides"][1]["speakerNotes"] == (
         "다음 슬라이드에서 실행 순서를 설명합니다."
     )
+    assert payload["timings"]["webSearchMs"] >= 0
+    assert payload["timings"]["generationMs"] >= 0
 
 
 def test_returns_remediation_instead_of_calling_ai_without_sources() -> None:
@@ -122,6 +124,7 @@ def test_uses_only_vetted_official_web_sources_and_keeps_search_query_bounded() 
     }
     assert payload["webSources"][0]["authority"] == "official"
     assert payload["items"][0]["sourceRefs"] == [payload["webSources"][0]]
+    assert len(client.responses.requests) == 2
     search_request = client.responses.requests[0]
     assert search_request["tools"] == [
         {"type": "web_search", "search_context_size": "low"}
@@ -224,7 +227,8 @@ class FakeResponses:
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
         self.last_request = kwargs
-        return SimpleNamespace(output_text=json.dumps(self.output, ensure_ascii=False))
+        output = {"officialSourceIds": [], **self.output}
+        return SimpleNamespace(output_text=json.dumps(output, ensure_ascii=False))
 
 
 class FakeClient:
@@ -264,28 +268,23 @@ class OfficialWebResponses:
                     }
                 ],
             )
-        format_name = kwargs.get("text", {}).get("format", {}).get("name")
-        if format_name == "slide_question_official_web_sources":
-            vetting_input = json.loads(kwargs["input"])
-            return SimpleNamespace(
-                output_text=json.dumps(
-                    {
-                        "sources": [
-                            {
-                                "sourceId": vetting_input["sources"][0]["sourceId"],
-                                "relevant": True,
-                                "authority": "official",
-                            }
-                        ]
-                    }
-                )
-            )
         generation_input = json.loads(kwargs["input"])
-        web_source = dict(generation_input["officialWebSources"][0])
-        web_source.pop("content")
+        candidate = generation_input["webSourceCandidates"][0]
+        web_source = {
+            "kind": "web",
+            "sourceId": candidate["sourceId"],
+            "url": candidate["url"],
+            "title": candidate["title"],
+            "authority": "official",
+            "contentHash": candidate["contentHash"],
+            "retrievedAt": candidate["retrievedAt"],
+        }
         return SimpleNamespace(
             output_text=json.dumps(
-                {"items": grounded_items(web_source)},
+                {
+                    "items": grounded_items(web_source),
+                    "officialSourceIds": [candidate["sourceId"]],
+                },
                 ensure_ascii=False,
             )
         )
@@ -303,7 +302,12 @@ class SearchFailureResponses:
     def create(self, **kwargs: Any) -> SimpleNamespace:
         if kwargs.get("tools"):
             raise RuntimeError("provider unavailable")
-        return SimpleNamespace(output_text=json.dumps(self.output, ensure_ascii=False))
+        return SimpleNamespace(
+            output_text=json.dumps(
+                {"officialSourceIds": [], **self.output},
+                ensure_ascii=False,
+            )
+        )
 
 
 class SearchFailureClient:

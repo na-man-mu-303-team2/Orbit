@@ -249,6 +249,11 @@ function providerResponse(fixture: FixtureIds, researchCase: ResearchCase) {
       researchedAt,
     },
     webSources: researchCase.webSources,
+    timings: {
+      webSearchMs: 1_200,
+      generationMs: 8_400,
+      totalProviderMs: 9_600,
+    },
   };
 }
 

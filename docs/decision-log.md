@@ -470,6 +470,18 @@
 - Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/database/migrations/2026071702000-AddSlideQuestionGuideWebResearch.ts`, `apps/api/src/slide-question-guides/slide-question-guides.service.ts`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_web_research.py`, `services/python-worker/app/slide_question_guides.py`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `docs/contracts.md`.
 - Follow-up review notes: 실제 provider 비용과 official source 성공률은 staging에서 aggregate event의 `status`, `attempts`, `officialSourceCount`, `issueCodes`만으로 점검한다. URL, 질의, slide/reference 원문은 운영 로그에 추가하지 않는다. domain allowlist가 필요한 regulated project는 별도 정책과 UI 승인을 거쳐 도입한다.
 
+## ORBIT slide question guide bounded fast path
+
+- Context: 로컬 성공 Job도 약 33초가 걸리고 provider가 응답하지 않으면 Python request 단계에서 약 129초 뒤 실패했다. 기존 경로는 web search, 별도 official source vetting, 질문·답변 생성의 OpenAI 호출 3개를 직렬 실행하며 대상 외 slide와 승인 참고자료도 큰 transient prompt로 전달했다.
+- Options considered:
+  - UI polling 간격만 줄인다.
+  - official source 판정을 생략하거나 URL suffix만으로 official 여부를 결정한다.
+  - web search는 유지하되 official source 판정을 질문 생성 strict output에 합치고, provider 단계별 timeout과 bounded context를 적용한다.
+- Final decision: 예상 질문 provider 경로는 최대 1회의 `web_search`와 1회의 strict 질문 생성 호출만 사용한다. 생성 output의 `officialSourceIds`는 검색 candidate allowlist에 존재해야 하고, item의 web source ref는 해당 ID의 canonical URL·제목·hash·조회시각과 정확히 일치해야 한다. 검색은 12초 뒤 slide/reference fallback, 생성은 45초, Worker 요청은 70초로 제한한다. 대상 slide는 content 4,000자와 speaker notes 6,000자, 나머지 slide는 각 600자, 승인 reference는 최대 4개와 각 1,200자로 제한한다. `webSearchMs`, `generationMs`, `totalProviderMs`는 로그용 transient metadata로만 반환하고 저장하지 않는다.
+- Rationale: source allowlist와 official 판정 경계를 유지하면서 provider 호출을 3회에서 2회로 줄이고, 긴 검색 장애가 전체 질문 생성을 막지 않게 한다. 대상 slide의 근거는 유지하고 주변 slide는 흐름 파악에 필요한 bounded context만 전달해 입력 처리 시간을 줄인다.
+- Affected files: `services/python-worker/app/slide_question_web_research.py`, `services/python-worker/app/slide_question_guides.py`, `apps/worker/src/slide-question-guide-generation.processor.ts`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 단계별 duration과 research status aggregate만 확인한다. 검색어, cited excerpt, slide/reference 원문, speaker notes, provider response는 로그에 남기지 않는다. 공식 source 성공률이 하락하면 호출 수를 다시 늘리기 전에 prompt와 candidate 품질을 먼저 검토한다.
+
 ## ORBIT editor practice rollout and transcription fallback
 
 - Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 기존 per-session 체크박스가 연습 시작 흐름을 복잡하게 만들었다. 외부 실시간 전사로 전환하더라도 raw audio와 transcript를 영구 저장하지 않는 기존 privacy boundary는 유지해야 한다.

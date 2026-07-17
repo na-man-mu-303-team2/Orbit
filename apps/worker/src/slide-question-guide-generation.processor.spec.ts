@@ -78,6 +78,9 @@ describe("processSlideQuestionGuideGenerationJob", () => {
       attempts: 1,
       officialSourceCount: 0,
       issueCodes: ["no-citations"],
+      webSearchMs: 1_200,
+      generationMs: 8_400,
+      totalProviderMs: 9_600,
     }]);
     expect(JSON.stringify(events)).not.toContain("http");
   });
@@ -484,6 +487,11 @@ function providerResponse(
           researchedAt: "2026-07-17T00:00:00.000Z",
         },
     webSources,
+    timings: {
+      webSearchMs: 1_200,
+      generationMs: 8_400,
+      totalProviderMs: 9_600,
+    },
   };
 }
 

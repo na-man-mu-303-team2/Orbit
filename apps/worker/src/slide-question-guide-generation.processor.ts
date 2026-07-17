@@ -18,6 +18,11 @@ import type { DataSource } from "typeorm";
 import { z } from "zod";
 
 const generatedItemSchema = slideQuestionGuideItemCoreSchema.omit({ questionId: true });
+const providerTimingsSchema = z.object({
+  webSearchMs: z.number().int().nonnegative(),
+  generationMs: z.number().int().nonnegative(),
+  totalProviderMs: z.number().int().nonnegative(),
+}).strict();
 const deckCheckpointRowSchema = z.object({
   deck_json: z.unknown(),
   version: z.coerce.number().int().nonnegative(),
@@ -35,6 +40,7 @@ const responseSchema = z.object({
   model: z.string().trim().min(1).max(100),
   research: slideQuestionGuideResearchSchema,
   webSources: z.array(slideQuestionGuideWebSourceRefSchema).max(5),
+  timings: providerTimingsSchema,
 }).strict().superRefine((response, context) => {
   if (response.research.officialSourceCount !== response.webSources.length) {
     context.addIssue({
@@ -139,7 +145,7 @@ export async function processSlideQuestionGuideGenerationJob(
            ON chunks.project_id = approved.project_id
           AND chunks.file_id = approved.file_id
          WHERE approved.project_id = $1 AND assets.status = 'uploaded'
-         ORDER BY approved.display_order, chunks.id LIMIT 8`,
+         ORDER BY approved.display_order, chunks.id LIMIT 4`,
         [payload.projectId],
       ),
     ]);
@@ -151,15 +157,18 @@ export async function processSlideQuestionGuideGenerationJob(
     if (deck.deckId !== guide.deck_id || deck.version !== Number(guide.deck_version)) {
       throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
     }
-    const slides = deck.slides.map((slide) => slideQuestionGuideDeckContextSlideSchema.parse({
-      slideId: slide.slideId,
-      order: slide.order,
-      deckVersion: deck.version,
-      contentHash: sha256Canonical(slide),
-      title: slide.title.slice(0, 500),
-      content: collectSlideContent(slide).slice(0, 4_000),
-      speakerNotes: slide.speakerNotes.slice(0, 6_000),
-    }));
+    const slides = deck.slides.map((slide) => {
+      const isTarget = slide.slideId === guide.slide_id;
+      return slideQuestionGuideDeckContextSlideSchema.parse({
+        slideId: slide.slideId,
+        order: slide.order,
+        deckVersion: deck.version,
+        contentHash: sha256Canonical(slide),
+        title: slide.title.slice(0, 500),
+        content: collectSlideContent(slide).slice(0, isTarget ? 4_000 : 600),
+        speakerNotes: slide.speakerNotes.slice(0, isTarget ? 6_000 : 600),
+      });
+    });
     const targetSlide = slides.find((slide) => slide.slideId === guide.slide_id);
     if (!targetSlide || targetSlide.contentHash !== sourceSnapshot.contentHash) {
       throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
@@ -174,7 +183,7 @@ export async function processSlideQuestionGuideGenerationJob(
         fileId: String(reference.file_id),
         chunkId: String(reference.chunk_id),
         contentHash: String(reference.content_hash),
-        content: stringValue(reference.content).slice(0, 2_000),
+        content: stringValue(reference.content).slice(0, 1_200),
       })),
       brief,
       questionCount: 3,
@@ -183,7 +192,7 @@ export async function processSlideQuestionGuideGenerationJob(
     const response = await fetch(new URL("/slide-question-guides/generate", pythonWorkerUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(70_000),
       body: JSON.stringify(request),
     });
     if (!response.ok) throw new Error("SLIDE_QUESTION_GUIDE_PROVIDER_FAILED");
@@ -197,6 +206,7 @@ export async function processSlideQuestionGuideGenerationJob(
       attempts: generated.research.attempts,
       officialSourceCount: generated.research.officialSourceCount,
       issueCodes: generated.research.issueCodes,
+      ...generated.timings,
     });
     failureStage = "source-ref-validation";
     validateSourceRefs(generated.items, slides, references, generated.webSources);
@@ -336,6 +346,9 @@ export type SlideQuestionGuideResearchBusinessEvent = {
   attempts: number;
   officialSourceCount: number;
   issueCodes: string[];
+  webSearchMs: number;
+  generationMs: number;
+  totalProviderMs: number;
 };
 
 export type SlideQuestionGuideFailureStage =
