@@ -40,6 +40,7 @@ const ooxmlSyncOperationTypeSchema = z.enum([
 const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "ADD_ELEMENT_FAILED",
   "ADD_ELEMENT_TYPE_UNSUPPORTED",
+  "CROP_CAPABILITY_UNSAFE",
   "ELEMENT_TYPE_MISMATCH",
   "FRAME_FIELDS_UNSUPPORTED",
   "GROUPED_FRAME_UNSUPPORTED",

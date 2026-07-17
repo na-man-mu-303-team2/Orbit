@@ -152,10 +152,12 @@ export function getImageInsertCapability(deck: Deck, slideId: string) {
     };
   }
   if (deck.metadata.sourceType === "import") {
-    return {
-      enabled: false,
-      reason: "가져온 PPTX의 이미지 추가 보존 경로가 아직 준비되지 않았습니다."
-    };
+    return slide.ooxmlOrigin === "imported"
+      ? { enabled: true, reason: null }
+      : {
+          enabled: false,
+          reason: "원본 PPTX 위치를 확인할 수 없는 슬라이드에는 이미지를 추가할 수 없습니다."
+        };
   }
   return { enabled: true, reason: null };
 }

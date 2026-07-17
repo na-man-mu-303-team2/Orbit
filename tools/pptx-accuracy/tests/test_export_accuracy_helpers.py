@@ -64,12 +64,11 @@ class ExportDiagnosticsTest(unittest.TestCase):
                 "EXPORT_ELEMENT_INTENTIONAL_HIDDEN": 1,
                 "EXPORT_ELEMENT_TYPE_UNSUPPORTED": 1,
                 "EXPORT_GROUP_CONTAINER_SKIPPED": 1,
-                "EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1,
             },
         )
         self.assertEqual(
             summary["byDisposition"],
-            {"degraded": 2, "intentional-hidden": 1, "skipped": 2},
+            {"degraded": 1, "intentional-hidden": 1, "skipped": 2},
         )
         self.assertEqual(summary["expectedExporterWarningCount"], 3)
         expected_codes = [
@@ -156,7 +155,7 @@ class ExportDiagnosticsTest(unittest.TestCase):
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
- <p:cSld><p:spTree><a:srcRect/><c:chart/><a:tbl/></p:spTree></p:cSld>
+ <p:cSld><p:spTree><a:srcRect l="20000" t="10000" r="15000" b="5000"/><c:chart/><a:tbl/></p:spTree></p:cSld>
  <p:transition/><p:timing/>
 </p:sld>"""
         with tempfile.TemporaryDirectory() as directory:
@@ -169,13 +168,82 @@ class ExportDiagnosticsTest(unittest.TestCase):
                     "transitionCount": 1,
                     "timingSlideCount": 1,
                     "cropCount": 1,
+                    "cropLeft": 20000,
+                    "cropTop": 10000,
+                    "cropRight": 15000,
+                    "cropBottom": 5000,
                     "chartCount": 1,
                     "tableCount": 1,
                 },
             )
 
-        self.assertEqual(len(assertions), 5)
-        self.assertTrue(all(row.to_dict()["passed"] for row in assertions))
+        rows = {row.code: row.to_dict() for row in assertions}
+        self.assertEqual(len(rows), 9)
+        self.assertTrue(all(row["passed"] for row in rows.values()))
+        self.assertEqual(rows["OOXML_IMAGE_CROP_LEFT"]["actual"], 20000)
+        self.assertEqual(rows["OOXML_IMAGE_CROP_TOP"]["actual"], 10000)
+        self.assertEqual(rows["OOXML_IMAGE_CROP_RIGHT"]["actual"], 15000)
+        self.assertEqual(rows["OOXML_IMAGE_CROP_BOTTOM"]["actual"], 5000)
+
+    def test_crop_edges_are_asserted_independently_without_compensation(self) -> None:
+        slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+ <p:cSld><p:spTree><a:srcRect l="19999" t="10000" r="15001" b="5000"/></p:spTree></p:cSld>
+</p:sld>"""
+        with tempfile.TemporaryDirectory() as directory:
+            pptx_path = Path(directory) / "fixture.pptx"
+            with ZipFile(pptx_path, "w", ZIP_DEFLATED) as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide_xml)
+            assertions = semantic_assertions(
+                pptx_path,
+                {
+                    "cropCount": 1,
+                    "cropLeft": 20000,
+                    "cropTop": 10000,
+                    "cropRight": 15000,
+                    "cropBottom": 5000,
+                },
+            )
+
+        rows = {row.code: row.to_dict() for row in assertions}
+        self.assertTrue(rows["OOXML_IMAGE_CROP_COUNT"]["passed"])
+        self.assertFalse(rows["OOXML_IMAGE_CROP_LEFT"]["passed"])
+        self.assertTrue(rows["OOXML_IMAGE_CROP_TOP"]["passed"])
+        self.assertFalse(rows["OOXML_IMAGE_CROP_RIGHT"]["passed"])
+        self.assertTrue(rows["OOXML_IMAGE_CROP_BOTTOM"]["passed"])
+
+    def test_fixture_declares_one_exact_ooxml_crop_rectangle(self) -> None:
+        fixture = json.loads(
+            (TOOLS / "fixtures" / "export-fidelity-deck.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        crop_element = next(
+            element
+            for slide in fixture["deck"]["slides"]
+            for element in slide["elements"]
+            if element["elementId"] == "el_accuracy_cropped_image"
+        )
+
+        self.assertEqual(
+            crop_element["props"]["crop"],
+            {"left": 0.2, "top": 0.1, "right": 0.15, "bottom": 0.05},
+        )
+        self.assertEqual(
+            fixture["semanticExpectations"],
+            {
+                "transitionCount": 1,
+                "timingSlideCount": 1,
+                "cropCount": 1,
+                "cropLeft": 20000,
+                "cropTop": 10000,
+                "cropRight": 15000,
+                "cropBottom": 5000,
+                "chartCount": 1,
+                "tableCount": 1,
+            },
+        )
 
     def test_checksums_are_independent_of_run_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -244,19 +312,19 @@ class ExportDiagnosticsTest(unittest.TestCase):
         baseline["diagnosticSummary"] = {
             "byCode": {
                 "EXPORT_ARROWHEAD_DEGRADED_TO_LINE": 1,
-                "EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1,
+                "EXPORT_ELEMENT_INTENTIONAL_HIDDEN": 1,
             },
-            "byDisposition": {"degraded": 2},
-            "byElementType": {"arrow": 1, "image": 1},
+            "byDisposition": {"degraded": 1, "intentional-hidden": 1},
+            "byElementType": {"arrow": 1, "rect": 1},
         }
         baseline["exporterWarningReconciliation"] = reconciliation(
             ["EXPORT_ARROWHEAD_DEGRADED_TO_LINE"]
         )
         current = copy.deepcopy(baseline)
         current["diagnosticSummary"] = {
-            "byCode": {"EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1},
-            "byDisposition": {"degraded": 1},
-            "byElementType": {"image": 1},
+            "byCode": {"EXPORT_ELEMENT_INTENTIONAL_HIDDEN": 1},
+            "byDisposition": {"intentional-hidden": 1},
+            "byElementType": {"rect": 1},
         }
         current["exporterWarningReconciliation"] = reconciliation([])
 
@@ -623,12 +691,9 @@ def report_payload(
             }
         ],
         "diagnosticSummary": {
-            "byCode": {
-                "EXPORT_ELEMENT_TYPE_UNSUPPORTED": 1,
-                "EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1,
-            },
-            "byDisposition": {"skipped": 1, "degraded": 1},
-            "byElementType": {"customShape": 1, "image": 1},
+            "byCode": {"EXPORT_ELEMENT_TYPE_UNSUPPORTED": 1},
+            "byDisposition": {"skipped": 1},
+            "byElementType": {"customShape": 1},
         },
     }
 

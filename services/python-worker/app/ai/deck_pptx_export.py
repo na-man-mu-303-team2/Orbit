@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from io import BytesIO
 from typing import Any, Literal
 
@@ -217,18 +218,71 @@ def add_line(slide: Any, element: dict[str, Any]) -> None:
 
 
 def add_image(slide: Any, element: dict[str, Any], warnings: list[str]) -> None:
-    src = str(element.get("props", {}).get("src", ""))
+    props = element.get("props", {})
+    crop = validated_image_crop(props.get("crop"))
+    src = str(props.get("src", ""))
     if not src.startswith("data:image/") or ";base64," not in src:
         warnings.append("Skipped image without embedded data URL.")
         return
     _, encoded = src.split(";base64,", 1)
-    slide.shapes.add_picture(
+    picture = slide.shapes.add_picture(
         BytesIO(base64.b64decode(encoded)),
         emu_x(element),
         emu_y(element),
         width=emu_width(element),
         height=emu_height(element),
     )
+    if crop is not None:
+        picture.crop_left = crop["left"]
+        picture.crop_top = crop["top"]
+        picture.crop_right = crop["right"]
+        picture.crop_bottom = crop["bottom"]
+
+
+def validated_image_crop(value: Any) -> dict[str, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Invalid image crop: expected an object.")
+
+    crop: dict[str, float] = {}
+    for edge in ("left", "top", "right", "bottom"):
+        raw_value = value.get(edge, 0)
+        if (
+            isinstance(raw_value, bool)
+            or not isinstance(raw_value, (int, float))
+            or not math.isfinite(raw_value)
+            or raw_value < 0
+            or raw_value > 1
+        ):
+            raise ValueError(f"Invalid image crop {edge} fraction.")
+        crop[edge] = float(raw_value)
+
+    if crop["left"] + crop["right"] >= 1:
+        raise ValueError("Invalid image crop: left and right hide the full image.")
+    if crop["top"] + crop["bottom"] >= 1:
+        raise ValueError("Invalid image crop: top and bottom hide the full image.")
+    units = image_crop_units(crop)
+    return {
+        "left": units["left"] / 100_000,
+        "top": units["top"] / 100_000,
+        "right": units["right"] / 100_000,
+        "bottom": units["bottom"] / 100_000,
+    }
+
+
+def image_crop_units(crop: dict[str, float]) -> dict[str, int]:
+    units = {
+        edge: max(0, min(99_999, round(value * 100_000)))
+        for edge, value in crop.items()
+    }
+    for first, second in (("left", "right"), ("top", "bottom")):
+        overflow = units[first] + units[second] - 99_999
+        if overflow > 0:
+            reduction = min(units[second], overflow)
+            units[second] -= reduction
+            units[first] -= overflow - reduction
+    return units
 
 
 def add_chart(slide: Any, element: dict[str, Any], warnings: list[str]) -> None:

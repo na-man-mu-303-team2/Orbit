@@ -114,14 +114,47 @@ describe("useEditorFileTransfer image insert action", () => {
     ).toBe(false);
   });
 
-  it("fails closed for imported Deck insertion until preservation lands", () => {
+  it("allows imported Deck insertion only on a provenance-backed slide", () => {
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
 
     expect(getImageInsertCapability(deck, deck.slides[0]!.slideId)).toEqual({
       enabled: false,
-      reason: "가져온 PPTX의 이미지 추가 보존 경로가 아직 준비되지 않았습니다."
+      reason:
+        "원본 PPTX 위치를 확인할 수 없는 슬라이드에는 이미지를 추가할 수 없습니다."
     });
+
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    expect(getImageInsertCapability(deck, deck.slides[0]!.slideId)).toEqual({
+      enabled: true,
+      reason: null
+    });
+  });
+
+  it("marks an image inserted into an imported Deck as authored", async () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const slideId = deck.slides[0]!.slideId;
+    let committedPatch: DeckPatch | null = null;
+
+    await performImageFileInsert({
+      activeDeck: deck,
+      commitPatch: (patch) => {
+        committedPatch = typeof patch === "function" ? patch(deck) : patch;
+        return true;
+      },
+      file: mockFile("photo.png", "image/png", 32),
+      readNaturalSize: async () => ({ height: 100, width: 100 }),
+      resolveUploadProject: async () => "project_upload",
+      target: { slideId, type: "insert" },
+      upload: async () => ({ url: "/assets/photo.png" })
+    });
+
+    const operation = (committedPatch as DeckPatch | null)?.operations[0];
+    expect(operation?.type).toBe("add_element");
+    if (operation?.type !== "add_element") throw new Error("add patch expected");
+    expect(operation.element.ooxmlOrigin).toBe("authored");
   });
 
   it("uploads before creating one image patch at the clamped pointer", async () => {
