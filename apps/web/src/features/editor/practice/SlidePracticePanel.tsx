@@ -1,5 +1,5 @@
 import type { Deck, Slide } from "@orbit/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { flushOfflinePracticeReports } from "./slidePracticeApi";
 import { useSlidePracticeSession } from "./useSlidePracticeSession";
@@ -10,7 +10,6 @@ export function SlidePracticePanel(props: {
   slide: Slide | null;
   onReportCreated: () => void;
 }) {
-  const [allowRemoteFallback, setAllowRemoteFallback] = useState(false);
   const lastReportedSessionRef = useRef<string | null>(null);
   const biasPhrases = useMemo(() => [
     ...(props.slide?.keywords.map((keyword) => keyword.text) ?? []),
@@ -57,22 +56,12 @@ export function SlidePracticePanel(props: {
             className="editor-practice-start"
             disabled={!props.slide || busy}
             type="button"
-            onClick={() => void session.start(allowRemoteFallback)}
+            onClick={() => void session.start()}
           >
             {busy ? "준비 중…" : "연습 시작"}
           </button>
         )}
       </div>
-      <label className="editor-practice-consent">
-        <input
-          checked={allowRemoteFallback}
-          disabled={recording || busy}
-          type="checkbox"
-          onChange={(event) => setAllowRemoteFallback(event.target.checked)}
-        />
-        온디바이스 전사가 불가능할 때만 서버 실시간 전사 사용에 동의합니다.
-      </label>
-      <p className="editor-practice-privacy">음성 원본과 전사 원문은 서버에 저장하지 않습니다. 파생 지표만 저장됩니다.</p>
       {recording || session.finalTranscript || session.interimTranscript ? (
         <div className="editor-practice-transcript" aria-live="polite">
           <span>{session.finalTranscript}</span>

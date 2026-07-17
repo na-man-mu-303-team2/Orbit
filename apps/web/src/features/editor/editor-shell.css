@@ -6705,7 +6705,6 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell .editor-practice-controls p,
 .orbit-shell .editor-question-guide-header p,
-.orbit-shell .editor-practice-privacy,
 .orbit-shell .editor-practice-message {
   color: var(--orbit-ds-text-muted);
   font-size: var(--orbit-ds-type-ui-small);
@@ -6743,14 +6742,6 @@ body.is-resizing-speaker-notes {
 .orbit-shell .editor-question-guide-header button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.orbit-shell .editor-practice-consent {
-  align-items: flex-start;
-  color: var(--orbit-ds-text-muted);
-  display: flex;
-  font-size: var(--orbit-ds-type-ui-small);
-  gap: 8px;
 }
 
 .orbit-shell .editor-practice-transcript,

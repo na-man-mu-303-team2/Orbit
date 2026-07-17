@@ -448,12 +448,12 @@
 
 ## ORBIT editor practice rollout and transcription fallback
 
-- Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 외부 실시간 전사는 음성을 서버로 전송하므로 사용자의 명시적 동의와 독립적인 rollout 제어가 필요하다.
+- Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 기존 per-session 체크박스가 연습 시작 흐름을 복잡하게 만들었다. 외부 실시간 전사로 전환하더라도 raw audio와 transcript를 영구 저장하지 않는 기존 privacy boundary는 유지해야 한다.
 - Options considered:
   - 모든 브라우저에서 OpenAI Realtime을 기본 사용한다.
   - 온디바이스 전사가 실패하면 연습 전체를 막는다.
-  - 온디바이스를 우선하고 동의 시에만 fallback하며, 전사가 없어도 PCM 음성 분석은 계속한다.
-- Final decision: `SLIDE_PRACTICE_ENABLED`와 `SLIDE_QUESTION_GUIDES_ENABLED`를 독립 runtime flag로 둔다. 온디바이스 Web Speech를 우선하고 사용자가 체크한 경우에만 OpenAI Realtime으로 fallback한다. 전사가 모두 실패하면 `stt-unavailable` 품질 reason을 남기고 음성 파생 측정만 계속한다.
-- Rationale: 개인정보 동의 경계를 명확히 하면서도 브라우저 capability 차이가 전체 연습 기능 중단으로 이어지지 않게 한다.
+  - 온디바이스를 우선하고 실패 시 OpenAI Realtime으로 자동 fallback하며, 전사가 없어도 PCM 음성 분석은 계속한다.
+- Final decision: `SLIDE_PRACTICE_ENABLED`와 `SLIDE_QUESTION_GUIDES_ENABLED`를 독립 runtime flag로 둔다. 사용자가 연습 시작을 선택하면 온디바이스 Web Speech를 우선하고, 사용할 수 없을 때 별도 체크 없이 OpenAI Realtime으로 자동 fallback한다. 전사가 모두 실패하면 `stt-unavailable` 품질 reason을 남기고 음성 파생 측정만 계속한다. raw audio와 transcript는 브라우저 메모리에서만 처리하고 서버 저장소에는 보관하지 않는다.
+- Rationale: 한 번의 연습 시작 동작으로 브라우저 capability 차이를 흡수하면서도 원음과 전사 원문을 영구 저장하지 않는 최소 보존 원칙을 유지한다.
 - Affected files: `packages/config/src/index.ts`, `packages/shared/src/config/runtime-config.schema.ts`, `apps/api/src/runtime-config/runtime-config.controller.ts`, `apps/web/src/features/editor/shell/components/EditorBottomDock.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, environment examples, `docker-compose.yml`.
-- Follow-up review notes: staging에서 Chrome/Edge 언어팩 지원율, fallback 동의율, `quality.reason` 분포를 확인한 뒤 production flag를 활성화한다.
+- Follow-up review notes: staging에서 Chrome/Edge 언어팩 지원율, 자동 fallback 비율, `quality.reason` 분포를 확인한 뒤 production flag를 활성화한다. 개인정보 처리방침에는 서버 실시간 전사로 자동 전환될 수 있다는 점과 원문 비보존 정책을 일관되게 반영한다.

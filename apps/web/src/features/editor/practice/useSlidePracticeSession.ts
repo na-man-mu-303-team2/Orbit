@@ -53,7 +53,7 @@ export function useSlidePracticeSession(input: {
     startedAt: string;
   } | null>(null);
 
-  async function start(allowRemoteFallback: boolean) {
+  async function start() {
     if (!input.slideId || state === "starting" || state === "recording") return;
     setState("starting");
     setMessage("");
@@ -104,21 +104,17 @@ export function useSlidePracticeSession(input: {
         sttEngineRef.current = "web-speech";
       } catch (webSpeechError) {
         await webSpeech.dispose();
-        if (allowRemoteFallback) {
-          const fallback = createLiveSttPort("openai-realtime", { projectId: input.projectId });
-          attachStt(fallback);
-          try {
-            await fallback.start({ language: "ko", audioSource: stream });
-            sttRef.current = fallback;
-            sttEngineRef.current = "openai-realtime";
-            setMessage("온디바이스 전사를 사용할 수 없어 동의한 실시간 전사로 전환했습니다.");
-          } catch {
-            await fallback.dispose();
-            setMessage("전사는 사용할 수 없지만 목소리 분석은 계속합니다.");
-          }
-        } else {
+        const fallback = createLiveSttPort("openai-realtime", { projectId: input.projectId });
+        attachStt(fallback);
+        try {
+          await fallback.start({ language: "ko", audioSource: stream });
+          sttRef.current = fallback;
+          sttEngineRef.current = "openai-realtime";
+          setMessage("온디바이스 전사를 사용할 수 없어 서버 실시간 전사로 전환했습니다.");
+        } catch {
+          await fallback.dispose();
           setMessage(webSpeechError instanceof Error
-            ? `${webSpeechError.message} 목소리 분석만 계속합니다.`
+            ? `${webSpeechError.message} 서버 실시간 전사도 사용할 수 없어 목소리 분석만 계속합니다.`
             : "전사는 사용할 수 없지만 목소리 분석은 계속합니다.");
         }
       }

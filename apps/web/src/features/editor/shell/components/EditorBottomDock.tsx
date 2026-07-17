@@ -75,7 +75,7 @@ export function EditorBottomDock(props: {
 
   return (
     <section
-      aria-labelledby="editor-bottom-dock-title"
+      aria-label="에디터 하단 도구"
       className={`script-panel stage-speaker-notes-panel editor-bottom-dock ${props.isExpanded ? "expanded" : "collapsed"} ${props.isResizing ? "is-resizing" : ""}`}
       style={{ "--speaker-notes-panel-height": `${props.height}px` } as CSSProperties}
     >
@@ -97,7 +97,6 @@ export function EditorBottomDock(props: {
         </button>
       ) : null}
       <div className="editor-bottom-dock-header">
-        <strong className="sr-only" id="editor-bottom-dock-title">슬라이드 연습 도구</strong>
         <div aria-label="슬라이드 도구" className="editor-bottom-dock-tabs" role="tablist">
           <DockTabButton active={activeTab === "notes"} icon={<FileText size={16} />} label="발표 메모" onClick={() => selectTab("notes")} />
           {featureFlags.practice ? <DockTabButton active={activeTab === "practice"} disabled={notesEditing} icon={<Microphone size={16} />} label="바로 연습" onClick={() => selectTab("practice")} /> : null}
