@@ -38,6 +38,7 @@ import {
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import {
   commitCustomShapeEditGeometry,
+  getElementsIntersectingSelectionRect,
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
 import {
@@ -307,6 +308,7 @@ export function EditableCanvas(props: {
   onSetCustomShapeEditElementId: (elementId: string | null) => void;
   onSetInsertTool: (tool: InsertTool) => void;
   onSelectElement: (elementId: string, options?: { append?: boolean }) => void;
+  onSelectElements: (elementIds: string[]) => void;
 }) {
   const {
     customShapeEditElementId,
@@ -333,7 +335,8 @@ export function EditableCanvas(props: {
     onOpenElementContextMenu,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
-    onSelectElement
+    onSelectElement,
+    onSelectElements
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
@@ -348,6 +351,10 @@ export function EditableCanvas(props: {
     useState<CustomShapeInsertDraft | null>(null);
   const [customShapeEditDraft, setCustomShapeEditDraft] =
     useState<CustomShapeEditDraft | null>(null);
+  const [selectionDraft, setSelectionDraft] = useState<{
+    start: CanvasPoint;
+    end: CanvasPoint;
+  } | null>(null);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -447,6 +454,17 @@ export function EditableCanvas(props: {
     insertTool,
     isKeyboardEditableTarget,
     onClearSelection,
+    onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
+    onSelectionDragMove: (point) =>
+      setSelectionDraft((current) => (current ? { ...current, end: point } : current)),
+    onSelectionDragEnd: () =>
+      setSelectionDraft((current) => {
+        const rect = current ? normalizeDraftRect(current.start, current.end) : null;
+        if (rect) {
+          onSelectElements(getElementsIntersectingSelectionRect(visibleElements, rect));
+        }
+        return null;
+      }),
     onMarkTextBlurForClear: () => {
       pendingTextBlurActionRef.current = "clear-selection";
     },
@@ -477,7 +495,14 @@ export function EditableCanvas(props: {
   });
 
   return (
-    <div className="konva-editor-stage" data-testid="editor-canvas-stage" ref={containerRef}>
+    <div
+      className="konva-editor-stage"
+      data-testid="editor-canvas-stage"
+      ref={containerRef}
+      onContextMenu={(event) => {
+        if (selectedElementIds.length > 1) event.preventDefault();
+      }}
+    >
       <Stage
         className="konva-canvas-layer"
         height={deck.canvas.height * stageScale}
@@ -488,6 +513,22 @@ export function EditableCanvas(props: {
         onMouseDown={disableInteractions ? undefined : stageMouseHandlers.onMouseDown}
         onMouseMove={disableInteractions ? undefined : stageMouseHandlers.onMouseMove}
         onMouseUp={disableInteractions ? undefined : stageMouseHandlers.onMouseUp}
+        onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
+          if (disableInteractions || selectedElementIds.length < 2) return;
+          const selectedElement = visibleElements.find((element) =>
+            selectedElementIds.includes(element.elementId)
+          );
+          if (!selectedElement) return;
+
+          event.evt.preventDefault();
+          event.cancelBubble = true;
+          onOpenElementContextMenu({
+            clientX: event.evt.clientX,
+            clientY: event.evt.clientY,
+            element: selectedElement,
+            slideId: slide.slideId
+          });
+        }}
       >
         <Layer>
           {visibleElements.map((element) => (
@@ -562,6 +603,21 @@ export function EditableCanvas(props: {
               {...(normalizeDraftRect(draftElement.start, draftElement.end) ?? {
                 x: draftElement.start.x,
                 y: draftElement.start.y,
+                width: 1,
+                height: 1
+              })}
+            />
+          ) : null}
+          {selectionDraft ? (
+            <Rect
+              dash={[8, 5]}
+              fill="rgba(37, 99, 235, 0.1)"
+              listening={false}
+              stroke="#2563eb"
+              strokeWidth={1.5}
+              {...(normalizeDraftRect(selectionDraft.start, selectionDraft.end) ?? {
+                x: selectionDraft.start.x,
+                y: selectionDraft.start.y,
                 width: 1,
                 height: 1
               })}
