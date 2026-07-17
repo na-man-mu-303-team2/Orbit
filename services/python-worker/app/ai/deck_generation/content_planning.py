@@ -2093,26 +2093,26 @@ def plan_story_content(
     if generated is None:
         outline = plan_presentation(raw_input)
         slide_plans = plan_slides(raw_input, outline)
-        for slide in slide_plans:
-            slide.speaker_notes = ""
-            slide.keywords = []
-            slide.content_items = []
+        for planned_slide in slide_plans:
+            planned_slide.speaker_notes = ""
+            planned_slide.keywords = []
+            planned_slide.content_items = []
     else:
         available_source_ids = {
             source.source_id
             for source in (raw_input.source_records or initial_source_records(raw_input))
         }
         slide_plans = []
-        for order, slide in enumerate(generated.slides, start=1):
-            unknown_refs = set(slide.source_refs) - available_source_ids
+        for order, story_slide in enumerate(generated.slides, start=1):
+            unknown_refs = set(story_slide.source_refs) - available_source_ids
             if unknown_refs:
                 raise DeckContentGenerationError(
                     "LLM story plan referenced unavailable source IDs: "
                     + ", ".join(sorted(unknown_refs))
                 )
-            source_refs = list(slide.source_refs) or default_source_refs(raw_input, order)
+            source_refs = list(story_slide.source_refs) or default_source_refs(raw_input, order)
             fallback_type = slide_type_for(order, raw_input.slide_count)
-            slide_type = normalize_slide_type(slide.slide_type, fallback_type)
+            slide_type = normalize_slide_type(story_slide.slide_type, fallback_type)
             if slide_type == "cover" and order != 1:
                 slide_type = fallback_type
             if slide_type == "summary" and order != raw_input.slide_count:
@@ -2121,11 +2121,11 @@ def plan_story_content(
                 SlidePlan(
                     order=order,
                     slide_type=slide_type,
-                    title=normalize_design_pack_slide_title(slide.title, slide_type),
-                    message=slide.message,
+                    title=normalize_design_pack_slide_title(story_slide.title, slide_type),
+                    message=story_slide.message,
                     speaker_notes="",
                     keywords=[],
-                    evidence=evidence_for(raw_input.references, slide.title),
+                    evidence=evidence_for(raw_input.references, story_slide.title),
                     content_items=[],
                     source_refs=source_refs,
                 )

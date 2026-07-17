@@ -223,7 +223,9 @@ export function projectAiDeckPreview(input: {
     completedSlideIds = deck.slides.map((slide) => slide.slideId);
   } else if (layoutRow) {
     const layout = layoutPayloadSchema.parse(layoutRow.payload_json);
-    if ("artifactVersion" in layout) {
+    const parsedV2Layout = layoutV2PayloadSchema.safeParse(layout);
+    if (parsedV2Layout.success) {
+      const v2Layout = parsedV2Layout.data;
       const completedBySourceOrder = new Map(
         input.imageRows.flatMap((row) => {
           if (row.status !== "succeeded" || !row.payload_json) return [];
@@ -234,7 +236,7 @@ export function projectAiDeckPreview(input: {
         }),
       );
       const prefix: z.infer<typeof slideSchema>[] = [];
-      for (const descriptor of layout.slides) {
+      for (const descriptor of v2Layout.slides) {
         const completed = completedBySourceOrder.get(descriptor.sourceOrder);
         if (
           !completed ||
@@ -246,10 +248,10 @@ export function projectAiDeckPreview(input: {
         prefix.push(completed.slide);
       }
       if (prefix.length > 0) {
-        deck = deckSchema.parse({ ...layout.deckShell, slides: prefix });
+        deck = deckSchema.parse({ ...v2Layout.deckShell, slides: prefix });
         completedSlideIds = prefix.map((slide) => slide.slideId);
       }
-      pendingSlideIds = layout.slides
+      pendingSlideIds = v2Layout.slides
         .slice(prefix.length)
         .map((slide) => slide.slideId);
     } else {
