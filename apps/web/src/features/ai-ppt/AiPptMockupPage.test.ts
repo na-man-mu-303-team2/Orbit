@@ -16,6 +16,8 @@ const form = {
   content: "고객 문제와 핵심 로드맵을 설명한다.",
   audience: "제품·개발 리드",
   tone: "professional" as const,
+  referencePolicy: "user-input-only" as const,
+  mediaPolicy: "minimal" as const,
 };
 
 describe("AI PPT simplified input", () => {
@@ -34,6 +36,18 @@ describe("AI PPT simplified input", () => {
       "청중을 입력하세요.",
     );
     expect(getAiPptWizardValidationMessage(form)).toBe("");
+    expect(
+      getAiPptWizardValidationMessage({
+        ...form,
+        referencePolicy: "references-first",
+      }),
+    ).toBe("참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.");
+    expect(
+      getAiPptWizardValidationMessage(
+        { ...form, referencePolicy: "references-only" },
+        [new File(["source"], "source.pdf")],
+      ),
+    ).toBe("");
   });
 
   it("restores the three content fields from form data", () => {
@@ -73,15 +87,23 @@ describe("AI PPT simplified input", () => {
     expect(payload.design.fontOverride?.fontId).toBe("pretendard");
   });
 
-  it("switches to references-first and forwards file ids to the staged job", () => {
+  it("forwards the selected content and image policies to the staged job", () => {
     const payload = buildAiPptGenerateDeckPayload(
-      form,
+      {
+        ...form,
+        referencePolicy: "references-first",
+        mediaPolicy: "hybrid",
+      },
       defaultPaletteOptions[0],
       ["file_1", "file_2"],
     );
 
     expect(payload.referencePolicy).toBe("references-first");
     expect(payload.brief.referencePolicy).toBe("references-first");
+    expect(payload.design.referencePolicy).toBe("references-first");
+    expect(payload.design.mediaPolicy).toBe("hybrid");
+    expect(payload.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
+    expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
     expect(payload.referenceFileIds).toEqual(["file_1", "file_2"]);
     expect(payload.references).toEqual([
       { fileId: "file_1" },
@@ -196,7 +218,8 @@ describe("AI PPT simplified input", () => {
     expect(source).not.toContain("/references/extractions");
     expect(source).not.toContain("putPresentationBrief");
     expect(source).not.toContain("Saved Design Pack");
-    expect(source).not.toContain("referencePolicyOptions");
+    expect(source).toContain("referencePolicyOptions");
+    expect(source).toContain("mediaPolicyOptions");
     expect(source).not.toContain("/generation/${encodeURIComponent(jobId)}/story");
     expect(source).toContain("styleColorPath(project.projectId, data.job.jobId)");
   });

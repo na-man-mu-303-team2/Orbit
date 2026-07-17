@@ -68,6 +68,8 @@ const sourceGroundingResearchDiagnosticsSchema = z.object({
   official_web_source_count: z.number().int().nonnegative(),
   independent_web_source_count: z.number().int().nonnegative(),
   research_fact_coverage_satisfied: z.boolean(),
+  web_research_timed_out: z.boolean().default(false),
+  web_research_elapsed_ms: z.number().int().nonnegative().default(0),
 });
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
@@ -174,7 +176,12 @@ export async function processAiDeckPlanningStage(
       const research = sourceGroundingResearchDiagnosticsSchema.safeParse(
         sourcePayload.rawInput,
       );
-      if (research.success && research.data.research_quality !== "not-run") {
+      if (
+        research.success &&
+        (research.data.research_quality !== "not-run" ||
+          research.data.research_attempts > 0 ||
+          research.data.web_research_timed_out)
+      ) {
         emitStageEvent(
           options.eventLogger,
           "ai-ppt.web-research.completed",
@@ -190,6 +197,8 @@ export async function processAiDeckPlanningStage(
               research.data.independent_web_source_count,
             factCoverageSatisfied:
               research.data.research_fact_coverage_satisfied,
+            timedOut: research.data.web_research_timed_out,
+            elapsedMs: research.data.web_research_elapsed_ms,
           },
         );
       }

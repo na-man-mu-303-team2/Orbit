@@ -142,10 +142,7 @@ export function AiDeckGenerationPage(props: {
 
       {preview ? (
         <div className="ai-deck-generation-banner">
-          현재 화면은 슬라이드 구성 미리보기이며 검증 중 변경될 수 있습니다.
-          Vision QA가 끝나면 편집기로 이동합니다.
-          모든 슬라이드를 만들었습니다. 최종 품질을 확인하고 있어 일부 표현이
-          달라질 수 있습니다.
+          {previewBannerText(preview)}
         </div>
       ) : null}
       {error || preview?.error ? (
@@ -163,6 +160,9 @@ export function AiDeckGenerationPage(props: {
       <div className="ai-deck-generation-editor">
         <PreviewNavigator
           deck={preview?.deck ?? null}
+          expectedSlideCountRange={
+            preview?.expectedSlideCountRange ?? { min: 5, max: 8 }
+          }
           onSelect={(index) => {
             if (index >= revealedCount) return;
             setSelectedIndex(index);
@@ -206,23 +206,36 @@ export function AiDeckGenerationPage(props: {
 
 function PreviewNavigator(props: {
   deck: Deck | null;
+  expectedSlideCountRange: AiDeckPreviewResponse["expectedSlideCountRange"];
   onSelect: (index: number) => void;
   outline: AiDeckPreviewResponse["outline"];
   revealedCount: number;
   selectedIndex: number;
 }) {
+  const provisional = props.outline.length === 0;
+  const items = provisional
+    ? Array.from({ length: props.expectedSlideCountRange.max }, (_, index) => ({
+        order: index + 1,
+        title: "",
+        message: "",
+      }))
+    : props.outline;
   return (
     <aside className="ai-deck-preview-navigator" aria-label="슬라이드 목차">
       <header>
         <strong>슬라이드</strong>
-        <span>{props.outline.length}</span>
+        <span>
+          {provisional
+            ? `${props.expectedSlideCountRange.min}~${props.expectedSlideCountRange.max}장 예정`
+            : `${props.outline.length}장`}
+        </span>
       </header>
       <ol>
-        {props.outline.map((item, index) => {
+        {items.map((item, index) => {
           const revealed = index < props.revealedCount;
           const slide = props.deck?.slides[index];
           return (
-            <li key={`${item.order}-${item.title}`}>
+            <li key={`${item.order}-${item.title || "pending"}`}>
               <button
                 aria-current={
                   revealed && index === props.selectedIndex ? "page" : undefined
@@ -245,11 +258,15 @@ function PreviewNavigator(props: {
                   )}
                 </span>
                 <span className="ai-deck-preview-copy">
-                  <strong>{item.title}</strong>
+                  {item.title ? <strong>{item.title}</strong> : null}
                   <small>
                     {revealed
                       ? "생성 완료"
-                      : index === props.revealedCount
+                      : provisional
+                        ? index < props.expectedSlideCountRange.min
+                          ? "생성 예정"
+                          : "구성에 따라 추가"
+                        : index === props.revealedCount
                         ? "생성 중"
                         : "생성 예정"}
                   </small>
@@ -306,12 +323,33 @@ function FittedSlide(props: { deck: Deck; slideIndex: number }) {
 }
 
 function statusLabel(status?: AiDeckPreviewResponse["status"]) {
+  if (status === "grounding") return "참고자료 확인 중";
+  if (status === "composing") return "슬라이드 구성 중";
   if (status === "rendering") return "슬라이드 렌더링 중";
   if (status === "quality-check") return "최종 품질 확인 중";
   if (status === "ready") return "완료";
   if (status === "failed") return "생성 실패";
   if (status === "cancelled") return "생성 취소";
   return "슬라이드 구성 중";
+}
+
+export function previewBannerText(preview: AiDeckPreviewResponse) {
+  const base =
+    "현재 화면은 슬라이드 구성 미리보기이며 검증 중 변경될 수 있습니다. Vision QA가 끝나면 편집기로 이동합니다.";
+  if (preview.status === "grounding") {
+    return `${base} 첨부한 참고자료를 분석하고 있습니다.`;
+  }
+  if (preview.status === "planning" || preview.status === "composing") {
+    return `${base} 발표 목차와 슬라이드 구성을 정리하고 있습니다.`;
+  }
+  if (preview.status === "rendering") {
+    const total = preview.outline.length || preview.expectedSlideCountRange.max;
+    return `${base} 총 ${total}장 중 ${preview.completedSlideIds.length}장을 만들었습니다.`;
+  }
+  if (preview.status === "quality-check") {
+    return `${base} 모든 슬라이드를 만들었습니다. 최종 품질을 확인하고 있어 일부 표현이 달라질 수 있습니다.`;
+  }
+  return base;
 }
 
 function replaceRoute(path: string) {

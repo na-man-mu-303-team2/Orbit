@@ -1104,7 +1104,7 @@ async function completeStage(
 
     if (message.stage === "cover-slide") {
       await ensureDesignPlanningAfterCover(manager, checkpoints, message);
-      return updateParentProgress(manager, message, 42);
+      return readParentJob(manager, message);
     }
 
     if (message.stage === "image-slide") {
@@ -1162,7 +1162,7 @@ async function failOptionalCoverStage(
     const failed = await checkpoints.fail(message, leaseOwner, attempt, error);
     if (!failed) return;
     await ensureDesignPlanningAfterCover(manager, checkpoints, message);
-    return updateParentProgress(manager, message, 40);
+    return readParentJob(manager, message);
   });
 }
 
@@ -1566,6 +1566,23 @@ async function updateParentProgress(
       RETURNING *
     `,
     [message.pipelineJobId, message.projectId, progress],
+  );
+  const job = parentJobFromQuery(rows);
+  if (!job) throw new Error("AI deck generation parent job is not runnable.");
+  return job;
+}
+
+async function readParentJob(
+  db: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+): Promise<Job> {
+  const rows = await db.query(
+    `
+      SELECT * FROM jobs
+      WHERE job_id = $1 AND project_id = $2
+        AND type = 'ai-deck-generation' AND status IN ('queued','running')
+    `,
+    [message.pipelineJobId, message.projectId],
   );
   const job = parentJobFromQuery(rows);
   if (!job) throw new Error("AI deck generation parent job is not runnable.");

@@ -22,6 +22,8 @@ const sourcePayload = {
     official_web_source_count: 1,
     independent_web_source_count: 0,
     research_fact_coverage_satisfied: true,
+    web_research_timed_out: false,
+    web_research_elapsed_ms: 18_400,
     warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"],
   },
   sourceRecords: [],
@@ -133,6 +135,8 @@ describe("processAiDeckPlanningStage", () => {
         officialSourceCount: 1,
         independentSourceCount: 0,
         factCoverageSatisfied: true,
+        timedOut: false,
+        elapsedMs: 18_400,
       },
     );
   });

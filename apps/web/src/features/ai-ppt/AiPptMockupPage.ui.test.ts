@@ -18,6 +18,11 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("전문적인");
     expect(html).toContain('type="file"');
     expect(html).toContain("multiple");
+    expect(html).toContain("내용 구성");
+    expect(html).toContain("참고자료 우선");
+    expect(html).toContain("이미지 구성");
+    expect(html).toContain("공식 + AI 이미지");
+    expect(html).toContain('role="tooltip"');
     expect(html).not.toContain('name="duration"');
     expect(html).not.toContain('name="slides"');
     expect(html).not.toContain(">References<");

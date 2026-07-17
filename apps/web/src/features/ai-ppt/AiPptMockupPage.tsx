@@ -1,7 +1,9 @@
 import type {
   DeckColorCustomizationResponse,
   GenerateDeckFontOption,
+  GenerateDeckMediaPolicy,
   GenerateDeckRequest,
+  GenerateDeckReferencePolicy,
   Job,
   AiDeckDesignSelectionResponse,
 } from "@orbit/shared";
@@ -10,6 +12,7 @@ import {
   IconCheck,
   IconChevronLeft,
   IconFileText,
+  IconInfoCircle,
   IconPaperclip,
   IconPlayerPlay,
   IconSparkles,
@@ -48,6 +51,14 @@ export type AiPptWizardState = {
   content: string;
   audience: string;
   tone: Tone;
+  referencePolicy: GenerateDeckReferencePolicy;
+  mediaPolicy: GenerateDeckMediaPolicy;
+};
+
+type PolicyChoiceOption<T extends string> = {
+  value: T;
+  label: string;
+  description: string;
 };
 
 const stylePackId = "brandlogy-modern";
@@ -65,6 +76,65 @@ const toneOptions: Array<{ value: Tone; label: string }> = [
   { value: "confident", label: "자신감 있는" },
   { value: "concise", label: "간결한" },
 ];
+
+export const referencePolicyOptions = [
+  {
+    value: "user-input-only",
+    label: "사용자 입력만",
+    description:
+      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다.",
+  },
+  {
+    value: "references-first",
+    label: "참고자료 우선",
+    description:
+      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다.",
+  },
+  {
+    value: "references-only",
+    label: "참고자료만 사용",
+    description:
+      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다.",
+  },
+  {
+    value: "research-first",
+    label: "웹 리서치 우선",
+    description:
+      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 출처가 부족해도 검증 가능한 범위에서 초안을 생성합니다.",
+  },
+] satisfies readonly PolicyChoiceOption<GenerateDeckReferencePolicy>[];
+
+export const mediaPolicyOptions = [
+  {
+    value: "minimal",
+    label: "이미지 최소화",
+    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다.",
+  },
+  {
+    value: "provided-only",
+    label: "첨부 이미지만",
+    description:
+      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다.",
+  },
+  {
+    value: "public-assets",
+    label: "공개 이미지 구조",
+    description:
+      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다.",
+  },
+  {
+    value: "ai-generated",
+    label: "AI 이미지 구조",
+    description:
+      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다.",
+  },
+  {
+    value: "hybrid",
+    label: "공식 + AI 이미지",
+    description:
+      "공식 이미지를 근거 자료로 우선 사용하고, 분위기 연출이 필요한 장면만 AI 이미지 구조로 보완합니다.",
+  },
+] satisfies readonly PolicyChoiceOption<GenerateDeckMediaPolicy>[];
 
 export const defaultPaletteOptions: PaletteOption[] = [
   {
@@ -209,6 +279,8 @@ export const initialAiPptWizardState: AiPptWizardState = {
   content: "",
   audience: "",
   tone: "professional",
+  referencePolicy: "user-input-only",
+  mediaPolicy: "minimal",
 };
 
 export function mergeAiPptContentFormData(
@@ -223,10 +295,19 @@ export function mergeAiPptContentFormData(
   return nextState;
 }
 
-export function getAiPptWizardValidationMessage(state: AiPptWizardState) {
+export function getAiPptWizardValidationMessage(
+  state: AiPptWizardState,
+  referenceFiles: File[] = [],
+) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
   if (!state.content.trim()) return "발표 내용을 입력하세요.";
   if (!state.audience.trim()) return "청중을 입력하세요.";
+  if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
+    return "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.";
+  }
+  if (state.referencePolicy === "references-first" && referenceFiles.length === 0) {
+    return "참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.";
+  }
   return "";
 }
 
@@ -236,9 +317,6 @@ export function buildAiPptGenerateDeckPayload(
   referenceFileIds: string[] = [],
   selectedFont = recommendGenerateDeckFonts(defaultFontMood)[0],
 ): GenerateDeckRequest {
-  const referencePolicy =
-    referenceFileIds.length > 0 ? "references-first" : "user-input-only";
-
   return {
     topic: state.topic.trim(),
     prompt: state.content.trim(),
@@ -246,13 +324,13 @@ export function buildAiPptGenerateDeckPayload(
       `tone=${state.tone}`,
       `palette=${paletteOption.optionId}`,
       `font=${selectedFont.name}`,
-      `mediaPolicy=minimal`,
+      `mediaPolicy=${state.mediaPolicy}`,
       `base=${stylePackId}`,
     ].join("; "),
     brief: {
       audienceText: state.audience.trim(),
       durationMinutes: 10,
-      referencePolicy,
+      referencePolicy: state.referencePolicy,
     },
     targetDurationMinutes: 10,
     slideCountRange: { min: 5, max: 8 },
@@ -266,14 +344,14 @@ export function buildAiPptGenerateDeckPayload(
       stylePackId,
       visualRhythm: "clean",
       densityTarget: "medium",
-      mediaPolicy: "minimal",
+      mediaPolicy: state.mediaPolicy,
       layoutDiversity: "varied",
       paletteOverride: paletteOption.palette,
       fontOverride: fontOverrideFromOption(selectedFont),
-      referencePolicy,
+      referencePolicy: state.referencePolicy,
     },
-    visualPlanPolicy: { mediaPolicy: "minimal" },
-    referencePolicy,
+    visualPlanPolicy: { mediaPolicy: state.mediaPolicy },
+    referencePolicy: state.referencePolicy,
     referenceFileIds,
     references: referenceFileIds.map((fileId) => ({ fileId })),
     referenceKeywords: [],
@@ -418,7 +496,10 @@ export function AiPptMockupPage() {
       ? mergeAiPptContentFormData(form, new FormData(contentFormRef.current))
       : form;
     setForm(nextForm);
-    const validationMessage = getAiPptWizardValidationMessage(nextForm);
+    const validationMessage = getAiPptWizardValidationMessage(
+      nextForm,
+      referenceFiles,
+    );
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -906,7 +987,64 @@ function ContentStep(props: {
         onRetryUpload={props.onRetryUpload}
         uploadStates={props.uploadStates}
       />
+      <div className="ai-ppt-reference-policy-grid">
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>내용 구성</legend>
+          <p>발표 내용을 구성할 때 우선 사용할 근거를 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {referencePolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.referencePolicy === option.value}
+                tooltipId={`reference-policy-${option.value}`}
+                onSelect={(value) => props.onChange("referencePolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="ai-ppt-reference-policy">
+          <legend>이미지 구성</legend>
+          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
+          <div className="ai-ppt-choice-list">
+            {mediaPolicyOptions.map((option) => (
+              <PolicyChoiceButton
+                key={option.value}
+                option={option}
+                selected={props.form.mediaPolicy === option.value}
+                tooltipId={`media-policy-${option.value}`}
+                onSelect={(value) => props.onChange("mediaPolicy", value)}
+              />
+            ))}
+          </div>
+        </fieldset>
+      </div>
     </>
+  );
+}
+
+function PolicyChoiceButton<T extends string>(props: {
+  onSelect: (value: T) => void;
+  option: PolicyChoiceOption<T>;
+  selected: boolean;
+  tooltipId: string;
+}) {
+  return (
+    <span className="ai-ppt-policy-option">
+      <button
+        aria-describedby={props.tooltipId}
+        aria-pressed={props.selected}
+        className={props.selected ? "selected" : ""}
+        onClick={() => props.onSelect(props.option.value)}
+        type="button"
+      >
+        {props.option.label}
+        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
+      </button>
+      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
+        {props.option.description}
+      </span>
+    </span>
   );
 }
 

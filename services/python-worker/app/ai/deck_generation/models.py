@@ -172,6 +172,8 @@ class WebResearchResult(BaseModel):
     quality: ResearchQuality = "not-run"
     issue_codes: list[ResearchIssueCode] = Field(default_factory=list)
     fact_coverage_satisfied: bool = False
+    timed_out: bool = False
+    elapsed_ms: int = 0
 
 
 class WebSourceAssessment(BaseModel):
@@ -519,6 +521,8 @@ class RawInput(BaseModel):
     research_quality: ResearchQuality = "not-run"
     research_issue_codes: list[ResearchIssueCode] = Field(default_factory=list)
     research_fact_coverage_satisfied: bool = False
+    web_research_timed_out: bool = False
+    web_research_elapsed_ms: int = 0
     warning_codes: list[WarningCode] = Field(
         default_factory=list,
         alias="warningCodes",
