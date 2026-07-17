@@ -35,14 +35,28 @@ export function useFocusedPracticeAudio(
   }), [maxDurationMs]);
 
   const start = useCallback(async () => {
-    stream.current = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-    chunks.current = [];
-    const next = new MediaRecorder(stream.current, { mimeType: "audio/webm" });
-    next.ondataavailable = (event) => { if (event.data.size > 0) chunks.current.push(event.data); };
-    next.start(); recorder.current = next; startedAt.current = Date.now(); setRecording(true);
-    stopTimer.current = window.setTimeout(() => {
-      void stop().then(setAutomaticCapture);
-    }, maxDurationMs);
+    const nextStream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraints,
+    });
+    try {
+      chunks.current = [];
+      const next = new MediaRecorder(nextStream, { mimeType: "audio/webm" });
+      next.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.current.push(event.data);
+      };
+      next.start();
+      recorder.current = next;
+      stream.current = nextStream;
+      startedAt.current = Date.now();
+      setRecording(true);
+      stopTimer.current = window.setTimeout(() => {
+        void stop().then(setAutomaticCapture);
+      }, maxDurationMs);
+      return nextStream;
+    } catch (error) {
+      nextStream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
   }, [audioConstraints, maxDurationMs, stop]);
   useEffect(() => () => {
     if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);

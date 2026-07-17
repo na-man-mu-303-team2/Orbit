@@ -479,7 +479,9 @@ export function EditorShell(props: { projectId?: string }) {
   const {
     enter: enterSlideRehearsal,
     exit: exitSlideRehearsal,
-    state: slideRehearsalState
+    start: startSlideRehearsal,
+    state: slideRehearsalState,
+    stop: stopSlideRehearsal
   } = useEditorSlideRehearsal({ projectId });
   const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
   const rehearsalSlide =
@@ -513,6 +515,20 @@ export function EditorShell(props: { projectId?: string }) {
     speakerNotesPanelActions.expand();
     void handleExitSlideRehearsal({ force: true });
   }, [slidePracticeSession.report?.practiceSessionId]);
+
+  useEffect(() => {
+    if (
+      slidePracticeSession.state !== "stopping" ||
+      slideRehearsalState.status !== "listening"
+    ) {
+      return;
+    }
+    void stopSlideRehearsal();
+  }, [
+    slidePracticeSession.state,
+    slideRehearsalState.status,
+    stopSlideRehearsal
+  ]);
 
   function handleSelectSlideForNavigator(index: number) {
     if (!isSlideRehearsalActive) {
@@ -1053,10 +1069,22 @@ export function EditorShell(props: { projectId?: string }) {
     setIsRightPanelOpen(true);
   }
 
+  async function handleStartSlidePractice() {
+    if (!rehearsalSlide) return;
+    const stream = await slidePracticeSession.start();
+    if (!stream) return;
+    await startSlideRehearsal(rehearsalSlide, { audioSource: stream });
+  }
+
+  async function handleStopSlidePractice() {
+    await stopSlideRehearsal();
+    await slidePracticeSession.stop();
+  }
+
   async function handleExitSlideRehearsal(options?: { force?: boolean }) {
     if (!options?.force) {
       if (slidePracticeSession.state === "recording") {
-        await slidePracticeSession.stop();
+        await handleStopSlidePractice();
         return;
       }
       if (
@@ -1539,8 +1567,8 @@ export function EditorShell(props: { projectId?: string }) {
               <EditorSlideRehearsalBottomPanel
                 elapsedMs={slidePracticeSession.elapsedMs}
                 message={slidePracticeSession.message}
-                onStart={() => void slidePracticeSession.start()}
-                onStop={() => void slidePracticeSession.stop()}
+                onStart={() => void handleStartSlidePractice()}
+                onStop={() => void handleStopSlidePractice()}
                 practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}

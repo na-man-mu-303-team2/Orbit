@@ -614,3 +614,15 @@
 - Rationale: 최신 에디터 레이아웃을 유지하면서 이미 검증된 서버 분석과 DB 리포트를 단일 오디오 경로로 재사용한다. 별도 live STT를 함께 실행하지 않아 마이크 중복 점유와 브라우저 파생 지표의 재도입을 피하고, 생성 결과를 사용자가 찾는 QnA·리포트 탭에 일관되게 배치한다.
 - Affected files: `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesPanel.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesQnaTab.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesReportTab.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`.
 - Follow-up review notes: 로컬 Chrome에서 마이크 진입 전 권한 요청이 발생하지 않는지, `연습 시작` 한 번에 하나의 MediaStream만 생성되는지, 종료 후 서버 분석 지연 동안 버튼이 중복 실행되지 않는지, 완료 뒤 현재 슬라이드의 최신 DB 기록이 리포트 탭에 표시되는지 확인한다. 운영 로그에는 raw audio, transcript, 발표 메모 원문을 추가하지 않는다.
+
+## ORBIT editor rehearsal shared-stream script tracking
+
+- Context: 서버 저장형 한 장 연습만 실행하면 DB 리포트는 생성되지만, 최신 리허설 UI의 대본 진행률·문장 자동 이동·프롬프터 자동 스크롤은 live transcript가 없어 항상 첫 문장에 머물렀다. 별도 `getUserMedia`를 다시 호출하면 하나의 연습에서 마이크 입력을 중복 획득하고 종료 시점이 달라질 수 있다.
+- Options considered:
+  - 서버 분석이 끝난 뒤 최종 transcript로만 대본 진행을 표시한다.
+  - 서버 녹음과 live STT가 각각 별도 `MediaStream`을 획득한다.
+  - 서버 녹음이 획득한 하나의 `MediaStream`을 live STT에도 전달하고, 종료 시 live STT를 먼저 마무리한 뒤 같은 stream의 `MediaRecorder`를 종료한다.
+- Final decision: `연습 시작`은 `useSlidePracticeSession`이 획득한 단일 `MediaStream`으로 private server-report 녹음을 시작하고 같은 stream을 `useEditorSlideRehearsal`의 live STT 입력으로 공유한다. live STT transcript는 브라우저 메모리에서 대본 문장 진행·체크포인트에만 사용하고 API, Job, DB, 로그에 추가하지 않는다. 사용자가 종료하면 live STT의 마지막 final/interim을 먼저 확정한 뒤 녹음을 닫고 기존 서버 분석·DB 저장을 수행한다. 자동 따라가기를 끄면 이전·다음 버튼이 로컬 UI 상태만 변경하며, 서버 리포트 값에는 영향을 주지 않는다.
+- Rationale: 한 번의 마이크 권한과 동일한 오디오 입력으로 실시간 프롬프터와 기존 서버 리포트를 함께 제공한다. 서버의 말 속도·쉼·pitch·음량·습관어 분석 및 저장 계약은 그대로 유지하고, live transcript의 보존 범위를 넓히지 않는다.
+- Affected files: `apps/web/src/features/coaching/useFocusedPracticeAudio.ts`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`, `docs/decision-log.md`.
+- Follow-up review notes: 로컬 Chrome에서 `연습 시작` 한 번에 `getUserMedia`가 한 번만 호출되는지, 확정 문장마다 진행률과 중앙 스크롤이 이동하는지, 수동 이전·다음과 자동 복귀가 동작하는지, 종료 직전 발화가 누락되지 않는지, 완료 뒤 리포트 탭의 최신 DB 기록이 표시되는지 확인한다. live transcript, raw audio, 발표 메모 원문은 운영 로그에 남기지 않는다.

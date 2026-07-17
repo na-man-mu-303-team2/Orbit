@@ -6,7 +6,7 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -45,6 +45,52 @@ export function EditorSlideRehearsalBottomPanel(
       }),
     [props.slide, props.state.finalTranscript, props.state.interimTranscript]
   );
+  const [followMode, setFollowMode] = useState<"auto" | "manual">("auto");
+  const [manualCompletedCount, setManualCompletedCount] = useState(0);
+  const automaticCompletedCount = scriptProgress.rows.filter(
+    (row) => row.status === "covered"
+  ).length;
+  const visibleProgress =
+    followMode === "auto"
+      ? scriptProgress
+      : createManualScriptProgress(
+          scriptProgress.rows,
+          manualCompletedCount
+        );
+
+  useEffect(() => {
+    setFollowMode("auto");
+    setManualCompletedCount(0);
+  }, [props.slide.slideId]);
+
+  useEffect(() => {
+    if (props.practiceState !== "starting") return;
+    setFollowMode("auto");
+    setManualCompletedCount(0);
+  }, [props.practiceState]);
+
+  function moveManually(offset: -1 | 1) {
+    const currentCount =
+      followMode === "auto"
+        ? automaticCompletedCount
+        : manualCompletedCount;
+    setFollowMode("manual");
+    setManualCompletedCount(
+      Math.min(
+        scriptProgress.rows.length,
+        Math.max(0, currentCount + offset)
+      )
+    );
+  }
+
+  function toggleFollowMode() {
+    if (followMode === "auto") {
+      setManualCompletedCount(automaticCompletedCount);
+      setFollowMode("manual");
+      return;
+    }
+    setFollowMode("auto");
+  }
 
   return (
     <section
@@ -60,7 +106,7 @@ export function EditorSlideRehearsalBottomPanel(
           <strong>음성 인식</strong>
           <span>{getRehearsalStatusLabel(props.practiceState)}</span>
           <span className="editor-slide-rehearsal-script-progress">
-            대본 {scriptProgress.progressPercent}%
+            대본 {visibleProgress.progressPercent}%
           </span>
           {props.message ? (
             <span
@@ -106,11 +152,92 @@ export function EditorSlideRehearsalBottomPanel(
       </header>
       <RehearsalScriptTeleprompter
         focusScopeId={props.slide.slideId}
-        progressPercent={scriptProgress.progressPercent}
-        rows={scriptProgress.rows}
-      />
+        progressPercent={visibleProgress.progressPercent}
+        rows={visibleProgress.rows}
+      >
+        <div
+          className="editor-slide-rehearsal-script-controls"
+          data-follow-mode={followMode}
+        >
+          <button
+            aria-label="이전 대본 문장"
+            disabled={
+              (followMode === "auto"
+                ? automaticCompletedCount
+                : manualCompletedCount) === 0
+            }
+            type="button"
+            onClick={() => moveManually(-1)}
+          >
+            ←
+          </button>
+          <button
+            aria-label={
+              followMode === "auto"
+                ? "자동 따라가기 끄기"
+                : "자동 따라가기 켜기"
+            }
+            aria-pressed={followMode === "auto"}
+            className="editor-slide-rehearsal-follow-toggle"
+            type="button"
+            onClick={toggleFollowMode}
+          >
+            {followMode === "auto" ? "자동 따라가기" : "수동 이동"}
+          </button>
+          <button
+            aria-label="다음 대본 문장"
+            disabled={
+              (followMode === "auto"
+                ? automaticCompletedCount
+                : manualCompletedCount) >= scriptProgress.rows.length
+            }
+            type="button"
+            onClick={() => moveManually(1)}
+          >
+            →
+          </button>
+        </div>
+      </RehearsalScriptTeleprompter>
     </section>
   );
+}
+
+export function createManualScriptProgress(
+  rows: readonly RehearsalScriptTeleprompterRow[],
+  completedCount: number
+): {
+  focusSentenceId: string | null;
+  progressPercent: number;
+  rows: RehearsalScriptTeleprompterRow[];
+} {
+  if (rows.length === 0) {
+    return { focusSentenceId: null, progressPercent: 0, rows: [] };
+  }
+  const boundedCompletedCount = Math.min(
+    rows.length,
+    Math.max(0, completedCount)
+  );
+  const focusIndex =
+    boundedCompletedCount < rows.length ? boundedCompletedCount : -1;
+
+  return {
+    focusSentenceId: rows[focusIndex]?.id ?? null,
+    progressPercent: Math.round(
+      (boundedCompletedCount / rows.length) * 100
+    ),
+    rows: rows.map((row, index) => ({
+      ...row,
+      isFocusTarget: index === focusIndex,
+      status:
+        index < boundedCompletedCount
+          ? "covered"
+          : index === focusIndex
+            ? "current"
+            : index === focusIndex + 1
+              ? "next"
+              : "pending"
+    }))
+  };
 }
 
 export function createEditorSlideRehearsalScriptProgress(input: {

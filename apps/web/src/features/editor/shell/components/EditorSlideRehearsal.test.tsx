@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
 import {
   createEditorSlideRehearsalScriptProgress,
+  createManualScriptProgress,
   EditorSlideRehearsalBottomPanel,
   EditorSlideRehearsalLeftPanel,
   EditorSlideRehearsalRightPanel,
@@ -46,6 +47,9 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain('aria-label="발표 대본 프롬프터"');
     expect(html).toContain("rehearsal-teleprompter-current");
     expect(html).toContain('data-auto-scroll="true"');
+    expect(html).toContain('aria-label="자동 따라가기 끄기"');
+    expect(html).toContain('aria-label="이전 대본 문장"');
+    expect(html).toContain('aria-label="다음 대본 문장"');
   });
 
   it("중지된 연습을 다시 시작하는 동작을 표시한다", () => {
@@ -149,5 +153,63 @@ describe("EditorSlideRehearsal", () => {
       "current"
     ]);
     expect(progress.focusSentenceId).toBe("sentence_2");
+  });
+
+  it("수동 이동은 완료 문장 수에 맞춰 대본 상태와 진행률을 만든다", () => {
+    const progress = createManualScriptProgress(
+      [
+        {
+          id: "sentence_1",
+          isFocusTarget: true,
+          status: "current",
+          text: "첫 번째 문장"
+        },
+        {
+          id: "sentence_2",
+          isFocusTarget: false,
+          status: "next",
+          text: "두 번째 문장"
+        },
+        {
+          id: "sentence_3",
+          isFocusTarget: false,
+          status: "pending",
+          text: "세 번째 문장"
+        }
+      ],
+      1
+    );
+
+    expect(progress.progressPercent).toBe(33);
+    expect(progress.focusSentenceId).toBe("sentence_2");
+    expect(progress.rows.map((row) => row.status)).toEqual([
+      "covered",
+      "current",
+      "next"
+    ]);
+  });
+
+  it("수동 이동이 마지막 문장을 지나면 100%로 제한한다", () => {
+    const progress = createManualScriptProgress(
+      [
+        {
+          id: "sentence_1",
+          isFocusTarget: true,
+          status: "current",
+          text: "첫 번째 문장"
+        },
+        {
+          id: "sentence_2",
+          isFocusTarget: false,
+          status: "next",
+          text: "두 번째 문장"
+        }
+      ],
+      99
+    );
+
+    expect(progress.progressPercent).toBe(100);
+    expect(progress.focusSentenceId).toBeNull();
+    expect(progress.rows.every((row) => row.status === "covered")).toBe(true);
   });
 });

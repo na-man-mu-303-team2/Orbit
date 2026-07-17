@@ -89,15 +89,15 @@ export function useSlidePracticeSession(input: {
     startedAt: string;
   } | null>(null);
 
-  async function start() {
-    if (!input.slideId || state === "starting" || state === "recording") return;
+  async function start(): Promise<MediaStream | null> {
+    if (!input.slideId || state === "starting" || state === "recording") return null;
     setState("starting");
     setMessage("");
     setReport(null);
     try {
       await input.beforeStart?.();
       deviceIdHashRef.current = await getStableDeviceIdHash().catch(() => null);
-      await audio.start();
+      const stream = await audio.start();
       const startedAt = Date.now();
       startedAtRef.current = startedAt;
       sessionSnapshotRef.current = {
@@ -111,10 +111,12 @@ export function useSlidePracticeSession(input: {
       timerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
       setElapsedMs(0);
       setState("recording");
+      return stream;
     } catch (error) {
       clearTimer();
       setState("error");
       setMessage(error instanceof Error ? error.message : "마이크를 시작하지 못했습니다.");
+      return null;
     }
   }
 

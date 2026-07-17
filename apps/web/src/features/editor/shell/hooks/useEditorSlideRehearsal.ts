@@ -31,6 +31,10 @@ export type EditorSlideRehearsalState = {
   status: EditorSlideRehearsalStatus;
 };
 
+export type EditorSlideRehearsalStartOptions = {
+  audioSource?: MediaStream;
+};
+
 const initialState: EditorSlideRehearsalState = {
   activeSlideId: null,
   audioLevelPercent: 0,
@@ -54,27 +58,41 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   const [state, setState] = useState<EditorSlideRehearsalState>(initialState);
   const portRef = useRef<LiveSttPort | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const ownsStreamRef = useRef(false);
   const unsubscribeRef = useRef<Array<() => void>>([]);
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
   const activeSlideRef = useRef<Slide | null>(null);
 
-  const releaseResources = useCallback(async () => {
+  const releaseResources = useCallback(async (flushFinalResults = false) => {
     const port = portRef.current;
     const stream = streamRef.current;
+    const ownsStream = ownsStreamRef.current;
+    const unsubscribers = unsubscribeRef.current.splice(0);
     portRef.current = null;
     streamRef.current = null;
-    unsubscribeRef.current.splice(0).forEach((unsubscribe) => unsubscribe());
+    ownsStreamRef.current = false;
+
+    if (!flushFinalResults) {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    }
 
     if (port) {
       await port.stop().catch(() => undefined);
+      if (flushFinalResults) {
+        unsubscribers.forEach((unsubscribe) => unsubscribe());
+      }
       await Promise.resolve(port.dispose()).catch(() => undefined);
+    } else if (flushFinalResults) {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     }
-    stream?.getTracks().forEach((track) => track.stop());
+    if (ownsStream) {
+      stream?.getTracks().forEach((track) => track.stop());
+    }
   }, []);
 
   const start = useCallback(
-    async (slide: Slide) => {
+    async (slide: Slide, options: EditorSlideRehearsalStartOptions = {}) => {
       const sessionId = sessionRef.current + 1;
       sessionRef.current = sessionId;
       await releaseResources();
@@ -89,19 +107,24 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       });
 
       try {
-        if (!navigator.mediaDevices?.getUserMedia) {
+        if (!options.audioSource && !navigator.mediaDevices?.getUserMedia) {
           throw new Error("이 브라우저에서는 마이크 입력을 사용할 수 없습니다.");
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: microphoneAudioConstraints,
-          video: false
-        });
+        const stream =
+          options.audioSource ??
+          (await navigator.mediaDevices.getUserMedia({
+            audio: microphoneAudioConstraints,
+            video: false
+          }));
         if (sessionRef.current !== sessionId) {
-          stream.getTracks().forEach((track) => track.stop());
+          if (!options.audioSource) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
           return;
         }
         streamRef.current = stream;
+        ownsStreamRef.current = !options.audioSource;
 
         const runtimeConfig = await fetchLiveSttRuntimeConfig();
         if (sessionRef.current !== sessionId) return;
@@ -197,11 +220,17 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   );
 
   const stop = useCallback(async () => {
+    const sessionId = sessionRef.current;
+    await releaseResources(true);
+    if (sessionRef.current !== sessionId) return;
     sessionRef.current += 1;
-    await releaseResources();
     setState((current) => ({
       ...current,
       audioLevelPercent: 0,
+      finalTranscript: appendTranscript(
+        current.finalTranscript,
+        current.interimTranscript
+      ),
       interimTranscript: "",
       status: current.activeSlideId ? "stopped" : "idle"
     }));
