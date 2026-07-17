@@ -34,7 +34,7 @@ describe("projectActivityDeckForStaticExport", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it("exports aggregate and approved text only from a selected live session", async () => {
+  it("exports distinct summary, chart, and approved-text layouts", async () => {
     const deck = activityDeck();
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("FROM activity_runs")) {
@@ -94,17 +94,45 @@ describe("projectActivityDeckForStaticExport", () => {
       return [];
     });
 
-    const projected = await projectActivityDeckForStaticExport(
+    const summary = await projectActivityDeckForStaticExport(
       { query } as unknown as DataSource,
       deck.projectId,
       deck,
       "session_1",
     );
-    const serialized = JSON.stringify(projected);
+    const summarySerialized = JSON.stringify(summary);
 
-    expect(serialized).toContain("4.0 / 5");
-    expect(serialized).toContain("승인된 의견입니다.");
-    expect(serialized).not.toMatch(
+    expect(summarySerialized).toContain("4.0 / 5");
+    expect(summarySerialized).not.toContain("승인된 의견입니다.");
+    expect(summarySerialized).not.toMatch(
+      /RAW_RESPONSE_SENTINEL|PENDING_TEXT|PRIVATE_NAME/,
+    );
+    const resultSlide = deck.slides.find((slide) => slide.kind === "activity-results");
+    if (!resultSlide || resultSlide.kind !== "activity-results") {
+      throw new Error("activity result fixture");
+    }
+    resultSlide.activityResult.layout = "chart";
+    const chart = await projectActivityDeckForStaticExport(
+      { query } as unknown as DataSource,
+      deck.projectId,
+      deck,
+      "session_1",
+    );
+    const chartSerialized = JSON.stringify(chart);
+    expect(chartSerialized).toContain('"type":"rect"');
+    expect(chartSerialized).not.toContain("승인된 의견입니다.");
+
+    resultSlide.activityResult.layout = "approved-text";
+    const approvedText = await projectActivityDeckForStaticExport(
+      { query } as unknown as DataSource,
+      deck.projectId,
+      deck,
+      "session_1",
+    );
+    const approvedSerialized = JSON.stringify(approvedText);
+    expect(approvedSerialized).toContain("승인된 의견입니다.");
+    expect(approvedSerialized).not.toContain("4.0 / 5");
+    expect(approvedSerialized).not.toMatch(
       /RAW_RESPONSE_SENTINEL|PENDING_TEXT|PRIVATE_NAME/,
     );
     expect(query).toHaveBeenCalledWith(
@@ -261,6 +289,50 @@ describe("projectActivityDeckForStaticExport", () => {
 
     expect(JSON.stringify(projected)).toContain("7명 응답");
     expect(JSON.stringify(projected)).toContain("4.5 / 5");
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains expired raw text in an approved-text retention export", async () => {
+    const deck = activityDeck();
+    const resultSlide = deck.slides.find((slide) => slide.kind === "activity-results");
+    if (!resultSlide || resultSlide.kind !== "activity-results") {
+      throw new Error("activity result fixture");
+    }
+    resultSlide.activityResult.layout = "approved-text";
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("FROM activity_runs")
+        ? [{
+            activity_run_id: "activity_run_1",
+            activity_id: "activity_1",
+            definition_snapshot: activityDefinition(),
+            status: "results",
+            revision: 4,
+            response_count: 7,
+            participant_count: 10,
+            raw_responses_deleted_at: "2026-10-15T00:00:00.000Z",
+            aggregate_json: {
+              activityRunId: "activity_run_1",
+              activityId: "activity_1",
+              status: "results",
+              revision: 4,
+              responseCount: 7,
+              participantCount: 10,
+              responseRate: 70,
+              aggregates: [],
+              textEntries: [],
+            },
+          }]
+        : [],
+    );
+
+    const projected = await projectActivityDeckForStaticExport(
+      { query } as unknown as DataSource,
+      deck.projectId,
+      deck,
+      "session_1",
+    );
+
+    expect(JSON.stringify(projected)).toContain("원문 보존 기간이 종료");
     expect(query).toHaveBeenCalledTimes(1);
   });
 

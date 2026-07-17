@@ -1,4 +1,4 @@
-name: Deploy Personal Staging
+name: Personal Staging deploy
 
 on:
   workflow_dispatch:

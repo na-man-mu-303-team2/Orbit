@@ -192,7 +192,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             }),
         )
           .then((result) => {
-            if (result.scanned === 0) return;
+            if (result.scanned === 0 && result.normalizedExpired === 0) return;
             this.logger.info(
               { event: "activity_retention.dispatched", ...result },
               "Activity response retention jobs dispatched.",

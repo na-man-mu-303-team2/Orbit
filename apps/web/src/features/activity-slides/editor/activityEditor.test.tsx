@@ -12,7 +12,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ActivitySlideInspector,
   convertQuestionType,
-  moveQuestion
+  moveQuestion,
+  removeQuestionOption
 } from "./ActivitySlideInspector";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivitySlidePreview } from "./ActivitySlidePreview";
@@ -185,6 +186,31 @@ describe("activity slide editor", () => {
       slide.activity.questions[1]!.questionId,
       slide.activity.questions[0]!.questionId
     ]);
+  });
+
+  it("clamps maxSelections when deleting a multiple-choice option", () => {
+    const source = slide.activity.questions[0]!;
+    const converted = convertQuestionType(slide.activity, source, "multiple-choice");
+    if (converted.type !== "multiple-choice") throw new Error("multiple-choice fixture");
+    const withThreeOptions = {
+      ...converted,
+      options: [
+        ...converted.options,
+        { optionId: "option_extra", label: "추가 선택" }
+      ],
+      maxSelections: 3
+    };
+
+    const next = removeQuestionOption(withThreeOptions, "option_extra");
+
+    expect(next).toMatchObject({ maxSelections: 2 });
+    expect(deckSchema.safeParse({
+      ...createDemoDeck(),
+      slides: [{
+        ...slide,
+        activity: { ...slide.activity, questions: [next] }
+      }]
+    }).success).toBe(true);
   });
 
   it.each(["pre-question", "poll", "satisfaction"] as const)(

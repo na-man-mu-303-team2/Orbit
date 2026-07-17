@@ -155,7 +155,7 @@ export function ActivityAudienceSlideRenderer(props: {
   );
 }
 
-function ActivityPublicResults(props: {
+export function ActivityPublicResults(props: {
   activity: ActivityDefinition;
   result: ActivityPublicResult;
 }) {

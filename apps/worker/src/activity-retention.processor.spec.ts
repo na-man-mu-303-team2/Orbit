@@ -37,13 +37,15 @@ describe("processActivityResponseRetentionJob", () => {
       String(sql).includes("INSERT INTO activity_result_snapshots"),
     );
     const serialized = JSON.stringify(snapshotCall?.[1]?.[4]);
-    expect(serialized).toContain("APPROVED_TEXT");
+    expect(serialized).not.toContain("APPROVED_TEXT");
     expect(serialized).not.toContain("RAW_RESPONSE_SENTINEL");
     expect(serialized).not.toContain("PRIVATE_NAME_SENTINEL");
     expect(snapshotCall?.[1]?.[4]).toMatchObject({
       participantCount: 2,
       responseRate: 50,
+      textEntries: [],
     });
+    expect(statements.some((sql) => sql.includes("FROM activity_text_entries"))).toBe(false);
   });
 
   it("rolls back before raw deletion and succeeds on retry", async () => {

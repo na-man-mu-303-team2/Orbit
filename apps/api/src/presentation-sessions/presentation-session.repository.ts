@@ -106,18 +106,34 @@ export class PresentationSessionRepository {
     );
   }
 
-  async findAccessibleBySessionId(sessionId: string): Promise<PresentationSessionRow | null> {
+  async findAccessibleBySessionId(
+    sessionId: string,
+    now = new Date()
+  ): Promise<PresentationSessionRow | null> {
     const rows = await this.dataSource.query<PresentationSessionRow[]>(
       `
+        WITH activated AS (
+          UPDATE presentation_sessions
+          SET status = 'live',
+              started_at = COALESCE(started_at, starts_at),
+              updated_at = $2
+          WHERE session_id = $1
+            AND status = 'draft'
+            AND starts_at <= $2
+            AND expires_at > $2
+          RETURNING ${sessionColumns}
+        )
+        SELECT * FROM activated
+        UNION ALL
         SELECT ${sessionColumns}
         FROM presentation_sessions
         WHERE session_id = $1
           AND status = 'live'
-          AND starts_at <= now()
-          AND expires_at > now()
+          AND starts_at <= $2
+          AND expires_at > $2
         LIMIT 1
       `,
-      [sessionId]
+      [sessionId, now]
     );
     return rows[0] ?? null;
   }
@@ -238,9 +254,12 @@ export class PresentationSessionRepository {
         INSERT INTO presentation_sessions (
           session_id, session_password_hash, project_id, status, created_at, expires_at,
           deck_id, deck_version, presenter_user_id, created_by, access_mode,
-          starts_at, updated_at, started_at
+          starts_at, updated_at, started_at, raw_responses_delete_after
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $5, $12)
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $11, $5, $12,
+          $6::timestamptz + interval '90 days'
+        )
         RETURNING ${sessionColumns}
       `,
       [
@@ -279,6 +298,7 @@ export class PresentationSessionRepository {
         UPDATE presentation_sessions
         SET status = $3, access_mode = $4, session_password_hash = $5,
             starts_at = $6, expires_at = $7, updated_at = $8,
+            raw_responses_delete_after = $7::timestamptz + interval '90 days',
             started_at = CASE WHEN $3 = 'live' THEN COALESCE(started_at, $8) ELSE NULL END
         WHERE project_id = $1 AND session_id = $2 AND status IN ('draft', 'live')
         RETURNING ${sessionColumns}

@@ -123,6 +123,38 @@ describe("ActivityResultSlideRenderer", () => {
     expect(html).toContain("pending");
   });
 
+  it("renders distinct summary and chart layouts", () => {
+    const summary = renderToStaticMarkup(
+      <ActivityResultSlideRenderer
+        presenterResult={presenterResult}
+        publicResult={null}
+        role="presenter"
+        run={run}
+        slide={resultSlide}
+        source={source}
+      />
+    );
+    const chart = renderToStaticMarkup(
+      <ActivityResultSlideRenderer
+        presenterResult={presenterResult}
+        publicResult={null}
+        role="presenter"
+        run={run}
+        slide={{
+          ...resultSlide,
+          activityResult: { ...resultSlide.activityResult, layout: "chart" }
+        }}
+        source={source}
+      />
+    );
+
+    expect(summary).toContain('data-result-layout="summary"');
+    expect(summary).toContain("결과 요약");
+    expect(chart).toContain('data-result-layout="chart"');
+    expect(chart).toContain("집계 차트");
+    expect(chart).toContain("activity-result-chart-track");
+  });
+
   it("renders approved audience text as escaped plain text", () => {
     const maliciousText = '<img src=x onerror="alert(1)">';
     const html = renderToStaticMarkup(

@@ -65,7 +65,12 @@ function item(
 ): ActivitySessionResultItem {
   return {
     availability,
-    result: availability === "raw-retained" ? result : null,
+    result:
+      availability === "results-deleted"
+        ? null
+        : availability === "aggregate-only"
+          ? { ...result, textEntries: [] }
+          : result,
     run
   };
 }
@@ -86,7 +91,11 @@ describe("ActivityResultsPage detail states", () => {
       <ActivityResultArchiveDetail item={item("aggregate-only")} />
     );
     expect(html).toContain("집계 전용 결과입니다");
+    expect(html).toContain("응답률");
+    expect(html).toContain("50%");
+    expect(html).toContain("<strong>1</strong>개 의견");
     expect(html).not.toContain("보존 중인 질문");
+    expect(html).not.toContain("주관식 응답 관리");
   });
 
   it("renders the irreversible deleted state", () => {

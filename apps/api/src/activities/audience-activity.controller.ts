@@ -8,6 +8,7 @@ import {
   requireAudienceIdentity,
   type SignedCookieRequest
 } from "../presentation-sessions/audience-request-security";
+import { PresentationSessionsService } from "../presentation-sessions/presentation-sessions.service";
 import { ActivityResponsesService } from "./activity-responses.service";
 import { ActivityResultsService } from "./activity-results.service";
 
@@ -17,16 +18,21 @@ export class AudienceActivityController {
 
   constructor(
     private readonly activityResponsesService: ActivityResponsesService,
-    private readonly activityResultsService: ActivityResultsService
+    private readonly activityResultsService: ActivityResultsService,
+    private readonly presentationSessionsService: PresentationSessionsService
   ) {}
 
   @Get(":activityId")
-  getActivity(
+  async getActivity(
     @Param("sessionId") sessionId: string,
     @Param("activityId") activityId: string,
     @Req() request: SignedCookieRequest
   ) {
     const identity = requireAudienceIdentity(this.config, request, sessionId);
+    await this.presentationSessionsService.getAudienceAccess(
+      sessionId,
+      identity.projectId
+    );
     return this.activityResultsService.getAudienceActivity(
       identity.projectId,
       sessionId,
@@ -44,6 +50,10 @@ export class AudienceActivityController {
   ) {
     assertAudienceJsonSameOrigin(this.config, request);
     const identity = requireAudienceIdentity(this.config, request, sessionId);
+    await this.presentationSessionsService.getAudienceAccess(
+      sessionId,
+      identity.projectId
+    );
     const input = parseRequest(upsertActivityResponseRequestSchema, body ?? {});
     return this.activityResponsesService.upsert(
       identity.projectId,

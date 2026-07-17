@@ -6,6 +6,10 @@ type DueSessionRow = {
   session_id: string;
 };
 
+type ExpiredSessionRow = DueSessionRow & {
+  expires_at: Date | string;
+};
+
 export type ActivityRetentionEnqueue = (
   payload: ActivityResponseRetentionJobPayload,
 ) => Promise<void>;
@@ -15,8 +19,59 @@ export async function dispatchDueActivityRetentionJobs(
   enqueue: ActivityRetentionEnqueue,
   now = new Date(),
   batchSize = 100,
-): Promise<{ scanned: number; dispatched: number; failed: number }> {
-  const payloads = await dataSource.transaction(async (manager) => {
+): Promise<{
+  scanned: number;
+  dispatched: number;
+  failed: number;
+  normalizedExpired: number;
+}> {
+  const { normalizedExpired, payloads } = await dataSource.transaction(async (manager) => {
+    const expiredSessions = readQueryRows<ExpiredSessionRow>(
+      await manager.query(
+        `
+          WITH expired_sessions AS (
+            SELECT project_id, session_id
+            FROM presentation_sessions
+            WHERE status IN ('draft', 'live')
+              AND expires_at <= $1
+            ORDER BY expires_at ASC
+            LIMIT $2
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE presentation_sessions AS sessions
+          SET status = 'ended', active_activity_run_id = NULL,
+              ended_at = COALESCE(sessions.ended_at, sessions.expires_at),
+              closed_at = COALESCE(sessions.closed_at, sessions.expires_at),
+              raw_responses_delete_after = COALESCE(
+                sessions.raw_responses_delete_after,
+                sessions.expires_at + interval '90 days'
+              ),
+              updated_at = $1
+          FROM expired_sessions
+          WHERE sessions.project_id = expired_sessions.project_id
+            AND sessions.session_id = expired_sessions.session_id
+          RETURNING sessions.project_id, sessions.session_id, sessions.expires_at
+        `,
+        [now, Math.max(1, batchSize)],
+      ),
+    );
+    if (expiredSessions.length > 0) {
+      await manager.query(
+        `
+          UPDATE activity_runs AS runs
+          SET status = 'closed',
+              closed_at = COALESCE(runs.closed_at, sessions.expires_at),
+              revision = runs.revision + 1,
+              updated_at = $2
+          FROM presentation_sessions AS sessions
+          WHERE runs.project_id = sessions.project_id
+            AND runs.session_id = sessions.session_id
+            AND runs.status = 'open'
+            AND runs.session_id = ANY($1::text[])
+        `,
+        [expiredSessions.map((session) => session.session_id), now],
+      );
+    }
     const sessions = readQueryRows<DueSessionRow>(
       await manager.query(
         `
@@ -42,7 +97,7 @@ export async function dispatchDueActivityRetentionJobs(
       await upsertRetentionJob(manager, payload, now);
       queued.push(payload);
     }
-    return queued;
+    return { normalizedExpired: expiredSessions.length, payloads: queued };
   });
 
   let dispatched = 0;
@@ -76,7 +131,7 @@ export async function dispatchDueActivityRetentionJobs(
       );
     }
   }
-  return { scanned: payloads.length, dispatched, failed };
+  return { scanned: payloads.length, dispatched, failed, normalizedExpired };
 }
 
 export function retentionJobId(sessionId: string): string {

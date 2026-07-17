@@ -275,14 +275,6 @@ export function ActivityResultArchiveDetail(props: {
       />
     );
   }
-  if (item.availability === "aggregate-only") {
-    return (
-      <OrbitEmptyState
-        description="원본 응답 보존 기간이 끝나 개인정보는 삭제되었고 집계만 보존됩니다."
-        title="집계 전용 결과입니다."
-      />
-    );
-  }
   if (!item.result) {
     return (
       <OrbitEmptyState
@@ -294,6 +286,12 @@ export function ActivityResultArchiveDetail(props: {
 
   return (
     <article className="activity-results-detail-content">
+      {item.availability === "aggregate-only" ? (
+        <section className="activity-results-retention-notice" role="status">
+          <strong>집계 전용 결과입니다.</strong>
+          <p>원본 응답 보존 기간이 끝나 개인정보는 삭제되었고 수치 집계만 보존됩니다.</p>
+        </section>
+      ) : null}
       <header>
         <span>{templateLabel(item.run.definitionSnapshot.template)}</span>
         <h2>{item.run.definitionSnapshot.title}</h2>
@@ -331,7 +329,7 @@ export function ActivityResultArchiveDetail(props: {
           );
         })}
       </section>
-      {item.result.textEntries.length > 0 ? (
+      {item.availability !== "aggregate-only" && item.result.textEntries.length > 0 ? (
         <section className="activity-results-text-list" aria-label="주관식 원문">
           <h3>주관식 응답</h3>
           <ul>
