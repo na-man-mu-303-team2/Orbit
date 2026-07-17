@@ -593,8 +593,14 @@ describe("processGenerateDeckJob", () => {
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
-        passed: true,
-        designIssues: []
+        passed: false,
+        designIssues: [1, 2, 3].map((order) =>
+          expect.objectContaining({
+            code: "BALANCE_WEAK",
+            path: `slides.${order - 1}`,
+            blocking: false,
+          }),
+        ),
       },
       diagnostics: {
         visualQaStatus: "advisory",
