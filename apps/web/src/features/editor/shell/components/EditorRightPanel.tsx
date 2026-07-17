@@ -63,6 +63,7 @@ type EditorRightPanelProps = {
   isAnimationPropertiesOpen: boolean;
   isPlayingAnimations: boolean;
   onAiChatStateChange: Dispatch<SetStateAction<AiChatState>>;
+  onActivePanelModeChange: (mode: EditorRightPanelMode) => void;
   onApplyAllValidationTextOverflow: () => void;
   onHighlightElementIds: (elementIds: string[]) => void;
   onExitRehearsal?: () => void;
@@ -77,6 +78,7 @@ type EditorRightPanelProps = {
     action: ValidationTextOverflowAction,
   ) => void;
   projectId: string;
+  propertiesOpenRequestId: number;
   pptxImportState: PptxImportState;
   rehearsalPanel?: ReactNode;
   rehearsalTitle?: string;
@@ -89,7 +91,7 @@ type EditorRightPanelProps = {
 };
 
 export function EditorRightPanel(props: EditorRightPanelProps) {
-  const hasElementSelection = props.selectedElementIds.length === 1;
+  const hasElementSelection = props.selectedElementIds.length > 0;
   const designPanelLabel = getDesignPanelLabel(props.currentSlide);
   const isSpecialSlide = designPanelLabel === "장표 설정";
   const [activePanelMode, setActivePanelMode] =
@@ -99,6 +101,18 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
         isIconPanelOpen: props.isIconPanelOpen,
       })
     );
+
+  useEffect(() => {
+    props.onActivePanelModeChange(activePanelMode);
+  }, [activePanelMode, props.onActivePanelModeChange]);
+
+  useEffect(() => {
+    if (props.propertiesOpenRequestId <= 0) return;
+    setActivePanelMode("properties");
+    props.setIsAnimationPropertiesOpen(false);
+    props.setIsIconPanelOpen(false);
+    props.setIsOpen(true);
+  }, [props.propertiesOpenRequestId]);
 
   useEffect(() => {
     if (props.isAnimationPropertiesOpen) {
@@ -168,6 +182,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   return (
     <aside
       className={`ai-pane ${props.isOpen ? "" : "collapsed"} ${props.rehearsalPanel ? "rehearsal-mode" : ""}`}
+      id="editor-selection-inspector-pane"
     >
       {props.isOpen && props.rehearsalPanel ? (
         <>
@@ -423,6 +438,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               aria-expanded={props.isOpen && activePanelMode === "properties"}
               aria-selected={props.isOpen && activePanelMode === "properties"}
               className={activePanelMode === "properties" ? "active" : ""}
+              id="editor-properties-panel-tab"
               role="tab"
               title="속성 패널 열기"
               type="button"
