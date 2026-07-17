@@ -224,6 +224,8 @@
   --redesign-size-header: 64px;
   --redesign-size-panel-rail: 48px;
   --redesign-layout-max-width: 1200px;
+  --redesign-layout-workspace-max-width: 2240px;
+  --redesign-layout-workspace-margin: clamp(24px, 3vw, 64px);
 
   /* Borders */
   --redesign-border-width: 1px;

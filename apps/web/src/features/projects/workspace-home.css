@@ -30,13 +30,10 @@
 }
 
 .workspace-home-main {
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: var(--redesign-space-6);
-  width: min(100%, 1200px);
-  margin: 0 auto;
-  padding: var(--redesign-space-12) var(--redesign-layout-margin)
+  padding-block: var(--redesign-space-12)
     calc(var(--redesign-space-12) * 1.5);
 }
 
@@ -540,8 +537,7 @@
 
 @media (max-width: 767px) {
   .workspace-home-main {
-    padding: var(--redesign-space-6) var(--redesign-space-4)
-      var(--redesign-space-12);
+    padding-block: var(--redesign-space-6) var(--redesign-space-12);
   }
 
   .workspace-home-state {

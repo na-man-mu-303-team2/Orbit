@@ -18,6 +18,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WorkspaceContainer } from "../../components/patterns";
 import {
   createProject,
   deleteProject,
@@ -386,77 +387,79 @@ export function AiPptMockupPage() {
 
   return (
     <section className="ai-ppt-page">
-      <header className="ai-ppt-header">
-        <div>
-          <span>AI PPT</span>
-          <h1>발표 내용부터 빠르게 시작하세요</h1>
-          <p>
-            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기 구성을
-            제안합니다.
-          </p>
+      <WorkspaceContainer className="ai-ppt-page-container">
+        <header className="ai-ppt-header">
+          <div>
+            <span>AI PPT</span>
+            <h1>발표 내용부터 빠르게 시작하세요</h1>
+            <p>
+              내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기 구성을
+              제안합니다.
+            </p>
+          </div>
+          <button
+            className="ai-ppt-primary"
+            type="button"
+            onClick={() => {
+              setForm(initialAiPptWizardState);
+              setReferenceFiles([]);
+              setError("");
+            }}
+          >
+            <IconSparkles size={17} />
+            처음부터 입력
+          </button>
+        </header>
+
+        <div className="ai-ppt-layout">
+          <WizardSteps activeIndex={0} />
+
+          <main className="ai-ppt-workspace ai-ppt-workspace-single">
+            <section className="ai-ppt-panel">
+              <ContentStep
+                files={referenceFiles}
+                form={form}
+                formRef={contentFormRef}
+                onChange={updateForm}
+                onFilesChange={setReferenceFiles}
+              />
+              {error ? (
+                <p className="ai-ppt-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              {status ? (
+                <p className="ai-ppt-status" role="status">
+                  {status}
+                </p>
+              ) : null}
+            </section>
+          </main>
         </div>
-        <button
-          className="ai-ppt-primary"
-          type="button"
-          onClick={() => {
-            setForm(initialAiPptWizardState);
-            setReferenceFiles([]);
-            setError("");
-          }}
-        >
-          <IconSparkles size={17} />
-          처음부터 입력
-        </button>
-      </header>
 
-      <div className="ai-ppt-layout">
-        <WizardSteps activeIndex={0} />
-
-        <main className="ai-ppt-workspace ai-ppt-workspace-single">
-          <section className="ai-ppt-panel">
-            <ContentStep
-              files={referenceFiles}
-              form={form}
-              formRef={contentFormRef}
-              onChange={updateForm}
-              onFilesChange={setReferenceFiles}
-            />
-            {error ? (
-              <p className="ai-ppt-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            {status ? (
-              <p className="ai-ppt-status" role="status">
-                {status}
-              </p>
-            ) : null}
-          </section>
-        </main>
-      </div>
-
-      <footer className="ai-ppt-footer">
-        <button className="ai-ppt-secondary" disabled type="button">
-          <IconChevronLeft size={17} />
-          이전
-        </button>
-        <button
-          className="ai-ppt-primary"
-          disabled={isGenerating}
-          type="button"
-          onClick={() => void submitGeneration()}
-        >
-          {isGenerating ? (
-            <>
-              <IconPlayerPlay size={17} /> 생성 중
-            </>
-          ) : (
-            <>
-              <IconPlayerPlay size={17} /> 스토리 만들기
-            </>
-          )}
-        </button>
-      </footer>
+        <footer className="ai-ppt-footer">
+          <button className="ai-ppt-secondary" disabled type="button">
+            <IconChevronLeft size={17} />
+            이전
+          </button>
+          <button
+            className="ai-ppt-primary"
+            disabled={isGenerating}
+            type="button"
+            onClick={() => void submitGeneration()}
+          >
+            {isGenerating ? (
+              <>
+                <IconPlayerPlay size={17} /> 생성 중
+              </>
+            ) : (
+              <>
+                <IconPlayerPlay size={17} /> 스토리 만들기
+              </>
+            )}
+          </button>
+        </footer>
+      </WorkspaceContainer>
     </section>
   );
 }
@@ -619,73 +622,77 @@ export function AiPptStyleColorPage(props: {
 
   return (
     <section className="ai-ppt-page">
-      <header className="ai-ppt-header">
-        <div>
-          <span>AI PPT</span>
-          <h1>스토리에 어울리는 스타일을 선택하세요</h1>
-          <p>컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.</p>
-        </div>
-      </header>
-      <div className="ai-ppt-layout">
-        <WizardSteps activeIndex={2} />
-        <main className="ai-ppt-workspace">
-          <section className="ai-ppt-panel">
-            <StyleColorStep
-              customPalette={customPalette}
-              fontOptions={fontOptions}
-              isCustomizing={isCustomizingPalette}
-              onCustomize={() => void customizePalette()}
-              onFontSelect={setSelectedFontId}
-              onPalettePromptChange={setPalettePrompt}
-              onSelectPalette={setSelectedPaletteId}
-              palettePrompt={palettePrompt}
-              selectedFontId={selectedFont?.fontId ?? ""}
-              selectedPaletteId={selectedPalette.optionId}
-            />
-            {error ? (
-              <p className="ai-ppt-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            {status ? (
-              <p className="ai-ppt-status" role="status">
-                {status}
-              </p>
-            ) : null}
-          </section>
-          <aside className="ai-ppt-live-preview">
-            {selectedFont ? (
-              <LivePreview
-                selectedFont={selectedFont}
-                selectedPalette={selectedPalette}
+      <WorkspaceContainer className="ai-ppt-page-container">
+        <header className="ai-ppt-header">
+          <div>
+            <span>AI PPT</span>
+            <h1>스토리에 어울리는 스타일을 선택하세요</h1>
+            <p>
+              컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.
+            </p>
+          </div>
+        </header>
+        <div className="ai-ppt-layout">
+          <WizardSteps activeIndex={2} />
+          <main className="ai-ppt-workspace">
+            <section className="ai-ppt-panel">
+              <StyleColorStep
+                customPalette={customPalette}
+                fontOptions={fontOptions}
+                isCustomizing={isCustomizingPalette}
+                onCustomize={() => void customizePalette()}
+                onFontSelect={setSelectedFontId}
+                onPalettePromptChange={setPalettePrompt}
+                onSelectPalette={setSelectedPaletteId}
+                palettePrompt={palettePrompt}
+                selectedFontId={selectedFont?.fontId ?? ""}
+                selectedPaletteId={selectedPalette.optionId}
               />
-            ) : null}
-          </aside>
-        </main>
-      </div>
-      <footer className="ai-ppt-footer">
-        <button
-          className="ai-ppt-secondary"
-          disabled={isGenerating}
-          type="button"
-          onClick={() =>
-            navigateToPath(storyPlanPath(props.projectId, props.jobId))
-          }
-        >
-          <IconChevronLeft size={17} /> 이전
-        </button>
-        <button
-          className="ai-ppt-primary"
-          disabled={
-            isGenerating || isCustomizingPalette || !story?.styleContext
-          }
-          type="button"
-          onClick={() => void approveAndGenerate()}
-        >
-          <IconPlayerPlay size={17} />
-          {isGenerating ? "생성 중" : "슬라이드 생성"}
-        </button>
-      </footer>
+              {error ? (
+                <p className="ai-ppt-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              {status ? (
+                <p className="ai-ppt-status" role="status">
+                  {status}
+                </p>
+              ) : null}
+            </section>
+            <aside className="ai-ppt-live-preview">
+              {selectedFont ? (
+                <LivePreview
+                  selectedFont={selectedFont}
+                  selectedPalette={selectedPalette}
+                />
+              ) : null}
+            </aside>
+          </main>
+        </div>
+        <footer className="ai-ppt-footer">
+          <button
+            className="ai-ppt-secondary"
+            disabled={isGenerating}
+            type="button"
+            onClick={() =>
+              navigateToPath(storyPlanPath(props.projectId, props.jobId))
+            }
+          >
+            <IconChevronLeft size={17} /> 이전
+          </button>
+          <button
+            className="ai-ppt-primary"
+            disabled={
+              isGenerating || isCustomizingPalette || !story?.styleContext
+            }
+            type="button"
+            onClick={() => void approveAndGenerate()}
+          >
+            <IconPlayerPlay size={17} />
+            {isGenerating ? "생성 중" : "슬라이드 생성"}
+          </button>
+        </footer>
+      </WorkspaceContainer>
     </section>
   );
 }

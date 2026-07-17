@@ -235,10 +235,6 @@
   gap: var(--redesign-space-6);
   grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
   height: 72px;
-  margin: 0 auto;
-  max-width: 1280px;
-  padding: 0 var(--redesign-space-6);
-  width: 100%;
 }
 
 .orbit-app-header button {

@@ -10,6 +10,7 @@ import {
   IconTrash
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { WorkspaceContainer } from "../../components/patterns";
 import { OrbitButton, OrbitEmptyState, OrbitIconButton, OrbitInput } from "../../components/ui";
 import "../../styles/tokens.css";
 import { createProject, deleteProject, fetchProjects } from "./ProjectAssetWorkspace";
@@ -43,7 +44,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
 
   return (
     <div className="workspace-home">
-      <section className="workspace-home-main">
+      <WorkspaceContainer as="section" className="workspace-home-main">
         <header className="workspace-home-head">
           <div>
             <p className="workspace-home-eyebrow">Workspace</p>
@@ -102,7 +103,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             })
           )}
         </div>
-      </section>
+      </WorkspaceContainer>
     </div>
   );
 }
@@ -150,7 +151,7 @@ export function OrbitProjectExplorer(props: ProjectHubProps & { intent?: "rehear
   }
 
   return (
-    <section className="orbit-project-hub orbit-project-explorer">
+    <WorkspaceContainer as="section" className="orbit-project-hub orbit-project-explorer">
       <header className="orbit-hub-heading compact">
         <div><p className="redesign-eyebrow">{props.intent === "rehearsal" ? "REHEARSAL" : "PROJECTS"}</p><h1>{props.intent === "rehearsal" ? "리허설할 프로젝트 선택" : "프로젝트"}</h1><p>{props.intent === "rehearsal" ? "연습할 발표자료를 선택하면 바로 마이크 점검으로 이어집니다." : "모든 발표자료를 찾고, 편집하고, 리허설을 시작하세요."}</p></div>
         {props.intent === "rehearsal" ? <OrbitButton onClick={() => props.onNavigate("/project")} variant="secondary">프로젝트 관리</OrbitButton> : <OrbitButton icon={<IconSparkles aria-hidden="true" size={19} />} onClick={() => props.onNavigate("/createdeck")}>AI 발표자료 만들기</OrbitButton>}
@@ -167,7 +168,7 @@ export function OrbitProjectExplorer(props: ProjectHubProps & { intent?: "rehear
           <ProjectTable deletingId={deletingId} intent={props.intent} onDelete={props.intent === "rehearsal" ? undefined : removeProject} onNavigate={props.onNavigate} projects={filteredProjects} />
         </ProjectState>
       </section>
-    </section>
+    </WorkspaceContainer>
   );
 }
 
