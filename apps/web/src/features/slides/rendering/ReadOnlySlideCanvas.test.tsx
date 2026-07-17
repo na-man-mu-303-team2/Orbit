@@ -47,19 +47,31 @@ vi.mock("react-konva", () => {
   );
   const Text = ({
     fill,
+    fontStyle,
     fontSize,
     rotation,
-    text
+    text,
+    textDecoration,
+    x,
+    y
   }: {
     fill?: string;
+    fontStyle?: string;
     fontSize?: number;
     rotation?: number;
     text?: string;
+    textDecoration?: string;
+    x?: number;
+    y?: number;
   }) => (
     <span
       data-fill={fill}
+      data-font-style={fontStyle}
       data-font-size={fontSize === undefined ? undefined : String(fontSize)}
       data-rotation={rotation === undefined ? undefined : String(rotation)}
+      data-text-decoration={textDecoration}
+      data-x={x === undefined ? undefined : String(x)}
+      data-y={y === undefined ? undefined : String(y)}
     >
       {text}
     </span>
@@ -214,14 +226,16 @@ describe("ReadOnlySlideCanvas", () => {
                 baseline: "normal" as const,
                 color: "#111827",
                 fontSize: 48,
-                fontWeight: "bold" as const
+                fontWeight: "bold" as const,
+                italic: true
               },
               {
                 text: "World",
                 baseline: "normal" as const,
                 color: "#2563eb",
                 fontSize: 36,
-                fontWeight: "normal" as const
+                fontWeight: "normal" as const,
+                underline: true
               }
             ],
             fontSize: 48,
@@ -242,8 +256,10 @@ describe("ReadOnlySlideCanvas", () => {
 
     expect(html).toContain("data-fill=\"#111827\"");
     expect(html).toContain("data-font-size=\"48\"");
+    expect(html).toContain("data-font-style=\"bold italic\"");
     expect(html).toContain("data-fill=\"#2563eb\"");
     expect(html).toContain("data-font-size=\"36\"");
+    expect(html).toContain("data-text-decoration=\"underline\"");
   });
 
   it("renders PPT text paragraphs from paragraph props", () => {
