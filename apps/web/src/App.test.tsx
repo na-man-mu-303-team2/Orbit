@@ -199,8 +199,8 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("AI PPT Wizard");
-      expect(html).toContain("Design Pack으로 시작하는 새 발표 생성");
+      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
       queryClient.clear();
@@ -221,6 +221,11 @@ describe("App shell routing", () => {
   it("matches Story Review before the generic project route", () => {
     expect(getRoute("/project/project_demo_1/story-plan/job-1")).toEqual({
       name: "story-plan-review",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+    expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
+      name: "story-style-color",
       projectId: "project_demo_1",
       jobId: "job-1",
     });

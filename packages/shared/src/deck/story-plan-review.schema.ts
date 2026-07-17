@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { generateDeckRepairReasonSchema } from "./generate-deck.schema";
+import { aiDeckToneSchema } from "./deck.schema";
+import {
+  generateDeckFontOverrideSchema,
+  generateDeckPaletteOverrideSchema,
+  generateDeckRepairReasonSchema,
+} from "./generate-deck.schema";
 import { jobSchema } from "../jobs/job.schema";
 
 export const storyPlanReviewStatusSchema = z.enum([
@@ -78,6 +83,13 @@ export const storyPlanReviewResponseSchema = z
     jobId: z.string().trim().min(1),
     projectId: z.string().trim().min(1),
     status: storyPlanReviewStatusSchema,
+    styleContext: z
+      .object({
+        topic: z.string().trim().min(1),
+        tone: aiDeckToneSchema,
+      })
+      .strict()
+      .nullable(),
     plan: storyPlanSchema.nullable(),
     error: storyPlanReviewErrorSchema.nullable(),
   })
@@ -91,7 +103,17 @@ export const storyPlanRegenerateRequestSchema = z
   .strict();
 
 export const storyPlanApproveRequestSchema = z
-  .object({ expectedRevision: z.number().int().min(1) })
+  .object({
+    expectedRevision: z.number().int().min(1),
+    designSelection: z
+      .object({
+        paletteOptionId: z.string().trim().min(1).max(80),
+        paletteOverride: generateDeckPaletteOverrideSchema.required(),
+        fontOverride: generateDeckFontOverrideSchema,
+      })
+      .strict()
+      .optional(),
+  })
   .strict();
 
 const storyPlanSlideOrderSchema = z

@@ -135,7 +135,28 @@ integration("StoryPlanReviewService PostgreSQL lifecycle", () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    await service.approve(projectId, jobId, { expectedRevision: 3 });
+    await service.approve(projectId, jobId, {
+      expectedRevision: 3,
+      designSelection: {
+        paletteOptionId: "warm-amber",
+        paletteOverride: {
+          primary: "#D97706",
+          secondary: "#92400E",
+          background: "#FFFBEB",
+          surface: "#FFFFFF",
+          muted: "#FEF3C7",
+          border: "#FDE68A",
+          text: "#1C1917",
+          accentColor: "#2563EB",
+        },
+        fontOverride: {
+          fontId: "pretendard",
+          name: "Pretendard",
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+        },
+      },
+    });
     await service.approve(projectId, jobId, { expectedRevision: 3 });
     const designRows = await dataSource.query(
       `SELECT count(*)::int AS count FROM ai_deck_generation_stages
@@ -143,6 +164,17 @@ integration("StoryPlanReviewService PostgreSQL lifecycle", () => {
       [jobId],
     );
     expect(designRows[0].count).toBe(1);
+    const [approvedArtifact] = await dataSource.query(
+      `SELECT payload_json FROM ai_deck_planning_artifacts
+       WHERE pipeline_job_id = $1 AND stage = 'content-planning'`,
+      [jobId],
+    );
+    expect(approvedArtifact.payload_json.rawInput).toMatchObject({
+      design: {
+        paletteOverride: { primary: "#D97706" },
+        fontOverride: { fontId: "pretendard" },
+      },
+    });
     await expect(
       service.approve(projectId, jobId, { expectedRevision: 4 }),
     ).rejects.toBeInstanceOf(ConflictException);
