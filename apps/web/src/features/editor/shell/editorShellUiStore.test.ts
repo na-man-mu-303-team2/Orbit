@@ -22,6 +22,7 @@ describe("editorShellUiStore", () => {
 
     expect(state.isDataViewOpen).toBe(false);
     expect(state.isAnimationPanelOpen).toBe(false);
+    expect(state.isCanvasSnappingEnabled).toBe(true);
     expect(state.isRightPanelOpen).toBe(true);
     expect(state.isSlidesPaneCollapsed).toBe(false);
     expect(state.slidesPaneWidth).toBe(defaultSlidesPaneWidth);
@@ -45,11 +46,13 @@ describe("editorShellUiStore", () => {
     const state = useEditorShellUiStore.getState();
 
     state.setIsDataViewOpen(true);
+    state.setIsCanvasSnappingEnabled((current) => !current);
     state.setShowIds((current) => !current);
     state.setSlidesPaneWidth((current) => current + 24);
     state.setActiveTopMenu("file");
 
     expect(useEditorShellUiStore.getState().isDataViewOpen).toBe(true);
+    expect(useEditorShellUiStore.getState().isCanvasSnappingEnabled).toBe(false);
     expect(useEditorShellUiStore.getState().showIds).toBe(true);
     expect(useEditorShellUiStore.getState().slidesPaneWidth).toBe(
       defaultSlidesPaneWidth + 24
@@ -107,6 +110,7 @@ describe("editorShellUiStore", () => {
     state.setIsExitConfirmOpen(true);
     state.setIsRightPanelOpen(false);
     state.setIsShapeMenuOpen(true);
+    state.setIsCanvasSnappingEnabled(false);
     state.setAnimationPanelFocusedAnimationId("anim_1");
     state.setCustomShapeEditElementId("el_2");
     state.setEditingElementId("el_1");
@@ -131,6 +135,7 @@ describe("editorShellUiStore", () => {
     expect(useEditorShellUiStore.getState().isAudienceLinkModalOpen).toBe(false);
     expect(useEditorShellUiStore.getState().isExitConfirmOpen).toBe(false);
     expect(useEditorShellUiStore.getState().isShapeMenuOpen).toBe(false);
+    expect(useEditorShellUiStore.getState().isCanvasSnappingEnabled).toBe(false);
     expect(useEditorShellUiStore.getState().animationPanelFocusedAnimationId).toBeNull();
     expect(useEditorShellUiStore.getState().customShapeEditElementId).toBeNull();
     expect(useEditorShellUiStore.getState().editingElementId).toBeNull();

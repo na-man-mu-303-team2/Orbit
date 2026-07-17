@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCanvasSnapCandidates,
+  canvasResizeBoxToTransformerBox,
   canvasSafeMarginRatios,
+  isCanvasResizeHandle,
   resolveCanvasDragInteraction,
   snapCanvasFrame,
+  snapCanvasResizeBox,
+  transformerBoxToCanvasResizeBox,
   type CanvasFrame
 } from "./canvasSnapping";
 
@@ -213,4 +217,220 @@ describe("canvasSnapping", () => {
       previewFrame: null
     });
   });
+
+  it("bypasses drag correction and guides when snapping is off or Alt is held", () => {
+    const common = {
+      canvas,
+      elements: [] as DeckElement[],
+      frame: createFrame({ x: 4, y: 4 }),
+      movingElementId: "el_moving",
+      phase: "move" as const,
+      stageScale: 1
+    };
+
+    expect(
+      resolveCanvasDragInteraction({ ...common, snappingEnabled: false })
+    ).toEqual({
+      commitFrame: null,
+      guides: [],
+      previewFrame: common.frame
+    });
+    expect(
+      resolveCanvasDragInteraction({ ...common, bypassSnapping: true })
+    ).toEqual({
+      commitFrame: null,
+      guides: [],
+      previewFrame: common.frame
+    });
+    expect(
+      resolveCanvasDragInteraction({
+        ...common,
+        phase: "end",
+        snappingEnabled: false
+      })
+    ).toEqual({
+      commitFrame: common.frame,
+      guides: [],
+      previewFrame: null
+    });
+  });
+
+  it.each([
+    ["top-left", { x: 203, y: 303 }, ["x", "y"]],
+    ["top-center", { x: 150, y: 303 }, ["y"]],
+    ["top-right", { x: 97, y: 303 }, ["x", "y"]],
+    ["middle-left", { x: 203, y: 260 }, ["x"]],
+    ["middle-right", { x: 97, y: 260 }, ["x"]],
+    ["bottom-left", { x: 203, y: 217 }, ["x", "y"]],
+    ["bottom-center", { x: 150, y: 217 }, ["y"]],
+    ["bottom-right", { x: 97, y: 217 }, ["x", "y"]]
+  ] as const)(
+    "snaps only the moving edges for the %s resize handle",
+    (activeHandle, position, expectedAxes) => {
+      const target = createRectElement("el_target", {
+        height: 20,
+        width: 20,
+        x: 200,
+        y: 300
+      });
+      const box = {
+        height: 80,
+        rotation: 0,
+        width: 100,
+        ...position
+      };
+      const originalRight = box.x + box.width;
+      const originalBottom = box.y + box.height;
+      const result = snapCanvasResizeBox({
+        activeHandle,
+        box,
+        canvas,
+        elements: [target],
+        movingElementId: "el_moving",
+        stageScale: 1
+      });
+
+      expect(result.guides.map((guide) => guide.axis)).toEqual(expectedAxes);
+
+      if (activeHandle.endsWith("left")) {
+        expect(result.box.x).toBe(200);
+        expect(result.box.x + result.box.width).toBe(originalRight);
+      } else if (activeHandle.endsWith("right")) {
+        expect(result.box.x).toBe(box.x);
+        expect(result.box.x + result.box.width).toBe(200);
+      } else {
+        expect(result.box.x).toBe(box.x);
+        expect(result.box.width).toBe(box.width);
+      }
+
+      if (activeHandle.startsWith("top")) {
+        expect(result.box.y).toBe(300);
+        expect(result.box.y + result.box.height).toBe(originalBottom);
+      } else if (activeHandle.startsWith("bottom")) {
+        expect(result.box.y).toBe(box.y);
+        expect(result.box.y + result.box.height).toBe(300);
+      } else {
+        expect(result.box.y).toBe(box.y);
+        expect(result.box.height).toBe(box.height);
+      }
+    }
+  );
+
+  it("keeps the opposite corner fixed while snapping a rotated resize box", () => {
+    const box = {
+      height: 80,
+      rotation: Math.PI / 2,
+      width: 100,
+      x: 77,
+      y: 100
+    };
+    const result = snapCanvasResizeBox({
+      activeHandle: "bottom-right",
+      box,
+      canvas,
+      elements: [],
+      movingElementId: "el_moving",
+      stageScale: 1
+    });
+
+    expect(result.box).toMatchObject({
+      height: 77,
+      rotation: Math.PI / 2,
+      width: 100,
+      x: 77,
+      y: 100
+    });
+    expect(result.guides).toEqual([
+      expect.objectContaining({ axis: "x", kind: "slide-edge", position: 0 })
+    ]);
+  });
+
+  it.each([0.5, 1, 2])(
+    "keeps resize snap tolerance at five screen pixels at scale %s",
+    (stageScale) => {
+      const withinTolerance = snapCanvasResizeBox({
+        activeHandle: "middle-left",
+        box: {
+          height: 40,
+          rotation: 0,
+          width: 100,
+          x: 4 / stageScale,
+          y: 400
+        },
+        canvas,
+        elements: [],
+        movingElementId: "el_moving",
+        stageScale
+      });
+      const outsideTolerance = snapCanvasResizeBox({
+        activeHandle: "middle-left",
+        box: {
+          height: 40,
+          rotation: 0,
+          width: 100,
+          x: 6 / stageScale,
+          y: 400
+        },
+        canvas,
+        elements: [],
+        movingElementId: "el_moving",
+        stageScale
+      });
+
+      expect(withinTolerance.box.x).toBe(0);
+      expect(withinTolerance.guides).toEqual([
+        expect.objectContaining({ axis: "x", kind: "slide-edge", position: 0 })
+      ]);
+      expect(outsideTolerance.box.x).toBe(6 / stageScale);
+      expect(outsideTolerance.guides).toEqual([]);
+    }
+  );
+
+  it("enforces a one-unit minimum without moving the opposite resize edge", () => {
+    const result = snapCanvasResizeBox({
+      activeHandle: "middle-left",
+      box: {
+        height: 40,
+        rotation: 0,
+        width: 0.25,
+        x: 300,
+        y: 500
+      },
+      canvas,
+      elements: [],
+      movingElementId: "el_moving",
+      stageScale: 1
+    });
+
+    expect(result.box.width).toBe(1);
+    expect(result.box.x + result.box.width).toBe(300.25);
+    expect(result.guides).toEqual([]);
+  });
+
+  it("accepts only the eight resize anchors", () => {
+    expect(isCanvasResizeHandle("top-left")).toBe(true);
+    expect(isCanvasResizeHandle("bottom-center")).toBe(true);
+    expect(isCanvasResizeHandle("rotater")).toBe(false);
+    expect(isCanvasResizeHandle(null)).toBe(false);
+  });
+
+  it.each([0.5, 1, 2])(
+    "round-trips Transformer absolute boxes through canvas coordinates at scale %s",
+    (stageScale) => {
+      const absoluteBox = {
+        height: 160 * stageScale,
+        rotation: Math.PI / 4,
+        width: 240 * stageScale,
+        x: 320 * stageScale,
+        y: 180 * stageScale
+      };
+
+      expect(
+        canvasResizeBoxToTransformerBox(
+          transformerBoxToCanvasResizeBox(absoluteBox, stageScale),
+          stageScale
+        )
+      ).toEqual(absoluteBox);
+    }
+  );
 });

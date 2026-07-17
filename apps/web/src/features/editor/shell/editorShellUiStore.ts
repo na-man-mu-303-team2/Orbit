@@ -53,6 +53,7 @@ type EditorShellUiStateValues = {
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isAudienceLinkModalOpen: boolean;
+  isCanvasSnappingEnabled: boolean;
   isDataViewOpen: boolean;
   isExitConfirmOpen: boolean;
   isPresenceDebugOpen: boolean;
@@ -86,6 +87,7 @@ type EditorShellUiStateActions = {
   setInsertTool: (updater: EditorShellUiUpdater<InsertTool>) => void;
   setIsAnimationPanelOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsAudienceLinkModalOpen: (updater: EditorShellUiUpdater<boolean>) => void;
+  setIsCanvasSnappingEnabled: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsDataViewOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsExitConfirmOpen: (updater: EditorShellUiUpdater<boolean>) => void;
   setIsPresenceDebugOpen: (updater: EditorShellUiUpdater<boolean>) => void;
@@ -118,6 +120,7 @@ export const editorShellUiInitialState: EditorShellUiStateValues = {
   insertTool: "select",
   isAnimationPanelOpen: false,
   isAudienceLinkModalOpen: false,
+  isCanvasSnappingEnabled: true,
   isDataViewOpen: false,
   isExitConfirmOpen: false,
   isPresenceDebugOpen: false,
@@ -193,6 +196,13 @@ export const useEditorShellUiStore = create<EditorShellUiState>((set) => ({
   setIsAudienceLinkModalOpen: (updater) =>
     set((state) => ({
       isAudienceLinkModalOpen: resolveUpdater(state.isAudienceLinkModalOpen, updater)
+    })),
+  setIsCanvasSnappingEnabled: (updater) =>
+    set((state) => ({
+      isCanvasSnappingEnabled: resolveUpdater(
+        state.isCanvasSnappingEnabled,
+        updater
+      )
     })),
   setIsDataViewOpen: (updater) =>
     set((state) => ({

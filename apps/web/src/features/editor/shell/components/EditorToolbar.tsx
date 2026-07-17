@@ -3,6 +3,7 @@ import {
   IconArrowForwardUp,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
+  IconMagnet,
   IconPhotoPlus as ImagePlus,
   IconPointer as MousePointer2,
   IconShape as Shapes,
@@ -13,6 +14,7 @@ import {
 import type { ReactNode, RefObject } from "react";
 
 import type { InsertTool } from "../editorShellUiStore";
+import { useEditorShellUiStore } from "../editorShellUiStore";
 
 type EditorToolbarProps = {
   canMutate: boolean;
@@ -38,6 +40,13 @@ type EditorToolbarProps = {
 };
 
 export function EditorToolbar(props: EditorToolbarProps) {
+  const isCanvasSnappingEnabled = useEditorShellUiStore(
+    (state) => state.isCanvasSnappingEnabled
+  );
+  const setIsCanvasSnappingEnabled = useEditorShellUiStore(
+    (state) => state.setIsCanvasSnappingEnabled
+  );
+
   return (
     <div className="stage-top-controls">
       <div className={`editor-toolbar ${props.canMutate ? "" : "viewer-zoom-only"}`}>
@@ -52,6 +61,16 @@ export function EditorToolbar(props: EditorToolbarProps) {
           </button>
           <button aria-label="선택 도구" className={`icon-button ${props.insertTool === "select" ? "selected-tool" : ""}`} title="Select" type="button" onClick={props.onSelectTool}>
             <MousePointer2 size={14} />
+          </button>
+          <button
+            aria-label={`스마트 가이드 ${isCanvasSnappingEnabled ? "끄기" : "켜기"}`}
+            aria-pressed={isCanvasSnappingEnabled}
+            className={`icon-button ${isCanvasSnappingEnabled ? "selected-tool" : ""}`}
+            title="스마트 가이드 (Alt로 일시 해제)"
+            type="button"
+            onClick={() => setIsCanvasSnappingEnabled((current) => !current)}
+          >
+            <IconMagnet size={14} />
           </button>
           <div className="toolbar-divider" />
           <button aria-label="텍스트" className="tool-button" type="button" onClick={props.onAddText}>

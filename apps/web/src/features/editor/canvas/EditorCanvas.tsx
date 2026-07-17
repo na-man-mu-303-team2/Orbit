@@ -43,7 +43,13 @@ import {
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
 import type { CanvasSelectionModifiers } from "./utils/canvasSelection";
-import type { CanvasSnapGuide } from "./utils/canvasSnapping";
+import {
+  canvasResizeBoxToTransformerBox,
+  isCanvasResizeHandle,
+  snapCanvasResizeBox,
+  transformerBoxToCanvasResizeBox,
+  type CanvasSnapGuide
+} from "./utils/canvasSnapping";
 import {
   getHighlightOverlayElements,
   HighlightOverlay,
@@ -51,6 +57,7 @@ import {
   type ElementPresentationState
 } from "../../slides/rendering";
 import { isEditorKeyboardCommandSuppressedTarget } from "../shell/editorKeyboardCommands";
+import { useEditorShellUiStore } from "../shell/editorShellUiStore";
 
 export { getRenderableSlideElements } from "../../slides/rendering";
 
@@ -356,6 +363,7 @@ export function EditableCanvas(props: {
     onSelectElements = onClearSelection
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
+  const altSnapBypassRef = useRef(false);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(
     null
@@ -371,6 +379,9 @@ export function EditableCanvas(props: {
   const [customShapeEditDraft, setCustomShapeEditDraft] =
     useState<CustomShapeEditDraft | null>(null);
   const [dragGuides, setDragGuides] = useState<CanvasSnapGuide[]>([]);
+  const isCanvasSnappingEnabled = useEditorShellUiStore(
+    (state) => state.isCanvasSnappingEnabled
+  );
   const [activeTextRange, setActiveTextRange] = useState<{
     elementId: string;
     end: number;
@@ -532,6 +543,79 @@ export function EditableCanvas(props: {
     setDragGuides([]);
   }, [insertTool, slide.slideId]);
 
+  useEffect(() => {
+    if (!isCanvasSnappingEnabled) {
+      setDragGuides([]);
+    }
+  }, [isCanvasSnappingEnabled]);
+
+  useEffect(() => {
+    function handleAltKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Alt") {
+        return;
+      }
+
+      altSnapBypassRef.current = true;
+      setDragGuides([]);
+    }
+
+    function handleAltKeyUp(event: KeyboardEvent) {
+      if (event.key === "Alt") {
+        altSnapBypassRef.current = false;
+      }
+    }
+
+    function handleWindowBlur() {
+      altSnapBypassRef.current = false;
+      setDragGuides([]);
+    }
+
+    window.addEventListener("keydown", handleAltKeyDown);
+    window.addEventListener("keyup", handleAltKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("keydown", handleAltKeyDown);
+      window.removeEventListener("keyup", handleAltKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, []);
+
+  function handleTransformerBoundBox(
+    _oldBox: TransformerBox,
+    nextBox: TransformerBox
+  ): TransformerBox {
+    const activeHandle = transformerRef.current?.getActiveAnchor() ?? null;
+    const safeStageScale = stageScale > 0 ? stageScale : 1;
+
+    if (!isCanvasResizeHandle(activeHandle)) {
+      setDragGuides([]);
+      return {
+        ...nextBox,
+        height: Math.max(safeStageScale, nextBox.height),
+        width: Math.max(safeStageScale, nextBox.width)
+      };
+    }
+
+    const result = snapCanvasResizeBox({
+      activeHandle,
+      box: transformerBoxToCanvasResizeBox(nextBox, safeStageScale),
+      canvas: deck.canvas,
+      elements: visibleElements,
+      movingElementId: selectedElementIds[0] ?? "",
+      selectedElementIds,
+      snappingEnabled:
+        selectedElementIds.length === 1 &&
+        isCanvasSnappingEnabled &&
+        !altSnapBypassRef.current,
+      stageScale: safeStageScale
+    });
+
+    setDragGuides(result.guides);
+
+    return canvasResizeBoxToTransformerBox(result.box, safeStageScale);
+  }
+
   return (
     <div
       className="konva-editor-stage"
@@ -569,6 +653,7 @@ export function EditableCanvas(props: {
               showIds={showIds}
               slide={slide}
               snapElements={visibleElements}
+              snappingEnabled={isCanvasSnappingEnabled}
               stageScale={stageScale}
               customShapeEditDraft={
                 customShapeEditDraft?.elementId === element.elementId
@@ -663,11 +748,7 @@ export function EditableCanvas(props: {
             : null}
           <Transformer
             ref={transformerRef}
-            boundBoxFunc={(_oldBox: TransformerBox, nextBox: TransformerBox) => ({
-              ...nextBox,
-              width: Math.max(1, nextBox.width),
-              height: Math.max(1, nextBox.height)
-            })}
+            boundBoxFunc={handleTransformerBoundBox}
             enabledAnchors={
               disableInteractions
                 ? []
@@ -683,6 +764,12 @@ export function EditableCanvas(props: {
                   ]
             }
             ignoreStroke
+            onTransformEnd={() => setDragGuides([])}
+            onTransformStart={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+              altSnapBypassRef.current =
+                "altKey" in event.evt && Boolean(event.evt.altKey);
+              setDragGuides([]);
+            }}
             rotateEnabled={!disableInteractions}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />

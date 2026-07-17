@@ -64,6 +64,7 @@ export function EditableElementNode(props: {
   showIds: boolean;
   slide: Slide;
   snapElements: readonly DeckElement[];
+  snappingEnabled: boolean;
   stageScale: number;
   onChangeDragGuides: (guides: CanvasSnapGuide[]) => void;
   onChangeCustomShapeEditDraft: (draft: CustomShapeEditDraft | null) => void;
@@ -93,6 +94,7 @@ export function EditableElementNode(props: {
     showIds,
     slide,
     snapElements,
+    snappingEnabled,
     stageScale,
     onChangeDragGuides,
     onChangeCustomShapeEditDraft,
@@ -159,9 +161,11 @@ export function EditableElementNode(props: {
 
   function resolveDragInteraction(
     phase: "cancel" | "end" | "move",
-    node: Konva.Node
+    node: Konva.Node,
+    bypassSnapping = false
   ) {
     return resolveCanvasDragInteraction({
+      bypassSnapping,
       canvas: deck.canvas,
       elements: snapElements,
       frame: {
@@ -174,6 +178,7 @@ export function EditableElementNode(props: {
       movingElementId: element.elementId,
       phase,
       selectedElementIds,
+      snappingEnabled,
       stageScale
     });
   }
@@ -239,7 +244,11 @@ export function EditableElementNode(props: {
         onChangeDragGuides([]);
       }}
       onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
-        const result = resolveDragInteraction("move", event.currentTarget);
+        const result = resolveDragInteraction(
+          "move",
+          event.currentTarget,
+          event.evt.altKey
+        );
 
         if (!result.previewFrame) {
           return;
@@ -253,7 +262,11 @@ export function EditableElementNode(props: {
         onChangeDragGuides(result.guides);
       }}
       onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
-        const result = resolveDragInteraction("end", event.currentTarget);
+        const result = resolveDragInteraction(
+          "end",
+          event.currentTarget,
+          event.evt.altKey
+        );
 
         setPreviewFrame(null);
         onChangeDragGuides([]);
