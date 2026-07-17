@@ -34,6 +34,9 @@ jobs:
       - name: Validate environment contract
         run: node infra/scripts/check-env.mjs
 
+      - name: Validate AWS production Compose contract
+        run: node infra/scripts/check-aws-production-compose.mjs
+
   deploy-personal-staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs:

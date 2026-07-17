@@ -434,3 +434,15 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
+
+## ORBIT AWS production private evidence Redis isolation
+
+- Context: `main` 자동 배포가 API migration의 production 환경 검증에서 `PRIVATE_EVIDENCE_REDIS_URL must not use the local default in production`으로 중단됐다. private evidence 원문은 최대 30분만 보존하고 작업큐 Redis의 persistence·volume·backup 경계와 분리해야 하지만, AWS Compose에는 전용 서비스와 URL 주입이 없었다. 기존 EC2의 `/etc/orbit/production.env`는 저장소 template 변경으로 자동 갱신되지 않는다.
+- Options considered:
+  - 기존 작업큐 Redis를 private evidence에도 공유하고 production 검증을 완화한다.
+  - 기존 `/etc/orbit/production.env`에 전용 URL만 수동 추가하고 같은 Redis를 사용한다.
+  - AWS Compose에 volume·RDB·AOF·host port가 없는 별도 Redis를 추가하고 API/Worker에 내부 URL을 직접 주입한다.
+- Final decision: `docker-compose.aws.yml`에 `private-evidence-redis`를 추가하고 `--save "" --appendonly no`로 실행한다. API와 Worker는 `PRIVATE_EVIDENCE_REDIS_URL=redis://private-evidence-redis:6379`을 Compose `environment`에서 직접 받고 `service_healthy`를 기다린다. EC2 deploy wrapper는 작업큐 Redis와 private evidence Redis를 최대 120초 기다린 뒤 migration을 실행한다. 현재 EC2 env 파일에 새 키가 없어도 첫 복구가 가능하도록 `required_keys`에는 추가하지 않는다.
+- Rationale: 작업큐 데이터의 영속성과 발표 원문의 비영속 보존 정책을 분리하고, 기존 운영 env 파일을 수동 변경해야만 배포되는 순서 의존성을 없앤다. production에서 로컬 기본값을 거부하는 기존 검증은 유지하며, PR CI가 정확한 URL·비영속 설정·health dependency·CloudWatch stream·AWS template 동기화를 검사한다.
+- Affected files: `docker-compose.aws.yml`, `infra/scripts/deploy-aws-ec2.sh`, `infra/aws/ec2-production.env.example`, `infra/aws/main-production-bootstrap.yaml`, `infra/scripts/check-aws-production-compose.mjs`, `.github/workflows/environment-contract-ci.yml`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: Redis `maxmemory`와 CloudWatch memory alarm은 실제 사용량을 측정한 뒤 별도 결정한다. ElastiCache 또는 managed Redis 전환과 SSM 기반 전체 production env 자동 동기화는 이번 장애 복구 범위에 포함하지 않는다. merge 후 두 Redis health, migration, API/Socket.IO, static web 배포를 새 `main` workflow에서 확인한다.
