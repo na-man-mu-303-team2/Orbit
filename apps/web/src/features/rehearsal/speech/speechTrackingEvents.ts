@@ -1,4 +1,5 @@
 import type { AdviceEventType } from "./speechTrackingConfig";
+import type { PrompterProgressSnapshot } from "./prompterProgressTracker";
 
 export type PhraseCandidate = {
   candidateId: string;
@@ -24,6 +25,10 @@ export type ScriptProgressSnapshot = {
   totalChars: number;
   ratio: number;
   confidence: "none" | "candidate" | "confirmed";
+  sentenceId: string | null;
+  sentenceCharOffset: number;
+  sentenceTotalChars: number;
+  sentenceRatio: number;
 };
 
 export type SpeechTrackerSnapshot = {
@@ -38,6 +43,8 @@ export type SpeechTrackerSnapshot = {
   hitKeywordIds: string[];
   provisionalMissingKeywordIds: string[];
   scriptProgress?: ScriptProgressSnapshot;
+  prompterProgress?: PrompterProgressSnapshot;
+  finalSentenceCommitted?: boolean;
 };
 
 export type SentenceCoveredEvent = {

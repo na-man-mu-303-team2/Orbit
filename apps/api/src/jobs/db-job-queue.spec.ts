@@ -17,6 +17,19 @@ const row = {
 };
 
 describe("DbJobQueue", () => {
+  it.each(["pptx-import", "ai-template-deck-generation"] as const)(
+    "reads historical %s jobs through get",
+    async (type) => {
+      const query = vi.fn().mockResolvedValue([{ ...row, type }]);
+      const queue = new DbJobQueue({ query } as unknown as DataSource);
+
+      await expect(queue.get(`job-${type}`)).resolves.toMatchObject({
+        jobId: "job-1",
+        type
+      });
+    }
+  );
+
   it("persists jobs through the database port", async () => {
     const query = vi
       .fn()

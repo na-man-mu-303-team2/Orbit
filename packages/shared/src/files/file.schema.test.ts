@@ -10,30 +10,70 @@ describe("filePurposeSchema", () => {
   it("accepts internal design assets", () => {
     expect(filePurposeSchema.parse("design-asset")).toBe("design-asset");
   });
+
+  it("accepts rehearsal slide snapshots", () => {
+    expect(filePurposeSchema.parse("rehearsal-slide-snapshot")).toBe(
+      "rehearsal-slide-snapshot",
+    );
+  });
+
+  it("accepts owner-only rehearsal transcript artifacts", () => {
+    expect(filePurposeSchema.parse("rehearsal-transcript-json")).toBe(
+      "rehearsal-transcript-json",
+    );
+    expect(filePurposeSchema.parse("rehearsal-transcript-text")).toBe(
+      "rehearsal-transcript-text",
+    );
+  });
 });
 
 describe("assetUploadUrlRequestSchema", () => {
-  it("accepts rehearsal audio uploads with audio MIME types", () => {
-    const result = assetUploadUrlRequestSchema.parse({
-      originalName: "rehearsal.webm",
-      mimeType: "audio/webm",
-      size: maxRehearsalAudioUploadSizeBytes,
-      purpose: "rehearsal-audio",
+  it("accepts rendered rehearsal slide snapshots", () => {
+    expect(
+      assetUploadUrlRequestSchema.parse({
+        originalName: "slide-01-thumbnail.png",
+        mimeType: "image/png",
+        size: 101_524,
+        purpose: "rehearsal-slide-snapshot",
+      }),
+    ).toEqual({
+      originalName: "slide-01-thumbnail.png",
+      mimeType: "image/png",
+      size: 101_524,
+      purpose: "rehearsal-slide-snapshot",
     });
-
-    expect(result.mimeType).toBe("audio/webm");
   });
 
-  it("accepts OpenAI-compatible rehearsal audio MIME aliases", () => {
-    for (const mimeType of ["audio/mp3", "audio/flac", "audio/x-m4a"] as const) {
-      const result = assetUploadUrlRequestSchema.parse({
-        originalName: "rehearsal.audio",
-        mimeType,
-        size: 1024,
-        purpose: "rehearsal-audio",
-      });
+  it("reserves all private audio purposes from generic uploads", () => {
+    for (const purpose of [
+      "rehearsal-audio",
+      "focused-practice-audio",
+      "qna-answer-audio",
+    ] as const) {
+      expect(
+        assetUploadUrlRequestSchema.safeParse({
+          originalName: "private.webm",
+          mimeType: "audio/webm",
+          size: 1024,
+          purpose,
+        }).success,
+      ).toBe(false);
+    }
+  });
 
-      expect(result.mimeType).toBe(mimeType);
+  it("reserves rehearsal transcript artifacts from generic uploads", () => {
+    for (const purpose of [
+      "rehearsal-transcript-json",
+      "rehearsal-transcript-text",
+    ] as const) {
+      expect(
+        assetUploadUrlRequestSchema.safeParse({
+          originalName: "transcript.json",
+          mimeType: "application/pdf",
+          size: 1024,
+          purpose,
+        }).success,
+      ).toBe(false);
     }
   });
 
@@ -71,7 +111,7 @@ describe("assetUploadUrlRequestSchema", () => {
   });
 
   it("rejects rehearsal audio MIME types outside the report STT contract", () => {
-    for (const mimeType of ["audio/ogg"] as const) {
+    for (const mimeType of ["audio/aac"] as const) {
       const result = assetUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,
@@ -94,7 +134,7 @@ describe("assetUploadUrlRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("uses the configured rehearsal audio upload limit when provided", () => {
+  it("uses the configured private audio upload limit when validating reserved input", () => {
     const schema = createAssetUploadUrlRequestSchema({
       maxRehearsalAudioUploadSizeBytes: 1024,
     });

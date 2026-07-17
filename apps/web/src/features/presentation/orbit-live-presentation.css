@@ -1,0 +1,160 @@
+.orbit-live-presenter-shell {
+  --live-panel: #151b2c;
+  --live-panel-raised: #1d2438;
+  --live-border: rgba(255, 255, 255, 0.13);
+  background: #0b1020;
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-presenter-topbar {
+  background: #0b1020;
+  border-bottom-color: var(--live-border);
+  color: #fff;
+  grid-template-columns: auto auto auto 1fr auto auto;
+}
+
+.orbit-live-presenter-logo {
+  display: block;
+  height: 26px;
+  object-fit: contain;
+  width: auto;
+}
+
+.orbit-live-presenter-shell .rehearsal-exit-button {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-session-status,
+.orbit-live-presenter-shell .rehearsal-recording-status {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.orbit-live-presenter-shell .rehearsal-recording-status-active {
+  color: #ff9a96;
+}
+
+.orbit-live-presenter-shell .rehearsal-presenter-main,
+.orbit-live-presenter-shell .rehearsal-presenter-side > section,
+.orbit-live-presenter-shell .rehearsal-assist-card {
+  background: var(--live-panel);
+  border-color: var(--live-border);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-stage-wrap {
+  background: #05070d;
+}
+
+.orbit-live-presenter-shell .rehearsal-next-slide-preview {
+  border-color: var(--live-border);
+}
+
+.orbit-live-presenter-shell .rehearsal-next-slide-frame {
+  background: #05070d;
+  border-color: var(--live-border);
+}
+
+.orbit-live-presenter-shell .rehearsal-slide-controls button,
+.orbit-live-presenter-shell .rehearsal-side-timer-actions button,
+.orbit-live-presenter-shell .rehearsal-panel button {
+  background: var(--live-panel-raised);
+  border-color: var(--live-border);
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-side-timer-hero {
+  background: rgba(188, 167, 245, 0.16);
+}
+
+.orbit-live-presenter-shell .rehearsal-side-timer-time,
+.orbit-live-presenter-shell .rehearsal-panel,
+.orbit-live-presenter-shell .rehearsal-panel strong,
+.orbit-live-presenter-shell .rehearsal-panel h2,
+.orbit-live-presenter-shell .rehearsal-panel h3 {
+  color: #fff;
+}
+
+.orbit-live-presenter-shell .rehearsal-panel p,
+.orbit-live-presenter-shell .rehearsal-panel span,
+.orbit-live-presenter-shell .rehearsal-side-timer-meta {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.orbit-live-presenter-shell .rehearsal-panel-keyword-hit {
+  background: rgba(166, 231, 184, 0.15);
+  color: #bff1cb;
+}
+
+@media (max-width: 900px) {
+  .orbit-live-presenter-shell .rehearsal-presenter-topbar {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .orbit-live-presenter-logo {
+    display: none;
+  }
+}
+
+.present-window-shell {
+  background:
+    radial-gradient(circle at 50% 35%, rgba(188, 167, 245, 0.12), transparent 34%),
+    #05070d;
+}
+
+.present-window-status {
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.present-window-status > img {
+  height: 32px;
+  margin-bottom: 18px;
+  object-fit: contain;
+  width: auto;
+}
+
+.present-window-status > span {
+  color: var(--orbit-ds-lilac);
+  font-family: var(--orbit-ds-font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.present-window-status h1 {
+  font-size: clamp(26px, 3vw, 40px);
+  letter-spacing: -0.04em;
+}
+
+.present-window-status p {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
+}
+
+.present-window-actions {
+  gap: 10px;
+}
+
+.present-window-action-message,
+.present-window-fullscreen,
+.present-window-previous,
+.present-window-next,
+.present-window-reconnect,
+.present-window-exit {
+  backdrop-filter: blur(16px);
+  background: rgba(21, 27, 44, 0.86);
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: var(--orbit-ds-radius-pill);
+  min-height: 42px;
+}
+
+.present-window-fullscreen:hover,
+.present-window-previous:hover,
+.present-window-next:hover,
+.present-window-reconnect:hover,
+.present-window-exit:hover {
+  background: rgba(188, 167, 245, 0.22);
+}

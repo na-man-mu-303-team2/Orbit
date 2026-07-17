@@ -20,6 +20,20 @@ type DeckValidationInput = {
     purpose?: string;
     tone?: string;
     presentationProfile?: string;
+    designProgramSnapshot?: {
+      version: string;
+      visualConcept: string;
+      paletteRoles: Record<string, string>;
+      typography: {
+        headingFont: string;
+        bodyFont: string;
+        typeScale: Record<string, number>;
+      };
+      backgroundSequence: string[];
+      imageStyle: string;
+      surfaceStyle: string;
+      compositionIds: string[];
+    };
     createdFrom?: {
       topic: string;
       references: Array<{ fileId: string }>;
@@ -53,6 +67,17 @@ type DeckValidationInput = {
         imageNeeded: boolean;
         imageSourcePolicy: string;
         reason: string;
+        imagePrompt?: string;
+        imageAlt?: string;
+        imagePlacement?: string;
+        asset?: {
+          fileId: string;
+          provider: string;
+          sourceUrl?: string;
+          sourceAssetUrl?: string;
+          sourceAuthority?: string;
+          usageBasis?: string;
+        };
       };
       sourceLedger?: Array<{
         claim: string;
@@ -78,6 +103,15 @@ type DeckValidationInput = {
         targetSpokenSeconds?: number;
         targetSpeakerNotesChars: number;
         actualSpeakerNotesChars: number;
+      };
+      compositionPlan?: {
+        compositionId: string;
+        variant: string;
+        backgroundMode: string;
+        focalType: string;
+        primaryFocalElementId?: string;
+        assetRole: string;
+        requiredAsset: boolean;
       };
     };
     keywords: Array<{
@@ -257,6 +291,78 @@ const expectInvalidDeck = (deck: unknown) => {
 describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("accepts a program-v2 design snapshot and composition plan", () => {
+    const deck = createValidDeck();
+    deck.metadata.designProgramSnapshot = {
+      version: "program-v2",
+      visualConcept: "Energetic ink launch",
+      paletteRoles: { dominant: "#FFFFFF", focal: "#6D28D9" },
+      typography: {
+        headingFont: "Pretendard",
+        bodyFont: "Pretendard",
+        typeScale: { title: 56, body: 22 }
+      },
+      backgroundSequence: ["dark"],
+      imageStyle: "Official game imagery with crisp crops",
+      surfaceStyle: "Flat color fields",
+      compositionIds: ["hero-split"]
+    };
+    deck.slides[0].aiNotes = {
+      emphasisPoints: [],
+      sourceEvidence: [],
+      compositionPlan: {
+        compositionId: "hero-split",
+        variant: "dark",
+        backgroundMode: "dark",
+        focalType: "hero-image",
+        primaryFocalElementId: "el_1",
+        assetRole: "evidence",
+        requiredAsset: true
+      }
+    };
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects a composition plan whose focal element is missing", () => {
+    const deck = createValidDeck();
+    deck.slides[0].aiNotes = {
+      emphasisPoints: [],
+      sourceEvidence: [],
+      compositionPlan: {
+        compositionId: "hero-split",
+        variant: "light",
+        backgroundMode: "light",
+        focalType: "hero-image",
+        primaryFocalElementId: "el_missing",
+        assetRole: "evidence",
+        requiredAsset: true
+      }
+    };
+
+    expectInvalidDeck(deck);
+  });
+
+  it("accepts decks with more than 20 editor-managed slides", () => {
+    const deck = createValidDeck();
+    const templateSlide = deck.slides[0];
+
+    deck.slides = Array.from({ length: 21 }, (_, index) => ({
+      ...templateSlide,
+      slideId: `slide_${index + 1}`,
+      order: index + 1,
+      title: `Slide ${index + 1}`,
+      elements: templateSlide.elements.map((element) => ({
+        ...element,
+        elementId: `el_${index + 1}`
+      })),
+      animations: [],
+      actions: []
+    }));
+
+    expect(deckSchema.parse(deck).slides).toHaveLength(21);
   });
 
   it("defaults deck targetDurationMinutes to the generation request default", () => {
@@ -1193,7 +1299,18 @@ describe("deckSchema validation", () => {
         visualType: "diagram",
         imageNeeded: false,
         imageSourcePolicy: "minimal",
-        reason: "Shapes and typography explain the message."
+        reason: "Shapes and typography explain the message.",
+        imagePrompt: "A precise system diagram with a clear focal flow",
+        imageAlt: "System flow diagram",
+        imagePlacement: "right",
+        asset: {
+          fileId: "file_official_1",
+          provider: "official-web",
+          sourceUrl: "https://official.example/game",
+          sourceAssetUrl: "https://official.example/key-art.png",
+          sourceAuthority: "official",
+          usageBasis: "official-reference"
+        }
       },
       sourceLedger: [
         {
@@ -1233,6 +1350,15 @@ describe("deckSchema validation", () => {
     };
 
     expectValidDeck(deck);
+    expect(deckSchema.parse(deck).slides[0].aiNotes?.visualPlan).toMatchObject({
+      imagePrompt: "A precise system diagram with a clear focal flow",
+      imageAlt: "System flow diagram",
+      imagePlacement: "right",
+      asset: expect.objectContaining({
+        sourceAuthority: "official",
+        usageBasis: "official-reference"
+      })
+    });
   });
 
   it("defaults AI metadata design references to an empty list", () => {
@@ -1251,6 +1377,25 @@ describe("deckSchema validation", () => {
     const result = deckSchema.parse(deck);
 
     expect(result.metadata.createdFrom?.designReferences).toEqual([]);
+  });
+
+  it("keeps historical AI metadata design references readable", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "Historical AI design reference",
+        references: [],
+        designReferences: [{ fileId: "file_design_legacy" }]
+      }
+    };
+
+    expect(
+      deckSchema.parse(deck).metadata.createdFrom?.designReferences
+    ).toEqual([{ fileId: "file_design_legacy" }]);
   });
 
   it("accepts every supported AI presentation profile", () => {

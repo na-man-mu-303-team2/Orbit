@@ -1,12 +1,20 @@
-import { Check, Trash2, X } from "lucide-react";
 import type { ProjectMember } from "@orbit/shared";
+import { IconCheck, IconTrash, IconUserPlus, IconUsers } from "@tabler/icons-react";
+import {
+  OrbitButton,
+  OrbitDialog,
+  OrbitEmptyState,
+  OrbitField,
+  OrbitIconButton,
+  OrbitInput,
+  OrbitSelect,
+  OrbitTabs
+} from "../../../../design-system";
 import type { ShareRole } from "../api/projectMembersApi";
 
 export type ShareAccessTab = "status" | "requests";
 export type LocalShareMember = ProjectMember;
-export type LocalShareRequest = ProjectMember & {
-  role: Exclude<ShareRole, "owner">;
-};
+export type LocalShareRequest = ProjectMember & { role: Exclude<ShareRole, "owner"> };
 
 export function ShareAccessModal(props: {
   activeTab: ShareAccessTab;
@@ -27,146 +35,46 @@ export function ShareAccessModal(props: {
   onTabChange: (tab: ShareAccessTab) => void;
 }) {
   return (
-    <div className="share-modal-backdrop" role="presentation" onMouseDown={props.onClose}>
-      <section
-        aria-label="프로젝트 공유"
-        aria-modal="true"
-        className="share-access-modal"
-        role="dialog"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="share-access-header">
-          <div>
-            <strong>공유</strong>
-            <span>프로젝트 접근 권한과 대기 중인 요청을 관리합니다.</span>
-          </div>
-          <button type="button" aria-label="공유 닫기" onClick={props.onClose}>
-            <X size={16} />
-          </button>
-        </header>
-
-        <div className="share-access-tabs" role="tablist" aria-label="공유 탭">
-          <button
-            className={props.activeTab === "status" ? "active" : ""}
-            type="button"
-            onClick={() => props.onTabChange("status")}
-          >
-            현황
-          </button>
-          <button
-            className={props.activeTab === "requests" ? "active" : ""}
-            type="button"
-            onClick={() => props.onTabChange("requests")}
-          >
-            요청
-          </button>
-        </div>
-
+    <OrbitDialog className="orbit-share-dialog" description="사용자를 초대하고 프로젝트 접근 요청을 관리합니다." onClose={props.onClose} open title="프로젝트 공유">
+      <OrbitTabs activeTab={props.activeTab} ariaLabel="공유 관리" onChange={(tab) => props.onTabChange(tab as ShareAccessTab)} tabs={[{ id: "status", label: `함께 작업 중 ${props.members.length}` }, { id: "requests", label: `승인 요청 ${props.requests.length}` }]}>
         {props.activeTab === "status" ? (
-          <div className="share-access-panel">
-            <label className="share-invite-field">
-              <span>이메일</span>
+          <div className="orbit-share-panel">
+            <section className="orbit-share-invite" aria-labelledby="orbit-share-invite-title">
+              <header><span><IconUserPlus aria-hidden="true" size={20} /></span><div><h3 id="orbit-share-invite-title">사용자 초대</h3><p>이메일과 권한을 선택해 프로젝트에 초대하세요.</p></div></header>
               <div>
-                <input
-                  type="email"
-                  placeholder="user@example.com"
-                  value={props.inviteEmail}
-                  onChange={(event) => props.onInviteEmailChange(event.target.value)}
-                />
-                <select
-                  value={props.inviteRole}
-                  onChange={(event) =>
-                    props.onInviteRoleChange(event.target.value as Exclude<ShareRole, "owner">)
-                  }
-                >
-                  <option value="viewer">viewer</option>
-                  <option value="editor">editor</option>
-                </select>
-                <button type="button" onClick={props.onInvite}>
-                  추가
-                </button>
+                <OrbitField id="orbit-share-email" label="이메일"><OrbitInput onChange={(event) => props.onInviteEmailChange(event.currentTarget.value)} placeholder="name@company.com" type="email" value={props.inviteEmail} /></OrbitField>
+                <OrbitField id="orbit-share-role" label="권한"><OrbitSelect onChange={(event) => props.onInviteRoleChange(event.currentTarget.value as Exclude<ShareRole, "owner">)} value={props.inviteRole}><option value="editor">편집 가능</option><option value="viewer">보기 전용</option></OrbitSelect></OrbitField>
+                <OrbitButton disabled={props.isLoading} onClick={props.onInvite}>초대</OrbitButton>
               </div>
-            </label>
+            </section>
 
-            <div className="share-access-list" aria-label="권한이 있는 사용자">
-              <div className="share-access-row member header">
-                <span>이메일</span>
-                <span>권한</span>
-                <span>처리</span>
-              </div>
-              {props.members.length > 0 ? (
-                props.members.map((member) => (
-                  <div className="share-access-row member" key={member.userId}>
-                    <span>{member.email}</span>
-                    <select
-                      aria-label={`${member.email} 권한 수정`}
-                      value={member.role}
-                      onChange={(event) =>
-                        props.onMemberRoleChange(member.email, event.target.value as ShareRole)
-                      }
-                    >
-                      <option value="viewer">viewer</option>
-                      <option value="editor">editor</option>
-                      <option value="owner">owner</option>
-                    </select>
-                    <span className="share-request-actions">
-                      <button
-                        type="button"
-                        aria-label={`${member.email} 권한 회수`}
-                        onClick={() => props.onMemberRemove(member.email)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="share-empty-row">권한이 있는 사용자가 없습니다.</div>
-              )}
-            </div>
+            <section className="orbit-share-list" aria-label="권한이 있는 사용자">
+              <header><IconUsers aria-hidden="true" size={19} /><h3>참여자</h3><span>{props.members.length}명</span></header>
+              {props.members.length ? props.members.map((member) => (
+                <div className="orbit-share-member" key={member.userId}>
+                  <span className="orbit-share-avatar">{member.email.slice(0, 1).toUpperCase()}</span>
+                  <span><strong>{member.email}</strong><small>{member.role === "owner" ? "프로젝트 소유자" : "프로젝트 참여자"}</small></span>
+                  <OrbitSelect aria-label={`${member.email} 권한 수정`} onChange={(event) => props.onMemberRoleChange(member.email, event.currentTarget.value as ShareRole)} value={member.role}><option value="viewer">보기 전용</option><option value="editor">편집 가능</option><option value="owner">소유자</option></OrbitSelect>
+                  <OrbitIconButton aria-label={`${member.email} 권한 회수`} disabled={member.role === "owner" || props.isLoading} onClick={() => props.onMemberRemove(member.email)} variant="plain"><IconTrash aria-hidden="true" size={17} /></OrbitIconButton>
+                </div>
+              )) : <OrbitEmptyState description="이메일로 사용자를 초대해 함께 편집할 수 있습니다." title="아직 참여자가 없습니다." />}
+            </section>
           </div>
         ) : (
-          <div className="share-access-panel">
-            <div className="share-access-list" aria-label="권한 요청 목록">
-              <div className="share-access-row request header">
-                <span>요청자</span>
-                <span>요청 권한</span>
-                <span>처리</span>
+          <section className="orbit-share-list" aria-label="권한 요청 목록">
+            {props.requests.length ? props.requests.map((request) => (
+              <div className="orbit-share-member request" key={request.userId}>
+                <span className="orbit-share-avatar">{request.email.slice(0, 1).toUpperCase()}</span>
+                <span><strong>{request.email}</strong><small>{request.role === "editor" ? "편집 권한 요청" : "보기 권한 요청"}</small></span>
+                <div><OrbitButton icon={<IconCheck aria-hidden="true" size={16} />} onClick={() => props.onRequestStatusChange(request.email, "accepted")} variant="secondary">승인</OrbitButton><OrbitButton onClick={() => props.onRequestStatusChange(request.email, "rejected")} variant="quiet">거절</OrbitButton></div>
               </div>
-              {props.requests.length > 0 ? (
-                props.requests.map((request) => (
-                  <div className="share-access-row request" key={request.userId}>
-                    <span>{request.email}</span>
-                    <strong>{request.role}</strong>
-                    <span className="share-request-actions">
-                      <button
-                        type="button"
-                        aria-label={`${request.email} 요청 승인`}
-                        onClick={() => props.onRequestStatusChange(request.email, "accepted")}
-                      >
-                        <Check size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`${request.email} 요청 삭제`}
-                        onClick={() => props.onRequestStatusChange(request.email, "rejected")}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="share-empty-row">대기 중인 요청이 없습니다.</div>
-              )}
-            </div>
-          </div>
+            )) : <OrbitEmptyState description="새 요청이 도착하면 이 탭에서 승인하거나 거절할 수 있습니다." title="대기 중인 요청이 없습니다." />}
+          </section>
         )}
-
-        {props.isLoading ? <p className="share-action-message">공유 정보를 불러오는 중입니다.</p> : null}
-        {props.actionLabel ? <p className="share-action-message">{props.actionLabel}</p> : null}
-        {props.actionError ? <p className="share-action-message error">{props.actionError}</p> : null}
-      </section>
-    </div>
+      </OrbitTabs>
+      {props.isLoading ? <p className="orbit-share-message" role="status">공유 정보를 불러오는 중입니다.</p> : null}
+      {props.actionLabel ? <p className="orbit-share-message success" role="status">{props.actionLabel}</p> : null}
+      {props.actionError ? <p className="orbit-share-message error" role="alert">{props.actionError}</p> : null}
+    </OrbitDialog>
   );
 }

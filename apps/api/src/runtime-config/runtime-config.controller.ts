@@ -9,7 +9,10 @@ export class RuntimeConfigController {
   @Get()
   getRuntimeConfig() {
     return runtimeConfigResponseSchema.parse({
-      liveSttEngine: this.config.LIVE_STT_ENGINE
+      liveSttEngine: this.config.LIVE_STT_ENGINE,
+      adaptiveRehearsalCoachEnabled: this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED,
+      focusedPracticeEnabled: this.config.FOCUSED_PRACTICE_ENABLED,
+      challengeQnaEnabled: this.config.CHALLENGE_QNA_ENABLED,
     });
   }
 }

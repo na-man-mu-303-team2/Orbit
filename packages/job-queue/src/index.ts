@@ -1,28 +1,36 @@
 import {
   Job,
-  JobType,
+  type ActiveJobType,
+  type AiDeckExecutionMode,
+  type AiDeckGenerationStage,
+  type AiDeckGenerationStageMessage,
+  aiDeckGenerationStageMessageSchema,
   deckSchema,
   demoIds,
   deckExportFormatSchema,
   generateDeckRequestSchema,
-  aiTemplateDeckGenerationRequestSchema,
   jobSchema,
   semanticCueExtractionJobPayloadSchema,
+  speakerNotesSuggestionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
+  focusedPracticeAnalysisJobPayloadSchema,
+  challengeQnaGenerationJobPayloadSchema,
+  challengeQnaAnswerAnalysisJobPayloadSchema,
   nowIso,
-  type AiTemplateDeckGenerationRequest,
   type Deck,
   type DeckExportFormat,
   type PptxOoxmlGenerationRequest,
   type GenerateDeckRequest,
+  type SavedDesignPackSnapshot,
   type SemanticCueExtractionJobPayload,
+  type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
 export interface EnqueueJobInput {
   projectId?: string;
-  type: JobType;
+  type: ActiveJobType;
   payload?: Record<string, unknown>;
 }
 
@@ -44,22 +52,39 @@ export const rehearsalSemanticEvaluationQueueName =
   "rehearsal-semantic-evaluation";
 export const rehearsalSemanticEvaluationJobName =
   "rehearsal-semantic-evaluation";
+export const focusedPracticeAnalysisQueueName = "focused-practice-analysis";
+export const focusedPracticeAnalysisJobName = "focused-practice-analysis";
+export const challengeQnaGenerationQueueName = "challenge-qna-generation";
+export const challengeQnaGenerationJobName = "challenge-qna-generation";
+export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysis";
+export const challengeQnaAnswerAnalysisJobName = "challenge-qna-answer-analysis";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
+export const generateDeckStagedCoordinatorJobName =
+  "generate-deck-staged-coordinator";
+export const aiDeckResearchContentQueueName = "ai-deck-research-content";
+export const aiDeckDesignLayoutQueueName = "ai-deck-design-layout";
+export const aiDeckImageQueueName = "ai-deck-image";
+export const aiDeckQaFinalizeQueueName = "ai-deck-qa-finalize";
 export const deckExportQueueName = "deck-export";
 export const deckExportJobName = "deck-export";
-export const aiTemplateDeckGenerationQueueName = "ai-template-deck-generation";
-export const aiTemplateDeckGenerationJobName = "ai-template-deck-generation";
 export const semanticCueExtractionQueueName = "semantic-cue-extraction";
 export const semanticCueExtractionJobName = "semantic-cue-extraction";
-export const pptxImportQueueName = "pptx-import";
-export const pptxImportJobName = "pptx-import";
+export const speakerNotesSuggestionQueueName = "speaker-notes-suggestion";
+export const speakerNotesSuggestionJobName = "speaker-notes-suggestion";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
 export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
 export const pptxOoxmlSyncJobName = "pptx-ooxml-sync";
 export const workerHealthCheckQueueName = "worker-health-check";
 export const workerHealthCheckJobName = "worker-health-check";
+
+export function aiDeckGenerationStageJobId(
+  input: AiDeckGenerationStageMessage,
+): string {
+  const message = aiDeckGenerationStageMessageSchema.parse(input);
+  return `${message.pipelineJobId}:${message.stage}:${message.shardKey}`;
+}
 
 export interface ReferenceExtractBullMqFile {
   fileId: string;
@@ -101,15 +126,56 @@ export type EnqueueRehearsalSemanticEvaluationJobInput =
     redisUrl: string;
   };
 
+export type EnqueueFocusedPracticeAnalysisJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  practiceSessionId: string;
+  attemptId: string;
+  audioFileId: string;
+};
+
+export type EnqueueChallengeQnaGenerationJobInput = {
+  driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
+  qnaSessionId: string; generationRevision: number;
+};
+
+export type EnqueueChallengeQnaAnswerAnalysisJobInput = {
+  driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
+  answerAttemptId: string;
+};
+
 export interface GenerateDeckBullMqPayload {
   jobId: string;
   projectId: string;
   request: GenerateDeckRequest;
+  designPackSnapshot?: SavedDesignPackSnapshot;
+  imageAssetScope?: {
+    userId: string;
+  };
 }
 
 export interface EnqueueGenerateDeckJobInput extends GenerateDeckBullMqPayload {
   driver: "bullmq" | "sqs";
+  executionMode?: AiDeckExecutionMode;
   redisUrl: string;
+}
+
+export interface AiDeckStagedCoordinatorBullMqPayload {
+  jobId: string;
+  projectId: string;
+}
+
+export interface EnqueueAiDeckGenerationStageJobInput {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  message: AiDeckGenerationStageMessage;
+}
+
+export interface AiDeckGenerationStageEnqueueResult {
+  jobId: string;
+  state: string;
 }
 
 export interface DeckExportBullMqPayload {
@@ -124,12 +190,6 @@ export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
   redisUrl: string;
 }
 
-export interface AiTemplateDeckGenerationBullMqPayload {
-  jobId: string;
-  projectId: string;
-  request: AiTemplateDeckGenerationRequest;
-}
-
 export type SemanticCueExtractionBullMqPayload = SemanticCueExtractionJobPayload;
 
 export type EnqueueSemanticCueExtractionJobInput =
@@ -138,22 +198,14 @@ export type EnqueueSemanticCueExtractionJobInput =
   redisUrl: string;
 };
 
-export interface EnqueueAiTemplateDeckGenerationJobInput
-  extends AiTemplateDeckGenerationBullMqPayload {
-  driver: "bullmq" | "sqs";
-  redisUrl: string;
-}
+export type SpeakerNotesSuggestionBullMqPayload =
+  SpeakerNotesSuggestionJobPayload;
 
-export interface PptxImportBullMqPayload {
-  jobId: string;
-  projectId: string;
-  fileId: string;
-}
-
-export interface EnqueuePptxImportJobInput extends PptxImportBullMqPayload {
-  driver: "bullmq" | "sqs";
-  redisUrl: string;
-}
+export type EnqueueSpeakerNotesSuggestionJobInput =
+  SpeakerNotesSuggestionBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export interface PptxOoxmlGenerationBullMqPayload {
   jobId: string;
@@ -205,7 +257,7 @@ export async function enqueueReferenceExtractJob(
       jobId: input.jobId,
       projectId: input.projectId,
       files: input.files,
-    } satisfies ReferenceExtractBullMqPayload);
+    } satisfies ReferenceExtractBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -229,7 +281,7 @@ export async function enqueueRehearsalSttJob(
       runId: input.runId,
       deckId: input.deckId,
       audioFileId: input.audioFileId,
-    } satisfies RehearsalSttBullMqPayload);
+    } satisfies RehearsalSttBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -254,6 +306,7 @@ export async function enqueueRehearsalSemanticEvaluationJob(
         projectId: input.projectId,
         runId: input.runId,
       }),
+      canonicalJobOptions(input.jobId),
     );
   } finally {
     await queue.close();
@@ -266,20 +319,141 @@ export async function enqueueGenerateDeckJob(
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
+  const executionMode = input.executionMode ?? "monolith";
+  if (executionMode === "sqs") {
+    throw new Error("AI Deck SQS transport is not implemented yet.");
+  }
 
   const queue = new Queue(generateDeckQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
-    await queue.add(generateDeckJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: generateDeckRequestSchema.parse(input.request),
-    } satisfies GenerateDeckBullMqPayload);
+    if (executionMode === "bullmq") {
+      await queue.add(
+        generateDeckStagedCoordinatorJobName,
+        {
+          jobId: input.jobId,
+          projectId: input.projectId,
+        } satisfies AiDeckStagedCoordinatorBullMqPayload,
+        {
+          ...canonicalJobOptions(input.jobId),
+          removeOnFail: false,
+        },
+      );
+      return;
+    }
+
+    await queue.add(
+      generateDeckJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: generateDeckRequestSchema.parse(input.request),
+        ...(input.designPackSnapshot
+          ? { designPackSnapshot: input.designPackSnapshot }
+          : {}),
+        ...(input.imageAssetScope
+          ? { imageAssetScope: input.imageAssetScope }
+          : {}),
+      } satisfies GenerateDeckBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
+}
+
+export async function retryAiDeckStagedCoordinatorJob(input: {
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+}): Promise<void> {
+  const queue = new Queue(generateDeckQueueName, {
+    connection: redisConnectionOptions(input.redisUrl)
+  });
+  try {
+    const existing = await queue.getJob(input.jobId);
+    if (existing && (await existing.getState()) === "failed") {
+      await existing.remove();
+    }
+    await queue.add(
+      generateDeckStagedCoordinatorJobName,
+      { jobId: input.jobId, projectId: input.projectId },
+      { ...canonicalJobOptions(input.jobId), removeOnFail: false }
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueAiDeckGenerationStageJob(
+  input: EnqueueAiDeckGenerationStageJobInput,
+): Promise<AiDeckGenerationStageEnqueueResult> {
+  if (input.driver === "sqs") {
+    throw new Error("AI Deck SQS transport is not implemented yet.");
+  }
+  const message = aiDeckGenerationStageMessageSchema.parse(input.message);
+  const queue = new Queue(aiDeckGenerationStageQueueName(message.stage), {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    const job = await queue.add(
+      message.stage,
+      message,
+      aiDeckGenerationStageJobOptions(message),
+    );
+    return {
+      jobId: String(job.id ?? aiDeckGenerationStageJobId(message)),
+      state: await job.getState(),
+    };
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueFocusedPracticeAnalysisJob(
+  input: EnqueueFocusedPracticeAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(focusedPracticeAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      focusedPracticeAnalysisJobName,
+      focusedPracticeAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        attemptId: input.attemptId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueChallengeQnaGenerationJob(input: EnqueueChallengeQnaGenerationJobInput): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(challengeQnaGenerationQueueName, { connection: redisConnectionOptions(input.redisUrl) });
+  try {
+    await queue.add(challengeQnaGenerationJobName, challengeQnaGenerationJobPayloadSchema.parse({
+      jobId: input.jobId, projectId: input.projectId, qnaSessionId: input.qnaSessionId,
+      generationRevision: input.generationRevision,
+    }), canonicalJobOptions(input.jobId));
+  } finally { await queue.close(); }
+}
+
+export async function enqueueChallengeQnaAnswerAnalysisJob(input: EnqueueChallengeQnaAnswerAnalysisJobInput): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(challengeQnaAnswerAnalysisQueueName, { connection: redisConnectionOptions(input.redisUrl) });
+  try {
+    await queue.add(challengeQnaAnswerAnalysisJobName, challengeQnaAnswerAnalysisJobPayloadSchema.parse({
+      jobId: input.jobId, projectId: input.projectId, answerAttemptId: input.answerAttemptId,
+    }), canonicalJobOptions(input.jobId));
+  } finally { await queue.close(); }
 }
 
 export async function enqueueDeckExportJob(
@@ -299,29 +473,7 @@ export async function enqueueDeckExportJob(
       projectId: input.projectId,
       deck: deckSchema.parse(input.deck),
       format: deckExportFormatSchema.parse(input.format),
-    } satisfies DeckExportBullMqPayload);
-  } finally {
-    await queue.close();
-  }
-}
-
-export async function enqueueAiTemplateDeckGenerationJob(
-  input: EnqueueAiTemplateDeckGenerationJobInput,
-): Promise<void> {
-  if (input.driver === "sqs") {
-    throw new Error("SqsJobQueue adapter is not implemented yet.");
-  }
-
-  const queue = new Queue(aiTemplateDeckGenerationQueueName, {
-    connection: redisConnectionOptions(input.redisUrl),
-  });
-
-  try {
-    await queue.add(aiTemplateDeckGenerationJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: aiTemplateDeckGenerationRequestSchema.parse(input.request),
-    } satisfies AiTemplateDeckGenerationBullMqPayload);
+    } satisfies DeckExportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -343,29 +495,33 @@ export async function enqueueSemanticCueExtractionJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: input.request,
-    }));
+    }), canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
 }
 
-export async function enqueuePptxImportJob(
-  input: EnqueuePptxImportJobInput,
+export async function enqueueSpeakerNotesSuggestionJob(
+  input: EnqueueSpeakerNotesSuggestionJobInput,
 ): Promise<void> {
   if (input.driver === "sqs") {
     throw new Error("SqsJobQueue adapter is not implemented yet.");
   }
 
-  const queue = new Queue(pptxImportQueueName, {
+  const queue = new Queue(speakerNotesSuggestionQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
 
   try {
-    await queue.add(pptxImportJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      fileId: input.fileId,
-    } satisfies PptxImportBullMqPayload);
+    await queue.add(
+      speakerNotesSuggestionJobName,
+      speakerNotesSuggestionJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: input.request,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -387,7 +543,7 @@ export async function enqueuePptxOoxmlGenerationJob(
       jobId: input.jobId,
       projectId: input.projectId,
       request: input.request,
-    } satisfies PptxOoxmlGenerationBullMqPayload);
+    } satisfies PptxOoxmlGenerationBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -411,7 +567,7 @@ export async function enqueuePptxOoxmlSyncJob(
       deckId: input.deckId,
       changeId: input.changeId,
       targetDeckVersion: input.targetDeckVersion,
-    } satisfies PptxOoxmlSyncBullMqPayload);
+    } satisfies PptxOoxmlSyncBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -432,7 +588,7 @@ export async function enqueueWorkerHealthCheckJob(
     await queue.add(workerHealthCheckJobName, {
       jobId: input.jobId,
       projectId: input.projectId,
-    } satisfies WorkerHealthCheckBullMqPayload);
+    } satisfies WorkerHealthCheckBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
   }
@@ -458,6 +614,43 @@ export function redisConnectionOptions(redisUrl: string) {
     port: url.port ? Number(url.port) : 6379,
     tls: url.protocol === "rediss:" ? {} : undefined,
     username: url.username ? decodeURIComponent(url.username) : undefined,
+  };
+}
+
+function canonicalJobOptions(jobId: string) {
+  return { jobId, attempts: 5, removeOnComplete: 1000, removeOnFail: 1000 };
+}
+
+export function aiDeckGenerationStageQueueName(
+  stage: AiDeckGenerationStage,
+): string {
+  switch (stage) {
+    case "reference-extract-file":
+      return referenceExtractQueueName;
+    case "source-grounding":
+    case "content-planning":
+      return aiDeckResearchContentQueueName;
+    case "design-planning":
+    case "layout-compile":
+      return aiDeckDesignLayoutQueueName;
+    case "image-slide":
+      return aiDeckImageQueueName;
+    case "semantic-quality":
+    case "rendered-visual-quality":
+    case "publication":
+      return aiDeckQaFinalizeQueueName;
+  }
+}
+
+function aiDeckGenerationStageJobOptions(
+  message: AiDeckGenerationStageMessage,
+) {
+  return {
+    jobId: aiDeckGenerationStageJobId(message),
+    attempts: 5,
+    backoff: { type: "exponential" as const, delay: 1_000 },
+    removeOnComplete: true,
+    removeOnFail: true,
   };
 }
 

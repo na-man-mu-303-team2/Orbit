@@ -1,10 +1,17 @@
-import type { StoragePort } from "@orbit/storage";
 import type { Deck, Job } from "@orbit/shared";
+import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processDeckExportJob } from "./deck-export.processor";
+import {
+  embedDeckImageAssets,
+  processDeckExportJob,
+} from "./deck-export.processor";
 
-const storage: Pick<StoragePort, "putObject"> = {
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+const storage: Pick<StoragePort, "putObject" | "getSignedReadUrl"> = {
+  getSignedReadUrl: vi.fn(async () => "http://storage.local/current.pptx"),
   putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
     key: input.key,
     url: "http://storage.local/export.pptx",
@@ -20,87 +27,308 @@ describe("processDeckExportJob", () => {
     vi.clearAllMocks();
   });
 
-  it("exports the deck snapshot through Python and stores a PPTX asset", async () => {
-    const deck = createDeck();
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 20, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          {
-            deckId: deck.deckId,
-            fileId: "file_export",
-            url: "/api/v1/projects/project-a/assets/file_export/content",
-            format: "pptx",
-            warnings: [],
-          },
-          null,
-        ),
-      ]);
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        format: "pptx",
-        deck: {
-          deckId: deck.deckId,
-          slides: deck.slides,
-        },
-      });
-      return new Response(
-        JSON.stringify({
-          contentBase64: Buffer.from("pptx").toString("base64"),
-          warnings: [],
-        }),
-      );
+  it("copies a fresh imported current package into a separate export asset", async () => {
+    const deck = createDeck("import");
+    const { dataSource, query } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-a",
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      expect(String(input)).toBe("http://storage.local/current.pptx");
+      return new Response("current-package-bytes");
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processDeckExportJob(
-      { query } as unknown as DataSource,
+      dataSource,
       storage,
       "http://localhost:8000",
-      {
-        jobId: "job-export",
-        projectId: "project-a",
-        deck,
-        format: "pptx",
-      },
+      exportPayload(deck),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
     );
 
-    expect(job.status).toBe("succeeded");
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ deckId: deck.deckId, format: "pptx" });
+    expect(fetchMock).not.toHaveBeenCalledWith(
       "http://localhost:8000/ai/export-deck-pptx",
-      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
     );
     expect(storage.putObject).toHaveBeenCalledWith(
       expect.objectContaining({
-        contentType:
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        body: Buffer.from("current-package-bytes"),
         purpose: "export-result",
       }),
     );
-    expect(query.mock.calls[1][0]).toContain("INSERT INTO project_assets");
-    expect(job.result).toMatchObject({
-      deckId: deck.deckId,
-      format: "pptx",
-      warnings: [],
+    expect(query).toHaveBeenCalledWith(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      ["project-a:deck_a"],
+    );
+    expect(
+      query.mock.calls.filter(([sql]) =>
+        String(sql).includes("SELECT version"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("FOR SHARE")),
+    ).toBe(true);
+    expect(
+      query.mock.calls.some(
+        ([sql]) =>
+          String(sql).includes("FROM project_assets") &&
+          String(sql).includes("FOR SHARE"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["a different current deck", "deck_b"],
+    ["no current deck row", null],
+  ])(
+    "keeps the generic Python exporter when the database has %s",
+    async (_caseName, storedDeckId) => {
+      const deck = createDeck("ai");
+      const { dataSource, query, transaction } = createExportDataSource({
+        deckVersion: 1,
+        blueprint: null,
+        storedDeckId,
+      });
+      const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("http://localhost:8000/ai/export-deck-pptx");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          format: "pptx",
+          deck: { deckId: deck.deckId },
+        });
+        return new Response(
+          JSON.stringify({
+            contentBase64: Buffer.from("generic-pptx").toString("base64"),
+            warnings: [],
+          }),
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const job = await processDeckExportJob(
+        dataSource,
+        storage,
+        "http://localhost:8000",
+        exportPayload(deck),
+        { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+      );
+
+      expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8000/ai/export-deck-pptx",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(transaction).not.toHaveBeenCalled();
+      expect(
+        query.mock.calls.some(([sql]) => String(sql).includes("SELECT version")),
+      ).toBe(false);
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes("pg_advisory_xact_lock"),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("fails explicitly after bounded waits instead of exporting a stale package", async () => {
+    const deck = createDeck("import");
+    const { dataSource } = createExportDataSource({
+      deckVersion: 3,
+      blueprint: templateBlueprint(2),
     });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck),
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({ code: "DECK_EXPORT_OOXML_SYNC_STALE" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("rejects a current package asset owned by another project", async () => {
+    const deck = createDeck("import");
+    const { dataSource } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-b",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "DECK_EXPORT_OOXML_PACKAGE_INVALID",
+      message: expect.stringContaining("project mismatch"),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
   });
 });
 
-function createDeck(): Deck {
+describe("embedDeckImageAssets", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("embeds project image bytes without mutating the stored deck", async () => {
+    const deck = createDeck("ai");
+    deck.slides[0].elements.push({
+      elementId: "el_image",
+      type: "image",
+      role: "media",
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 240,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 2,
+      locked: false,
+      visible: true,
+      props: {
+        src: "/api/v1/projects/project-a/assets/file_image/content",
+        alt: "Product",
+        fit: "cover",
+        focusX: 0.5,
+        focusY: 0.5,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+    );
+    const query = vi.fn(async () => [
+      {
+        file_id: "file_image",
+        storage_key: "projects/project-a/assets/file_image.png",
+        mime_type: "image/png",
+      },
+    ]);
+
+    const embedded = await embedDeckImageAssets(
+      { query } as unknown as DataSource,
+      storage,
+      "project-a",
+      deck,
+    );
+
+    const embeddedImage = embedded.slides[0].elements.find(
+      (element) => element.type === "image",
+    );
+    const originalImage = deck.slides[0].elements.find(
+      (element) => element.type === "image",
+    );
+    expect(embeddedImage?.props.src).toBe("data:image/png;base64,AQID");
+    expect(originalImage?.props.src).toBe(
+      "/api/v1/projects/project-a/assets/file_image/content",
+    );
+  });
+});
+
+function createExportDataSource(input: {
+  deckVersion: number;
+  blueprint: ReturnType<typeof templateBlueprint> | null;
+  packageProjectId?: string;
+  storedDeckId?: string | null;
+}) {
+  const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+    if (sql.includes("UPDATE jobs")) {
+      return [
+        jobRow(
+          params[1] as "running" | "succeeded" | "failed",
+          params[2] as number,
+          params[4] as Record<string, unknown> | null,
+          params[5] as { code: string; message: string } | null,
+        ),
+      ];
+    }
+    if (sql.includes("pg_advisory_xact_lock")) return [{ locked: true }];
+    if (sql.includes("SELECT version")) {
+      const storedDeckId =
+        input.storedDeckId === undefined ? "deck_a" : input.storedDeckId;
+      return storedDeckId === params[1] ? [{ version: input.deckVersion }] : [];
+    }
+    if (sql.includes("FROM template_blueprints")) {
+      return input.blueprint ? [{ blueprint_json: input.blueprint }] : [];
+    }
+    if (sql.includes("FROM project_assets")) {
+      return [
+        {
+          file_id: "file_current",
+          project_id: input.packageProjectId ?? "project-a",
+          storage_key: "projects/project-a/assets/current.pptx",
+          mime_type: pptxMimeType,
+          original_name: "current.pptx",
+          purpose: "design-asset",
+          status: "uploaded",
+        },
+      ];
+    }
+    if (sql.includes("INSERT INTO project_assets")) return [];
+    return [];
+  });
+  const manager = { query };
+  const transaction = vi.fn(
+    async (callback: (value: typeof manager) => unknown) => callback(manager),
+  );
+  const dataSource = {
+    query,
+    transaction,
+  } as unknown as DataSource;
+  return { dataSource, query, transaction };
+}
+
+function templateBlueprint(syncedDeckVersion: number) {
   return {
-    deckId: "deck_ai_1",
+    templateId: "template_a",
+    sourceFileId: "file_source",
+    sourcePackageFileId: "file_source",
+    currentPackageFileId: "file_current",
+    ooxmlSyncedDeckVersion: syncedDeckVersion,
+    slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+  };
+}
+
+function exportPayload(deck: Deck) {
+  return {
+    jobId: "job-export",
     projectId: "project-a",
-    title: "AI Export",
+    deck,
+    format: "pptx",
+  };
+}
+
+function createDeck(sourceType: "ai" | "import"): Deck {
+  return {
+    deckId: "deck_a",
+    projectId: "project-a",
+    title: "Export",
     version: 1,
     targetDurationMinutes: 10,
     metadata: {
       language: "ko",
       locale: "ko-KR",
-      sourceType: "ai",
+      sourceType,
       generatedBy: "ai",
     },
     canvas: {

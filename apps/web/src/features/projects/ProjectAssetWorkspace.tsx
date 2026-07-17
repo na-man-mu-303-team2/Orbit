@@ -226,7 +226,7 @@ export async function createInitialProjectDeck(
   fetcher: Fetcher = fetch,
 ) {
   const deck = buildInitialProjectDeck(project);
-  const response = await fetcher(`/api/v1/projects/${project.projectId}/deck`, {
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(project.projectId)}/deck`, {
     body: JSON.stringify({
       deck,
       snapshotReason: "deck-replaced",
@@ -262,7 +262,7 @@ async function requestProjectUploadUrl(
   uploadRequest: AssetUploadUrlRequest,
   fetcher: Fetcher,
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/assets/upload-url`, {
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/assets/upload-url`, {
     body: JSON.stringify(uploadRequest),
     headers: { "content-type": "application/json" },
     method: "POST",
@@ -300,7 +300,7 @@ async function completeProjectAssetUpload(
   fileId: string,
   fetcher: Fetcher,
 ) {
-  const response = await fetcher(`/api/v1/projects/${projectId}/assets/complete`, {
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/assets/complete`, {
     body: JSON.stringify({ fileId }),
     headers: { "content-type": "application/json" },
     method: "POST",

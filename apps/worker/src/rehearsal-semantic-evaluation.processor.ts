@@ -15,6 +15,11 @@ import {
   semanticEndpointFailureReason
 } from "./rehearsal-stt.processor";
 import type { RehearsalTranscriptCache } from "./rehearsal-transcript-cache";
+import {
+  derivePracticeGoalSet,
+  loadPracticeGoalRankingContext,
+  publishPracticeGoalSet
+} from "./practice-goal-derivation";
 
 const retryRunRowSchema = z.object({
   run_id: z.string().min(1),
@@ -24,7 +29,8 @@ const retryRunRowSchema = z.object({
   semantic_evaluation_mode: z.enum(["full", "delivery-only"]),
   evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable(),
   meta_json: z.record(z.unknown()).nullable(),
-  report_json: z.record(z.unknown()).nullable()
+  report_json: z.record(z.unknown()).nullable(),
+  analysis_revision: z.number().int().nonnegative().default(0)
 });
 
 export type RehearsalSemanticEvaluationRetryBusinessEvent = {
@@ -214,7 +220,30 @@ export async function processRehearsalSemanticEvaluationJob(
       semanticEvaluation: semanticResult.semanticEvaluation,
       semanticCueOutcomes: semanticResult.semanticCueOutcomes
     });
-    await replaceSemanticReportFields(dataSource, payload, nextReport);
+    const update = await replaceSemanticReportFields(dataSource, payload, nextReport);
+    if (update.didUpdate) {
+      const rankingContext = await loadPracticeGoalRankingContext({
+        executor: dataSource,
+        projectId: payload.projectId,
+        sourceFullRunId: payload.runId,
+        snapshot
+      });
+      const goalSet = derivePracticeGoalSet({
+        projectId: payload.projectId,
+        sourceFullRunId: payload.runId,
+        sourceAnalysisRevision: update.analysisRevision,
+        snapshot,
+        report: nextReport,
+        rankingContext
+      });
+      if (goalSet) {
+        await publishPracticeGoalSet(dataSource, goalSet, {
+          evaluatedFullRunId: payload.runId,
+          snapshot,
+          report: nextReport
+        });
+      }
+    }
 
     emitEvent(onEvent, {
       event: "rehearsal.semantic_evaluation.succeeded",
@@ -315,7 +344,7 @@ async function loadRetryRun(
   const rows = await dataSource.query(
     `
       SELECT run_id, project_id, deck_id, status, semantic_evaluation_mode,
-             evaluation_snapshot_json, meta_json, report_json
+             evaluation_snapshot_json, meta_json, report_json, analysis_revision
       FROM rehearsal_runs
       WHERE run_id = $1 AND project_id = $2
     `,
@@ -343,13 +372,15 @@ async function replaceSemanticReportFields(
             jsonb_set(report_json, '{semanticEvaluation}', $3::jsonb, true),
             '{semanticCueOutcomes}', $4::jsonb, true
           ),
+          analysis_revision = analysis_revision + 1,
+          analysis_finalized_at = now(),
           updated_at = now()
       WHERE run_id = $1
         AND project_id = $2
         AND status = 'succeeded'
         AND report_json IS NOT NULL
         AND report_json #>> '{semanticEvaluation,retryable}' = 'true'
-      RETURNING report_json
+      RETURNING report_json, analysis_revision
     `,
     [
       payload.runId,
@@ -358,21 +389,21 @@ async function replaceSemanticReportFields(
       JSON.stringify(report.semanticCueOutcomes)
     ]
   );
-  const row = readFirstQueryRow<{ report_json: unknown }>(rows);
+  const row = readFirstQueryRow<{ report_json: unknown; analysis_revision: number }>(rows);
   if (row) {
     rehearsalReportSchema.parse(row.report_json);
-    return;
+    return { didUpdate: true as const, analysisRevision: row.analysis_revision };
   }
 
   const currentRows = await dataSource.query(
     `
-      SELECT report_json
+      SELECT report_json, analysis_revision
       FROM rehearsal_runs
       WHERE run_id = $1 AND project_id = $2 AND status = 'succeeded'
     `,
     [payload.runId, payload.projectId]
   );
-  const current = readFirstQueryRow<{ report_json: unknown }>(currentRows);
+  const current = readFirstQueryRow<{ report_json: unknown; analysis_revision: number }>(currentRows);
   const currentReport = current
     ? rehearsalReportSchema.safeParse(current.report_json)
     : null;
@@ -380,7 +411,10 @@ async function replaceSemanticReportFields(
     currentReport?.success &&
     currentReport.data.semanticEvaluation.state === "succeeded"
   ) {
-    return;
+    return {
+      didUpdate: false as const,
+      analysisRevision: current?.analysis_revision ?? 0
+    };
   }
   throw new RetryEvaluationError(
     "REHEARSAL_SEMANTIC_REPORT_UPDATE_CONFLICT",

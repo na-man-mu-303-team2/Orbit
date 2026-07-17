@@ -32,6 +32,20 @@ from app.ai.generate_deck import (
     ReferenceContext,
     generate_deck,
 )
+from app.ai.deck_generation.stage_runtime import (
+    ContentPlanningStageInput,
+    ContentPlanningStageResult,
+    DesignPlanningStageInput,
+    DesignPlanningStageResult,
+    LayoutCompileStageInput,
+    LayoutCompileStageResult,
+    SourceGroundingStageInput,
+    run_content_planning_stage,
+    run_design_planning_stage,
+    run_layout_compile_stage,
+    run_source_grounding_stage,
+)
+from app.ai.deck_generation.models import SourceGroundingResult
 from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     PptxDesignImportResult,
@@ -41,18 +55,32 @@ from app.ai.pptx_ooxml_generation import (
     PptxOoxmlGenerationResult,
     PptxOoxmlSyncResult,
     UnsupportedPptxAspectRatioError,
-    apply_slot_texts_to_pptx_ooxml,
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
+from app.ai.visual_qa import (
+    VisualQaRequest,
+    VisualQaResponse,
+    VisualQaUnavailableError,
+    VisualRepairRequest,
+    VisualRepairResponse,
+    repair_deck_visuals,
+    review_deck_visuals,
+)
 from app.ai.semantic_cues import (
     SemanticCueExtractionError,
     SemanticCueExtractionRequest,
     SemanticCueExtractionResponse,
     extract_semantic_cues,
+)
+from app.ai.speaker_notes import (
+    SpeakerNotesSuggestionError,
+    SpeakerNotesSuggestionRequest,
+    SpeakerNotesSuggestionResponse,
+    generate_speaker_notes_suggestion,
 )
 from app.audio.transcribe import (
     AudioTranscribeRequest,
@@ -63,6 +91,7 @@ from app.audio.transcribe import (
     to_http_exception,
     transcribe_rehearsal_audio,
 )
+from app.challenge_qna import router as challenge_qna_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -72,6 +101,7 @@ from app.extraction import (
     extract_file,
     extract_presentation_keywords,
 )
+from app.focused_practice import router as focused_practice_router
 from app.references import (
     PostgresReferenceRepository,
     index_reference_text,
@@ -97,6 +127,63 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     app: str
     checked_at: datetime
+
+
+def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, object]:
+    message = str(error)
+    if "SOURCE_GROUNDING_REQUIRED" in message:
+        reason_code = "SOURCE_GROUNDING_REQUIRED"
+    elif message.startswith("LLM deck content generation failed:"):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif message.startswith("LLM returned empty deck content."):
+        reason_code = "CONTENT_LLM_EMPTY_RESPONSE"
+    elif message.startswith("LLM returned invalid deck content:"):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith(
+        (
+            "LLM content plan reused content item IDs:",
+            "LLM content plan referenced unavailable source IDs:",
+            "UNSUPPORTED_NUMERIC_CLAIM:",
+            "LLM returned fewer slides than the requested minimum",
+        )
+    ):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith("LLM slide count repair failed:"):
+        reason_code = "CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED"
+    elif message.startswith(
+        (
+            "OPENAI_API_KEY is required for prompt or reference-based deck generation.",
+            "LLM deck content generation is required for prompt or reference-based decks.",
+        )
+    ):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif "Art Director could not create a valid design plan" in message:
+        reason_code = "ART_DIRECTOR_INVALID_RESPONSE"
+    elif "Art Director" in message and "unavailable" in message:
+        reason_code = "ART_DIRECTOR_UNAVAILABLE"
+    else:
+        reason_code = "PLANNING_FAILURE_UNCLASSIFIED"
+
+    detail: dict[str, object] = {"reasonCode": reason_code}
+    if reason_code.startswith(("CONTENT_LLM_", "ART_DIRECTOR_")):
+        detail["provider"] = "openai"
+    provider_error: BaseException | None = error.__cause__
+    for _ in range(3):
+        if provider_error is None:
+            break
+        provider_status = getattr(provider_error, "status_code", None)
+        if isinstance(provider_status, int) and 100 <= provider_status <= 599:
+            detail["providerHttpStatus"] = provider_status
+        provider_request_id = getattr(provider_error, "request_id", None)
+        if (
+            isinstance(provider_request_id, str)
+            and 0 < len(provider_request_id) <= 256
+        ):
+            detail["providerRequestId"] = provider_request_id
+        if "providerHttpStatus" in detail and "providerRequestId" in detail:
+            break
+        provider_error = provider_error.__cause__
+    return detail
 
 
 class ReferenceExtractRequest(BaseModel):
@@ -162,19 +249,26 @@ class ReferenceSearchResponse(BaseModel):
 
 
 class DeckKeywordRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     keyword_id: str = Field(default="", alias="keywordId")
     slide_id: str = Field(default="", alias="slideId")
     text: str
     synonyms: list[str] = Field(default_factory=list)
     abbreviations: list[str] = Field(default_factory=list)
+    required: bool = False
 
 
 class RehearsalSlideTimelineEntryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     slide_id: str = Field(alias="slideId")
     entered_second: float = Field(alias="enteredSecond", ge=0)
 
 
 class RehearsalAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
     run_id: str = Field(alias="runId")
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
@@ -272,6 +366,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
+app.include_router(challenge_qna_router)
+app.include_router(focused_practice_router)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -462,19 +558,12 @@ async def import_pptx_design_endpoint(
 
 @app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
 async def generate_pptx_ooxml_endpoint(
-    request: Request,
     file: UploadFile = File(...),
-    project_id: str = Form("default"),
     file_id: str = Form(...),
-    topic: str = Form(""),
-    prompt: str = Form(""),
 ) -> PptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
-    del project_id
-
-    worker_config = _config(request)
     with TemporaryDirectory(prefix="orbit-ooxml-") as temp_dir:
         source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
         source_path.write_bytes(await file.read())
@@ -483,10 +572,6 @@ async def generate_pptx_ooxml_endpoint(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
-                topic=topic,
-                prompt=prompt,
-                api_key=worker_config.openai_api_key,
-                model=worker_config.openai_model,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -525,37 +610,8 @@ async def sync_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/ai/pptx-ooxml-apply-slot-texts", response_model=PptxOoxmlSyncResult)
-async def apply_pptx_ooxml_slot_texts_endpoint(
-    file: UploadFile = File(...),
-    template_blueprint: str = Form(...),
-    slot_texts: str = Form(...),
-    render: bool = Form(True),
-) -> PptxOoxmlSyncResult:
-    from pathlib import Path
-    from tempfile import TemporaryDirectory
-
-    with TemporaryDirectory(prefix="orbit-ooxml-apply-") as temp_dir:
-        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
-        source_path.write_bytes(await file.read())
-        try:
-            raw_slot_texts = json.loads(slot_texts)
-            if not isinstance(raw_slot_texts, list):
-                raise ValueError("slot_texts must be a JSON array.")
-            return await run_in_threadpool(
-                apply_slot_texts_to_pptx_ooxml,
-                source_path,
-                template_blueprint=json.loads(template_blueprint),
-                slot_texts=[str(text) for text in raw_slot_texts],
-                render=render,
-            )
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        except PptxOoxmlGenerationError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-
-
 @app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
+@app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
 def transcribe_audio(
     payload: AudioTranscribeRequest,
     provider: ReportSttProviderDependency,
@@ -584,6 +640,86 @@ def generate_ai_deck(
         )
     except DeckContentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/source-grounding",
+    response_model=SourceGroundingResult,
+)
+def source_grounding_stage(
+    payload: SourceGroundingStageInput,
+    request: Request,
+) -> SourceGroundingResult:
+    config = _config(request)
+    try:
+        return run_source_grounding_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/content-planning",
+    response_model=ContentPlanningStageResult,
+)
+def content_planning_stage(
+    payload: ContentPlanningStageInput,
+    request: Request,
+) -> ContentPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_content_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/design-planning",
+    response_model=DesignPlanningStageResult,
+)
+def design_planning_stage(
+    payload: DesignPlanningStageInput,
+    request: Request,
+) -> DesignPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_design_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/layout-compile",
+    response_model=LayoutCompileStageResult,
+)
+def layout_compile_stage(
+    payload: LayoutCompileStageInput,
+    request: Request,
+) -> LayoutCompileStageResult:
+    config = _config(request)
+    return run_layout_compile_stage(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+        image_review_mode=config.ai_slide_image_review_mode,
+    )
 
 
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
@@ -624,6 +760,27 @@ def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportRespons
     return export_deck_pptx(payload)
 
 
+@app.post("/ai/review-deck-visuals", response_model=VisualQaResponse)
+def review_ai_deck_visuals(
+    payload: VisualQaRequest,
+    request: Request,
+) -> VisualQaResponse:
+    config = _config(request)
+    try:
+        return review_deck_visuals(
+            payload,
+            model=config.ai_ppt_visual_qa_model or config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except VisualQaUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/ai/repair-deck-visuals", response_model=VisualRepairResponse)
+def repair_ai_deck_visuals(payload: VisualRepairRequest) -> VisualRepairResponse:
+    return repair_deck_visuals(payload)
+
+
 @app.post("/ai/extract-semantic-cues", response_model=SemanticCueExtractionResponse)
 def extract_semantic_cues_endpoint(
     payload: SemanticCueExtractionRequest,
@@ -640,6 +797,25 @@ def extract_semantic_cues_endpoint(
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
+@app.post(
+    "/ai/speaker-notes/suggest",
+    response_model=SpeakerNotesSuggestionResponse,
+)
+def suggest_speaker_notes(
+    payload: SpeakerNotesSuggestionRequest,
+    request: Request,
+) -> SpeakerNotesSuggestionResponse:
+    config = _config(request)
+    try:
+        return generate_speaker_notes_suggestion(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SpeakerNotesSuggestionError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
 def analyze_rehearsal(
     request: Request,
@@ -653,6 +829,7 @@ def analyze_rehearsal(
             text=keyword.text,
             synonyms=keyword.synonyms,
             abbreviations=keyword.abbreviations,
+            required=keyword.required,
         )
         for keyword in payload.deck_keywords
     ]

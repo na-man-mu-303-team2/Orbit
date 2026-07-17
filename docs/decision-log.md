@@ -196,7 +196,7 @@
 
 ## ORBIT-228 personal server runtime override policy
 
-- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, SQS, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
+- Context: 개인 서버 배포는 Doppler `orbit / stg` secret을 사용하지만, 저장소의 staging 예시는 S3, AWS Transcribe, AWS Textract를 전제로 한다. 개인 서버 override는 같은 서버 안의 Redis, MinIO, Python worker를 올리므로 staging secret 값을 그대로 주입하면 web 부팅, queue 처리, asset 접근, 인증 검증, STT demo가 깨질 수 있다.
 - Options considered:
   - Doppler `stg` 값을 개인 서버 토폴로지에 맞춰 수동으로 계속 관리한다.
   - staging 예시 값을 그대로 사용하고 실패 항목을 runbook troubleshooting으로만 설명한다.
@@ -374,3 +374,63 @@
 - Rationale: 운영 서버 내부 파일을 수동으로 고쳐 drift를 만들기보다, 저장소의 최신 bootstrap template을 source of truth로 삼아 재현 가능한 상태를 만든다. RDS/S3는 유지하면서 앱 서버만 새 bootstrap 상태로 교체하는 것이 이번 장애의 실제 경계에 가장 좁게 맞다.
 - Affected files: `infra/aws/main-production-bootstrap.yaml`, `docs/decision-log.md`.
 - Follow-up review notes: merge 후 CloudFormation change set에서 `AppServerInstance` 생성, `AppInstance` 삭제, `WebDistribution` origin 갱신, `GitHubActionsDeployRole` SSM target 갱신만 발생하고 RDS/S3 변경이 없는지 확인한다. stack update 뒤 새 `Ec2InstanceId`, SSM managed status, deploy key, `/opt/orbit/source` clone, CloudFront `/api/health`와 `/socket.io/?EIO=4&transport=polling`을 검증한다.
+
+## ORBIT P0 parallel coaching contract boundary
+
+- Context: 네 담당자가 평가기, 음성 측정, 집중 연습, report 통합을 병렬 구현하려면 기존 C0 read contract만으로는 사용자 focus revision, 한국어 CPM, STT confidence 부재, pause v2, 문장 target, 짧은 음성 근거의 보존·권한 경계가 고정되지 않는다. 현재 raw audio는 분석 뒤 삭제되고, 30~60초 모범 발화 audio는 Later 후보이므로 P0 Evidence Clip과도 구분해야 한다.
+- Options considered:
+  - 각 담당 브랜치가 필요한 enum, DTO, fixture, 저장 구조를 자체 정의한다.
+  - 문서에 shape만 적고 schema와 migration은 담당 구현 PR에서 나중에 합친다.
+  - shared schema, 공통 fixture, strict Python 요청 경계, focus/clip migration을 선행 PR로 고정하고 담당 구현은 이를 import한다.
+- Final decision: `RehearsalFocusProfile`은 Brief와 분리된 project-level CAS aggregate로 두고 run snapshot에 revision과 item 값을 동결한다. 한국어 속도는 공백 제외 CPM v1을 canonical로, WPM을 호환값으로 둔다. STT confidence는 provider가 준 경우만 사용하고, pause v2 분류 근거가 없으면 `unknown`을 강제한다. sentence target은 text snapshot hash를 가진다. 문제 근거용 Evidence Clip은 raw audio와 별개인 최대 12초 파생물로 기본 7일 보관하고 Owner만 재생한다. report에는 clip ID만 포함하고 URL·storage key·audio file ID를 넣지 않는다. Presenter Aid는 전체 script를 숨기고 남은 시간·keyword 최대 3개·미해결 문제 최대 1개만 허용한다.
+- Rationale: 계약과 fixture를 먼저 고정하면 네 구현 스트림이 같은 상태·단위·보안 경계를 사용하고, confidence·timestamp·audio가 없을 때 값을 추측하지 않는다. 12초 사용자 근거와 30~60초 모범 audio를 분리해 기존 raw audio 삭제 정책과 Later 범위를 보존한다.
+- Affected files: `packages/shared/src/coaching/*`, `packages/shared/src/rehearsals/*`, `packages/shared/src/index.ts`, `packages/shared/src/README.md`, `apps/api/src/database/migrations/2026071301000-CreateP0CoachingContracts.ts`, `apps/api/src/database/data-source.ts`, `apps/worker/src/rehearsal-stt.processor.ts`, `services/python-worker/app/main.py`, `services/python-worker/app/audio/transcribe.py`, `services/python-worker/app/rehearsal.py`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/product/adaptive-rehearsal-coach-direction.md`, `docs/decision-log.md`.
+- Follow-up review notes: API 구현은 focus PUT에서 CAS conflict를 HTTP 409로 매핑하고 Evidence playback마다 project Owner를 재검사한다. clip storage key는 DB 내부와 StoragePort에만 두고 로그에 남기지 않는다. 만료·조기 삭제·project 삭제는 기존 deletion outbox를 재사용한다. Editor 접근 확대, 30일 연장, 30~60초 모범 audio는 별도 제품·개인정보·권한 결정 전에는 구현하지 않는다.
+
+## ORBIT rehearsal analysis DTO v2 contract
+
+- Context: 기존 `/rehearsal/analyze` DTO는 `durationSeconds=0`으로 근거 없음과 실제 값을 구분하지 못하고, language/provider/model, normalized confidence, response measurement state가 없다. TypeScript sender와 Python boundary를 순차 배포하려면 양쪽이 구현할 strict v2 shape와 짧은 v1 호환 표면을 먼저 고정해야 한다.
+- Options considered:
+  - 기존 v1 필드에 optional field만 추가하고 `durationSeconds=0` 의미를 유지한다.
+  - v1/v2 endpoint를 장기간 병행한다.
+  - 같은 endpoint에서 `contractVersion: 2` request/response를 canonical로 고정하고, 기존 v1은 배포 전환 동안만 dual-read한다.
+- Final decision: request와 response는 `contractVersion: 2`를 사용한다. recording/provider duration을 nullable 양수로 분리하고, segment time pair·시간 순서·finite number·ID 길이를 strict Zod schema로 검증한다. response는 Quality Gate, measurement state, capability, filler occurrence, pause v1·v2와 합계·정렬 불변식을 포함한다. confidence 미제공은 `unavailable/CONFIDENCE_NOT_PROVIDED`이며 지표 계산 자체를 차단하지 않는다. 현재 normalization profile registry는 비어 있어 알 수 없는 profile은 거부한다. v1 request schema와 합성 fixture는 Python cutover 및 retry Job drain이 끝날 때까지만 유지한다.
+- Rationale: 값과 측정 상태를 함께 전달하면 `0`을 측정 실패로 오해하지 않고, 양쪽 runtime이 동일한 nested strict 계약을 독립적으로 구현할 수 있다. version literal과 명시적 compatibility schema는 부분 배포 중 신규 write와 legacy read 경계를 드러낸다.
+- Affected files: `packages/shared/src/coaching/rehearsal-analyze.schema.ts`, `packages/shared/src/coaching/p0-core-contract.fixtures.json`, `packages/shared/src/coaching/p0-core-contract.schema.test.ts`, `services/python-worker/tests/test_rehearsal_analyze.py`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: Python은 canonical v2 fixture를 읽는 strict Pydantic v2 request/response와 안전한 HTTP 422 body를 구현한다. TypeScript worker는 그 다음 v2만 새로 쓰고 response를 shared schema로 parse한다. 두 runtime 배포와 retry Job drain을 확인한 뒤 v1 schema와 fixture를 별도 cleanup PR에서 제거한다.
+
+## ORBIT rehearsal recording duration transport contract
+
+- Context: v2 분석 DTO는 실제 녹음 전체 시간과 Provider duration을 분리하지만, 기존 Run meta와 audio-complete 요청에는 Web recorder가 측정한 실제 경과시간을 전달하는 공통 필드가 없다. 기존 worker는 Provider duration이 없으면 `0` sentinel을 만들어 실제 0과 근거 없음을 구분하지 못한다.
+- Options considered:
+  - Provider duration을 실제 녹음 시간으로 계속 사용한다.
+  - legacy upload와 chunk upload가 서로 다른 duration 필드를 사용한다.
+  - `recordingDurationSeconds` nullable 양수 계약을 audio-complete와 Run meta가 함께 사용하고 기존 payload는 `null`로 읽는다.
+- Final decision: `recordingDurationSeconds`는 생략 또는 `null`, 값이 있으면 양수 finite number만 허용한다. legacy upload complete, chunk upload complete, Run meta가 같은 shared schema를 사용하며 `0`, 음수, `NaN`, `Infinity`를 거부한다. Web/API producer는 분석 enqueue 전에 값을 Run meta에 저장하고, worker는 후속 P1에서 같은 값을 v2 분석 요청에 전달하되 Provider duration으로 덮어쓰지 않는다.
+- Rationale: 실제 전체 녹음 시간을 별도 canonical transport로 보존하면 duration resolver와 마지막 slide timing이 같은 근거를 사용하고, 배포 전 저장된 Run meta와 기존 complete 요청은 `null` default로 계속 읽을 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `packages/shared/src/rehearsals/rehearsal.schema.test.ts`, `apps/web/src/features/rehearsal/RehearsalWorkspace.tsx`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.ts`, `apps/web/src/features/rehearsal/speech/rehearsalLogCollector.test.ts`, `apps/web/src/features/rehearsal/speech/p3RehearsalSession.test.ts`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: Web/API producer는 legacy와 chunk upload 모두 실제 recorder 경과시간을 보내고 Run meta 저장 성공 뒤에만 분석 Job을 enqueue한다. P1 worker sender는 Run meta 값을 `recordingDurationSeconds`로 전달하고 STT Provider 값은 `providerDurationSeconds`에만 둔다.
+
+## ORBIT environment contract CI and personal staging deployment gate
+
+- Context: 기존 환경 검증은 TypeScript CI 내부에서 예시 파일의 key 존재와 집합만 비교했다. 허용되지 않은 빈 값·중복·잘못된 선언 형식을 잡지 못했고, `develop` push의 개인 서버 배포 workflow도 CI 결과와 독립적으로 시작했다.
+- Options considered:
+  - 기존 TypeScript CI 안에서만 `check-env.mjs`를 강화하고 배포 workflow는 그대로 둔다.
+  - 별도 Environment Contract CI를 모든 PR과 `develop` push에서 실행하고 성공한 `develop` run만 개인 서버 배포를 시작한다.
+  - 실제 Doppler 값을 PR CI에 전달해 한 번에 검사한다.
+- Final decision: 환경 계약을 의존성 설치가 없는 별도 `environment-contract` job으로 분리한다. 예시 파일은 key 누락·집합 불일치·중복·형식 오류·환경별로 허용되지 않은 빈 값을 검사한다. 실제 개인 서버 값은 secret을 출력하지 않는 배포 전 Bash preflight로 검사한다. `develop` push의 자동 배포는 같은 workflow의 후속 `needs` job이 reusable deploy workflow를 호출해 검증한 `github.sha`를 wrapper에 전달하고, 서버의 실제 `develop` HEAD가 다르면 build 전에 거부한다. 상위 workflow concurrency는 PR run만 `cancel-in-progress`하고 `develop` push run은 취소하지 않는다.
+- Rationale: PR에는 실제 secret을 노출하지 않으면서 환경 계약 오류를 빠르게 확인하고, merge 뒤에도 환경 검증 실패나 검증되지 않은 최신 commit이 서비스 교체까지 진행되는 것을 막는다. PR 검증은 최신 commit만 남기되, `develop` 배포가 build·migration·service 교체 도중 새 push 때문에 중간 취소되는 것은 방지한다. 수동 배포는 CI를 우회할 수 있지만 동일한 서버 환경 preflight와 Compose interpolation 검증은 반드시 거친다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/typescript-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/check-env.mjs`, `infra/scripts/check-personal-staging-env.sh`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR의 `environment-contract` check가 생성되면 GitHub `main dev protect` ruleset에 required status check로 등록해야 merge 차단이 활성화된다. PR merge 전에 개인 서버의 `/usr/local/sbin/orbit-deploy-personal-staging` wrapper를 runbook의 mode와 SHA 전달 버전으로 갱신하고, 첫 자동 배포에서 환경 오류가 key 이름만 출력되는지와 검증 SHA·서버 HEAD 일치를 확인한다.
+
+## ORBIT personal staging Doppler environment-only redeploy
+
+- Context: 개인 서버 컨테이너는 Doppler 값을 시작 시 읽으므로 `orbit / stg` secret만 수정·삭제하면 실행 중인 프로세스에는 반영되지 않는다. 기존 `develop` 전체 배포를 다시 실행하면 불필요한 image build가 발생하고, 필수값 삭제나 잘못된 값이 서비스 교체 뒤에 발견될 수 있다.
+- Options considered:
+  - Doppler 변경마다 기존 `full` build/migration 배포를 다시 실행한다.
+  - 서명 검증 relay service를 추가해 GitHub App installation token을 동적으로 발급한다.
+  - Doppler Webhook이 최소 권한 fine-grained token으로 기존 workflow의 `environment-only` mode를 직접 dispatch한다.
+- Final decision: personal staging에만 직접 workflow dispatch를 사용한다. `environment-only` mode는 현재 `develop` SHA와 서버 HEAD 일치, 필수값·Compose 검증, 기존 이미지의 Node/Python runtime schema 검증을 모두 통과한 뒤에만 앱 컨테이너 네 개를 `--no-build --force-recreate`한다. 전체 코드 배포는 기존 `full` mode와 Environment Contract CI gate를 유지한다.
+- Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
+- Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
+- Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.

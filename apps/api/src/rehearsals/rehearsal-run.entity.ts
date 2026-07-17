@@ -27,6 +27,12 @@ export class RehearsalRunEntity {
   @Column({ name: "audio_file_id", nullable: true, type: "text" })
   audioFileId!: string | null;
 
+  @Column({ name: "transcript_json_file_id", nullable: true, type: "text" })
+  transcriptJsonFileId!: string | null;
+
+  @Column({ name: "transcript_text_file_id", nullable: true, type: "text" })
+  transcriptTextFileId!: string | null;
+
   @Column({ name: "job_id", nullable: true, type: "text" })
   jobId!: string | null;
 
@@ -38,6 +44,12 @@ export class RehearsalRunEntity {
 
   @Column({ name: "semantic_evaluation_mode", default: "full", type: "text" })
   semanticEvaluationMode!: RehearsalSemanticEvaluationMode;
+
+  @Column({ name: "analysis_revision", default: 0, type: "integer" })
+  analysisRevision!: number;
+
+  @Column({ name: "analysis_finalized_at", nullable: true, type: "timestamptz" })
+  analysisFinalizedAt!: Date | null;
 
   @Column({ type: "text" })
   status!: RehearsalRunStatus;

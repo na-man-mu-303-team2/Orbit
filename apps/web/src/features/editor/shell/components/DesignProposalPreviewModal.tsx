@@ -1,8 +1,9 @@
 import type { Deck } from "@orbit/shared";
 import type Konva from "konva";
-import { X } from "lucide-react";
+import { IconX as X } from "@tabler/icons-react";
 import { useRef } from "react";
 import { createPortal } from "react-dom";
+import { buildSlideBackgroundStyle } from "../../../slides/rendering/SlideBackground";
 import {
   EditableCanvas,
   getRenderableSlideElements
@@ -50,31 +51,41 @@ export function DesignProposalPreviewModal(
         </header>
 
         <div className="design-proposal-canvas-wrap">
-          <EditableCanvas
-            customShapeEditElementId={null}
-            deck={props.deck}
-            disableInteractions
-            editingElementId={null}
-            insertTool="select"
-            selectedElementIds={[]}
-            showIds={false}
-            slide={slide}
-            stageScale={scale}
-            stageRef={stageRef}
-            visibleElements={getRenderableSlideElements(slide, props.deck.canvas)}
-            onClearSelection={() => undefined}
-            onCommitElementProps={() => undefined}
-            onCommitElementFrame={() => undefined}
-            onCreateElement={() => undefined}
-            onCreateCustomShape={() => undefined}
-            onCommitCustomShapeGeometry={() => undefined}
-            onDoubleClickElement={() => undefined}
-            onFinishEditing={() => undefined}
-            onOpenElementContextMenu={() => undefined}
-            onSetCustomShapeEditElementId={() => undefined}
-            onSetInsertTool={() => undefined}
-            onSelectElement={() => undefined}
-          />
+          <div
+            className="konva-stage-shell design-proposal-stage-shell"
+            style={{
+              width: props.deck.canvas.width * scale,
+              height: props.deck.canvas.height * scale,
+              color: slide.style.textColor ?? props.deck.theme.textColor,
+              ...buildSlideBackgroundStyle(slide, props.deck)
+            }}
+          >
+            <EditableCanvas
+              customShapeEditElementId={null}
+              deck={props.deck}
+              disableInteractions
+              editingElementId={null}
+              insertTool="select"
+              selectedElementIds={[]}
+              showIds={false}
+              slide={slide}
+              stageScale={scale}
+              stageRef={stageRef}
+              visibleElements={getRenderableSlideElements(slide, props.deck.canvas)}
+              onClearSelection={() => undefined}
+              onCommitElementProps={() => undefined}
+              onCommitElementFrame={() => undefined}
+              onCreateElement={() => undefined}
+              onCreateCustomShape={() => undefined}
+              onCommitCustomShapeGeometry={() => undefined}
+              onDoubleClickElement={() => undefined}
+              onFinishEditing={() => undefined}
+              onOpenElementContextMenu={() => undefined}
+              onSetCustomShapeEditElementId={() => undefined}
+              onSetInsertTool={() => undefined}
+              onSelectElement={() => undefined}
+            />
+          </div>
         </div>
 
         {props.warnings.length ? (

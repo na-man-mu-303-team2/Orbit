@@ -790,6 +790,51 @@ describe("applyDeckPatch", () => {
     ]);
   });
 
+  it("syncs a legacy canvas background when slide background color changes", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].elements.push({
+      elementId: "el_background",
+      type: "rect",
+      role: "background",
+      x: 0,
+      y: 0,
+      width: deck.canvas.width,
+      height: deck.canvas.height,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: true,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "transparent",
+        strokeWidth: 0,
+        borderRadius: 0,
+      },
+    });
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_slide_style",
+          slideId: "slide_1",
+          style: { backgroundColor: "#0f172a" },
+        },
+      ]),
+    );
+    const slide = result.deck.slides[0];
+    const background = slide.elements.find(
+      (element) => element.elementId === "el_background",
+    );
+
+    expect(slide.style.backgroundColor).toBe("#0f172a");
+    expect(background).toMatchObject({
+      type: "rect",
+      props: { fill: "#0f172a" },
+    });
+  });
+
   it("deletes slide actions that target a deleted animation", () => {
     const deck = createPatchTestDeck();
 

@@ -1,5 +1,10 @@
 import type { DeckElement } from "@orbit/shared";
-import { BarChart3, Image as ImageIcon, Shapes, Type } from "lucide-react";
+import {
+  IconChartBar as BarChart3,
+  IconPhoto as ImageIcon,
+  IconShape as Shapes,
+  IconTypography as Type
+} from "@tabler/icons-react";
 
 import { IdBadge } from "../../EditorIdBadge";
 import { getAnimationElementLabel } from "../utils/animationUi";

@@ -78,6 +78,10 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     RealtimeTranscriptEventKey,
     string
   >();
+  private readonly revisionByEventKey = new Map<
+    RealtimeTranscriptEventKey,
+    number
+  >();
   private peerConnection: OpenAiRealtimePeerConnection | null = null;
   private dataChannel: OpenAiRealtimeDataChannel | null = null;
   private audioLevelMeter: AudioLevelMeter | null = null;
@@ -113,6 +117,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.startedAtMs = this.now();
     this.biasPhrases = normalizeLiveSttBiasPhrases(config.biasPhrases);
     this.partialTextByEventKey.clear();
+    this.revisionByEventKey.clear();
 
     try {
       const token = await this.fetchClientSecret();
@@ -173,6 +178,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.stopCommitLoop();
     this.hasPendingAudioForCommit = false;
     this.partialTextByEventKey.clear();
+    this.revisionByEventKey.clear();
     this.audioLevelMeter?.stop();
     this.audioLevelMeter = null;
     this.dataChannel?.close();
@@ -336,7 +342,10 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     const key = getRealtimeTranscriptEventKey(event);
     const next = `${this.partialTextByEventKey.get(key) ?? ""}${delta}`;
     this.partialTextByEventKey.set(key, next);
-    this.emitTranscript(next, false);
+    this.emitTranscript(next, false, {
+      utteranceId: getRealtimeTranscriptUtteranceId(event),
+      resultRevision: this.incrementResultRevision(key)
+    });
   }
 
   private handleTranscriptCompleted(event: Record<string, unknown>) {
@@ -346,10 +355,26 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
         ? event.transcript
         : this.partialTextByEventKey.get(key) ?? "";
     this.partialTextByEventKey.delete(key);
-    this.emitTranscript(transcript, true);
+    this.emitTranscript(transcript, true, {
+      utteranceId: getRealtimeTranscriptUtteranceId(event),
+      resultRevision: this.incrementResultRevision(key)
+    });
   }
 
-  private emitTranscript(text: string, isFinal: boolean) {
+  private incrementResultRevision(key: RealtimeTranscriptEventKey) {
+    const revision = (this.revisionByEventKey.get(key) ?? 0) + 1;
+    this.revisionByEventKey.set(key, revision);
+    return revision;
+  }
+
+  private emitTranscript(
+    text: string,
+    isFinal: boolean,
+    identity: {
+      utteranceId: string | null;
+      resultRevision: number;
+    }
+  ) {
     const transcript = text.trim();
     if (!transcript || this.startedAtMs === null) {
       return;
@@ -358,7 +383,13 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.emitResult({
       text: transcript,
       isFinal,
-      timestampMs: this.elapsedRange()
+      timestampMs: this.elapsedRange(),
+      ...(identity.utteranceId === null
+        ? {}
+        : {
+            utteranceId: identity.utteranceId,
+            resultRevision: identity.resultRevision
+          })
     });
   }
 
@@ -439,6 +470,18 @@ function getRealtimeTranscriptEventKey(event: Record<string, unknown>) {
   const contentIndex =
     typeof event.content_index === "number" ? event.content_index : 0;
   return `${itemId}:${contentIndex}`;
+}
+
+function getRealtimeTranscriptUtteranceId(
+  event: Record<string, unknown>
+): string | null {
+  if (typeof event.item_id !== "string" || event.item_id.length === 0) {
+    return null;
+  }
+
+  const contentIndex =
+    typeof event.content_index === "number" ? event.content_index : 0;
+  return `${event.item_id}:${contentIndex}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

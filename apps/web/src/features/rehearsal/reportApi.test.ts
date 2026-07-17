@@ -1,6 +1,11 @@
 import type { RehearsalRunComparison } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
-import { fetchRehearsalRunComparison } from "./reportApi";
+import {
+  fetchProjectRehearsalReportRuns,
+  fetchProjectRehearsalSummary,
+  fetchRehearsalRunComparison,
+  fetchReportProjects,
+} from "./reportApi";
 
 describe("fetchRehearsalRunComparison", () => {
   it("requests the current rehearsal comparison with credentials", async () => {
@@ -38,6 +43,21 @@ describe("fetchRehearsalRunComparison", () => {
         async () => new Response("not-json", { status: 200 }),
       ),
     ).resolves.toBeNull();
+  });
+
+  it("서버 오류를 빈 리포트로 숨기지 않는다", async () => {
+    const unavailable = async () => new Response("failed", { status: 500 });
+
+    await expect(fetchReportProjects(unavailable)).rejects.toThrow("(500)");
+    await expect(
+      fetchProjectRehearsalSummary("project_1", unavailable),
+    ).rejects.toThrow("(500)");
+    await expect(
+      fetchProjectRehearsalReportRuns("project_1", unavailable),
+    ).rejects.toThrow("(500)");
+    await expect(
+      fetchRehearsalRunComparison("project_1", "run_1", unavailable),
+    ).rejects.toThrow("(500)");
   });
 });
 

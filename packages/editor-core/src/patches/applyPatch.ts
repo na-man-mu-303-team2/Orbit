@@ -219,6 +219,13 @@ function applyOperation(
         slide.style as unknown as Record<string, unknown>,
         operation.style as Record<string, unknown>,
       );
+      if (operation.style.backgroundColor !== undefined) {
+        syncCanvasBackgroundFill(
+          deck,
+          slide,
+          slide.style.backgroundColor ?? deck.theme.backgroundColor,
+        );
+      }
       return { ok: true };
     }
 
@@ -751,6 +758,27 @@ function sortElements(slide: Slide): void {
 
 function sortAnimations(slide: Slide): void {
   slide.animations.sort((a, b) => a.order - b.order);
+}
+
+function syncCanvasBackgroundFill(
+  deck: Deck,
+  slide: Slide,
+  backgroundColor: string,
+): void {
+  for (const element of slide.elements) {
+    if (
+      element.type !== "rect" ||
+      element.role !== "background" ||
+      element.x > 0 ||
+      element.y > 0 ||
+      element.width < deck.canvas.width ||
+      element.height < deck.canvas.height
+    ) {
+      continue;
+    }
+
+    element.props.fill = backgroundColor;
+  }
 }
 
 function mergeRecordPatch(

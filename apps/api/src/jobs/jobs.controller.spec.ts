@@ -47,6 +47,33 @@ describe("JobsController", () => {
     });
   });
 
+  it("rejects internal coaching job types on the public endpoint", async () => {
+    const { controller, jobsService } = createController();
+
+    await expect(
+      controller.createJob(
+        {
+          projectId: "project-a",
+          type: "focused-practice-analysis",
+          payload: { attemptId: "attempt-1" },
+        },
+        signedRequest(),
+      ),
+    ).rejects.toThrow();
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy job types on the public endpoint", async () => {
+    for (const type of ["pptx-import", "ai-template-deck-generation"] as const) {
+      const { controller, jobsService } = createController();
+
+      await expect(
+        controller.createJob({ projectId: "project-a", type }, signedRequest())
+      ).rejects.toThrow();
+      expect(jobsService.create).not.toHaveBeenCalled();
+    }
+  });
+
   it("requires project read permission before returning a job result", async () => {
     const { controller, jobsService, projectsService } = createController();
 

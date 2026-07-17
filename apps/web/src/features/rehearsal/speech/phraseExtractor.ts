@@ -1,4 +1,8 @@
 import {
+  createCanonicalScriptSentenceIndex,
+  splitCanonicalScriptSentences
+} from "./canonicalScriptSentenceIndex";
+import {
   defaultSpeechTrackingConfig,
   mergeSpeechTrackingConfig,
   type SpeechTrackingConfig,
@@ -37,11 +41,11 @@ export function createDefaultPhraseExtractor(
 
   return {
     extract(speakerNotes) {
-      const sentenceTexts = splitSpeakerNotesIntoSentences(speakerNotes);
-      const pools = sentenceTexts.map((sentence, sentenceIndex) =>
+      const sentenceIndex = createCanonicalScriptSentenceIndex(speakerNotes);
+      const pools = sentenceIndex.sentences.map((sentence) =>
         buildCandidatePool({
-          sentence,
-          sentenceIndex,
+          sentence: sentence.text,
+          sentenceIndex: sentence.index,
           config,
           controlPhraseKeys,
           keywordKeys
@@ -49,20 +53,19 @@ export function createDefaultPhraseExtractor(
       );
       const selected = selectDistinctCandidates(pools, config);
 
-      return sentenceTexts.map((sentence, sentenceIndex) => {
-        const isFinalTrigger = sentenceIndex === sentenceTexts.length - 1;
-        const candidates = (selected[sentenceIndex] ?? []).map(
+      return sentenceIndex.sentences.map((sentence) => {
+        const candidates = (selected[sentence.index] ?? []).map(
           (candidate, candidateIndex) => ({
             ...candidate,
-            candidateId: `sentence_${sentenceIndex + 1}_phrase_${candidateIndex + 1}`
+            candidateId: `${sentence.sentenceId}_phrase_${candidateIndex + 1}`
           })
         );
 
         return {
-          sentenceId: `sentence_${sentenceIndex + 1}`,
-          text: sentence,
-          index: sentenceIndex,
-          isFinalTrigger,
+          sentenceId: sentence.sentenceId,
+          text: sentence.text,
+          index: sentence.index,
+          isFinalTrigger: sentence.isFinalTrigger,
           matchable: candidates.length > 0,
           candidates
         };
@@ -72,41 +75,7 @@ export function createDefaultPhraseExtractor(
 }
 
 export function splitSpeakerNotesIntoSentences(speakerNotes: string): string[] {
-  const normalized = speakerNotes
-    .normalize("NFC")
-    .replace(/\r\n?/g, "\n")
-    .replace(/…+/g, "…")
-    .trim();
-
-  if (!normalized) {
-    return [];
-  }
-
-  const explicitLines = normalized
-    .split("\n")
-    .map((line) => formatSentenceText(line))
-    .filter(Boolean);
-  if (explicitLines.length > 1) {
-    return explicitLines;
-  }
-
-  const sentences: string[] = [];
-  let current = "";
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized[index] ?? "";
-    current += char;
-
-    if (!isSentenceBoundary(normalized, index)) {
-      continue;
-    }
-
-    addSentence(sentences, current);
-    current = "";
-  }
-
-  addSentence(sentences, current);
-  return sentences;
+  return splitCanonicalScriptSentences(speakerNotes);
 }
 
 export function normalizeSpeechText(
@@ -151,17 +120,19 @@ function buildCandidatePool(options: {
   keywordKeys: ReadonlySet<string>;
 }): CandidateDraft[] {
   const words = tokenizeWords(options.sentence);
+  const evidenceWords = removeBlacklistedWords(words, options.config);
   const drafts: CandidateDraft[] = [];
 
   // 2~4어절 n-gram을 만든 뒤, P3-D15 필터와 P3-D17 점수화를 적용한다.
-  for (let start = 0; start < words.length; start += 1) {
+  for (let start = 0; start < evidenceWords.length; start += 1) {
     for (let size = 2; size <= 4; size += 1) {
       const end = start + size;
-      if (end > words.length) {
+      if (end > evidenceWords.length) {
         continue;
       }
 
-      const candidateWords = words.slice(start, end);
+      const candidateEntries = evidenceWords.slice(start, end);
+      const candidateWords = candidateEntries.map((entry) => entry.text);
       const text = candidateWords.join(" ");
       const normalizedText = normalizeSpeechText(text, options.config);
 
@@ -191,13 +162,44 @@ function buildCandidatePool(options: {
         score: baseScore,
         baseScore,
         wordCount: candidateWords.length,
-        startWordIndex: start,
-        endWordIndex: end - 1
+        startWordIndex: candidateEntries[0]?.sourceIndex ?? start,
+        endWordIndex: candidateEntries.at(-1)?.sourceIndex ?? end - 1
       });
     }
   }
 
   return drafts.sort(compareCandidateDrafts);
+}
+
+function removeBlacklistedWords(
+  words: readonly string[],
+  config: SpeechTrackingConfig
+) {
+  const blockedIndexes = new Set<number>();
+
+  for (const phrase of config.commonPhraseBlacklist) {
+    const phraseWords = tokenizeWords(phrase);
+    if (phraseWords.length === 0 || phraseWords.length > words.length) {
+      continue;
+    }
+
+    const phraseKey = normalizeSpeechText(phraseWords.join(" "), config);
+    for (let start = 0; start <= words.length - phraseWords.length; start += 1) {
+      const end = start + phraseWords.length;
+      const candidateKey = normalizeSpeechText(words.slice(start, end).join(" "), config);
+      if (candidateKey !== phraseKey) {
+        continue;
+      }
+
+      for (let index = start; index < end; index += 1) {
+        blockedIndexes.add(index);
+      }
+    }
+  }
+
+  return words
+    .map((text, sourceIndex) => ({ text, sourceIndex }))
+    .filter((entry) => !blockedIndexes.has(entry.sourceIndex));
 }
 
 function selectDistinctCandidates(
@@ -349,21 +351,6 @@ function shouldFilterCandidate(options: {
     return true;
   }
 
-  const blacklistKeys = options.config.commonPhraseBlacklist.map((phrase) =>
-    normalizeSpeechText(phrase, options.config)
-  );
-  if (
-    blacklistKeys.some(
-      (phrase) =>
-        phrase &&
-        (options.normalizedText === phrase ||
-          options.normalizedText.includes(phrase) ||
-          phrase.includes(options.normalizedText))
-    )
-  ) {
-    return true;
-  }
-
   return Array.from(options.controlPhraseKeys).some(
     (phrase) =>
       phrase &&
@@ -440,36 +427,6 @@ function compareCandidateDrafts(left: CandidateDraft, right: CandidateDraft) {
   }
 
   return left.startWordIndex - right.startWordIndex;
-}
-
-function isSentenceBoundary(text: string, index: number) {
-  const char = text[index] ?? "";
-  const next = text[index + 1] ?? "";
-  const previous = text[index - 1] ?? "";
-
-  if (char === "\n") {
-    return true;
-  }
-
-  if (char === "." && /\d/.test(previous) && /\d/.test(next)) {
-    return false;
-  }
-
-  return /[.!?。！？…]/.test(char);
-}
-
-function addSentence(sentences: string[], rawSentence: string) {
-  const sentence = formatSentenceText(rawSentence);
-  if (sentence) {
-    sentences.push(sentence);
-  }
-}
-
-function formatSentenceText(rawSentence: string) {
-  return rawSentence
-    .replace(/[.!?。！？…]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function tokenizeWords(value: string) {

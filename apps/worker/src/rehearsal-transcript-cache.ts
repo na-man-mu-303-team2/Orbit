@@ -8,7 +8,6 @@ import Redis from "ioredis";
 export const REHEARSAL_TRANSCRIPT_TTL_SECONDS = 30 * 60;
 
 export interface RehearsalTranscriptCache {
-  set(runId: string, transcript: string): Promise<void>;
   setSemanticEvidence(
     runId: string,
     evidence: RehearsalSemanticEvidence
@@ -27,19 +26,6 @@ export class RedisRehearsalTranscriptCache implements RehearsalTranscriptCache {
     });
   }
 
-  async set(runId: string, transcript: string): Promise<void> {
-    const retainedTranscript = transcript.trim();
-    if (!retainedTranscript) {
-      return;
-    }
-
-    await this.redis.set(
-      rehearsalTranscriptCacheKey(runId),
-      retainedTranscript,
-      "EX",
-      REHEARSAL_TRANSCRIPT_TTL_SECONDS
-    );
-  }
 
   async setSemanticEvidence(
     runId: string,
@@ -79,8 +65,4 @@ export class RedisRehearsalTranscriptCache implements RehearsalTranscriptCache {
 
     await this.redis.quit();
   }
-}
-
-export function rehearsalTranscriptCacheKey(runId: string) {
-  return `rehearsal:transcript:${runId}`;
 }

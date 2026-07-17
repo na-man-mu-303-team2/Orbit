@@ -142,6 +142,7 @@ export const putDeckResponseSchema = z
   .object({
     deck: deckSchema,
     snapshot: deckSnapshotSchema,
+    ooxmlSyncJob: jobSchema.optional(),
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
@@ -277,6 +278,7 @@ export const restoreDeckSnapshotResponseSchema = z
   .object({
     deck: deckSchema,
     restoredSnapshot: deckSnapshotSchema,
+    ooxmlSyncJob: jobSchema.optional(),
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
@@ -292,12 +294,23 @@ export const restoreDeckSnapshotResponseSchema = z
       response.deck.deckId,
       ["restoredSnapshot", "deckId"],
     );
-    requireMatchingVersion(
-      ctx,
-      response.restoredSnapshot.version,
-      response.deck.version,
-      ["restoredSnapshot", "version"],
-    );
+    if (response.ooxmlSyncJob) {
+      requireMatchingProject(
+        ctx,
+        response.ooxmlSyncJob.projectId,
+        response.deck.projectId,
+        ["ooxmlSyncJob", "projectId"],
+      );
+    }
+    if (response.deck.version !== response.restoredSnapshot.version) {
+      if (response.ooxmlSyncJob?.type !== "pptx-ooxml-sync") {
+        addMismatchIssue(
+          ctx,
+          ["ooxmlSyncJob", "type"],
+          "version-normalized restore requires a pptx-ooxml-sync job",
+        );
+      }
+    }
   });
 
 export type DeckApiProjectId = z.infer<typeof deckApiProjectIdSchema>;

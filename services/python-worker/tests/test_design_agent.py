@@ -70,7 +70,7 @@ def request_payload(*, locked: bool = False) -> DesignAgentRequest:
                 "addableElementTypes": ["text", "rect"],
                 "canEditTextContent": True,
                 "canGenerateImages": False,
-                "canModifyLockedElements": False,
+                "canModifyLockedElements": True,
             },
         }
     )
@@ -123,14 +123,15 @@ def test_rejects_operations_outside_canvas() -> None:
         )
 
 
-def test_rejects_operations_targeting_locked_elements() -> None:
-    with pytest.raises(DesignAgentGenerationError, match="locked or hidden"):
-        generate_design_proposal(
-            request_payload(locked=True),
-            model="test-model",
-            api_key=None,
-            client=FakeClient(proposal_payload()),
-        )
+def test_allows_operations_targeting_legacy_locked_elements() -> None:
+    result = generate_design_proposal(
+        request_payload(locked=True),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(proposal_payload()),
+    )
+
+    assert result.operations[0].element_id == "el_image"
 
 
 def test_prompt_uses_actual_canvas_dimensions() -> None:

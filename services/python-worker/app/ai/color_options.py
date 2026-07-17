@@ -131,7 +131,7 @@ COLOR_OPTION_RESPONSE_FORMAT: dict[str, Any] = {
 FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
     {
         "optionId": "resort-blue",
-        "name": "Resort Blue",
+        "name": "리조트 블루",
         "palette": {
             "primary": "#0EA5E9",
             "secondary": "#0369A1",
@@ -142,12 +142,12 @@ FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
             "text": "#0F172A",
             "accentColor": "#F472B6",
         },
-        "rationale": "Relaxed blue for travel, ocean, and resort-like topics.",
+        "rationale": "여행, 바다, 휴양 주제에 어울리는 편안한 블루 팔레트입니다.",
         "keywords": ("blue", "ocean", "beach", "resort", "travel", "vacation", "바다", "휴양", "여행"),
     },
     {
         "optionId": "executive-blue",
-        "name": "Executive Blue",
+        "name": "이그제큐티브 블루",
         "palette": {
             "primary": "#1D4ED8",
             "secondary": "#334155",
@@ -158,12 +158,12 @@ FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
             "text": "#0F172A",
             "accentColor": "#DB2777",
         },
-        "rationale": "Trustworthy and restrained for executive or professional decks.",
+        "rationale": "임원 보고와 전문 발표에 어울리는 신뢰감 있고 절제된 팔레트입니다.",
         "keywords": ("professional", "executive", "expert", "trust", "business", "전문", "임원", "회사"),
     },
     {
         "optionId": "modern-violet",
-        "name": "Modern Violet",
+        "name": "모던 바이올렛",
         "palette": {
             "primary": "#7C3AED",
             "secondary": "#4F46E5",
@@ -174,12 +174,12 @@ FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
             "text": "#18181B",
             "accentColor": "#EC4899",
         },
-        "rationale": "Expressive violet for AI, creativity, and modern product narratives.",
+        "rationale": "AI, 창의성, 현대적인 제품 이야기에 어울리는 선명한 바이올렛 팔레트입니다.",
         "keywords": ("purple", "violet", "ai", "creative", "modern", "보라", "인공지능", "창의"),
     },
     {
         "optionId": "calm-green",
-        "name": "Calm Green",
+        "name": "캄 그린",
         "palette": {
             "primary": "#059669",
             "secondary": "#0F766E",
@@ -190,12 +190,12 @@ FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
             "text": "#052E16",
             "accentColor": "#2563EB",
         },
-        "rationale": "Stable and calm for education, healthcare, or sustainability topics.",
+        "rationale": "교육, 헬스케어, 지속가능성 주제에 어울리는 안정적이고 차분한 팔레트입니다.",
         "keywords": ("calm", "green", "education", "health", "sustainable", "차분", "초록", "교육", "건강"),
     },
     {
         "optionId": "energetic-coral",
-        "name": "Energetic Coral",
+        "name": "에너제틱 코랄",
         "palette": {
             "primary": "#F97316",
             "secondary": "#DB2777",
@@ -206,7 +206,7 @@ FALLBACK_PALETTES: tuple[dict[str, Any], ...] = (
             "text": "#111827",
             "accentColor": "#2563EB",
         },
-        "rationale": "High-energy palette for launch, pitch, or campaign presentations.",
+        "rationale": "출시, 피치, 캠페인 발표에 어울리는 활기찬 팔레트입니다.",
         "keywords": ("energetic", "launch", "pitch", "campaign", "orange", "활기", "런칭", "캠페인"),
     },
 )
@@ -252,7 +252,8 @@ def generate_color_options_with_llm(
         instructions=(
             "Return exactly three accessible color palette options for a 16:9 PPT. "
             "Use #RRGGBB colors only. Ensure text has at least 4.5 contrast against "
-            "background and surface. Treat colorIntent and constraints as hard rules."
+            "background and surface. Treat colorIntent and constraints as hard rules. "
+            "Write every option name and rationale in concise, natural Korean."
         ),
         input=(
             f"Topic: {request.topic}\n"
@@ -341,15 +342,36 @@ def apply_color_constraints(
     wants_white = constraints.canvas_background == "white" or (
         intent is not None and intent.background_preference == "white"
     )
-    if wants_white:
+    wants_dark = intent is not None and intent.background_preference == "dark"
+    if wants_dark:
+        palette["background"] = "#050505"
+        palette["surface"] = "#111827"
+        palette["muted"] = "#1F2937"
+        palette["border"] = "#374151"
+    elif wants_white:
         palette["background"] = "#FFFFFF"
         palette["surface"] = "#FFFFFF"
     if "pastel" in forbidden_styles:
+        replacements = (
+            {
+                "background": "#050505",
+                "surface": "#111827",
+                "muted": "#1F2937",
+                "border": "#374151",
+            }
+            if wants_dark
+            else {
+                "background": "#FFFFFF" if wants_white else "#F8FAFC",
+                "surface": "#FFFFFF",
+                "muted": "#F3F4F6",
+                "border": "#D1D5DB",
+            }
+        )
         for key, replacement in (
-            ("background", "#FFFFFF" if wants_white else "#F8FAFC"),
-            ("surface", "#FFFFFF"),
-            ("muted", "#F3F4F6"),
-            ("border", "#D1D5DB"),
+            ("background", replacements["background"]),
+            ("surface", replacements["surface"]),
+            ("muted", replacements["muted"]),
+            ("border", replacements["border"]),
         ):
             if key in palette and (is_pastel_hex(palette[key]) or key in {"muted", "border"}):
                 palette[key] = replacement

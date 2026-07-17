@@ -179,10 +179,15 @@ function createService(args?: {
     },
     async transaction<T>(callback: (manager: {
       create: <Entity>(entity: new () => Entity, input: Partial<Entity>) => Entity;
+      query: (query: string, params?: unknown[]) => Promise<unknown[]>;
       save: <Entity>(entity: Entity) => Promise<Entity>;
       update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void>;
     }) => Promise<T>) {
       return callback({
+        async query(query) {
+          if (query.includes("to_regclass")) return [];
+          return [];
+        },
         create(_entity, input) {
           return input as never;
         },

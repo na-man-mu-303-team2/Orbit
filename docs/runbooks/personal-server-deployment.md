@@ -97,7 +97,7 @@ AUTH_COOKIE_SECURE=false
 - OCR provider는 Python worker 경로를 사용한다.
 - AWS Textract는 사용하지 않는다.
 
-Doppler `orbit / stg` 값이 S3, SQS, AWS Transcribe, AWS Textract 기준이어도 개인 서버 override에서 위 값으로 덮어쓴다.
+Doppler `orbit / stg` 값이 S3, AWS Transcribe, AWS Textract 기준이어도 개인 서버 override에서 위 값으로 덮어쓴다.
 
 ## Nginx
 
@@ -149,7 +149,28 @@ cd /var/www/orbit
 
 ## 자동 배포
 
-`develop`에 merge되면 `.github/workflows/deploy-personal-staging.yml`이 개인 서버 self-hosted runner에서 배포 wrapper를 실행한다.
+`develop`에 merge되면 `Environment Contract CI`가 환경 예시 파일 계약을 다시 검사한다. 성공한 push job만 같은 commit의 `.github/workflows/deploy-personal-staging.yml` reusable workflow를 `full` mode로 호출하며, 개인 서버 self-hosted runner는 검증된 commit SHA를 배포 wrapper에 전달한다. PR의 오래된 환경 검증 run은 새 commit에서 취소하지만, `develop` push run은 배포가 build·migration·service 교체 중에 중단되지 않도록 상위 workflow에서 취소하지 않는다.
+
+### GenerateDeck breaking contract 자동 배포와 사후 확인
+
+#339 PR 6처럼 Web/API/Worker/Python worker가 공유하는 GenerateDeck request를 호환 shim 없이 축소하는 변경도 기존 `develop` 자동 배포 규칙을 따른다. 이 변경 때문에 workflow를 중단하거나 GitHub Environment `personal-staging`에 required reviewer를 추가하지 않는다.
+
+자동 배포와 사후 확인 순서는 다음과 같다.
+
+1. PR merge로 `develop`의 `Environment Contract CI`를 시작한다.
+2. 환경 계약이 성공하면 후속 `needs` job이 push의 `github.sha`를 배포 wrapper에 전달한다.
+3. 배포 script가 `git pull --ff-only origin develop`로 서버 HEAD를 동기화하고, 실제 HEAD가 검증된 SHA와 다르면 배포를 거부한다.
+4. Doppler로 주입한 개인 서버 필수 환경변수가 누락되거나 비어 있으면 build 전에 배포를 실패시킨다.
+5. 환경 검증 뒤 Web/API/Worker/Python worker 이미지를 빌드하고 migration과 `docker compose up -d`로 서비스를 교체한다.
+6. 배포 script의 API/root health check가 통과해 workflow가 성공했는지 확인한다.
+7. 서버에서 `git rev-parse HEAD`를 실행해 실제 배포 SHA가 workflow의 검증 SHA와 같은지 기록한다.
+8. BullMQ `generate-deck` queue의 `waiting`, `paused`, `delayed`, `prioritized`, `waiting-children`, `active`, `repeat`를 읽기 전용으로 확인한다.
+9. DB에서 `type = 'ai-deck-generation'`이고 `status IN ('queued', 'running')`인 Job 수를 읽기 전용으로 확인한다.
+10. GenerateDeck smoke를 실행하고 queue/DB에 stuck Job이 없음을 운영 기록에 남긴다.
+
+배포 script는 실제 서버 HEAD와 queue/DB count를 출력하지 않으므로 workflow 성공만으로 7~10번을 충족했다고 기록하지 않는다. #339 도입 시점의 사전 drain 증거는 남아 있지 않으며, 수행했다고 소급 주장하지 않는다.
+
+production ECS/CloudFront cutover는 이 personal staging runbook으로 대신하지 않는다. production의 ingress 중단, drain, 서비스 동시 교체와 cache invalidation은 별도 승인된 배포 계획으로 수행한다.
 
 필수 서버 조건:
 
@@ -164,21 +185,148 @@ cd /var/www/orbit
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-exec /usr/bin/sudo -iu orbit /bin/bash -lc 'cd /var/www/orbit && ./infra/scripts/deploy-personal-server.sh'
+
+DEPLOYMENT_MODE="${1:-full}"
+EXPECTED_SHA="${2:-}"
+
+if [[ "$DEPLOYMENT_MODE" != "full" && "$DEPLOYMENT_MODE" != "environment-only" ]]; then
+  echo "Invalid deployment mode."
+  exit 1
+fi
+
+if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid expected deployment SHA."
+  exit 1
+fi
+
+if [[ "$DEPLOYMENT_MODE" == "full" ]]; then
+  exec /usr/bin/sudo -iu orbit \
+    /bin/bash /var/www/orbit/infra/scripts/deploy-personal-server.sh "$EXPECTED_SHA"
+fi
+
+if [[ -z "$EXPECTED_SHA" ]]; then
+  echo "Environment-only deployment requires an expected SHA."
+  exit 1
+fi
+
+exec /usr/bin/sudo -iu orbit \
+  /bin/bash /var/www/orbit/infra/scripts/deploy-personal-server.sh "$DEPLOYMENT_MODE" "$EXPECTED_SHA"
 ```
 
-완전 자동 배포가 목표라면 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. 승인 단계를 두고 싶을 때만 environment protection rule을 추가한다.
+`full` mode는 PR merge 전에 wrapper를 먼저 갱신해도 기존 SHA-only deploy script와 호환되도록 SHA만 전달한다. `environment-only` mode는 새 deploy script가 `develop`에 반영된 뒤에만 사용한다.
+
+GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. `develop` merge 후 완전 자동 배포가 팀의 고정 규칙이다.
+
+### Doppler stg 변경 자동 재배포
+
+Doppler `orbit / stg` secret 변경은 같은 workflow의 `environment-only` mode를 호출한다. 이 경로는 production secret 또는 AWS production 배포와 연결하지 않는다.
+
+사전 조건:
+
+1. 이 workflow와 위 wrapper가 `develop` 및 개인 서버에 반영되어 있어야 한다.
+2. 서버 checkout의 HEAD가 현재 `develop` HEAD와 같아야 한다. 다르면 환경변수만 이전 코드에 적용하지 않고 실패한다.
+3. GitHub Environment `personal-staging`에는 required reviewer를 두지 않는다.
+
+Doppler Webhook 설정:
+
+1. `na-man-mu-303-team2/Orbit` 저장소만 대상으로 하고 `Actions: write`만 가진 fine-grained personal access token을 준비한다. 가능한 짧은 만료 기한을 사용하고 값은 저장소·문서·로그에 남기지 않는다.
+2. Doppler project `orbit`의 Webhooks에서 `stg` config만 선택한다.
+3. Webhook URL을 다음 endpoint로 지정한다.
+
+```text
+https://api.github.com/repos/na-man-mu-303-team2/Orbit/actions/workflows/deploy-personal-staging.yml/dispatches
+```
+
+4. Authentication은 위 token을 쓰는 Bearer 방식으로 설정한다.
+5. Custom JSON payload는 다음처럼 고정한다.
+
+```json
+{
+  "ref": "develop",
+  "inputs": {
+    "deployment_mode": "environment-only",
+    "trigger_source": "doppler-stg-secrets-update"
+  }
+}
+```
+
+Webhook은 secret 값이 아니라 고정된 배포 요청만 GitHub에 전달한다. 실제 값은 개인 서버의 read-only Doppler service token으로 실행 시점에 읽는다. GitHub App installation token은 짧은 수명이므로 relay 없이 이 직접 연결 방식에 정적으로 저장하지 않는다.
+
+`environment-only` mode는 다음 순서로 동작한다.
+
+1. GitHub dispatch의 `develop` SHA와 서버 HEAD가 같은지 확인한다.
+2. 필수값 누락·공백과 `APP_ENV=staging`을 확인한다.
+3. `docker compose config --quiet`로 최종 Compose interpolation을 확인한다.
+4. 기존 이미지의 API/Worker Zod schema와 Python worker Pydantic schema를 임시 컨테이너에서 실행한다.
+5. 모든 preflight가 성공한 경우에만 API, Worker, Python worker, Web을 `--no-build --force-recreate`로 재생성한다.
+6. API와 root health check가 통과해야 workflow가 성공한다.
+
+1~4단계가 실패하면 실행 중인 컨테이너는 교체하지 않는다. 필수 secret 삭제·공백, 잘못된 enum·URL·숫자 범위는 오류 key와 이유를 GitHub Actions log에서 확인할 수 있다. 선택값 삭제는 runtime default가 허용하는 경우 해당 기본값으로 재적용된다.
+
+Doppler webhook은 동일 이벤트를 한 번 넘게 전달할 수 있다. workflow concurrency는 실행 중인 배포를 취소하지 않고 직렬화하며, 서버 script도 같은 `flock`을 사용한다. 따라서 중복 이벤트가 서비스 교체 중인 실행을 강제 중단하지는 않지만, 유효한 이벤트가 반복 전달되면 순서대로 재생성될 수 있다.
+
+설정 뒤 Doppler Webhook Logs의 응답 코드와 GitHub Actions `Deploy Personal Staging`의 `trigger_source=doppler-stg-secrets-update` 실행을 함께 확인한다. 실제 secret 값을 로그에 복사하지 않는다.
 
 ## 검증
 
 서버 내부에서 확인한다.
 
 ```bash
+sudo -iu orbit
+cd /var/www/orbit
+git rev-parse HEAD
 curl -fsS http://127.0.0.1/api/health
 curl -I http://127.0.0.1/
 curl -I http://127.0.0.1:9000/minio/health/live
 doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml ps
 ```
+
+### #339 queue/DB 사후 확인
+
+다음 명령은 queue payload나 credential을 출력하지 않고 `pptx-import`, `ai-template-deck-generation`, `generate-deck`의 현재 BullMQ 상태 수만 출력한다. 모든 값이 0이어야 하며 하나라도 남으면 exit code 1이다.
+
+```bash
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T -w /app/apps/worker worker node --input-type=module -e '
+const { Queue } = await import("bullmq");
+const { redisConnectionOptions } = await import("@orbit/job-queue");
+const names = ["pptx-import", "ai-template-deck-generation", "generate-deck"];
+const states = ["waiting", "paused", "delayed", "prioritized", "waiting-children", "active"];
+let hasRemainingJob = false;
+for (const name of names) {
+  const queue = new Queue(name, {
+    connection: redisConnectionOptions(process.env.REDIS_URL),
+    skipMetasUpdate: true,
+  });
+  const counts = await queue.getJobCounts(...states);
+  const repeat = (await queue.getRepeatableJobs()).length;
+  console.log(JSON.stringify({ queue: name, ...counts, repeat }));
+  hasRemainingJob ||= Object.values(counts).some((count) => count !== 0) || repeat !== 0;
+  await queue.close();
+}
+if (hasRemainingJob) process.exitCode = 1;
+'
+```
+
+DB는 세 historical/active type의 `queued`, `running` 수만 집계한다. 결과의 두 count가 모두 0이어야 한다.
+
+```bash
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T postgres psql -U orbit -d orbit -v ON_ERROR_STOP=1 -c "
+WITH expected(type) AS (
+  VALUES ('pptx-import'), ('ai-template-deck-generation'), ('ai-deck-generation')
+)
+SELECT expected.type,
+       COUNT(j.*) FILTER (WHERE j.status = 'queued') AS queued,
+       COUNT(j.*) FILTER (WHERE j.status = 'running') AS running
+FROM expected
+LEFT JOIN jobs j
+  ON j.type = expected.type
+ AND j.status IN ('queued', 'running')
+GROUP BY expected.type
+ORDER BY expected.type;
+"
+```
+
+마지막으로 인증된 브라우저에서 `/createdeck` GenerateDeck smoke를 1회 완료하고, 위 두 명령을 다시 실행해 stuck Job이 없음을 확인한다. 결과에는 count와 확인 시각, workflow trigger SHA, 서버의 실제 `git rev-parse HEAD`를 구분해 기록하고 payload, prompt, 발표 원문, credential은 남기지 않는다.
 
 외부 브라우저에서는 다음 주소를 확인한다.
 

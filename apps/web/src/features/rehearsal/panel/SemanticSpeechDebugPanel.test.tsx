@@ -104,13 +104,13 @@ describe("SemanticSpeechDebugPanel", () => {
 });
 
 describe("shouldShowSemanticSpeechDebugPanel", () => {
-  it("development에서는 기본 표시하고 production에서는 localStorage gate를 따른다", () => {
+  it("환경과 무관하게 명시적인 localStorage 설정이 있을 때만 표시한다", () => {
     expect(
       shouldShowSemanticSpeechDebugPanel({
         isDevelopment: true,
         storage: null
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldShowSemanticSpeechDebugPanel({
         isDevelopment: false,

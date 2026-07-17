@@ -12,6 +12,7 @@ describe("rehearsalLogCollector", () => {
     collector.enterSlide("slide_1");
 
     expect(collector.finalize()).toEqual({
+      recordingDurationSeconds: null,
       slideTimeline: [
         {
           slideId: "slide_1",

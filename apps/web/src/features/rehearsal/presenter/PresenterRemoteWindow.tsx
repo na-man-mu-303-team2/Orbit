@@ -282,21 +282,26 @@ export function PresenterRemoteWindow(props: {
               const covered = Boolean(
                 state.speech?.coveredSentenceIds.includes(sentenceId),
               );
+              const committed = Boolean(
+                state.speech?.snapshot?.prompterProgress?.committedSentenceIds.includes(
+                  sentenceId,
+                ) ?? covered,
+              );
               const matchKind =
                 state.speech?.coveredSentenceMatchKinds[sentenceId];
               return {
                 content: sentence,
                 id: sentenceId,
                 label:
-                  matchKind === "paraphrased"
+                  committed
+                    ? "체크됨"
+                    : matchKind === "paraphrased"
                     ? "의미 전달"
-                    : covered
-                      ? "체크됨"
-                      : undefined,
+                    : undefined,
                 status:
                   index === currentSentenceIndex
                     ? "current"
-                    : covered
+                    : committed
                       ? matchKind === "paraphrased"
                         ? "paraphrased"
                         : "covered"
@@ -636,6 +641,38 @@ export function getPresenterRemoteCurrentSentenceIndex(
     return -1;
   }
 
+  const prompterProgress = state.speech?.snapshot?.prompterProgress;
+  if (prompterProgress) {
+    if (prompterProgress.currentSentenceId) {
+      const trackedSentenceIndex = sentences.findIndex(
+        (_sentence, index) =>
+          getPresenterRemoteSentenceId(index) ===
+          prompterProgress.currentSentenceId,
+      );
+      if (trackedSentenceIndex >= 0) {
+        const shouldShowLeadingDisplaySentence =
+          trackedSentenceIndex > 0 &&
+          !prompterProgress.hasCurrentLexicalEvidence &&
+          prompterProgress.candidateSentenceId === null &&
+          prompterProgress.committedSentenceIds.length === 0;
+        return shouldShowLeadingDisplaySentence ? 0 : trackedSentenceIndex;
+      }
+    }
+
+    if (prompterProgress.finalSentenceCommitted) {
+      return sentences.length - 1;
+    }
+
+    const committedSet = new Set(prompterProgress.committedSentenceIds);
+    const nextUncommittedIndex = sentences.findIndex(
+      (_sentence, index) =>
+        !committedSet.has(getPresenterRemoteSentenceId(index)),
+    );
+    return nextUncommittedIndex >= 0
+      ? nextUncommittedIndex
+      : sentences.length - 1;
+  }
+
   const coveredSentenceIds = state.speech?.coveredSentenceIds;
   if (!coveredSentenceIds) {
     return Math.min(Math.max(state.stepIndex, 0), sentences.length - 1);
@@ -659,6 +696,31 @@ export function getPresenterRemoteNextSentenceIndex(
 ) {
   if (currentSentenceIndex < 0) {
     return -1;
+  }
+
+  const prompterProgress = state.speech?.snapshot?.prompterProgress;
+  if (prompterProgress) {
+    if (prompterProgress.finalSentenceCommitted) {
+      return -1;
+    }
+
+    const trackedSentenceIndex = prompterProgress.currentSentenceId
+      ? sentences.findIndex(
+          (_sentence, index) =>
+            getPresenterRemoteSentenceId(index) ===
+            prompterProgress.currentSentenceId,
+        )
+      : -1;
+    if (trackedSentenceIndex > currentSentenceIndex) {
+      return trackedSentenceIndex;
+    }
+
+    const committedSet = new Set(prompterProgress.committedSentenceIds);
+    return sentences.findIndex(
+      (_sentence, index) =>
+        index > currentSentenceIndex &&
+        !committedSet.has(getPresenterRemoteSentenceId(index)),
+    );
   }
 
   const coveredSet = new Set(state.speech?.coveredSentenceIds ?? []);

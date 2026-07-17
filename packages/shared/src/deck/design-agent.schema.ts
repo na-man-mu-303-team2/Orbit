@@ -62,7 +62,7 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
   addableElementTypes: ["text", "rect"],
   canEditTextContent: true,
   canGenerateImages: false,
-  canModifyLockedElements: false,
+  canModifyLockedElements: true,
 });
 
 export const designAgentContextSchema = z.object({

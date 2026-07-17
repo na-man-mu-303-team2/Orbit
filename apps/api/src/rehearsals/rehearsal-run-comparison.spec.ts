@@ -1,3 +1,4 @@
+import { legacyRehearsalReportMetricsDefaults } from "@orbit/shared";
 import type {
   RehearsalReport,
   RehearsalSemanticCueOutcome
@@ -159,6 +160,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     transcriptRetained: false,
     transcript: null,
     metrics: {
+      ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 60,
       wordsPerMinute: 120,
       fillerWordCount: 0,
@@ -169,6 +171,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     speedSamples: [],
     fillerWordDetails: [],
     pauseDetails: [],
+    pauseV2Details: [],
     missedKeywords: [],
     utteranceOutcomes: [],
     semanticCueDecisions: [],

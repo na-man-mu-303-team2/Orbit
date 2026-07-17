@@ -1,14 +1,28 @@
+import fs from "node:fs";
+import type { Job } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAiPptAdvisorSuggestions,
   buildAiPptGenerateDeckPayload,
   buildReferenceGrounding,
+  briefFieldPlaceholders,
+  getAiPptGenerationStatus,
+  getAiPptVisualAdvisory,
+  filesFromFileList,
+  getApprovedBriefReferenceFileIds,
   getAiPptWizardValidationMessage,
+  getAiPptQualityFailure,
   getReferenceExtractionValidationMessage,
+  mediaPolicyOptions,
   miniSlideFontStyles,
+  initialAiPptWizardState,
+  mergeAiPptBriefFormData,
+  mergeReferenceFiles,
   pollJob,
+  removeReferenceFileAt,
   removeAppliedAdvisorSuggestion,
   requestPptAdvisor,
+  referencePolicyOptions,
   startReferenceExtraction,
   toAiPptUserErrorMessage,
   type PaletteOption
@@ -33,6 +47,266 @@ const palette: PaletteOption = {
 describe("AI PPT wizard payload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps Brief examples as placeholders instead of submitted state", () => {
+    expect(initialAiPptWizardState).toMatchObject({
+      topic: "",
+      purpose: "",
+      context: "",
+      audience: "",
+      presentationType: "",
+      successCriteria: "",
+      duration: "",
+      slides: ""
+    });
+    expect(Object.values(briefFieldPlaceholders).every(Boolean)).toBe(true);
+    expect(JSON.stringify(initialAiPptWizardState)).not.toContain(
+      briefFieldPlaceholders.successCriteria
+    );
+  });
+
+  it("merges visible Brief form values before validating the next step", () => {
+    const values = new Map<string, string>([
+      ["topic", "분할 정복으로 이해하는 Quick Sort"],
+      ["purpose", "Python 초급 학습자에게 분할 정복 설명"],
+      ["context", "알고리즘 기초 수업"],
+      ["audience", "초급 학습자"],
+      ["presentationType", "교육 발표"],
+      ["successCriteria", "Divide-Conquer-Combine 이해"],
+      ["duration", "5"],
+      ["slides", "5"]
+    ]);
+    const merged = mergeAiPptBriefFormData(initialAiPptWizardState, {
+      get: (name) => values.get(name) ?? null
+    });
+
+    expect(getAiPptWizardValidationMessage(merged)).toBe("");
+    expect(merged).toMatchObject({
+      topic: "분할 정복으로 이해하는 Quick Sort",
+      duration: "5",
+      slides: "5",
+      tone: initialAiPptWizardState.tone
+    });
+  });
+
+  it("parses quality-gate issues without treating them as a network error", () => {
+    const issues = Array.from({ length: 6 }, (_, index) => ({
+      code: `QUALITY_${index + 1}`,
+      scope: "slide" as const,
+      severity: "warning" as const,
+      blocking: false,
+      path: `slides.${index}.elements`,
+      message: `quality issue ${index + 1}`
+    }));
+    const job: Job = {
+      jobId: "job-quality",
+      projectId: "project-quality",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: false,
+          layoutIssues: issues,
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_QUALITY_GATE_FAILED",
+        message: "quality gate failed"
+      },
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: issues.slice(0, 5).map((issue, index) => ({
+        code: issue.code,
+        message: issue.message,
+        slide: index + 1
+      })),
+      remainingCount: 1
+    });
+    expect(
+      getAiPptQualityFailure({
+        ...job,
+        error: { code: "NETWORK_ERROR", message: "network" }
+      })
+    ).toBeNull();
+  });
+
+  it("shows visual QA unavailability as a retryable quality failure", () => {
+    const job: Job = {
+      jobId: "job-visual",
+      projectId: "project-visual",
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 90,
+      message: "AI deck generation failed.",
+      result: {
+        validation: {
+          passed: true,
+          layoutIssues: [],
+          contentIssues: [],
+          designIssues: [],
+          presentationIssues: []
+        }
+      },
+      error: {
+        code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+        message: "Vision QA provider unavailable."
+      },
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptQualityFailure(job)).toEqual({
+      issues: [
+        {
+          code: "GENERATE_DECK_VISUAL_QA_UNAVAILABLE",
+          message: "Vision QA provider unavailable."
+        }
+      ],
+      remainingCount: 0
+    });
+  });
+
+  it("maps worker progress to the seven visual generation stages", () => {
+    const job = {
+      jobId: "job-progress",
+      projectId: "project-progress",
+      type: "ai-deck-generation" as const,
+      status: "running" as const,
+      progress: 85,
+      message: "repair",
+      result: null,
+      error: null,
+      createdAt: "2026-07-12T00:00:00.000Z",
+      updatedAt: "2026-07-12T00:00:01.000Z"
+    };
+
+    expect(getAiPptGenerationStatus(job)).toBe("6/7 시각 품질 보정");
+  });
+
+  it("exposes advisory issue codes and affected slides for user confirmation", () => {
+    const job: Job = {
+      jobId: "job_visual_advisory",
+      projectId: "project_visual_advisory",
+      type: "ai-deck-generation",
+      status: "succeeded",
+      progress: 100,
+      message: "completed",
+      result: {
+        diagnostics: {
+          visualQaStatus: "advisory",
+          visualIssueCodes: ["BALANCE_WEAK"],
+          visualIssueSlideOrders: [1, 2, 3],
+          warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
+        }
+      },
+      error: null,
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:01.000Z"
+    };
+
+    expect(getAiPptVisualAdvisory(job)).toEqual({
+      projectId: "project_visual_advisory",
+      issueCodes: ["BALANCE_WEAK"],
+      slideOrders: [1, 2, 3]
+    });
+  });
+
+  it.each([
+    ["purpose", "발표 목적을 입력하세요."],
+    ["context", "발표 맥락을 입력하세요."],
+    ["audience", "청중을 입력하세요."],
+    ["presentationType", "발표 유형을 입력하세요."],
+    ["successCriteria", "성공 기준을 입력하세요."]
+  ] as const)("requires the %s Brief field", (field, expected) => {
+    expect(
+      getAiPptWizardValidationMessage({
+        topic: "AI PPT",
+        purpose: "목적",
+        context: "맥락",
+        audience: "청중",
+        presentationType: "제안",
+        successCriteria: "합의",
+        duration: "10",
+        slides: "",
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only",
+        [field]: ""
+      })
+    ).toBe(expected);
+  });
+
+  it("normalizes selected reference files from a file list", () => {
+    const files = [
+      new File(["brief"], "brief.pdf", { type: "application/pdf" }),
+      new File(["deck"], "deck.pptx", {
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      })
+    ];
+    const fileList = Object.assign([...files], {
+      item: (index: number) => files[index] ?? null
+    }) as unknown as FileList;
+
+    expect(filesFromFileList(fileList)).toEqual(files);
+    expect(filesFromFileList(null)).toEqual([]);
+  });
+
+  it("appends newly selected reference files without duplicating the same file", () => {
+    const first = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const duplicate = new File(["brief"], "brief.pdf", {
+      lastModified: 1,
+      type: "application/pdf"
+    });
+    const second = new File(["deck"], "deck.pptx", {
+      lastModified: 2,
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    });
+
+    expect(mergeReferenceFiles([first], [duplicate, second])).toEqual([duplicate, second]);
+    expect(removeReferenceFileAt([first, second], 0)).toEqual([second]);
+  });
+
+  it("documents every reference and media policy exposed by the wizard", () => {
+    expect(referencePolicyOptions.map((option) => option.value)).toEqual([
+      "user-input-only",
+      "references-first",
+      "references-only",
+      "research-first"
+    ]);
+    expect(mediaPolicyOptions.map((option) => option.value)).toEqual([
+      "minimal",
+      "provided-only",
+      "public-assets",
+      "ai-generated",
+      "hybrid"
+    ]);
+    expect(
+      [...referencePolicyOptions, ...mediaPolicyOptions].every(
+        (option) => option.description.trim().length > 0
+      )
+    ).toBe(true);
+  });
+
+  it("only approves references for policies that extract selected files", () => {
+    const fileIds = ["file-reference-1"];
+
+    expect(getApprovedBriefReferenceFileIds("user-input-only", fileIds)).toEqual([]);
+    expect(getApprovedBriefReferenceFileIds("topic-only", fileIds)).toEqual([]);
+    expect(getApprovedBriefReferenceFileIds("references-first", fileIds)).toEqual(fileIds);
   });
 
   it("applies the selected heading and body fonts to slide previews", () => {
@@ -70,7 +344,6 @@ describe("AI PPT wizard payload", () => {
     );
 
     expect(payload).toMatchObject({
-      generationMode: "design-pack",
       topic: "JSON-first AI PPT",
       brief: {
         presentationContext: "internal review",
@@ -81,8 +354,8 @@ describe("AI PPT wizard payload", () => {
         referencePolicy: "references-first"
       },
       slideCountRange: {
-        min: 6,
-        max: 10
+        min: 8,
+        max: 8
       },
       design: {
         stylePackId: "brandlogy-modern",
@@ -116,6 +389,80 @@ describe("AI PPT wizard payload", () => {
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "minimal" });
     expect(payload.referencePolicy).toBe("references-first");
     expect(payload.referenceFileIds).toEqual(["file_reference_1"]);
+    expect(payload).not.toHaveProperty("generationMode");
+    expect(payload).not.toHaveProperty("design.engineVersion");
+    expect(payload).not.toHaveProperty("design.slidePresetId");
+    expect(payload).not.toHaveProperty("designReferences");
+    expect(payload).not.toHaveProperty("templateBlueprintId");
+  });
+
+  it("keeps hybrid official and AI image policy in the generation request", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "제품 공개",
+        purpose: "신제품 특징 소개",
+        context: "공개 발표",
+        audience: "예비 사용자",
+        presentationType: "product launch",
+        successCriteria: "출시 기대 형성",
+        duration: "10",
+        slides: "10",
+        tone: "confident",
+        colorMood: "energetic",
+        fontMood: "bold Korean sans",
+        mediaPolicy: "hybrid",
+        referencePolicy: "research-first"
+      },
+      palette,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      ["file_official_1"]
+    );
+
+    expect(payload.design).toMatchObject({
+      mediaPolicy: "hybrid"
+    });
+    expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "hybrid" });
+    expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
+    expect(payload.officialAssetFileIds).toEqual(["file_official_1"]);
+  });
+
+  it("pins the selected Saved Design Pack version in the generation request", () => {
+    const savedSelection = {
+      id: "design_pack_user_1",
+      version: 4,
+      name: "Must not leak"
+    };
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Reusable report",
+        purpose: "Monthly review",
+        context: "leadership meeting",
+        audience: "executives",
+        presentationType: "report",
+        successCriteria: "approve next actions",
+        duration: "10",
+        slides: "8",
+        tone: "professional",
+        colorMood: "trusted blue",
+        fontMood: "professional Korean sans",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette,
+      [],
+      undefined,
+      undefined,
+      savedSelection
+    );
+
+    expect(payload.savedDesignPack).toEqual({
+      id: "design_pack_user_1",
+      version: 4
+    });
+    expect(Object.keys(payload.savedDesignPack ?? {})).toEqual(["id", "version"]);
   });
 
   it("keeps a one-slide request within the valid lower bound", () => {
@@ -138,7 +485,33 @@ describe("AI PPT wizard payload", () => {
       palette
     );
 
-    expect(payload.slideCountRange).toEqual({ min: 1, max: 3 });
+    expect(payload.slideCountRange).toEqual({ min: 1, max: 1 });
+  });
+
+  it.each([
+    ["19", { min: 19, max: 19 }],
+    ["20", { min: 20, max: 20 }]
+  ])("keeps a %s-slide request within the valid upper bound", (slides, expected) => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        topic: "Large deck",
+        purpose: "Detailed review",
+        context: "workshop",
+        audience: "team",
+        presentationType: "training",
+        successCriteria: "shared understanding",
+        duration: "20",
+        slides,
+        tone: "professional",
+        colorMood: "blue",
+        fontMood: "professional",
+        mediaPolicy: "minimal",
+        referencePolicy: "topic-only"
+      },
+      palette
+    );
+
+    expect(payload.slideCountRange).toEqual(expected);
   });
 
   it("derives design-pack constraints and slide count from natural language intent", () => {
@@ -153,7 +526,7 @@ describe("AI PPT wizard payload", () => {
         duration: "3",
         slides: "",
         tone: "professional",
-        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션 금지, 파스텔톤 금지",
+        colorMood: "흰 색 배경, 사용자들에게 신뢰를 줄 수 있는 포인트 색상. 그라데이션과 파스텔톤은 사용하지 않기",
         fontMood: "formal trustworthy Korean sans",
         mediaPolicy: "minimal",
         referencePolicy: "topic-only"
@@ -188,7 +561,7 @@ describe("AI PPT wizard payload", () => {
         duration: "7",
         slides: "",
         tone: "friendly",
-        colorMood: "black background with readable accents",
+        colorMood: "black background with white text and readable accents",
         fontMood: "funny easy read Korean sans font",
         mediaPolicy: "ai-generated",
         referencePolicy: "references-first"
@@ -200,6 +573,8 @@ describe("AI PPT wizard payload", () => {
     expect(payload.design.mediaPolicy).toBe("ai-generated");
     expect(payload.visualPlanPolicy).toEqual({ mediaPolicy: "ai-generated" });
     expect(payload.designPrompt).toContain("mediaPolicy=ai-generated");
+    expect(payload.design.colorIntent).toMatchObject({ backgroundPreference: "dark" });
+    expect(payload.design.constraints).toMatchObject({ canvasBackground: "auto" });
   });
 
   it("includes only usable extraction context and de-duplicated keywords", () => {
@@ -325,6 +700,26 @@ describe("AI PPT wizard payload", () => {
     expect(message).toBe("참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.");
   });
 
+  it("blocks references-first generation before creating a project when no file is attached", () => {
+    const message = getAiPptWizardValidationMessage({
+      topic: "AI PPT",
+      purpose: "planning",
+      context: "review",
+      audience: "team",
+      presentationType: "proposal",
+      successCriteria: "alignment",
+      duration: "10",
+      slides: "6",
+      tone: "professional",
+      colorMood: "blue",
+      fontMood: "professional Korean sans",
+      mediaPolicy: "minimal",
+      referencePolicy: "references-first"
+    });
+
+    expect(message).toBe("참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.");
+  });
+
   it("builds side advisor suggestions without mutating the form", () => {
     const form = {
       topic: "Short deck",
@@ -378,6 +773,18 @@ describe("AI PPT wizard payload", () => {
     ).toBe(
       "주제와 직접 관련된 공식 출처와 독립 출처를 충분히 확인하지 못했습니다. 주제명을 더 구체적으로 입력하거나 잠시 후 다시 시도해 주세요."
     );
+  });
+
+  it("shows only the safe Art Director retry message", () => {
+    const safeMessage =
+      "Art Director could not create a valid design plan. Please retry deck generation.";
+    const message = toAiPptUserErrorMessage(
+      JSON.stringify({ detail: safeMessage })
+    );
+
+    expect(message).toBe(safeMessage);
+    expect(message).not.toContain("validation error");
+    expect(message).not.toContain("input_value");
   });
 
   it("keeps ai-generated media policy out of advisor override suggestions", () => {
@@ -479,11 +886,51 @@ describe("AI PPT wizard payload", () => {
       )
     );
     vi.stubGlobal("fetch", fetcher);
+    const onUpdate = vi.fn();
 
-    await expect(pollJob("job_1")).resolves.toMatchObject({
+    await expect(pollJob("job_1", onUpdate)).resolves.toMatchObject({
       jobId: "job_1",
       status: "succeeded"
     });
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: "job_1", progress: 100 })
+    );
     expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_1");
+  });
+
+  it("submits the compiled request and navigates only after successful polling", () => {
+    const source = fs.readFileSync(
+      new URL("./AiPptMockupPage.tsx", import.meta.url),
+      "utf8"
+    );
+    const submitStart = source.indexOf("async function submitGeneration(");
+    const submitEnd = source.indexOf("\n  return (", submitStart);
+    const submitGeneration = source.slice(submitStart, submitEnd);
+    const endpointIndex = submitGeneration.indexOf(
+      "/jobs/generate-deck`"
+    );
+    const payloadBuilderIndex = submitGeneration.indexOf(
+      "buildAiPptGenerateDeckPayload(",
+      endpointIndex
+    );
+    const pollIndex = submitGeneration.indexOf("const completed = await pollJob(");
+    const failureIndex = submitGeneration.indexOf(
+      'if (completed.status === "failed")'
+    );
+    const advisoryIndex = submitGeneration.indexOf(
+      "const advisory = getAiPptVisualAdvisory(completed);"
+    );
+    const navigateIndex = submitGeneration.indexOf(
+      "navigateToProject(project.projectId);"
+    );
+
+    expect(submitStart).toBeGreaterThanOrEqual(0);
+    expect(submitEnd).toBeGreaterThan(submitStart);
+    expect(endpointIndex).toBeGreaterThanOrEqual(0);
+    expect(payloadBuilderIndex).toBeGreaterThan(endpointIndex);
+    expect(pollIndex).toBeGreaterThan(payloadBuilderIndex);
+    expect(failureIndex).toBeGreaterThan(pollIndex);
+    expect(advisoryIndex).toBeGreaterThan(failureIndex);
+    expect(navigateIndex).toBeGreaterThan(advisoryIndex);
   });
 });

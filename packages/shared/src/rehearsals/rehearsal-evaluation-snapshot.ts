@@ -3,10 +3,18 @@ import {
   rehearsalEvaluationSnapshotSchema,
   type RehearsalEvaluationSnapshot
 } from "./rehearsal.schema";
+import type { RehearsalEvaluationPlan } from "../coaching/evaluator-lens.schema";
+import type { RehearsalFocusProfileSnapshot } from "../coaching/rehearsal-focus-profile.schema";
 
 export function createRehearsalEvaluationSnapshot(
   deck: Deck,
-  capturedAt: string = new Date().toISOString()
+  capturedAt: string = new Date().toISOString(),
+  options: {
+    deckContentHash?: string | null;
+    evaluationPlan?: RehearsalEvaluationPlan | null;
+    focusProfileSnapshot?: RehearsalFocusProfileSnapshot | null;
+    slideThumbnailUrls?: ReadonlyMap<string, string>;
+  } = {}
 ): RehearsalEvaluationSnapshot {
   const fallbackEstimatedSeconds = Math.max(
     1,
@@ -16,12 +24,16 @@ export function createRehearsalEvaluationSnapshot(
   return rehearsalEvaluationSnapshotSchema.parse({
     deckId: deck.deckId,
     deckVersion: deck.version,
+    deckContentHash: options.deckContentHash ?? null,
+    evaluationPlan: options.evaluationPlan ?? null,
+    focusProfileSnapshot: options.focusProfileSnapshot ?? null,
     capturedAt,
     slides: deck.slides.map((slide) => ({
       slideId: slide.slideId,
       order: slide.order,
-      title: slide.title,
+      title: slide.title.trim() || `슬라이드 ${slide.order}`,
       estimatedSeconds: slide.estimatedSeconds ?? fallbackEstimatedSeconds,
+      thumbnailUrl: options.slideThumbnailUrls?.get(slide.slideId) ?? "",
       keywords: slide.keywords.map((keyword) => ({
         keywordId: keyword.keywordId,
         text: keyword.text,

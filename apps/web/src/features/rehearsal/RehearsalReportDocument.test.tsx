@@ -1,10 +1,53 @@
-import { deckSchema, type Deck, type RehearsalReport } from "@orbit/shared";
+import {
+  createRehearsalEvaluationSnapshot,
+  deckSchema,
+  legacyRehearsalReportMetricsDefaults,
+  type Deck,
+  type RehearsalReport,
+} from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
+  it("separates the overview and slide coaching into analysis tabs", () => {
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={deck}
+        practiceGoalSummary={(
+          <section className="practice-report-summary">priority practice goals</section>
+        )}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture()}
+        run={null}
+        runNumber={9}
+        totalRunCount={9}
+      />
+    );
+
+    expect(html).toContain("전체 분석");
+    expect(html).toContain("슬라이드 분석");
+    expect(html).toContain(
+      'aria-controls="rrd-panel-overview" aria-selected="true"',
+    );
+    expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
+    expect(html).toMatch(
+      /rrd-top-overview[\s\S]*rrd-ai-card[\s\S]*practice-report-summary/,
+    );
+    expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
+      html.indexOf("rrd-top-overview"),
+    );
+    expect(html.indexOf("rrd-top-overview")).toBeLessThan(
+      html.indexOf("rrd-habit-panel"),
+    );
+    expect(html).toContain("rrd-slide-coaching");
+    expect(html.indexOf("rrd-habit-panel")).toBeLessThan(
+      html.indexOf("rrd-slide-coaching"),
+    );
+  });
+
   it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
@@ -101,6 +144,8 @@ describe("RehearsalReportDocument", () => {
           deckVersion: null,
           evaluationSnapshot: null,
           semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
           rawAudioDeletedAt: null,
           status: "succeeded",
           error: null,
@@ -114,30 +159,15 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("발화 커버리지");
-    expect(html).toContain("그대로 말한 문장");
-    expect(html).toContain("바꿔 말한 문장");
-    expect(html).toContain("추가로 말한 애드리브");
-    expect(html).toContain("설명하지 않은 문장");
-    expect(html).toContain("도입 문장입니다");
-    expect(html).toContain("핵심 메시지를 다르게 설명합니다");
-    expect(html).toContain("고객 사례를 하나 더 설명했습니다.");
-    expect(html).toContain("마무리 문장입니다");
-    expect(html).toContain("슬라이드 1 · Opening");
-    expect(html).toContain("93%");
-    expect(html).toContain("의미 전달 리포트");
-    expect(html).toContain("일부 의미 항목을 측정하지 못했어요");
-    expect(html).toContain("전달됨");
-    expect(html).toContain("일부 전달");
-    expect(html).toContain("놓친 의미");
-    expect(html).toContain("측정하지 못함");
-    expect(html).toContain("검토 제외");
-    expect(html).toContain("다음 연습 목표");
-    expect(html).toContain("고객 가치");
-    expect(html).toContain("비용 절감 효과");
-    expect(html).toContain("반복 업무를 줄였습니다.");
-    expect(html).toContain("정밀 의미 평가 시간 초과");
-    expect(html).toContain("서버 재평가");
+    expect(html).toContain("AI 총평");
+    expect(html).toContain("말버릇");
+    expect(html).toContain("발화 지체 및 긴 멈춤 분석");
+    expect(html).toContain("소요 시간 분석");
+    expect(html).not.toContain("의미 전달 리포트");
+    expect(html).not.toContain("발화 커버리지");
+    expect(html.indexOf("발화 지체 및 긴 멈춤 분석")).toBeLessThan(
+      html.indexOf("슬라이드별 소요 시간"),
+    );
     expect(html).not.toContain("Semantic cue evidence");
     expect(html).not.toContain("scue_intro_1");
     expect(html).not.toContain("nli-entailment");
@@ -145,7 +175,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("보고서에 그대로 노출하지 않을 가설");
   });
 
-  it("shows the basic badge and N/A for a deck without keyword coverage", () => {
+  it("does not render removed semantic or keyword coverage content", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -180,13 +210,12 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("기본 의미 체크");
-    expect(html).toContain("N/A");
-    expect(html).toContain("저장된 장표 키워드가 없어 측정하지 않았어요.");
-    expect(html).not.toContain("키워드 커버리지</span><strong>0%");
+    expect(html).not.toContain("기본 의미 체크");
+    expect(html).not.toContain("N/A");
+    expect(html).not.toContain("키워드 커버리지");
   });
 
-  it("keeps failed retry and fallback copy in system status, not AI summary", () => {
+  it("does not render removed semantic retry content in the report", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -220,12 +249,139 @@ describe("RehearsalReportDocument", () => {
       />
     );
 
-    expect(html).toContain("시스템 상태 안내");
-    expect(html).toContain("서버 의미 평가 연결 실패");
-    expect(html).toContain("서버 재평가를 완료하지 못했습니다.");
-    expect(html).toContain('role="alert"');
-    expect(html).not.toContain("rrd-ai-summary");
+    expect(html).not.toContain("시스템 상태 안내");
+    expect(html).not.toContain("서버 의미 평가 연결 실패");
+    expect(html).not.toContain("서버 재평가를 완료하지 못했습니다.");
+    expect(html).not.toContain('role="alert"');
     expect(html).not.toContain("server_evaluation_failed");
+  });
+
+  it("uses the run snapshot thumbnail instead of the current Deck thumbnail", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/current-deck-thumbnail.png";
+    const evaluationSnapshot = createRehearsalEvaluationSnapshot(
+      currentDeck,
+      "2026-07-03T00:00:00.000Z",
+      {
+        slideThumbnailUrls: new Map([
+          ["slide_1", "/api/v1/projects/project_a/assets/file_run_slide/content"],
+        ]),
+      },
+    );
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: 1,
+          evaluationSnapshot,
+          semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).toContain("file_run_slide/content");
+    expect(html).not.toContain("current-deck-thumbnail");
+  });
+
+  it("does not fall back to a stale Deck thumbnail when the run snapshot is missing", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
+    const evaluationSnapshot = createRehearsalEvaluationSnapshot(
+      currentDeck,
+      "2026-07-03T00:00:00.000Z",
+    );
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: 1,
+          evaluationSnapshot,
+          semanticEvaluationMode: "full",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).not.toContain("stale-deck-thumbnail");
+  });
+
+  it("does not show a Deck thumbnail when the run has no evaluation snapshot", () => {
+    const currentDeck = structuredClone(deck);
+    currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
+    const html = renderToStaticMarkup(
+      <RehearsalReportDocument
+        deck={currentDeck}
+        prevReports={[]}
+        projectId="project_a"
+        report={reportFixture({
+          slideTimings: [
+            { slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 },
+          ],
+        })}
+        run={{
+          runId: "run_1",
+          projectId: "project_a",
+          deckId: "deck_a",
+          jobId: null,
+          audioFileId: null,
+          deckVersion: null,
+          evaluationSnapshot: null,
+          semanticEvaluationMode: "delivery-only",
+          analysisRevision: 1,
+          analysisFinalizedAt: "2026-07-03T00:00:00.000Z",
+          rawAudioDeletedAt: null,
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          updatedAt: "2026-07-03T00:00:00.000Z",
+        }}
+        runNumber={1}
+        totalRunCount={1}
+      />
+    );
+
+    expect(html).not.toContain("stale-deck-thumbnail");
   });
 });
 
@@ -308,6 +464,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     transcriptRetained: false,
     transcript: null,
     metrics: {
+      ...legacyRehearsalReportMetricsDefaults,
       durationSeconds: 90,
       wordsPerMinute: 120,
       fillerWordCount: 0,
@@ -318,6 +475,7 @@ function reportFixture(patch: Partial<RehearsalReport> = {}): RehearsalReport {
     speedSamples: [],
     fillerWordDetails: [],
     pauseDetails: [],
+    pauseV2Details: [],
     missedKeywords: [],
     utteranceOutcomes: [],
     semanticCueDecisions: [],

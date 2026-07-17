@@ -63,7 +63,10 @@ describe("RuntimeConfigController", () => {
     vi.stubEnv("LIVE_STT_ENGINE", "web-speech");
 
     expect(new RuntimeConfigController().getRuntimeConfig()).toEqual({
-      liveSttEngine: "web-speech"
+      liveSttEngine: "web-speech",
+      adaptiveRehearsalCoachEnabled: false,
+      focusedPracticeEnabled: false,
+      challengeQnaEnabled: false,
     });
   });
 });

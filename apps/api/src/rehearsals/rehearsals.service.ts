@@ -17,10 +17,13 @@ import {
   getRehearsalProjectSummaryResponseSchema,
   getRehearsalReportResponseSchema,
   getRehearsalRunResponseSchema,
+  rehearsalFocusProfileSchema,
   rehearsalReportSchema,
   retryRehearsalSemanticEvaluationResponseSchema,
   updateRehearsalRunMetaRequestSchema,
   updateRehearsalRunMetaResponseSchema,
+  type RehearsalEvaluationSnapshot,
+  type RehearsalFocusProfile,
   type RehearsalRun
 } from "@orbit/shared";
 import {
@@ -28,12 +31,14 @@ import {
   ConflictException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  UnprocessableEntityException
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { LessThan, Not, Repository } from "typeorm";
+import { ZodError } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
@@ -41,6 +46,13 @@ import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectsService } from "../projects/projects.service";
+import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
+import {
+  assertFrozenRehearsalEvaluationSources,
+  buildRehearsalEvaluationPlan,
+  createRehearsalFocusProfileSnapshot,
+  deckContentHash,
+} from "../practice-goals/evaluation-plan";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { buildRehearsalRunComparison } from "./rehearsal-run-comparison";
@@ -58,7 +70,8 @@ export const REHEARSAL_SEMANTIC_EVALUATION_ENQUEUE_JOB =
 export class RehearsalsService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
   private readonly rehearsalAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
-    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "rehearsal-audio"
   });
 
   constructor(
@@ -68,6 +81,7 @@ export class RehearsalsService {
     private readonly projects: Repository<ProjectEntity>,
     private readonly decksService: DecksService,
     private readonly projectsService: ProjectsService,
+    private readonly presentationBriefs: PresentationBriefsService,
     private readonly filesService: FilesService,
     private readonly jobsService: JobsService,
     @Inject(REHEARSAL_STT_ENQUEUE_JOB)
@@ -100,20 +114,84 @@ export class RehearsalsService {
     }
 
     const now = new Date();
-    const evaluationSnapshot =
-      request.semanticEvaluationMode === "full"
-        ? createRehearsalEvaluationSnapshot(deckResponse.deck, now.toISOString())
-        : null;
+    const adaptiveBrief = request.briefRef
+      ? await this.resolveAdaptiveBrief(projectId, request.briefRef, request.evaluatorLensRef)
+      : undefined;
+    const focusProfile = request.briefRef
+      ? await this.resolveFocusProfile(projectId)
+      : null;
+    const sourceGoalSetRef = request.briefRef
+      ? await this.resolveSourceGoalSetRef(projectId, request.sourceGoalSetId ?? null)
+      : null;
+    const evaluationPlan = request.briefRef
+      ? buildRehearsalEvaluationPlan({
+          deck: deckResponse.deck,
+          brief: adaptiveBrief ?? null,
+          sourceGoalSetRef
+        })
+      : null;
+    const slideThumbnailUrls = await this.resolveSlideSnapshotUrls(
+      projectId,
+      deckResponse.deck.slides.map((slide) => slide.slideId),
+      request.slideSnapshots
+    );
+    let evaluationSnapshot: RehearsalEvaluationSnapshot | null = null;
+    if (request.semanticEvaluationMode === "full") {
+      try {
+        evaluationSnapshot = createRehearsalEvaluationSnapshot(
+          deckResponse.deck,
+          now.toISOString(),
+          {
+            deckContentHash: evaluationPlan ? deckContentHash(deckResponse.deck) : null,
+            evaluationPlan,
+            focusProfileSnapshot: createRehearsalFocusProfileSnapshot(focusProfile),
+            slideThumbnailUrls
+          }
+        );
+        if (evaluationPlan) {
+          assertFrozenRehearsalEvaluationSources({
+            snapshot: evaluationSnapshot,
+            brief: adaptiveBrief ?? null,
+            focusProfile
+          });
+        }
+      } catch (error) {
+        if (!(error instanceof ZodError)) {
+          throw error;
+        }
+
+        this.logger.error(
+          {
+            event: "rehearsal.evaluation_snapshot.validation_failed",
+            projectId,
+            deckId: request.deckId,
+            issues: error.issues.map((issue) => ({
+              code: issue.code,
+              path: issue.path
+            }))
+          },
+          "Rehearsal evaluation snapshot validation failed."
+        );
+        throw new UnprocessableEntityException({
+          code: "REHEARSAL_DECK_INVALID",
+          message: "The presentation could not be prepared for rehearsal."
+        });
+      }
+    }
     const run = await this.rehearsalRuns.save(
       this.rehearsalRuns.create({
         runId: `run_${randomUUID()}`,
         projectId,
         deckId: request.deckId,
         audioFileId: null,
+        transcriptJsonFileId: null,
+        transcriptTextFileId: null,
         jobId: null,
         deckVersion: evaluationSnapshot?.deckVersion ?? null,
         evaluationSnapshot,
         semanticEvaluationMode: request.semanticEvaluationMode,
+        analysisRevision: 0,
+        analysisFinalizedAt: null,
         status: "created",
         error: null,
         rehearsalReport: null,
@@ -146,6 +224,129 @@ export class RehearsalsService {
     return createRehearsalRunResponseSchema.parse({ run: toRehearsalRun(run) });
   }
 
+  private async resolveFocusProfile(
+    projectId: string
+  ): Promise<RehearsalFocusProfile | null> {
+    const rows = await this.rehearsalRuns.query(
+      `SELECT profile_id, project_id, revision, items_json,
+              created_by, updated_by, created_at, updated_at
+       FROM rehearsal_focus_profiles
+       WHERE project_id = $1
+       LIMIT 1`,
+      [projectId]
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || typeof row !== "object") return null;
+    const value = row as Record<string, unknown>;
+    return rehearsalFocusProfileSchema.parse({
+      profileId: value.profile_id,
+      projectId: value.project_id,
+      revision: value.revision,
+      items: value.items_json,
+      createdBy: value.created_by,
+      updatedBy: value.updated_by,
+      createdAt: databaseDateToIso(value.created_at),
+      updatedAt: databaseDateToIso(value.updated_at)
+    });
+  }
+
+  private async resolveSlideSnapshotUrls(
+    projectId: string,
+    deckSlideIds: readonly string[],
+    snapshots: readonly { slideId: string; fileId: string }[] | undefined
+  ) {
+    const urls = new Map<string, string>();
+    if (!snapshots?.length) {
+      return urls;
+    }
+
+    const validSlideIds = new Set(deckSlideIds);
+    for (const snapshot of snapshots) {
+      if (!validSlideIds.has(snapshot.slideId)) {
+        throw new BadRequestException(
+          `slideSnapshots references an unknown slideId: ${snapshot.slideId}`
+        );
+      }
+
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        snapshot.fileId,
+        "rehearsal-slide-snapshot"
+      );
+      if (!asset.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Rehearsal slide snapshots must be image assets.");
+      }
+
+      urls.set(
+        snapshot.slideId,
+        `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(snapshot.fileId)}/content`
+      );
+    }
+
+    return urls;
+  }
+
+  private async resolveAdaptiveBrief(
+    projectId: string,
+    briefRef: { mode: "generic" } | { mode: "briefed"; briefId: string; expectedRevision: number },
+    evaluatorLensRef:
+      | { lensId: "general-novice" | "decision-maker" | "strict-reviewer"; revision: 1 }
+      | undefined
+  ) {
+    if (!evaluatorLensRef) {
+      throw new BadRequestException("Evaluator Lens is required for adaptive rehearsal.");
+    }
+    if (briefRef.mode === "generic") {
+      if (evaluatorLensRef.lensId !== "general-novice") {
+        throw new ConflictException({
+          code: "SOURCE_INCOMPATIBLE",
+          message: "Generic rehearsal must use the general novice evaluator lens."
+        });
+      }
+      return null;
+    }
+
+    const brief = await this.presentationBriefs.getCurrent(projectId);
+    if (
+      !brief ||
+      brief.briefId !== briefRef.briefId ||
+      brief.revision !== briefRef.expectedRevision ||
+      brief.evaluatorLensRef.lensId !== evaluatorLensRef.lensId ||
+      brief.evaluatorLensRef.revision !== evaluatorLensRef.revision
+    ) {
+      throw new ConflictException({
+        code: "SOURCE_INCOMPATIBLE",
+        message: "Brief or evaluator lens revision is no longer current."
+      });
+    }
+    return brief;
+  }
+
+  private async resolveSourceGoalSetRef(projectId: string, goalSetId: string | null) {
+    if (!goalSetId) return null;
+    const rows = await this.rehearsalRuns.manager.query(
+      `
+        SELECT sets.goal_set_id, sets.revision
+        FROM practice_goal_sets sets
+        JOIN practice_goal_heads heads
+          ON heads.project_id = sets.project_id
+         AND heads.current_goal_set_id = sets.goal_set_id
+        WHERE sets.project_id = $1
+          AND sets.goal_set_id = $2
+          AND sets.analysis_state = 'final'
+      `,
+      [projectId, goalSetId]
+    );
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    if (!row || typeof row.goal_set_id !== "string" || typeof row.revision !== "number") {
+      throw new ConflictException({
+        code: "SOURCE_INCOMPATIBLE",
+        message: "The selected practice goal set is no longer current and final."
+      });
+    }
+    return { goalSetId: row.goal_set_id, revision: row.revision };
+  }
+
   async createAudioUploadUrl(runId: string, body: unknown) {
     const request = parseRequest(createRehearsalAudioUploadUrlRequestSchema, body);
     const run = await this.getRunEntity(runId);
@@ -154,12 +355,13 @@ export class RehearsalsService {
       throw new BadRequestException("Rehearsal run is not accepting uploads.");
     }
 
-    const upload = await this.filesService.createUploadUrl(
+    const upload = await this.filesService.createRehearsalAudioUploadUrl(
       run.projectId,
       parseRequest(this.rehearsalAudioUploadRequestSchema, {
         ...request,
         purpose: "rehearsal-audio"
-      })
+      }),
+      { runId: run.runId, createdAt: run.createdAt }
     );
 
     run.audioFileId = upload.fileId;
@@ -188,7 +390,7 @@ export class RehearsalsService {
 
     await this.filesService.completeUpload(run.projectId, {
       fileId: request.fileId
-    });
+    }, "rehearsal-audio");
     await this.filesService.getUploadedAsset(run.projectId, request.fileId, "rehearsal-audio");
 
     const claimedRun = await this.claimAudioUpload(run, request.fileId);
@@ -352,12 +554,11 @@ export class RehearsalsService {
     const run = await this.getRunEntity(runId);
     const report =
       run.status === "succeeded" && run.rehearsalReport ? run.rehearsalReport : null;
-    const transcript = report ? await this.getCachedTranscript(run.runId) : null;
     const responseReport = report
       ? {
           ...report,
-          transcriptRetained: transcript !== null,
-          transcript
+          transcriptRetained: false,
+          transcript: null
         }
       : null;
 
@@ -504,22 +705,6 @@ export class RehearsalsService {
     });
   }
 
-  private async getCachedTranscript(runId: string) {
-    try {
-      return await this.transcriptCache.get(runId);
-    } catch (error) {
-      this.logger.warn(
-        {
-          event: "rehearsal.transcript_cache_read_failed",
-          runId,
-          error: serializeLogError(error)
-        },
-        "Failed to read rehearsal transcript cache."
-      );
-      return null;
-    }
-  }
-
   private async getRunEntity(runId: string) {
     const run = await this.rehearsalRuns.findOne({ where: { runId } });
     if (!run) {
@@ -651,12 +836,20 @@ function toRehearsalRun(run: RehearsalRunEntity): RehearsalRun {
     deckVersion: run.deckVersion,
     evaluationSnapshot: run.evaluationSnapshot,
     semanticEvaluationMode: run.semanticEvaluationMode,
+    analysisRevision: run.analysisRevision ?? 0,
+    analysisFinalizedAt: run.analysisFinalizedAt?.toISOString() ?? null,
     status: run.status,
     error: run.error,
     rawAudioDeletedAt: run.rawAudioDeletedAt?.toISOString() ?? null,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString()
   };
+}
+
+function databaseDateToIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return new Date(value).toISOString();
+  throw new Error("Rehearsal focus profile date is invalid.");
 }
 
 type ReportJsonShape = {
