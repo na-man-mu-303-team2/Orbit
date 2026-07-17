@@ -80,7 +80,7 @@ describe("EditorToolbar smart guides", () => {
     for (const label of ["텍스트", "도형", "차트", "이미지", "애니메이션"]) {
       expect(html).toMatch(
         new RegExp(
-          `aria-label="${label}"[^>]*disabled=""[^>]*title="편집할 슬라이드가 필요합니다\\."`
+          `aria-label="${label}"[^>]*disabled=""[^>]*title="특수 장표는 장표 설정에서 관리합니다\\."`
         )
       );
     }
@@ -99,5 +99,22 @@ describe("EditorToolbar smart guides", () => {
     expect(
       renderToolbar({ canMutate: false, compactSelectionTrigger })
     ).not.toContain('data-testid="compact-selection-trigger"');
+  });
+
+  it("disables every canvas editing control for a special slide", () => {
+    const html = renderToolbar({ canUseCurrentSlide: false });
+
+    for (const label of [
+      "선택 도구",
+      "텍스트",
+      "도형",
+      "차트",
+      "이미지",
+      "애니메이션",
+      "템플릿"
+    ]) {
+      const button = html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0];
+      expect(button, label).toContain("disabled");
+    }
   });
 });

@@ -4,6 +4,7 @@ import {
   deckSchema,
 } from "@orbit/shared";
 import type {
+  ContentSlide,
   Deck,
   DeckAnimation,
   DeckElement,
@@ -290,11 +291,13 @@ function applyOperation(
     }
 
     case "add_element": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       if (findElement(slide, operation.element.elementId)) {
         return failure("DUPLICATE_ELEMENT_ID", "Element already exists", {
@@ -344,11 +347,13 @@ function applyOperation(
     }
 
     case "delete_element": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       const elementIndex = slide.elements.findIndex(
         (element) => element.elementId === operation.elementId,
@@ -419,11 +424,13 @@ function applyOperation(
     }
 
     case "add_animation": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       if (!findElement(slide, operation.animation.elementId)) {
         return animationTargetNotFound(
@@ -453,11 +460,13 @@ function applyOperation(
     }
 
     case "update_animation": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       const animation = findAnimation(slide, operation.animationId);
 
@@ -489,11 +498,13 @@ function applyOperation(
     }
 
     case "delete_animation": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       const animationIndex = slide.animations.findIndex(
         (animation) => animation.animationId === operation.animationId,
@@ -517,11 +528,13 @@ function applyOperation(
     }
 
     case "add_slide_action": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       if (findSlideAction(slide, operation.action.actionId)) {
         return failure(
@@ -566,11 +579,13 @@ function applyOperation(
     }
 
     case "update_slide_action": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       const action = findSlideAction(slide, operation.actionId);
 
@@ -617,11 +632,13 @@ function applyOperation(
     }
 
     case "delete_slide_action": {
-      const slide = findSlide(deck, operation.slideId);
-
-      if (!slide) {
-        return slideNotFound(operation.type, operation.slideId);
-      }
+      const slideResult = findContentSlideByOperation(
+        deck,
+        operation.type,
+        operation.slideId,
+      );
+      if (!slideResult.ok) return slideResult;
+      const slide = slideResult.slide;
 
       const actionIndex = slide.actions.findIndex(
         (action) => action.actionId === operation.actionId,
@@ -633,6 +650,50 @@ function applyOperation(
 
       slide.actions.splice(actionIndex, 1);
       removeActionReferences(slide, [operation.actionId]);
+      return { ok: true };
+    }
+
+    case "update_activity_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity definition can only be updated on an Activity slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activity = cloneJson(operation.activity);
+      return { ok: true };
+    }
+
+    case "update_activity_result_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity-results") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity result definition can only be updated on an Activity result slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activityResult = cloneJson(operation.activityResult);
       return { ok: true };
     }
 
@@ -648,11 +709,13 @@ function findElementByOperation(
     { type: "update_element_frame" | "update_element_props" }
   >,
 ): { ok: true; element: DeckElement } | ApplyDeckPatchFailure {
-  const slide = findSlide(deck, operation.slideId);
-
-  if (!slide) {
-    return slideNotFound(operation.type, operation.slideId);
-  }
+  const slideResult = findContentSlideByOperation(
+    deck,
+    operation.type,
+    operation.slideId,
+  );
+  if (!slideResult.ok) return slideResult;
+  const slide = slideResult.slide;
 
   const element = findElement(slide, operation.elementId);
 
@@ -661,6 +724,31 @@ function findElementByOperation(
   }
 
   return { ok: true, element };
+}
+
+function findContentSlideByOperation(
+  deck: Deck,
+  operationType: string,
+  slideId: string,
+): { ok: true; slide: ContentSlide } | ApplyDeckPatchFailure {
+  const slide = findSlide(deck, slideId);
+
+  if (!slide) {
+    return slideNotFound(operationType, slideId);
+  }
+
+  if (slide.kind !== "content") {
+    return failure(
+      "SLIDE_KIND_MISMATCH",
+      "Canvas, animation, and action mutations can only be applied to content slides",
+      {
+        operationType,
+        details: [`slideId=${slideId}`, `kind=${slide.kind}`],
+      },
+    );
+  }
+
+  return { ok: true, slide };
 }
 
 function findSlide(deck: Deck, slideId: string): Slide | undefined {

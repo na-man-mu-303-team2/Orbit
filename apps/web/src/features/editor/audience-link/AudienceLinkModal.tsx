@@ -1,4 +1,7 @@
-import type { AudienceAccessSession } from "@orbit/shared";
+import type {
+  PresentationAccessMode,
+  PresentationSession
+} from "@orbit/shared";
 import { IconShare as Share2, IconX as X } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,20 +21,24 @@ import {
 import "./audience-link.css";
 
 type AudienceLinkModalProps = {
+  deckId: string;
   isOpen: boolean;
   onClose: () => void;
   projectId: string;
 };
 
 export function AudienceLinkModal({
+  deckId,
   isOpen,
   onClose,
   projectId
 }: AudienceLinkModalProps) {
+  const [audienceAccessMode, setAudienceAccessMode] =
+    useState<PresentationAccessMode>("passcode");
   const [audiencePasscode, setAudiencePasscode] = useState("");
-  const [audienceExpiresInHours, setAudienceExpiresInHours] = useState(2);
+  const [audienceDurationDays, setAudienceDurationDays] = useState(14);
   const [audienceSession, setAudienceSession] =
-    useState<AudienceAccessSession | null>(null);
+    useState<PresentationSession | null>(null);
   const [audienceUrl, setAudienceUrl] = useState("");
   const [audienceQrDataUrl, setAudienceQrDataUrl] = useState("");
   const [audienceLinkError, setAudienceLinkError] = useState("");
@@ -60,7 +67,7 @@ export function AudienceLinkModal({
     setAudienceLinkError("");
     setIsAudienceCloseConfirming(false);
     setIsAudienceLinkLoading(true);
-    void fetchCurrentAudienceAccessSession(projectId)
+    void fetchCurrentAudienceAccessSession(projectId, deckId)
       .then(async (payload) => {
         if (isCancelled) {
           return;
@@ -90,7 +97,7 @@ export function AudienceLinkModal({
     return () => {
       isCancelled = true;
     };
-  }, [isOpen, projectId]);
+  }, [deckId, isOpen, projectId]);
 
   function closeModal() {
     setIsAudienceCloseConfirming(false);
@@ -102,7 +109,10 @@ export function AudienceLinkModal({
   }
 
   async function handleCreateAudienceLink() {
-    if (!/^\d{4}$/.test(audiencePasscode) || isAudienceLinkLoading) {
+    if (
+      (audienceAccessMode === "passcode" && !/^\d{4}$/.test(audiencePasscode)) ||
+      isAudienceLinkLoading
+    ) {
       setAudienceLinkError("4자리 숫자 비밀번호를 입력해 주세요.");
       return;
     }
@@ -112,8 +122,12 @@ export function AudienceLinkModal({
 
     try {
       const payload = await createAudienceAccessSession({
-        expiresInHours: audienceExpiresInHours,
-        passcode: audiencePasscode,
+        accessMode: audienceAccessMode,
+        deckId,
+        durationDays: audienceDurationDays,
+        ...(audienceAccessMode === "passcode"
+          ? { passcode: audiencePasscode }
+          : {}),
         projectId
       });
       const nextAudienceUrl = resolveAbsoluteAudienceUrl(payload.audienceUrl);
@@ -182,7 +196,7 @@ export function AudienceLinkModal({
         <header>
           <div>
             <strong>청중 링크/QR</strong>
-            <span>4자리 입장 비밀번호로 보호되는 청중 입장 링크입니다.</span>
+            <span>현재 덱의 발표 세션과 청중 입장 방식을 설정합니다.</span>
           </div>
           <button
             className="audience-link-close-button"
@@ -199,8 +213,9 @@ export function AudienceLinkModal({
               <span
                 className={`audience-link-status audience-link-status-${audienceSession.status}`}
               >
-                {audienceSession.status === "open" ? "입장 열림" : "입장 닫힘"}
+                {audienceSession.status === "live" ? "입장 열림" : "시작 대기"}
               </span>
+              <span>{audienceSession.accessMode === "passcode" ? "비밀번호 필요" : "공개 링크"}</span>
             </div>
             <div className="audience-link-qr-frame">
               {audienceQrDataUrl ? (
@@ -231,7 +246,7 @@ export function AudienceLinkModal({
                 className="audience-link-session-close"
                 type="button"
                 onClick={() => setIsAudienceCloseConfirming(true)}
-                disabled={isAudienceLinkLoading || audienceSession.status === "closed"}
+                disabled={isAudienceLinkLoading || audienceSession.status === "ended"}
               >
                 세션 닫기
               </button>
@@ -281,36 +296,49 @@ export function AudienceLinkModal({
         ) : null}
         {!audienceSession ? (
           <section className="audience-link-create">
-            <label>
-              <span>입장 비밀번호</span>
-              <div className="audience-pin-inputs" aria-label="4자리 입장 비밀번호">
-                <input
-                  aria-label="4자리 입장 비밀번호"
-                  inputMode="numeric"
-                  maxLength={4}
-                  pattern="[0-9]*"
-                  type="text"
-                  value={audiencePasscode}
-                  onChange={(event) => updateAudiencePasscode(event.target.value)}
-                />
-                {[0, 1, 2, 3].map((index) => (
-                  <span key={index} aria-hidden="true">
-                    {audiencePasscode[index] ?? ""}
-                  </span>
-                ))}
-              </div>
-            </label>
             <label className="audience-expiry-field">
-              <span>링크 유효시간</span>
+              <span>입장 방식</span>
               <select
-                value={audienceExpiresInHours}
-                onChange={(event) => setAudienceExpiresInHours(Number(event.target.value))}
+                value={audienceAccessMode}
+                onChange={(event) =>
+                  setAudienceAccessMode(event.target.value as PresentationAccessMode)
+                }
               >
-                <option value={1}>1시간</option>
-                <option value={2}>2시간</option>
-                <option value={6}>6시간</option>
-                <option value={12}>12시간</option>
-                <option value={24}>24시간</option>
+                <option value="passcode">4자리 비밀번호</option>
+                <option value="public">공개 링크</option>
+              </select>
+            </label>
+            {audienceAccessMode === "passcode" ? (
+              <label>
+                <span>입장 비밀번호</span>
+                <div className="audience-pin-inputs" aria-label="4자리 입장 비밀번호">
+                  <input
+                    aria-label="4자리 입장 비밀번호"
+                    inputMode="numeric"
+                    maxLength={4}
+                    pattern="[0-9]*"
+                    type="text"
+                    value={audiencePasscode}
+                    onChange={(event) => updateAudiencePasscode(event.target.value)}
+                  />
+                  {[0, 1, 2, 3].map((index) => (
+                    <span key={index} aria-hidden="true">
+                      {audiencePasscode[index] ?? ""}
+                    </span>
+                  ))}
+                </div>
+              </label>
+            ) : null}
+            <label className="audience-expiry-field">
+              <span>링크 유효기간</span>
+              <select
+                value={audienceDurationDays}
+                onChange={(event) => setAudienceDurationDays(Number(event.target.value))}
+              >
+                <option value={1}>1일</option>
+                <option value={7}>7일</option>
+                <option value={14}>14일</option>
+                <option value={30}>30일</option>
               </select>
             </label>
             <button

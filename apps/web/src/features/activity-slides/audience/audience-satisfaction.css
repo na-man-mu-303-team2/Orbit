@@ -1,0 +1,396 @@
+.activity-audience-page {
+  background:
+    radial-gradient(circle at 10% 0%, var(--orbit-ds-lilac-soft), transparent 34%),
+    var(--orbit-ds-surface);
+  box-sizing: border-box;
+  color: var(--orbit-ds-ink);
+  font-family: var(--orbit-ds-font-sans);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  padding: 86px 20px 34px;
+}
+
+.activity-audience-header {
+  align-items: center;
+  background: color-mix(in srgb, var(--orbit-ds-canvas) 92%, transparent);
+  border-bottom: 1px solid var(--orbit-ds-border);
+  display: flex;
+  gap: 14px;
+  inset: 0 0 auto;
+  min-height: 62px;
+  padding: 0 22px;
+  position: fixed;
+  z-index: 10;
+}
+
+.activity-audience-header img {
+  height: 27px;
+  width: auto;
+}
+
+.activity-audience-header span {
+  border-left: 1px solid var(--orbit-ds-border);
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-ui-small);
+  font-weight: 700;
+  overflow: hidden;
+  padding-left: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-audience-card {
+  background: var(--orbit-ds-canvas);
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-panel);
+  box-shadow: 0 20px 60px rgba(9, 9, 9, 0.08);
+  box-sizing: border-box;
+  display: grid;
+  gap: 18px;
+  margin: 0 auto;
+  max-width: 560px;
+  padding: 30px;
+  width: 100%;
+}
+
+.activity-audience-card h1 {
+  font-size: clamp(30px, 8vw, 42px);
+  letter-spacing: -0.05em;
+  line-height: 1.08;
+  margin: 0;
+  overflow-wrap: break-word;
+  word-break: keep-all;
+}
+
+.activity-audience-eyebrow {
+  color: var(--orbit-ds-lilac-strong);
+  font-family: var(--orbit-ds-font-mono);
+  font-size: var(--orbit-ds-type-caption);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.activity-response-description,
+.activity-join-card > p,
+.activity-receipt > p,
+.activity-audience-status p {
+  color: var(--orbit-ds-text-muted);
+  line-height: 1.6;
+  margin: -8px 0 0;
+}
+
+.activity-question-list {
+  display: grid;
+  gap: 18px;
+}
+
+.activity-rating-field,
+.activity-choice-field {
+  border: 1px solid var(--orbit-ds-border);
+  border-radius: var(--orbit-ds-radius-control);
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  min-width: 0;
+  padding: 18px;
+}
+
+.activity-rating-field legend,
+.activity-choice-field legend,
+.activity-text-question > span {
+  align-items: center;
+  color: var(--orbit-ds-ink);
+  display: flex;
+  font-size: var(--orbit-ds-type-ui);
+  font-weight: 800;
+  gap: 8px;
+  line-height: 1.45;
+  padding: 0 3px;
+}
+
+.activity-rating-field legend > span,
+.activity-choice-field legend > span,
+.activity-text-question > span > span {
+  align-items: center;
+  background: var(--orbit-ds-lime);
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 24px;
+  font-size: 12px;
+  height: 24px;
+  justify-content: center;
+}
+
+.activity-rating-field em,
+.activity-choice-field em,
+.activity-text-question em {
+  color: var(--orbit-ds-danger);
+  font-size: 11px;
+  font-style: normal;
+  margin-left: auto;
+}
+
+.activity-rating-options {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.activity-rating-options label {
+  cursor: pointer;
+  min-height: 52px;
+  position: relative;
+}
+
+.activity-rating-options input {
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.activity-rating-options span {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border-strong);
+  border-radius: 14px;
+  display: flex;
+  font-size: 16px;
+  font-weight: 800;
+  height: 100%;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.activity-rating-options input:focus-visible + span {
+  box-shadow: var(--orbit-ds-focus);
+}
+
+.activity-rating-options input:checked + span {
+  background: var(--orbit-ds-lilac-strong);
+  border-color: var(--orbit-ds-lilac-strong);
+  color: var(--orbit-ds-canvas);
+  transform: translateY(-2px);
+}
+
+.activity-rating-labels {
+  color: var(--orbit-ds-text-muted);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+}
+
+.activity-choice-field > p {
+  color: var(--orbit-ds-text-muted);
+  font-size: var(--orbit-ds-type-caption);
+  margin: -4px 0 0;
+}
+
+.activity-choice-options {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-choice-options label {
+  cursor: pointer;
+  min-height: 48px;
+  position: relative;
+}
+
+.activity-choice-options input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.activity-choice-options span {
+  align-items: center;
+  background: var(--orbit-ds-surface);
+  border: 1px solid var(--orbit-ds-border-strong);
+  border-radius: 14px;
+  display: flex;
+  font-weight: 700;
+  min-height: 48px;
+  padding: 10px 14px;
+}
+
+.activity-choice-options input:focus-visible + span {
+  box-shadow: var(--orbit-ds-focus);
+}
+
+.activity-choice-options input:checked + span {
+  background: var(--orbit-ds-lilac-soft);
+  border-color: var(--orbit-ds-lilac-strong);
+  color: var(--orbit-ds-lilac-strong);
+}
+
+.activity-rating-field > small,
+.activity-choice-field > small,
+.activity-form-error {
+  color: var(--orbit-ds-danger);
+  font-size: var(--orbit-ds-type-caption);
+  font-weight: 700;
+  margin: 0;
+}
+
+.activity-text-question textarea {
+  min-height: 122px;
+  resize: vertical;
+}
+
+.activity-error-summary,
+.activity-form-error {
+  background: var(--orbit-ds-danger-soft);
+  border-radius: var(--orbit-ds-radius-control);
+  padding: 12px 14px;
+}
+
+.activity-error-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.activity-error-summary span {
+  color: var(--orbit-ds-danger);
+  font-size: var(--orbit-ds-type-caption);
+}
+
+.activity-response-card > .orbit-ds-button,
+.activity-join-card > .orbit-ds-button {
+  justify-content: center;
+  min-height: 52px;
+  position: sticky;
+  bottom: 12px;
+}
+
+.activity-transition-banner {
+  background: var(--orbit-ds-ink);
+  border-radius: var(--orbit-ds-radius-control);
+  box-shadow: 0 16px 44px rgba(9, 9, 9, 0.2);
+  color: var(--orbit-ds-canvas);
+  display: grid;
+  gap: 12px;
+  margin: 0 auto 16px;
+  max-width: 560px;
+  padding: 16px;
+}
+
+.activity-transition-banner > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.activity-transition-banner span {
+  color: #d4d4d4;
+  font-size: 12px;
+}
+
+.activity-transition-banner > div:last-child {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.activity-transition-banner button {
+  border: 1px solid #666;
+  border-radius: 999px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.activity-transition-banner button:first-child {
+  background: transparent;
+  color: white;
+}
+
+.activity-transition-banner button:last-child {
+  background: var(--orbit-ds-lime);
+  border-color: var(--orbit-ds-lime);
+  color: var(--orbit-ds-ink);
+  font-weight: 800;
+}
+
+.activity-audience-status {
+  align-items: center;
+  min-height: 360px;
+  place-content: center;
+  text-align: center;
+}
+
+.activity-audience-status > span,
+.activity-receipt-icon {
+  align-items: center;
+  background: var(--orbit-ds-lilac-soft);
+  border-radius: 50%;
+  color: var(--orbit-ds-lilac-strong);
+  display: inline-flex;
+  height: 58px;
+  justify-content: center;
+  width: 58px;
+}
+
+.activity-audience-status svg,
+.activity-receipt-icon svg {
+  height: 28px;
+  width: 28px;
+}
+
+.activity-receipt {
+  justify-items: start;
+}
+
+.activity-receipt dl {
+  border-block: 1px solid var(--orbit-ds-border);
+  margin: 0;
+  width: 100%;
+}
+
+.activity-receipt dl div {
+  display: flex;
+  justify-content: space-between;
+  padding: 13px 0;
+}
+
+.activity-receipt dt {
+  color: var(--orbit-ds-text-muted);
+}
+
+.activity-receipt dd {
+  font-weight: 800;
+  margin: 0;
+  text-align: right;
+}
+
+.activity-receipt-wait {
+  color: var(--orbit-ds-text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .activity-audience-page {
+    padding: 76px 12px 20px;
+  }
+
+  .activity-audience-header {
+    min-height: 58px;
+    padding: 0 16px;
+  }
+
+  .activity-audience-card {
+    border-radius: 18px;
+    gap: 16px;
+    padding: 24px 18px;
+  }
+
+  .activity-rating-field {
+    padding: 16px 12px;
+  }
+
+  .activity-rating-options {
+    gap: 5px;
+  }
+
+  .activity-rating-options label {
+    min-height: 48px;
+  }
+}

@@ -124,6 +124,15 @@ export {
   createUpdateSlideTransitionPatch
 } from "./patches/slideOperations";
 export {
+  createActivityResultsSlide,
+  createActivitySlide,
+  createUpdateActivityDefinitionPatch,
+  createUpdateActivityResultDefinitionPatch,
+  duplicateActivityResultsSlide,
+  duplicateActivitySlide,
+  remapActivityDefinitionsForDeckDuplicate
+} from "./patches/activitySlideOperations";
+export {
   createSlidePlaybackState,
   executeSlideAction,
   getNextClickAnimation,

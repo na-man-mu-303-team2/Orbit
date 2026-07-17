@@ -669,6 +669,9 @@ export function EditableCanvas(props: {
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
       ref={setContainerElement}
+      onContextMenu={(event) => {
+        if (selectedElementIds.length > 1) event.preventDefault();
+      }}
     >
       <Stage
         className="konva-canvas-layer"
@@ -686,6 +689,22 @@ export function EditableCanvas(props: {
         onPointerUp={
           canvasInteractionDisabled ? undefined : stageMouseHandlers.onPointerUp
         }
+        onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
+          if (canvasInteractionDisabled || selectedElementIds.length < 2) return;
+          const selectedElement = visibleElements.find((element) =>
+            selectedElementIds.includes(element.elementId)
+          );
+          if (!selectedElement) return;
+
+          event.evt.preventDefault();
+          event.cancelBubble = true;
+          onOpenElementContextMenu({
+            clientX: event.evt.clientX,
+            clientY: event.evt.clientY,
+            element: selectedElement,
+            slideId: slide.slideId
+          });
+        }}
       >
         <Layer>
           {visibleElements.map((element) => (

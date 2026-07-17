@@ -1,4 +1,4 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckExportFormat } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
   IconCloud as Cloud,
@@ -13,7 +13,7 @@ import {
   IconUpload as Upload,
   IconWand as Wand2
 } from "@tabler/icons-react";
-import { useEffect, useRef, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 
 import orbitLogo from "../../../../assets/orbit-logo.png";
 import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
@@ -45,13 +45,14 @@ type EditorTopbarProps = {
   lastSavedAtLabel: string | null;
   ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
   onExitToHome: () => void;
-  onExportPptx: () => void;
+  onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenJourney: () => void;
   onOpenPresenceDebug: () => void;
   onOpenShare: () => void;
   onRefresh: () => void;
+  onRenameDeckTitle: (title: string) => void;
   onSave: () => void;
   onStartPresentation: () => void;
   onStartRehearsal: () => void;
@@ -70,6 +71,7 @@ type EditorTopbarProps = {
 export function EditorTopbar(props: EditorTopbarProps) {
   const topbarRef = useRef<HTMLElement | null>(null);
   const fileMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const titleEditCancelledRef = useRef(false);
   const {
     activePresentationAction,
     activeTopMenu,
@@ -89,13 +91,14 @@ export function EditorTopbar(props: EditorTopbarProps) {
     lastSavedAtLabel,
     ooxmlSyncStatus,
     onExitToHome,
-    onExportPptx,
+    onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
     onOpenJourney,
     onOpenPresenceDebug,
     onOpenShare,
     onRefresh,
+    onRenameDeckTitle,
     onSave,
     onStartPresentation,
     onStartRehearsal,
@@ -115,6 +118,25 @@ export function EditorTopbar(props: EditorTopbarProps) {
     isOpen: activeTopMenu === "file",
     onClose: () => setActiveTopMenu(null),
   });
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(deckTitle);
+
+  useEffect(() => {
+    if (!isEditingTitle) setTitleDraft(deckTitle);
+  }, [deckTitle, isEditingTitle]);
+
+  function finishTitleEditing() {
+    if (titleEditCancelledRef.current) {
+      titleEditCancelledRef.current = false;
+      setTitleDraft(deckTitle);
+      setIsEditingTitle(false);
+      return;
+    }
+    const title = titleDraft.trim();
+    if (title && title !== deckTitle) onRenameDeckTitle(title);
+    if (!title) setTitleDraft(deckTitle);
+    setIsEditingTitle(false);
+  }
 
   useEffect(() => {
     if (!activeTopMenu) return;
@@ -148,30 +170,35 @@ export function EditorTopbar(props: EditorTopbarProps) {
       meta: saveMenuMeta
     }
   ];
-  const exportMenuItems = ["PPTX 내보내기", "PDF 내보내기", "PNG 내보내기", "JSON 백업 내보내기"].map(
-    (label, index) => ({
-      action: index === 0 ? "pptx" : "pending",
-      disabled: index === 0 ? !canExportDeck || isPptxExporting : true,
+  const exportMenuItems: Array<{
+    disabled: boolean;
+    format?: DeckExportFormat;
+    icon: typeof Download;
+    label: string;
+    meta: string;
+  }> = [
+    {
+      disabled: !canExportDeck || isPptxExporting,
+      format: "pptx",
       icon: Download,
-      label: index === 0 && isPptxExporting ? "PPTX 내보내는 중..." : label,
-      meta: index === 0 ? pptxExportMessage : "준비 중"
-    })
-  );
-  const resizeMenuItems = [
-    { active: canvas.preset === "wide-16-9", label: "와이드 16:9", meta: "1920 × 1080" },
-    { active: canvas.preset === "standard-4-3", label: "표준 4:3", meta: "1024 × 768" }
+      label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+      meta: pptxExportMessage
+    },
+    {
+      disabled: !canExportDeck || isPptxExporting,
+      format: "png",
+      icon: Download,
+      label: isPptxExporting ? "PNG ZIP 내보내는 중..." : "PNG ZIP 내보내기",
+      meta: pptxExportMessage || "모든 장표 PNG"
+    },
+    { disabled: true, icon: Download, label: "PDF 내보내기", meta: "준비 중" },
+    { disabled: true, icon: Download, label: "JSON 백업 내보내기", meta: "준비 중" }
   ];
   const editModeItems = [
     { active: true, label: "편집 중", meta: "텍스트와 오브젝트 수정" },
     { label: "보기 전용", meta: "슬라이드 탐색만" },
     { label: "검토", meta: "코멘트 중심" }
   ];
-  const quickEditItems = [
-    { icon: PenLine, label: "슬라이드 제목 수정" },
-    { icon: FileText, label: "발표 메모 편집" },
-    { icon: Wand2, label: "선택 요소 속성" }
-  ];
-
   return (
     <header className="app-topbar" ref={topbarRef}>
       <div className="topbar-left">
@@ -180,8 +207,42 @@ export function EditorTopbar(props: EditorTopbarProps) {
             <button aria-label="ORBIT 홈으로 이동" onClick={onExitToHome} type="button">
               <img alt="ORBIT" src={orbitLogo} />
             </button>
-            <span>
-              <strong>{deckTitle}</strong>
+            <span className="editor-document-title-content">
+              {isEditingTitle ? (
+                <input
+                  aria-label="프레젠테이션 제목"
+                  autoFocus
+                  className="editor-document-title-input"
+                  maxLength={200}
+                  onBlur={finishTitleEditing}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      titleEditCancelledRef.current = true;
+                      setTitleDraft(deckTitle);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  value={titleDraft}
+                />
+              ) : <strong>{deckTitle}</strong>}
+              {canMutateDeck ? (
+                <button
+                  aria-label="프레젠테이션 제목 수정"
+                  className="editor-title-edit-button"
+                  title="제목 수정"
+                  type="button"
+                  onClick={() => {
+                    titleEditCancelledRef.current = false;
+                    setTitleDraft(deckTitle);
+                    setIsEditingTitle(true);
+                    setActiveTopMenu(null);
+                  }}
+                >
+                  <PenLine size={14} />
+                </button>
+              ) : null}
               <small>{saveStatusLabel}</small>
             </span>
           </div>
@@ -192,16 +253,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
             <TopMenuButton activeTopMenu={activeTopMenu} buttonRef={fileMenuTriggerRef} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
             <TopMenuButton activeTopMenu={activeTopMenu} label="크기 조정" menu="resize" setActiveTopMenu={setActiveTopMenu} />
             <TopMenuButton activeTopMenu={activeTopMenu} label="편집 중" menu="editMode" setActiveTopMenu={setActiveTopMenu} />
-            <button
-              aria-expanded={activeTopMenu === "quickEdit"}
-              aria-haspopup="menu"
-              className={`top-icon-button ${activeTopMenu === "quickEdit" ? "active" : ""}`}
-              title="Quick edit"
-              type="button"
-              onClick={() => setActiveTopMenu((current) => current === "quickEdit" ? null : "quickEdit")}
-            >
-              <PenLine size={15} />
-            </button>
           </div>
 
           {activeTopMenu === "file" ? (
@@ -217,9 +268,22 @@ export function EditorTopbar(props: EditorTopbarProps) {
                   <strong>{deckTitle}</strong>
                   <span>프레젠테이션 · {canvas.width} × {canvas.height}px</span>
                 </div>
-                <button aria-label="문서 이름 변경" className="menu-ghost-button" title="Rename" type="button">
-                  <PenLine size={15} />
-                </button>
+                {canMutateDeck ? (
+                  <button
+                    aria-label="문서 이름 변경"
+                    className="menu-ghost-button"
+                    title="Rename"
+                    type="button"
+                    onClick={() => {
+                      titleEditCancelledRef.current = false;
+                      setTitleDraft(deckTitle);
+                      setIsEditingTitle(true);
+                      setActiveTopMenu(null);
+                    }}
+                  >
+                    <PenLine size={15} />
+                  </button>
+                ) : null}
               </div>
               <div className="file-menu-list">
                 {fileMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
@@ -236,8 +300,8 @@ export function EditorTopbar(props: EditorTopbarProps) {
                   </button>
                 ))}
                 <span className="menu-section-label">내보내기</span>
-                {exportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
-                  <button className="file-menu-item" disabled={disabled} key={label} role="menuitem" type="button" onClick={() => action === "pptx" ? onExportPptx() : undefined}>
+                {exportMenuItems.map(({ disabled, format, icon: Icon, label, meta }) => (
+                  <button className="file-menu-item" disabled={disabled} key={label} role="menuitem" type="button" onClick={() => format ? onOpenExport(format) : undefined}>
                     <span className="file-menu-label"><Icon size={16} />{label}</span>
                     <span className="file-menu-meta">{meta ? <small>{meta}</small> : null}</span>
                   </button>
@@ -246,19 +310,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
             </div>
           ) : null}
 
-          {activeTopMenu === "resize" ? <SimpleMenu items={resizeMenuItems} radio /> : null}
           {activeTopMenu === "editMode" ? <SimpleMenu items={editModeItems} radio /> : null}
-          {activeTopMenu === "quickEdit" ? (
-            <div className="file-menu-popover compact-popover" role="menu">
-              <div className="file-menu-list">
-                {quickEditItems.map(({ icon: Icon, label }) => (
-                  <button className="file-menu-item" key={label} role="menuitem" type="button">
-                    <span className="file-menu-label"><Icon size={16} />{label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
 

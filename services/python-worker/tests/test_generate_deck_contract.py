@@ -1553,6 +1553,51 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     assert any("승인" in item.text for item in slide.content_items)
 
 
+def test_design_pack_preserves_approved_story_content() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Executive decision",
+            design={"profile": "executive-report"},
+            brief={"successCriteria": "Approve the next-quarter budget."},
+        )
+    )
+    original_notes = (
+        "This approved script must remain unchanged after Story Review. "
+        "It contains enough detail to exceed the automatic density target. "
+        "The user explicitly chose this wording before approving generation."
+    )
+    slide = SlidePlan(
+        order=5,
+        slide_type="summary",
+        title="Approved closing title",
+        message="Approved closing message",
+        speaker_notes=original_notes,
+        keywords=["approval"],
+        evidence=[],
+        target_speaker_notes_chars=40,
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="approved-item",
+                text="Approved supporting content",
+            )
+        ],
+    )
+
+    apply_design_options(
+        raw_input,
+        [slide],
+        preserve_approved_content=True,
+    )
+
+    assert slide.title == "Approved closing title"
+    assert slide.message == "Approved closing message"
+    assert slide.speaker_notes == original_notes
+    assert [item.text for item in slide.content_items] == [
+        "Approved supporting content"
+    ]
+
+
 def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -1826,6 +1871,7 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="정성 비교 연구",
+            prompt="한 달 시범사업을 계획합니다.",
             slideCountRange={"min": 1, "max": 1},
         )
     )
@@ -1849,6 +1895,8 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         return content_plan_repair_reasons([slide], raw_input=raw_input)
 
     assert not any("unsupported numeric claim" in reason for reason in reasons_for("관점 2개를 비교합니다"))
+    assert not any("unsupported numeric claim" in reason for reason in reasons_for("4주차에 결과를 검토합니다"))
+    assert "slide 1: unsupported numeric claim values 5" in reasons_for("5주차에 결과를 검토합니다")
     assert "slide 1: unsupported numeric claim values 2" in reasons_for("효과가 2% 증가합니다")
 
 

@@ -60,6 +60,7 @@ class InMemoryDeckDataSource {
   readonly snapshotRows: StoredSnapshotRow[] = [];
   readonly templateBlueprintRows: StoredTemplateBlueprintRow[] = [];
   readonly executedQueries: string[] = [];
+  readonly exportSessionIds = new Set<string>();
 
   async transaction<T>(
     run: (manager: InMemoryDeckDataSource) => Promise<T>,
@@ -70,6 +71,17 @@ class InMemoryDeckDataSource {
   async query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
     const query = normalizeSql(sql);
     this.executedQueries.push(query);
+
+    if (query.includes("FROM presentation_sessions")) {
+      const [projectId, deckId, sessionId] = params as [string, string, string];
+      return (
+        projectId === "project_demo_1" &&
+        deckId === "deck_demo_1" &&
+        this.exportSessionIds.has(sessionId)
+          ? [{ session_id: sessionId }]
+          : []
+      ) as T;
+    }
 
     if (
       query.startsWith("SELECT project_id, deck_id, deck_json, version") &&
@@ -4388,6 +4400,64 @@ describe("DecksService", () => {
         format: "pptx",
       }),
     );
+  });
+
+  it("authorizes and forwards the selected presentation session for export", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    dataSource.exportSessionIds.add("session_export_1");
+    const deck = createDeck();
+    const exportJob = createJob("job_export_session_1", "deck-export");
+    const jobsService = {
+      create: vi.fn(async () => exportJob),
+      update: vi.fn(),
+    };
+    const enqueueExportJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      enqueueExportJob,
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    await service.createExportJob(deck.projectId, {
+      format: "pptx",
+      presentationSessionId: "session_export_1",
+    });
+
+    expect(jobsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          presentationSessionId: "session_export_1",
+        }),
+      }),
+    );
+    expect(enqueueExportJob).toHaveBeenCalledWith(
+      expect.objectContaining({ presentationSessionId: "session_export_1" }),
+    );
+  });
+
+  it("rejects an export session outside the current project boundary", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const jobsService = { create: vi.fn(), update: vi.fn() };
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      vi.fn(async () => undefined),
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    await expect(
+      service.createExportJob(deck.projectId, {
+        format: "pptx",
+        presentationSessionId: "session_other_project",
+      }),
+    ).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+    expect(jobsService.create).not.toHaveBeenCalled();
   });
 
   it("persists and enqueues OOXML sync for thumbnail-only system patches", async () => {

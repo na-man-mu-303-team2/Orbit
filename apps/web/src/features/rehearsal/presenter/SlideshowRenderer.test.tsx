@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -91,6 +92,23 @@ describe("SlideshowRenderer", () => {
     );
 
     expect(html).toContain("슬라이드를 찾을 수 없습니다.");
+  });
+
+  it("renders activity slides as the audience QR surface", () => {
+    const baseDeck = createDemoDeck();
+    const activitySlide = createActivitySlide(baseDeck, "poll");
+    const deck = { ...baseDeck, slides: [...baseDeck.slides, activitySlide] };
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={deck}
+        slideId={activitySlide.slideId}
+        stepIndex={0}
+      />
+    );
+
+    expect(html).toContain("청중 참여 장표");
+    expect(html).toContain("발표자가 참여를 준비하고 있습니다");
+    expect(html).not.toContain('data-testid="read-only-slide-stage"');
   });
 
   it("falls back to thumbnailUrl when a slide has no renderable elements", () => {

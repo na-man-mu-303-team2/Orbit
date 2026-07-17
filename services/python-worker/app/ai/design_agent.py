@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,9 +45,12 @@ class DesignAgentCapabilities(BaseModel):
             "update_element_props",
             "delete_element",
             "update_slide_style",
+            "add_animation",
+            "update_animation",
+            "delete_animation",
         ]
     ]
-    addable_element_types: list[Literal["text", "rect"]] = Field(
+    addable_element_types: list[Literal["text", "rect", "chart", "table"]] = Field(
         alias="addableElementTypes"
     )
     can_edit_text_content: bool = Field(alias="canEditTextContent")
@@ -152,6 +156,67 @@ class RectElementProps(BaseModel):
     border_radius: float = Field(alias="borderRadius", ge=0)
 
 
+class ChartDatum(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    value: float
+
+
+class ChartStyle(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    colors: list[str]
+    background_color: str = Field(alias="backgroundColor")
+    text_color: str = Field(alias="textColor")
+    font_family: str | None = Field(default=None, alias="fontFamily")
+    title_font_size: float = Field(alias="titleFontSize", gt=0)
+    axis_label_font_size: float = Field(alias="axisLabelFontSize", gt=0)
+    legend_font_size: float = Field(alias="legendFontSize", gt=0)
+    data_label_font_size: float = Field(alias="dataLabelFontSize", gt=0)
+    show_legend: bool = Field(alias="showLegend")
+    legend_position: Literal["top", "right", "bottom", "left"] = Field(
+        alias="legendPosition"
+    )
+    show_data_labels: bool = Field(alias="showDataLabels")
+    show_grid: bool = Field(alias="showGrid")
+    x_axis_title: str = Field(alias="xAxisTitle")
+    y_axis_title: str = Field(alias="yAxisTitle")
+    unit: str
+
+
+class ChartElementProps(BaseModel):
+    type: Literal["bar", "line"]
+    title: str
+    data: list[ChartDatum] = Field(min_length=2, max_length=24)
+    style: ChartStyle
+
+
+class TableCellProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    text: str
+    fill: str
+    text_color: str = Field(alias="textColor")
+    font_family: str | None = Field(default=None, alias="fontFamily")
+    font_size: float = Field(alias="fontSize", gt=0)
+    font_weight: Literal["normal", "bold"] = Field(alias="fontWeight")
+    align: Literal["left", "center", "right", "justify"]
+    vertical_align: Literal["top", "middle", "bottom"] = Field(alias="verticalAlign")
+    border_color: str = Field(alias="borderColor")
+    border_width: float = Field(alias="borderWidth", ge=0)
+    col_span: int = Field(alias="colSpan", gt=0)
+    row_span: int = Field(alias="rowSpan", gt=0)
+
+
+class TableElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rows: list[list[TableCellProps]] = Field(min_length=1, max_length=25)
+    column_widths: list[float] = Field(alias="columnWidths", min_length=1)
+    row_heights: list[float] = Field(alias="rowHeights", min_length=1)
+    border_color: str = Field(alias="borderColor")
+    border_width: float = Field(alias="borderWidth", ge=0)
+
+
 class TextElement(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -188,7 +253,46 @@ class RectElement(BaseModel):
     props: RectElementProps
 
 
-AddableElement = Annotated[TextElement | RectElement, Field(discriminator="type")]
+class ChartElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["chart"]
+    role: Literal["chart"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ChartElementProps
+
+
+class TableElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["table"]
+    role: Literal["table"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: TableElementProps
+
+
+AddableElement = Annotated[
+    TextElement | RectElement | ChartElement | TableElement,
+    Field(discriminator="type"),
+]
 
 
 class AddElementOperation(BaseModel):
@@ -233,14 +337,89 @@ class UpdateSlideStyleOperation(BaseModel):
     style: SlideStylePatch
 
 
+class AnimationPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["fade-in", "fade-out"]
+    order: int = Field(gt=0)
+    duration_ms: int = Field(alias="durationMs", ge=100, le=2_000)
+    delay_ms: int = Field(alias="delayMs", ge=0, le=2_000)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] = "ease-out"
+
+
+class AnimationPatch(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["fade-in", "fade-out"] | None = None
+    order: int | None = Field(default=None, gt=0)
+    duration_ms: int | None = Field(default=None, alias="durationMs", ge=100, le=2_000)
+    delay_ms: int | None = Field(default=None, alias="delayMs", ge=0, le=2_000)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] | None = None
+
+
+class AddAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["add_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation: AnimationPayload
+
+
+class UpdateAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["update_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+    animation: AnimationPatch
+
+
+class DeleteAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["delete_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+
+
 DesignAgentOperation = Annotated[
     AddElementOperation
     | DeleteElementOperation
     | UpdateElementFrameOperation
     | UpdateElementPropsOperation
-    | UpdateSlideStyleOperation,
+    | UpdateSlideStyleOperation
+    | AddAnimationOperation
+    | UpdateAnimationOperation
+    | DeleteAnimationOperation,
     Field(discriminator="type"),
 ]
+class SmartArtItem(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=400)
+
+
+class SmartArtRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    layout_type: Literal[
+        "list",
+        "process",
+        "card_grid",
+        "comparison",
+        "classification_grid",
+        "timeline",
+        "metric_cards",
+    ] = Field(alias="layoutType")
+    source_element_ids: list[str] = Field(
+        default_factory=list,
+        alias="sourceElementIds",
+        max_length=100,
+    )
+    items: list[SmartArtItem] = Field(min_length=1, max_length=12)
+
+
 class DesignAgentIntent(BaseModel):
     alignment: (
         Literal[
@@ -269,6 +448,9 @@ class DesignAgentResponse(BaseModel):
         max_length=200,
     )
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    smart_art_request: SmartArtRequest | None = Field(
+        default=None, alias="smartArtRequest"
+    )
 
 
 class DesignAgentGenerationError(RuntimeError):
@@ -330,6 +512,51 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                     "maxItems": 20,
                     "items": {"type": "string"},
                 },
+                "smartArtRequest": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "layoutType": {
+                            "type": "string",
+                            "enum": [
+                                "list",
+                                "process",
+                                "card_grid",
+                                "comparison",
+                                "classification_grid",
+                                "timeline",
+                                "metric_cards",
+                            ],
+                        },
+                        "sourceElementIds": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": {"type": "string"},
+                        },
+                        "items": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 12,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "title": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 120,
+                                    },
+                                    "description": {
+                                        "type": ["string", "null"],
+                                        "maxLength": 400,
+                                    },
+                                },
+                                "required": ["title", "description"],
+                            },
+                        },
+                    },
+                    "required": ["layoutType", "sourceElementIds", "items"],
+                },
             },
             "required": [
                 "message",
@@ -337,6 +564,7 @@ DESIGN_AGENT_RESPONSE_FORMAT: dict[str, Any] = {
                 "operations",
                 "affectedElementIds",
                 "warnings",
+                "smartArtRequest",
             ],
         },
     }
@@ -350,6 +578,10 @@ def generate_design_proposal(
     api_key: str | None,
     client: Any | None = None,
 ) -> DesignAgentResponse:
+    deterministic_animation = _build_deterministic_animation_proposal(request)
+    if deterministic_animation is not None:
+        return validate_design_proposal(request, deterministic_animation)
+
     if client is None and not api_key:
         raise DesignAgentGenerationError("OPENAI_API_KEY is not configured.")
 
@@ -380,6 +612,172 @@ def generate_design_proposal(
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
 
 
+def _build_deterministic_animation_proposal(
+    request: DesignAgentRequest,
+) -> DesignAgentResponse | None:
+    question = " ".join(request.question.lower().split())
+    if not any(token in question for token in ("애니메이션", "페이드", "fade")):
+        return None
+
+    allowed = set(request.capabilities.operations)
+    slide = request.context.slide
+    visible_elements = [
+        element
+        for element in slide.get("elements", [])
+        if isinstance(element, dict)
+        and element.get("elementId")
+        and element.get("visible") is not False
+    ]
+    elements_by_id = {str(element["elementId"]): element for element in visible_elements}
+    targets = [
+        elements_by_id[element_id]
+        for element_id in request.context.selected_element_ids
+        if element_id in elements_by_id
+    ]
+    if not targets:
+        candidates = _animation_target_candidates(question, visible_elements)
+        if candidates:
+            targets = [min(candidates, key=lambda element: _distance_from_canvas_center(request, element))]
+
+    if not targets:
+        return DesignAgentResponse.model_validate({
+            "message": "애니메이션을 적용할 요소를 찾지 못했습니다. 요소를 선택하거나 종류와 위치를 말씀해 주세요.",
+            "interpretedIntent": {
+                "target": "current-slide",
+                "action": request.question,
+                "alignment": None,
+            },
+            "operations": [],
+            "affectedElementIds": [],
+            "warnings": [],
+            "smartArtRequest": None,
+        })
+
+    animations = [
+        animation
+        for animation in slide.get("animations", [])
+        if isinstance(animation, dict) and animation.get("animationId")
+    ]
+    remove = any(token in question for token in ("제거", "삭제", "없애", "remove", "delete"))
+    animation_type: Literal["fade-in", "fade-out"] = (
+        "fade-out"
+        if any(token in question for token in ("페이드아웃", "fade-out", "fade out", "사라"))
+        else "fade-in"
+    )
+    duration_ms = _animation_duration_ms(question)
+    operations: list[DesignAgentOperation] = []
+    existing_ids = {str(animation["animationId"]) for animation in animations}
+    next_order = max((int(animation.get("order", 0)) for animation in animations), default=0) + 1
+
+    for target in targets:
+        element_id = str(target["elementId"])
+        target_animations = [
+            animation for animation in animations if animation.get("elementId") == element_id
+        ]
+        if remove:
+            if "delete_animation" not in allowed:
+                return None
+            operations.extend(
+                DeleteAnimationOperation(
+                    type="delete_animation",
+                    slideId=str(slide.get("slideId", "")),
+                    animationId=str(animation["animationId"]),
+                )
+                for animation in target_animations
+            )
+            continue
+
+        same_type = next(
+            (animation for animation in target_animations if animation.get("type") == animation_type),
+            None,
+        )
+        if same_type and "update_animation" in allowed:
+            operations.append(UpdateAnimationOperation(
+                type="update_animation",
+                slideId=str(slide.get("slideId", "")),
+                animationId=str(same_type["animationId"]),
+                animation=AnimationPatch(durationMs=duration_ms, easing="ease-out"),
+            ))
+            continue
+        if "add_animation" not in allowed:
+            return None
+        animation_id = _next_animation_id(element_id, existing_ids)
+        existing_ids.add(animation_id)
+        operations.append(AddAnimationOperation(
+            type="add_animation",
+            slideId=str(slide.get("slideId", "")),
+            animation=AnimationPayload(
+                animationId=animation_id,
+                elementId=element_id,
+                type=animation_type,
+                order=next_order,
+                durationMs=duration_ms,
+                delayMs=0,
+                easing="ease-out",
+            ),
+        ))
+        next_order += 1
+
+    action_label = "제거" if remove else "적용"
+    return DesignAgentResponse.model_validate({
+        "message": f"요청한 요소에 {animation_type} 애니메이션 {action_label}안을 만들었습니다.",
+        "interpretedIntent": {
+            "target": "selected-elements" if request.context.selected_element_ids else "current-slide",
+            "action": request.question,
+            "alignment": None,
+        },
+        "operations": [operation.model_dump(by_alias=True, exclude_none=True) for operation in operations],
+        "affectedElementIds": [str(target["elementId"]) for target in targets],
+        "warnings": [],
+        "smartArtRequest": None,
+    })
+
+
+def _animation_target_candidates(
+    question: str,
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    type_tokens = (
+        (("표", "table"), "table"),
+        (("차트", "그래프", "chart", "graph"), "chart"),
+        (("이미지", "사진", "image", "photo"), "image"),
+        (("도형", "shape"), "shape"),
+        (("텍스트", "글자", "text"), "text"),
+    )
+    for tokens, element_type in type_tokens:
+        if any(token in question for token in tokens):
+            return [element for element in elements if element.get("type") == element_type]
+    if any(token in question for token in ("제목", "title")):
+        return [element for element in elements if element.get("role") == "title"]
+    return elements if len(elements) == 1 else []
+
+
+def _distance_from_canvas_center(request: DesignAgentRequest, element: dict[str, Any]) -> float:
+    center_x = float(element.get("x", 0)) + float(element.get("width", 0)) / 2
+    center_y = float(element.get("y", 0)) + float(element.get("height", 0)) / 2
+    return abs(center_x - request.context.canvas.width / 2) + abs(
+        center_y - request.context.canvas.height / 2
+    )
+
+
+def _animation_duration_ms(question: str) -> int:
+    seconds = re.search(r"(\d+(?:\.\d+)?)\s*(?:초|seconds?|sec)", question)
+    milliseconds = re.search(r"(\d+)\s*(?:ms|밀리초)", question)
+    if milliseconds:
+        return max(100, min(2_000, int(milliseconds.group(1))))
+    if seconds:
+        return max(100, min(2_000, round(float(seconds.group(1)) * 1_000)))
+    return 600
+
+
+def _next_animation_id(element_id: str, existing_ids: set[str]) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_-]", "_", element_id.removeprefix("el_")) or "element"
+    index = 1
+    while f"anim_ai_{stem}_{index}" in existing_ids:
+        index += 1
+    return f"anim_ai_{stem}_{index}"
+
+
 def design_agent_system_prompt(
     canvas: DesignAgentCanvas,
     capabilities: DesignAgentCapabilities | None = None,
@@ -402,10 +800,44 @@ def design_agent_system_prompt(
         "Use only operations and addable element types listed in capabilities. "
         "New elementId values must start with el_ and be unique on the slide. "
         "A visual card requires a rect element and a separate text element above it. "
+        "Explicit graph or chart requests take precedence over SmartArt: add one chart "
+        "element with the numeric values in order, use a line chart for trends or increases "
+        "and a bar chart for category comparison, and preserve the requested unit. "
+        "Explicit table or tabular-format requests also take precedence over SmartArt: add "
+        "one table element using values from the current visible slide and recent history. "
+        "When converting existing content to a chart or table, delete the visible source "
+        "elements that the replacement supersedes. Never use classification_grid merely "
+        "because a table has multiple rows. "
         "When the user requests new text, write concise content using existing slide context. "
         "Preserve text meaning. Avoid overlap, keep every element inside the canvas, "
         "maintain visual hierarchy, and emit the smallest necessary set of operations. "
         f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
+        "If the user asks to turn a list of items, steps, or comparisons into a diagram "
+        "(e.g. '스마트아트', 'SmartArt', a process/step diagram, a card layout), do NOT "
+        "compute shape coordinates yourself and do NOT emit add_element operations for it. "
+        "Instead set smartArtRequest with a layoutType ('list' for a simple bulleted or "
+        "numbered list, 'process' for sequential steps, 'card_grid' for parallel items such "
+        "as team members or features, 'comparison' for two alternatives, "
+        "'classification_grid' for four categories, 'timeline' for four chronological "
+        "milestones, or 'metric_cards' for three KPI-like highlights) and the extracted "
+        "items (short title, optional "
+        "description) in the user's language; leave operations empty unless the user also "
+        "asked for an unrelated change. A request to delete unrelated slide elements while "
+        "converting the selected content is supported: emit delete_element only for elements "
+        "that are not included in sourceElementIds. Set sourceElementIds to the "
+        "selectedElementIds whose content is being converted. When no elements are selected "
+        "and the user explicitly refers to the current page, current slide, or a visible center "
+        "text, sourceElementIds may contain the matching visible slide element IDs. Use an empty "
+        "array when the diagram is newly added. Never include hidden or unknown element IDs. "
+        "A server-side layout preset places the shapes. "
+        "When the request is not about creating such a diagram, set smartArtRequest to null. "
+        "Animation requests are supported only with add_animation, update_animation, and "
+        "delete_animation. Only use fade-in and fade-out effects. Prefer selected elements; "
+        "when nothing is selected, target only visible elements clearly identified by the "
+        "request. Use durationMs 100-2000, delayMs 0-2000, easing ease-out, a unique anim_ "
+        "animationId, and the next positive order. Do not simulate animation by changing "
+        "element opacity or visibility. For requests such as 'make this appear softly', use "
+        "fade-in; for 'make this disappear softly', use fade-out. "
         "Do not claim the proposal has already been applied."
     )
 
@@ -430,7 +862,14 @@ def validate_design_proposal(
         for item in slide.get("elements", [])
         if isinstance(item, dict) and item.get("elementId")
     }
+    original_elements = dict(elements)
+    animations = {
+        str(item.get("animationId")): item
+        for item in slide.get("animations", [])
+        if isinstance(item, dict) and item.get("animationId")
+    }
     known_element_ids = set(elements)
+    valid_affected_element_ids = set(elements)
     allowed_operations = set(request.capabilities.operations)
     addable_types = set(request.capabilities.addable_element_types)
     warnings = list(response.warnings)
@@ -443,6 +882,37 @@ def validate_design_proposal(
         if isinstance(operation, UpdateSlideStyleOperation):
             continue
 
+        if isinstance(operation, AddAnimationOperation):
+            animation = operation.animation.model_dump(by_alias=True)
+            if operation.animation.animation_id in animations:
+                raise DesignAgentGenerationError("Added animationId already exists.")
+            target_element = elements.get(operation.animation.element_id)
+            if target_element is None:
+                raise DesignAgentGenerationError("Animation elementId does not exist.")
+            if target_element.get("visible") is False:
+                raise DesignAgentGenerationError("Animation targets a hidden element.")
+            animations[operation.animation.animation_id] = animation
+            valid_affected_element_ids.add(operation.animation.element_id)
+            continue
+
+        if isinstance(operation, (UpdateAnimationOperation, DeleteAnimationOperation)):
+            current_animation = animations.get(operation.animation_id)
+            if current_animation is None:
+                raise DesignAgentGenerationError("Animation operation targets a missing animation.")
+            animation_element_id = str(current_animation.get("elementId", ""))
+            target_element = elements.get(animation_element_id)
+            if target_element is None or target_element.get("visible") is False:
+                raise DesignAgentGenerationError("Animation operation targets an unavailable element.")
+            valid_affected_element_ids.add(animation_element_id)
+            if isinstance(operation, DeleteAnimationOperation):
+                del animations[operation.animation_id]
+            else:
+                animations[operation.animation_id] = {
+                    **current_animation,
+                    **operation.animation.model_dump(by_alias=True, exclude_none=True),
+                }
+            continue
+
         if isinstance(operation, AddElementOperation):
             element = operation.element.model_dump(by_alias=True)
             element_id = operation.element.element_id
@@ -453,6 +923,7 @@ def validate_design_proposal(
             _validate_frame_bounds(request.context.canvas, element, ElementFramePatch())
             elements[element_id] = element
             known_element_ids.add(element_id)
+            valid_affected_element_ids.add(element_id)
             continue
 
         target_element = elements.get(operation.element_id)
@@ -472,9 +943,42 @@ def validate_design_proposal(
                 if warning and warning not in warnings:
                     warnings.append(warning)
 
-    unknown_affected = set(response.affected_element_ids) - known_element_ids
+    unknown_affected = set(response.affected_element_ids) - valid_affected_element_ids
     if unknown_affected:
         raise DesignAgentGenerationError("affectedElementIds contains unknown elements.")
+
+    if response.smart_art_request is not None:
+        source_ids = set(response.smart_art_request.source_element_ids)
+        selected_ids = set(request.context.selected_element_ids)
+        allows_slide_sources = _allows_unselected_slide_sources(request.question)
+        if not allows_slide_sources and not source_ids.issubset(selected_ids):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains unselected elements."
+            )
+        if not source_ids.issubset(original_elements):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains unknown elements."
+            )
+        if any(original_elements[element_id].get("visible") is False for element_id in source_ids):
+            raise DesignAgentGenerationError(
+                "SmartArt sourceElementIds contains hidden elements."
+            )
+        directly_targeted_ids = {
+            operation.element_id
+            for operation in response.operations
+            if isinstance(
+                operation,
+                (
+                    DeleteElementOperation,
+                    UpdateElementFrameOperation,
+                    UpdateElementPropsOperation,
+                ),
+            )
+        }
+        if source_ids & directly_targeted_ids:
+            raise DesignAgentGenerationError(
+                "SmartArt source elements are also targeted by direct operations."
+            )
 
     payload = response.model_dump(by_alias=True, exclude_none=True)
     payload["operations"] = [
@@ -483,6 +987,31 @@ def validate_design_proposal(
     ]
     payload["warnings"] = warnings[:20]
     return DesignAgentResponse.model_validate(payload)
+
+
+def _allows_unselected_slide_sources(question: str) -> bool:
+    normalized = " ".join(question.lower().split())
+    return any(
+        phrase in normalized
+        for phrase in (
+            "현재 페이지",
+            "이 페이지",
+            "페이지 전체",
+            "현재 슬라이드",
+            "이 슬라이드",
+            "슬라이드 전체",
+            "가운데 텍스트",
+            "중앙 텍스트",
+            "current page",
+            "this page",
+            "whole page",
+            "current slide",
+            "this slide",
+            "whole slide",
+            "center text",
+            "centre text",
+        )
+    )
 
 
 def _validate_frame_bounds(
@@ -675,6 +1204,111 @@ def _rect_element_json_schema() -> dict[str, Any]:
     }
 
 
+def _chart_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties("chart", ["chart"])
+    style_properties = {
+        "colors": {"type": "array", "items": {"type": "string"}},
+        "backgroundColor": {"type": "string"},
+        "textColor": {"type": "string"},
+        "fontFamily": {"type": ["string", "null"]},
+        "titleFontSize": {"type": "number", "exclusiveMinimum": 0},
+        "axisLabelFontSize": {"type": "number", "exclusiveMinimum": 0},
+        "legendFontSize": {"type": "number", "exclusiveMinimum": 0},
+        "dataLabelFontSize": {"type": "number", "exclusiveMinimum": 0},
+        "showLegend": {"type": "boolean"},
+        "legendPosition": {"type": "string", "enum": ["top", "right", "bottom", "left"]},
+        "showDataLabels": {"type": "boolean"},
+        "showGrid": {"type": "boolean"},
+        "xAxisTitle": {"type": "string"},
+        "yAxisTitle": {"type": "string"},
+        "unit": {"type": "string"},
+    }
+    datum_properties = {
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "value": {"type": "number"},
+    }
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "type": {"type": "string", "enum": ["bar", "line"]},
+            "title": {"type": "string"},
+            "data": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 24,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": datum_properties,
+                    "required": list(datum_properties),
+                },
+            },
+            "style": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": style_properties,
+                "required": list(style_properties),
+            },
+        },
+        "required": ["type", "title", "data", "style"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
+def _table_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties("table", ["table"])
+    cell_properties = {
+        "text": {"type": "string"},
+        "fill": {"type": "string"},
+        "textColor": {"type": "string"},
+        "fontFamily": {"type": ["string", "null"]},
+        "fontSize": {"type": "number", "exclusiveMinimum": 0},
+        "fontWeight": {"type": "string", "enum": ["normal", "bold"]},
+        "align": {"type": "string", "enum": ["left", "center", "right", "justify"]},
+        "verticalAlign": {"type": "string", "enum": ["top", "middle", "bottom"]},
+        "borderColor": {"type": "string"},
+        "borderWidth": {"type": "number", "minimum": 0},
+        "colSpan": {"type": "integer", "minimum": 1},
+        "rowSpan": {"type": "integer", "minimum": 1},
+    }
+    cell_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": cell_properties,
+        "required": list(cell_properties),
+    }
+    props_properties = {
+        "rows": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 25,
+            "items": {"type": "array", "minItems": 1, "maxItems": 12, "items": cell_schema},
+        },
+        "columnWidths": {"type": "array", "minItems": 1, "items": {"type": "number", "exclusiveMinimum": 0}},
+        "rowHeights": {"type": "array", "minItems": 1, "items": {"type": "number", "exclusiveMinimum": 0}},
+        "borderColor": {"type": "string"},
+        "borderWidth": {"type": "number", "minimum": 0},
+    }
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": props_properties,
+        "required": list(props_properties),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
 def _add_element_operation_json_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -683,7 +1317,12 @@ def _add_element_operation_json_schema() -> dict[str, Any]:
             "type": {"type": "string", "const": "add_element"},
             "slideId": {"type": "string"},
             "element": {
-                "anyOf": [_text_element_json_schema(), _rect_element_json_schema()]
+                "anyOf": [
+                    _text_element_json_schema(),
+                    _rect_element_json_schema(),
+                    _chart_element_json_schema(),
+                    _table_element_json_schema(),
+                ]
             },
         },
         "required": ["type", "slideId", "element"],

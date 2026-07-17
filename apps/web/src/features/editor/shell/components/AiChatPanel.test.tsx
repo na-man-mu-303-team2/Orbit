@@ -1,4 +1,4 @@
-import { createDemoDeck } from "@orbit/editor-core";
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -96,5 +96,27 @@ describe("AiChatPanel", () => {
         updatedAt: "2026-07-17T00:00:00.000Z"
       })
     ).toMatchObject({ enabled: false });
+  });
+
+  it("disables design requests for a special slide", () => {
+    const deck = createDemoDeck();
+    const slide = createActivitySlide(deck, "poll");
+    const html = renderToString(
+      <AiChatPanel
+        projectId={deck.projectId}
+        deck={{ ...deck, slides: [...deck.slides, slide] }}
+        currentSlide={slide}
+        designEditingEnabled={false}
+        selectedElementIds={[]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+      />
+    );
+
+    expect(html).toContain("특수 장표는 AI 디자인 대신 장표 설정에서 관리합니다");
+    expect(html).toContain('placeholder="장표 설정에서 내용을 관리해 주세요"');
+    expect(html).toContain('aria-label="AI에게 메시지 보내기"');
+    expect(html).toContain("disabled");
   });
 });

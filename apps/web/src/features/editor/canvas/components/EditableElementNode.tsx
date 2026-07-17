@@ -214,6 +214,7 @@ export function EditableElementNode(props: {
       x={frame.x}
       y={frame.y}
       onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0) return;
         if (element.role === "background") {
           return;
         }
@@ -236,6 +237,7 @@ export function EditableElementNode(props: {
         }
 
         event.evt.preventDefault();
+        event.cancelBubble = true;
         if (!shouldKeepSelection) {
           onSelect({});
         }

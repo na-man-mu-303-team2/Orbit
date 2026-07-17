@@ -9,6 +9,10 @@ import {
 import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
 import { useReducedMotion } from "./useReducedMotion";
 import { useSlideshowTransitions } from "./useSlideshowTransitions";
+import {
+  ActivityAudienceRuntime,
+  ActivityResultRuntime
+} from "../../activity-slides";
 
 export type SlideshowRenderMode = "presenter" | "slide-window" | "single-screen";
 
@@ -44,6 +48,29 @@ export function SlideshowRenderer(props: {
       <div className="slideshow-renderer slideshow-renderer--missing" role="status">
         슬라이드를 찾을 수 없습니다.
       </div>
+    );
+  }
+
+
+  if (slide.kind === "activity-results") {
+    return (
+      <ActivityResultRuntime
+        deck={deck}
+        role={renderMode === "presenter" ? "presenter" : "audience"}
+        scale={scale}
+        slide={slide}
+      />
+    );
+  }
+
+  if (slide.kind === "activity") {
+    return (
+      <ActivityAudienceRuntime
+        activity={slide.activity}
+        deckId={deck.deckId}
+        projectId={deck.projectId}
+        scale={scale}
+      />
     );
   }
 

@@ -58,6 +58,7 @@ const designPackDeck: Deck = {
   },
   slides: [
     {
+      kind: "content",
       slideId: "slide_1",
       order: 1,
       title: "Visual Plan",

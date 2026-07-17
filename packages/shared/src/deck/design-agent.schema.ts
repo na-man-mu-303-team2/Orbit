@@ -12,6 +12,7 @@ import {
   deckPatchOperationSchema,
   type DeckChangeRecord,
 } from "./patch.schema";
+import { smartArtRequestSchema } from "./smart-art-layout.schema";
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
@@ -39,12 +40,15 @@ export const designAgentCapabilityOperationSchema = z.enum([
   "update_element_props",
   "delete_element",
   "update_slide_style",
+  "add_animation",
+  "update_animation",
+  "delete_animation",
 ]);
 
 export const designAgentCapabilitiesSchema = z.object({
   version: z.literal("1"),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
-  addableElementTypes: z.array(z.enum(["text", "rect"])),
+  addableElementTypes: z.array(z.enum(["text", "rect", "chart", "table"])),
   canEditTextContent: z.boolean(),
   canGenerateImages: z.boolean(),
   canModifyLockedElements: z.boolean(),
@@ -58,8 +62,11 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "update_element_props",
     "delete_element",
     "update_slide_style",
+    "add_animation",
+    "update_animation",
+    "delete_animation",
   ],
-  addableElementTypes: ["text", "rect"],
+  addableElementTypes: ["text", "rect", "chart", "table"],
   canEditTextContent: true,
   canGenerateImages: false,
   canModifyLockedElements: true,
@@ -111,6 +118,7 @@ export const designAgentWorkerResponseSchema = z.object({
   operations: z.array(deckPatchOperationSchema).max(200).default([]),
   affectedElementIds: z.array(deckElementIdSchema).max(200).default([]),
   warnings: z.array(z.string().trim().min(1).max(1_000)).max(20).default([]),
+  smartArtRequest: smartArtRequestSchema.nullable().default(null),
 });
 
 export const designAgentMessageSchema = z.object({

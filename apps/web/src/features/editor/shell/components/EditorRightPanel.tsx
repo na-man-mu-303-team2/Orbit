@@ -20,6 +20,7 @@ import {
   PptxImportQualityPanel,
   type PptxImportState
 } from "./PptxImportQualityPanel";
+import { getDesignPanelLabel } from "../utils/slideEditingPolicy";
 
 export type RightPanelView = "journey" | "ai" | "design";
 export type AiPanelView = "chat" | "tools" | "semantic-cues";
@@ -58,6 +59,8 @@ type EditorRightPanelProps = {
 export function EditorRightPanel(props: EditorRightPanelProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const openButtonRef = useRef<HTMLButtonElement | null>(null);
+  const designPanelLabel = getDesignPanelLabel(props.currentSlide);
+  const isSpecialSlide = designPanelLabel === "장표 설정";
 
   function setPanelOpenWithFocus(open: boolean) {
     props.setIsOpen(open);
@@ -107,7 +110,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
           <div aria-label="오른쪽 패널 보기" className="right-panel-tabs" role="tablist">
             <button aria-controls="editor-journey-panel" aria-selected={props.rightPanelView === "journey"} className={props.rightPanelView === "journey" ? "active" : ""} id="editor-journey-tab" role="tab" tabIndex={props.rightPanelView === "journey" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("journey")} onKeyDown={handleRightPanelTabKeyDown}>준비 경로</button>
             <button aria-controls="editor-ai-panel" aria-selected={props.rightPanelView === "ai"} className={props.rightPanelView === "ai" ? "active" : ""} id="editor-ai-tab" role="tab" tabIndex={props.rightPanelView === "ai" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("ai")} onKeyDown={handleRightPanelTabKeyDown}>AI 코치</button>
-            <button aria-controls="editor-design-panel" aria-selected={props.rightPanelView === "design"} className={props.rightPanelView === "design" ? "active" : ""} id="editor-design-tab" role="tab" tabIndex={props.rightPanelView === "design" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("design")} onKeyDown={handleRightPanelTabKeyDown}>디자인</button>
+            <button aria-controls="editor-design-panel" aria-selected={props.rightPanelView === "design"} className={props.rightPanelView === "design" ? "active" : ""} id="editor-design-tab" role="tab" tabIndex={props.rightPanelView === "design" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("design")} onKeyDown={handleRightPanelTabKeyDown}>{designPanelLabel}</button>
           </div>
           <div className="assistant-panel-slot">
             <div aria-labelledby="editor-journey-tab" className="assistant-panel-view editor-journey-panel" hidden={props.rightPanelView !== "journey"} id="editor-journey-panel" role="tabpanel">
@@ -120,7 +123,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               </div>
               <div aria-labelledby="editor-ai-chat-tab" className="assistant-panel-subview" hidden={props.aiPanelView !== "chat"} id="editor-ai-chat-panel" role="tabpanel">
                 {props.canUseAiMutations ? (
-                  <AiChatPanel projectId={props.projectId} deck={props.deck} currentSlide={props.currentSlide} selectedElementIds={props.selectedElementIds} chatState={props.aiChatState} onChatStateChange={props.onAiChatStateChange} onProposalApplied={props.onProposalApplied} />
+                  <AiChatPanel projectId={props.projectId} deck={props.deck} currentSlide={props.currentSlide} designEditingEnabled={!isSpecialSlide} selectedElementIds={props.selectedElementIds} chatState={props.aiChatState} onChatStateChange={props.onAiChatStateChange} onProposalApplied={props.onProposalApplied} />
                 ) : (
                   <p className="editor-read-only-tool-message">보기 전용에서는 AI 편집을 실행할 수 없습니다.</p>
                 )}
@@ -141,9 +144,13 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               </div>
             </div>
             <div aria-labelledby="editor-design-tab" className="assistant-panel-view editor-design-panel" hidden={props.rightPanelView !== "design"} id="editor-design-panel" role="tabpanel">
-              <span className="orbit-ds-eyebrow">SLIDE DESIGN</span>
-              <h3>현재 슬라이드</h3>
-              <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
+              {!isSpecialSlide ? (
+                <>
+                  <span className="orbit-ds-eyebrow">SLIDE DESIGN</span>
+                  <h3>현재 슬라이드</h3>
+                  <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
+                </>
+              ) : null}
               {props.designProperties}
             </div>
           </div>

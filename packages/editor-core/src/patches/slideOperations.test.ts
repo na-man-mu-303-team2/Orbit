@@ -6,6 +6,10 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { createDemoDeck } from "../index";
+import {
+  createActivityResultsSlide,
+  createActivitySlide,
+} from "./activitySlideOperations";
 import { applyDeckPatch } from "./applyPatch";
 import {
   createAddSlidePatch,
@@ -23,6 +27,7 @@ describe("slide operation helpers", () => {
   it("creates an add_slide patch", () => {
     const deck = createDemoDeck();
     const patch = createAddSlidePatch(deck, {
+      kind: "content",
       slideId: "slide_3",
       order: 3,
       title: "New Slide",
@@ -137,6 +142,62 @@ describe("slide operation helpers", () => {
     expect(duplicate.title).toBe("Data Contract 복사본");
     expect(duplicate.thumbnailUrl).toBe("");
     expectReferenceRichDuplicate(source, duplicate, deck);
+  });
+
+  it("duplicates an Activity slide with fresh Activity and question IDs", () => {
+    const deck = createDemoDeck();
+    const activity = createActivitySlide(deck, "satisfaction");
+    deck.slides.push(activity);
+    const result = applyDeckPatch(
+      deckSchema.parse(deck),
+      createDuplicateSlidePatch(deckSchema.parse(deck), activity.slideId),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceIndex = result.deck.slides.findIndex(
+      (slide) => slide.slideId === activity.slideId,
+    );
+    const duplicate = result.deck.slides[sourceIndex + 1];
+
+    expect(duplicate?.kind).toBe("activity");
+    if (duplicate?.kind !== "activity") return;
+    expect(duplicate.activity.activityId).not.toBe(activity.activity.activityId);
+    expect(duplicate.activity.questions.map((question) => question.questionId)).not.toEqual(
+      activity.activity.questions.map((question) => question.questionId),
+    );
+    expect(deckSchema.safeParse(result.deck).success).toBe(true);
+  });
+
+  it("duplicates an Activity result slide while preserving its source link", () => {
+    const deck = createDemoDeck();
+    const activity = createActivitySlide(deck, "poll");
+    deck.slides.push(activity);
+    const resultSlide = createActivityResultsSlide(
+      deckSchema.parse(deck),
+      activity.activity.activityId,
+    );
+    deck.slides.push(resultSlide);
+    const parsedDeck = deckSchema.parse(deck);
+    const result = applyDeckPatch(
+      parsedDeck,
+      createDuplicateSlidePatch(parsedDeck, resultSlide.slideId),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceIndex = result.deck.slides.findIndex(
+      (slide) => slide.slideId === resultSlide.slideId,
+    );
+    const duplicate = result.deck.slides[sourceIndex + 1];
+
+    expect(duplicate?.kind).toBe("activity-results");
+    if (duplicate?.kind !== "activity-results") return;
+    expect(duplicate.slideId).not.toBe(resultSlide.slideId);
+    expect(duplicate.activityResult.sourceActivityId).toBe(
+      activity.activity.activityId,
+    );
+    expect(deckSchema.safeParse(result.deck).success).toBe(true);
   });
 
   it("uses a stable slide title fallback for a duplicate", () => {

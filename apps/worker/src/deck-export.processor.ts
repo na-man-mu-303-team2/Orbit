@@ -10,13 +10,17 @@ import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import { projectActivityDeckForStaticExport } from "./activity-export-projection";
 
-const deckExportPayloadSchema = z.object({
-  jobId: z.string().min(1),
-  projectId: z.string().min(1),
-  deck: deckSchema,
-  format: deckExportFormatSchema,
-});
+const deckExportPayloadSchema = z
+  .object({
+    jobId: z.string().min(1),
+    projectId: z.string().min(1),
+    deck: deckSchema,
+    format: deckExportFormatSchema,
+    presentationSessionId: z.string().trim().min(1).optional(),
+  })
+  .strict();
 
 const pythonExportResponseSchema = z.object({
   contentBase64: z.string().min(1),
@@ -83,7 +87,8 @@ type ProjectAssetRow = {
 type ImportedExportResult =
   | { kind: "generic" }
   | { kind: "stale"; deckVersion: number; syncedDeckVersion: number }
-  | { kind: "completed"; job: Job };
+  | { kind: "completed"; job: Job }
+  | { kind: "materialized"; pptxBytes: Buffer; warnings: string[] };
 
 type DeckExportProcessorOptions = {
   ooxmlReadyAttempts?: number;
@@ -92,6 +97,7 @@ type DeckExportProcessorOptions = {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const zipMimeType = "application/zip";
 
 export async function processDeckExportJob(
   dataSource: DataSource,
@@ -120,6 +126,9 @@ export async function processDeckExportJob(
   }
 
   const payload = payloadResult.data;
+  const containsActivitySlides = payload.deck.slides.some(
+    (slide) => slide.kind === "activity" || slide.kind === "activity-results",
+  );
   await updateJob(dataSource, payload.jobId, {
     status: "running",
     progress: 20,
@@ -128,6 +137,29 @@ export async function processDeckExportJob(
     error: null,
   });
 
+  let exportPayload: DeckExportPayload;
+  try {
+    exportPayload = {
+      ...payload,
+      deck: await projectActivityDeckForStaticExport(
+        dataSource,
+        payload.projectId,
+        payload.deck,
+        payload.presentationSessionId,
+      ),
+    };
+  } catch (error) {
+    return failJob(
+      dataSource,
+      payload.jobId,
+      20,
+      "DECK_EXPORT_ACTIVITY_PROJECTION_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Activity slide export projection failed.",
+    );
+  }
+
   const readyAttempts = Math.max(1, options.ooxmlReadyAttempts ?? 5);
   const readyDelayMs = Math.max(0, options.ooxmlReadyDelayMs ?? 1_000);
   try {
@@ -135,9 +167,20 @@ export async function processDeckExportJob(
       const imported = await exportImportedDeckIfReady(
         dataSource,
         storage,
-        payload,
+        exportPayload,
+        containsActivitySlides,
       );
       if (imported.kind === "completed") return imported.job;
+      if (imported.kind === "materialized") {
+        return finishMaterializedExport(
+          dataSource,
+          storage,
+          pythonWorkerUrl,
+          exportPayload,
+          imported.pptxBytes,
+          imported.warnings,
+        );
+      }
       if (imported.kind === "generic") break;
       if (attempt === readyAttempts) {
         return failJob(
@@ -166,12 +209,12 @@ export async function processDeckExportJob(
       dataSource,
       storage,
       payload.projectId,
-      payload.deck,
+      exportPayload.deck,
     );
     response = await fetch(workerUrl(pythonWorkerUrl, "/ai/export-deck-pptx"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deck: exportDeck, format: payload.format }),
+      body: JSON.stringify({ deck: exportDeck, format: "pptx" }),
       signal: AbortSignal.timeout(120_000),
     });
   } catch (error) {
@@ -201,7 +244,7 @@ export async function processDeckExportJob(
     const fatalMotionDiagnostics = workerPayload.motionDiagnostics.filter(
       (diagnostic) => diagnostic.code !== "PPTX_MOTION_TARGET_FLATTENED",
     );
-    if (fatalMotionDiagnostics.length > 0) {
+    if (payload.format === "pptx" && fatalMotionDiagnostics.length > 0) {
       const diagnosticCodes = Array.from(
         new Set(fatalMotionDiagnostics.map((diagnostic) => diagnostic.code)),
       )
@@ -215,38 +258,18 @@ export async function processDeckExportJob(
         `Generic PPTX export reported ${fatalMotionDiagnostics.length} fatal motion preservation diagnostic(s): ${diagnosticCodes}.`,
       );
     }
-    const flattenedTargetCount = workerPayload.motionDiagnostics
-      .filter(
-        (diagnostic) => diagnostic.code === "PPTX_MOTION_TARGET_FLATTENED",
-      )
-      .reduce((total, diagnostic) => total + (diagnostic.count ?? 1), 0);
-    const warnings = [...workerPayload.warnings];
-    if (flattenedTargetCount > 0) {
-      warnings.push(
-        `PPTX_MOTION_TARGET_FLATTENED: ${flattenedTargetCount} animation target(s) were exported through the supported flattened group fallback.`,
-      );
-    }
-    const file = await saveExportFile(
+    const warnings = [
+      ...workerPayload.warnings,
+      ...motionDiagnosticWarnings(workerPayload.motionDiagnostics),
+    ];
+    return finishMaterializedExport(
       dataSource,
       storage,
+      pythonWorkerUrl,
       payload,
-      workerPayload,
-    );
-    const result = deckExportJobResultSchema.parse({
-      deckId: payload.deck.deckId,
-      fileId: file.fileId,
-      url: file.url,
-      format: payload.format,
+      Buffer.from(workerPayload.contentBase64, "base64"),
       warnings,
-    });
-
-    return updateJob(dataSource, payload.jobId, {
-      status: "succeeded",
-      progress: 100,
-      message: "Deck export completed.",
-      result,
-      error: null,
-    });
+    );
   } catch (error) {
     return failJob(
       dataSource,
@@ -264,7 +287,11 @@ async function exportImportedDeckIfReady(
   dataSource: DataSource,
   storage: Pick<StoragePort, "putObject" | "getSignedReadUrl">,
   payload: DeckExportPayload,
+  containsActivitySlides = false,
 ): Promise<ImportedExportResult> {
+  if (containsActivitySlides) {
+    return { kind: "generic" };
+  }
   const templateBlueprint = await loadOoxmlTemplateBlueprint(
     dataSource,
     payload.projectId,
@@ -338,6 +365,10 @@ async function exportImportedDeckIfReady(
         deckVersion: recheckedDeck.version,
         syncedDeckVersion: recheckedBlueprint?.ooxmlSyncedDeckVersion ?? 0,
       };
+    }
+
+    if (payload.format === "png") {
+      return { kind: "materialized", pptxBytes: packageBytes, warnings: [] };
     }
 
     const file = await saveExportBytes(manager, storage, payload, packageBytes);
@@ -502,18 +533,117 @@ function internalAssetFileId(src: string, projectId: string) {
   return decodeURIComponent(match[2]);
 }
 
-async function saveExportFile(
+function motionDiagnosticWarnings(
+  diagnostics: z.infer<typeof pythonExportResponseSchema>["motionDiagnostics"],
+): string[] {
+  const flattenedTargetCount = diagnostics
+    .filter(
+      (diagnostic) => diagnostic.code === "PPTX_MOTION_TARGET_FLATTENED",
+    )
+    .reduce((total, diagnostic) => total + (diagnostic.count ?? 1), 0);
+  const warnings = diagnostics
+    .filter(
+      (diagnostic) => diagnostic.code !== "PPTX_MOTION_TARGET_FLATTENED",
+    )
+    .map((diagnostic) => {
+      const target = diagnostic.elementId
+        ? ` element ${diagnostic.elementId}`
+        : "";
+      return `${diagnostic.code}: slide ${diagnostic.slideIndex}${target}.`;
+    });
+
+  if (flattenedTargetCount > 0) {
+    warnings.push(
+      `PPTX_MOTION_TARGET_FLATTENED: ${flattenedTargetCount} animation target(s) were exported through the supported flattened group fallback.`,
+    );
+  }
+
+  return warnings;
+}
+
+async function finishMaterializedExport(
   dataSource: QueryExecutor,
   storage: Pick<StoragePort, "putObject">,
+  pythonWorkerUrl: string,
   payload: DeckExportPayload,
-  workerPayload: z.infer<typeof pythonExportResponseSchema>,
-) {
-  return saveExportBytes(
-    dataSource,
-    storage,
-    payload,
-    Buffer.from(workerPayload.contentBase64, "base64"),
-  );
+  pptxBytes: Buffer,
+  initialWarnings: string[],
+): Promise<Job> {
+  let body = pptxBytes;
+  let warnings = initialWarnings;
+  if (payload.format === "png") {
+    let response: Response;
+    try {
+      response = await fetch(workerUrl(pythonWorkerUrl, "/ai/export-pptx-png-zip"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contentBase64: pptxBytes.toString("base64") }),
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch (error) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        60,
+        "PYTHON_WORKER_PNG_EXPORT_UNAVAILABLE",
+        error instanceof Error ? error.message : "Python worker unavailable.",
+      );
+    }
+    if (!response.ok) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        60,
+        "PYTHON_WORKER_PNG_EXPORT_FAILED",
+        (await response.text()) || "Python worker PNG export failed.",
+      );
+    }
+    try {
+      const rendered = pythonExportResponseSchema.parse(await response.json());
+      body = Buffer.from(rendered.contentBase64, "base64");
+      warnings = [
+        ...warnings,
+        ...rendered.warnings,
+        ...motionDiagnosticWarnings(rendered.motionDiagnostics),
+      ];
+    } catch (error) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        75,
+        "PYTHON_WORKER_PNG_EXPORT_INVALID_RESPONSE",
+        error instanceof Error
+          ? error.message
+          : "Python worker returned an invalid PNG export response.",
+      );
+    }
+  }
+
+  try {
+    const file = await saveExportBytes(dataSource, storage, payload, body);
+    const result = deckExportJobResultSchema.parse({
+      deckId: payload.deck.deckId,
+      fileId: file.fileId,
+      url: file.url,
+      format: payload.format,
+      warnings,
+    });
+    return updateJob(dataSource, payload.jobId, {
+      status: "succeeded",
+      progress: 100,
+      message: "Deck export completed.",
+      result,
+      error: null,
+    });
+  } catch (error) {
+    return failJob(
+      dataSource,
+      payload.jobId,
+      75,
+      "DECK_EXPORT_SAVE_FAILED",
+      error instanceof Error ? error.message : "Deck export could not be saved.",
+    );
+  }
 }
 
 async function saveExportBytes(
@@ -523,14 +653,16 @@ async function saveExportBytes(
   body: Buffer,
 ) {
   const fileId = `file_${randomUUID()}`;
-  const fileName = `${safeStorageName(payload.deck.title || payload.deck.deckId)}.pptx`;
+  const extension = payload.format === "png" ? "zip" : "pptx";
+  const mimeType = payload.format === "png" ? zipMimeType : pptxMimeType;
+  const fileName = `${safeStorageName(payload.deck.title || payload.deck.deckId)}.${extension}`;
   const storageKey = `projects/${payload.projectId}/assets/${fileId}-${fileName}`;
   const url = createAssetContentUrl(payload.projectId, fileId);
 
   await storage.putObject({
     key: storageKey,
     body,
-    contentType: pptxMimeType,
+    contentType: mimeType,
     purpose: "export-result",
   });
   await dataSource.query(
@@ -546,7 +678,7 @@ async function saveExportBytes(
       payload.projectId,
       storageKey,
       fileName,
-      pptxMimeType,
+      mimeType,
       body.byteLength,
       url,
     ],

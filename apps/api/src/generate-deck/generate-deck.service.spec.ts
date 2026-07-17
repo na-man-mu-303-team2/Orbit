@@ -677,4 +677,59 @@ describe("GenerateDeckService", () => {
     expect(result.options).toHaveLength(3);
     expect(result.options[0]?.palette.primary).toBe("#0EA5E9");
   });
+
+  it("proxies one strict AI palette customization without changing the base", async () => {
+    const basePalette = {
+      primary: "#6846D8",
+      secondary: "#1F1D3D",
+      background: "#F7F7F5",
+      surface: "#FFFFFF",
+      muted: "#F1ECFF",
+      border: "#E6E6E6",
+      text: "#090909",
+      accentColor: "#C5B0F4"
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          option: {
+            optionId: "ai-custom",
+            name: "따뜻한 라일락",
+            palette: { ...basePalette, accentColor: "#D97706" },
+            rationale: "포인트 색상만 따뜻하게 조정했습니다."
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new GenerateDeckService(
+      {} as JobsService,
+      {} as ProjectsService,
+      vi.fn(async () => undefined)
+    ).customizeColorPalette({
+      topic: "제품 전략",
+      instruction: "포인트 색상만 따뜻하게",
+      basePalette,
+      stylePackId: "brandlogy-modern",
+      tone: "professional"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/ai/deck-color-customization",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          topic: "제품 전략",
+          instruction: "포인트 색상만 따뜻하게",
+          basePalette,
+          stylePackId: "brandlogy-modern",
+          tone: "professional"
+        })
+      })
+    );
+    expect(result.option.palette.accentColor).toBe("#D97706");
+    expect(basePalette.accentColor).toBe("#C5B0F4");
+  });
 });

@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityPresenterPanel,
+  ActivitySlidePreview,
+} from "../../activity-slides";
+import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
 } from "../panel/SemanticSpeechDebugPanel";
@@ -280,6 +284,14 @@ export function PresenterRemoteWindow(props: {
         <section className="presenter-remote-status" role="status">
           {channelError}
         </section>
+      ) : null}
+
+      {slide?.kind === "activity" ? (
+        <ActivityPresenterPanel
+          deckId={deck.deckId}
+          projectId={deck.projectId}
+          slide={slide}
+        />
       ) : null}
 
       <section
@@ -679,14 +691,18 @@ function PresenterSlidePreview(props: {
       </div>
       <div className="presenter-remote-preview-frame">
         {slide ? (
-          <SlideshowRenderer
-            deck={deck}
-            playInitialEntryAnimations={false}
-            renderMode="presenter"
-            scale={previewScale}
-            slideId={slide.slideId}
-            stepIndex={stepIndex}
-          />
+          slide.kind === "activity" ? (
+            <ActivitySlidePreview role="presenter" slide={slide} />
+          ) : (
+            <SlideshowRenderer
+              deck={deck}
+              playInitialEntryAnimations={false}
+              renderMode="presenter"
+              scale={previewScale}
+              slideId={slide.slideId}
+              stepIndex={stepIndex}
+            />
+          )
         ) : (
           <div className="presenter-remote-preview-empty">마지막 슬라이드</div>
         )}

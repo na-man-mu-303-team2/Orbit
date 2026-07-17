@@ -9,7 +9,7 @@ import type {
   Slide,
 } from "@orbit/shared";
 
-import { createDemoDeck } from "../index";
+import { createActivitySlide, createDemoDeck } from "../index";
 import { applyRichTextCharacterStyle } from "../text/richTextOperations";
 import { applyDeckPatch } from "./applyPatch";
 import type { ApplyDeckPatchResult, ApplyDeckPatchSuccess } from "./deckPatch";
@@ -31,6 +31,7 @@ function createPatch(
 
 function createSlide(slideId: string, order: number): Slide {
   return {
+    kind: "content",
     slideId,
     order,
     title: `Slide ${order}`,
@@ -229,6 +230,94 @@ function applyPatchOrFail(deck: Deck, patch: DeckPatch): ApplyDeckPatchSuccess {
 }
 
 describe("applyDeckPatch", () => {
+  it.each([
+    {
+      type: "add_element",
+      slideId: "slide_activity",
+      element: createTextElement("el_special"),
+    },
+    {
+      type: "update_element_frame",
+      slideId: "slide_activity",
+      elementId: "el_missing",
+      frame: { x: 10 },
+    },
+    {
+      type: "update_element_props",
+      slideId: "slide_activity",
+      elementId: "el_missing",
+      props: { fontSize: 20 },
+    },
+    {
+      type: "delete_element",
+      slideId: "slide_activity",
+      elementId: "el_missing",
+    },
+    {
+      type: "add_animation",
+      slideId: "slide_activity",
+      animation: {
+        animationId: "anim_special",
+        elementId: "el_missing",
+        type: "appear",
+        order: 1,
+        durationMs: 300,
+        delayMs: 0,
+        easing: "ease-out",
+      },
+    },
+    {
+      type: "update_animation",
+      slideId: "slide_activity",
+      animationId: "anim_missing",
+      animation: { durationMs: 300 },
+    },
+    {
+      type: "delete_animation",
+      slideId: "slide_activity",
+      animationId: "anim_missing",
+    },
+    {
+      type: "add_slide_action",
+      slideId: "slide_activity",
+      action: {
+        actionId: "act_special",
+        trigger: { kind: "cue", cue: "next" },
+        effect: { kind: "go-to-next-slide" },
+      },
+    },
+    {
+      type: "update_slide_action",
+      slideId: "slide_activity",
+      actionId: "act_missing",
+      action: { trigger: { kind: "cue", cue: "next" } },
+    },
+    {
+      type: "delete_slide_action",
+      slideId: "slide_activity",
+      actionId: "act_missing",
+    },
+  ] satisfies DeckPatchOperation[])(
+    "rejects $type on a special slide before applying content-only validation",
+    (operation) => {
+      const base = createDemoDeck();
+      const activity = createActivitySlide(base, "satisfaction");
+      activity.slideId = "slide_activity";
+      activity.order = 1;
+      const deck = { ...base, slides: [activity] };
+
+      const result = applyDeckPatch(deck, createPatch([operation]));
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "SLIDE_KIND_MISMATCH",
+          operationType: operation.type,
+        },
+      });
+    },
+  );
+
   it("applies update_deck and returns version metadata with change record", () => {
     const deck = createPatchTestDeck();
     const result = applyPatchOrFail(

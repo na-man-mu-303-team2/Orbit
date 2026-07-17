@@ -7,6 +7,11 @@ import type {
   SlideTransition,
 } from "@orbit/shared";
 
+import {
+  duplicateActivityResultsSlide,
+  duplicateActivitySlide,
+} from "./activitySlideOperations";
+
 type LocalIdPrefix = "slide_" | "el_" | "anim_" | "kw_" | "act_" | "scue_";
 
 type LocalIdAllocator = (prefix: LocalIdPrefix) => string;
@@ -74,12 +79,17 @@ export function createDuplicateSlidePatch(deck: Deck, sourceSlideId: string): De
   const sourceIndex = orderedSlides.findIndex(
     (slide) => slide.slideId === sourceSlideId,
   );
-  const allocateId = createLocalIdAllocator(deck);
-  const duplicateInput = duplicateSlideWithReferences(
-    sourceMatches[0]!,
-    deck.slides.length + 1,
-    allocateId,
-  );
+  const source = sourceMatches[0]!;
+  const duplicateInput =
+    source.kind === "activity"
+      ? duplicateActivitySlide(deck, sourceSlideId)
+      : source.kind === "activity-results"
+        ? duplicateActivityResultsSlide(deck, sourceSlideId)
+        : duplicateSlideWithReferences(
+            source,
+            deck.slides.length + 1,
+            createLocalIdAllocator(deck),
+          );
   const duplicate =
     deck.metadata.sourceType === "import"
       ? asAuthoredOoxmlSlide(duplicateInput)

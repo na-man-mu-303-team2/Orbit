@@ -8,6 +8,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import {
@@ -38,6 +39,7 @@ export type SlideRailProps = {
   showIds?: boolean;
   structuralDisabledReasons?: Readonly<Record<string, string>>;
   thumbnailBackgrounds?: Readonly<Record<string, string>>;
+  thumbnailContent?: Readonly<Record<string, ReactNode>>;
   viewMode: "list" | "thumbnail";
 };
 
@@ -220,7 +222,9 @@ export function SlideRail(props: SlideRailProps) {
                       aspectRatio: props.canvasAspectRatio,
                       background: props.thumbnailBackgrounds?.[item.slideId],
                     }}
-                  />
+                  >
+                    {props.thumbnailContent?.[item.slideId]}
+                  </span>
                 ) : null}
               </button>
 

@@ -56,7 +56,7 @@ export function EditorToolbar(props: EditorToolbarProps) {
   );
   const unavailableSlideReason = props.canUseCurrentSlide
     ? undefined
-    : "편집할 슬라이드가 필요합니다.";
+    : "특수 장표는 장표 설정에서 관리합니다.";
   const disabledReason = (action: EditorToolbarAction) =>
     props.actionDisabledReasons?.[action] ?? unavailableSlideReason;
 
@@ -92,7 +92,8 @@ export function EditorToolbar(props: EditorToolbarProps) {
               <button
                 aria-label="선택 도구"
                 className={`icon-button ${props.insertTool === "select" ? "selected-tool" : ""}`}
-                title="Select"
+                disabled={!props.canUseCurrentSlide}
+                title={unavailableSlideReason ?? "Select"}
                 type="button"
                 onClick={props.onSelectTool}
               >
@@ -181,7 +182,13 @@ export function EditorToolbar(props: EditorToolbarProps) {
               </button>
             </div>
             <div className="tool-group">
-              <button aria-label="템플릿" className="tool-button" type="button">
+              <button
+                aria-label="템플릿"
+                className="tool-button"
+                disabled={!props.canUseCurrentSlide}
+                title={unavailableSlideReason}
+                type="button"
+              >
                 <LayoutTemplate size={14} />
                 <span className="tool-button-label">템플릿</span>
               </button>

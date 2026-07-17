@@ -2,6 +2,7 @@ import {
   deckExportJobResultSchema,
   pptxOoxmlGenerationJobResultSchema,
   type Deck,
+  type DeckExportRequest,
   type DeckExportJobResult,
   type PptxOoxmlGenerationJobResult
 } from "@orbit/shared";
@@ -119,6 +120,7 @@ export async function waitForPptxOoxmlGenerationJob(
 
 export async function createDeckExportJob(
   projectId: string,
+  input: DeckExportRequest = { format: "pptx" },
   fetcher: typeof fetch = fetch
 ): Promise<Job> {
   const response = await fetcher(
@@ -126,7 +128,7 @@ export async function createDeckExportJob(
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ format: "pptx" })
+      body: JSON.stringify(input)
     }
   );
 
@@ -171,7 +173,15 @@ export async function exportDeckToPptx(
   projectId: string,
   fetcher: typeof fetch = fetch
 ): Promise<DeckExportJobResult> {
-  const queuedJob = await createDeckExportJob(projectId, fetcher);
+  return exportDeck(projectId, { format: "pptx" }, fetcher);
+}
+
+export async function exportDeck(
+  projectId: string,
+  input: DeckExportRequest,
+  fetcher: typeof fetch = fetch
+): Promise<DeckExportJobResult> {
+  const queuedJob = await createDeckExportJob(projectId, input, fetcher);
   const job = await waitForDeckExportJob(queuedJob.jobId, fetcher);
   if (job.status === "failed") {
     throw new Error(job.error?.message ?? "Deck export failed.");

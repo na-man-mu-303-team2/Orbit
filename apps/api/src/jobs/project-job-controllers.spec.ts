@@ -82,6 +82,24 @@ describe("project job controllers", () => {
       { expectedRevision: 1 },
     );
   });
+  it("requires write permission before Story Review edits", async () => {
+    const { authService, projectsService } = createAuthHarness();
+    const service = { edit: vi.fn(async () => ({ status: "review-pending" })) };
+    const controller = new StoryPlanReviewController(
+      authService,
+      service as never,
+      projectsService as unknown as ProjectsService,
+    );
+    const body = { kind: "reorder", expectedRevision: 1, orders: [2, 1] };
+
+    await controller.edit("project-a", "job-1", body, signedRequest());
+
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(service.edit).toHaveBeenCalledWith("project-a", "job-1", body);
+  });
 });
 
 function createAuthHarness() {

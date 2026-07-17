@@ -2,6 +2,8 @@ import {
   createDemoDeck,
   createDuplicateSlidePatch,
   createElementOrderPatch,
+  createUpdateActivityDefinitionPatch,
+  createUpdateActivityResultDefinitionPatch,
   getElementAnimations,
   deriveKeywordActionUsage,
   validateSlideAnimations
@@ -36,6 +38,7 @@ import {
   createDistributeSelectionPatch,
   type DistributeAxis,
 } from "./utils/selectionDistribution";
+import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
 export { EditorStateNotice } from "./components/EditorStateNotice";
 export {
   mergeDeckIntoQueryCache,
@@ -70,6 +73,8 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DeckAnimation,
+  DeckExportFormat,
+  DeckExportRequest,
   SemanticCue
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -86,6 +91,10 @@ import {
   presentationBriefQueryKey
 } from "../../coaching/presentationBriefApi";
 import { PresentationJourneyPanel } from "../outcome/components/PresentationJourneyPanel";
+import {
+  ActivityResultSlideInspector,
+  ActivitySlideInspector
+} from "../../activity-slides";
 import {
   createPresentationJourneyViewModel,
   type PresentationJourneyAction,
@@ -167,6 +176,7 @@ export {
   createDeckExportJob,
   createPptxOoxmlGenerationJob,
   createSemanticCueExtractionJob,
+  exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
   requireMatchingPptxImportedDeck,
@@ -340,6 +350,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setElementContextMenu = useEditorShellUiStore((state) => state.setElementContextMenu);
   const [semanticCueExtractionState, setSemanticCueExtractionState] =
     useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [exportDialogFormat, setExportDialogFormat] =
+    useState<DeckExportFormat>("pptx");
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const ooxmlSyncJob = useOoxmlSyncJob();
 
@@ -477,6 +490,30 @@ export function EditorShell(props: { projectId?: string }) {
   const isDeckError = deckQuery.isError;
   const canOpenAudienceLink = Boolean(deckQuery.data?.projectId) && !isDeckLoading && !isDeckError;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const canEditCurrentSlideCanvas = canEditSlideCanvas(currentSlide);
+
+  useEffect(() => {
+    if (canEditCurrentSlideCanvas) return;
+    setInsertTool("select");
+    setIsShapeMenuOpen(false);
+    setIsAnimationPanelOpen(false);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setImageCropElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+  }, [
+    canEditCurrentSlideCanvas,
+    currentSlide?.slideId,
+    setCustomShapeEditElementId,
+    setEditingElementId,
+    setElementContextMenu,
+    setInsertTool,
+    setIsAnimationPanelOpen,
+    setIsShapeMenuOpen,
+    setSelectedElementIds
+  ]);
+
   const { actions: speakerNotesEditorActions, state: speakerNotesEditorState } =
     useSpeakerNotesEditor({
       commitPatch,
@@ -857,6 +894,9 @@ export function EditorShell(props: { projectId?: string }) {
   const { copiedElementRef } = editorCanvasRefs;
   const handleAddChartElement = editorCanvasActions.addChartElement;
   const handleAddSlide = editorCanvasActions.addSlide;
+  const handleAddActivitySlide = editorCanvasActions.addActivitySlide;
+  const handleAddActivityResultsSlide =
+    editorCanvasActions.addActivityResultsSlide;
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
@@ -1072,7 +1112,7 @@ export function EditorShell(props: { projectId?: string }) {
     canAcceptCanvasImageDrop({
       canMutateDeck,
       hasBlockingDialog: hasBlockingEditorDialog,
-      hasCurrentSlide: Boolean(currentSlide),
+      hasCurrentSlide: canEditCurrentSlideCanvas,
       inlineTextEditing: Boolean(editingElementId),
       insertCapabilityEnabled: currentImageInsertCapability?.enabled ?? false,
       isUploadPending: isImageUploadPending,
@@ -1094,9 +1134,16 @@ export function EditorShell(props: { projectId?: string }) {
     return editorDocumentActions.save(commitSpeakerNotesDraftIfDirty);
   }
 
-  async function handleExportPptx() {
+  async function handleExportDeck(input: DeckExportRequest) {
+    if (!capabilities.canExportDeck) return false;
+    return editorFileTransferActions.exportDeck(handleSaveDeck, input);
+  }
+
+  function openExportDialog(format: DeckExportFormat) {
     if (!capabilities.canExportDeck) return;
-    await editorFileTransferActions.exportPptx(handleSaveDeck);
+    setExportDialogFormat(format);
+    setIsExportDialogOpen(true);
+    setActiveTopMenu(null);
   }
 
   function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
@@ -1719,7 +1766,7 @@ export function EditorShell(props: { projectId?: string }) {
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
           ooxmlSyncStatus={ooxmlSyncStatus}
           onExitToHome={handleExitToHome}
-          onExportPptx={() => void handleExportPptx()}
+          onOpenExport={openExportDialog}
           onImportPptx={openPptxFilePicker}
           onOpenAudienceLink={() => {
             setIsAudienceLinkModalOpen(true);
@@ -1731,6 +1778,14 @@ export function EditorShell(props: { projectId?: string }) {
           onRefresh={() => {
             void health.refetch();
             void deckQuery.refetch();
+          }}
+          onRenameDeckTitle={(title) => {
+            commitPatch((currentDeck) => ({
+              baseVersion: currentDeck.version,
+              deckId: currentDeck.deckId,
+              operations: [{ type: "update_deck", title }],
+              source: "user"
+            }));
           }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
@@ -1755,6 +1810,7 @@ export function EditorShell(props: { projectId?: string }) {
         {!canMutateDeck ? <ProjectReadOnlyBanner /> : null}
         <EditorModals
           audienceLink={{
+            deckId: deck.deckId,
             isOpen: isAudienceLinkModalOpen,
             onClose: () => setIsAudienceLinkModalOpen(false),
             projectId
@@ -1769,6 +1825,17 @@ export function EditorShell(props: { projectId?: string }) {
                 void handleSaveAndExit();
               }
             }
+          }}
+          exportDialog={{
+            deckId: deck.deckId,
+            errorMessage: pptxExportError,
+            initialFormat: exportDialogFormat,
+            onClose: () => setIsExportDialogOpen(false),
+            onExport: handleExportDeck,
+            open: isExportDialogOpen,
+            pending: isPptxExporting,
+            projectId,
+            statusMessage: pptxExportStatus
           }}
           presence={{
             isOpen: isPresenceDebugOpen,
@@ -1832,6 +1899,16 @@ export function EditorShell(props: { projectId?: string }) {
             currentSlideIndex={currentSlideIndex}
             deck={deck}
             isCollapsed={isSlidesPaneCollapsed}
+            onAddActivitySlide={(template) => {
+              if (!handleAddActivitySlide(template)) return;
+              setIsRightPanelOpen(true);
+              setRightPanelView("design");
+            }}
+            onAddActivityResultsSlide={() => {
+              if (!handleAddActivityResultsSlide()) return;
+              setIsRightPanelOpen(true);
+              setRightPanelView("design");
+            }}
             onAddSlide={handleAddSlide}
             onDeleteSlide={handleDeleteSlide}
             onDuplicateSlide={handleDuplicateSlide}
@@ -1946,7 +2023,7 @@ export function EditorShell(props: { projectId?: string }) {
                     : undefined
               }}
               canMutate={canMutateDeck}
-              canUseCurrentSlide={Boolean(currentSlide)}
+              canUseCurrentSlide={canEditCurrentSlideCanvas}
               compactSelectionTrigger={
                 isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
                   <button
@@ -2024,7 +2101,10 @@ export function EditorShell(props: { projectId?: string }) {
               deck={deck}
               editableCanvasProps={{
                 customShapeEditElementId,
-                disableInteractions: !canMutateDeck || isPlayingCurrentSlideAnimations,
+                disableInteractions:
+                  !canMutateDeck ||
+                  !canEditCurrentSlideCanvas ||
+                  isPlayingCurrentSlideAnimations,
                 editingElementId: canMutateDeck ? editingElementId : null,
                 imageCropElementId: canMutateDeck ? imageCropElementId : null,
                 elementStates: animationPreviewElementStates,
@@ -2142,7 +2222,50 @@ export function EditorShell(props: { projectId?: string }) {
             canUseAiMutations={capabilities.canUseAiMutations}
             currentSlide={currentSlide}
             deck={deck}
-            designProperties={renderSelectionInspector("design-properties")}
+            designProperties={
+              currentSlide?.kind === "activity" ? (
+                <ActivitySlideInspector
+                  deckId={deck.deckId}
+                  onOpenAudienceLink={() => setIsAudienceLinkModalOpen(true)}
+                  projectId={deck.projectId}
+                  readOnly={!canMutateDeck}
+                  slide={currentSlide}
+                  onChange={(activity) => {
+                    commitPatch((currentDeck) =>
+                      createUpdateActivityDefinitionPatch(
+                        currentDeck,
+                        currentSlide.slideId,
+                        activity
+                      )
+                    );
+                  }}
+                />
+              ) : currentSlide?.kind === "activity-results" ? (
+                <ActivityResultSlideInspector
+                  deck={deck}
+                  projectId={deck.projectId}
+                  readOnly={!canMutateDeck}
+                  slide={currentSlide}
+                  onChange={(activityResult) => {
+                    commitPatch((currentDeck) =>
+                      createUpdateActivityResultDefinitionPatch(
+                        currentDeck,
+                        currentSlide.slideId,
+                        activityResult
+                      )
+                    );
+                  }}
+                  onSelectSourceSlide={(slideId) => {
+                    const index = deck.slides.findIndex(
+                      (slide) => slide.slideId === slideId
+                    );
+                    if (index >= 0) handleSelectSlideIndex(index);
+                  }}
+                />
+              ) : (
+                renderSelectionInspector("design-properties")
+              )
+            }
             editorValidationItems={presentedEditorValidationItems}
             isOpen={isRightPanelOpen}
             journeyPanel={

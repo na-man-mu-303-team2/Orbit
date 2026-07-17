@@ -1,0 +1,114 @@
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
+import type { ActivityPublicResult } from "@orbit/shared";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import {
+  ActivityAudienceSlideRenderer,
+  canonicalActivityUrl
+} from "./ActivityAudienceSlideRenderer";
+
+const slide = {
+  ...createActivitySlide(createDemoDeck(), "satisfaction"),
+  speakerNotes: "SPEAKER_NOTE_SENTINEL"
+};
+
+const publicResult: ActivityPublicResult = {
+  activityRunId: "activity_run_1",
+  activityId: slide.activity.activityId,
+  status: "results",
+  revision: 3,
+  responseCount: 7,
+  aggregates: slide.activity.questions.map((question) => ({
+    questionId: question.questionId,
+    type: question.type,
+    responseCount: 7,
+    average: question.type === "rating" ? 4.2 : null,
+    choices: []
+  })),
+  approvedTextEntries: []
+};
+
+describe("ActivityAudienceSlideRenderer", () => {
+  it("renders only the public result projection after reveal", () => {
+    const html = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={slide.activity}
+        audienceUrl="/audience/session_1/a/activity_1"
+        publicResult={publicResult}
+        status="results"
+      />
+    );
+
+    expect(html).toContain("공개 결과");
+    expect(html).toContain("4.2");
+    expect(html).toContain(">7<");
+    expect(html).not.toContain("SPEAKER_NOTE_SENTINEL");
+    expect(html).not.toContain("displayName");
+    expect(html).not.toContain("moderationStatus");
+  });
+
+  it("does not render aggregate values while results are hidden", () => {
+    const html = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={slide.activity}
+        audienceUrl="/audience/session_1/a/activity_1"
+        publicResult={publicResult}
+        status="closed"
+      />
+    );
+
+    expect(html).toContain("응답이 마감되었습니다");
+    expect(html).not.toContain("4.2");
+    expect(html).not.toContain(">7<");
+  });
+
+  it("builds the canonical direct Activity path", () => {
+    expect(canonicalActivityUrl("/audience/session_1", "activity_1")).toBe(
+      "/audience/session_1/a/activity_1"
+    );
+  });
+
+  it("reveals poll ratios only from the public result projection", () => {
+    const pollSlide = createActivitySlide(createDemoDeck(), "poll");
+    const question = pollSlide.activity.questions[0]!;
+    if (question.type !== "single-choice") throw new Error("poll fixture");
+    const pollResult: ActivityPublicResult = {
+      activityRunId: "activity_run_poll",
+      activityId: pollSlide.activity.activityId,
+      status: "results",
+      revision: 4,
+      responseCount: 2,
+      aggregates: [{
+        questionId: question.questionId,
+        type: question.type,
+        responseCount: 2,
+        average: null,
+        choices: question.options.map((option, index) => ({
+          optionId: option.optionId,
+          count: index === 0 ? 2 : 0,
+          ratio: index === 0 ? 1 : 0
+        }))
+      }],
+      approvedTextEntries: []
+    };
+    const revealed = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_poll"
+        publicResult={pollResult}
+        status="results"
+      />
+    );
+    const hidden = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_poll"
+        publicResult={pollResult}
+        status="closed"
+      />
+    );
+    expect(revealed).toContain("100%");
+    expect(hidden).not.toContain("100%");
+  });
+});

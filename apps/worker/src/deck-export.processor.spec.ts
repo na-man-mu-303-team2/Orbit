@@ -9,6 +9,7 @@ import {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const zipMimeType = "application/zip";
 
 const storage: Pick<StoragePort, "putObject" | "getSignedReadUrl"> = {
   getSignedReadUrl: vi.fn(async () => "http://storage.local/current.pptx"),
@@ -79,6 +80,165 @@ describe("processDeckExportJob", () => {
           String(sql).includes("FOR SHARE"),
       ),
     ).toBe(true);
+  });
+
+  it("uses the generic exporter for imported Activity decks and sends only static content", async () => {
+    const deck = createActivityDeck("import");
+    const original = structuredClone(deck);
+    const { dataSource, query, transaction } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-a",
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://localhost:8000/ai/export-deck-pptx");
+      const body = JSON.parse(String(init?.body));
+      expect(JSON.stringify(body)).toContain(
+        "실시간 참여는 발표 중 제공됩니다.",
+      );
+      expect(JSON.stringify(body)).toContain(
+        "발표 세션을 선택하면 결과를 포함할 수 있습니다",
+      );
+      expect(
+        body.deck.slides.every(
+          (slide: Deck["slides"][number]) => slide.kind === "content",
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(body)).not.toMatch(/speaker secret|joinCode|qr/i);
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("generic-pptx").toString("base64"),
+          warnings: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck).toEqual(original);
+    expect(transaction).not.toHaveBeenCalled();
+    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("FROM template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
+  it("renders a generic deck PPTX into an all-slide PNG ZIP", async () => {
+    const deck = createDeck("ai");
+    const { dataSource, query } = createExportDataSource({
+      deckVersion: 1,
+      blueprint: null,
+    });
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === "http://localhost:8000/ai/export-deck-pptx") {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ format: "pptx" });
+        return new Response(
+          JSON.stringify({
+            contentBase64: Buffer.from("materialized-pptx").toString("base64"),
+            warnings: ["pptx warning"],
+            motionDiagnostics: [
+              {
+                code: "PPTX_MOTION_EFFECT_UNSUPPORTED",
+                slideIndex: 1,
+                elementId: "el_1",
+              },
+            ],
+          }),
+        );
+      }
+      expect(String(input)).toBe("http://localhost:8000/ai/export-pptx-png-zip");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        contentBase64: Buffer.from("materialized-pptx").toString("base64"),
+      });
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("png-zip").toString("base64"),
+          warnings: ["render warning"],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck, "png"),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({
+      format: "png",
+      warnings: [
+        "pptx warning",
+        "PPTX_MOTION_EFFECT_UNSUPPORTED: slide 1 element el_1.",
+        "render warning",
+      ],
+    });
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: Buffer.from("png-zip"),
+        contentType: zipMimeType,
+        key: expect.stringMatching(/\.zip$/),
+      }),
+    );
+    const insertCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO project_assets"),
+    );
+    expect(insertCall?.[1]).toEqual(
+      expect.arrayContaining(["Export.zip", zipMimeType]),
+    );
+  });
+
+  it("renders the current imported OOXML package directly into a PNG ZIP", async () => {
+    const deck = createDeck("import");
+    const { dataSource } = createExportDataSource({
+      deckVersion: 2,
+      blueprint: templateBlueprint(2),
+      packageProjectId: "project-a",
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      if (String(input) === "http://storage.local/current.pptx") {
+        return new Response("current-package-bytes");
+      }
+      expect(String(input)).toBe("http://localhost:8000/ai/export-pptx-png-zip");
+      return new Response(
+        JSON.stringify({
+          contentBase64: Buffer.from("imported-png-zip").toString("base64"),
+          warnings: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processDeckExportJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      exportPayload(deck, "png"),
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ format: "png" });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "http://localhost:8000/ai/export-deck-pptx",
+      expect.anything(),
+    );
+    expect(storage.putObject).toHaveBeenCalledWith(
+      expect.objectContaining({ body: Buffer.from("imported-png-zip") }),
+    );
   });
 
   it.each([
@@ -401,12 +561,12 @@ function templateBlueprint(syncedDeckVersion: number) {
   };
 }
 
-function exportPayload(deck: Deck) {
+function exportPayload(deck: Deck, format: "pptx" | "png" = "pptx") {
   return {
     jobId: "job-export",
     projectId: "project-a",
     deck,
-    format: "pptx",
+    format,
   };
 }
 
@@ -454,6 +614,7 @@ function createDeck(sourceType: "ai" | "import"): Deck {
     },
     slides: [
       {
+        kind: "content",
         slideId: "slide_1",
         order: 1,
         title: "Opening",
@@ -470,6 +631,53 @@ function createDeck(sourceType: "ai" | "import"): Deck {
         semanticCues: [],
         animations: [],
         actions: [],
+      },
+    ],
+  };
+}
+
+function createActivityDeck(sourceType: "ai" | "import"): Deck {
+  const deck = createDeck(sourceType);
+  const base = deck.slides[0];
+  return {
+    ...deck,
+    slides: [
+      {
+        ...base,
+        kind: "activity",
+        title: "참여",
+        speakerNotes: "speaker secret",
+        activity: {
+          activityId: "activity_1",
+          template: "satisfaction",
+          title: "발표 만족도",
+          description: "",
+          questions: [
+            {
+              questionId: "question_1",
+              type: "rating",
+              prompt: "발표가 유익했나요?",
+              required: true,
+              leftLabel: "아니요",
+              rightLabel: "그래요",
+            },
+          ],
+          allowDisplayName: false,
+          hideResultsUntilReveal: true,
+        },
+      },
+      {
+        ...base,
+        slideId: "slide_2",
+        order: 2,
+        kind: "activity-results",
+        title: "결과",
+        speakerNotes: "speaker secret",
+        activityResult: {
+          sourceActivityId: "activity_1",
+          display: "live",
+          layout: "summary",
+        },
       },
     ],
   };

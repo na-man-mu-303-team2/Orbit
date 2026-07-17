@@ -10,6 +10,11 @@ import type {
 import { useEffect, useState } from "react";
 
 import {
+  ActivityResultSlideRenderer,
+  ActivitySlidePreview,
+  findActivityResultSource
+} from "../../../activity-slides";
+import {
   EditableCanvas,
   HiddenSlideRenderStages
 } from "../../canvas/EditorCanvas";
@@ -124,17 +129,40 @@ export function EditorCanvasStage(props: EditorCanvasStageProps) {
               ...buildSlideBackgroundStyle(props.currentSlide, props.deck)
             }}
           >
-            <EditableCanvas
-              {...props.editableCanvasProps}
-              deck={props.deck}
-              slide={props.currentSlide}
-            />
-            {isImageDragActive && props.imageDropEnabled ? (
-              <div className="editor-image-drop-overlay" aria-hidden="true">
-                <strong>여기에 놓아 이미지 추가</strong>
-                <span>JPG, PNG, WebP · 한 번에 1개</span>
+            {props.currentSlide.kind === "activity" ? (
+              <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
+                <ActivitySlidePreview role="audience" slide={props.currentSlide} />
               </div>
-            ) : null}
+            ) : props.currentSlide.kind === "activity-results" ? (
+              <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
+                <ActivityResultSlideRenderer
+                  presenterResult={null}
+                  publicResult={null}
+                  role="presenter"
+                  run={null}
+                  scale={props.stageScale}
+                  slide={props.currentSlide}
+                  source={findActivityResultSource(
+                    props.deck,
+                    props.currentSlide.activityResult.sourceActivityId
+                  )}
+                />
+              </div>
+            ) : (
+              <>
+                <EditableCanvas
+                  {...props.editableCanvasProps}
+                  deck={props.deck}
+                  slide={props.currentSlide}
+                />
+                {isImageDragActive && props.imageDropEnabled ? (
+                  <div className="editor-image-drop-overlay" aria-hidden="true">
+                    <strong>여기에 놓아 이미지 추가</strong>
+                    <span>JPG, PNG, WebP · 한 번에 1개</span>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
           {props.renderingDeck ? (
             <HiddenSlideRenderStages deck={props.renderingDeck} stageRefs={props.slideRenderStageRefs} />
