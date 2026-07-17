@@ -84,6 +84,7 @@ export function DesignProposalPreviewModal(
               onSetCustomShapeEditElementId={() => undefined}
               onSetInsertTool={() => undefined}
               onSelectElement={() => undefined}
+              onSelectElements={() => undefined}
             />
           </div>
         </div>

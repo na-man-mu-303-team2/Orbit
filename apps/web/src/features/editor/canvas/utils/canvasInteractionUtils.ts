@@ -118,6 +118,53 @@ export function normalizeDraftRect(
   };
 }
 
+export function getElementsIntersectingSelectionRect(
+  elements: DeckElement[],
+  selectionRect: { x: number; y: number; width: number; height: number }
+) {
+  const selectionRight = selectionRect.x + selectionRect.width;
+  const selectionBottom = selectionRect.y + selectionRect.height;
+
+  return elements
+    .filter((element) => {
+      if (!element.visible) return false;
+      const bounds = getRotatedFrameBounds(element);
+      return (
+        bounds.x < selectionRight &&
+        bounds.x + bounds.width > selectionRect.x &&
+        bounds.y < selectionBottom &&
+        bounds.y + bounds.height > selectionRect.y
+      );
+    })
+    .map((element) => element.elementId);
+}
+
+function getRotatedFrameBounds(element: DeckElement) {
+  const radians = (element.rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const corners = [
+    { x: 0, y: 0 },
+    { x: element.width, y: 0 },
+    { x: 0, y: element.height },
+    { x: element.width, y: element.height }
+  ].map((point) => ({
+    x: element.x + point.x * cos - point.y * sin,
+    y: element.y + point.x * sin + point.y * cos
+  }));
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+
+  return {
+    x,
+    y,
+    width: Math.max(...xs) - x,
+    height: Math.max(...ys) - y
+  };
+}
+
 function isCanvasPointInsideRotatedFrame(args: {
   frame: {
     height: number;
