@@ -72,6 +72,7 @@ import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -136,7 +137,9 @@ function createTestQueryClient() {
 function renderApp(queryClient: QueryClient, projectId?: string) {
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell projectId={projectId} />
+      <ProjectAccessProvider membership={{ role: "owner", status: "accepted" }}>
+        <EditorShell projectId={projectId} />
+      </ProjectAccessProvider>
     </QueryClientProvider>
   );
 }

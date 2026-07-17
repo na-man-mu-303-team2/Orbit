@@ -28,6 +28,10 @@ import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
+import {
+  canMutateProjectDeck,
+  useProjectAccessMembership
+} from "../../projects/ProjectAccessContext";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -214,6 +218,8 @@ function navigateToHome() {
 
 export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
+  const projectAccessMembership = useProjectAccessMembership();
+  const canMutateDeck = canMutateProjectDeck(projectAccessMembership);
   const [currentSlideId, setCurrentSlideId] = useState<string | null>(null);
   const [isDeleteUndoToastOpen, setIsDeleteUndoToastOpen] = useState(false);
   const resetProjectUiState = useEditorShellUiStore(
@@ -1045,7 +1051,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleDuplicateSlide(slideId: string) {
-    if (!commitSpeakerNotesDraftIfDirty()) return;
+    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) return;
 
     let duplicateSlideId: string | null = null;
     const committed = commitPatch((currentDeck) => {
@@ -1067,7 +1073,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function handleDeleteSlide(slideId: string) {
     const activeDeck = workingDeckRef.current;
-    if (activeDeck.slides.length <= 1) return;
+    if (!canMutateDeck || activeDeck.slides.length <= 1) return;
 
     const nextSelectedSlideId = resolveSelectedSlideIdAfterDelete({
       deletedSlideId: slideId,
@@ -1099,6 +1105,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function handleReorderSlides(orderedSlideIds: readonly string[]) {
+    if (!canMutateDeck) return;
     const committed = commitPatch((currentDeck) =>
       createSlideRailReorderPatch(currentDeck, orderedSlideIds)
     );
@@ -1506,7 +1513,7 @@ export function EditorShell(props: { projectId?: string }) {
           />
         ) : (
           <SlideNavigatorPane
-            canMutate
+            canMutate={canMutateDeck}
             deck={deck}
             isCollapsed={isSlidesPaneCollapsed}
             items={slideRailItems}
@@ -1537,6 +1544,7 @@ export function EditorShell(props: { projectId?: string }) {
         <section className="stage-pane">
           {!isSlideRehearsalActive ? (
             <EditorToolbar
+              canMutate={canMutateDeck}
               canUseCurrentSlide={canEditCurrentSlideCanvas}
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
@@ -1898,7 +1906,7 @@ export function EditorShell(props: { projectId?: string }) {
           onChange={handlePptxFileInputChange}
         />
       </main>
-      {isDeleteUndoToastOpen ? (
+      {canMutateDeck && isDeleteUndoToastOpen ? (
         <EditorUndoToast
           message="슬라이드가 삭제되었습니다"
           onUndo={() => {

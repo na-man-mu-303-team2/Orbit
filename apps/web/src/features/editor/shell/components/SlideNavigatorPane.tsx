@@ -137,7 +137,7 @@ export function SlideNavigatorPane(props: {
               <List aria-hidden="true" size={16} />
             </button>
           </div>
-          <div className="add-slide-split">
+          {props.canMutate ? <div className="add-slide-split">
             <button
               aria-label="슬라이드 추가"
               className="add-slide-button"
@@ -208,7 +208,7 @@ export function SlideNavigatorPane(props: {
                 </button>
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </div>
       ) : null}
 

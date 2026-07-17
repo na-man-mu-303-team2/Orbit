@@ -8,6 +8,7 @@ describe("EditorToolbar", () => {
   it("disables every canvas editing control for a special slide", () => {
     const html = renderToStaticMarkup(
       <EditorToolbar
+        canMutate
         canUseCurrentSlide={false}
         insertTool="select"
         isAnimationPanelOpen={false}
