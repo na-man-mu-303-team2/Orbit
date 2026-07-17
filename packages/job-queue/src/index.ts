@@ -14,6 +14,7 @@ import {
   speakerNotesSuggestionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
   focusedPracticeAnalysisJobPayloadSchema,
+  slidePracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
   slideQuestionGuideJobPayloadSchema,
@@ -55,6 +56,8 @@ export const rehearsalSemanticEvaluationJobName =
   "rehearsal-semantic-evaluation";
 export const focusedPracticeAnalysisQueueName = "focused-practice-analysis";
 export const focusedPracticeAnalysisJobName = "focused-practice-analysis";
+export const slidePracticeAnalysisQueueName = "slide-practice-analysis";
+export const slidePracticeAnalysisJobName = "slide-practice-analysis";
 export const challengeQnaGenerationQueueName = "challenge-qna-generation";
 export const challengeQnaGenerationJobName = "challenge-qna-generation";
 export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysis";
@@ -137,6 +140,14 @@ export type EnqueueFocusedPracticeAnalysisJobInput = {
   practiceSessionId: string;
   attemptId: string;
   audioFileId: string;
+};
+
+export type EnqueueSlidePracticeAnalysisJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  analysisId: string;
 };
 
 export type EnqueueChallengeQnaGenerationJobInput = {
@@ -443,6 +454,28 @@ export async function enqueueFocusedPracticeAnalysisJob(
         jobId: input.jobId,
         projectId: input.projectId,
         attemptId: input.attemptId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueSlidePracticeAnalysisJob(
+  input: EnqueueSlidePracticeAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(slidePracticeAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      slidePracticeAnalysisJobName,
+      slidePracticeAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        analysisId: input.analysisId,
       }),
       canonicalJobOptions(input.jobId),
     );

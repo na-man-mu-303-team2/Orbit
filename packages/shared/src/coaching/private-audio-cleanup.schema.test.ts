@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   focusedPracticeAnalysisJobPayloadSchema,
+  slidePracticeAnalysisJobPayloadSchema,
   privateAudioCleanupJobPayloadSchema,
 } from "./private-audio-cleanup.schema";
 
@@ -23,6 +24,13 @@ describe("coaching Job payload privacy", () => {
         transcript: "민감한 원문",
       }).success,
     ).toBe(false);
+
+    expect(slidePracticeAnalysisJobPayloadSchema.safeParse({
+      jobId: "job-slide-1",
+      projectId: "project-1",
+      analysisId: "analysis-1",
+      transcript: "Job에 저장하면 안 되는 원문",
+    }).success).toBe(false);
   });
 
   it("rejects storage keys and unsupported cleanup reasons", () => {
@@ -40,4 +48,3 @@ describe("coaching Job payload privacy", () => {
     ).toBe(false);
   });
 });
-

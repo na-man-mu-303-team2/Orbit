@@ -1,17 +1,27 @@
 import {
+  completeSlidePracticeAnalysisRequestSchema,
+  createSlidePracticeAnalysisRequestSchema,
+  createSlidePracticeAnalysisResponseSchema,
   createSlidePracticeReportRequestSchema,
+  slidePracticeAnalysisResultResponseSchema,
+  slidePracticeAnalysisSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
   upsertVoiceBaselineRequestSchema,
   voiceBaselineRecordSchema,
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { enqueueSlidePracticeAnalysisJob } from "@orbit/job-queue";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import { FilesService } from "../files/files.service";
+import { JobsService } from "../jobs/jobs.service";
+import { ProjectsService } from "../projects/projects.service";
+import { DecksService } from "../decks/decks.service";
 
 const practiceReportRetentionMs = 90 * 24 * 60 * 60 * 1_000;
 const voiceBaselineRetentionMs = 180 * 24 * 60 * 60 * 1_000;
@@ -27,9 +37,145 @@ export class SlidePracticeService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly decks: DecksService,
+    private readonly files: FilesService,
+    private readonly jobs: JobsService,
+    private readonly projects: ProjectsService,
     @InjectPinoLogger(SlidePracticeService.name)
     private readonly logger: PinoLogger,
   ) {}
+
+  async createAnalysis(projectId: string, actorUserId: string, body: unknown) {
+    this.assertEnabled();
+    const request = createSlidePracticeAnalysisRequestSchema.parse(body);
+    const existing = firstRow(await this.dataSource.query(
+      `SELECT * FROM slide_practice_audio_analyses
+       WHERE project_id = $1 AND created_by = $2 AND client_request_id = $3`,
+      [projectId, actorUserId, request.clientRequestId],
+    ));
+    if (existing) {
+      return createSlidePracticeAnalysisResponseSchema.parse({
+        analysis: toAnalysis(existing),
+        upload: null,
+      });
+    }
+    const { deck } = await this.decks.getDeck(projectId);
+    if (deck.deckId !== request.deckId || deck.version !== request.deckVersion) {
+      throw new ConflictException({
+        code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH",
+        message: "The practice deck version does not match the current deck version.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    const slide = deck.slides.find((candidate) => candidate.slideId === request.slideId);
+    if (!slide || slide.order !== request.slideOrder) {
+      throw new NotFoundException("Slide not found at the requested order in the current deck.");
+    }
+    const upload = await this.files.createUploadUrl(projectId, {
+      originalName: slidePracticeAudioFileName(request.mimeType),
+      mimeType: request.mimeType,
+      size: request.size,
+      purpose: "slide-practice-audio",
+    });
+    const now = new Date();
+    const rows = await this.dataSource.query(
+      `INSERT INTO slide_practice_audio_analyses (
+        analysis_id, project_id, created_by, client_request_id, practice_session_id,
+        deck_id, deck_version, slide_id, slide_order, started_at, duration_ms,
+        device_id_hash, status, audio_file_id, analysis_job_id, report_id,
+        error_code, cleanup_state, raw_audio_deleted_at, raw_audio_delete_deadline_at,
+        created_at, updated_at, expires_at, completed_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,'uploading',$12,NULL,NULL,
+        NULL,'pending',NULL,$13,$14,$14,$15,NULL)
+      RETURNING *`,
+      [
+        `practice_analysis_${randomUUID()}`,
+        projectId,
+        actorUserId,
+        request.clientRequestId,
+        request.practiceSessionId,
+        request.deckId,
+        request.deckVersion,
+        request.slideId,
+        request.slideOrder,
+        request.startedAt,
+        request.deviceIdHash,
+        upload.fileId,
+        new Date(now.getTime() + 30 * 60_000).toISOString(),
+        now.toISOString(),
+        new Date(now.getTime() + practiceReportRetentionMs).toISOString(),
+      ],
+    );
+    const analysis = toAnalysis(firstRow(rows)!);
+    this.logger.info({
+      event: "slide_practice.analysis.created",
+      projectId,
+      analysisId: analysis.analysisId,
+      deckId: request.deckId,
+      deckVersion: request.deckVersion,
+      slideId: request.slideId,
+    }, "Slide practice analysis created.");
+    return createSlidePracticeAnalysisResponseSchema.parse({ analysis, upload });
+  }
+
+  async completeAnalysis(analysisId: string, actorUserId: string, body: unknown) {
+    this.assertEnabled();
+    const request = completeSlidePracticeAnalysisRequestSchema.parse(body);
+    const row = await this.getAnalysisRow(analysisId, actorUserId);
+    await this.projects.assertCanWriteProject(String(row.project_id), actorUserId);
+    if (["queued", "processing", "succeeded", "failed", "cancelled"].includes(String(row.status))) {
+      return this.getAnalysis(analysisId, actorUserId);
+    }
+    if (row.status !== "uploading" || row.audio_file_id !== request.fileId) {
+      throw new ConflictException({
+        code: "INVALID_STATE_TRANSITION",
+        message: "Slide practice analysis is not awaiting this audio file.",
+      });
+    }
+    await this.files.completeUpload(String(row.project_id), { fileId: request.fileId }, "slide-practice-audio");
+    const job = await this.jobs.create({
+      projectId: String(row.project_id),
+      type: "slide-practice-analysis",
+      payload: { analysisId },
+    });
+    await this.dataSource.query(
+      `UPDATE slide_practice_audio_analyses
+       SET status = 'queued', analysis_job_id = $2, duration_ms = $3, updated_at = now()
+       WHERE analysis_id = $1 AND status = 'uploading'`,
+      [analysisId, job.jobId, request.durationMs],
+    );
+    await enqueueSlidePracticeAnalysisJob({
+      driver: this.config.JOB_QUEUE_DRIVER,
+      redisUrl: this.config.REDIS_URL,
+      jobId: job.jobId,
+      projectId: String(row.project_id),
+      analysisId,
+    });
+    this.logger.info({
+      event: "slide_practice.analysis.enqueued",
+      projectId: row.project_id,
+      analysisId,
+      jobId: job.jobId,
+    }, "Slide practice analysis enqueued.");
+    return this.getAnalysis(analysisId, actorUserId);
+  }
+
+  async getAnalysis(analysisId: string, actorUserId: string) {
+    this.assertEnabled();
+    const row = await this.getAnalysisRow(analysisId, actorUserId);
+    await this.projects.assertCanReadProject(String(row.project_id), actorUserId);
+    const reportRow = row.report_id
+      ? firstRow(await this.dataSource.query(
+        `SELECT * FROM slide_practice_reports
+         WHERE project_id = $1 AND report_id = $2 AND created_by = $3`,
+        [row.project_id, row.report_id, actorUserId],
+      ))
+      : null;
+    return slidePracticeAnalysisResultResponseSchema.parse({
+      analysis: toAnalysis(row),
+      report: reportRow ? toPracticeReport(reportRow) : null,
+    });
+  }
 
   async createReport(projectId: string, actorUserId: string, body: unknown) {
     this.assertEnabled();
@@ -161,6 +307,16 @@ export class SlidePracticeService {
       throw new ForbiddenException("Slide practice is not enabled.");
     }
   }
+
+  private async getAnalysisRow(analysisId: string, actorUserId: string) {
+    const row = firstRow(await this.dataSource.query(
+      `SELECT * FROM slide_practice_audio_analyses
+       WHERE analysis_id = $1 AND created_by = $2`,
+      [analysisId, actorUserId],
+    ));
+    if (!row) throw new NotFoundException("Slide practice analysis not found.");
+    return row;
+  }
 }
 
 function toPracticeReport(row: Record<string, any>) {
@@ -183,6 +339,27 @@ function toVoiceBaseline(row: Record<string, any>) {
     updatedAt: toIso(row.updated_at),
     expiresAt: toIso(row.expires_at),
   });
+}
+
+function toAnalysis(row: Record<string, any>) {
+  return slidePracticeAnalysisSchema.parse({
+    analysisId: row.analysis_id,
+    projectId: row.project_id,
+    practiceSessionId: row.practice_session_id,
+    status: row.status,
+    analysisJobId: row.analysis_job_id,
+    reportId: row.report_id,
+    errorCode: row.error_code,
+    createdAt: toIso(row.created_at),
+    completedAt: row.completed_at ? toIso(row.completed_at) : null,
+  });
+}
+
+function slidePracticeAudioFileName(mimeType: string) {
+  if (mimeType.includes("wav")) return "slide-practice.wav";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return "slide-practice.m4a";
+  if (mimeType.includes("ogg")) return "slide-practice.ogg";
+  return "slide-practice.webm";
 }
 
 function firstRow(value: unknown): Record<string, any> | null {

@@ -74,6 +74,51 @@ export async function enqueueExpiredRehearsalAudioDeletions(
   return enqueuedCount;
 }
 
+export async function enqueueExpiredSlidePracticeAudioDeletions(
+  dataSource: DataSource,
+  batchSize = 50,
+) {
+  const rows = await dataSource.query(
+    `SELECT analyses.project_id, analyses.audio_file_id AS file_id,
+            assets.storage_key, assets.purpose
+     FROM slide_practice_audio_analyses analyses
+     JOIN project_assets assets
+       ON assets.project_id = analyses.project_id
+      AND assets.file_id = analyses.audio_file_id
+     WHERE analyses.raw_audio_deleted_at IS NULL
+       AND analyses.raw_audio_delete_deadline_at <= now()
+       AND assets.status IN ('pending', 'uploaded')
+       AND assets.purpose = 'slide-practice-audio'
+     ORDER BY analyses.raw_audio_delete_deadline_at ASC
+     LIMIT $1`,
+    [batchSize],
+  );
+  let enqueuedCount = 0;
+  for (const raw of Array.isArray(rows) ? rows : []) {
+    const row = raw as ExpiredRehearsalAudioRow;
+    if (!row.storage_key) continue;
+    const storageKeyHash = createHash("sha256").update(row.storage_key).digest("hex");
+    const inserted = await dataSource.query(
+      `INSERT INTO storage_deletion_outbox (
+        deletion_id, project_id, file_id, storage_key, storage_key_hash,
+        purpose, status, attempt_count, next_attempt_at, created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,'pending',0,now(),now())
+      ON CONFLICT (storage_key_hash) DO NOTHING
+      RETURNING deletion_id`,
+      [
+        `deletion_${storageKeyHash.slice(0, 32)}`,
+        row.project_id,
+        row.file_id,
+        row.storage_key,
+        storageKeyHash,
+        row.purpose,
+      ],
+    );
+    if (Array.isArray(inserted) && inserted.length > 0) enqueuedCount += 1;
+  }
+  return enqueuedCount;
+}
+
 export async function reconcileStorageDeletionOutbox(
   dataSource: DataSource,
   storage: Pick<StoragePort, "removeObject">,
@@ -108,6 +153,12 @@ export async function reconcileStorageDeletionOutbox(
         );
         await manager.query(
           `UPDATE rehearsal_runs SET raw_audio_deleted_at = $3, updated_at = now()
+           WHERE project_id = $1 AND audio_file_id = $2 AND raw_audio_deleted_at IS NULL`,
+          [row.project_id, row.file_id, deletedAt],
+        );
+        await manager.query(
+          `UPDATE slide_practice_audio_analyses
+           SET raw_audio_deleted_at = $3, cleanup_state = 'deleted', updated_at = now()
            WHERE project_id = $1 AND audio_file_id = $2 AND raw_audio_deleted_at IS NULL`,
           [row.project_id, row.file_id, deletedAt],
         );

@@ -48,6 +48,7 @@ import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/20260
 import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
 import { CreateSlidePracticeAndQuestionGuides2026071701000 } from "./migrations/2026071701000-CreateSlidePracticeAndQuestionGuides";
 import { AddSlideQuestionGuideWebResearch2026071702000 } from "./migrations/2026071702000-AddSlideQuestionGuideWebResearch";
+import { CreateSlidePracticeAudioAnalyses2026071703000 } from "./migrations/2026071703000-CreateSlidePracticeAudioAnalyses";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -107,7 +108,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalTranscriptArtifacts2026071603000,
     CreateAiDeckStoryReviews2026071604000,
     CreateSlidePracticeAndQuestionGuides2026071701000,
-    AddSlideQuestionGuideWebResearch2026071702000
+    AddSlideQuestionGuideWebResearch2026071702000,
+    CreateSlidePracticeAudioAnalyses2026071703000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

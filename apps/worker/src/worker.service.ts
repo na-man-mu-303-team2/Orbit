@@ -14,6 +14,7 @@ import {
   speakerNotesSuggestionQueueName,
   workerHealthCheckQueueName,
   focusedPracticeAnalysisQueueName,
+  slidePracticeAnalysisQueueName,
   challengeQnaGenerationQueueName,
   challengeQnaAnswerAnalysisQueueName,
   slideQuestionGuideGenerationQueueName,
@@ -61,8 +62,10 @@ import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.pro
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
+import { processSlidePracticeAnalysisJob } from "./slide-practice-analysis.processor";
 import {
   enqueueExpiredRehearsalAudioDeletions,
+  enqueueExpiredSlidePracticeAudioDeletions,
   reconcileStorageDeletionOutbox,
 } from "./storage-deletion-reconciler";
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
@@ -86,6 +89,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     pptxOoxmlSyncQueueName,
     workerHealthCheckQueueName,
     focusedPracticeAnalysisQueueName,
+    slidePracticeAnalysisQueueName,
     challengeQnaGenerationQueueName,
     challengeQnaAnswerAnalysisQueueName,
     slideQuestionGuideGenerationQueueName,
@@ -163,11 +167,13 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     const reconcileDeletions = () => {
       void (async () => {
         await enqueueExpiredRehearsalAudioDeletions(this.dataSource);
+        await enqueueExpiredSlidePracticeAudioDeletions(this.dataSource);
         await reconcileStorageDeletionOutbox(this.dataSource, storage);
         const deleted = await deleteExpiredSlidePracticeData(this.dataSource);
-        if (deleted.reportCount > 0 || deleted.baselineCount > 0) {
+        if (deleted.analysisCount > 0 || deleted.reportCount > 0 || deleted.baselineCount > 0) {
           this.logger.info({
             event: "slide_practice.retention_deleted",
+            analysisCount: deleted.analysisCount,
             reportCount: deleted.reportCount,
             baselineCount: deleted.baselineCount,
           }, "Expired slide practice data deleted.");
@@ -450,6 +456,16 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         queueName: focusedPracticeAnalysisQueueName,
         handler: (job) =>
           processFocusedPracticeAnalysisJob(
+            this.dataSource,
+            storage,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
+          ),
+      },
+      {
+        queueName: slidePracticeAnalysisQueueName,
+        handler: (job) =>
+          processSlidePracticeAnalysisJob(
             this.dataSource,
             storage,
             this.config.PYTHON_WORKER_URL,

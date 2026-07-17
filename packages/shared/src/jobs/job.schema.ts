@@ -26,6 +26,7 @@ export const historicalJobTypeSchema = z.enum([
   "final-report-generation",
   "report-pdf-export",
   "focused-practice-analysis",
+  "slide-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
   "slide-question-guide-generation",
@@ -40,6 +41,7 @@ export const activeJobTypeSchema = historicalJobTypeSchema.exclude([
 
 export const internalCoachingJobTypeSchema = z.enum([
   "focused-practice-analysis",
+  "slide-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
   "slide-question-guide-generation",

@@ -35,6 +35,36 @@ export class SlidePracticeController {
     return this.slidePracticeService.listReports(projectId, user.userId, query);
   }
 
+  @Post("api/v1/projects/:projectId/slide-practice-analyses")
+  async createAnalysis(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.slidePracticeService.createAnalysis(projectId, user.userId, body);
+  }
+
+  @Post("api/v1/slide-practice-analyses/:analysisId/audio/complete")
+  async completeAnalysis(
+    @Param("analysisId") analysisId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.slidePracticeService.completeAnalysis(analysisId, user.userId, body);
+  }
+
+  @Get("api/v1/slide-practice-analyses/:analysisId")
+  async getAnalysis(
+    @Param("analysisId") analysisId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.slidePracticeService.getAnalysis(analysisId, user.userId);
+  }
+
   @Put("api/v1/users/me/voice-baselines/:deviceIdHash")
   async upsertVoiceBaseline(
     @Param("deviceIdHash") deviceIdHash: string,

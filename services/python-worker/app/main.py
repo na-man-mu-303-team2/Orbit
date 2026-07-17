@@ -95,6 +95,10 @@ from app.audio.processing import (
     RehearsalAudioProcessingResponse,
     process_rehearsal_audio,
 )
+from app.audio.slide_practice import (
+    SlidePracticeAudioResponse,
+    process_slide_practice_audio,
+)
 from app.audio.analysis.models import (
     RehearsalSilenceAnalysis,
     unmeasured_silence_analysis,
@@ -680,6 +684,17 @@ def process_rehearsal_audio_endpoint(
 ) -> RehearsalAudioProcessingResponse:
     try:
         return process_rehearsal_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
+def process_slide_practice_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> SlidePracticeAudioResponse:
+    try:
+        return process_slide_practice_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
 

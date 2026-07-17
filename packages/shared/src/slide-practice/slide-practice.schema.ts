@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import {
+  allowedRehearsalAudioMimeTypes,
+  assetUploadUrlResponseSchema,
+  maxRehearsalAudioUploadSizeBytes,
+} from "../files/file.schema";
 
 const identifierSchema = z.string().trim().min(1).max(128);
 const nullableFiniteMetricSchema = z.number().finite().nullable();
@@ -32,6 +37,21 @@ export const slidePracticeSttEngineSchema = z.enum([
   "web-speech",
   "openai-realtime",
   "none",
+]);
+
+export const slidePracticeAnalysisStatusSchema = z.enum([
+  "uploading",
+  "queued",
+  "processing",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const slidePracticeAnalysisErrorCodeSchema = z.enum([
+  "TRANSCRIPTION_FAILED",
+  "AUDIO_ANALYSIS_FAILED",
+  "REPORT_PERSIST_FAILED",
 ]);
 
 export const slidePracticeFillerDetailSchema = z.object({
@@ -77,8 +97,8 @@ export const slidePracticeQualitySchema = z.object({
 
 const slidePracticeReportCoreSchema = z.object({
   reportVersion: z.literal(1),
-  metricDefinitionVersion: z.literal(1),
-  classifierVersion: z.literal(1),
+  metricDefinitionVersion: z.union([z.literal(1), z.literal(2)]),
+  classifierVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   practiceSessionId: identifierSchema,
   projectId: identifierSchema,
   deckId: identifierSchema,
@@ -97,12 +117,20 @@ const slidePracticeReportCoreSchema = z.object({
   voice: slidePracticeVoiceMetricsSchema,
   style: slidePracticeStyleResultSchema,
   quality: slidePracticeQualitySchema,
-  source: z.object({
-    kind: z.literal("browser"),
-    sttEngine: slidePracticeSttEngineSchema,
-    deviceIdHash: z.string().trim().min(1).max(128).nullable(),
-    baselineVersion: z.number().int().positive().nullable(),
-  }).strict(),
+  source: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("browser"),
+      sttEngine: slidePracticeSttEngineSchema,
+      deviceIdHash: z.string().trim().min(1).max(128).nullable(),
+      baselineVersion: z.number().int().positive().nullable(),
+    }).strict(),
+    z.object({
+      kind: z.literal("server"),
+      sttEngine: z.literal("report-stt"),
+      deviceIdHash: z.string().trim().min(1).max(128).nullable(),
+      baselineVersion: z.number().int().positive().nullable(),
+    }).strict(),
+  ]),
 }).strict();
 
 function validateFillerTotals(
@@ -169,6 +197,53 @@ export const voiceBaselineRecordSchema = z.object({
   expiresAt: isoDateTimeSchema,
 }).strict();
 
+export const createSlidePracticeAnalysisRequestSchema = z.object({
+  clientRequestId: identifierSchema,
+  practiceSessionId: identifierSchema,
+  deckId: identifierSchema,
+  deckVersion: z.number().int().positive(),
+  slideId: identifierSchema,
+  slideOrder: z.number().int().min(0).max(10_000),
+  startedAt: isoDateTimeSchema,
+  mimeType: z.enum(allowedRehearsalAudioMimeTypes),
+  size: z.number().int().positive().max(maxRehearsalAudioUploadSizeBytes),
+  deviceIdHash: z.string().trim().min(1).max(128).nullable(),
+}).strict();
+
+export const completeSlidePracticeAnalysisRequestSchema = z.object({
+  fileId: identifierSchema,
+  durationMs: z.number().int().min(1).max(300_000),
+}).strict();
+
+export const slidePracticeAnalysisSchema = z.object({
+  analysisId: identifierSchema,
+  projectId: identifierSchema,
+  practiceSessionId: identifierSchema,
+  status: slidePracticeAnalysisStatusSchema,
+  analysisJobId: identifierSchema.nullable(),
+  reportId: identifierSchema.nullable(),
+  errorCode: slidePracticeAnalysisErrorCodeSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.nullable(),
+}).strict();
+
+export const createSlidePracticeAnalysisResponseSchema = z.object({
+  analysis: slidePracticeAnalysisSchema,
+  upload: assetUploadUrlResponseSchema.nullable(),
+}).strict();
+
+export const slidePracticeAnalysisResultResponseSchema = z.object({
+  analysis: slidePracticeAnalysisSchema,
+  report: slidePracticeReportRecordSchema.nullable(),
+}).strict();
+
+export const slidePracticeServerAudioResponseSchema = z.object({
+  transcript: z.string(),
+  provider: z.string().trim().min(1).max(80),
+  meanRecognitionConfidence: z.number().finite().min(0).max(1).nullable(),
+  voice: slidePracticeVoiceMetricsSchema,
+}).strict();
+
 export type SlidePracticeReport = z.infer<typeof slidePracticeReportSchema>;
 export type SlidePracticeFillerDetail = z.infer<typeof slidePracticeFillerDetailSchema>;
 export type CreateSlidePracticeReportRequest = z.infer<typeof createSlidePracticeReportRequestSchema>;
@@ -179,3 +254,7 @@ export type SlidePracticeStyleResult = z.infer<typeof slidePracticeStyleResultSc
 export type VoiceBaselineMetrics = z.infer<typeof voiceBaselineMetricsSchema>;
 export type VoiceBaselineRecord = z.infer<typeof voiceBaselineRecordSchema>;
 export type UpsertVoiceBaselineRequest = z.infer<typeof upsertVoiceBaselineRequestSchema>;
+export type SlidePracticeAnalysis = z.infer<typeof slidePracticeAnalysisSchema>;
+export type CreateSlidePracticeAnalysisRequest = z.infer<typeof createSlidePracticeAnalysisRequestSchema>;
+export type CompleteSlidePracticeAnalysisRequest = z.infer<typeof completeSlidePracticeAnalysisRequestSchema>;
+export type SlidePracticeServerAudioResponse = z.infer<typeof slidePracticeServerAudioResponseSchema>;
