@@ -11,8 +11,13 @@
   font-family: var(--redesign-font-family);
   background:
     radial-gradient(
-      1100px 460px at 50% -180px,
-      color-mix(in srgb, var(--redesign-color-primary) 8%, transparent),
+      920px 420px at 18% -120px,
+      color-mix(in srgb, var(--redesign-color-primary) 7%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      820px 420px at 82% -140px,
+      color-mix(in srgb, var(--redesign-color-secondary) 6%, transparent),
       transparent 72%
     ),
     var(--redesign-color-background);
@@ -91,28 +96,21 @@
   width: min(100%, 420px);
   padding: calc(var(--redesign-space-xl) - var(--redesign-space-sm))
     var(--redesign-space-xl);
-  border: 1px solid var(--redesign-color-outline-variant);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--redesign-color-outline-variant) 88%,
+      var(--redesign-color-primary)
+    );
   border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-surface);
-  box-shadow:
-    0 1px 2px color-mix(in srgb, var(--redesign-color-on-surface) 4%, transparent),
-    0 12px 32px color-mix(in srgb, var(--redesign-color-on-surface) 6%, transparent),
-    0 32px 80px color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  box-shadow: 0 var(--redesign-space-md) var(--redesign-space-xl)
+    color-mix(in srgb, var(--redesign-color-primary) 6%, transparent);
   animation: orbit-auth-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .orbit-auth-form-header {
   text-align: left;
-}
-
-.orbit-auth-eyebrow {
-  margin: 0 0 var(--redesign-space-sm);
-  color: var(--redesign-color-on-surface-variant);
-  font-size: 11px;
-  font-weight: var(--redesign-type-label-sm-weight);
-  line-height: var(--redesign-type-label-sm-line-height);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .orbit-auth-form-header h1 {
@@ -219,7 +217,7 @@
 
 .orbit-auth-submit {
   width: 100%;
-  min-height: 52px;
+  min-height: 48px;
   margin-top: var(--redesign-space-xs);
   font-size: 14px;
 }

@@ -9,14 +9,15 @@ system and must not be modified as part of this work.
 
 ## UI architecture
 
-- Reusable primitives belong in `apps/web/src/components/ui` (new folder, does not exist yet).
-- Product-level reusable patterns belong in `apps/web/src/components/patterns` (new folder, does not exist yet).
+- `apps/web/src/components/ui` is the shared primitive folder for the Redesign System.
+- Keep each primitive in its own component and style files, and expose its public API through `apps/web/src/components/ui/index.ts`.
+- Product-level reusable patterns belong in `apps/web/src/components/patterns`.
 - Feature-specific components belong in their own `apps/web/src/features/<feature-name>` folder (e.g. `features/rehearsal`, `features/editor`), matching the existing feature layout.
 - `components/ui` must never import from `features`.
 
 ## Styling
 
-- Use CSS variables from `apps/web/src/styles/tokens.css` (new file, does not exist yet).
+- Use CSS variables from `apps/web/src/styles/tokens.css`.
 - Do not add literal hex colors outside `tokens.css`.
 - Do not add arbitrary spacing values when an existing spacing token fits.
 - Do not add inline styles except for dynamically calculated coordinates.

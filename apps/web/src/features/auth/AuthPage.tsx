@@ -2,13 +2,13 @@ import { IconArrowLeft, IconCheck, IconEye, IconEyeOff } from "@tabler/icons-rea
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import orbitSymbol from "../../assets/orbit-symbol-v2.png";
+import { GradientButton } from "../../components/ui";
 import {
   OrbitButton,
   OrbitField,
   OrbitIconButton,
   OrbitInput
 } from "../../design-system";
-import { GradientButton } from "../../components/ui/GradientButton";
 import "../../styles/tokens.css";
 import "./orbit-auth-page.css";
 
@@ -65,7 +65,6 @@ export function OrbitAuthPage(props: {
       <main className="orbit-auth-form-panel">
         <div className="orbit-auth-form-card">
           <header className="orbit-auth-form-header">
-            <p className="orbit-auth-eyebrow">{isRegister ? "START WITH ORBIT" : "WELCOME BACK"}</p>
             <h1>{isRegister ? "첫 발표를 시작해 볼까요?" : "다시 만나서 반가워요."}</h1>
             <p>{isRegister ? "계정을 만들고 아이디어를 완성도 높은 발표로 바꿔보세요." : "작업하던 발표자료와 리허설 기록을 이어서 확인하세요."}</p>
           </header>

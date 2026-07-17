@@ -5,28 +5,26 @@
   gap: var(--redesign-space-sm);
   min-height: 36px;
   padding: var(--redesign-space-sm) var(--redesign-space-md);
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-secondary) 72%,
-    var(--redesign-color-primary)
-  );
+  border: 0;
   border-radius: var(--redesign-radius);
   background: linear-gradient(
-    135deg,
-    var(--redesign-color-primary),
-    var(--redesign-color-secondary) 56%,
-    var(--redesign-color-tertiary)
+    115deg,
+    var(--redesign-color-primary) 0%,
+    color-mix(
+      in srgb,
+      var(--redesign-color-primary) 42%,
+      var(--redesign-color-secondary)
+    ) 52%,
+    var(--redesign-color-secondary) 100%
   );
-  background-position: 0% 50%;
-  background-size: 160% 160%;
   color: var(--redesign-color-on-primary);
   font-family: var(--redesign-font-family);
   font-size: 13px;
   font-weight: 650;
   cursor: pointer;
-  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary);
-  transition: background-position 180ms ease, box-shadow 180ms ease,
-    filter 180ms ease, transform 180ms ease;
+  box-shadow: 0 var(--redesign-space-xs) var(--redesign-space-md)
+    color-mix(in srgb, var(--redesign-color-primary) 16%, transparent);
+  transition: box-shadow 180ms ease, filter 180ms ease, transform 180ms ease;
 }
 
 .redesign-gradient-button-large {
@@ -36,16 +34,15 @@
 }
 
 .redesign-gradient-button:hover:not(:disabled) {
-  background-position: 100% 50%;
-  box-shadow: var(--redesign-glow-primary), var(--redesign-glow-secondary),
-    var(--redesign-glow-tertiary);
-  filter: saturate(1.12) brightness(1.04);
-  transform: translateY(-2px);
+  box-shadow: 0 var(--redesign-space-xs) var(--redesign-space-md)
+    color-mix(in srgb, var(--redesign-color-secondary) 20%, transparent);
+  filter: saturate(1.03) brightness(1.02);
+  transform: translateY(-1px);
 }
 
 .redesign-gradient-button:focus-visible {
   outline: none;
-  box-shadow: var(--redesign-focus-ring), var(--redesign-glow-secondary);
+  box-shadow: var(--redesign-focus-ring);
 }
 
 .redesign-gradient-button:disabled {
