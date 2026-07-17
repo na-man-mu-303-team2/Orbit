@@ -20,6 +20,7 @@ from app.ai.deck_generation.models import (
     GeneratedContentItem,
     GeneratedDeckContentPlan,
     GeneratedStoryPlan,
+    GeneratedStoryRepairPlan,
     PresentationProfile,
     PresentationTimingPlan,
     RawInput,
@@ -2677,6 +2678,7 @@ def compose_slide_detail_with_llm(
     model: str | None = None,
     api_key: str | None = None,
     content_item_range: tuple[int, int] = (1, 5),
+    repair_issue_codes: tuple[str, ...] = (),
 ) -> SlidePlan:
     api_client: Any = client
     if api_client is None:
