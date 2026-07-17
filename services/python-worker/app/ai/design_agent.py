@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,6 +45,9 @@ class DesignAgentCapabilities(BaseModel):
             "update_element_props",
             "delete_element",
             "update_slide_style",
+            "add_animation",
+            "update_animation",
+            "delete_animation",
         ]
     ]
     addable_element_types: list[Literal["text", "rect", "chart", "table"]] = Field(
@@ -333,12 +337,62 @@ class UpdateSlideStyleOperation(BaseModel):
     style: SlideStylePatch
 
 
+class AnimationPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["fade-in", "fade-out"]
+    order: int = Field(gt=0)
+    duration_ms: int = Field(alias="durationMs", ge=100, le=2_000)
+    delay_ms: int = Field(alias="delayMs", ge=0, le=2_000)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] = "ease-out"
+
+
+class AnimationPatch(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["fade-in", "fade-out"] | None = None
+    order: int | None = Field(default=None, gt=0)
+    duration_ms: int | None = Field(default=None, alias="durationMs", ge=100, le=2_000)
+    delay_ms: int | None = Field(default=None, alias="delayMs", ge=0, le=2_000)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] | None = None
+
+
+class AddAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["add_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation: AnimationPayload
+
+
+class UpdateAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["update_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+    animation: AnimationPatch
+
+
+class DeleteAnimationOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: Literal["delete_animation"]
+    slide_id: str = Field(alias="slideId", min_length=1)
+    animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
+
+
 DesignAgentOperation = Annotated[
     AddElementOperation
     | DeleteElementOperation
     | UpdateElementFrameOperation
     | UpdateElementPropsOperation
-    | UpdateSlideStyleOperation,
+    | UpdateSlideStyleOperation
+    | AddAnimationOperation
+    | UpdateAnimationOperation
+    | DeleteAnimationOperation,
     Field(discriminator="type"),
 ]
 class SmartArtItem(BaseModel):
@@ -524,6 +578,10 @@ def generate_design_proposal(
     api_key: str | None,
     client: Any | None = None,
 ) -> DesignAgentResponse:
+    deterministic_animation = _build_deterministic_animation_proposal(request)
+    if deterministic_animation is not None:
+        return validate_design_proposal(request, deterministic_animation)
+
     if client is None and not api_key:
         raise DesignAgentGenerationError("OPENAI_API_KEY is not configured.")
 
@@ -552,6 +610,172 @@ def generate_design_proposal(
         raise
     except Exception as error:
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
+
+
+def _build_deterministic_animation_proposal(
+    request: DesignAgentRequest,
+) -> DesignAgentResponse | None:
+    question = " ".join(request.question.lower().split())
+    if not any(token in question for token in ("애니메이션", "페이드", "fade")):
+        return None
+
+    allowed = set(request.capabilities.operations)
+    slide = request.context.slide
+    visible_elements = [
+        element
+        for element in slide.get("elements", [])
+        if isinstance(element, dict)
+        and element.get("elementId")
+        and element.get("visible") is not False
+    ]
+    elements_by_id = {str(element["elementId"]): element for element in visible_elements}
+    targets = [
+        elements_by_id[element_id]
+        for element_id in request.context.selected_element_ids
+        if element_id in elements_by_id
+    ]
+    if not targets:
+        candidates = _animation_target_candidates(question, visible_elements)
+        if candidates:
+            targets = [min(candidates, key=lambda element: _distance_from_canvas_center(request, element))]
+
+    if not targets:
+        return DesignAgentResponse.model_validate({
+            "message": "애니메이션을 적용할 요소를 찾지 못했습니다. 요소를 선택하거나 종류와 위치를 말씀해 주세요.",
+            "interpretedIntent": {
+                "target": "current-slide",
+                "action": request.question,
+                "alignment": None,
+            },
+            "operations": [],
+            "affectedElementIds": [],
+            "warnings": [],
+            "smartArtRequest": None,
+        })
+
+    animations = [
+        animation
+        for animation in slide.get("animations", [])
+        if isinstance(animation, dict) and animation.get("animationId")
+    ]
+    remove = any(token in question for token in ("제거", "삭제", "없애", "remove", "delete"))
+    animation_type: Literal["fade-in", "fade-out"] = (
+        "fade-out"
+        if any(token in question for token in ("페이드아웃", "fade-out", "fade out", "사라"))
+        else "fade-in"
+    )
+    duration_ms = _animation_duration_ms(question)
+    operations: list[DesignAgentOperation] = []
+    existing_ids = {str(animation["animationId"]) for animation in animations}
+    next_order = max((int(animation.get("order", 0)) for animation in animations), default=0) + 1
+
+    for target in targets:
+        element_id = str(target["elementId"])
+        target_animations = [
+            animation for animation in animations if animation.get("elementId") == element_id
+        ]
+        if remove:
+            if "delete_animation" not in allowed:
+                return None
+            operations.extend(
+                DeleteAnimationOperation(
+                    type="delete_animation",
+                    slideId=str(slide.get("slideId", "")),
+                    animationId=str(animation["animationId"]),
+                )
+                for animation in target_animations
+            )
+            continue
+
+        same_type = next(
+            (animation for animation in target_animations if animation.get("type") == animation_type),
+            None,
+        )
+        if same_type and "update_animation" in allowed:
+            operations.append(UpdateAnimationOperation(
+                type="update_animation",
+                slideId=str(slide.get("slideId", "")),
+                animationId=str(same_type["animationId"]),
+                animation=AnimationPatch(durationMs=duration_ms, easing="ease-out"),
+            ))
+            continue
+        if "add_animation" not in allowed:
+            return None
+        animation_id = _next_animation_id(element_id, existing_ids)
+        existing_ids.add(animation_id)
+        operations.append(AddAnimationOperation(
+            type="add_animation",
+            slideId=str(slide.get("slideId", "")),
+            animation=AnimationPayload(
+                animationId=animation_id,
+                elementId=element_id,
+                type=animation_type,
+                order=next_order,
+                durationMs=duration_ms,
+                delayMs=0,
+                easing="ease-out",
+            ),
+        ))
+        next_order += 1
+
+    action_label = "제거" if remove else "적용"
+    return DesignAgentResponse.model_validate({
+        "message": f"요청한 요소에 {animation_type} 애니메이션 {action_label}안을 만들었습니다.",
+        "interpretedIntent": {
+            "target": "selected-elements" if request.context.selected_element_ids else "current-slide",
+            "action": request.question,
+            "alignment": None,
+        },
+        "operations": [operation.model_dump(by_alias=True, exclude_none=True) for operation in operations],
+        "affectedElementIds": [str(target["elementId"]) for target in targets],
+        "warnings": [],
+        "smartArtRequest": None,
+    })
+
+
+def _animation_target_candidates(
+    question: str,
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    type_tokens = (
+        (("표", "table"), "table"),
+        (("차트", "그래프", "chart", "graph"), "chart"),
+        (("이미지", "사진", "image", "photo"), "image"),
+        (("도형", "shape"), "shape"),
+        (("텍스트", "글자", "text"), "text"),
+    )
+    for tokens, element_type in type_tokens:
+        if any(token in question for token in tokens):
+            return [element for element in elements if element.get("type") == element_type]
+    if any(token in question for token in ("제목", "title")):
+        return [element for element in elements if element.get("role") == "title"]
+    return elements if len(elements) == 1 else []
+
+
+def _distance_from_canvas_center(request: DesignAgentRequest, element: dict[str, Any]) -> float:
+    center_x = float(element.get("x", 0)) + float(element.get("width", 0)) / 2
+    center_y = float(element.get("y", 0)) + float(element.get("height", 0)) / 2
+    return abs(center_x - request.context.canvas.width / 2) + abs(
+        center_y - request.context.canvas.height / 2
+    )
+
+
+def _animation_duration_ms(question: str) -> int:
+    seconds = re.search(r"(\d+(?:\.\d+)?)\s*(?:초|seconds?|sec)", question)
+    milliseconds = re.search(r"(\d+)\s*(?:ms|밀리초)", question)
+    if milliseconds:
+        return max(100, min(2_000, int(milliseconds.group(1))))
+    if seconds:
+        return max(100, min(2_000, round(float(seconds.group(1)) * 1_000)))
+    return 600
+
+
+def _next_animation_id(element_id: str, existing_ids: set[str]) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_-]", "_", element_id.removeprefix("el_")) or "element"
+    index = 1
+    while f"anim_ai_{stem}_{index}" in existing_ids:
+        index += 1
+    return f"anim_ai_{stem}_{index}"
 
 
 def design_agent_system_prompt(
@@ -607,6 +831,13 @@ def design_agent_system_prompt(
         "array when the diagram is newly added. Never include hidden or unknown element IDs. "
         "A server-side layout preset places the shapes. "
         "When the request is not about creating such a diagram, set smartArtRequest to null. "
+        "Animation requests are supported only with add_animation, update_animation, and "
+        "delete_animation. Only use fade-in and fade-out effects. Prefer selected elements; "
+        "when nothing is selected, target only visible elements clearly identified by the "
+        "request. Use durationMs 100-2000, delayMs 0-2000, easing ease-out, a unique anim_ "
+        "animationId, and the next positive order. Do not simulate animation by changing "
+        "element opacity or visibility. For requests such as 'make this appear softly', use "
+        "fade-in; for 'make this disappear softly', use fade-out. "
         "Do not claim the proposal has already been applied."
     )
 
@@ -632,6 +863,11 @@ def validate_design_proposal(
         if isinstance(item, dict) and item.get("elementId")
     }
     original_elements = dict(elements)
+    animations = {
+        str(item.get("animationId")): item
+        for item in slide.get("animations", [])
+        if isinstance(item, dict) and item.get("animationId")
+    }
     known_element_ids = set(elements)
     valid_affected_element_ids = set(elements)
     allowed_operations = set(request.capabilities.operations)
@@ -644,6 +880,37 @@ def validate_design_proposal(
         if operation.slide_id != slide_id:
             raise DesignAgentGenerationError("Operation slideId does not match context.")
         if isinstance(operation, UpdateSlideStyleOperation):
+            continue
+
+        if isinstance(operation, AddAnimationOperation):
+            animation = operation.animation.model_dump(by_alias=True)
+            if operation.animation.animation_id in animations:
+                raise DesignAgentGenerationError("Added animationId already exists.")
+            target_element = elements.get(operation.animation.element_id)
+            if target_element is None:
+                raise DesignAgentGenerationError("Animation elementId does not exist.")
+            if target_element.get("visible") is False:
+                raise DesignAgentGenerationError("Animation targets a hidden element.")
+            animations[operation.animation.animation_id] = animation
+            valid_affected_element_ids.add(operation.animation.element_id)
+            continue
+
+        if isinstance(operation, (UpdateAnimationOperation, DeleteAnimationOperation)):
+            current_animation = animations.get(operation.animation_id)
+            if current_animation is None:
+                raise DesignAgentGenerationError("Animation operation targets a missing animation.")
+            animation_element_id = str(current_animation.get("elementId", ""))
+            target_element = elements.get(animation_element_id)
+            if target_element is None or target_element.get("visible") is False:
+                raise DesignAgentGenerationError("Animation operation targets an unavailable element.")
+            valid_affected_element_ids.add(animation_element_id)
+            if isinstance(operation, DeleteAnimationOperation):
+                del animations[operation.animation_id]
+            else:
+                animations[operation.animation_id] = {
+                    **current_animation,
+                    **operation.animation.model_dump(by_alias=True, exclude_none=True),
+                }
             continue
 
         if isinstance(operation, AddElementOperation):
