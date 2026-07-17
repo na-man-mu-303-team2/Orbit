@@ -1,6 +1,8 @@
 import { koreanFillerPolicyV1 } from "./filler-policy";
 import type {
+  SlidePracticeCoachingIssueCode,
   SlidePracticeFillerDetail,
+  SlidePracticeReport,
   SlidePracticeStyleResult,
   SlidePracticeVoiceMetrics,
   VoiceBaselineMetrics,
@@ -49,6 +51,29 @@ export function countSpokenSyllables(transcript: string) {
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean).length;
   return koreanSyllables + otherWords;
+}
+
+export function findSlidePracticeCoachingIssues(
+  report: Pick<SlidePracticeReport, "fillers" | "voice">,
+): SlidePracticeCoachingIssueCode[] {
+  const issues: SlidePracticeCoachingIssueCode[] = [];
+  if (report.fillers.totalCount > 0) issues.push("filler-use");
+
+  const pace = report.voice.syllablesPerSecond;
+  if (pace !== null && pace < 3.5) issues.push("pace-slow");
+  if (pace !== null && pace > 4.8) issues.push("pace-fast");
+
+  if (report.voice.pauseRatio < 0.12) issues.push("pause-low");
+  if (report.voice.pauseRatio > 0.55) issues.push("pause-high");
+
+  const pitchSpan = report.voice.pitchSpanHz;
+  if (pitchSpan !== null && pitchSpan < 45) issues.push("pitch-flat");
+  if (pitchSpan !== null && pitchSpan > 160) issues.push("pitch-wide");
+
+  const loudness = report.voice.loudnessDb;
+  if (loudness !== null && loudness < -45) issues.push("loudness-low");
+  if (loudness !== null && loudness > -30) issues.push("loudness-high");
+  return issues;
 }
 
 export function classifyVoiceStyle(

@@ -51,81 +51,61 @@ describe("FillerWordPieChart", () => {
     expect(html).not.toContain("<svg");
   });
 
-  it("차트 아래에 기존 목소리 스타일과 지표를 표시한다", () => {
+  it("슬라이드 리포트에는 데시벨, 말 속도, 개선할 점만 표시한다", () => {
     const html = renderToStaticMarkup(<PracticeResult report={practiceReport()} />);
 
-    expect(html.indexOf("editor-practice-filler-chart")).toBeLessThan(
-      html.indexOf("editor-practice-summary"),
-    );
-    expect(html).toContain("자장가형");
-    expect(html).toContain("오늘 목소리는 잠수 모드예요. 수면 위로 한 걸음");
-    expect(html).not.toContain("자장가처럼 차분해요.");
-    expect(html).toContain("17.5 음절/초");
-    expect(html).toContain("87%");
-    expect(html).toContain("34.3 Hz");
-    expect(html).toContain("-20.0 dBFS");
-    expect(html).toContain("판단 근거");
-    expect(html).toContain("낮은 말 속도");
+    expect(html).toContain("데시벨 변화");
+    expect(html).toContain("말 속도 변화");
+    expect(html).toContain("개선할 점");
+    expect(html).toContain("시간별 데시벨 세로 막대 그래프");
+    expect(html).toContain("시간별 말 속도 선 그래프");
+    expect(html).toContain("습관어 줄이기");
+    expect(html).toContain("현재 대본");
+    expect(html).toContain("추천 대본");
+    expect(html).toContain("30초 연습");
+    expect(html).not.toContain("습관어 사용 비율");
+    expect(html).not.toContain("판단 근거");
   });
 
-  it("과거 터보형 기록도 새 멘트로 표시한다", () => {
+  it("이전 기록은 그래프와 AI 코칭이 없는 상태를 명시한다", () => {
     const baseReport = practiceReport();
     const html = renderToStaticMarkup(<PracticeResult report={{
       ...baseReport,
-      style: {
-        ...baseReport.style,
-        mode: "turbo",
-        message: "빠른 구간이 뚜렷해요.",
-      },
+      reportVersion: 1,
+      loudnessSamples: undefined,
+      speedSamples: undefined,
+      coaching: undefined,
     }} />);
 
-    expect(html).toContain("오늘 목소리에 기분 좋은 가속이 붙었어요");
-    expect(html).not.toContain("빠른 구간이 뚜렷해요.");
+    expect(html).toContain("이 기록에는 시간별 데시벨 데이터가 없습니다.");
+    expect(html).toContain("STT 시간 정보가 없어 속도 그래프를 만들지 못했습니다.");
+    expect(html).toContain("이전 연습 기록에는 AI 개선점이 없습니다.");
   });
 
-  it("측정 불충분 결과는 기본형 대신 판단 보류와 측정 불가 음량을 표시한다", () => {
+  it("개선점이 없으면 승인된 성공 문구를 그대로 표시한다", () => {
     const baseReport = practiceReport();
     const html = renderToStaticMarkup(<PracticeResult report={{
       ...baseReport,
-      classifierVersion: 2,
-      voice: { ...baseReport.voice, loudnessDb: null },
-      style: {
-        mode: "neutral",
-        confidence: 0,
-        evidenceLabels: ["연습 분량이 부족해요"],
-        message: "연습 분량이 부족해 목소리 유형을 판단하지 않았습니다.",
-      },
-      quality: { state: "unmeasured", reasons: ["insufficient-speech"] },
-    }} />);
-
-    expect(html).toContain("판단 보류");
-    expect(html).not.toContain("기본형");
-    expect(html).toContain("연습 분량이 부족해요");
-    expect(html).toContain("측정 안 됨");
-  });
-
-  it("v3에서 두 유형 조건이 없으면 측정 결과도 판단 보류로 표시한다", () => {
-    const baseReport = practiceReport();
-    const html = renderToStaticMarkup(<PracticeResult report={{
-      ...baseReport,
-      classifierVersion: 3,
-      style: {
-        mode: "neutral",
-        confidence: 0,
-        evidenceLabels: ["자장가형·터보형 조건이 뚜렷하지 않아요"],
-        message: "자장가형 또는 터보형 조건이 뚜렷하지 않아 유형 판단을 보류했습니다.",
+      coaching: {
+        status: "not-needed",
+        summary: "정말 잘했어요 개선점이 없어요!!",
+        issueCodes: [],
+        items: [],
+        practicePlan: null,
+        model: null,
+        policyVersion: 1,
+        promptVersion: 1,
+        generatedAt: null,
       },
     }} />);
 
-    expect(html).toContain("판단 보류");
-    expect(html).not.toContain("기본형");
-    expect(html).toContain("자장가형·터보형 조건이 뚜렷하지 않아요");
+    expect(html).toContain("정말 잘했어요 개선점이 없어요!!");
   });
 });
 
 function practiceReport(): SlidePracticeReport {
   return {
-    reportVersion: 1,
+    reportVersion: 2,
     metricDefinitionVersion: 1,
     classifierVersion: 1,
     practiceSessionId: "practice-1",
@@ -157,6 +137,40 @@ function practiceReport(): SlidePracticeReport {
       clarityRatio: 0.9,
       rhythmRegularity: 0.8,
       clippingRatio: 0,
+    },
+    loudnessSamples: [
+      { startMs: 0, endMs: 1_000, loudnessDb: -48 },
+      { startMs: 1_000, endMs: 2_000, loudnessDb: -38 },
+      { startMs: 2_000, endMs: 3_000, loudnessDb: -26 },
+    ],
+    speedSamples: [
+      { startMs: 0, endMs: 5_000, syllablesPerSecond: 3.8 },
+      { startMs: 5_000, endMs: 10_000, syllablesPerSecond: 4.4 },
+    ],
+    coaching: {
+      status: "succeeded",
+      summary: "습관어를 줄이면 핵심이 더 분명해집니다.",
+      issueCodes: ["filler-use"],
+      items: [{
+        category: "filler",
+        title: "습관어 줄이기",
+        reason: "연결 표현이 반복됩니다.",
+        action: "핵심 문장부터 시작해 보세요.",
+        practiceTip: "추천 문장을 세 번 읽어 보세요.",
+        scriptEdit: {
+          originalText: "그러니까 이 기능을 통해서 사용자 경험을 개선할 수 있습니다.",
+          suggestedText: "이 기능은 사용자 경험을 개선합니다.",
+          reason: "핵심이 더 분명해집니다.",
+        },
+      }],
+      practicePlan: {
+        title: "30초 연습",
+        steps: ["추천 대본을 세 번 읽어 보세요."],
+      },
+      model: "gpt-test",
+      policyVersion: 1,
+      promptVersion: 1,
+      generatedAt: "2026-07-17T00:00:10.000Z",
     },
     style: {
       mode: "lullaby",

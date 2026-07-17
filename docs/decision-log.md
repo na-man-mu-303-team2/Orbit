@@ -518,6 +518,18 @@
 - Affected files: `packages/shared/src/slide-practice/slide-practice-analysis.ts`, `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: staging에서는 v4의 자장가형·터보형·판단 보류 aggregate count만 확인한다. 사용자별 음량·pitch·속도 원값, transcript, raw audio는 운영 로그에 남기지 않는다. 경계 변경이 다시 필요하면 기존 결과를 재분류하지 않고 새 classifier version으로 관리한다.
 
+## ORBIT editor slide practice graph and AI coaching report
+
+- Context: 슬라이드별 바로 연습 리포트는 aggregate 음성 지표와 유형만 보여서 어느 시간대에 음량·속도가 달라졌는지 알기 어려웠다. 사용자는 데시벨 세로 막대, 속도 선 그래프, 습관어·속도·쉼·pitch·음량을 함께 보는 대본 기반 개선점만 리포트에 표시하기를 요청했다.
+- Options considered:
+  - Web Audio를 다시 사용해 브라우저에서 그래프와 조언을 만든다.
+  - raw audio 또는 transcript를 저장하고 별도 비동기 코칭 Job에서 다시 분석한다.
+  - 기존 server PCM/STT 분석에서 bounded numeric sample을 만들고, 같은 분석 Job이 private deck version의 발표 메모와 파생 지표만 OpenAI에 보내 코칭을 생성한다.
+- Final decision: 신규 `reportVersion: 2`는 1초 `loudnessSamples`와 5초 `speedSamples`, `coaching.policyVersion: 1` 결과를 creator-private `slide_practice_reports.report_json`에 저장한다. 원음은 STT/PCM 응답 검증 직후 삭제하고 코칭 provider에는 보내지 않는다. Report STT transcript도 코칭 입력·Job·DB·로그에 넣지 않는다. 대본 수정 원문은 frozen deck version의 `speakerNotes`와 완전히 일치할 때만 최대 1,000자로 저장한다. deterministic policy에 issue가 없으면 OpenAI 호출 없이 승인 문구를 저장하고, provider 실패는 코칭만 `unavailable`로 처리한다. UI는 데시벨 세로 막대, 속도 선 그래프, 개선할 점 세 영역만 보여주며 v1 기록은 빈 그래프/코칭 상태로 읽는다.
+- Rationale: 기존 Report STT와 PCM 분석을 재사용해 브라우저별 차이를 다시 만들지 않고, 원음·전사 원문 보존 범위를 넓히지 않으면서 시간별 피드백과 대본 수정 조언을 제공할 수 있다. deterministic gate가 개선 필요 여부를 소유하므로 LLM 결과의 변동성과 과도한 판단을 제한한다.
+- Affected files: `packages/shared/src/slide-practice/**`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/slide_practice_coaching.py`, `services/python-worker/app/main.py`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 graph sample 개수, coaching status·issue code·latency aggregate만 확인한다. transcript, 전체 speaker notes, raw audio, storage URL, 사용자별 원시 sample 값은 로그에 남기지 않는다. 임계값 변경은 기존 report를 재분류하지 않고 새 policy version으로 관리한다.
+
 ## ORBIT slide question guide current deck reconstruction
 
 - Context: 예상 질문 API는 `DecksService`를 통해 `decks` checkpoint와 이후 `deck_patches`를 재생한 최신 deck version으로 guide를 고정하지만, Worker는 `decks` row만 읽었다. checkpoint가 v1이고 유효한 patch tail이 v2를 만든 상태에서 guide v2를 실제 변경으로 오인해 `SLIDE_QUESTION_GUIDE_SOURCE_STALE`로 실패했다.

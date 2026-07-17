@@ -1,7 +1,7 @@
 import type { Deck, Slide, SlidePracticeReport } from "@orbit/shared";
 import { useEffect, useRef } from "react";
 
-import { FillerWordPieChart } from "./FillerWordPieChart";
+import { PracticeReportContent } from "./PracticeReportContent";
 import "./slide-practice.css";
 import { flushOfflinePracticeReports } from "./slidePracticeApi";
 import { useSlidePracticeSession } from "./useSlidePracticeSession";
@@ -72,56 +72,7 @@ export function SlidePracticePanel(props: {
 }
 
 export function PracticeResult({ report }: { report: SlidePracticeReport }) {
-  return (
-    <div className="editor-practice-result">
-      <FillerWordPieChart
-        details={report.fillers.details}
-        totalCount={report.fillers.totalCount}
-      />
-      <div className="editor-practice-summary">
-        <div className={`editor-practice-style style-${report.style.mode}`}>
-          <strong>{report.quality.state === "unmeasured" ? "판단 보류" : styleLabel(report.style.mode)}</strong>
-          <div className="editor-practice-style-copy">
-            <span>{displayStyleMessage(report)}</span>
-            {report.style.evidenceLabels.length > 0 ? (
-              <div className="editor-practice-style-evidence">
-                <span>판단 근거</span>
-                <ul aria-label="목소리 유형 판단 근거">
-                  {report.style.evidenceLabels.map((label) => <li key={label}>{label}</li>)}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <dl className="editor-practice-metrics">
-          <div><dt>습관어</dt><dd>{report.fillers.totalCount}회</dd></div>
-          <div><dt>말 속도</dt><dd>{formatPracticePace(report.syllableCount, report.voice.syllablesPerSecond)}</dd></div>
-          <div><dt>쉼 비율</dt><dd>{Math.round(report.voice.pauseRatio * 100)}%</dd></div>
-          <div><dt>피치 폭</dt><dd>{formatMetric(report.voice.pitchSpanHz, "Hz")}</dd></div>
-          <div><dt>음량</dt><dd>{formatLoudness(report.voice.loudnessDb)}</dd></div>
-        </dl>
-        {report.quality.state !== "measured" ? (
-          <p className="editor-practice-quality">
-            일부 지표는 측정하지 못했습니다: {describePracticeQuality({
-              durationMs: report.durationMs,
-              reasons: report.quality.reasons,
-              syllableCount: report.syllableCount,
-            })}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function displayStyleMessage(report: SlidePracticeReport) {
-  if (report.style.mode === "lullaby") {
-    return "오늘 목소리는 잠수 모드예요. 수면 위로 한 걸음";
-  }
-  if (report.style.mode === "turbo") {
-    return "오늘 목소리에 기분 좋은 가속이 붙었어요";
-  }
-  return report.style.message;
+  return <PracticeReportContent report={report} />;
 }
 
 function formatDuration(durationMs: number) {
@@ -165,14 +116,4 @@ export function describePracticeQuality(input: {
       "stt-unavailable": "음성 전사를 사용할 수 없어 말 속도와 습관어를 측정하지 못했습니다.",
     }[reason]];
   }).join(" ");
-}
-
-function styleLabel(mode: "lullaby" | "turbo" | "announcer" | "cloud" | "neutral") {
-  return {
-    lullaby: "자장가형",
-    turbo: "터보형",
-    announcer: "이전 기준 · 아나운서형",
-    cloud: "이전 기준 · 구름형",
-    neutral: "판단 보류",
-  }[mode];
 }

@@ -4,15 +4,22 @@ import {
   classifyVoiceStyle,
   countSpokenSyllables,
   createUnmeasuredVoiceStyleResult,
+  deckPatchSchema,
+  deckSchema,
+  findSlidePracticeCoachingIssues,
   jobSchema,
   slidePracticeAnalysisJobPayloadSchema,
   slidePracticeAnalysisJobResultSchema,
+  slidePracticeCoachingContentSchema,
   slidePracticeReportSchema,
   slidePracticeServerAudioResponseSchema,
   voiceBaselineMetricsSchema,
   type Job,
+  type SlidePracticeCoaching,
+  type SlidePracticeCoachingIssueCode,
   type SlidePracticeReport,
 } from "@orbit/shared";
+import { applyDeckPatch } from "@orbit/editor-core";
 import { createHash, randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
@@ -40,11 +47,26 @@ const inputRowSchema = z.object({
   purpose: z.literal("slide-practice-audio"),
 });
 
+const deckCheckpointRowSchema = z.object({
+  deck_json: z.unknown(),
+  version: z.coerce.number().int().nonnegative(),
+  patch_rows: z.unknown(),
+});
+
+const deckPatchRowSchema = z.object({
+  before_version: z.coerce.number().int().nonnegative(),
+  after_version: z.coerce.number().int().nonnegative(),
+  source: z.enum(["user", "ai", "import", "system"]),
+  operations: z.unknown(),
+  created_at: z.union([z.date(), z.string().min(1)]),
+});
+
 export async function processSlidePracticeAnalysisJob(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
+  onEvent?: (event: SlidePracticeAnalysisBusinessEvent) => void,
 ): Promise<Job> {
   const payload = slidePracticeAnalysisJobPayloadSchema.parse(rawPayload);
   const rows = await dataSource.query(
@@ -68,6 +90,7 @@ export async function processSlidePracticeAnalysisJob(
     [payload.analysisId],
   );
 
+  let cleanup: Awaited<ReturnType<typeof deleteRawAudio>> | null = null;
   try {
     let storageUrl: string;
     try {
@@ -101,6 +124,7 @@ export async function processSlidePracticeAnalysisJob(
     } catch {
       throw new SlidePracticeProcessingError("AUDIO_ANALYSIS_FAILED");
     }
+    cleanup = await deleteRawAudio(dataSource, storage, row);
     const syllableCount = countSpokenSyllables(evidence.transcript);
     const fillers = analyzeKoreanFillers(evidence.transcript);
     const voice = {
@@ -127,8 +151,8 @@ export async function processSlidePracticeAnalysisJob(
     const qualityState = qualityReasons.includes("insufficient-speech")
       ? "unmeasured"
       : qualityReasons.length > 0 ? "partial" : "measured";
-    const report = slidePracticeReportSchema.parse({
-      reportVersion: 1,
+    const reportWithoutCoaching = slidePracticeReportSchema.parse({
+      reportVersion: 2,
       metricDefinitionVersion: 2,
       classifierVersion: 4,
       practiceSessionId: row.practice_session_id,
@@ -147,6 +171,8 @@ export async function processSlidePracticeAnalysisJob(
         details: fillers.details,
       },
       voice,
+      loudnessSamples: evidence.loudnessSamples,
+      speedSamples: evidence.speedSamples,
       style: qualityState === "unmeasured"
         ? createUnmeasuredVoiceStyleResult()
         : classifyVoiceStyle(voice, baseline),
@@ -158,8 +184,31 @@ export async function processSlidePracticeAnalysisJob(
         baselineVersion,
       },
     });
+    const coachingStartedAt = Date.now();
+    const issueCodes = findSlidePracticeCoachingIssues(reportWithoutCoaching);
+    const speakerNotes = issueCodes.length > 0
+      ? await loadSpeakerNotes(dataSource, row).catch(() => "")
+      : "";
+    const coaching = await createSlidePracticeCoaching({
+      pythonWorkerUrl,
+      speakerNotes,
+      issueCodes,
+      report: reportWithoutCoaching,
+    });
+    emitBusinessEvent(onEvent, {
+      event: "slide_practice.coaching.completed",
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      analysisId: payload.analysisId,
+      status: coaching.status,
+      issueCodes,
+      durationMs: Math.max(0, Date.now() - coachingStartedAt),
+    });
+    const report = slidePracticeReportSchema.parse({
+      ...reportWithoutCoaching,
+      coaching,
+    });
     const reportId = await persistDerivedReport(dataSource, row, report);
-    const cleanup = await deleteRawAudio(dataSource, storage, row);
     await dataSource.query(
       `UPDATE slide_practice_audio_analyses
        SET status = 'succeeded', report_id = $2, cleanup_state = $3,
@@ -178,7 +227,7 @@ export async function processSlidePracticeAnalysisJob(
       : error instanceof z.ZodError
         ? "AUDIO_ANALYSIS_FAILED"
         : "REPORT_PERSIST_FAILED";
-    const cleanup = await deleteRawAudio(dataSource, storage, row);
+    cleanup ??= await deleteRawAudio(dataSource, storage, row);
     await dataSource.query(
       `UPDATE slide_practice_audio_analyses
        SET status = 'failed', error_code = $2, cleanup_state = $3,
@@ -190,6 +239,181 @@ export async function processSlidePracticeAnalysisJob(
       code,
       message: "Slide practice analysis failed.",
     });
+  }
+}
+
+async function createSlidePracticeCoaching(input: {
+  pythonWorkerUrl: string;
+  speakerNotes: string;
+  issueCodes: SlidePracticeCoachingIssueCode[];
+  report: SlidePracticeReport;
+}): Promise<SlidePracticeCoaching> {
+  if (input.issueCodes.length === 0) {
+    return input.report.quality.state === "measured"
+      ? {
+          status: "not-needed",
+          summary: "정말 잘했어요 개선점이 없어요!!",
+          issueCodes: [],
+          items: [],
+          practicePlan: null,
+          model: null,
+          policyVersion: 1,
+          promptVersion: 1,
+          generatedAt: null,
+        }
+      : unavailableCoaching(
+          "측정 데이터가 부족해 개선점을 생성하지 못했습니다.",
+          [],
+        );
+  }
+
+  try {
+    const response = await fetch(
+      new URL("/slide-practice/coaching", input.pythonWorkerUrl),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: AbortSignal.timeout(45_000),
+        body: JSON.stringify({
+          speakerNotes: input.speakerNotes,
+          issueCodes: input.issueCodes,
+          metrics: {
+            fillerDetails: input.report.fillers.details,
+            fillerTotalCount: input.report.fillers.totalCount,
+            syllablesPerSecond: input.report.voice.syllablesPerSecond,
+            pauseRatio: input.report.voice.pauseRatio,
+            pitchSpanHz: input.report.voice.pitchSpanHz,
+            loudnessDb: input.report.voice.loudnessDb,
+          },
+        }),
+      },
+    );
+    if (!response.ok) {
+      return unavailableCoaching(
+        "AI 개선점을 생성하지 못했습니다. 그래프와 측정 결과는 정상적으로 확인할 수 있습니다.",
+        input.issueCodes,
+      );
+    }
+    const generated = slidePracticeCoachingContentSchema.parse(await response.json());
+    return {
+      status: "succeeded",
+      summary: generated.summary,
+      issueCodes: input.issueCodes,
+      items: generated.items.map((item) => ({
+        ...item,
+        scriptEdit: item.scriptEdit && input.speakerNotes.includes(item.scriptEdit.originalText)
+          ? item.scriptEdit
+          : null,
+      })),
+      practicePlan: generated.practicePlan,
+      model: generated.model,
+      policyVersion: 1,
+      promptVersion: 1,
+      generatedAt: new Date().toISOString(),
+    };
+  } catch {
+    return unavailableCoaching(
+      "AI 개선점을 생성하지 못했습니다. 그래프와 측정 결과는 정상적으로 확인할 수 있습니다.",
+      input.issueCodes,
+    );
+  }
+}
+
+function unavailableCoaching(
+  summary: string,
+  issueCodes: SlidePracticeCoachingIssueCode[],
+): SlidePracticeCoaching {
+  return {
+    status: "unavailable",
+    summary,
+    issueCodes,
+    items: [],
+    practicePlan: null,
+    model: null,
+    policyVersion: 1,
+    promptVersion: 1,
+    generatedAt: null,
+  };
+}
+
+async function loadSpeakerNotes(
+  dataSource: DataSource,
+  row: z.infer<typeof inputRowSchema>,
+) {
+  const rows = await dataSource.query(
+    `SELECT
+       d.deck_json,
+       d.version,
+       COALESCE((
+         SELECT jsonb_agg(
+           jsonb_build_object(
+             'before_version', p.before_version,
+             'after_version', p.after_version,
+             'source', p.source,
+             'operations', p.operations,
+             'created_at', p.created_at
+           ) ORDER BY p.after_version ASC, p.created_at ASC, p.change_id ASC
+         )
+         FROM deck_patches p
+         WHERE p.project_id = d.project_id
+           AND p.deck_id = d.deck_id
+           AND p.after_version > d.version
+           AND p.after_version <= $3
+       ), '[]'::jsonb) AS patch_rows
+     FROM decks d
+     WHERE d.project_id = $1 AND d.deck_id = $2`,
+    [row.project_id, row.deck_id, row.deck_version],
+  );
+  const rawDeckRow = firstQueryRowOrNull(rows);
+  if (!rawDeckRow) return "";
+  const deckRow = deckCheckpointRowSchema.parse(rawDeckRow);
+  if (deckRow.version > row.deck_version) return "";
+  let deck = deckSchema.parse(jsonValue(deckRow.deck_json));
+  if (deck.version !== deckRow.version) return "";
+
+  const patchRows = z.array(deckPatchRowSchema).parse(jsonValue(deckRow.patch_rows));
+  for (const patchRow of patchRows) {
+    if (
+      patchRow.before_version !== deck.version
+      || patchRow.after_version !== patchRow.before_version + 1
+    ) {
+      return "";
+    }
+    const patch = deckPatchSchema.parse({
+      deckId: deck.deckId,
+      baseVersion: patchRow.before_version,
+      source: patchRow.source,
+      operations: jsonValue(patchRow.operations),
+    });
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: toIso(patchRow.created_at),
+    });
+    if (!applied.ok || applied.deck.version !== patchRow.after_version) return "";
+    deck = applied.deck;
+  }
+  if (deck.version !== row.deck_version) return "";
+  return deck.slides.find((slide) => slide.slideId === row.slide_id)
+    ?.speakerNotes.slice(0, 6_000) ?? "";
+}
+
+export type SlidePracticeAnalysisBusinessEvent = {
+  event: "slide_practice.coaching.completed";
+  jobId: string;
+  projectId: string;
+  analysisId: string;
+  status: SlidePracticeCoaching["status"];
+  issueCodes: SlidePracticeCoachingIssueCode[];
+  durationMs: number;
+};
+
+function emitBusinessEvent(
+  onEvent: ((event: SlidePracticeAnalysisBusinessEvent) => void) | undefined,
+  event: SlidePracticeAnalysisBusinessEvent,
+) {
+  try {
+    onEvent?.(event);
+  } catch {
+    // Diagnostic logging must not change slide practice analysis behavior.
   }
 }
 
@@ -322,6 +546,10 @@ function jobRow(row: any): Job {
 
 function toIso(value: unknown) {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+}
+
+function jsonValue(value: unknown) {
+  return typeof value === "string" ? JSON.parse(value) : value;
 }
 
 function firstQueryRow<T = any>(value: unknown): T {

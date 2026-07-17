@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { findSlidePracticeCoachingIssues } from "./slide-practice-analysis";
 import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeReportRequestSchema,
@@ -7,6 +8,7 @@ import {
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
   slidePracticeReportSchema,
+  slidePracticeServerAudioResponseSchema,
 } from "./slide-practice.schema";
 
 const report = {
@@ -150,6 +152,58 @@ describe("slidePracticeReportSchema", () => {
       },
     }).success).toBe(true);
   });
+
+  it("accepts graph samples and bounded AI coaching in report v2", () => {
+    expect(slidePracticeReportSchema.safeParse({
+      ...report,
+      reportVersion: 2,
+      loudnessSamples: [{ startMs: 0, endMs: 1_000, loudnessDb: -35.4 }],
+      speedSamples: [{ startMs: 0, endMs: 5_000, syllablesPerSecond: 4.3 }],
+      coaching: {
+        status: "succeeded",
+        summary: "습관어를 줄이면 핵심이 더 분명해집니다.",
+        issueCodes: ["filler-use"],
+        items: [{
+          category: "filler",
+          title: "습관어 줄이기",
+          reason: "연결 표현이 반복됩니다.",
+          action: "문장을 바로 시작해 보세요.",
+          practiceTip: "추천 문장을 세 번 읽어 보세요.",
+          scriptEdit: {
+            originalText: "그러니까 기능을 설명합니다.",
+            suggestedText: "기능을 설명합니다.",
+            reason: "핵심이 더 분명해집니다.",
+          },
+        }],
+        practicePlan: {
+          title: "30초 연습",
+          steps: ["추천 대본을 세 번 읽어 보세요."],
+        },
+        model: "gpt-test",
+        policyVersion: 1,
+        promptVersion: 1,
+        generatedAt: "2026-07-17T00:00:31.000Z",
+      },
+    }).success).toBe(true);
+  });
+
+  it("requires the approved no-improvement message", () => {
+    expect(slidePracticeReportSchema.safeParse({
+      ...report,
+      reportVersion: 2,
+      coaching: {
+        status: "not-needed",
+        summary: "개선점이 없습니다.",
+        issueCodes: [],
+        items: [],
+        practicePlan: null,
+        model: null,
+        policyVersion: 1,
+        promptVersion: 1,
+        generatedAt: null,
+      },
+    }).success).toBe(false);
+  });
 });
 
 describe("slide practice server analysis contract", () => {
@@ -203,5 +257,40 @@ describe("slide practice server analysis contract", () => {
       },
       report: null,
     }).success).toBe(false);
+  });
+
+  it("returns only transcript-memory evidence and derived graph samples", () => {
+    expect(slidePracticeServerAudioResponseSchema.safeParse({
+      transcript: "발표를 시작합니다",
+      provider: "openai",
+      meanRecognitionConfidence: null,
+      voice: report.voice,
+      loudnessSamples: [{ startMs: 0, endMs: 1_000, loudnessDb: -35 }],
+      speedSamples: [{ startMs: 0, endMs: 5_000, syllablesPerSecond: 4 }],
+    }).success).toBe(true);
+  });
+});
+
+describe("findSlidePracticeCoachingIssues", () => {
+  it("finds the five coaching dimensions using versioned thresholds", () => {
+    expect(findSlidePracticeCoachingIssues({
+      fillers: {
+        ...report.fillers,
+        details: [...report.fillers.details],
+      },
+      voice: {
+        ...report.voice,
+        syllablesPerSecond: 5.2,
+        pauseRatio: 0.08,
+        pitchSpanHz: 30,
+        loudnessDb: -48,
+      },
+    })).toEqual([
+      "filler-use",
+      "pace-fast",
+      "pause-low",
+      "pitch-flat",
+      "loudness-low",
+    ]);
   });
 });

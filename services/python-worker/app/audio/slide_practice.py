@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+import re
+
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,6 +11,7 @@ from app.audio.source import load_audio_content
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     ReportSttProvider,
+    TranscriptSegment,
     build_audio_transcribe_response,
     transcribe_audio_content,
 )
@@ -15,6 +19,8 @@ from app.audio.transcribe import (
 FRAME_LENGTH = 2_048
 HOP_LENGTH = 960
 FRAME_INTERVAL_MS = 60
+LOUDNESS_BUCKET_MS = 1_000
+SPEED_BUCKET_MS = 5_000
 ACTIVE_SPEECH_THRESHOLD_DB = -48.0
 RMS_FLOOR = 1e-6
 
@@ -37,6 +43,26 @@ class SlidePracticeVoiceMetrics(BaseModel):
     clipping_ratio: float = Field(alias="clippingRatio", ge=0, le=1)
 
 
+class SlidePracticeLoudnessSample(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    start_ms: int = Field(alias="startMs", ge=0, le=300_000)
+    end_ms: int = Field(alias="endMs", gt=0, le=300_000)
+    loudness_db: float = Field(alias="loudnessDb", ge=-100, le=0)
+
+
+class SlidePracticeSpeedSample(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    start_ms: int = Field(alias="startMs", ge=0, le=300_000)
+    end_ms: int = Field(alias="endMs", gt=0, le=300_000)
+    syllables_per_second: float = Field(
+        alias="syllablesPerSecond",
+        ge=0,
+        le=100,
+    )
+
+
 class SlidePracticeAudioResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -47,6 +73,14 @@ class SlidePracticeAudioResponse(BaseModel):
         alias="meanRecognitionConfidence",
     )
     voice: SlidePracticeVoiceMetrics
+    loudness_samples: list[SlidePracticeLoudnessSample] = Field(
+        alias="loudnessSamples",
+        max_length=300,
+    )
+    speed_samples: list[SlidePracticeSpeedSample] = Field(
+        alias="speedSamples",
+        max_length=60,
+    )
 
 
 def process_slide_practice_audio(
@@ -59,8 +93,13 @@ def process_slide_practice_audio(
     audio_content = load_audio_content(payload.audio)
     provider_transcription = transcribe_audio_content(audio_content, provider)
     transcription = build_audio_transcribe_response(payload, provider_transcription)
+    loudness_samples: list[SlidePracticeLoudnessSample] = []
+    duration_ms = int(round((transcription.duration_seconds or 0) * 1_000))
     try:
-        voice = analyze_slide_practice_voice(decode_audio(audio_content))
+        decoded_audio = decode_audio(audio_content)
+        duration_ms = int(round(decoded_audio.duration_seconds * 1_000))
+        voice = analyze_slide_practice_voice(decoded_audio)
+        loudness_samples = build_slide_practice_loudness_samples(decoded_audio)
     except Exception:
         voice = _unmeasured_metrics(np.asarray([], dtype=np.float32))
     return SlidePracticeAudioResponse(
@@ -68,6 +107,11 @@ def process_slide_practice_audio(
         provider=transcription.provider,
         meanRecognitionConfidence=None,
         voice=voice,
+        loudnessSamples=loudness_samples,
+        speedSamples=build_slide_practice_speed_samples(
+            transcription.segments,
+            duration_ms,
+        ),
     )
 
 
@@ -141,6 +185,113 @@ def analyze_slide_practice_voice(
         rhythmRegularity=_rounded(rhythm_regularity),
         clippingRatio=_bounded(clipping_ratio),
     )
+
+
+def build_slide_practice_loudness_samples(
+    decoded_audio: DecodedAudio,
+) -> list[SlidePracticeLoudnessSample]:
+    samples = decoded_audio.samples
+    if samples.size < FRAME_LENGTH:
+        return []
+
+    frames = np.lib.stride_tricks.sliding_window_view(samples, FRAME_LENGTH)[
+        ::HOP_LENGTH
+    ]
+    frame_rms = np.sqrt(np.mean(np.square(frames, dtype=np.float64), axis=1))
+    loudness = 20.0 * np.log10(np.maximum(frame_rms, RMS_FLOOR))
+    frames_per_bucket = max(1, round(LOUDNESS_BUCKET_MS / FRAME_INTERVAL_MS))
+    result: list[SlidePracticeLoudnessSample] = []
+    for offset in range(0, loudness.size, frames_per_bucket):
+        if len(result) >= 300:
+            break
+        bucket = loudness[offset : offset + frames_per_bucket]
+        start_ms = offset * FRAME_INTERVAL_MS
+        end_ms = min(
+            300_000,
+            int(round(decoded_audio.duration_seconds * 1_000)),
+            (offset + bucket.size) * FRAME_INTERVAL_MS,
+        )
+        if end_ms <= start_ms:
+            continue
+        result.append(
+            SlidePracticeLoudnessSample(
+                startMs=start_ms,
+                endMs=end_ms,
+                loudnessDb=round(
+                    max(-100.0, min(0.0, float(np.median(bucket)))),
+                    4,
+                ),
+            )
+        )
+    return result
+
+
+def build_slide_practice_speed_samples(
+    segments: list[TranscriptSegment],
+    duration_ms: int,
+) -> list[SlidePracticeSpeedSample]:
+    valid_segments = [
+        segment
+        for segment in segments
+        if segment.start_seconds is not None
+        and segment.end_seconds is not None
+        and segment.end_seconds > segment.start_seconds
+    ]
+    if not valid_segments:
+        return []
+
+    resolved_duration_ms = min(
+        300_000,
+        max(
+            duration_ms,
+            int(math.ceil(max(segment.end_seconds or 0 for segment in valid_segments) * 1_000)),
+        ),
+    )
+    bucket_count = min(60, math.ceil(resolved_duration_ms / SPEED_BUCKET_MS))
+    syllables_by_bucket = [0.0] * bucket_count
+    for segment in valid_segments:
+        start_ms = float(segment.start_seconds or 0) * 1_000
+        end_ms = float(segment.end_seconds or 0) * 1_000
+        segment_duration_ms = end_ms - start_ms
+        syllable_count = _count_spoken_syllables(segment.text)
+        if syllable_count <= 0 or segment_duration_ms <= 0:
+            continue
+        first_bucket = max(0, int(start_ms // SPEED_BUCKET_MS))
+        last_bucket = min(bucket_count - 1, int((end_ms - 1) // SPEED_BUCKET_MS))
+        for bucket_index in range(first_bucket, last_bucket + 1):
+            bucket_start = bucket_index * SPEED_BUCKET_MS
+            bucket_end = min(resolved_duration_ms, bucket_start + SPEED_BUCKET_MS)
+            overlap_ms = max(
+                0.0,
+                min(end_ms, bucket_end) - max(start_ms, bucket_start),
+            )
+            syllables_by_bucket[bucket_index] += (
+                syllable_count * overlap_ms / segment_duration_ms
+            )
+
+    return [
+        SlidePracticeSpeedSample(
+            startMs=index * SPEED_BUCKET_MS,
+            endMs=min(resolved_duration_ms, (index + 1) * SPEED_BUCKET_MS),
+            syllablesPerSecond=round(
+                syllables / (
+                    (min(resolved_duration_ms, (index + 1) * SPEED_BUCKET_MS)
+                    - index * SPEED_BUCKET_MS) / 1_000
+                ),
+                4,
+            ),
+        )
+        for index, syllables in enumerate(syllables_by_bucket)
+        if min(resolved_duration_ms, (index + 1) * SPEED_BUCKET_MS)
+        > index * SPEED_BUCKET_MS
+    ]
+
+
+def _count_spoken_syllables(text: str) -> int:
+    korean_syllables = len(re.findall(r"[가-힣]", text))
+    remaining = re.sub(r"[가-힣]", " ", text)
+    other_words = len(re.findall(r"[^\W_]+", remaining, flags=re.UNICODE))
+    return korean_syllables + other_words
 
 
 def _pitch_samples(

@@ -18,13 +18,12 @@ describe("PracticeHistoryContent", () => {
 
     expect(html).not.toContain("editor-practice-history-item");
     expect(html).toContain("최근 저장 기록");
-    expect(html).toContain("습관어 사용 비율");
-    expect(html).toContain("기록 0의 목소리 스타일");
-    expect(html).not.toContain("기록 1의 목소리 스타일");
-    expect(html).toContain("판단 보류");
-    expect(html).not.toContain("기본형");
-    expect(html).toContain("판단 근거");
-    expect(html).toContain("-20.0 dBFS");
+    expect(html).toContain("데시벨 변화");
+    expect(html).toContain("말 속도 변화");
+    expect(html).toContain("개선할 점");
+    expect(html).toContain("기록 0의 AI 코칭");
+    expect(html).not.toContain("기록 1의 AI 코칭");
+    expect(html).not.toContain("습관어 사용 비율");
   });
 
   it("저장 기록의 음량을 측정하지 못한 경우에도 상태를 명시한다", () => {
@@ -36,7 +35,7 @@ describe("PracticeHistoryContent", () => {
         }]} />,
     );
 
-    expect(html).toContain("음량");
+    expect(html).toContain("데시벨 변화");
     expect(html).toContain("측정 안 됨");
   });
 
@@ -104,6 +103,17 @@ function practiceReport(index: number): SlidePracticeReportRecord {
       message: `기록 ${index}의 목소리 스타일`,
     },
     quality: { state: "measured", reasons: [] },
+    coaching: {
+      status: "unavailable",
+      summary: `기록 ${index}의 AI 코칭`,
+      issueCodes: [],
+      items: [],
+      practicePlan: null,
+      model: null,
+      policyVersion: 1,
+      promptVersion: 1,
+      generatedAt: null,
+    },
     source: {
       kind: "browser",
       sttEngine: "web-speech",

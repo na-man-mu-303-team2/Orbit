@@ -16,12 +16,40 @@ describe("processSlidePracticeAnalysisJob", () => {
   it("stores only derived metrics and deletes private audio", async () => {
     const query = createQuery();
     const removeObject = vi.fn(async () => undefined);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      transcript: "음 어 발표를 시작합니다",
-      provider: "openai",
-      meanRecognitionConfidence: null,
-      voice: voiceMetrics(),
-    }), { status: 200 })));
+    const fetcher = vi.fn(async (url: unknown, _init?: RequestInit) => {
+      if (String(url).endsWith("/slide-practice/coaching")) {
+        return new Response(JSON.stringify({
+          summary: "습관어와 말 속도를 함께 연습해 보세요.",
+          items: [{
+            category: "filler",
+            title: "습관어 줄이기",
+            reason: "습관어가 반복됐습니다.",
+            action: "핵심 문장부터 시작해 보세요.",
+            practiceTip: "추천 문장을 세 번 읽어 보세요.",
+            scriptEdit: null,
+          }],
+          practicePlan: {
+            title: "30초 연습",
+            steps: ["습관어 없이 세 번 읽어 보세요."],
+          },
+          model: "gpt-test",
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        transcript: "음 어 발표를 시작합니다",
+        provider: "openai",
+        meanRecognitionConfidence: null,
+        voice: voiceMetrics(),
+        loudnessSamples: [
+          { startMs: 0, endMs: 1_000, loudnessDb: -40 },
+          { startMs: 1_000, endMs: 2_000, loudnessDb: -35 },
+        ],
+        speedSamples: [
+          { startMs: 0, endMs: 5_000, syllablesPerSecond: 2.2 },
+        ],
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetcher);
 
     const job = await processSlidePracticeAnalysisJob(
       { query } as unknown as DataSource,
@@ -41,8 +69,18 @@ describe("processSlidePracticeAnalysisJob", () => {
       .flatMap(([, parameters]) => parameters ?? []);
     const persisted = JSON.stringify(persistedParameters);
     expect(persisted).not.toContain("발표를 시작합니다");
+    expect(persisted).toContain('"reportVersion":2');
+    expect(persisted).toContain('"loudnessSamples"');
+    expect(persisted).toContain('"speedSamples"');
+    expect(persisted).toContain('"coaching"');
+    expect(persisted).toContain('"status":"succeeded"');
     expect(persisted).toContain('"classifierVersion":4');
     expect(persisted).toContain('"mode":"lullaby"');
+    const coachingRequest = fetcher.mock.calls.find(([url]) => (
+      String(url).endsWith("/slide-practice/coaching")
+    ));
+    expect(String(coachingRequest?.[1]?.body)).not.toContain("transcript");
+    expect(String(coachingRequest?.[1]?.body)).not.toContain("audio");
   });
 
   it("queues raw audio deletion when server analysis fails", async () => {

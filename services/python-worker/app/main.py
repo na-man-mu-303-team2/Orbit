@@ -117,6 +117,12 @@ from app.audio.analysis.models import (
     unmeasured_silence_analysis,
 )
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_practice_coaching import (
+    SlidePracticeCoachingError,
+    SlidePracticeCoachingRequest,
+    SlidePracticeCoachingResponse,
+    generate_slide_practice_coaching,
+)
 from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
@@ -718,6 +724,28 @@ def process_slide_practice_audio_endpoint(
         return process_slide_practice_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post(
+    "/slide-practice/coaching",
+    response_model=SlidePracticeCoachingResponse,
+)
+def generate_slide_practice_coaching_endpoint(
+    payload: SlidePracticeCoachingRequest,
+    request: Request,
+) -> SlidePracticeCoachingResponse:
+    config = _config(request)
+    try:
+        return generate_slide_practice_coaching(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SlidePracticeCoachingError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide practice coaching generation failed.",
+        ) from error
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)

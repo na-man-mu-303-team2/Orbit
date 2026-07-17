@@ -59,6 +59,126 @@ export const slidePracticeFillerDetailSchema = z.object({
   count: z.number().int().min(1).max(1_000),
 }).strict();
 
+export const slidePracticeLoudnessSampleSchema = z.object({
+  startMs: z.number().int().min(0).max(300_000),
+  endMs: z.number().int().positive().max(300_000),
+  loudnessDb: z.number().finite().min(-100).max(0),
+}).strict().superRefine((sample, context) => {
+  if (sample.endMs <= sample.startMs) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endMs"],
+      message: "Loudness sample endMs must be greater than startMs",
+    });
+  }
+});
+
+export const slidePracticeSpeedSampleSchema = z.object({
+  startMs: z.number().int().min(0).max(300_000),
+  endMs: z.number().int().positive().max(300_000),
+  syllablesPerSecond: z.number().finite().min(0).max(100),
+}).strict().superRefine((sample, context) => {
+  if (sample.endMs <= sample.startMs) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endMs"],
+      message: "Speed sample endMs must be greater than startMs",
+    });
+  }
+});
+
+export const slidePracticeCoachingIssueCodeSchema = z.enum([
+  "filler-use",
+  "pace-slow",
+  "pace-fast",
+  "pause-low",
+  "pause-high",
+  "pitch-flat",
+  "pitch-wide",
+  "loudness-low",
+  "loudness-high",
+]);
+
+export const slidePracticeCoachingCategorySchema = z.enum([
+  "filler",
+  "pace",
+  "pause",
+  "pitch",
+  "loudness",
+]);
+
+export const slidePracticeScriptEditSchema = z.object({
+  originalText: z.string().trim().min(1).max(1_000),
+  suggestedText: z.string().trim().min(1).max(1_000),
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+
+export const slidePracticeCoachingItemSchema = z.object({
+  category: slidePracticeCoachingCategorySchema,
+  title: z.string().trim().min(1).max(100),
+  reason: z.string().trim().min(1).max(500),
+  action: z.string().trim().min(1).max(500),
+  practiceTip: z.string().trim().min(1).max(500),
+  scriptEdit: slidePracticeScriptEditSchema.nullable(),
+}).strict();
+
+export const slidePracticeCoachingPracticePlanSchema = z.object({
+  title: z.string().trim().min(1).max(100),
+  steps: z.array(z.string().trim().min(1).max(300)).min(1).max(3),
+}).strict();
+
+export const slidePracticeCoachingContentSchema = z.object({
+  summary: z.string().trim().min(1).max(500),
+  items: z.array(slidePracticeCoachingItemSchema).min(1).max(2),
+  practicePlan: slidePracticeCoachingPracticePlanSchema,
+  model: z.string().trim().min(1).max(100),
+}).strict();
+
+export const slidePracticeCoachingSchema = z.object({
+  status: z.enum(["succeeded", "not-needed", "unavailable"]),
+  summary: z.string().trim().min(1).max(500),
+  issueCodes: z.array(slidePracticeCoachingIssueCodeSchema).max(9),
+  items: z.array(slidePracticeCoachingItemSchema).max(2),
+  practicePlan: slidePracticeCoachingPracticePlanSchema.nullable(),
+  model: z.string().trim().min(1).max(100).nullable(),
+  policyVersion: z.literal(1),
+  promptVersion: z.literal(1),
+  generatedAt: isoDateTimeSchema.nullable(),
+}).strict().superRefine((coaching, context) => {
+  if (coaching.status === "succeeded") {
+    if (coaching.items.length === 0 || coaching.practicePlan === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["items"],
+        message: "Succeeded coaching requires items and a practice plan",
+      });
+    }
+    if (coaching.model === null || coaching.generatedAt === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["model"],
+        message: "Succeeded coaching requires model metadata",
+      });
+    }
+  }
+  if (coaching.status === "not-needed" && coaching.summary !== "정말 잘했어요 개선점이 없어요!!") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["summary"],
+      message: "Not-needed coaching must use the approved success message",
+    });
+  }
+  if (coaching.status !== "succeeded" && (
+    coaching.items.length > 0 || coaching.practicePlan !== null || coaching.model !== null
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["status"],
+      message: "Non-succeeded coaching cannot include generated content",
+    });
+  }
+});
+
 export const slidePracticeVoiceMetricsSchema = z.object({
   activeSpeechMs: z.number().int().min(0).max(300_000),
   pauseRatio: z.number().finite().min(0).max(1),
@@ -96,7 +216,7 @@ export const slidePracticeQualitySchema = z.object({
 });
 
 const slidePracticeReportCoreSchema = z.object({
-  reportVersion: z.literal(1),
+  reportVersion: z.union([z.literal(1), z.literal(2)]),
   metricDefinitionVersion: z.union([z.literal(1), z.literal(2)]),
   classifierVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   practiceSessionId: identifierSchema,
@@ -115,6 +235,9 @@ const slidePracticeReportCoreSchema = z.object({
     details: z.array(slidePracticeFillerDetailSchema).max(100),
   }).strict(),
   voice: slidePracticeVoiceMetricsSchema,
+  loudnessSamples: z.array(slidePracticeLoudnessSampleSchema).max(300).optional(),
+  speedSamples: z.array(slidePracticeSpeedSampleSchema).max(60).optional(),
+  coaching: slidePracticeCoachingSchema.optional(),
   style: slidePracticeStyleResultSchema,
   quality: slidePracticeQualitySchema,
   source: z.discriminatedUnion("kind", [
@@ -242,10 +365,17 @@ export const slidePracticeServerAudioResponseSchema = z.object({
   provider: z.string().trim().min(1).max(80),
   meanRecognitionConfidence: z.number().finite().min(0).max(1).nullable(),
   voice: slidePracticeVoiceMetricsSchema,
+  loudnessSamples: z.array(slidePracticeLoudnessSampleSchema).max(300),
+  speedSamples: z.array(slidePracticeSpeedSampleSchema).max(60),
 }).strict();
 
 export type SlidePracticeReport = z.infer<typeof slidePracticeReportSchema>;
 export type SlidePracticeFillerDetail = z.infer<typeof slidePracticeFillerDetailSchema>;
+export type SlidePracticeLoudnessSample = z.infer<typeof slidePracticeLoudnessSampleSchema>;
+export type SlidePracticeSpeedSample = z.infer<typeof slidePracticeSpeedSampleSchema>;
+export type SlidePracticeCoachingIssueCode = z.infer<typeof slidePracticeCoachingIssueCodeSchema>;
+export type SlidePracticeCoaching = z.infer<typeof slidePracticeCoachingSchema>;
+export type SlidePracticeCoachingContent = z.infer<typeof slidePracticeCoachingContentSchema>;
 export type CreateSlidePracticeReportRequest = z.infer<typeof createSlidePracticeReportRequestSchema>;
 export type SlidePracticeReportRecord = z.infer<typeof slidePracticeReportRecordSchema>;
 export type SlidePracticeReportListResponse = z.infer<typeof slidePracticeReportListResponseSchema>;
