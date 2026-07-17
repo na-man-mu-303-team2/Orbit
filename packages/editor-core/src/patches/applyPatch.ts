@@ -18,6 +18,7 @@ import type {
   ApplyDeckPatchOptions,
   ApplyDeckPatchResult,
 } from "./deckPatch";
+import { getRichTextSemanticText } from "../text/richTextOperations";
 
 type OperationResult = { ok: true } | ApplyDeckPatchFailure;
 
@@ -726,14 +727,7 @@ function isElementSourceRefKind(
 function getSemanticElementContent(element: DeckElement): string | null {
   switch (element.type) {
     case "text":
-      return JSON.stringify({
-        text: element.props.text,
-        runs: element.props.runs?.map((run) => run.text),
-        paragraphs: element.props.paragraphs?.map((paragraph) => ({
-          text: paragraph.text,
-          runs: paragraph.runs?.map((run) => run.text),
-        })),
-      });
+      return getRichTextSemanticText(element.props);
     case "table":
       return JSON.stringify(
         element.props.rows.map((row) => row.map((cell) => cell.text)),

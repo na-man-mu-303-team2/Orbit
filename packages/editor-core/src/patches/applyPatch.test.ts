@@ -10,6 +10,7 @@ import type {
 } from "@orbit/shared";
 
 import { createDemoDeck } from "../index";
+import { applyRichTextCharacterStyle } from "../text/richTextOperations";
 import { applyDeckPatch } from "./applyPatch";
 import type { ApplyDeckPatchResult, ApplyDeckPatchSuccess } from "./deckPatch";
 
@@ -560,6 +561,33 @@ describe("applyDeckPatch", () => {
           props: { fontSize: 36, color: "#111827" },
         },
       ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
+  });
+
+  it("does not mark cues stale when a style edit canonicalizes legacy text", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+    const element = deck.slides[0].elements[0];
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") return;
+    const props = applyRichTextCharacterStyle(
+      element.props,
+      { start: 0, end: 2 },
+      { italic: true }
+    );
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: element.elementId,
+          props
+        }
+      ])
     );
 
     expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
