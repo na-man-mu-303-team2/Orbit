@@ -5,6 +5,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
+import { WorkspaceContainer } from "./patterns";
 import {
   DropdownMenu,
   DropdownMenuAccount,
@@ -63,7 +64,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
 
   return (
     <header className="orbit-app-header orbit-app-header-redesign">
-      <div className="orbit-app-header-inner">
+      <WorkspaceContainer className="orbit-app-header-inner">
         <button
           aria-label="ORBIT 홈으로 이동"
           className="orbit-app-header-brand"
@@ -137,7 +138,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
             </button>
           )}
         </div>
-      </div>
+      </WorkspaceContainer>
     </header>
   );
 }

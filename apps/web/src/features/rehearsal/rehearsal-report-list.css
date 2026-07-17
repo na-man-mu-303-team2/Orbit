@@ -1,4 +1,4 @@
-.orbit-report-hub { margin: 0 auto; max-width: 1280px; padding: var(--redesign-space-13) var(--redesign-space-8) var(--redesign-space-18); }
+.orbit-report-hub { padding-block: var(--redesign-space-13) var(--redesign-space-18); }
 .orbit-report-hub-heading { align-items: end; display: flex; justify-content: space-between; }
 .orbit-report-hub-heading h1 { font-size: clamp(44px,4.4vw,60px); letter-spacing: -.055em; line-height: 1; margin: 0; }
 .orbit-report-hub-heading > div > p:last-child { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-md-size); margin: var(--redesign-space-4) 0 0; }
@@ -23,8 +23,12 @@
 .orbit-report-project-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orbit-report-project-name small, .orbit-report-project-row > span[role="cell"] { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); }
 
+@media (min-width:1600px) {
+  .orbit-report-project-row { grid-template-columns: minmax(520px,1fr) 220px 160px auto; padding: 0 var(--redesign-space-6); }
+}
+
 @media (max-width:760px) {
-  .orbit-report-hub { padding: var(--redesign-space-8) var(--redesign-space-4) var(--redesign-space-13); }
+  .orbit-report-hub { padding-block: var(--redesign-space-8) var(--redesign-space-13); }
   .orbit-report-hub-heading { align-items: stretch; flex-direction: column; gap: var(--redesign-space-6); }
   .orbit-report-hub-heading h1 { font-size: var(--redesign-type-display-md-size); }
   .orbit-report-hub-heading .redesign-button { justify-content: center; width: 100%; }

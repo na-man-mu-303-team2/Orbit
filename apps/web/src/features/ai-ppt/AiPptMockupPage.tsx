@@ -21,6 +21,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent, Ref } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WorkspaceContainer } from "../../components/patterns";
 import {
   createProjectWithoutDeck,
   deleteProject,
@@ -609,7 +610,7 @@ export function AiPptMockupPage() {
   }
 
   return (
-    <section className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>
@@ -693,7 +694,7 @@ export function AiPptMockupPage() {
           )}
         </button>
       </footer>
-    </section>
+    </WorkspaceContainer>
   );
 }
 
@@ -701,7 +702,7 @@ function AiPptStyleStartingPage() {
   const font = recommendGenerateDeckFonts(defaultFontMood)[0];
   const palette = defaultPaletteOptions[0];
   return (
-    <section className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>
@@ -729,7 +730,7 @@ function AiPptStyleStartingPage() {
           </aside>
         </main>
       </div>
-    </section>
+    </WorkspaceContainer>
   );
 }
 
@@ -865,7 +866,7 @@ export function AiPptStyleColorPage(props: {
   }
 
   return (
-    <section className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>
@@ -933,7 +934,7 @@ export function AiPptStyleColorPage(props: {
           {isGenerating ? "생성 중" : "슬라이드 생성"}
         </button>
       </footer>
-    </section>
+    </WorkspaceContainer>
   );
 }
 

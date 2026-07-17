@@ -15,8 +15,6 @@
 
 .orbit-app-header-redesign .orbit-app-header-inner {
   height: var(--redesign-size-header);
-  max-width: var(--redesign-layout-max-width);
-  padding: 0 var(--redesign-layout-margin);
 }
 
 .orbit-app-header-redesign .orbit-app-header-brand {
