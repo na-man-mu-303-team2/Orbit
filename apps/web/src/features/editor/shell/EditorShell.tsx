@@ -1100,8 +1100,14 @@ export function EditorShell(props: { projectId?: string }) {
 
   function toggleIconLibrary() {
     setIsIconPanelOpen((current) => {
-      if (!current) setIsAnimationPanelOpen(false);
-      return !current;
+      const next = !current;
+      if (next) {
+        setIsAnimationPanelOpen(false);
+        setIsRightPanelOpen(true);
+      } else {
+        setIsRightPanelOpen(false);
+      }
+      return next;
     });
   }
 
@@ -1371,9 +1377,9 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isIconPanelOpen ? "animation-panel-open" : ""} ${
-          isRightPanelOpen ? "" : "right-panel-closed"
-        } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""} ${
+        className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
+          isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
+        } ${
           isSlideRehearsalActive ? "slide-rehearsal-mode" : ""
         }`}
         aria-label="Presentation editor"
@@ -1421,15 +1427,6 @@ export function EditorShell(props: { projectId?: string }) {
             view={slidePanelView}
           />
         )}
-        {!isSlideRehearsalActive && isIconPanelOpen ? (
-          <IconLibrarySidePanel
-            accentColor={
-              currentSlide?.style.accentColor ?? deck.theme.accentColor
-            }
-            onClose={() => setIsIconPanelOpen(false)}
-            onInsert={editorCanvasActions.addIconElement}
-          />
-        ) : null}
         <section className="stage-pane">
           {!isSlideRehearsalActive ? (
             <EditorToolbar
@@ -1722,6 +1719,15 @@ export function EditorShell(props: { projectId?: string }) {
             />
           }
           editorValidationItems={editorValidationItems}
+          iconLibrary={
+            <IconLibrarySidePanel
+              accentColor={
+                currentSlide?.style.accentColor ?? deck.theme.accentColor
+              }
+              onInsert={editorCanvasActions.addIconElement}
+            />
+          }
+          isIconPanelOpen={isIconPanelOpen}
           isOpen={isRightPanelOpen}
           isAnimationPropertiesOpen={isAnimationPanelOpen}
           isPlayingAnimations={isPlayingCurrentSlideAnimations}
@@ -1754,6 +1760,7 @@ export function EditorShell(props: { projectId?: string }) {
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
+          setIsIconPanelOpen={setIsIconPanelOpen}
           setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
         />

@@ -8,6 +8,7 @@ import type {
 import {
   IconAdjustmentsHorizontal as Properties,
   IconChevronRight as ChevronRight,
+  IconIcons,
   IconMicrophone,
   IconMovie as Animation,
   IconPlayerPlay as Play,
@@ -39,9 +40,12 @@ import {
   type PptxImportState,
 } from "./PptxImportQualityPanel";
 import { getDesignPanelLabel } from "../utils/slideEditingPolicy";
+import {
+  getInitialEditorRightPanelMode,
+  type EditorRightPanelMode,
+} from "../utils/rightPanelMode";
 
 export type AiPanelView = "chat" | "tools" | "semantic-cues";
-type RightPanelMode = "assistant" | "animation" | "properties";
 
 type EditorRightPanelProps = {
   aiChatState: AiChatState;
@@ -53,6 +57,8 @@ type EditorRightPanelProps = {
   deck: Deck;
   designProperties: ReactNode;
   editorValidationItems: EditorValidationItem[];
+  iconLibrary: ReactNode;
+  isIconPanelOpen: boolean;
   isOpen: boolean;
   isAnimationPropertiesOpen: boolean;
   isPlayingAnimations: boolean;
@@ -77,6 +83,7 @@ type EditorRightPanelProps = {
   selectedElementIds: string[];
   semanticCueExtractionState: SemanticCueExtractionUiState;
   setAiPanelView: Dispatch<SetStateAction<AiPanelView>>;
+  setIsIconPanelOpen: (open: boolean) => void;
   setIsAnimationPropertiesOpen: (open: boolean) => void;
   setIsOpen: (open: boolean) => void;
 };
@@ -86,13 +93,25 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   const designPanelLabel = getDesignPanelLabel(props.currentSlide);
   const isSpecialSlide = designPanelLabel === "장표 설정";
   const [activePanelMode, setActivePanelMode] =
-    useState<RightPanelMode>("assistant");
+    useState<EditorRightPanelMode>(() =>
+      getInitialEditorRightPanelMode({
+        isAnimationPropertiesOpen: props.isAnimationPropertiesOpen,
+        isIconPanelOpen: props.isIconPanelOpen,
+      })
+    );
 
   useEffect(() => {
     if (props.isAnimationPropertiesOpen) {
       setActivePanelMode("animation");
     }
   }, [props.isAnimationPropertiesOpen]);
+
+  useEffect(() => {
+    if (props.isIconPanelOpen) {
+      setActivePanelMode("icons");
+      props.setIsOpen(true);
+    }
+  }, [props.isIconPanelOpen]);
 
   useEffect(() => {
     if (isSpecialSlide) {
@@ -106,9 +125,12 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
     if (activePanelMode === "animation") {
       props.setIsAnimationPropertiesOpen(false);
     }
+    if (activePanelMode === "icons") {
+      props.setIsIconPanelOpen(false);
+    }
   }
 
-  function selectPanelMode(mode: RightPanelMode) {
+  function selectPanelMode(mode: EditorRightPanelMode) {
     if (props.isOpen && activePanelMode === mode) {
       closePanel();
       return;
@@ -117,6 +139,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
     setActivePanelMode(mode);
     props.setIsOpen(true);
     props.setIsAnimationPropertiesOpen(mode === "animation");
+    props.setIsIconPanelOpen(mode === "icons");
   }
 
   const activePanelLabel =
@@ -124,6 +147,8 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
       ? "속성"
       : activePanelMode === "animation"
         ? "애니메이션"
+        : activePanelMode === "icons"
+          ? "아이콘"
         : "AI 어시스턴트";
 
   function handleAiPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -197,10 +222,14 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 {activePanelMode === "assistant" ? (
                   <Sparkles aria-hidden="true" size={15} />
                 ) : null}
+                {activePanelMode === "icons" ? (
+                  <IconIcons aria-hidden="true" size={15} />
+                ) : null}
                 <strong>
                   {activePanelMode === "properties" ? "속성" : null}
                   {activePanelMode === "animation" ? "애니메이션" : null}
                   {activePanelMode === "assistant" ? "AI 어시스턴트" : null}
+                  {activePanelMode === "icons" ? "아이콘" : null}
                 </strong>
               </div>
               <div className="inspector-actions">
@@ -279,6 +308,16 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                     </>
                   ) : null}
                   {props.designProperties}
+                </div>
+              ) : null}
+              {activePanelMode === "icons" ? (
+                <div
+                  aria-label="아이콘 패널"
+                  className="assistant-panel-view editor-icon-library-panel"
+                  id="editor-icon-library-panel"
+                  role="tabpanel"
+                >
+                  {props.iconLibrary}
                 </div>
               ) : null}
               {activePanelMode === "assistant" ? (

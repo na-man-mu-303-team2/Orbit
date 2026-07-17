@@ -1901,6 +1901,34 @@
   text-align: center;
 }
 
+.icon-library-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.icon-library-description {
+  margin: 0;
+  padding: var(--redesign-space-3) var(--redesign-space-3) var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: 1.5;
+}
+
+.icon-library-scroll {
+  min-height: 0;
+  padding: var(--redesign-space-2) var(--redesign-space-3) var(--redesign-space-3);
+  overflow-y: auto;
+}
+
+.editor-icon-library-panel {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .slides-pane-resizer {
   position: absolute;
   top: 0;
