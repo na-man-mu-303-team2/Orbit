@@ -76,15 +76,13 @@ export function SlideQuestionGuidePanel(props: {
 
   return (
     <div className="editor-question-guide-panel">
-      <div className="editor-question-guide-header">
-        <div><strong>현재 슬라이드 예상 질문</strong><p>슬라이드, 승인 참고자료, 검증된 공식 웹사이트에 근거한 질문 3개를 준비합니다.</p></div>
+      <div className="editor-question-guide-actions">
         <button disabled={!props.slide || status === "generating"} type="button" onClick={() => void generate()}>
           {status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
         </button>
       </div>
       {message ? <p className="editor-practice-message">{message}</p> : null}
       {hasStaleGuide ? <p className="editor-question-stale">덱이 바뀌어 이전 질문은 숨겼습니다. 현재 버전으로 다시 생성해 주세요.</p> : null}
-      {guide ? <SlideQuestionGuideResearchNotice guide={guide} /> : null}
       {guide && guide.items.length > 0 ? (
         <SlideQuestionGuideCarousel
           guide={guide}
@@ -196,19 +194,6 @@ export function getAdjacentQuestionId(
   );
   if (selectedIndex < 0) return null;
   return guide.items[selectedIndex + offset]?.questionId ?? null;
-}
-
-export function SlideQuestionGuideResearchNotice({ guide }: { guide: SlideQuestionGuide }) {
-  if (guide.schemaVersion !== 2) return null;
-  return guide.research.status === "succeeded" ? (
-    <p className="editor-question-research succeeded">
-      공식 웹 근거 {guide.research.officialSourceCount}개를 확인했습니다.
-    </p>
-  ) : (
-    <p className="editor-question-research unavailable">
-      공식 웹 근거를 찾지 못해 슬라이드와 승인 참고자료만 사용했습니다.
-    </p>
-  );
 }
 
 type OfficialWebSource = {

@@ -118,7 +118,8 @@ describe("SpeakerNotesPanel", () => {
     );
 
     expect(qnaHtml).toContain('id="speaker-notes-qna-panel"');
-    expect(qnaHtml).toContain("현재 슬라이드 예상 질문");
+    expect(qnaHtml).toContain("질문 생성");
+    expect(qnaHtml).not.toContain("현재 슬라이드 예상 질문");
     expect(reportHtml).toContain('id="speaker-notes-report-panel"');
     expect(reportHtml).toContain("연습 기록을 불러오는 중");
   });

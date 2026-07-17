@@ -1,12 +1,13 @@
+import { createDemoDeck } from "@orbit/editor-core";
 import type { SlideQuestionGuide } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getAdjacentQuestionId,
   OfficialSourceLinks,
+  SlideQuestionGuidePanel,
   SlideQuestionGuideCarousel,
-  SlideQuestionGuideResearchNotice,
 } from "./SlideQuestionGuidePanel";
 
 const source = {
@@ -20,6 +21,23 @@ const source = {
 };
 
 describe("SlideQuestionGuidePanel official sources", () => {
+  it("상단 설명 없이 질문 생성 액션과 질문 영역을 위로 배치한다", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <SlideQuestionGuidePanel
+        deck={deck}
+        flushPendingSaves={vi.fn()}
+        projectId={deck.projectId}
+        slide={deck.slides[0] ?? null}
+      />,
+    );
+
+    expect(html).toContain("질문 생성");
+    expect(html).not.toContain("현재 슬라이드 예상 질문");
+    expect(html).not.toContain("검증된 공식 웹사이트에 근거한 질문 3개");
+    expect(html).not.toContain("공식 웹 근거를 찾지 못해");
+  });
+
   it("renders a visible, clickable official citation", () => {
     const html = renderToStaticMarkup(<OfficialSourceLinks sources={[source]} />);
 
@@ -27,24 +45,6 @@ describe("SlideQuestionGuidePanel official sources", () => {
     expect(html).toContain("공식 교육과정 안내");
     expect(html).toContain('href="https://example.edu/program"');
     expect(html).toContain('target="_blank"');
-  });
-
-  it("explains when web research degrades to existing sources", () => {
-    const guide = {
-      schemaVersion: 2,
-      research: {
-        status: "unavailable",
-        attempts: 2,
-        officialSourceCount: 0,
-        issueCodes: ["official-missing"],
-        researchedAt: "2026-07-17T00:00:00.000Z",
-      },
-    } as unknown as SlideQuestionGuide;
-
-    const html = renderToStaticMarkup(<SlideQuestionGuideResearchNotice guide={guide} />);
-
-    expect(html).toContain("공식 웹 근거를 찾지 못해");
-    expect(html).toContain("슬라이드와 승인 참고자료만 사용했습니다");
   });
 
   it("shows one question and answer with previous and next arrows", () => {
