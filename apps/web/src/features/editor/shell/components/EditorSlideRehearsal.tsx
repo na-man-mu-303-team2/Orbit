@@ -16,19 +16,26 @@ import {
 import { createDefaultPhraseExtractor } from "../../../rehearsal/speech/phraseExtractor";
 import type { ExtractedSentence } from "../../../rehearsal/speech/speechTrackingEvents";
 import { normalizeLiveTranscriptText } from "../../../rehearsal/stt/liveTranscriptText";
+import type { PracticeSessionState } from "../../practice/useSlidePracticeSession";
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
 
-type EditorSlideRehearsalProps = {
-  onRestart: () => void;
-  onStop: () => void;
+type EditorSlideRehearsalSummaryProps = {
   slide: Slide;
   state: EditorSlideRehearsalState;
 };
 
 export function EditorSlideRehearsalBottomPanel(
-  props: EditorSlideRehearsalProps
+  props: EditorSlideRehearsalSummaryProps & {
+    elapsedMs: number;
+    message: string;
+    onStart: () => void;
+    onStop: () => void;
+    practiceState: PracticeSessionState;
+  }
 ) {
-  const isListening = props.state.status === "listening";
+  const isRecording = props.practiceState === "recording";
+  const isBusy =
+    props.practiceState === "starting" || props.practiceState === "stopping";
   const scriptProgress = useMemo(
     () =>
       createEditorSlideRehearsalScriptProgress({
@@ -48,19 +55,28 @@ export function EditorSlideRehearsalBottomPanel(
         <div className="editor-slide-rehearsal-heading">
           <span
             aria-hidden="true"
-            className={`editor-slide-rehearsal-live-dot ${isListening ? "active" : ""}`}
+            className={`editor-slide-rehearsal-live-dot ${isRecording ? "active" : ""}`}
           />
           <strong>음성 인식</strong>
-          <span>{getRehearsalStatusLabel(props.state)}</span>
+          <span>{getRehearsalStatusLabel(props.practiceState)}</span>
           <span className="editor-slide-rehearsal-script-progress">
             대본 {scriptProgress.progressPercent}%
           </span>
+          {props.message ? (
+            <span
+              aria-live="polite"
+              className="editor-slide-rehearsal-message"
+              title={props.message}
+            >
+              {props.message}
+            </span>
+          ) : null}
         </div>
         <div className="editor-slide-rehearsal-controls">
           <span className="editor-slide-rehearsal-time">
-            {formatRehearsalTime(props.state.elapsedSeconds)}
+            {formatRehearsalTime(Math.floor(props.elapsedMs / 1_000))}
           </span>
-          {isListening || props.state.status === "starting" ? (
+          {isRecording ? (
             <button
               aria-label="슬라이드 연습 종료"
               className="editor-slide-rehearsal-stop"
@@ -74,11 +90,16 @@ export function EditorSlideRehearsalBottomPanel(
             <button
               aria-label="슬라이드 연습 시작"
               className="editor-slide-rehearsal-restart"
+              disabled={isBusy}
               type="button"
-              onClick={props.onRestart}
+              onClick={props.onStart}
             >
               <IconPlayerPlay aria-hidden="true" size={15} />
-              연습 시작
+              {props.practiceState === "starting"
+                ? "준비 중"
+                : props.practiceState === "stopping"
+                  ? "분석 중"
+                  : "연습 시작"}
             </button>
           )}
         </div>
@@ -187,7 +208,7 @@ function sentenceMatchesTranscript(
 }
 
 export function EditorSlideRehearsalRightPanel(
-  props: EditorSlideRehearsalProps
+  props: EditorSlideRehearsalSummaryProps
 ) {
   const hitKeywordIds = new Set(props.state.hitKeywordIds);
   const hitCount = props.slide.keywords.filter((keyword) =>
@@ -239,7 +260,7 @@ export function EditorSlideRehearsalRightPanel(
 }
 
 export function EditorSlideRehearsalLeftPanel(
-  props: EditorSlideRehearsalProps & {
+  props: EditorSlideRehearsalSummaryProps & {
     onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   }
 ) {
@@ -270,14 +291,16 @@ export function formatRehearsalTime(elapsedSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getRehearsalStatusLabel(state: EditorSlideRehearsalState) {
-  switch (state.status) {
+function getRehearsalStatusLabel(state: PracticeSessionState) {
+  switch (state) {
     case "starting":
       return "준비 중";
-    case "listening":
-      return "인식 중";
-    case "stopped":
-      return "중지됨";
+    case "recording":
+      return "녹음 중";
+    case "stopping":
+      return "분석 중";
+    case "completed":
+      return "분석 완료";
     case "error":
       return "연결 확인 필요";
     default:

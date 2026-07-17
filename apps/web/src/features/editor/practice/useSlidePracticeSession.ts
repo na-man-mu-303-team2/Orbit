@@ -14,7 +14,13 @@ import {
   upsertVoiceBaseline,
 } from "./slidePracticeApi";
 
-type PracticeSessionState = "idle" | "starting" | "recording" | "stopping" | "completed" | "error";
+export type PracticeSessionState =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "completed"
+  | "error";
 
 const slidePracticeAudioConstraints: MediaTrackConstraints = {
   echoCancellation: true,
@@ -58,6 +64,7 @@ export function shouldUpdateVoiceBaseline(
 }
 
 export function useSlidePracticeSession(input: {
+  beforeStart?: () => Promise<void>;
   projectId: string;
   deckId: string;
   deckVersion: number;
@@ -88,6 +95,7 @@ export function useSlidePracticeSession(input: {
     setMessage("");
     setReport(null);
     try {
+      await input.beforeStart?.();
       deviceIdHashRef.current = await getStableDeviceIdHash().catch(() => null);
       await audio.start();
       const startedAt = Date.now();
@@ -121,6 +129,20 @@ export function useSlidePracticeSession(input: {
       setState("error");
       setMessage(error instanceof Error ? error.message : "연습 녹음을 완료하지 못했습니다.");
     }
+  }
+
+  function reset() {
+    if (state === "starting" || state === "recording" || state === "stopping") {
+      return false;
+    }
+    clearTimer();
+    sessionSnapshotRef.current = null;
+    startedAtRef.current = null;
+    setElapsedMs(0);
+    setMessage("");
+    setReport(null);
+    setState("idle");
+    return true;
   }
 
   async function finishCapture(capture: FocusedPracticeCapture) {
@@ -186,6 +208,7 @@ export function useSlidePracticeSession(input: {
     elapsedMs,
     report,
     message,
+    reset,
     start,
     stop,
   };

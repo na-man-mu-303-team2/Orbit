@@ -602,3 +602,15 @@
 - Rationale: GitHub Environment secret을 실제 job이 선언된 workflow에서 직접 읽고, 자동 환경 계약부터 서버 full 배포까지 수동·webhook 배포와 겹치지 않게 한다. token scope를 넓히거나 secret을 Repository 수준으로 내리지 않으며, sync 실패 시 self-hosted runner를 시작하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/personal-staging-env.test.mjs`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge push로 생성된 새 run에서 direct sync job의 token 존재 확인과 Doppler sync 성공을 확인하고, 이어지는 full 배포의 검증 SHA·서버 HEAD·health check를 확인한다. 별도 `environment-only` run에서는 Git pull, image build, migration 로그가 없고 앱 컨테이너 재생성 및 health check만 실행되는지 확인한다.
+
+## ORBIT editor rehearsal UI and server practice integration
+
+- Context: 최신 `develop` 에디터는 마이크 버튼으로 한 장 리허설 모드에 들어가 별도 live STT 세션을 시작하지만, 기존 슬라이드 연습 기능은 `MediaRecorder` 녹음과 서버 `slide-practice-analysis` Job을 통해 DB 리포트를 생성한다. 두 마이크 경로를 동시에 시작하면 브라우저별 장치 점유와 서로 다른 분석 결과가 다시 발생하며, 최신 QnA·리포트 탭은 아직 placeholder였다.
+- Options considered:
+  - 최신 live STT와 서버 저장형 연습 녹음을 동시에 시작한다.
+  - 최신 리허설 UI를 제거하고 병합 전 별도 하단 도크를 복원한다.
+  - 마이크 버튼은 리허설 모드 진입에만 사용하고, `연습 시작`부터 기존 서버 저장형 연습 세션 하나만 실행하며 QnA·리포트 탭에 기존 기능을 연결한다.
+- Final decision: 마이크 버튼은 현재 슬라이드를 한 장 연습 모드로 전환하지만 오디오 캡처를 시작하지 않는다. 사용자가 `연습 시작`을 누르면 pending deck save를 먼저 flush한 뒤 기존 `useSlidePracticeSession`의 `MediaRecorder`·private upload·서버 분석 경로만 실행한다. 녹음 중 마이크 버튼으로 나가려 하면 같은 세션을 정상 종료하고, 분석 완료 후 하단 패널을 펼쳐 `리포트` 탭으로 자동 이동한다. QnA 탭은 기존 `SlideQuestionGuidePanel`, 리포트 탭은 DB에서 해당 슬라이드의 최신 1개를 읽는 `SlidePracticeHistoryPanel`을 사용한다. API, Job, 저장 기간, raw audio·transcript 보존 계약은 변경하지 않는다.
+- Rationale: 최신 에디터 레이아웃을 유지하면서 이미 검증된 서버 분석과 DB 리포트를 단일 오디오 경로로 재사용한다. 별도 live STT를 함께 실행하지 않아 마이크 중복 점유와 브라우저 파생 지표의 재도입을 피하고, 생성 결과를 사용자가 찾는 QnA·리포트 탭에 일관되게 배치한다.
+- Affected files: `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesPanel.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesQnaTab.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesReportTab.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`.
+- Follow-up review notes: 로컬 Chrome에서 마이크 진입 전 권한 요청이 발생하지 않는지, `연습 시작` 한 번에 하나의 MediaStream만 생성되는지, 종료 후 서버 분석 지연 동안 버튼이 중복 실행되지 않는지, 완료 뒤 현재 슬라이드의 최신 DB 기록이 리포트 탭에 표시되는지 확인한다. 운영 로그에는 raw audio, transcript, 발표 메모 원문을 추가하지 않는다.

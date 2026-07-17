@@ -10930,6 +10930,22 @@ body.is-resizing-speaker-notes {
   line-height: 1.55;
 }
 
+.orbit-shell.editor-professional .speaker-notes-feature-panel {
+  height: 100%;
+  min-height: 0;
+  padding: var(--redesign-space-4);
+  overflow: auto;
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional .speaker-notes-feature-panel .editor-dock-empty {
+  display: grid;
+  min-height: 140px;
+  place-content: center;
+  color: var(--redesign-color-on-surface-variant);
+  text-align: center;
+}
+
 /* Navigation controls stay visually lightweight in the editor chrome. */
 .orbit-shell.editor-professional .editor-home-button,
 .orbit-shell.editor-professional .collapse-slides-button,
@@ -11712,6 +11728,16 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .editor-slide-rehearsal-heading {
   gap: var(--redesign-space-2);
+  min-width: 0;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-message {
+  max-width: min(36vw, 520px);
+  overflow: hidden;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .orbit-shell.editor-professional .editor-slide-rehearsal-heading strong {
@@ -11778,6 +11804,11 @@ body.is-resizing-speaker-notes {
   border-color: var(--redesign-color-primary-outline);
   background: var(--redesign-color-primary-subtle);
   color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-restart:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .orbit-shell.editor-professional

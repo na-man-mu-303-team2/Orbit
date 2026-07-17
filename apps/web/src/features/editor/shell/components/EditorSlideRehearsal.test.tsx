@@ -24,19 +24,22 @@ const listeningState: EditorSlideRehearsalState = {
 };
 
 describe("EditorSlideRehearsal", () => {
-  it("하단에 실시간 인식 상태와 연습 종료 동작을 표시한다", () => {
+  it("하단에 서버 연습 녹음 상태와 연습 종료 동작을 표시한다", () => {
     const slide = createDemoDeck().slides[0]!;
     const html = renderToStaticMarkup(
       <EditorSlideRehearsalBottomPanel
-        onRestart={vi.fn()}
+        elapsedMs={65_000}
+        message=""
+        onStart={vi.fn()}
         onStop={vi.fn()}
+        practiceState="recording"
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
     );
 
     expect(html).toContain("음성 인식");
-    expect(html).toContain("인식 중");
+    expect(html).toContain("녹음 중");
     expect(html).toContain("01:05");
     expect(html).toContain('aria-label="슬라이드 연습 종료"');
     expect(html).toContain("연습 종료");
@@ -49,8 +52,11 @@ describe("EditorSlideRehearsal", () => {
     const slide = createDemoDeck().slides[0]!;
     const html = renderToStaticMarkup(
       <EditorSlideRehearsalBottomPanel
-        onRestart={vi.fn()}
+        elapsedMs={65_000}
+        message="서버 분석을 완료했습니다."
+        onStart={vi.fn()}
         onStop={vi.fn()}
+        practiceState="completed"
         slide={slide}
         state={{
           ...listeningState,
@@ -64,12 +70,30 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain("연습 시작");
   });
 
+  it("서버 분석 중에는 시작 버튼을 잠그고 진행 메시지를 표시한다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalBottomPanel
+        elapsedMs={12_000}
+        message="녹음을 업로드하고 서버에서 분석하고 있습니다."
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        practiceState="stopping"
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain("분석 중");
+    expect(html).toContain("서버에서 분석하고 있습니다");
+    expect(html).toContain('aria-label="슬라이드 연습 시작"');
+    expect(html).toContain("disabled");
+  });
+
   it("오른쪽 패널에 현재 슬라이드와 체크포인트를 표시한다", () => {
     const slide = createDemoDeck().slides[0]!;
     const html = renderToStaticMarkup(
       <EditorSlideRehearsalRightPanel
-        onRestart={vi.fn()}
-        onStop={vi.fn()}
         slide={slide}
         state={{
           ...listeningState,
@@ -92,8 +116,6 @@ describe("EditorSlideRehearsal", () => {
     const html = renderToStaticMarkup(
       <EditorSlideRehearsalLeftPanel
         onResizeStart={vi.fn()}
-        onRestart={vi.fn()}
-        onStop={vi.fn()}
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
