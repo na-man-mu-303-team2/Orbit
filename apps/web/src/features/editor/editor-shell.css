@@ -7492,7 +7492,7 @@ body.is-resizing-speaker-notes {
     grid-column: 5;
   }
 
-  .orbit-shell.editor-professional .selection-quickbar {
+  .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar {
     align-self: start;
     grid-column: 3;
     grid-row: 1;
@@ -7509,7 +7509,10 @@ body.is-resizing-speaker-notes {
     backdrop-filter: blur(12px);
   }
 
-  .orbit-shell.editor-professional .editor-panel.animation-panel-open .selection-quickbar {
+  .orbit-shell.editor-professional
+    .editor-panel.animation-panel-open
+    .stage-top-controls
+    > .selection-quickbar {
     grid-column: 4;
   }
 
@@ -8349,7 +8352,7 @@ body.is-resizing-speaker-notes {
   box-shadow: var(--redesign-shadow-none);
 }
 
-.orbit-shell.editor-professional .ai-chat-composer button {
+.orbit-shell.editor-professional .ai-chat-composer > button {
   width: 30px;
   height: 30px;
   border-radius: var(--redesign-radius);
@@ -11837,6 +11840,15 @@ body.is-resizing-speaker-notes {
   min-width: 0;
   overflow: hidden;
   transition: opacity var(--redesign-duration-slow) var(--redesign-ease-standard), border-right-width var(--redesign-duration-slow) var(--redesign-ease-standard);
+}
+
+.orbit-shell.editor-professional .slides-pane-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.orbit-shell.editor-professional .slides-pane-content > .slide-rail {
+  height: 100%;
 }
 
 .orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode {
