@@ -4,10 +4,12 @@ import type {
   ActivityQuestionType,
   ActivitySlide
 } from "@orbit/shared";
+import { OrbitButton, OrbitDialog } from "../../../design-system";
 import { useState } from "react";
 
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
 import { ActivityEditorModerationPanel } from "./ActivityEditorModerationPanel";
+import { useActivityEditorRuntime } from "./useActivityEditorRuntime";
 
 const templateLabels = {
   "pre-question": "사전 질문",
@@ -29,7 +31,13 @@ export function ActivitySlideInspector(props: {
   slide: ActivitySlide;
 }) {
   const [previewRole, setPreviewRole] = useState<ActivityPreviewRole>("audience");
+  const [supersedeDialogOpen, setSupersedeDialogOpen] = useState(false);
   const activity = props.slide.activity;
+  const editorRuntime = useActivityEditorRuntime({
+    activityId: activity.activityId,
+    deckId: props.deckId,
+    projectId: props.projectId
+  });
 
   function updateActivity(patch: Partial<ActivityDefinition>) {
     props.onChange({ ...activity, ...patch });
@@ -51,6 +59,11 @@ export function ActivitySlideInspector(props: {
         <p>청중에게 보일 문항과 발표자 화면을 함께 확인합니다.</p>
       </div>
 
+      <fieldset
+        className="activity-semantic-fields"
+        data-semantic-locked={editorRuntime.locked ? "true" : "false"}
+        disabled={editorRuntime.locked}
+      >
       <label>
         제목
         <input
@@ -203,6 +216,30 @@ export function ActivitySlideInspector(props: {
         />
         선택 이름 허용
       </label>
+      </fieldset>
+
+      {editorRuntime.locked && editorRuntime.runtime ? (
+        <section className="activity-definition-lock" role="status">
+          <strong>첫 응답 이후 문항 설정이 잠겼습니다.</strong>
+          <p>
+            실행 v{editorRuntime.runtime.run.version}의 응답 {editorRuntime.runtime.run.responseCount}개를
+            보존합니다. 문항 의미를 바꾸려면 새 실행 버전을 만드세요.
+          </p>
+          <OrbitButton
+            disabled={editorRuntime.pending}
+            onClick={() => setSupersedeDialogOpen(true)}
+            type="button"
+            variant="secondary"
+          >
+            새 실행 버전 만들기
+          </OrbitButton>
+        </section>
+      ) : null}
+      {editorRuntime.error ? (
+        <p className="activity-editor-runtime-error" role="alert">
+          {editorRuntime.error}
+        </p>
+      ) : null}
 
       <div aria-label="참여 장표 미리보기 역할" className="activity-preview-tabs" role="tablist">
         {(["audience", "presenter"] as const).map((role) => (
@@ -231,6 +268,38 @@ export function ActivitySlideInspector(props: {
           slide={props.slide}
         />
       ) : null}
+      <OrbitDialog
+        closeDisabled={editorRuntime.pending}
+        description="기존 응답은 이전 버전에 그대로 보존되고 새 버전은 준비 상태로 시작합니다."
+        footer={(
+          <>
+            <OrbitButton
+              disabled={editorRuntime.pending}
+              onClick={() => setSupersedeDialogOpen(false)}
+              type="button"
+              variant="secondary"
+            >
+              취소
+            </OrbitButton>
+            <OrbitButton
+              disabled={editorRuntime.pending}
+              onClick={() => {
+                void editorRuntime.supersede().then((created) => {
+                  if (created) setSupersedeDialogOpen(false);
+                });
+              }}
+              type="button"
+            >
+              {editorRuntime.pending ? "만드는 중" : "새 버전 만들기"}
+            </OrbitButton>
+          </>
+        )}
+        onClose={() => setSupersedeDialogOpen(false)}
+        open={supersedeDialogOpen}
+        title="새 실행 버전을 만들까요?"
+      >
+        <p>현재 문항 설정을 복사한 새 run을 만들고 편집 잠금을 해제합니다.</p>
+      </OrbitDialog>
     </div>
   );
 }

@@ -41,6 +41,7 @@ describe("activity slide editor", () => {
     expect(html).toContain("발표자 화면");
     expect(html).toContain("잠긴 시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
+    expect(html).toContain('data-semantic-locked="false"');
   });
 
   it("converts and reorders satisfaction questions without changing their IDs", () => {

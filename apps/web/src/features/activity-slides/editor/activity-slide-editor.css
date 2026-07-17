@@ -169,18 +169,56 @@
   min-width: 0;
 }
 
+.activity-semantic-fields {
+  border: 0;
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
 .activity-inspector-heading h3,
 .activity-inspector-heading p {
   margin: 4px 0 0;
 }
 
 .activity-slide-inspector > label,
+.activity-semantic-fields > label,
 .activity-inspector-questions label {
   color: #4b4b4b;
   display: grid;
   font-size: 12px;
   font-weight: 700;
   gap: 6px;
+}
+
+.activity-semantic-fields:disabled {
+  opacity: 0.68;
+}
+
+.activity-definition-lock {
+  background: #fff8e6;
+  border: 1px solid #efd38b;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.activity-definition-lock p,
+.activity-editor-runtime-error {
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.activity-definition-lock p {
+  color: #6b5423;
+}
+
+.activity-editor-runtime-error {
+  color: #b42318;
 }
 
 .activity-slide-inspector input[type="text"],

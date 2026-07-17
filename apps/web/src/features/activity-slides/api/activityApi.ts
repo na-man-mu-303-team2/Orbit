@@ -197,9 +197,32 @@ async function request<T>(
       payload && typeof payload === "object" && "message" in payload
         ? String(payload.message)
         : `Activity request failed (${response.status})`;
-    throw new Error(message);
+    throw new ActivityApiError(message, response.status, readErrorCode(payload));
   }
   return schema.parse(payload);
+}
+
+export class ActivityApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null
+  ) {
+    super(message);
+    this.name = "ActivityApiError";
+  }
+}
+
+function readErrorCode(payload: unknown): string | null {
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("code" in payload) ||
+    typeof payload.code !== "string"
+  ) {
+    return null;
+  }
+  return payload.code;
 }
 
 function jsonRequest(method: string, body: unknown): RequestInit {
