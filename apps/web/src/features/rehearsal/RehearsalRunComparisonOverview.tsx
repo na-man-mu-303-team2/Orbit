@@ -65,6 +65,31 @@ export function RehearsalRunComparisonOverview({
       )}
 
       {!compact && model.hasPreviousRun ? (
+        model.silenceComparison ? (
+          <section
+            className="rehearsal-run-silence-comparison"
+            aria-label="긴 침묵 회차 비교"
+          >
+            <strong>긴 침묵 비교</strong>
+            <span>
+              {model.silenceComparison.previousLongSilenceCount}회 →{" "}
+              {model.silenceComparison.currentLongSilenceCount}회
+            </span>
+            <span>
+              총{" "}
+              {formatSeconds(
+                model.silenceComparison.previousTotalSilenceSeconds,
+              )}{" "}
+              →{" "}
+              {formatSeconds(
+                model.silenceComparison.currentTotalSilenceSeconds,
+              )}
+            </span>
+          </section>
+        ) : null
+      ) : null}
+
+      {!compact && model.hasPreviousRun ? (
         <div className="rehearsal-run-comparison-groups">
           {model.groups.map((group) => (
             <section
@@ -102,6 +127,10 @@ export function RehearsalRunComparisonOverview({
       ) : null}
     </section>
   );
+}
+
+function formatSeconds(seconds: number) {
+  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}초`;
 }
 
 function issueKey(item: {

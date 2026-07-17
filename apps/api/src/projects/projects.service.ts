@@ -271,6 +271,11 @@ export class ProjectsService {
     return this.toProjectDto(project);
   }
 
+  async assertIsProjectOwner(projectId: string, userId: string): Promise<void> {
+    const project = await this.findProjectOrDemo(projectId);
+    await this.assertProjectOwner(project.workspaceId, project.projectId, userId);
+  }
+
   async listMembers(
     workspaceId: string,
     projectId: string,

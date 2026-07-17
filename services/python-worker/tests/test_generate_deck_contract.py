@@ -96,6 +96,7 @@ from app.ai.deck_generation.quality import (
 )
 from app.ai.deck_generation.source_grounding import (
     design_pack_source_ledgers,
+    ground_sources,
     initial_source_records,
     web_source_id,
     web_sources_from_response,
@@ -285,6 +286,10 @@ def test_generate_deck_request_rejects_more_than_ten_references() -> None:
 def test_generate_deck_diagnostics_use_shared_visual_defaults() -> None:
     diagnostics = GenerateDeckDiagnostics().model_dump(by_alias=True)
 
+    assert diagnostics["researchQuality"] == "not-run"
+    assert diagnostics["researchIssueCodes"] == []
+    assert diagnostics["independentWebSourceCount"] == 0
+    assert diagnostics["researchFactCoverageSatisfied"] is False
     assert diagnostics["warningCodes"] == []
     assert diagnostics["visualQaStatus"] == "not-run"
     assert diagnostics["visualReviewAttempts"] == 0
@@ -339,6 +344,20 @@ def test_generate_deck_diagnostics_accept_extensible_warning_codes() -> None:
     assert diagnostics.warning_codes == ["FUTURE_DEGRADED_RESULT"]
 
 
+def test_generate_deck_diagnostics_reject_unknown_research_issue_codes() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckDiagnostics.model_validate(
+            {"researchIssueCodes": ["provider stack trace"]}
+        )
+
+
+def test_generate_deck_diagnostics_reject_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        GenerateDeckDiagnostics.model_validate(
+            {"researchQuality": "partial", "providerResponse": {"raw": True}}
+        )
+
+
 @pytest.mark.parametrize(
     ("design_prompt", "expected"),
     [
@@ -388,6 +407,28 @@ def test_internal_source_grounding_stage_endpoint_uses_strict_contract() -> None
     assert response.status_code == 200
     assert response.json()["rawInput"]["topic"] == "ORBIT"
     assert response.json()["rawInput"]["warningCodes"] == []
+
+
+def test_internal_source_grounding_stage_exposes_safe_research_diagnostics() -> None:
+    response = client().post(
+        "/internal/ai/deck-generation/source-grounding",
+        json={
+            "request": {
+                "projectId": "project_demo_1",
+                "topic": "ORBIT",
+                "brief": {"referencePolicy": "research-first"},
+                "metadata": {},
+                "design": {},
+                "slideCountRange": {},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rawInput"]["research_quality"] == "unavailable"
+    assert response.json()["rawInput"]["research_issue_codes"] == [
+        "provider-unavailable"
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -1512,6 +1553,51 @@ def test_design_pack_finalization_compacts_notes_and_adds_profile_action() -> No
     assert any("승인" in item.text for item in slide.content_items)
 
 
+def test_design_pack_preserves_approved_story_content() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Executive decision",
+            design={"profile": "executive-report"},
+            brief={"successCriteria": "Approve the next-quarter budget."},
+        )
+    )
+    original_notes = (
+        "This approved script must remain unchanged after Story Review. "
+        "It contains enough detail to exceed the automatic density target. "
+        "The user explicitly chose this wording before approving generation."
+    )
+    slide = SlidePlan(
+        order=5,
+        slide_type="summary",
+        title="Approved closing title",
+        message="Approved closing message",
+        speaker_notes=original_notes,
+        keywords=["approval"],
+        evidence=[],
+        target_speaker_notes_chars=40,
+        content_items=[
+            GeneratedContentItem(
+                contentItemId="approved-item",
+                text="Approved supporting content",
+            )
+        ],
+    )
+
+    apply_design_options(
+        raw_input,
+        [slide],
+        preserve_approved_content=True,
+    )
+
+    assert slide.title == "Approved closing title"
+    assert slide.message == "Approved closing message"
+    assert slide.speaker_notes == original_notes
+    assert [item.text for item in slide.content_items] == [
+        "Approved supporting content"
+    ]
+
+
 def test_public_assets_route_structured_visuals_to_native_shapes() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
@@ -1785,6 +1871,7 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         GenerateDeckRequest(
             projectId="project_demo_1",
             topic="정성 비교 연구",
+            prompt="한 달 시범사업을 계획합니다.",
             slideCountRange={"min": 1, "max": 1},
         )
     )
@@ -1808,6 +1895,8 @@ def test_content_plan_repair_distinguishes_small_enumeration_from_measurement() 
         return content_plan_repair_reasons([slide], raw_input=raw_input)
 
     assert not any("unsupported numeric claim" in reason for reason in reasons_for("관점 2개를 비교합니다"))
+    assert not any("unsupported numeric claim" in reason for reason in reasons_for("4주차에 결과를 검토합니다"))
+    assert "slide 1: unsupported numeric claim values 5" in reasons_for("5주차에 결과를 검토합니다")
     assert "slide 1: unsupported numeric claim values 2" in reasons_for("효과가 2% 증가합니다")
 
 
@@ -2240,6 +2329,10 @@ def test_research_first_uses_one_web_search_and_keeps_cited_sources() -> None:
     assert "underlying technology, market, or operating concepts" in str(
         web_requests[0]["input"]
     )
+    assert response.diagnostics.research_quality == "complete"
+    assert response.diagnostics.research_issue_codes == []
+    assert response.diagnostics.independent_web_source_count == 2
+    assert response.diagnostics.research_fact_coverage_satisfied is True
     ledgers = response.deck["slides"][0]["aiNotes"]["sourceLedger"]
     assert ledgers[0]["sourceType"] == "web"
     assert ledgers[0]["url"] == "https://example.com/report-a"
@@ -2290,6 +2383,10 @@ def test_research_first_retries_then_warns_for_fewer_than_two_url_citations() ->
     )
 
     assert len([request for request in client.requests if request.get("tools")]) == 3
+    assert response.diagnostics.research_quality == "partial"
+    assert response.diagnostics.research_issue_codes == ["independent-missing"]
+    assert response.diagnostics.independent_web_source_count == 1
+    assert response.diagnostics.research_fact_coverage_satisfied is True
     assert response.diagnostics.warning_codes == ["WEB_RESEARCH_QUALITY_FAILED"]
     assert any("Web research quality was insufficient" in item for item in response.warnings)
 
@@ -2342,6 +2439,210 @@ def test_research_retry_uses_action_sources_only_as_diagnostic_hints() -> None:
     )
     assert first_url in str(web_requests[1]["input"])
     assert response.diagnostics.relevant_web_source_count == 2
+
+
+@pytest.mark.parametrize(
+    ("authority", "expected_issue", "official_count", "independent_count"),
+    [
+        ("official", "independent-missing", 1, 0),
+        ("independent", "official-missing", 0, 1),
+    ],
+)
+def test_research_first_keeps_the_best_verified_partial_source(
+    authority: str,
+    expected_issue: str,
+    official_count: int,
+    independent_count: int,
+) -> None:
+    source_url = f"https://{authority}.example/research"
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "Limited research",
+            "slides": [
+                slide_payload(
+                    "Limited research",
+                    "The available cited source supports this draft.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                )
+            ],
+        },
+        [(source_url, "Verified source")],
+        official_required=True,
+        authorities={source_url: authority},
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Limited research",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    assert response.diagnostics.research_quality == "partial"
+    assert expected_issue in response.diagnostics.research_issue_codes
+    assert response.diagnostics.official_web_source_count == official_count
+    assert response.diagnostics.independent_web_source_count == independent_count
+    ledgers = response.deck["slides"][0]["aiNotes"]["sourceLedger"]
+    assert {ledger.get("url") for ledger in ledgers if ledger.get("url")} == {
+        source_url
+    }
+
+
+def test_research_first_keeps_verified_sources_when_fact_coverage_is_partial() -> None:
+    official_url = "https://publisher.example/release"
+    independent_url = "https://news.example/release"
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "Limited facts",
+            "slides": [
+                slide_payload(
+                    "Limited facts",
+                    "Only cited facts are included.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                )
+            ],
+        },
+        [(official_url, "Official"), (independent_url, "Independent")],
+        official_required=True,
+        authorities={
+            official_url: "official",
+            independent_url: "independent",
+        },
+        fact_coverage_satisfied=False,
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Limited facts",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    assert response.diagnostics.research_quality == "partial"
+    assert response.diagnostics.research_issue_codes == ["fact-coverage"]
+    assert response.diagnostics.research_fact_coverage_satisfied is False
+    assert response.diagnostics.relevant_web_source_count == 2
+
+
+def test_research_first_provider_failure_returns_unavailable_brief_only_draft() -> None:
+    client = FakeResearchOpenAIClient(
+        {
+            "title": "Brief only",
+            "slides": [
+                slide_payload(
+                    "Brief only",
+                    "The presentation stays within the supplied brief.",
+                    long_speaker_notes(1),
+                    slide_type="cover",
+                )
+            ],
+        },
+        [],
+        web_error=True,
+    )
+
+    response = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brief only",
+            prompt="Summarize only this user-provided framing.",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            design={"mediaPolicy": "minimal"},
+            targetDurationMinutes=1,
+            slideCountRange={"min": 1, "max": 1},
+        ),
+        client=client,
+    )
+
+    assert response.diagnostics.research_quality == "unavailable"
+    assert response.diagnostics.research_issue_codes == ["provider-call-failed"]
+    assert response.diagnostics.relevant_web_source_count == 0
+    content_request = next(
+        request
+        for request in client.requests
+        if "design_pack_content_plan" in str(request.get("text"))
+    )
+    assert "No verified web sources are available" in str(content_request["input"])
+
+
+def test_research_first_without_provider_reports_unavailable_safely() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brief only",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+        )
+    )
+
+    result = ground_sources(raw_input, current_date=date(2026, 7, 16))
+
+    assert result.raw_input.research_quality == "unavailable"
+    assert result.raw_input.research_issue_codes == ["provider-unavailable"]
+    assert result.source_records[0].source_type == "topic"
+    assert result.web_source_count == 0
+
+
+def test_research_first_unavailable_uses_brief_instead_of_uploaded_context() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brief only",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+            references=[{"fileId": "file-private"}],
+            referenceContext=[
+                {
+                    "fileId": "file-private",
+                    "title": "private.pdf",
+                    "content": "Unverified external date: 2099-01-01",
+                }
+            ],
+        )
+    )
+
+    result = ground_sources(raw_input, current_date=date(2026, 7, 16))
+
+    assert result.raw_input.research_quality == "unavailable"
+    assert [source.source_type for source in result.source_records] == ["topic"]
+    assert "2099-01-01" not in result.source_records[0].content
+
+
+def test_research_first_without_citations_reports_unavailable() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Brief only",
+            referencePolicy="research-first",
+            brief={"referencePolicy": "research-first"},
+        )
+    )
+    client = FakeResearchOpenAIClient({"title": "unused", "slides": []}, [])
+
+    result = ground_sources(
+        raw_input,
+        current_date=date(2026, 7, 16),
+        client=client,
+    )
+
+    assert result.raw_input.research_quality == "unavailable"
+    assert result.raw_input.research_issue_codes == ["no-citations"]
+    assert result.web_source_count == 0
 
 
 def test_web_sources_ignore_search_action_sources_not_cited_in_message() -> None:

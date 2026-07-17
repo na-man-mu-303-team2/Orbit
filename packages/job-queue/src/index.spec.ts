@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateDeckRequestSchema } from "@orbit/shared";
+import { deckSchema, generateDeckRequestSchema } from "@orbit/shared";
 import {
   InMemoryJobQueue,
   aiDeckDesignLayoutQueueName,
@@ -16,6 +16,12 @@ import {
   enqueueRehearsalSttJob,
   enqueueRehearsalSemanticEvaluationJob,
   enqueueWorkerHealthCheckJob,
+  enqueueActivityResponseRetentionJob,
+  activityResponseRetentionJobName,
+  activityResponseRetentionQueueName,
+  deckExportJobName,
+  deckExportQueueName,
+  enqueueDeckExportJob,
   pptxOoxmlGenerationJobName,
   pptxOoxmlGenerationQueueName,
   referenceExtractQueueName,
@@ -158,6 +164,20 @@ describe("AI Deck staged BullMQ transport", () => {
     expect(JSON.stringify(queueMock.add.mock.calls)).not.toContain(
       "분산 파이프라인",
     );
+  });
+
+  it("does not open or enqueue an AI BullMQ job in PostgreSQL mode", async () => {
+    await enqueueGenerateDeckJob({
+      driver: "bullmq",
+      executionMode: "pg",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-ai-deck-pg-1",
+      projectId: "project-a",
+      request: generateDeckRequestSchema.parse({ topic: "PostgreSQL" }),
+    });
+
+    expect(queueMock.Queue).not.toHaveBeenCalled();
+    expect(queueMock.add).not.toHaveBeenCalled();
   });
 
   it("removes a failed coordinator entry before explicit retry", async () => {
@@ -328,6 +348,80 @@ describe("enqueueWorkerHealthCheckJob", () => {
       expect.objectContaining({ jobId: "job-1", attempts: 5 })
     );
     expect(queueMock.close).toHaveBeenCalled();
+  });
+});
+
+describe("enqueueActivityResponseRetentionJob", () => {
+  it("adds an ID-only retryable retention job to BullMQ", async () => {
+    await enqueueActivityResponseRetentionJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job_activity_retention_session_1",
+      projectId: "project-a",
+      presentationSessionId: "session_1"
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(
+      activityResponseRetentionQueueName,
+      { connection: expect.objectContaining({ host: "localhost", port: 6379 }) }
+    );
+    expect(queueMock.add).toHaveBeenCalledWith(
+      activityResponseRetentionJobName,
+      {
+        jobId: "job_activity_retention_session_1",
+        projectId: "project-a",
+        presentationSessionId: "session_1"
+      },
+      expect.objectContaining({
+        jobId: "job_activity_retention_session_1",
+        attempts: 5,
+        backoff: { type: "exponential", delay: 1_000 }
+      })
+    );
+  });
+});
+
+describe("enqueueDeckExportJob", () => {
+  it("forwards the optional presentation session without response data", async () => {
+    const deck = deckSchema.parse({
+      deckId: "deck_1",
+      projectId: "project-a",
+      title: "Export",
+      version: 1,
+      canvas: {
+        preset: "wide-16-9",
+        width: 1920,
+        height: 1080,
+        aspectRatio: "16:9",
+      },
+      slides: [{ slideId: "slide_1", order: 1, title: "Opening" }],
+    });
+
+    await enqueueDeckExportJob({
+      driver: "bullmq",
+      redisUrl: "redis://localhost:6379",
+      jobId: "job-export-1",
+      projectId: "project-a",
+      deck,
+      format: "pptx",
+      presentationSessionId: "session-1",
+    });
+
+    expect(queueMock.Queue).toHaveBeenCalledWith(deckExportQueueName, {
+      connection: expect.objectContaining({ host: "localhost", port: 6379 }),
+    });
+    expect(queueMock.add).toHaveBeenCalledWith(
+      deckExportJobName,
+      expect.objectContaining({
+        jobId: "job-export-1",
+        projectId: "project-a",
+        presentationSessionId: "session-1",
+      }),
+      expect.objectContaining({ jobId: "job-export-1", attempts: 5 }),
+    );
+    expect(JSON.stringify(queueMock.add.mock.calls)).not.toMatch(
+      /answers_json|display_name|rawResponse/i,
+    );
   });
 });
 

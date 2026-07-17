@@ -36,6 +36,7 @@ describe("triggeredActionPlayback", () => {
 
 function createSlide(): Slide {
   return {
+    kind: "content",
     slideId: "slide_1",
     order: 1,
     title: "AI",

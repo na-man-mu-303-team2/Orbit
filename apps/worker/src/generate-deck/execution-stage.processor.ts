@@ -1,12 +1,12 @@
 import {
   aiDeckGenerationStageMessageSchema,
+  deckSchema,
   generateDeckJobResultSchema,
-  generateDeckRequestSchema,
   generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
-  savedDesignPackSnapshotSchema,
   type AiDeckGenerationStageMessage,
   type GenerateDeckResponse,
   type Job,
@@ -23,14 +23,22 @@ import {
 } from "./asset-resolution";
 import { AiDeckExecutionArtifactRepository } from "./execution-artifact-repository";
 import {
+  completedSlideV2ArtifactPayloadSchema,
   imageSlideArtifactPayloadSchema,
+  isCompletedSlideV2Artifact,
   isAiDeckExecutionStage,
   qualityArtifactPayloadSchema,
   type AiDeckExecutionArtifactPayload,
   type AiDeckExecutionStage,
 } from "./execution-stage-contract";
 import { AiDeckPlanningArtifactRepository } from "./planning-artifact-repository";
-import { layoutCompileArtifactPayloadSchema } from "./planning-stage-contract";
+import {
+  contentPlanningArtifactPayloadSchema,
+  designPlanningArtifactPayloadSchema,
+  isLayoutCompileV2Artifact,
+  layoutCompileArtifactPayloadSchema,
+  type LayoutCompileV2ArtifactPayload,
+} from "./planning-stage-contract";
 import { markDeckForInitialThumbnailRefresh } from "./pipeline";
 import {
   RenderedVisualQualityUnavailableError,
@@ -45,7 +53,10 @@ import {
   withHybridMediaBudgetIssue,
   withVisualIssues,
 } from "./semantic-quality";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import {
   compactDiagnostics,
   contractErrorDiagnostics,
@@ -55,21 +66,12 @@ import {
   type AiDeckStageEventLogger,
   type SafeStageErrorDiagnostics,
 } from "./stage-diagnostics";
+import { composeAiDeckSlide } from "./slide-compose-python-client";
 
 const executionMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckExecutionStage(message.stage),
   { message: "AI deck execution stage required" },
 );
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-    imageAssetScope: z
-      .object({ userId: z.string().min(1) })
-      .strict()
-      .optional(),
-  })
-  .passthrough();
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
@@ -87,6 +89,7 @@ const parentJobRowSchema = z.object({
 export interface AiDeckExecutionStageProcessorOptions {
   heartbeatIntervalMs?: number;
   eventLogger?: AiDeckStageEventLogger;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
 }
 
 export async function processAiDeckExecutionStage(
@@ -104,8 +107,10 @@ export async function processAiDeckExecutionStage(
   }
   const message = { ...parsed, stage: parsed.stage };
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) return;
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) throw new Error("Claimed stage has no lease owner.");
   const startedAt = Date.now();
   emitStageEvent(
@@ -216,14 +221,25 @@ export async function processAiDeckExecutionStage(
       }
       return;
     }
-    const result = await failStageAndParent(
-      dataSource,
-      message,
-      claimed.leaseOwner,
-      claimed.attempt,
-      normalized.error,
-      normalized.result,
-    );
+    const v2ImageShard =
+      message.stage === "image-slide" &&
+      (await isV2ImageShard(dataSource, message, claimed.inputRef));
+    const result = v2ImageShard
+      ? await failV2ImageShardAndJoin(
+          dataSource,
+          message,
+          claimed.leaseOwner,
+          claimed.attempt,
+          normalized.error,
+        )
+      : await failStageAndParent(
+          dataSource,
+          message,
+          claimed.leaseOwner,
+          claimed.attempt,
+          normalized.error,
+          normalized.result,
+        );
     if (result) {
       emitStageEvent(
         options.eventLogger,
@@ -241,6 +257,20 @@ export async function processAiDeckExecutionStage(
     return result;
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
   }
 }
 
@@ -290,6 +320,9 @@ async function executeImageSlide(
     input.message,
     input.inputRef,
   );
+  if (isLayoutCompileV2Artifact(layout)) {
+    return executeV2ImageSlide(input, layout);
+  }
   const workerPayload = layout.workerPayload;
   let deck = markDeckForInitialThumbnailRefresh(
     workerPayload.deck,
@@ -351,6 +384,232 @@ async function executeImageSlide(
   });
 }
 
+const storySlideSchema = z
+  .object({
+    order: z.number().int().positive(),
+    title: z.string().min(1),
+    message: z.string().min(1),
+    speaker_notes: z.string().optional(),
+    speakerNotes: z.string().optional(),
+    source_refs: z.array(z.string()).optional(),
+    sourceRefs: z.array(z.string()).optional(),
+  })
+  .passthrough();
+const v2ContentSchema = z.object({
+  outline: z.record(z.unknown()),
+  slidePlans: z.array(storySlideSchema).min(1),
+});
+
+async function executeV2ImageSlide(
+  input: Parameters<typeof executeStage>[0],
+  layout: LayoutCompileV2ArtifactPayload,
+): Promise<AiDeckExecutionArtifactPayload> {
+  const descriptor = layout.slides.find(
+    (slide) => slide.shardKey === input.message.shardKey,
+  );
+  if (!descriptor) {
+    throw new StageTerminalError(
+      "AI_DECK_SLIDE_SHARD_INVALID",
+      "AI deck slide shard does not match the layout manifest.",
+    );
+  }
+  const planning = new AiDeckPlanningArtifactRepository(input.dataSource);
+  const [contentArtifact, designArtifact] = await Promise.all([
+    planning.getByStage(input.message, "content-planning"),
+    planning.getByStage(input.message, "design-planning"),
+  ]);
+  const content = contentPlanningArtifactPayloadSchema.parse(
+    contentArtifact.payload,
+  );
+  const design = designPlanningArtifactPayloadSchema.parse(
+    designArtifact.payload,
+  );
+  const contentPlan = v2ContentSchema.parse(content.contentPlan);
+  const approved = contentPlan.slidePlans.find(
+    (slide) => slide.order === descriptor.order,
+  );
+  if (!approved) {
+    throw new StageTerminalError(
+      "AI_DECK_STORY_SLIDE_MISSING",
+      "Approved story slide is missing from the content artifact.",
+    );
+  }
+  const composed = await composeAiDeckSlide(input.pythonWorkerUrl, {
+    rawInput: scopeRawInputForSlide(content.rawInput, approved),
+    contentPlan: content.contentPlan,
+    designPlan: design.designPlan,
+    sourceOrder: descriptor.sourceOrder,
+    order: descriptor.order,
+    slideId: descriptor.slideId,
+  });
+  assertCompletedSlideMatchesStory(composed.slide, approved, descriptor);
+
+  let deck = markDeckForInitialThumbnailRefresh(
+    deckSchema.parse({ ...layout.deckShell, slides: [composed.slide] }),
+    input.context.designPackSnapshot,
+  );
+  const slideIndex = layout.slides.findIndex(
+    (slide) => slide.shardKey === input.message.shardKey,
+  );
+  const runtime =
+    input.imageRuntime && slideIndex >= input.imageRuntime.maxPerDeck
+      ? { ...input.imageRuntime, maxPerDeck: 0 }
+      : input.imageRuntime;
+  const resolved = await resolveGenerateDeckAssets({
+    dataSource: input.dataSource,
+    storage: input.storage,
+    pythonWorkerUrl: input.pythonWorkerUrl,
+    deck,
+    validation: composed.validation,
+    imageRuntime: runtime,
+    imageAssetScope: input.context.imageAssetScope,
+    officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
+    onlySlideIds: new Set([descriptor.slideId]),
+    deterministicIdentity: `${input.message.projectId}:${input.message.pipelineJobId}`,
+    onImageFallback: (diagnostic) =>
+      emitStageEvent(
+        input.eventLogger,
+        "ai-ppt.image-asset.fallback",
+        stageEventFields(
+          input.message,
+          input.workerId,
+          input.attempt,
+          input.startedAt,
+          false,
+          { code: "GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK", ...diagnostic },
+        ),
+      ),
+  });
+  deck = resolved.deck;
+  const semantic = runInitialSemanticQuality({
+    deck,
+    validation: composed.validation,
+  });
+  if (
+    hasBlockingQualityGateIssues(semantic.validation) ||
+    semantic.unresolvedMedia
+  ) {
+    throw new StageTerminalError(
+      "GENERATE_DECK_SLIDE_QUALITY_GATE_FAILED",
+      "Generated slide did not pass deterministic validation.",
+    );
+  }
+  let finalizedDeck = semantic.deck;
+  let finalizedValidation = semantic.validation;
+  const warnings = [
+    ...layout.warnings,
+    ...composed.warnings,
+    ...resolved.warnings,
+    ...semantic.warnings,
+  ];
+  try {
+    const visual = await runRenderedVisualQuality({
+      dataSource: input.dataSource,
+      storage: input.storage,
+      pythonWorkerUrl: input.pythonWorkerUrl,
+      deck: finalizedDeck,
+      validation: finalizedValidation,
+      imageRuntime: runtime,
+      imageAssetScope: input.context.imageAssetScope,
+      officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
+      enforcesHybridMediaBudget: false,
+      jobId: input.message.pipelineJobId,
+      projectId: input.message.projectId,
+      onRepairProgress: async () => undefined,
+      emitEvent: (event, fields) => emit(input.eventLogger, event, fields),
+    });
+    if (!visual.passed) {
+      throw new StageTerminalError(
+        "GENERATE_DECK_SLIDE_VISUAL_QUALITY_GATE_FAILED",
+        "Generated slide did not pass rendered visual validation.",
+      );
+    }
+    finalizedDeck = visual.deck;
+    finalizedValidation = visual.validation;
+    warnings.push(...visual.warnings);
+  } catch (error) {
+    if (!(error instanceof RenderedVisualQualityUnavailableError)) throw error;
+    if (
+      hasBlockingQualityGateIssues(error.validation) ||
+      hasMediaPlaceholder(error.deck)
+    ) {
+      throw new StageTerminalError(
+        "GENERATE_DECK_SLIDE_QUALITY_GATE_FAILED",
+        "Generated slide could not be validated.",
+      );
+    }
+    finalizedDeck = error.deck;
+    finalizedValidation = error.validation;
+    warnings.push(...error.warnings, "Rendered Visual QA was unavailable.");
+  }
+  const slide = finalizedDeck.slides[0];
+  if (!slide) throw new Error("Completed AI deck slide is missing.");
+  assertCompletedSlideMatchesStory(slide, approved, descriptor);
+  emit(input.eventLogger, "ai-ppt.slide.completed", {
+    jobId: input.message.pipelineJobId,
+    projectId: input.message.projectId,
+    slideId: slide.slideId,
+    sourceOrder: descriptor.sourceOrder,
+    durationMs: Date.now() - input.startedAt,
+  });
+  return completedSlideV2ArtifactPayloadSchema.parse({
+    artifactVersion: 2,
+    sourceOrder: descriptor.sourceOrder,
+    order: descriptor.order,
+    slideId: descriptor.slideId,
+    slide,
+    warnings: unique(warnings),
+    validation: finalizedValidation,
+  });
+}
+
+function scopeRawInputForSlide(
+  rawInput: Record<string, unknown>,
+  approved: z.infer<typeof storySlideSchema>,
+): Record<string, unknown> {
+  const sourceRefs = new Set(approved.sourceRefs ?? approved.source_refs ?? []);
+  const rawSources = Array.isArray(rawInput.sourceRecords)
+    ? rawInput.sourceRecords
+    : Array.isArray(rawInput.source_records)
+      ? rawInput.source_records
+      : [];
+  const sourceRecords = rawSources.filter((source) => {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      return false;
+    }
+    const record = source as Record<string, unknown>;
+    const sourceId = record.sourceId ?? record.source_id;
+    return typeof sourceId === "string" && sourceRefs.has(sourceId);
+  });
+  return {
+    ...rawInput,
+    sourceRecords,
+    source_records: sourceRecords,
+    referenceContext: [],
+    reference_context: [],
+  };
+}
+
+function assertCompletedSlideMatchesStory(
+  slide: GenerateDeckResponse["deck"]["slides"][number],
+  approved: z.infer<typeof storySlideSchema>,
+  descriptor: LayoutCompileV2ArtifactPayload["slides"][number],
+) {
+  const approvedNotes = approved.speakerNotes ?? approved.speaker_notes ?? "";
+  if (
+    slide.slideId !== descriptor.slideId ||
+    slide.order !== descriptor.order ||
+    slide.title !== approved.title ||
+    !slide.aiNotes?.emphasisPoints?.includes(approved.message) ||
+    (approvedNotes.trim() && slide.speakerNotes !== approvedNotes)
+  ) {
+    throw new StageTerminalError(
+      "AI_DECK_COMPLETED_SLIDE_IDENTITY_INVALID",
+      "Completed slide changed approved story fields.",
+    );
+  }
+}
+
 async function executeSemanticQuality(
   input: Parameters<typeof executeStage>[0],
 ): Promise<AiDeckExecutionArtifactPayload> {
@@ -359,6 +618,9 @@ async function executeSemanticQuality(
     input.message,
     input.inputRef,
   );
+  if (isLayoutCompileV2Artifact(layout)) {
+    return executeV2SemanticQuality(input, layout);
+  }
   let workerPayload = generateDeckResponseSchema.parse(layout.workerPayload);
   const artifacts = await new AiDeckExecutionArtifactRepository(
     input.dataSource,
@@ -423,9 +685,115 @@ async function executeSemanticQuality(
   return qualityArtifactPayloadSchema.parse({ workerPayload });
 }
 
+async function executeV2SemanticQuality(
+  input: Parameters<typeof executeStage>[0],
+  layout: LayoutCompileV2ArtifactPayload,
+): Promise<AiDeckExecutionArtifactPayload> {
+  const artifacts = await new AiDeckExecutionArtifactRepository(
+    input.dataSource,
+  ).listImageSlides(input.message);
+  const completed = artifacts.map((artifact) =>
+    completedSlideV2ArtifactPayloadSchema.parse(artifact.payload),
+  );
+  const bySourceOrder = new Map(
+    completed.map((artifact) => [artifact.sourceOrder, artifact]),
+  );
+  if (
+    bySourceOrder.size !== layout.slides.length ||
+    layout.slides.some(
+      (descriptor) =>
+        bySourceOrder.get(descriptor.sourceOrder)?.slideId !==
+        descriptor.slideId,
+    )
+  ) {
+    throw new StageTerminalError(
+      "AI_DECK_SLIDE_ARTIFACT_SET_INVALID",
+      "Completed slide artifacts do not match the layout manifest.",
+    );
+  }
+  const slides = layout.slides.map(
+    (descriptor) => bySourceOrder.get(descriptor.sourceOrder)!.slide,
+  );
+  const deck = markDeckForInitialThumbnailRefresh(
+    deckSchema.parse({ ...layout.deckShell, slides }),
+    input.context.designPackSnapshot,
+  );
+  let validation = mergeSlideValidations(completed);
+  validation = withDuplicateMediaAssetIssue(validation, deck);
+  if (input.context.request.design.mediaPolicy === "hybrid") {
+    validation = withHybridMediaBudgetIssue(validation, deck);
+  }
+  const semantic = runInitialSemanticQuality({
+    deck,
+    validation,
+    allowRepair: false,
+  });
+  const workerPayload = generateDeckResponseSchema.parse({
+    deck: semantic.deck,
+    templateSelection: [],
+    warnings: unique([
+      ...layout.warnings,
+      ...completed.flatMap((artifact) => artifact.warnings),
+      ...semantic.warnings,
+    ]),
+    validation: semantic.validation,
+  });
+  if (
+    hasBlockingQualityGateIssues(semantic.validation) ||
+    semantic.unresolvedMedia
+  ) {
+    throw qualityGateError(
+      "GENERATE_DECK_QUALITY_GATE_FAILED",
+      workerPayload,
+      semantic.deck,
+      semantic.validation,
+    );
+  }
+  return qualityArtifactPayloadSchema.parse({ workerPayload });
+}
+
+function mergeSlideValidations(
+  completed: Array<
+    ReturnType<typeof completedSlideV2ArtifactPayloadSchema.parse>
+  >,
+) {
+  const layoutIssues = completed.flatMap(
+    (artifact) => artifact.validation.layoutIssues,
+  );
+  const contentIssues = completed.flatMap(
+    (artifact) => artifact.validation.contentIssues,
+  );
+  const designIssues = completed.flatMap(
+    (artifact) => artifact.validation.designIssues,
+  );
+  const presentationIssues = completed.flatMap(
+    (artifact) => artifact.validation.presentationIssues,
+  );
+  return {
+    passed:
+      layoutIssues.length +
+        contentIssues.length +
+        designIssues.length +
+        presentationIssues.length ===
+      0,
+    layoutIssues,
+    contentIssues,
+    designIssues,
+    presentationIssues,
+  };
+}
+
 async function executeRenderedVisualQuality(
   input: Parameters<typeof executeStage>[0],
 ): Promise<AiDeckExecutionArtifactPayload> {
+  const layout = layoutCompileArtifactPayloadSchema.parse(
+    (
+      await new AiDeckPlanningArtifactRepository(input.dataSource).getByStage(
+        input.message,
+        "layout-compile",
+      )
+    ).payload,
+  );
   const artifact = await new AiDeckExecutionArtifactRepository(
     input.dataSource,
   ).get(input.message, input.inputRef, "semantic-quality");
@@ -448,6 +816,7 @@ async function executeRenderedVisualQuality(
       projectId: input.message.projectId,
       onRepairProgress: async () => undefined,
       emitEvent: (event, fields) => emit(input.eventLogger, event, fields),
+      ...(isLayoutCompileV2Artifact(layout) ? { maxRepairAttempts: 0 } : {}),
     });
     const diagnostics = {
       ...renderedVisualQualityDiagnostics(outcome, workerPayload.diagnostics),
@@ -530,6 +899,9 @@ async function completeStage(
     if (!succeeded) throw new AiDeckExecutionFencingLostError();
 
     if (message.stage === "image-slide") {
+      if (isCompletedSlideV2Artifact(payload)) {
+        return joinV2ImageShards(manager, checkpoints, message, inputRef);
+      }
       const rows = await manager.query(
         `
           SELECT count(*)::int AS expected,
@@ -567,6 +939,106 @@ async function completeStage(
       message.stage === "semantic-quality" ? 80 : 95,
     );
   });
+}
+
+async function isV2ImageShard(
+  dataSource: DataSource,
+  message: AiDeckGenerationStageMessage,
+  inputRef: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    return isLayoutCompileV2Artifact(
+      await loadLayoutArtifact(dataSource, message, inputRef),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function failV2ImageShardAndJoin(
+  dataSource: DataSource,
+  message: AiDeckGenerationStageMessage & { stage: AiDeckExecutionStage },
+  leaseOwner: string,
+  attempt: number,
+  rawError: JobError,
+): Promise<Job | void> {
+  const error = jobErrorSchema.parse(rawError);
+  return dataSource.transaction(async (manager) => {
+    const checkpoints = new AiDeckGenerationStageCheckpointRepository(manager);
+    const failed = await checkpoints.fail(message, leaseOwner, attempt, error);
+    if (!failed) return;
+    return joinV2ImageShards(manager, checkpoints, message, {});
+  });
+}
+
+async function joinV2ImageShards(
+  manager: Pick<DataSource, "query">,
+  checkpoints: AiDeckGenerationStageCheckpointRepository,
+  message: AiDeckGenerationStageMessage,
+  layoutReference: Record<string, unknown>,
+): Promise<Job> {
+  const counts = z
+    .object({
+      expected: z.coerce.number().int().positive(),
+      succeeded: z.coerce.number().int().nonnegative(),
+      failed: z.coerce.number().int().nonnegative(),
+      terminal: z.coerce.number().int().nonnegative(),
+    })
+    .parse(
+      firstQueryRow(
+        await manager.query(
+          `
+            SELECT count(*)::int AS expected,
+                   count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+                   count(*) FILTER (WHERE status = 'failed')::int AS failed,
+                   count(*) FILTER (WHERE status IN ('succeeded','failed'))::int AS terminal
+            FROM ai_deck_generation_stages
+            WHERE pipeline_job_id = $1 AND stage = 'image-slide'
+          `,
+          [message.pipelineJobId],
+        ),
+      ),
+    );
+  if (counts.succeeded === counts.expected) {
+    await checkpoints.ensureQueued(
+      { ...message, stage: "semantic-quality", shardKey: "" },
+      layoutReference,
+    );
+  } else if (counts.terminal === counts.expected && counts.failed > 0) {
+    const failedRow = z
+      .object({ error_json: jobErrorSchema })
+      .parse(
+        firstQueryRow(
+          await manager.query(
+            `
+              SELECT error_json
+              FROM ai_deck_generation_stages
+              WHERE pipeline_job_id = $1 AND stage = 'image-slide'
+                AND status = 'failed'
+              ORDER BY shard_key
+              LIMIT 1
+            `,
+            [message.pipelineJobId],
+          ),
+        ),
+      );
+    const rows = await manager.query(
+      `
+        UPDATE jobs
+        SET status = 'failed', message = 'AI deck generation failed.',
+            error = $3::jsonb, updated_at = now()
+        WHERE job_id = $1 AND project_id = $2
+          AND type = 'ai-deck-generation' AND status IN ('queued','running')
+        RETURNING *
+      `,
+      [message.pipelineJobId, message.projectId, failedRow.error_json],
+    );
+    const job = parentJobFromQuery(rows);
+    if (!job) throw new Error("AI deck generation parent job is not runnable.");
+    return job;
+  }
+  const progress = 60 + Math.round((counts.succeeded / counts.expected) * 10);
+  return updateParentProgress(manager, message, progress);
 }
 
 export async function publishAtomically(
@@ -680,7 +1152,7 @@ async function loadParentContext(
     [message.pipelineJobId, message.projectId],
   );
   const row = z.object({ payload: z.unknown() }).parse(firstQueryRow(rows));
-  return storedPayloadSchema.parse(row.payload);
+  return generateDeckStoredJobPayloadSchema.parse(row.payload);
 }
 
 function visualSlideIds(rawVisualRequirements: unknown): string[] {

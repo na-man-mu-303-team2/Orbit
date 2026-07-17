@@ -40,6 +40,7 @@ const planningReasonCodeSchema = z.enum([
   "CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED",
   "ART_DIRECTOR_INVALID_RESPONSE",
   "ART_DIRECTOR_UNAVAILABLE",
+  "DESIGN_COMPOSITION_UNSUPPORTED",
   "PLANNING_FAILURE_UNCLASSIFIED",
 ]);
 const structuredErrorDetailSchema = z
@@ -151,14 +152,26 @@ export function sourceGroundingStageInput(
 
 export function contentPlanningStageInput(
   grounding: SourceGroundingArtifactPayload,
+  regenerationContext?: {
+    instruction?: string;
+    previousSlideTitles: string[];
+  },
 ) {
-  return { groundingResult: grounding };
+  return {
+    groundingResult: grounding,
+    ...(regenerationContext ? { regenerationContext } : {}),
+  };
 }
 
 export function designPlanningStageInput(
   content: ContentPlanningArtifactPayload,
+  preserveApprovedContent = false,
 ) {
-  return { rawInput: content.rawInput, contentPlan: content.contentPlan };
+  return {
+    rawInput: content.rawInput,
+    contentPlan: content.contentPlan,
+    preserveApprovedContent,
+  };
 }
 
 export function layoutCompileStageInput(
@@ -223,6 +236,14 @@ function normalizeHttpError(
       "ART_DIRECTOR_UNAVAILABLE",
       "Art Director is temporarily unavailable.",
       true,
+      diagnostics,
+    );
+  }
+  if (reasonCode === "DESIGN_COMPOSITION_UNSUPPORTED") {
+    return new AiDeckPlanningStageError(
+      "DESIGN_COMPOSITION_UNSUPPORTED",
+      "The approved story plan cannot be composed with the available layouts.",
+      false,
       diagnostics,
     );
   }

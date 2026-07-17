@@ -158,3 +158,42 @@
 .present-window-exit:hover {
   background: rgba(188, 167, 245, 0.22);
 }
+
+.audience-output-screen-share,
+.audience-output-connecting,
+.audience-output-black {
+  align-items: center;
+  background: #000;
+  display: flex;
+  height: 100vh;
+  justify-content: center;
+  width: 100vw;
+}
+
+.audience-output-screen-share video {
+  background: #000;
+  height: 100vh;
+  object-fit: contain;
+  width: 100vw;
+}
+
+.audience-output-connecting,
+.audience-output-video-error {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 15px;
+}
+
+.audience-output-video-error {
+  background: rgba(0, 0, 0, 0.72);
+  bottom: 24px;
+  left: 50%;
+  padding: 8px 12px;
+  position: fixed;
+  transform: translateX(-50%);
+}
+
+.audience-output-black img {
+  height: auto;
+  opacity: 0.7;
+  width: 68px;
+}

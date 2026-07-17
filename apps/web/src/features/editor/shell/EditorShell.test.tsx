@@ -20,34 +20,44 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  EditorStateNotice,
+} from "./EditorShell";
+import { EditorStateNotice } from "./components/EditorStateNotice";
+import {
   appendAppliedDesignProposalHistory,
+  resolveHistoryNavigation
+} from "./utils/editorHistory";
+import {
   applyDeckPatchAcknowledgement,
-  buildSlideThumbnailPatch,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
-  createSemanticCueExtractionJob,
-  createDistributeSelectionPatch,
-  exportDeckToPptx,
   flushEditorPersistenceBeforeManualAction,
-  getSpeakerNotesDanglingOccurrenceSaveBlock,
+  parseDeckPatchPersistenceResponse,
+  putProjectDeck
+} from "./api/deckPersistenceApi";
+import {
+  createSemanticCueExtractionJob,
+  exportDeck,
+  exportDeckToPptx,
+  importPptxIntoEditor,
+  requireMatchingPptxImportedDeck
+} from "./api/editorJobApi";
+import {
+  buildSlideThumbnailPatch,
   getDeckThumbnailRefreshSlideIds,
   getImportedSlideThumbnailRefreshSlideIds,
   getPatchThumbnailRefreshSlideIds,
-  getEditorValidationItems,
-  getResponsiveEditorStageScale,
-  importPptxIntoEditor,
   mergeDeckIntoQueryCache,
-  parseDeckPatchPersistenceResponse,
-  putProjectDeck,
-  resolveHistoryNavigation,
-  requireMatchingPptxImportedDeck,
   shouldApplyManualSaveResult,
   shouldRefreshImportedSlideThumbnails,
-  shouldPromptSpeakerNotesDraftDiscard,
-  shouldPromptSpeakerNotesOverwrite,
   shouldHydrateDeckFromQuery
-} from "./EditorShell";
+} from "./utils/deckState";
+import {
+  getSpeakerNotesDanglingOccurrenceSaveBlock,
+  shouldPromptSpeakerNotesDraftDiscard,
+  shouldPromptSpeakerNotesOverwrite
+} from "./utils/speakerNotesDraft";
+import { getResponsiveEditorStageScale } from "./utils/editorLayout";
+import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
@@ -56,6 +66,7 @@ import {
   tableDataDraft
 } from "./components/SelectionQuickBar";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
+import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
 
@@ -840,6 +851,47 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("passes PNG format and an explicitly selected session to export", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/deck/exports")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          format: "png",
+          presentationSessionId: "session_1"
+        });
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+      if (url.endsWith("/api/jobs/job-pptx")) {
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_png",
+                url: "/api/v1/projects/project-a/assets/file_export_png/content",
+                format: "png",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      exportDeck(
+        "project-a",
+        { format: "png", presentationSessionId: "session_1" },
+        fetcher
+      )
+    ).resolves.toMatchObject({ format: "png", fileId: "file_export_png" });
   });
 
   it("creates a semantic cue extraction job with the requested regeneration policy", async () => {

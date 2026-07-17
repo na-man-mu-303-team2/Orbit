@@ -47,7 +47,10 @@ type CandidateRankKind =
 type Candidate = {
   category: PracticeGoal["category"];
   criterion: EvaluationCriterion;
-  evaluationStatus: Extract<CriterionResult["evaluationStatus"], "partial" | "failed">;
+  evaluationStatus: Extract<
+    CriterionResult["evaluationStatus"],
+    "partial" | "failed"
+  >;
   severity: number;
   slideOrder: number;
   targetScope: PracticeGoal["targetScope"];
@@ -117,7 +120,9 @@ export function derivePracticeGoalSet(input: {
         revision: candidate.criterion.revision,
       },
       targetScope: candidate.targetScope,
-      recommendedPracticeMode: candidate.targetScope ? "focused" : "full-run-only",
+      recommendedPracticeMode: candidate.targetScope
+        ? "focused"
+        : "full-run-only",
       evidenceRefs: candidate.evidenceRefs,
       problemLabel: candidate.problemLabel.slice(0, 240),
       nextAction: candidate.nextAction.slice(0, 240),
@@ -149,7 +154,9 @@ export async function persistPracticeGoalSet(
   dataSource: DataSource,
   set: PracticeGoalSet,
 ) {
-  await dataSource.transaction((manager) => persistPracticeGoalSetWithExecutor(manager, set));
+  await dataSource.transaction((manager) =>
+    persistPracticeGoalSetWithExecutor(manager, set),
+  );
 }
 
 export async function loadPracticeGoalRankingContext(input: {
@@ -204,8 +211,12 @@ export async function loadPracticeGoalRankingContext(input: {
     });
     const occurredAt = isoDateTime(row.created_at);
 
-    for (const currentCriterion of input.snapshot.evaluationPlan?.criteria ?? []) {
-      const previousCriterion = criterionByRef(previousSnapshot.data, currentCriterion);
+    for (const currentCriterion of input.snapshot.evaluationPlan?.criteria ??
+      []) {
+      const previousCriterion = criterionByRef(
+        previousSnapshot.data,
+        currentCriterion,
+      );
       if (!previousCriterion) continue;
       if (
         !compareCriterionSources({
@@ -277,8 +288,8 @@ export async function persistPracticeGoalSetWithExecutor(
   executor: QueryExecutor,
   set: PracticeGoalSet,
 ) {
-    await executor.query(
-      `
+  await executor.query(
+    `
         INSERT INTO practice_goal_sets (
           goal_set_id, project_id, source_full_run_id, revision,
           source_analysis_revision, derivation_version, analysis_state,
@@ -286,21 +297,21 @@ export async function persistPracticeGoalSetWithExecutor(
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (source_full_run_id, revision) DO NOTHING
       `,
-      [
-        set.goalSetId,
-        set.projectId,
-        set.sourceFullRunId,
-        set.revision,
-        set.sourceAnalysisRevision,
-        set.derivationVersion,
-        set.analysisState,
-        set.dataOrigin,
-        set.createdAt,
-      ],
-    );
-    for (const goal of set.goals) {
-      await executor.query(
-        `
+    [
+      set.goalSetId,
+      set.projectId,
+      set.sourceFullRunId,
+      set.revision,
+      set.sourceAnalysisRevision,
+      set.derivationVersion,
+      set.analysisState,
+      set.dataOrigin,
+      set.createdAt,
+    ],
+  );
+  for (const goal of set.goals) {
+    await executor.query(
+      `
           INSERT INTO practice_goals (
             goal_id, goal_set_id, project_id, origin_full_run_id, priority,
             pattern_key, category, criterion_ref_json, target_scope_json,
@@ -309,28 +320,28 @@ export async function persistPracticeGoalSetWithExecutor(
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
           ON CONFLICT (goal_id) DO NOTHING
         `,
-        [
-          goal.goalId,
-          goal.goalSetId,
-          goal.projectId,
-          goal.originFullRunId,
-          goal.priority,
-          goal.patternKey,
-          goal.category,
-          goal.criterionRef,
-          goal.targetScope,
-          goal.recommendedPracticeMode,
-          JSON.stringify(goal.evidenceRefs),
-          goal.problemLabel,
-          goal.nextAction,
-          goal.successCondition,
-          goal.measurementState,
-          goal.createdAt,
-        ],
-      );
-    }
-    await executor.query(
-      `
+      [
+        goal.goalId,
+        goal.goalSetId,
+        goal.projectId,
+        goal.originFullRunId,
+        goal.priority,
+        goal.patternKey,
+        goal.category,
+        goal.criterionRef,
+        goal.targetScope,
+        goal.recommendedPracticeMode,
+        JSON.stringify(goal.evidenceRefs),
+        goal.problemLabel,
+        goal.nextAction,
+        goal.successCondition,
+        goal.measurementState,
+        goal.createdAt,
+      ],
+    );
+  }
+  await executor.query(
+    `
         INSERT INTO practice_goal_heads (
           project_id, source_full_run_id, current_goal_set_id,
           current_analysis_revision, updated_at
@@ -341,8 +352,14 @@ export async function persistPracticeGoalSetWithExecutor(
           updated_at = EXCLUDED.updated_at
         WHERE practice_goal_heads.current_analysis_revision < EXCLUDED.current_analysis_revision
       `,
-      [set.projectId, set.sourceFullRunId, set.goalSetId, set.sourceAnalysisRevision, set.createdAt],
-    );
+    [
+      set.projectId,
+      set.sourceFullRunId,
+      set.goalSetId,
+      set.sourceAnalysisRevision,
+      set.createdAt,
+    ],
+  );
 }
 
 export async function persistSourceGoalResolutions(
@@ -413,7 +430,11 @@ export function evaluateFullRunCriteria(input: {
   const criteria = input.snapshot.evaluationPlan?.criteria ?? [];
   const observations: ReportObservation[] = [];
   const results = criteria.map((criterion) => {
-    const measured = fullRunObservation(input.sourceFullRunId, criterion, input.report);
+    const measured = fullRunObservation(
+      input.sourceFullRunId,
+      criterion,
+      input.report,
+    );
     if (measured.observation) observations.push(measured.observation);
     return evaluateCriterion({
       criterion,
@@ -437,10 +458,16 @@ export function deriveProblemCandidates(input: {
   rankingContext: PracticeGoalRankingContext;
 }): Candidate[] {
   const observationsById = new Map(
-    input.observations.map((observation) => [observation.observationId, observation]),
+    input.observations.map((observation) => [
+      observation.observationId,
+      observation,
+    ]),
   );
   const lensPriority = new Map(
-    lensOrder(input.evaluatorLensId).map((category, index) => [category, index]),
+    lensOrder(input.evaluatorLensId).map((category, index) => [
+      category,
+      index,
+    ]),
   );
   const candidates = input.results.flatMap((result): Candidate[] => {
     if (!isProblemResult(result) || !result.observationId) {
@@ -507,9 +534,13 @@ function fullRunObservation(
         criterion.scope.type === "slide" &&
         criterion.scope.slideId === candidate.slideId &&
         criterion.criterionId ===
-          `criterion_cue_${candidate.cueId}_r${candidate.cueRevision}`.slice(0, 128),
+          `criterion_cue_${candidate.cueId}_r${candidate.cueRevision}`.slice(
+            0,
+            128,
+          ),
     );
-    if (!outcome) return { observation: null, unavailableReason: "NO_MEASUREMENT" };
+    if (!outcome)
+      return { observation: null, unavailableReason: "NO_MEASUREMENT" };
 
     const evidenceRefs: ReportObservation["evidenceRefs"] = [
       {
@@ -563,9 +594,13 @@ function fullRunObservation(
   }
 
   if (criterion.measurement.type === "max-duration-seconds") {
-    const slideId = criterion.scope.type === "slide" ? criterion.scope.slideId : null;
-    const timing = report.slideTimings.find((candidate) => candidate.slideId === slideId);
-    if (!timing) return { observation: null, unavailableReason: "NO_MEASUREMENT" };
+    const slideId =
+      criterion.scope.type === "slide" ? criterion.scope.slideId : null;
+    const timing = report.slideTimings.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!timing)
+      return { observation: null, unavailableReason: "NO_MEASUREMENT" };
     return {
       observation: createObservation({
         sourceFullRunId,
@@ -584,7 +619,8 @@ function fullRunObservation(
       criterion.measurement.metric,
       report,
     );
-    if (value === null) return { observation: null, unavailableReason: "NO_MEASUREMENT" };
+    if (value === null)
+      return { observation: null, unavailableReason: "NO_MEASUREMENT" };
     return {
       observation: createObservation({
         sourceFullRunId,
@@ -629,13 +665,13 @@ function createObservation(input: {
 
 function countObservationValue(
   scope: EvaluationCriterion["scope"],
-  metric: "filler-word-count" | "pause-count",
+  metric: "filler-word-count" | "long-silence-count",
   report: RehearsalReport,
 ) {
   if (scope.type === "run") {
     return metric === "filler-word-count"
       ? report.metrics.fillerWordCount
-      : report.metrics.pauseCount;
+      : report.metrics.longSilenceCount;
   }
   if (scope.type === "slide") {
     const slideId = scope.slideId;
@@ -645,21 +681,20 @@ function countObservationValue(
     if (!insight) return null;
     return metric === "filler-word-count"
       ? insight.fillerWordCount
-      : insight.pauseCount;
+      : insight.longSilenceCount;
   }
   return null;
 }
 
-function isProblemResult(
-  result: CriterionResult,
-): result is CriterionResult & {
+function isProblemResult(result: CriterionResult): result is CriterionResult & {
   measurementState: "measured";
   evaluationStatus: "partial" | "failed";
   observationId: string;
 } {
   return (
     result.measurementState === "measured" &&
-    (result.evaluationStatus === "partial" || result.evaluationStatus === "failed") &&
+    (result.evaluationStatus === "partial" ||
+      result.evaluationStatus === "failed") &&
     result.observationId !== null
   );
 }
@@ -668,11 +703,13 @@ function criterionByRef(
   snapshot: RehearsalEvaluationSnapshot,
   ref: { criterionId: string; revision: number },
 ) {
-  return snapshot.evaluationPlan?.criteria.find(
-    (criterion) =>
-      criterion.criterionId === ref.criterionId &&
-      criterion.revision === ref.revision,
-  ) ?? null;
+  return (
+    snapshot.evaluationPlan?.criteria.find(
+      (criterion) =>
+        criterion.criterionId === ref.criterionId &&
+        criterion.revision === ref.revision,
+    ) ?? null
+  );
 }
 
 function candidateFromEvaluation(input: {
@@ -686,14 +723,23 @@ function candidateFromEvaluation(input: {
   rankKind: CandidateRankKind;
 }): Candidate {
   const focusedTarget = input.focusItem?.targetScope;
-  const targetScope = focusedTarget && targetScopeIsUsable(focusedTarget, input.slideOrder)
-    ? focusedTarget
-    : targetScopeForCriterion(input.sourceFullRunId, input.criterion, input.slideOrder);
+  const targetScope =
+    focusedTarget && targetScopeIsUsable(focusedTarget, input.slideOrder)
+      ? focusedTarget
+      : targetScopeForCriterion(
+          input.sourceFullRunId,
+          input.criterion,
+          input.slideOrder,
+        );
   return {
     category: input.criterion.category,
     criterion: input.criterion,
     evaluationStatus: input.result.evaluationStatus,
-    severity: normalizedSeverity(input.criterion, input.result, input.observation),
+    severity: normalizedSeverity(
+      input.criterion,
+      input.result,
+      input.observation,
+    ),
     slideOrder: slideOrderForCriterion(input.criterion, input.slideOrder),
     targetScope,
     evidenceRefs: practiceEvidence(input.criterion, input.observation),
@@ -715,26 +761,33 @@ function practiceEvidence(
   observation: ReportObservation,
 ): PracticeGoal["evidenceRefs"] {
   if (observation.value.kind === "semantic") {
-    const cue = observation.evidenceRefs.find((reference) => reference.kind === "semantic-cue");
+    const cue = observation.evidenceRefs.find(
+      (reference) => reference.kind === "semantic-cue",
+    );
     if (cue?.kind === "semantic-cue") {
-      const outcome = observation.value.value === "partial"
-        ? "not_covered"
-        : observation.value.value;
+      const outcome =
+        observation.value.value === "partial"
+          ? "not_covered"
+          : observation.value.value;
       if (outcome !== "covered") {
-        return [{
-          kind: "semantic-cue",
-          slideId: cue.slideId,
-          cueId: cue.cueId,
-          outcome,
-        }];
+        return [
+          {
+            kind: "semantic-cue",
+            slideId: cue.slideId,
+            cueId: cue.cueId,
+            outcome,
+          },
+        ];
       }
     }
     if (criterion.category === "structure") {
-      return [{
-        kind: "structure",
-        criterionId: criterion.criterionId,
-        outcome: observation.value.value === "partial" ? "partial" : "missed",
-      }];
+      return [
+        {
+          kind: "structure",
+          criterionId: criterion.criterionId,
+          outcome: observation.value.value === "partial" ? "partial" : "missed",
+        },
+      ];
     }
   }
   if (
@@ -742,20 +795,26 @@ function practiceEvidence(
     criterion.measurement.type === "max-duration-seconds" &&
     criterion.scope.type === "slide"
   ) {
-    return [{
-      kind: "slide-timing",
-      slideId: criterion.scope.slideId,
-      targetSeconds: criterion.measurement.maximum,
-      actualSeconds: observation.value.value,
-    }];
+    return [
+      {
+        kind: "slide-timing",
+        slideId: criterion.scope.slideId,
+        targetSeconds: criterion.measurement.maximum,
+        actualSeconds: observation.value.value,
+      },
+    ];
   }
   if (observation.value.kind === "count") {
-    return [{
-      kind: "delivery-count",
-      ...(criterion.scope.type === "slide" ? { slideId: criterion.scope.slideId } : {}),
-      metric: observation.value.metric,
-      count: observation.value.value,
-    }];
+    return [
+      {
+        kind: "delivery-count",
+        ...(criterion.scope.type === "slide"
+          ? { slideId: criterion.scope.slideId }
+          : {}),
+        metric: observation.value.metric,
+        count: observation.value.value,
+      },
+    ];
   }
   return [];
 }
@@ -779,9 +838,11 @@ function normalizedSeverity(
     observation.value.kind === "count" &&
     criterion.measurement.type === "max-count"
   ) {
-    return 1 +
+    return (
+      1 +
       (observation.value.value - criterion.measurement.maximum) /
-        (criterion.measurement.maximum + 1);
+        (criterion.measurement.maximum + 1)
+    );
   }
   return 1;
 }
@@ -790,7 +851,9 @@ function matchingFocusItem(
   criterion: EvaluationCriterion,
   items: RehearsalFocusItem[],
 ) {
-  return items.find((item) => focusItemMatchesCriterion(item, criterion)) ?? null;
+  return (
+    items.find((item) => focusItemMatchesCriterion(item, criterion)) ?? null
+  );
 }
 
 function focusItemMatchesCriterion(
@@ -810,9 +873,9 @@ function focusItemMatchesCriterion(
     (item.kind === "filler-words" &&
       criterion.measurement.type === "max-count" &&
       criterion.measurement.metric === "filler-word-count") ||
-    (item.kind === "pauses" &&
+    (item.kind === "silences" &&
       criterion.measurement.type === "max-count" &&
-      criterion.measurement.metric === "pause-count") ||
+      criterion.measurement.metric === "long-silence-count") ||
     item.kind === "custom";
   if (!kindMatches) return false;
   if (!item.targetScope) return item.kind !== "custom";
@@ -824,10 +887,16 @@ function targetMatchesCriterion(
   criterion: EvaluationCriterion,
 ) {
   if (target.type === "opening" || target.type === "closing") {
-    return criterion.scope.type === "time-window" && criterion.scope.window === target.type;
+    return (
+      criterion.scope.type === "time-window" &&
+      criterion.scope.window === target.type
+    );
   }
   if (target.type === "slide" || target.type === "sentence") {
-    return criterion.scope.type === "slide" && criterion.scope.slideId === target.slideId;
+    return (
+      criterion.scope.type === "slide" &&
+      criterion.scope.slideId === target.slideId
+    );
   }
   return (
     criterion.scope.type === "slide-range" &&
@@ -847,7 +916,10 @@ function targetScopeForCriterion(
   };
   if (criterion.scope.type === "slide") {
     const target = { type: "slide" as const, slideId: criterion.scope.slideId };
-    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
+    return {
+      ...target,
+      scopeId: targetScopeId(sourceFullRunId, criterionRef, target),
+    };
   }
   if (criterion.scope.type === "slide-range") {
     const target = {
@@ -855,14 +927,22 @@ function targetScopeForCriterion(
       startSlideId: criterion.scope.startSlideId,
       endSlideId: criterion.scope.endSlideId,
     } as const;
-    if (!slideRangeIsUsable(target.startSlideId, target.endSlideId, slideOrder)) {
+    if (
+      !slideRangeIsUsable(target.startSlideId, target.endSlideId, slideOrder)
+    ) {
       return null;
     }
-    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
+    return {
+      ...target,
+      scopeId: targetScopeId(sourceFullRunId, criterionRef, target),
+    };
   }
   if (criterion.scope.type === "time-window") {
     const target = { type: criterion.scope.window };
-    return { ...target, scopeId: targetScopeId(sourceFullRunId, criterionRef, target) };
+    return {
+      ...target,
+      scopeId: targetScopeId(sourceFullRunId, criterionRef, target),
+    };
   }
   return null;
 }
@@ -890,16 +970,21 @@ function slideRangeIsUsable(
 ) {
   const startOrder = slideOrder.get(startSlideId);
   const endOrder = slideOrder.get(endSlideId);
-  return startOrder !== undefined && endOrder !== undefined && startOrder < endOrder;
+  return (
+    startOrder !== undefined && endOrder !== undefined && startOrder < endOrder
+  );
 }
 
 function slideOrderForCriterion(
   criterion: EvaluationCriterion,
   slideOrder: ReadonlyMap<string, number>,
 ) {
-  if (criterion.scope.type === "slide") return slideOrder.get(criterion.scope.slideId) ?? 999;
-  if (criterion.scope.type === "slide-range") return slideOrder.get(criterion.scope.startSlideId) ?? 999;
-  if (criterion.scope.type === "time-window") return criterion.scope.window === "opening" ? 0 : 998;
+  if (criterion.scope.type === "slide")
+    return slideOrder.get(criterion.scope.slideId) ?? 999;
+  if (criterion.scope.type === "slide-range")
+    return slideOrder.get(criterion.scope.startSlideId) ?? 999;
+  if (criterion.scope.type === "time-window")
+    return criterion.scope.window === "opening" ? 0 : 998;
   return 999;
 }
 
@@ -929,7 +1014,8 @@ function compareCandidates(
   if ((left.targetScope !== null) !== (right.targetScope !== null)) {
     return left.targetScope ? -1 : 1;
   }
-  if (left.slideOrder !== right.slideOrder) return left.slideOrder - right.slideOrder;
+  if (left.slideOrder !== right.slideOrder)
+    return left.slideOrder - right.slideOrder;
   return stableCandidateKey(left).localeCompare(stableCandidateKey(right));
 }
 
@@ -968,10 +1054,15 @@ function mergeDuplicateCandidates(
         ? "failed"
         : "partial",
     severity: Math.max(left.severity, right.severity),
-    evidenceRefs: mergeStable(left.evidenceRefs, right.evidenceRefs).slice(0, 20),
+    evidenceRefs: mergeStable(left.evidenceRefs, right.evidenceRefs).slice(
+      0,
+      20,
+    ),
     observationIds: Array.from(
       new Set([...left.observationIds, ...right.observationIds]),
-    ).sort().slice(0, 20),
+    )
+      .sort()
+      .slice(0, 20),
     hasBoundedEvidence: left.hasBoundedEvidence || right.hasBoundedEvidence,
     repeated: left.repeated || right.repeated,
   };
@@ -982,11 +1073,12 @@ function problemLabel(
   observation: ReportObservation,
 ) {
   if (observation.value.kind === "semantic") {
-    const suffix = observation.value.value === "partial"
-      ? "이 부분적으로만 전달됐습니다."
-      : observation.value.value === "contradicted"
-        ? "이 반대 의미로 전달됐습니다."
-        : "이 전달되지 않았습니다.";
+    const suffix =
+      observation.value.value === "partial"
+        ? "이 부분적으로만 전달됐습니다."
+        : observation.value.value === "contradicted"
+          ? "이 반대 의미로 전달됐습니다."
+          : "이 전달되지 않았습니다.";
     return `${criterion.label}${suffix}`;
   }
   if (observation.value.kind === "duration-seconds") {
@@ -1007,7 +1099,7 @@ function nextAction(criterion: EvaluationCriterion) {
   }
   return criterion.measurement.metric === "filler-word-count"
     ? "문장을 시작하기 전에 짧게 호흡하고 불필요한 추임새를 빼세요."
-    : "문장 사이 호흡 위치를 정하고 멈춤을 짧게 유지하세요.";
+    : "문장 사이 호흡 위치를 정하고 1초 이상 침묵하지 않도록 연습하세요.";
 }
 
 function successCondition(criterion: EvaluationCriterion) {
@@ -1027,7 +1119,7 @@ function successCondition(criterion: EvaluationCriterion) {
   }
   return criterion.measurement.metric === "filler-word-count"
     ? `반복 말버릇을 ${criterion.measurement.maximum}회 이하로 유지합니다.`
-    : `긴 멈춤을 ${criterion.measurement.maximum}회 이하로 유지합니다.`;
+    : `긴 침묵을 ${criterion.measurement.maximum}회 이하로 유지합니다.`;
 }
 
 function coreSemanticCriterionKeys(snapshot: RehearsalEvaluationSnapshot) {
@@ -1063,11 +1155,13 @@ function candidateRankKind(
   criterion: EvaluationCriterion,
   coreSemanticKeys: ReadonlySet<string>,
 ): CandidateRankKind {
-  if (coreSemanticKeys.has(criterionScopeKey(criterion))) return "core-semantic";
+  if (coreSemanticKeys.has(criterionScopeKey(criterion)))
+    return "core-semantic";
   if (
     criterion.category === "structure" &&
     criterion.scope.type === "time-window" &&
-    (criterion.scope.window === "opening" || criterion.scope.window === "closing")
+    (criterion.scope.window === "opening" ||
+      criterion.scope.window === "closing")
   ) {
     return "opening-closing";
   }
@@ -1159,8 +1253,11 @@ function resolutionSourceRow(raw: unknown): ResolutionSource | null {
     !ref ||
     typeof ref.criterionId !== "string" ||
     typeof ref.revision !== "number" ||
-    !["semantic", "timing", "delivery", "structure"].includes(String(row.category))
-  ) return null;
+    !["semantic", "timing", "delivery", "structure"].includes(
+      String(row.category),
+    )
+  )
+    return null;
   return {
     goalId: row.goal_id,
     originFullRunId: row.origin_full_run_id,
@@ -1216,7 +1313,11 @@ function deriveResolution(
       candidate.criterionRef.revision === source.criterionRef.revision &&
       sameJson(candidate.scope, criterion.scope),
   );
-  if (!result || result.measurementState === "unmeasured" || !result.observationId) {
+  if (
+    !result ||
+    result.measurementState === "unmeasured" ||
+    !result.observationId
+  ) {
     return unmeasuredResolution(base);
   }
   const observation = evaluation.observations.find(
@@ -1289,9 +1390,13 @@ function unmeasuredResolution(base: {
   };
 }
 
-function lensOrder(lensId: "general-novice" | "decision-maker" | "strict-reviewer") {
-  if (lensId === "decision-maker") return ["semantic", "structure", "timing", "delivery"] as const;
-  if (lensId === "strict-reviewer") return ["semantic", "delivery", "structure", "timing"] as const;
+function lensOrder(
+  lensId: "general-novice" | "decision-maker" | "strict-reviewer",
+) {
+  if (lensId === "decision-maker")
+    return ["semantic", "structure", "timing", "delivery"] as const;
+  if (lensId === "strict-reviewer")
+    return ["semantic", "delivery", "structure", "timing"] as const;
   return ["structure", "semantic", "timing", "delivery"] as const;
 }
 

@@ -200,6 +200,7 @@ export const orbitEnvSchema = z.object({
     "API_JSON_BODY_LIMIT_BYTES",
     defaultApiJsonBodyLimitBytes
   ),
+  API_TRUST_PROXY_HOPS: optionalIntegerInRange("API_TRUST_PROXY_HOPS", 0, 0, 10),
   WORKER_PORT: requiredPort("WORKER_PORT"),
   PYTHON_WORKER_PORT: requiredPort("PYTHON_WORKER_PORT"),
   WEB_ORIGIN: requiredUrl("WEB_ORIGIN"),
@@ -237,6 +238,18 @@ export const orbitEnvSchema = z.object({
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
   AI_DECK_EXECUTION_MODE: aiDeckExecutionModeSchema.default("bullmq"),
   AI_DECK_WORKER_QUEUE: aiDeckWorkerQueueSchema.default("all"),
+  AI_DECK_WORKER_CONCURRENCY: optionalIntegerInRange(
+    "AI_DECK_WORKER_CONCURRENCY",
+    5,
+    1,
+    32
+  ),
+  AI_DECK_USER_CONCURRENCY: optionalIntegerInRange(
+    "AI_DECK_USER_CONCURRENCY",
+    5,
+    1,
+    32
+  ),
   LIVE_STT_PROVIDER: liveSttProviderSchema,
   LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
   REPORT_STT_PROVIDER: reportSttProviderSchema,

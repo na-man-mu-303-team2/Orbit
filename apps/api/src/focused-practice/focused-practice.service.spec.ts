@@ -19,7 +19,14 @@ const jobQueueMocks = vi.hoisted(() => ({
 vi.mock("@orbit/job-queue", () => jobQueueMocks);
 
 vi.mock("@orbit/config", () => ({
-  loadOrbitConfig: () => ({ JOB_QUEUE_DRIVER: "bullmq", REDIS_URL: "redis://localhost:6379", REHEARSAL_AUDIO_MAX_BYTES: 50_000_000, ADAPTIVE_REHEARSAL_COACH_ENABLED: true, FOCUSED_PRACTICE_ENABLED: true, ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"] }),
+  loadOrbitConfig: () => ({
+    JOB_QUEUE_DRIVER: "bullmq",
+    REDIS_URL: "redis://localhost:6379",
+    REHEARSAL_AUDIO_MAX_BYTES: 50_000_000,
+    ADAPTIVE_REHEARSAL_COACH_ENABLED: true,
+    FOCUSED_PRACTICE_ENABLED: true,
+    ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"],
+  }),
   isAdaptiveCoachingProjectAllowed: () => true,
 }));
 
@@ -31,47 +38,69 @@ describe("FocusedPracticeService", () => {
     ]);
     const dataSource = { query } as unknown as DataSource;
 
-    await expect(createService(dataSource).getAttemptSummary("project-a", "run-a", "user-a"))
-      .resolves.toEqual({
-        sourceFullRunId: "run-a",
-        goals: [
-          { goalId: "goal-a", passedCount: 2 },
-          { goalId: "goal-b", passedCount: 0 },
-        ],
-      });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("sessions.created_by = $3"), [
-      "project-a",
-      "run-a",
-      "user-a",
-    ]);
+    await expect(
+      createService(dataSource).getAttemptSummary(
+        "project-a",
+        "run-a",
+        "user-a",
+      ),
+    ).resolves.toEqual({
+      sourceFullRunId: "run-a",
+      goals: [
+        { goalId: "goal-a", passedCount: 2 },
+        { goalId: "goal-b", passedCount: 0 },
+      ],
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("sessions.created_by = $3"),
+      ["project-a", "run-a", "user-a"],
+    );
   });
 
   it("creates an idempotent session only from final goals sharing one target scope", async () => {
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [];
-      if (queryIndex === 2) return [];
-      if (queryIndex === 3) return [{
-        deck_id: "deck_a",
-        analysis_state: "final",
-        goal_set_id: "goalset-a",
-        goal_set_revision: 3,
-        evaluation_snapshot_json: evaluationSnapshot(),
-        goals: [{
-          goal_id: "goal-a",
-          target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
-          measurement_state: "measured",
-          criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
-        }],
-      }];
-      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
-      if (queryIndex === 5) return [];
-      if (queryIndex === 6) return [{ practice_session_id: "practice-created" }];
-      return [];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1) return [];
+        if (queryIndex === 2) return [];
+        if (queryIndex === 3)
+          return [
+            {
+              deck_id: "deck_a",
+              analysis_state: "final",
+              goal_set_id: "goalset-a",
+              goal_set_revision: 3,
+              evaluation_snapshot_json: evaluationSnapshot(),
+              goals: [
+                {
+                  goal_id: "goal-a",
+                  target_scope_json: {
+                    type: "slide",
+                    scopeId: "scope-a",
+                    slideId: "slide_a",
+                  },
+                  measurement_state: "measured",
+                  criterion_ref_json: {
+                    criterionId: "criterion-a",
+                    revision: 1,
+                  },
+                },
+              ],
+            },
+          ];
+        if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+        if (queryIndex === 5) return [];
+        if (queryIndex === 6)
+          return [{ practice_session_id: "practice-created" }];
+        return [];
+      },
+    );
     const dataSource = {
-      transaction: vi.fn(async (callback: (manager: { query: typeof query }) => unknown) => callback({ query })),
+      transaction: vi.fn(
+        async (callback: (manager: { query: typeof query }) => unknown) =>
+          callback({ query }),
+      ),
     } as unknown as DataSource;
     const service = createService(dataSource);
 
@@ -84,44 +113,70 @@ describe("FocusedPracticeService", () => {
     });
 
     expect(result.session.status).toBe("active");
-    expect(result.session.snapshot.goalSetRef).toEqual({ goalSetId: "goalset-a", revision: 3 });
-    expect(query.mock.calls[5]?.[0]).toContain("INSERT INTO focused_practice_sessions");
+    expect(result.session.snapshot.goalSetRef).toEqual({
+      goalSetId: "goalset-a",
+      revision: 3,
+    });
+    expect(query.mock.calls[5]?.[0]).toContain(
+      "INSERT INTO focused_practice_sessions",
+    );
   });
 
   it("resumes the matching active session when browser storage loses its request ID", async () => {
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [];
-      if (queryIndex === 2) return [];
-      if (queryIndex === 3) return [{
-        deck_id: "deck_a",
-        analysis_state: "final",
-        goal_set_id: "goalset-a",
-        goal_set_revision: 3,
-        evaluation_snapshot_json: evaluationSnapshot(),
-        goals: [{
-          goal_id: "goal-a",
-          target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
-          measurement_state: "measured",
-          criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
-        }],
-      }];
-      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
-      if (queryIndex === 5) return [focusedSessionRow()];
-      return [];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1) return [];
+        if (queryIndex === 2) return [];
+        if (queryIndex === 3)
+          return [
+            {
+              deck_id: "deck_a",
+              analysis_state: "final",
+              goal_set_id: "goalset-a",
+              goal_set_revision: 3,
+              evaluation_snapshot_json: evaluationSnapshot(),
+              goals: [
+                {
+                  goal_id: "goal-a",
+                  target_scope_json: {
+                    type: "slide",
+                    scopeId: "scope-a",
+                    slideId: "slide_a",
+                  },
+                  measurement_state: "measured",
+                  criterion_ref_json: {
+                    criterionId: "criterion-a",
+                    revision: 1,
+                  },
+                },
+              ],
+            },
+          ];
+        if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+        if (queryIndex === 5) return [focusedSessionRow()];
+        return [];
+      },
+    );
     const dataSource = {
-      transaction: vi.fn(async (callback: (manager: { query: typeof query }) => unknown) => callback({ query })),
+      transaction: vi.fn(
+        async (callback: (manager: { query: typeof query }) => unknown) =>
+          callback({ query }),
+      ),
     } as unknown as DataSource;
 
-    await expect(createService(dataSource).createSession("project-a", "user-a", {
-      clientRequestId: "request-from-a-new-tab",
-      sourceFullRunId: "run-a",
-      sourceGoalSetId: "goalset-a",
-      goalIds: ["goal-a"],
-      targetScope: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
-    })).resolves.toMatchObject({ session: { practiceSessionId: "practice-existing" } });
+    await expect(
+      createService(dataSource).createSession("project-a", "user-a", {
+        clientRequestId: "request-from-a-new-tab",
+        sourceFullRunId: "run-a",
+        sourceGoalSetId: "goalset-a",
+        goalIds: ["goal-a"],
+        targetScope: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
+      }),
+    ).resolves.toMatchObject({
+      session: { practiceSessionId: "practice-existing" },
+    });
 
     expect(query.mock.calls[1]?.[0]).toContain("pg_advisory_xact_lock");
     expect(query.mock.calls[4]?.[0]).toContain("status = 'active'");
@@ -133,45 +188,70 @@ describe("FocusedPracticeService", () => {
       '["goal-a"]',
       '{"type":"slide","scopeId":"scope-a","slideId":"slide_a"}',
     ]);
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO focused_practice_sessions"))).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO focused_practice_sessions"),
+      ),
+    ).toBe(false);
   });
 
   it("returns the existing session when concurrent idempotent creation collides", async () => {
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [];
-      if (queryIndex === 2) return [];
-      if (queryIndex === 3) return [{
-        deck_id: "deck_a",
-        analysis_state: "final",
-        goal_set_id: "goalset-a",
-        goal_set_revision: 3,
-        evaluation_snapshot_json: evaluationSnapshot(),
-        goals: [{
-          goal_id: "goal-a",
-          target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
-          measurement_state: "measured",
-          criterion_ref_json: { criterionId: "criterion-a", revision: 1 },
-        }],
-      }];
-      if (queryIndex === 4) return [{ deck_json: currentDeck() }];
-      if (queryIndex === 5) return [];
-      if (queryIndex === 6) return [];
-      return [focusedSessionRow()];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1) return [];
+        if (queryIndex === 2) return [];
+        if (queryIndex === 3)
+          return [
+            {
+              deck_id: "deck_a",
+              analysis_state: "final",
+              goal_set_id: "goalset-a",
+              goal_set_revision: 3,
+              evaluation_snapshot_json: evaluationSnapshot(),
+              goals: [
+                {
+                  goal_id: "goal-a",
+                  target_scope_json: {
+                    type: "slide",
+                    scopeId: "scope-a",
+                    slideId: "slide_a",
+                  },
+                  measurement_state: "measured",
+                  criterion_ref_json: {
+                    criterionId: "criterion-a",
+                    revision: 1,
+                  },
+                },
+              ],
+            },
+          ];
+        if (queryIndex === 4) return [{ deck_json: currentDeck() }];
+        if (queryIndex === 5) return [];
+        if (queryIndex === 6) return [];
+        return [focusedSessionRow()];
+      },
+    );
     const dataSource = {
-      transaction: vi.fn(async (callback: (manager: { query: typeof query }) => unknown) => callback({ query })),
+      transaction: vi.fn(
+        async (callback: (manager: { query: typeof query }) => unknown) =>
+          callback({ query }),
+      ),
     } as unknown as DataSource;
     const service = createService(dataSource);
 
-    await expect(service.createSession("project-a", "user-a", {
-      clientRequestId: "request-concurrent-a",
-      sourceFullRunId: "run-a",
-      sourceGoalSetId: "goalset-a",
-      goalIds: ["goal-a"],
-      targetScope: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
-    })).resolves.toMatchObject({ session: { practiceSessionId: "practice-existing" } });
+    await expect(
+      service.createSession("project-a", "user-a", {
+        clientRequestId: "request-concurrent-a",
+        sourceFullRunId: "run-a",
+        sourceGoalSetId: "goalset-a",
+        goalIds: ["goal-a"],
+        targetScope: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
+      }),
+    ).resolves.toMatchObject({
+      session: { practiceSessionId: "practice-existing" },
+    });
   });
 
   it("marks an existing sentence session stale when the current sentence changes", async () => {
@@ -184,40 +264,57 @@ describe("FocusedPracticeService", () => {
       textSnapshotHash: focusedPracticeSentenceSnapshotHash("연습 문장"),
     };
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [row];
-      if (queryIndex === 2) return [{
-        evaluation_snapshot_json: evaluationSnapshot(),
-        deck_json: currentDeck("수정된 문장"),
-      }];
-      return [];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1) return [row];
+        if (queryIndex === 2)
+          return [
+            {
+              evaluation_snapshot_json: evaluationSnapshot(),
+              deck_json: currentDeck("수정된 문장"),
+            },
+          ];
+        return [];
+      },
+    );
     const dataSource = { query } as unknown as DataSource;
 
-    await expect(createService(dataSource).getSession("practice-existing", "user-a"))
-      .resolves.toMatchObject({ session: { compatibilityState: "stale" } });
+    await expect(
+      createService(dataSource).getSession("practice-existing", "user-a"),
+    ).resolves.toMatchObject({ session: { compatibilityState: "stale" } });
     expect(query.mock.calls[2]?.[0]).toContain("compatibility_state = 'stale'");
   });
 
   it("rejects a new attempt before creating an upload when the target became stale", async () => {
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [focusedSessionRow()];
-      if (queryIndex === 2) return [{
-        evaluation_snapshot_json: evaluationSnapshot(),
-        deck_json: currentDeckWithSlide("slide_replacement"),
-      }];
-      return [];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1) return [focusedSessionRow()];
+        if (queryIndex === 2)
+          return [
+            {
+              evaluation_snapshot_json: evaluationSnapshot(),
+              deck_json: currentDeckWithSlide("slide_replacement"),
+            },
+          ];
+        return [];
+      },
+    );
     const files = { createUploadUrl: vi.fn() } as unknown as FilesService;
 
-    await expect(createService({ query } as unknown as DataSource, files).createAttempt(
-      "practice-existing",
-      "user-a",
-      { clientRequestId: "request-stale", mimeType: "audio/webm", size: 1024 },
-    )).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      createService({ query } as unknown as DataSource, files).createAttempt(
+        "practice-existing",
+        "user-a",
+        {
+          clientRequestId: "request-stale",
+          mimeType: "audio/webm",
+          size: 1024,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
 
     expect(files.createUploadUrl).not.toHaveBeenCalled();
     expect(query.mock.calls[2]?.[0]).toContain("compatibility_state = 'stale'");
@@ -225,34 +322,46 @@ describe("FocusedPracticeService", () => {
 
   it("rejects upload completion without enqueueing analysis when the target became stale", async () => {
     let queryIndex = 0;
-    const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
-      queryIndex += 1;
-      if (queryIndex === 1) return [{
-        attempt_id: "attempt-a",
-        project_id: "project-a",
-        practice_session_id: "practice-existing",
-        status: "uploading",
-        audio_file_id: "file-a",
-      }];
-      if (queryIndex === 2) return [focusedSessionRow()];
-      if (queryIndex === 3) return [{
-        evaluation_snapshot_json: evaluationSnapshot(),
-        deck_json: currentDeckWithSlide("slide_replacement"),
-      }];
-      return [];
-    });
+    const query = vi.fn(
+      async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => {
+        queryIndex += 1;
+        if (queryIndex === 1)
+          return [
+            {
+              attempt_id: "attempt-a",
+              project_id: "project-a",
+              practice_session_id: "practice-existing",
+              status: "uploading",
+              audio_file_id: "file-a",
+            },
+          ];
+        if (queryIndex === 2) return [focusedSessionRow()];
+        if (queryIndex === 3)
+          return [
+            {
+              evaluation_snapshot_json: evaluationSnapshot(),
+              deck_json: currentDeckWithSlide("slide_replacement"),
+            },
+          ];
+        return [];
+      },
+    );
     const files = { completeUpload: vi.fn() } as unknown as FilesService;
     const jobs = { create: vi.fn() } as unknown as JobsService;
 
-    await expect(createService({ query } as unknown as DataSource, files, jobs).completeAttempt(
-      "attempt-a",
-      "user-a",
-      {
+    await expect(
+      createService(
+        { query } as unknown as DataSource,
+        files,
+        jobs,
+      ).completeAttempt("attempt-a", "user-a", {
         fileId: "file-a",
         durationMs: 1000,
-        slideTimeline: [{ slideId: "slide_a", enteredAtMs: 0, exitedAtMs: 1000 }],
-      },
-    )).rejects.toBeInstanceOf(ConflictException);
+        slideTimeline: [
+          { slideId: "slide_a", enteredAtMs: 0, exitedAtMs: 1000 },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
 
     expect(files.completeUpload).not.toHaveBeenCalled();
     expect(jobs.create).not.toHaveBeenCalled();
@@ -294,17 +403,23 @@ describe("FocusedPracticeService", () => {
   });
 
   it("requires adjacent measured passes for stabilization and does not complete the session", () => {
-    const attempts = [attempt(1, "passed"), attempt(2, "unmeasured"), attempt(3, "passed")];
-    expect(deriveStabilization(attempts)).toEqual([{ goalId: "goal-a", stabilized: false }]);
-    expect(deriveStabilization([attempt(1, "passed"), attempt(2, "passed")])).toEqual([
-      { goalId: "goal-a", stabilized: true },
+    const attempts = [
+      attempt(1, "passed"),
+      attempt(2, "unmeasured"),
+      attempt(3, "passed"),
+    ];
+    expect(deriveStabilization(attempts)).toEqual([
+      { goalId: "goal-a", stabilized: false },
     ]);
+    expect(
+      deriveStabilization([attempt(1, "passed"), attempt(2, "passed")]),
+    ).toEqual([{ goalId: "goal-a", stabilized: true }]);
     const failed = attempt(2, "unmeasured");
     failed.status = "failed";
     failed.goalOutcomes = [];
-    expect(deriveStabilization([attempt(1, "passed"), failed, attempt(3, "passed")])).toEqual([
-      { goalId: "goal-a", stabilized: false },
-    ]);
+    expect(
+      deriveStabilization([attempt(1, "passed"), failed, attempt(3, "passed")]),
+    ).toEqual([{ goalId: "goal-a", stabilized: false }]);
   });
 
   it.each([
@@ -323,47 +438,97 @@ function createService(
 ) {
   return new FocusedPracticeService(
     dataSource,
-    { assertCanReadProject: vi.fn(async () => ({})), assertCanWriteProject: vi.fn(async () => ({})) } as unknown as ProjectsService,
+    {
+      assertCanReadProject: vi.fn(async () => ({})),
+      assertCanWriteProject: vi.fn(async () => ({})),
+    } as unknown as ProjectsService,
     files,
     jobs,
   );
 }
 
-function attempt(number: number, outcome: "passed" | "unmeasured"): FocusedPracticeAttempt {
+function attempt(
+  number: number,
+  outcome: "passed" | "unmeasured",
+): FocusedPracticeAttempt {
   return {
-    attemptId: `attempt-${number}`, projectId: "project-a", practiceSessionId: "practice-a",
-    attemptNumber: number, status: "succeeded", result: outcome === "passed" ? "passed" : "unmeasured",
-    audioFileId: null, analysisJobId: null, cleanupState: "deleted", cleanupGeneration: 1,
-    rawAudioDeletedAt: null, rawAudioDeleteDeadlineAt: "2026-07-11T00:30:00.000Z",
-    durationMs: 1000, slideTimeline: [], goalOutcomes: [{
-      goalId: "goal-a", criterionRef: { criterionId: "criterion-a", revision: 1 },
-      measurementState: outcome === "passed" ? "measured" : "unmeasured",
-      outcome, observation: outcome === "passed" ? { kind: "duration-seconds", value: 1 } : { kind: "none" },
-      threshold: outcome === "passed" ? { kind: "max-duration-seconds", value: 2 } : { kind: "none" },
-      reasonCode: outcome === "passed" ? "PASSED" : "EVALUATION_UNAVAILABLE",
-    }], errorCode: null, createdAt: "2026-07-11T00:00:00.000Z", completedAt: "2026-07-11T00:01:00.000Z",
+    attemptId: `attempt-${number}`,
+    projectId: "project-a",
+    practiceSessionId: "practice-a",
+    attemptNumber: number,
+    status: "succeeded",
+    result: outcome === "passed" ? "passed" : "unmeasured",
+    audioFileId: null,
+    analysisJobId: null,
+    cleanupState: "deleted",
+    cleanupGeneration: 1,
+    rawAudioDeletedAt: null,
+    rawAudioDeleteDeadlineAt: "2026-07-11T00:30:00.000Z",
+    durationMs: 1000,
+    slideTimeline: [],
+    goalOutcomes: [
+      {
+        goalId: "goal-a",
+        criterionRef: { criterionId: "criterion-a", revision: 1 },
+        measurementState: outcome === "passed" ? "measured" : "unmeasured",
+        outcome,
+        observation:
+          outcome === "passed"
+            ? { kind: "duration-seconds", value: 1 }
+            : { kind: "none" },
+        threshold:
+          outcome === "passed"
+            ? { kind: "max-duration-seconds", value: 2 }
+            : { kind: "none" },
+        reasonCode: outcome === "passed" ? "PASSED" : "EVALUATION_UNAVAILABLE",
+      },
+    ],
+    errorCode: null,
+    createdAt: "2026-07-11T00:00:00.000Z",
+    completedAt: "2026-07-11T00:01:00.000Z",
   };
 }
 function focusedSessionRow() {
   return {
-    practice_session_id: "practice-existing", project_id: "project-a", deck_id: "deck_a",
-    source_full_run_id: "run-a", source_goal_set_id: "goalset-a", goal_ids_json: ["goal-a"],
-    target_scope_json: { type: "slide", scopeId: "scope-a", slideId: "slide_a" },
+    practice_session_id: "practice-existing",
+    project_id: "project-a",
+    deck_id: "deck_a",
+    source_full_run_id: "run-a",
+    source_goal_set_id: "goalset-a",
+    goal_ids_json: ["goal-a"],
+    target_scope_json: {
+      type: "slide",
+      scopeId: "scope-a",
+      slideId: "slide_a",
+    },
     snapshot_json: {
-      deckVersion: 2, briefRef: { mode: "generic" },
+      deckVersion: 2,
+      briefRef: { mode: "generic" },
       goalSetRef: { goalSetId: "goalset-a", revision: 3 },
       evaluatorLensRef: { lensId: "general-novice", revision: 1 },
       criterionRefs: [{ criterionId: "criterion-a", revision: 1 }],
     },
-    compatibility_state: "current", status: "active", data_origin: "live", created_by: "user-a",
-    created_at: "2026-07-12T00:00:00.000Z", completed_at: null,
+    compatibility_state: "current",
+    status: "active",
+    data_origin: "live",
+    created_by: "user-a",
+    created_at: "2026-07-12T00:00:00.000Z",
+    completed_at: null,
   };
 }
 
 function currentDeckWithSlide(slideId: string) {
   return {
     ...currentDeck(),
-    slides: [{ slideId, order: 1, title: "Replacement", style: {}, speakerNotes: "Replacement" }],
+    slides: [
+      {
+        slideId,
+        order: 1,
+        title: "Replacement",
+        style: {},
+        speakerNotes: "Replacement",
+      },
+    ],
   };
 }
 
@@ -378,20 +543,27 @@ function evaluationSnapshot() {
       evaluatorLensRef: { lensId: "general-novice", revision: 1 },
       targetDurationSeconds: 60,
       criteria: [],
-      metricDefinitionVersions: { timing: 1, filler: 1, pause: 1, semantic: 1 },
+      metricDefinitionVersions: {
+        timing: 1,
+        filler: 1,
+        silence: 1,
+        semantic: 1,
+      },
       approvedReferences: [],
       practiceGoalSetRef: null,
     },
     focusProfileSnapshot: null,
     capturedAt: "2026-07-12T00:00:00.000Z",
-    slides: [{
-      slideId: "slide_a",
-      order: 1,
-      title: "Slide A",
-      estimatedSeconds: 30,
-      keywords: [],
-      semanticCues: [],
-    }],
+    slides: [
+      {
+        slideId: "slide_a",
+        order: 1,
+        title: "Slide A",
+        estimatedSeconds: 30,
+        keywords: [],
+        semanticCues: [],
+      },
+    ],
   };
 }
 
@@ -401,7 +573,20 @@ function currentDeck(speakerNotes = "연습 문장") {
     projectId: "project-a",
     title: "Deck A",
     version: 2,
-    canvas: { preset: "wide-16-9", width: 1920, height: 1080, aspectRatio: "16:9" },
-    slides: [{ slideId: "slide_a", order: 1, title: "Slide A", style: {}, speakerNotes }],
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+    },
+    slides: [
+      {
+        slideId: "slide_a",
+        order: 1,
+        title: "Slide A",
+        style: {},
+        speakerNotes,
+      },
+    ],
   };
 }

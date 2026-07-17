@@ -3,20 +3,24 @@ import {
   type Deck,
   deckPatchSchema,
   deckSchema,
+  rehearsalAudioProcessingResponseSchema,
   rehearsalEvaluationSnapshotSchema,
   rehearsalAnalyzeRequestSchema,
+  legacyRehearsalSlideSpeakingRate,
+  rehearsalSlideSpeakingRateSchema,
   rehearsalReportSchema,
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
   type Job,
+  type RehearsalAudioProcessingResponse,
   type RehearsalEvaluationSnapshot,
   type RehearsalReport,
   type RehearsalReportSlideTiming,
   type RehearsalRunMeta,
   type RehearsalSemanticEvidenceSegment,
   type RehearsalSemanticCueOutcome,
-  type SemanticFallbackReason
+  type SemanticFallbackReason,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { createHash } from "node:crypto";
@@ -26,7 +30,7 @@ import { storeRehearsalTranscriptArtifacts } from "./rehearsal-transcript-artifa
 import {
   derivePracticeGoalSet,
   loadPracticeGoalRankingContext,
-  publishPracticeGoalSet
+  publishPracticeGoalSet,
 } from "./practice-goal-derivation";
 
 const rehearsalSttPayloadSchema = z.object({
@@ -34,7 +38,7 @@ const rehearsalSttPayloadSchema = z.object({
   projectId: z.string().min(1),
   runId: z.string().min(1),
   deckId: z.string().min(1),
-  audioFileId: z.string().min(1)
+  audioFileId: z.string().min(1),
 });
 
 const audioAssetRowSchema = z.object({
@@ -44,19 +48,19 @@ const audioAssetRowSchema = z.object({
   mime_type: z.string().min(1),
   original_name: z.string().min(1),
   purpose: z.literal("rehearsal-audio"),
-  status: z.literal("uploaded")
+  status: z.literal("uploaded"),
 });
 
 const deckRowSchema = z.object({
   deck_json: z.record(z.unknown()),
-  version: z.number().int().nonnegative()
+  version: z.number().int().nonnegative(),
 });
 
 const deckPatchRowSchema = z.object({
   before_version: z.number().int().nonnegative(),
   after_version: z.number().int().nonnegative(),
   source: z.enum(["user", "ai", "import", "system"]).default("user"),
-  operations: z.array(z.record(z.unknown()))
+  operations: z.array(z.record(z.unknown())),
 });
 
 const rehearsalRunInputRowSchema = z.object({
@@ -67,51 +71,25 @@ const rehearsalRunInputRowSchema = z.object({
   transcript_json_status: z.string().nullable(),
   transcript_text_status: z.string().nullable(),
   meta_json: z.record(z.unknown()).nullable().optional(),
-  evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema.nullable().optional(),
+  evaluation_snapshot_json: rehearsalEvaluationSnapshotSchema
+    .nullable()
+    .optional(),
   semantic_evaluation_mode: z.enum(["full", "delivery-only"]).default("full"),
-  analysis_revision: z.number().int().nonnegative().default(0)
-});
-
-const transcribeSegmentSchema = z
-  .object({
-    text: z.string(),
-    startSeconds: z.number().finite().nonnegative().nullable().optional(),
-    endSeconds: z.number().finite().nonnegative().nullable().optional()
-  })
-  .strict();
-
-const transcribeResponseSchema = z.object({
-  runId: z.string().min(1),
-  projectId: z.string().min(1),
-  fileId: z.string().min(1),
-  transcript: z.string(),
-  language: z.string(),
-  provider: z.string(),
-  model: z.string(),
-  durationSeconds: z.number().nullable().optional(),
-  segments: z.array(transcribeSegmentSchema)
+  analysis_revision: z.number().int().nonnegative().default(0),
 });
 
 const analyzeSpeedSampleSchema = z
   .object({
     startSecond: z.number().nonnegative(),
     endSecond: z.number().nonnegative(),
-    wordsPerMinute: z.number().nonnegative()
+    wordsPerMinute: z.number().nonnegative(),
   })
   .strict();
 
 const analyzeFillerWordDetailSchema = z
   .object({
     word: z.string().trim().min(1),
-    count: z.number().int().nonnegative()
-  })
-  .strict();
-
-const analyzePauseDetailSchema = z
-  .object({
-    startSecond: z.number().nonnegative(),
-    endSecond: z.number().nonnegative(),
-    durationSeconds: z.number().nonnegative()
+    count: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -119,7 +97,7 @@ const analyzeMissedKeywordSchema = z
   .object({
     slideId: z.string().min(1),
     keywordId: z.string().min(1),
-    text: z.string().trim().min(1)
+    text: z.string().trim().min(1),
   })
   .strict();
 
@@ -127,14 +105,17 @@ const analyzeSlideInsightSchema = z
   .object({
     slideId: z.string().min(1),
     fillerWordCount: z.number().int().nonnegative(),
-    pauseCount: z.number().int().nonnegative()
+    longSilenceCount: z.number().int().nonnegative().nullable(),
+    speakingRate: rehearsalSlideSpeakingRateSchema.default(
+      legacyRehearsalSlideSpeakingRate,
+    ),
   })
   .strict();
 
 const analyzeAiSummarySchema = z
   .object({
     headline: z.string().trim().min(1),
-    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3)
+    paragraphs: z.array(z.string().trim().min(1)).min(1).max(3),
   })
   .strict();
 
@@ -142,27 +123,28 @@ const analyzeResponseSchema = z.object({
   runId: z.string().min(1),
   wordsPerMinute: z.number().nonnegative(),
   fillerWordCount: z.number().int().nonnegative(),
-  pauseCount: z.number().int().nonnegative(),
+  longSilenceCount: z.number().int().nonnegative().nullable(),
   keywordCoverage: z.number().min(0).max(1),
   speedSamples: z.array(analyzeSpeedSampleSchema).default([]),
   fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
-  pauseDetails: z.array(analyzePauseDetailSchema).default([]),
   missedKeywords: z.array(analyzeMissedKeywordSchema).default([]),
   slideInsights: z.array(analyzeSlideInsightSchema).default([]),
   aiSummary: analyzeAiSummarySchema.optional(),
-  coaching: z.record(z.unknown()).optional()
+  coaching: z.record(z.unknown()).optional(),
 });
 
 const analyzeSemanticResponseSchema = z
   .object({
     semanticEvaluation: rehearsalSemanticEvaluationSchema,
-    semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema)
+    semanticCueOutcomes: z.array(rehearsalSemanticCueOutcomeSchema),
   })
   .strict();
 
 type RehearsalSttPayload = z.infer<typeof rehearsalSttPayloadSchema>;
 type AudioAssetRow = z.infer<typeof audioAssetRowSchema>;
-export type SemanticAnalysisResult = z.infer<typeof analyzeSemanticResponseSchema>;
+export type SemanticAnalysisResult = z.infer<
+  typeof analyzeSemanticResponseSchema
+>;
 
 const transcriptBlockingReasons = new Set<SemanticFallbackReason>([
   "user_disabled",
@@ -170,7 +152,7 @@ const transcriptBlockingReasons = new Set<SemanticFallbackReason>([
   "stt_unavailable",
   "transcript_incomplete",
   "no_transcript",
-  "queue_dropped"
+  "queue_dropped",
 ]);
 
 export type RehearsalSemanticEvaluationBusinessEvent = {
@@ -189,6 +171,75 @@ export type RehearsalSemanticEvaluationBusinessEvent = {
   reasons?: SemanticFallbackReason[];
 };
 
+export type RehearsalSilenceAnalysisBusinessEvent = {
+  event:
+    | "rehearsal.silence_analysis.completed"
+    | "rehearsal.silence_analysis.unmeasured";
+  projectId: string;
+  runId: string;
+  jobId: string;
+  measurementState: "measured" | "unmeasured";
+  longSilenceCount: number | null;
+  totalSilenceSeconds: number | null;
+  silenceRatio: number | null;
+  reasonCode: string | null;
+  segments: Array<{
+    category: "brief" | "long";
+    startSeconds: number;
+    endSeconds: number;
+    durationSeconds: number;
+  }>;
+};
+
+export type RehearsalSlideSpeakingRateBusinessEvent = {
+  event:
+    | "rehearsal.slide_speaking_rate.completed"
+    | "rehearsal.slide_speaking_rate.unmeasured";
+  projectId: string;
+  runId: string;
+  jobId: string;
+  measuredSlideCount: number;
+  slowerSlideCount: number;
+  similarSlideCount: number;
+  fasterSlideCount: number;
+  unmeasuredSlideCount: number;
+};
+
+function buildSlideSpeakingRateBusinessEvent(
+  payload: RehearsalSttPayload,
+  slideInsights: z.infer<typeof analyzeResponseSchema>["slideInsights"],
+): RehearsalSlideSpeakingRateBusinessEvent {
+  const counts = {
+    measuredSlideCount: 0,
+    slowerSlideCount: 0,
+    similarSlideCount: 0,
+    fasterSlideCount: 0,
+    unmeasuredSlideCount: 0,
+  };
+  slideInsights.forEach(({ speakingRate }) => {
+    if (speakingRate.measurementState === "unmeasured") {
+      counts.unmeasuredSlideCount += 1;
+      return;
+    }
+
+    counts.measuredSlideCount += 1;
+    if (speakingRate.paceCategory === "slower") counts.slowerSlideCount += 1;
+    if (speakingRate.paceCategory === "similar") counts.similarSlideCount += 1;
+    if (speakingRate.paceCategory === "faster") counts.fasterSlideCount += 1;
+  });
+
+  return {
+    event:
+      counts.measuredSlideCount > 0
+        ? "rehearsal.slide_speaking_rate.completed"
+        : "rehearsal.slide_speaking_rate.unmeasured",
+    projectId: payload.projectId,
+    runId: payload.runId,
+    jobId: payload.jobId,
+    ...counts,
+  };
+}
+
 export type RehearsalTranscriptArtifactBusinessEvent = {
   event:
     | "rehearsal.transcript_artifacts.started"
@@ -200,7 +251,6 @@ export type RehearsalTranscriptArtifactBusinessEvent = {
   artifactCount: 2;
   errorCode?: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED";
 };
-
 export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<
@@ -211,10 +261,16 @@ export async function processRehearsalSttJob(
   rawPayload: unknown,
   transcriptCache?: RehearsalTranscriptCache,
   onSemanticEvaluationEvent?: (
-    event: RehearsalSemanticEvaluationBusinessEvent
+    event: RehearsalSemanticEvaluationBusinessEvent,
+  ) => void,
+  onSilenceAnalysisEvent?: (
+    event: RehearsalSilenceAnalysisBusinessEvent,
+  ) => void,
+  onSlideSpeakingRateEvent?: (
+    event: RehearsalSlideSpeakingRateBusinessEvent,
   ) => void,
   onTranscriptArtifactEvent?: (
-    event: RehearsalTranscriptArtifactBusinessEvent
+    event: RehearsalTranscriptArtifactBusinessEvent,
   ) => void,
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
@@ -236,7 +292,7 @@ export async function processRehearsalSttJob(
       jobId,
       0,
       "REHEARSAL_STT_PAYLOAD_INVALID",
-      payloadResult.error.message
+      payloadResult.error.message,
     );
   }
 
@@ -246,7 +302,7 @@ export async function processRehearsalSttJob(
     progress: 10,
     message: "입력 데이터 확인 중",
     result: null,
-    error: null
+    error: null,
   });
 
   let runInput: z.infer<typeof rehearsalRunInputRowSchema>;
@@ -254,7 +310,7 @@ export async function processRehearsalSttJob(
     runInput = await updateRun(dataSource, payload, {
       status: "processing",
       error: null,
-      jobId: payload.jobId
+      jobId: payload.jobId,
     });
   } catch (error) {
     return failJobOnly(
@@ -262,7 +318,7 @@ export async function processRehearsalSttJob(
       payload.jobId,
       10,
       "REHEARSAL_RUN_UNAVAILABLE",
-      error instanceof Error ? error.message : "Rehearsal run unavailable."
+      error instanceof Error ? error.message : "Rehearsal run unavailable.",
     );
   }
 
@@ -275,13 +331,13 @@ export async function processRehearsalSttJob(
     deckContext = runInput.evaluation_snapshot_json
       ? buildSnapshotAnalysisContext(
           runInput.evaluation_snapshot_json,
-          runInput.semantic_evaluation_mode
+          runInput.semantic_evaluation_mode,
         )
       : await loadDeckAnalysisContext(
           dataSource,
           payload.projectId,
           payload.deckId,
-          runInput.semantic_evaluation_mode
+          runInput.semantic_evaluation_mode,
         );
     runMeta = rehearsalRunMetaSchema.parse(runInput.meta_json ?? {});
     storageUrl = await storage.getSignedReadUrl(asset.storage_key);
@@ -291,28 +347,33 @@ export async function processRehearsalSttJob(
       payload,
       10,
       "REHEARSAL_STT_INPUT_UNAVAILABLE",
-      error instanceof Error ? error.message : "Rehearsal STT input unavailable."
+      error instanceof Error
+        ? error.message
+        : "Rehearsal STT input unavailable.",
     );
   }
 
   await progressJob(dataSource, payload.jobId, 30, "음성 변환 중");
 
-  let transcribePayload: z.infer<typeof transcribeResponseSchema>;
+  let audioProcessingResponse: RehearsalAudioProcessingResponse;
   try {
-    const response = await fetch(workerUrl(pythonWorkerUrl, "/audio/transcribe"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        runId: payload.runId,
-        projectId: payload.projectId,
-        audio: {
-          fileId: payload.audioFileId,
-          storageUrl,
-          mimeType: asset.mime_type
-        }
-      }),
-      signal: AbortSignal.timeout(120_000)
-    });
+    const response = await fetch(
+      workerUrl(pythonWorkerUrl, "/audio/transcribe"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          runId: payload.runId,
+          projectId: payload.projectId,
+          audio: {
+            fileId: payload.audioFileId,
+            storageUrl,
+            mimeType: asset.mime_type,
+          },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
 
     if (!response.ok) {
       return failAndScheduleRawAudioDeletion(
@@ -321,11 +382,29 @@ export async function processRehearsalSttJob(
         payload,
         30,
         "PYTHON_WORKER_STT_FAILED",
-        (await response.text()) || "Python worker STT failed."
+        (await response.text()) || "Python worker STT failed.",
       );
     }
 
-    transcribePayload = transcribeResponseSchema.parse(await response.json());
+    audioProcessingResponse = rehearsalAudioProcessingResponseSchema.parse(
+      await response.json(),
+    );
+    const silenceAnalysis = audioProcessingResponse.silenceAnalysis;
+    onSilenceAnalysisEvent?.({
+      event:
+        silenceAnalysis.measurementState === "measured"
+          ? "rehearsal.silence_analysis.completed"
+          : "rehearsal.silence_analysis.unmeasured",
+      projectId: payload.projectId,
+      runId: payload.runId,
+      jobId: payload.jobId,
+      measurementState: silenceAnalysis.measurementState,
+      longSilenceCount: silenceAnalysis.longSilenceCount,
+      totalSilenceSeconds: silenceAnalysis.totalSilenceSeconds,
+      silenceRatio: silenceAnalysis.silenceRatio,
+      reasonCode: silenceAnalysis.reasonCode,
+      segments: silenceAnalysis.segments,
+    });
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
       dataSource,
@@ -333,7 +412,7 @@ export async function processRehearsalSttJob(
       payload,
       30,
       "PYTHON_WORKER_STT_UNAVAILABLE",
-      error instanceof Error ? error.message : "Python worker STT unavailable."
+      error instanceof Error ? error.message : "Python worker STT unavailable.",
     );
   }
 
@@ -355,7 +434,7 @@ export async function processRehearsalSttJob(
       transcriptTextFileId: runInput.transcript_text_file_id,
       transcriptJsonStatus: runInput.transcript_json_status,
       transcriptTextStatus: runInput.transcript_text_status,
-      transcription: transcribePayload,
+      transcription: audioProcessingResponse,
     });
   } catch {
     emitTranscriptArtifactEvent(onTranscriptArtifactEvent, {
@@ -388,8 +467,11 @@ export async function processRehearsalSttJob(
       pythonWorkerUrl,
       payload,
       deckContext,
-      transcribePayload,
-      runMeta
+      audioProcessingResponse,
+      runMeta,
+    );
+    onSlideSpeakingRateEvent?.(
+      buildSlideSpeakingRateBusinessEvent(payload, analysis.slideInsights),
     );
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
@@ -398,7 +480,7 @@ export async function processRehearsalSttJob(
       payload,
       65,
       "PYTHON_WORKER_ANALYZE_FAILED",
-      error instanceof Error ? error.message : "Python worker analysis failed."
+      error instanceof Error ? error.message : "Python worker analysis failed.",
     );
   }
 
@@ -406,9 +488,9 @@ export async function processRehearsalSttJob(
     pythonWorkerUrl,
     payload,
     deckContext,
-    transcribePayload,
+    audioProcessingResponse,
     runMeta,
-    onSemanticEvaluationEvent
+    onSemanticEvaluationEvent,
   );
 
   await progressJob(dataSource, payload.jobId, 85, "리포트 생성 중");
@@ -417,12 +499,12 @@ export async function processRehearsalSttJob(
   try {
     report = buildRehearsalReport(
       payload,
-      transcribePayload,
+      audioProcessingResponse,
       analysis,
       new Date().toISOString(),
       deckContext,
       runMeta,
-      semanticResult
+      semanticResult,
     );
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
@@ -431,13 +513,15 @@ export async function processRehearsalSttJob(
       payload,
       85,
       "REHEARSAL_REPORT_INVALID",
-      error instanceof Error ? error.message : "Rehearsal report validation failed."
+      error instanceof Error
+        ? error.message
+        : "Rehearsal report validation failed.",
     );
   }
 
   try {
     await transcriptCache?.setSemanticEvidence(payload.runId, {
-      segments: buildSemanticSegments(transcribePayload.segments)
+      segments: buildSemanticSegments(audioProcessingResponse.segments),
     });
   } catch {
     // 의미 평가 근거 캐시 실패는 delivery 리포트 생성을 막지 않는다.
@@ -447,7 +531,7 @@ export async function processRehearsalSttJob(
     status: "succeeded",
     error: null,
     rehearsalReport: report,
-    transcriptRetained: report.transcriptRetained
+    transcriptRetained: report.transcriptRetained,
   });
 
   if (completedRun.evaluation_snapshot_json) {
@@ -455,7 +539,7 @@ export async function processRehearsalSttJob(
       executor: dataSource,
       projectId: payload.projectId,
       sourceFullRunId: payload.runId,
-      snapshot: completedRun.evaluation_snapshot_json
+      snapshot: completedRun.evaluation_snapshot_json,
     });
     const goalSet = derivePracticeGoalSet({
       projectId: payload.projectId,
@@ -463,19 +547,23 @@ export async function processRehearsalSttJob(
       sourceAnalysisRevision: completedRun.analysis_revision,
       snapshot: completedRun.evaluation_snapshot_json,
       report,
-      rankingContext
+      rankingContext,
     });
     if (goalSet) {
       await publishPracticeGoalSet(dataSource, goalSet, {
         evaluatedFullRunId: payload.runId,
         snapshot: completedRun.evaluation_snapshot_json,
-        report
+        report,
       });
     }
   }
 
   try {
-    await upsertRehearsalSummary(dataSource, pythonWorkerUrl, payload.projectId);
+    await upsertRehearsalSummary(
+      dataSource,
+      pythonWorkerUrl,
+      payload.projectId,
+    );
   } catch {
     // summary 업데이트 실패는 리포트 저장을 막지 않는다.
   }
@@ -484,8 +572,13 @@ export async function processRehearsalSttJob(
     status: "succeeded",
     progress: 100,
     message: "리포트 생성 완료",
-    result: buildReportGenerationRecord(payload, transcribePayload, report, null),
-    error: null
+    result: buildReportGenerationRecord(
+      payload,
+      audioProcessingResponse,
+      report,
+      null,
+    ),
+    error: null,
   });
 
   // Temporary: retain successful rehearsal recordings for follow-up audio analysis.
@@ -495,12 +588,12 @@ export async function processRehearsalSttJob(
 
 function buildRehearsalReport(
   payload: RehearsalSttPayload,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   analysis: z.infer<typeof analyzeResponseSchema>,
   generatedAt: string,
   deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta,
-  semanticResult: SemanticAnalysisResult
+  semanticResult: SemanticAnalysisResult,
 ): RehearsalReport {
   return rehearsalReportSchema.parse({
     reportId: `report_${payload.runId}`,
@@ -509,20 +602,25 @@ function buildRehearsalReport(
     deckId: payload.deckId,
     transcriptRetained: true,
     transcript: null,
+    volumeAnalysis: transcription.volumeAnalysis,
+    silenceAnalysis: transcription.silenceAnalysis,
     metrics: {
       durationSeconds: transcription.durationSeconds ?? 0,
       wordsPerMinute: analysis.wordsPerMinute,
       fillerWordCount: analysis.fillerWordCount,
-      pauseCount: analysis.pauseCount,
+      longSilenceCount: transcription.silenceAnalysis.longSilenceCount,
       keywordCoverage: analysis.keywordCoverage,
+      measurements: buildReportMeasurements(
+        transcription,
+        deckContext.deckKeywords.length > 0,
+      ),
       keywordCoverageMeasurement:
         deckContext.deckKeywords.length === 0
           ? { state: "unmeasured", reason: "no-keywords" }
-          : { state: "measured" }
+          : { state: "measured" },
     },
     speedSamples: analysis.speedSamples,
     fillerWordDetails: analysis.fillerWordDetails,
-    pauseDetails: analysis.pauseDetails,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     utteranceOutcomes: runMeta.utteranceOutcomes,
     semanticCueDecisions: runMeta.semanticCueDecisions,
@@ -533,19 +631,19 @@ function buildRehearsalReport(
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
-      unclearTopics: []
+      unclearTopics: [],
     },
     aiSummary: analysis.aiSummary ?? null,
     coaching: analysis.coaching ?? null,
-    generatedAt
+    generatedAt,
   });
 }
 
 function buildReportGenerationRecord(
   payload: RehearsalSttPayload,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   report: RehearsalReport,
-  rawAudioDeletedAt: string | null
+  rawAudioDeletedAt: string | null,
 ) {
   return {
     runId: payload.runId,
@@ -561,7 +659,7 @@ function buildReportGenerationRecord(
     metrics: report.metrics,
     coaching: report.coaching,
     report,
-    rawAudioDeletedAt
+    rawAudioDeletedAt,
   };
 }
 
@@ -569,14 +667,15 @@ async function analyzeTranscript(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
   deckContext: DeckAnalysisContext,
-  transcription: z.infer<typeof transcribeResponseSchema>,
-  runMeta: RehearsalRunMeta
+  transcription: RehearsalAudioProcessingResponse,
+  runMeta: RehearsalRunMeta,
 ) {
   const request = rehearsalAnalyzeRequestSchema.parse({
     runId: payload.runId,
     projectId: payload.projectId,
     deckId: payload.deckId,
     transcript: transcription.transcript,
+    language: transcription.language,
     durationSeconds: transcription.durationSeconds ?? 0,
     segments: transcription.segments,
     deckKeywords: deckContext.deckKeywords.map(
@@ -586,32 +685,90 @@ async function analyzeTranscript(
         text,
         synonyms,
         abbreviations,
-        required
-      })
+        required,
+      }),
     ),
-    slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta)
+    slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta),
+    silenceAnalysis: transcription.silenceAnalysis,
   });
-  const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/analyze"), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(request),
-    signal: AbortSignal.timeout(120_000)
-  });
+  const response = await fetch(
+    workerUrl(pythonWorkerUrl, "/rehearsal/analyze"),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
 
   if (!response.ok) {
-    throw new Error((await response.text()) || "Python worker analysis failed.");
+    throw new Error(
+      (await response.text()) || "Python worker analysis failed.",
+    );
   }
 
-  return analyzeResponseSchema.parse(await response.json());
+  const analysis = analyzeResponseSchema.parse(await response.json());
+  if (
+    analysis.longSilenceCount !== transcription.silenceAnalysis.longSilenceCount
+  ) {
+    throw new Error(
+      "Python worker long silence count does not match silence analysis.",
+    );
+  }
+  return analysis;
+}
+
+function buildReportMeasurements(
+  transcription: RehearsalAudioProcessingResponse,
+  hasKeywords: boolean,
+) {
+  const measured = {
+    measurementState: "measured" as const,
+    metricDefinitionVersion: 1,
+    reasonCode: null,
+  };
+  const silenceMeasured =
+    transcription.silenceAnalysis.measurementState === "measured";
+  return {
+    duration:
+      (transcription.durationSeconds ?? 0) > 0
+        ? measured
+        : {
+            measurementState: "unmeasured" as const,
+            metricDefinitionVersion: 1,
+            reasonCode: "NO_DURATION_EVIDENCE" as const,
+          },
+    charactersPerMinute: {
+      measurementState: "unmeasured" as const,
+      metricDefinitionVersion: 1,
+      reasonCode: "UNSUPPORTED_CPM_LANGUAGE" as const,
+    },
+    wordsPerMinute: measured,
+    fillerWordCount: measured,
+    longSilenceCount: silenceMeasured
+      ? measured
+      : {
+          measurementState: "unmeasured" as const,
+          metricDefinitionVersion: 1,
+          reasonCode: "AUDIO_ANALYSIS_UNAVAILABLE" as const,
+        },
+    keywordCoverage: hasKeywords
+      ? measured
+      : {
+          measurementState: "unmeasured" as const,
+          metricDefinitionVersion: 1,
+          reasonCode: "NO_KEYWORDS" as const,
+        },
+  };
 }
 
 async function analyzeSemanticCuesForReport(
   pythonWorkerUrl: string,
   payload: RehearsalSttPayload,
   deckContext: DeckAnalysisContext,
-  transcription: z.infer<typeof transcribeResponseSchema>,
+  transcription: RehearsalAudioProcessingResponse,
   runMeta: RehearsalRunMeta,
-  onEvent?: (event: RehearsalSemanticEvaluationBusinessEvent) => void
+  onEvent?: (event: RehearsalSemanticEvaluationBusinessEvent) => void,
 ): Promise<SemanticAnalysisResult> {
   const snapshot = deckContext.evaluationSnapshot;
   if (deckContext.semanticEvaluationMode === "delivery-only") {
@@ -623,7 +780,7 @@ async function analyzeSemanticCuesForReport(
 
   const cueCount = snapshot.slides.reduce(
     (count, slide) => count + slide.semanticCues.length,
-    0
+    0,
   );
   const baseEvent = {
     projectId: payload.projectId,
@@ -632,11 +789,11 @@ async function analyzeSemanticCuesForReport(
     runId: payload.runId,
     jobId: payload.jobId,
     cueCount,
-    slideCount: snapshot.slides.length
+    slideCount: snapshot.slides.length,
   };
   emitSemanticEvaluationEvent(onEvent, {
     event: "rehearsal.semantic_evaluation.started",
-    ...baseEvent
+    ...baseEvent,
   });
 
   if (cueCount === 0) {
@@ -645,15 +802,15 @@ async function analyzeSemanticCuesForReport(
         state: "succeeded",
         measurementMode: "none",
         reasons: [],
-        retryable: false
+        retryable: false,
       },
-      semanticCueOutcomes: []
+      semanticCueOutcomes: [],
     };
     emitSemanticEvaluationEvent(onEvent, {
       event: "rehearsal.semantic_evaluation.succeeded",
       ...baseEvent,
       latencyMs: 0,
-      reasons: []
+      reasons: [],
     });
     return emptyResult;
   }
@@ -662,14 +819,14 @@ async function analyzeSemanticCuesForReport(
     payload.runId,
     snapshot,
     buildSemanticSegments(transcription.segments),
-    runMeta
+    runMeta,
   );
   const startedAt = Date.now();
   try {
     const result = await requestSemanticAnalysis(
       pythonWorkerUrl,
       snapshot,
-      semanticRequest
+      semanticRequest,
     );
     const event =
       result.semanticEvaluation.state === "succeeded"
@@ -679,17 +836,21 @@ async function analyzeSemanticCuesForReport(
       event,
       ...baseEvent,
       latencyMs: Date.now() - startedAt,
-      reasons: result.semanticEvaluation.reasons
+      reasons: result.semanticEvaluation.reasons,
     });
     return result;
   } catch (error) {
     const reason = semanticEndpointFailureReason(error);
-    const result = buildSemanticFailureResult(snapshot, semanticRequest, reason);
+    const result = buildSemanticFailureResult(
+      snapshot,
+      semanticRequest,
+      reason,
+    );
     emitSemanticEvaluationEvent(onEvent, {
       event: "rehearsal.semantic_evaluation.partial",
       ...baseEvent,
       latencyMs: Date.now() - startedAt,
-      reasons: result.semanticEvaluation.reasons
+      reasons: result.semanticEvaluation.reasons,
     });
     return result;
   }
@@ -702,7 +863,7 @@ class SemanticEndpointError extends Error {
 }
 
 export function semanticEndpointFailureReason(
-  error: unknown
+  error: unknown,
 ): SemanticFallbackReason {
   if (error instanceof SemanticEndpointError) {
     return error.reason;
@@ -717,16 +878,16 @@ export function semanticEndpointFailureReason(
 }
 
 function unavailableSemanticResult(
-  reason: "evaluation_not_run" | "evaluation_snapshot_mismatch"
+  reason: "evaluation_not_run" | "evaluation_snapshot_mismatch",
 ): SemanticAnalysisResult {
   return {
     semanticEvaluation: {
       state: "unavailable",
       measurementMode: "none",
       reasons: [reason],
-      retryable: false
+      retryable: false,
     },
-    semanticCueOutcomes: []
+    semanticCueOutcomes: [],
   };
 }
 
@@ -734,7 +895,7 @@ export function buildSemanticAnalysisRequest(
   runId: string,
   snapshot: RehearsalEvaluationSnapshot,
   segments: RehearsalSemanticEvidenceSegment[],
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
 ) {
   return {
     runId,
@@ -742,14 +903,14 @@ export function buildSemanticAnalysisRequest(
     segments,
     slideTimeline: buildSemanticSlideTimeline(snapshot, runMeta),
     provisionalDecisions: runMeta.semanticCueDecisions,
-    capabilityEvents: runMeta.semanticCapabilityEvents
+    capabilityEvents: runMeta.semanticCapabilityEvents,
   };
 }
 
 export async function requestSemanticAnalysis(
   pythonWorkerUrl: string,
   snapshot: RehearsalEvaluationSnapshot,
-  request: ReturnType<typeof buildSemanticAnalysisRequest>
+  request: ReturnType<typeof buildSemanticAnalysisRequest>,
 ): Promise<SemanticAnalysisResult> {
   const response = await fetch(
     workerUrl(pythonWorkerUrl, "/rehearsal/analyze-semantic-cues"),
@@ -757,12 +918,12 @@ export async function requestSemanticAnalysis(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(120_000)
-    }
+      signal: AbortSignal.timeout(120_000),
+    },
   );
   if (!response.ok) {
     throw new SemanticEndpointError(
-      response.status === 504 ? "timeout" : "server_evaluation_failed"
+      response.status === 504 ? "timeout" : "server_evaluation_failed",
     );
   }
 
@@ -772,7 +933,7 @@ export async function requestSemanticAnalysis(
 }
 
 function buildSemanticSegments(
-  segments: z.infer<typeof transcribeSegmentSchema>[]
+  segments: RehearsalAudioProcessingResponse["segments"],
 ) {
   return segments.flatMap((segment) => {
     if (
@@ -787,15 +948,15 @@ function buildSemanticSegments(
       {
         startMs: Math.round(segment.startSeconds * 1000),
         endMs: Math.round(segment.endSeconds * 1000),
-        text: segment.text
-      }
+        text: segment.text,
+      },
     ];
   });
 }
 
 function buildSemanticSlideTimeline(
   snapshot: RehearsalEvaluationSnapshot,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
 ) {
   const slideIds = new Set(snapshot.slides.map((slide) => slide.slideId));
   const entries = runMeta.slideTimeline.flatMap((entry) => {
@@ -817,27 +978,30 @@ function buildSemanticSlideTimeline(
       enteredAtMs,
       ...(nextEntry && nextEntry.enteredAt > entry.enteredAt
         ? { exitedAtMs: nextEntry.enteredAt - firstEnteredAt }
-        : {})
+        : {}),
     };
   });
 }
 
 function validateSemanticOutcomeCoverage(
   snapshot: RehearsalEvaluationSnapshot,
-  outcomes: RehearsalSemanticCueOutcome[]
+  outcomes: RehearsalSemanticCueOutcome[],
 ) {
   const expected = new Map(
     snapshot.slides.flatMap((slide) =>
-      slide.semanticCues.map((cue) => [
-        `${slide.slideId}:${cue.cueId}`,
-        {
-          cue,
-          reportLabel: normalizeSemanticReportLabel(
-            cue.reportLabel ?? cue.presenterTag ?? cue.meaning
-          )
-        }
-      ] as const)
-    )
+      slide.semanticCues.map(
+        (cue) =>
+          [
+            `${slide.slideId}:${cue.cueId}`,
+            {
+              cue,
+              reportLabel: normalizeSemanticReportLabel(
+                cue.reportLabel ?? cue.presenterTag ?? cue.meaning,
+              ),
+            },
+          ] as const,
+      ),
+    ),
   );
   const actual = new Map<string, RehearsalSemanticCueOutcome>();
   for (const outcome of outcomes) {
@@ -848,7 +1012,9 @@ function validateSemanticOutcomeCoverage(
     actual.set(key, outcome);
   }
   if (actual.size !== expected.size) {
-    throw new Error("Semantic evaluator returned an incomplete cue denominator.");
+    throw new Error(
+      "Semantic evaluator returned an incomplete cue denominator.",
+    );
   }
   for (const [key, expectedOutcome] of expected) {
     const outcome = actual.get(key);
@@ -871,9 +1037,11 @@ function normalizeSemanticReportLabel(value: string) {
 function buildSemanticFailureResult(
   snapshot: RehearsalEvaluationSnapshot,
   request: ReturnType<typeof buildSemanticAnalysisRequest>,
-  providerReason: SemanticFallbackReason
+  providerReason: SemanticFallbackReason,
 ): SemanticAnalysisResult {
-  const visitedSlides = new Set(request.slideTimeline.map((entry) => entry.slideId));
+  const visitedSlides = new Set(
+    request.slideTimeline.map((entry) => entry.slideId),
+  );
   const outcomes = snapshot.slides.flatMap((slide) =>
     slide.semanticCues.map((cue): RehearsalSemanticCueOutcome => {
       const base = {
@@ -882,18 +1050,18 @@ function buildSemanticFailureResult(
         cueRevision: cue.revision,
         cueMeaningSnapshot: cue.meaning,
         reportLabelSnapshot: normalizeSemanticReportLabel(
-          cue.reportLabel ?? cue.presenterTag ?? cue.meaning
+          cue.reportLabel ?? cue.presenterTag ?? cue.meaning,
         ),
         importance: cue.importance,
         coveredConcepts: [],
-        missingConcepts: cue.requiredConcepts
+        missingConcepts: cue.requiredConcepts,
       };
       if (cue.reviewStatus === "excluded") {
         return {
           ...base,
           status: "excluded",
           measurementMode: "none",
-          fallbackUsed: false
+          fallbackUsed: false,
         };
       }
 
@@ -902,10 +1070,10 @@ function buildSemanticFailureResult(
           ? "stale_cue"
           : !visitedSlides.has(slide.slideId)
             ? "slide_not_visited"
-            : transcriptCapabilityReason(slide.slideId, cue.cueId, request) ??
-                (!hasSemanticTranscriptForSlide(slide.slideId, request)
-                  ? "no_transcript"
-                  : providerReason);
+            : (transcriptCapabilityReason(slide.slideId, cue.cueId, request) ??
+              (!hasSemanticTranscriptForSlide(slide.slideId, request)
+                ? "no_transcript"
+                : providerReason));
       const providerFallback = reason === providerReason;
       return {
         ...base,
@@ -913,40 +1081,43 @@ function buildSemanticFailureResult(
         measurementMode: "none",
         fallbackUsed: providerFallback,
         ...(providerFallback ? { fallbackReason: providerReason } : {}),
-        unmeasuredReason: reason
+        unmeasuredReason: reason,
       };
-    })
+    }),
   );
   const reasons = Array.from(
     new Set(
       outcomes.flatMap((outcome) =>
         outcome.status === "unmeasured" && outcome.unmeasuredReason
           ? [outcome.unmeasuredReason]
-          : []
-      )
-    )
+          : [],
+      ),
+    ),
   );
   const retryable = reasons.some((reason) => reason === providerReason);
-  const hasUnmeasured = outcomes.some((outcome) => outcome.status === "unmeasured");
+  const hasUnmeasured = outcomes.some(
+    (outcome) => outcome.status === "unmeasured",
+  );
   return analyzeSemanticResponseSchema.parse({
     semanticEvaluation: {
       state: hasUnmeasured ? "unavailable" : "succeeded",
       measurementMode: "none",
       reasons,
-      retryable
+      retryable,
     },
-    semanticCueOutcomes: outcomes
+    semanticCueOutcomes: outcomes,
   });
 }
 
 function transcriptCapabilityReason(
   slideId: string,
   cueId: string,
-  request: ReturnType<typeof buildSemanticAnalysisRequest>
+  request: ReturnType<typeof buildSemanticAnalysisRequest>,
 ): SemanticFallbackReason | undefined {
   for (const event of [...request.capabilityEvents].reverse()) {
     if (
-      (event.capability !== "stt" && event.capability !== "transcript_evidence") ||
+      (event.capability !== "stt" &&
+        event.capability !== "transcript_evidence") ||
       event.toState === "available" ||
       event.reason === undefined ||
       !transcriptBlockingReasons.has(event.reason) ||
@@ -962,7 +1133,7 @@ function transcriptCapabilityReason(
 
 function hasSemanticTranscriptForSlide(
   slideId: string,
-  request: ReturnType<typeof buildSemanticAnalysisRequest>
+  request: ReturnType<typeof buildSemanticAnalysisRequest>,
 ) {
   const timeline = request.slideTimeline;
   return request.segments.some((segment) => {
@@ -972,15 +1143,18 @@ function hasSemanticTranscriptForSlide(
         return false;
       }
       const nextEntry = timeline[index + 1];
-      const exitedAtMs = entry.exitedAtMs ?? nextEntry?.enteredAtMs ?? Number.POSITIVE_INFINITY;
+      const exitedAtMs =
+        entry.exitedAtMs ?? nextEntry?.enteredAtMs ?? Number.POSITIVE_INFINITY;
       return midpoint < exitedAtMs;
     });
   });
 }
 
 function emitSemanticEvaluationEvent(
-  callback: ((event: RehearsalSemanticEvaluationBusinessEvent) => void) | undefined,
-  event: RehearsalSemanticEvaluationBusinessEvent
+  callback:
+    | ((event: RehearsalSemanticEvaluationBusinessEvent) => void)
+    | undefined,
+  event: RehearsalSemanticEvaluationBusinessEvent,
 ) {
   try {
     callback?.(event);
@@ -1002,14 +1176,17 @@ function emitTranscriptArtifactEvent(
   }
 }
 
-async function loadAudioAsset(dataSource: DataSource, payload: RehearsalSttPayload) {
+async function loadAudioAsset(
+  dataSource: DataSource,
+  payload: RehearsalSttPayload,
+) {
   const rows = await dataSource.query(
     `
       SELECT file_id, project_id, storage_key, mime_type, original_name, purpose, status
       FROM project_assets
       WHERE file_id = $1 AND project_id = $2
     `,
-    [payload.audioFileId, payload.projectId]
+    [payload.audioFileId, payload.projectId],
   );
 
   const row = readFirstQueryRow<unknown>(rows);
@@ -1024,11 +1201,11 @@ async function loadDeckAnalysisContext(
   dataSource: DataSource,
   projectId: string,
   deckId: string,
-  semanticEvaluationMode: "full" | "delivery-only"
+  semanticEvaluationMode: "full" | "delivery-only",
 ) {
   const rows = await dataSource.query(
     `SELECT deck_json, version FROM decks WHERE project_id = $1 AND deck_id = $2`,
-    [projectId, deckId]
+    [projectId, deckId],
   );
 
   const row = readFirstQueryRow<unknown>(rows);
@@ -1045,7 +1222,7 @@ async function loadDeckAnalysisContext(
       WHERE project_id = $1 AND deck_id = $2 AND after_version > $3
       ORDER BY after_version ASC, created_at ASC, change_id ASC
     `,
-    [projectId, deckId, checkpoint.version]
+    [projectId, deckId, checkpoint.version],
   );
 
   let workingDeck = checkpointDeck;
@@ -1055,13 +1232,13 @@ async function loadDeckAnalysisContext(
 
     if (patchRow.before_version !== expectedBeforeVersion) {
       throw new Error(
-        `Stored patch chain does not start from the checkpoint version: expected=${expectedBeforeVersion}, actual=${patchRow.before_version}`
+        `Stored patch chain does not start from the checkpoint version: expected=${expectedBeforeVersion}, actual=${patchRow.before_version}`,
       );
     }
 
     if (patchRow.after_version !== patchRow.before_version + 1) {
       throw new Error(
-        `Stored patch history has a non-sequential version transition: before=${patchRow.before_version}, after=${patchRow.after_version}`
+        `Stored patch history has a non-sequential version transition: before=${patchRow.before_version}, after=${patchRow.after_version}`,
       );
     }
 
@@ -1069,13 +1246,17 @@ async function loadDeckAnalysisContext(
       deckId: workingDeck.deckId,
       baseVersion: patchRow.before_version,
       source: patchRow.source,
-      operations: patchRow.operations
+      operations: patchRow.operations,
     });
-    workingDeck = applyReportDeckPatch(workingDeck, patch, patchRow.after_version);
+    workingDeck = applyReportDeckPatch(
+      workingDeck,
+      patch,
+      patchRow.after_version,
+    );
 
     if (workingDeck.version !== patchRow.after_version) {
       throw new Error(
-        `Stored patch history has an unexpected version transition: deck=${workingDeck.version}, patch=${patchRow.after_version}`
+        `Stored patch history has an unexpected version transition: deck=${workingDeck.version}, patch=${patchRow.after_version}`,
       );
     }
 
@@ -1085,39 +1266,43 @@ async function loadDeckAnalysisContext(
   return {
     slides: workingDeck.slides.map((slide) => ({
       slideId: slide.slideId,
-      targetSeconds: getSlideTargetSeconds(workingDeck, slide)
+      targetSeconds: getSlideTargetSeconds(workingDeck, slide),
     })),
     deckKeywords: workingDeck.slides.flatMap((slide) =>
-      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId })),
     ),
     evaluationSnapshot: null,
-    semanticEvaluationMode
+    semanticEvaluationMode,
   };
 }
 
 function buildSnapshotAnalysisContext(
   snapshot: z.infer<typeof rehearsalEvaluationSnapshotSchema>,
-  semanticEvaluationMode: "full" | "delivery-only"
+  semanticEvaluationMode: "full" | "delivery-only",
 ): DeckAnalysisContext {
   return {
     slides: snapshot.slides.map((slide) => ({
       slideId: slide.slideId,
-      targetSeconds: slide.estimatedSeconds
+      targetSeconds: slide.estimatedSeconds,
     })),
     deckKeywords: snapshot.slides.flatMap((slide) =>
-      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId }))
+      slide.keywords.map((keyword) => ({ ...keyword, slideId: slide.slideId })),
     ),
     evaluationSnapshot: snapshot,
-    semanticEvaluationMode
+    semanticEvaluationMode,
   };
 }
 
 function applyReportDeckPatch(
   deck: Deck,
   patch: ReturnType<typeof deckPatchSchema.parse>,
-  afterVersion: number
+  afterVersion: number,
 ) {
-  let nextDeck: Deck = { ...deck, version: afterVersion, slides: [...deck.slides] };
+  let nextDeck: Deck = {
+    ...deck,
+    version: afterVersion,
+    slides: [...deck.slides],
+  };
 
   for (const operation of patch.operations) {
     switch (operation.type) {
@@ -1129,37 +1314,44 @@ function applyReportDeckPatch(
             ? {
                 metadata: applyReportDeckMetadataPatch(
                   nextDeck.metadata,
-                  operation.metadata
-                )
+                  operation.metadata,
+                ),
               }
-            : {})
+            : {}),
         };
         break;
       }
       case "add_slide":
         nextDeck = {
           ...nextDeck,
-          slides: [...nextDeck.slides, operation.slide].sort((a, b) => a.order - b.order)
+          slides: [...nextDeck.slides, operation.slide].sort(
+            (a, b) => a.order - b.order,
+          ),
         };
         break;
       case "delete_slide":
         nextDeck = {
           ...nextDeck,
-          slides: nextDeck.slides.filter((slide) => slide.slideId !== operation.slideId)
+          slides: nextDeck.slides.filter(
+            (slide) => slide.slideId !== operation.slideId,
+          ),
         };
         break;
       case "reorder_slides": {
         const orderBySlideId = new Map(
-          operation.slideOrders.map((slideOrder) => [slideOrder.slideId, slideOrder.order])
+          operation.slideOrders.map((slideOrder) => [
+            slideOrder.slideId,
+            slideOrder.order,
+          ]),
         );
         nextDeck = {
           ...nextDeck,
           slides: nextDeck.slides
             .map((slide) => ({
               ...slide,
-              order: orderBySlideId.get(slide.slideId) ?? slide.order
+              order: orderBySlideId.get(slide.slideId) ?? slide.order,
             }))
-            .sort((a, b) => a.order - b.order)
+            .sort((a, b) => a.order - b.order),
         };
         break;
       }
@@ -1169,8 +1361,8 @@ function applyReportDeckPatch(
           slides: nextDeck.slides.map((slide) =>
             slide.slideId === operation.slideId
               ? { ...slide, keywords: operation.keywords }
-              : slide
-          )
+              : slide,
+          ),
         };
         break;
       default:
@@ -1183,7 +1375,7 @@ function applyReportDeckPatch(
 
 function applyReportDeckMetadataPatch(
   metadata: Deck["metadata"],
-  patch: { thumbnailSource?: Deck["metadata"]["thumbnailSource"] | null }
+  patch: { thumbnailSource?: Deck["metadata"]["thumbnailSource"] | null },
 ) {
   const nextMetadata = { ...metadata };
 
@@ -1197,7 +1389,7 @@ function applyReportDeckMetadataPatch(
 }
 
 function buildReportMissedKeywords(
-  analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[]
+  analysisKeywords: z.infer<typeof analyzeMissedKeywordSchema>[],
 ) {
   const byKey = new Map<string, z.infer<typeof analyzeMissedKeywordSchema>>();
 
@@ -1210,10 +1402,12 @@ function buildReportMissedKeywords(
 
 function buildSlideTimings(
   deckContext: DeckAnalysisContext,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
 ): RehearsalReportSlideTiming[] {
   const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
-  const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
+  const timeline = runMeta.slideTimeline.filter((entry) =>
+    slideIds.has(entry.slideId),
+  );
   const timings: RehearsalReportSlideTiming[] = [];
   const firstEnteredAt = Date.parse(timeline[0]?.enteredAt ?? "");
   const recordingDurationSeconds = runMeta.recordingDurationSeconds;
@@ -1247,7 +1441,7 @@ function buildSlideTimings(
     }
 
     const slide = deckContext.slides.find(
-      (candidate) => candidate.slideId === entry.slideId
+      (candidate) => candidate.slideId === entry.slideId,
     );
     if (!slide) {
       continue;
@@ -1256,7 +1450,7 @@ function buildSlideTimings(
     timings.push({
       slideId: entry.slideId,
       targetSeconds: slide.targetSeconds,
-      actualSeconds: Math.round((exitedAt - enteredAt) / 1000)
+      actualSeconds: Math.round((exitedAt - enteredAt) / 1000),
     });
   }
 
@@ -1265,10 +1459,12 @@ function buildSlideTimings(
 
 function buildAnalyzeSlideTimeline(
   deckContext: DeckAnalysisContext,
-  runMeta: RehearsalRunMeta
+  runMeta: RehearsalRunMeta,
 ) {
   const slideIds = new Set(deckContext.slides.map((slide) => slide.slideId));
-  const timeline = runMeta.slideTimeline.filter((entry) => slideIds.has(entry.slideId));
+  const timeline = runMeta.slideTimeline.filter((entry) =>
+    slideIds.has(entry.slideId),
+  );
   const firstValidEnteredAt = timeline
     .map((entry) => Date.parse(entry.enteredAt))
     .find((enteredAt) => !Number.isNaN(enteredAt));
@@ -1289,7 +1485,7 @@ function buildAnalyzeSlideTimeline(
 
     const enteredSecond = Math.max(
       0,
-      Math.round(((enteredAt - firstValidEnteredAt) / 1000) * 100) / 100
+      Math.round(((enteredAt - firstValidEnteredAt) / 1000) * 100) / 100,
     );
     if (enteredSecond < previousSecond || entry.slideId === previousSlideId) {
       continue;
@@ -1308,7 +1504,10 @@ function getSlideTargetSeconds(deck: Deck, slide: Deck["slides"][number]) {
     return slide.estimatedSeconds;
   }
 
-  return Math.max(1, Math.round((deck.targetDurationMinutes * 60) / deck.slides.length));
+  return Math.max(
+    1,
+    Math.round((deck.targetDurationMinutes * 60) / deck.slides.length),
+  );
 }
 
 async function failAndScheduleRawAudioDeletion(
@@ -1317,16 +1516,27 @@ async function failAndScheduleRawAudioDeletion(
   payload: RehearsalSttPayload,
   progress: number,
   code: string,
-  message: string
+  message: string,
 ) {
-  const failedJob = await failJobAndRun(dataSource, payload, progress, code, message);
+  const failedJob = await failJobAndRun(
+    dataSource,
+    payload,
+    progress,
+    code,
+    message,
+  );
   await scheduleRawAudioDeletion(dataSource, asset);
   return failedJob;
 }
 
-async function scheduleRawAudioDeletion(dataSource: DataSource, asset: AudioAssetRow) {
+async function scheduleRawAudioDeletion(
+  dataSource: DataSource,
+  asset: AudioAssetRow,
+) {
   const now = new Date().toISOString();
-  const storageKeyHash = createHash("sha256").update(asset.storage_key).digest("hex");
+  const storageKeyHash = createHash("sha256")
+    .update(asset.storage_key)
+    .digest("hex");
   await dataSource.query(
     `
       INSERT INTO storage_deletion_outbox (
@@ -1353,12 +1563,12 @@ async function failJobAndRun(
   progress: number,
   code: string,
   message: string,
-  options: { rawAudioDeletedAt?: string } = {}
+  options: { rawAudioDeletedAt?: string } = {},
 ): Promise<Job> {
   await updateRun(dataSource, payload, {
     status: "failed",
     error: { code, message },
-    rawAudioDeletedAt: options.rawAudioDeletedAt
+    rawAudioDeletedAt: options.rawAudioDeletedAt,
   });
   return failJobOnly(dataSource, payload.jobId, progress, code, message);
 }
@@ -1368,14 +1578,14 @@ async function failJobOnly(
   jobId: string,
   progress: number,
   code: string,
-  message: string
+  message: string,
 ): Promise<Job> {
   return updateJob(dataSource, jobId, {
     status: "failed",
     progress,
     message: "Rehearsal STT failed.",
     result: null,
-    error: { code, message }
+    error: { code, message },
   });
 }
 
@@ -1389,7 +1599,7 @@ async function updateRun(
     rawAudioDeletedAt?: string;
     rehearsalReport?: RehearsalReport;
     transcriptRetained?: boolean;
-  }
+  },
 ): Promise<z.infer<typeof rehearsalRunInputRowSchema>> {
   const rows = await dataSource.query(
     `
@@ -1432,8 +1642,8 @@ async function updateRun(
       payload.projectId,
       patch.rehearsalReport
         ? !patch.rehearsalReport.semanticEvaluation.retryable
-        : false
-    ]
+        : false,
+    ],
   );
 
   const row = readFirstQueryRow<unknown>(rows);
@@ -1448,14 +1658,14 @@ async function progressJob(
   dataSource: DataSource,
   jobId: string,
   progress: number,
-  message: string
+  message: string,
 ): Promise<void> {
   await updateJob(dataSource, jobId, {
     status: "running",
     progress,
     message,
     result: null,
-    error: null
+    error: null,
   });
 }
 
@@ -1468,7 +1678,7 @@ async function updateJob(
     message: string;
     result: Record<string, unknown> | null;
     error: { code: string; message: string } | null;
-  }
+  },
 ): Promise<Job> {
   const rows = await dataSource.query(
     `
@@ -1482,7 +1692,14 @@ async function updateJob(
       WHERE job_id = $1
       RETURNING *
     `,
-    [jobId, patch.status, patch.progress, patch.message, patch.result, patch.error]
+    [
+      jobId,
+      patch.status,
+      patch.progress,
+      patch.message,
+      patch.result,
+      patch.error,
+    ],
   );
 
   const row = readFirstQueryRow<JobRow>(rows);
@@ -1521,7 +1738,7 @@ function rowToJob(row: JobRow): Job {
     result: row.result,
     error: row.error,
     createdAt: toIso(row.createdAt ?? row.created_at),
-    updatedAt: toIso(row.updatedAt ?? row.updated_at)
+    updatedAt: toIso(row.updatedAt ?? row.updated_at),
   };
 }
 
@@ -1576,7 +1793,10 @@ type DeckAnalysisContext = {
 };
 
 function workerUrl(baseUrl: string, path: string): string {
-  return new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+  return new URL(
+    path,
+    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
+  ).toString();
 }
 
 type ReportJsonShape = {
@@ -1593,34 +1813,40 @@ type SucceededRunRow = {
 async function upsertRehearsalSummary(
   dataSource: DataSource,
   pythonWorkerUrl: string,
-  projectId: string
+  projectId: string,
 ): Promise<void> {
   const rows: SucceededRunRow[] = await dataSource.query(
     `SELECT run_id, created_at, report_json
      FROM rehearsal_runs
      WHERE project_id = $1 AND status = 'succeeded'
      ORDER BY created_at ASC`,
-    [projectId]
+    [projectId],
   );
 
   if (rows.length === 0) return;
 
   const runDurationSeries = rows.map((row) => ({
     runId: row.run_id,
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    durationSeconds: row.report_json?.metrics?.durationSeconds ?? 0
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : String(row.created_at),
+    durationSeconds: row.report_json?.metrics?.durationSeconds ?? 0,
   }));
 
   if (rows.length < 2) return;
 
   let progressComment: string | null = null;
   try {
-    const response = await fetch(workerUrl(pythonWorkerUrl, "/rehearsal/progress-comment"), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId, runSeries: runDurationSeries }),
-      signal: AbortSignal.timeout(30_000)
-    });
+    const response = await fetch(
+      workerUrl(pythonWorkerUrl, "/rehearsal/progress-comment"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId, runSeries: runDurationSeries }),
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
     if (response.ok) {
       const data = (await response.json()) as { comment?: string | null };
       progressComment = data.comment ?? null;
@@ -1632,7 +1858,7 @@ async function upsertRehearsalSummary(
   if (progressComment !== null) {
     await dataSource.query(
       `UPDATE projects SET progress_comment = $2 WHERE project_id = $1`,
-      [projectId, progressComment]
+      [projectId, progressComment],
     );
   }
 }

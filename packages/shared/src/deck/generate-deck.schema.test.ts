@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deckColorCustomizationRequestSchema,
+  deckColorCustomizationResponseSchema,
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckDiagnosticsSchema,
   generateDeckJobResultSchema,
   generateDeckRequestSchema,
-  generateDeckResponseSchema
+  generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema
 } from "./generate-deck.schema";
 
 describe("generateDeckRequestSchema", () => {
@@ -355,9 +358,80 @@ describe("generateDeckRequestSchema", () => {
   });
 });
 
+describe("generateDeckStoredJobPayloadSchema", () => {
+  it("accepts legacy payloads and records the requesting user for new jobs", () => {
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "legacy" },
+      }),
+    ).toMatchObject({ request: { topic: "legacy" } });
+
+    expect(
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        imageAssetScope: { userId: "user-a" },
+      }),
+    ).toMatchObject({ requestedByUserId: "user-a" });
+  });
+
+  it("rejects undeclared stored payload fields", () => {
+    expect(() =>
+      generateDeckStoredJobPayloadSchema.parse({
+        request: { topic: "postgres transport" },
+        requestedByUserId: "user-a",
+        rawProviderResponse: { output: "private" },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("generateDeckDiagnosticsSchema", () => {
-  it("defaults machine-readable warning codes without breaking old payloads", () => {
-    expect(generateDeckDiagnosticsSchema.parse({}).warningCodes).toEqual([]);
+  it("defaults research diagnostics without breaking old payloads", () => {
+    expect(generateDeckDiagnosticsSchema.parse({})).toMatchObject({
+      researchQuality: "not-run",
+      researchIssueCodes: [],
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false,
+      warningCodes: []
+    });
+  });
+
+  it("accepts a partial research result with safe limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.parse({
+        researchQuality: "partial",
+        researchIssueCodes: ["independent-missing", "fact-coverage"],
+        relevantWebSourceCount: 1,
+        officialWebSourceCount: 1,
+        independentWebSourceCount: 0,
+        researchFactCoverageSatisfied: false
+      })
+    ).toMatchObject({
+      researchQuality: "partial",
+      researchIssueCodes: ["independent-missing", "fact-coverage"],
+      relevantWebSourceCount: 1,
+      officialWebSourceCount: 1,
+      independentWebSourceCount: 0,
+      researchFactCoverageSatisfied: false
+    });
+  });
+
+  it("rejects unknown research limitation codes", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchIssueCodes: ["provider stack trace"]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects unknown diagnostics fields instead of stripping them", () => {
+    expect(
+      generateDeckDiagnosticsSchema.safeParse({
+        researchQuality: "partial",
+        providerResponse: { raw: true }
+      }).success
+    ).toBe(false);
   });
 
   it("accepts unavailable rendered visual QA with warning codes", () => {
@@ -500,6 +574,51 @@ describe("deckColorOptionsResponseSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("deckColorCustomizationResponseSchema", () => {
+  const palette = {
+    primary: "#D97706",
+    secondary: "#92400E",
+    background: "#FFFBEB",
+    surface: "#FFFFFF",
+    muted: "#FEF3C7",
+    border: "#FDE68A",
+    text: "#1C1917",
+    accentColor: "#2563EB"
+  };
+
+  it("requires a complete base palette and one strict result", () => {
+    const request = deckColorCustomizationRequestSchema.parse({
+      topic: "제품 전략",
+      instruction: "포인트 컬러만 더 따뜻하게",
+      basePalette: palette,
+      tone: "professional"
+    });
+    const response = deckColorCustomizationResponseSchema.parse({
+      option: {
+        optionId: "ai-custom",
+        name: "따뜻한 전략",
+        palette,
+        rationale: "기존 배경을 유지하고 포인트를 조정했습니다."
+      }
+    });
+
+    expect(request.stylePackId).toBe("brandlogy-modern");
+    expect(response.option.palette).toEqual(palette);
+  });
+
+  it("rejects extra fields and incomplete palettes", () => {
+    expect(
+      deckColorCustomizationRequestSchema.safeParse({
+        topic: "제품 전략",
+        instruction: "파란색으로",
+        basePalette: { primary: "#2563EB" },
+        tone: "professional",
+        providerPrompt: "do not expose"
+      }).success
+    ).toBe(false);
   });
 });
 

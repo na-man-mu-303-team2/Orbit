@@ -576,8 +576,16 @@ function CartesianChartContent(props: {
   frame: SlideElementFrame;
 }) {
   const { accentColor, chart, frame } = props;
-  const data = chart.data.filter((datum): datum is { label: string; value: number } =>
+  const data = chart.data.filter((datum): datum is { label: string; series?: string; value: number } =>
     "value" in datum
+  );
+  const categories = Array.from(new Set(data.map((datum) => datum.label)));
+  const lineSeries = Array.from(
+    data.reduce((groups, datum) => {
+      const name = datum.series?.trim() || "Series 1";
+      groups.set(name, [...(groups.get(name) ?? []), datum]);
+      return groups;
+    }, new Map<string, Array<{ label: string; series?: string; value: number }>>())
   );
   const values = data.map((datum) => datum.value);
   const maxValue = niceChartMax(Math.max(1, ...values));
@@ -589,8 +597,9 @@ function CartesianChartContent(props: {
     y: frame.height * 0.185
   };
   const tickCount = 10;
-  const slotWidth = plot.width / Math.max(1, data.length);
+  const slotWidth = plot.width / Math.max(1, categories.length);
   const seriesColor = chart.style.colors[0] ?? officeChartColors[0] ?? accentColor;
+  const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
 
   return (
     <Group listening={false}>
@@ -635,19 +644,25 @@ function CartesianChartContent(props: {
         strokeWidth={1}
       />
       {isLineChart ? (
-        <LineChartSeries
-          data={data}
-          maxValue={maxValue}
-          plot={plot}
-          seriesColor={seriesColor}
-        />
+        <>
+          {lineSeries.map(([name, seriesData], index) => (
+            <LineChartSeries
+              categories={categories}
+              data={seriesData}
+              key={name}
+              maxValue={maxValue}
+              plot={plot}
+              seriesColor={colors[index % colors.length] ?? seriesColor}
+            />
+          ))}
+        </>
       ) : (
         data.map((datum, index) => {
           const barHeight = (plot.height * datum.value) / maxValue;
           const barWidth = slotWidth * 0.4;
           return (
             <Rect
-              fill={seriesColor || accentColor}
+              fill={colors[index % colors.length] ?? seriesColor ?? accentColor}
               height={barHeight}
               key={`${datum.label}-${index}`}
               listening={false}
@@ -658,41 +673,46 @@ function CartesianChartContent(props: {
           );
         })
       )}
-      {data.map((datum, index) => (
+      {categories.map((label, index) => (
         <Text
           align="center"
           fill="#000000"
           fontSize={30}
-          key={`${datum.label}-label-${index}`}
+          key={`${label}-label-${index}`}
           listening={false}
-          text={datum.label}
+          text={label}
           width={slotWidth}
           x={plot.x + slotWidth * index}
           y={plot.y + plot.height + 20}
         />
       ))}
-      {isLineChart && chart.style.showLegend !== false ? (
-        <ChartLegend
-          color={seriesColor}
-          frame={frame}
-          label="Series 1"
-          plot={plot}
-        />
-      ) : null}
+      {isLineChart && chart.style.showLegend !== false
+        ? lineSeries.map(([name], index) => (
+            <ChartLegend
+              color={colors[index % colors.length] ?? seriesColor}
+              frame={frame}
+              index={index}
+              key={name}
+              label={name}
+              plot={plot}
+            />
+          ))
+        : null}
     </Group>
   );
 }
 
 function LineChartSeries(props: {
+  categories: string[];
   data: Array<{ label: string; value: number }>;
   maxValue: number;
   plot: { height: number; width: number; x: number; y: number };
   seriesColor: string;
 }) {
-  const { data, maxValue, plot, seriesColor } = props;
-  const slotWidth = plot.width / Math.max(1, data.length);
-  const points = data.flatMap((datum, index) => [
-    plot.x + slotWidth * (index + 0.5),
+  const { categories, data, maxValue, plot, seriesColor } = props;
+  const slotWidth = plot.width / Math.max(1, categories.length);
+  const points = data.flatMap((datum) => [
+    plot.x + slotWidth * (Math.max(0, categories.indexOf(datum.label)) + 0.5),
     plot.y + plot.height - (plot.height * datum.value) / maxValue
   ]);
 
@@ -707,7 +727,7 @@ function LineChartSeries(props: {
           strokeWidth={1}
           width={10}
           height={10}
-          x={plot.x + slotWidth * (index + 0.5) - 5}
+          x={plot.x + slotWidth * (Math.max(0, categories.indexOf(datum.label)) + 0.5) - 5}
           y={plot.y + plot.height - (plot.height * datum.value) / maxValue - 5}
         />
       ))}
@@ -718,12 +738,13 @@ function LineChartSeries(props: {
 function ChartLegend(props: {
   color: string;
   frame: SlideElementFrame;
+  index?: number;
   label: string;
   plot: { height: number; width: number; x: number; y: number };
 }) {
-  const { color, frame, label, plot } = props;
+  const { color, frame, index = 0, label, plot } = props;
   const x = Math.min(frame.width - 170, plot.x + plot.width + frame.width * 0.04);
-  const y = plot.y + plot.height * 0.44;
+  const y = plot.y + plot.height * 0.32 + index * 44;
 
   return (
     <Group listening={false} x={x} y={y}>

@@ -41,26 +41,29 @@ describe("evaluateCriterion", () => {
   it.each([
     [12, "passed", "PASSED"],
     [12.01, "failed", "THRESHOLD_EXCEEDED"],
-  ] as const)("applies the duration maximum boundary", (value, status, reason) => {
-    const criterion = durationCriterion();
-    expect(
-      evaluateCriterion({
-        criterion,
-        observation: observation(criterion, {
-          kind: "duration-seconds",
-          value,
+  ] as const)(
+    "applies the duration maximum boundary",
+    (value, status, reason) => {
+      const criterion = durationCriterion();
+      expect(
+        evaluateCriterion({
+          criterion,
+          observation: observation(criterion, {
+            kind: "duration-seconds",
+            value,
+          }),
+          evaluatedAt,
         }),
-        evaluatedAt,
-      }),
-    ).toMatchObject({ evaluationStatus: status, reasonCode: reason });
-  });
+      ).toMatchObject({ evaluationStatus: status, reasonCode: reason });
+    },
+  );
 
-  // 습관어와 긴 멈춤은 각각 독립적인 count metric으로 평가한다.
+  // 습관어와 긴 침묵은 각각 독립적인 count metric으로 평가한다.
   it.each([
     ["filler-word-count", 1, "passed"],
     ["filler-word-count", 2, "failed"],
-    ["pause-count", 0, "passed"],
-    ["pause-count", 1, "failed"],
+    ["long-silence-count", 0, "passed"],
+    ["long-silence-count", 1, "failed"],
   ] as const)("applies the %s boundary at %s", (metric, value, status) => {
     const criterion = countCriterion(metric);
     expect(
@@ -82,11 +85,7 @@ describe("evaluateCriterion", () => {
     });
     const unmeasured = evaluateCriterion({
       criterion,
-      observation: observation(
-        criterion,
-        { kind: "none" },
-        "unmeasured",
-      ),
+      observation: observation(criterion, { kind: "none" }, "unmeasured"),
       unavailableReason: "EVALUATION_UNAVAILABLE",
       evaluatedAt,
     });
@@ -152,7 +151,7 @@ describe("evaluateCriterion", () => {
         criterion: duration,
         observation: observation(duration, {
           kind: "count",
-          metric: "pause-count",
+          metric: "long-silence-count",
           value: 1,
         }),
         evaluatedAt,
@@ -163,7 +162,7 @@ describe("evaluateCriterion", () => {
         criterion: filler,
         observation: observation(filler, {
           kind: "count",
-          metric: "pause-count",
+          metric: "long-silence-count",
           value: 1,
         }),
         evaluatedAt,
@@ -173,12 +172,12 @@ describe("evaluateCriterion", () => {
 
   // 이 함수는 실행 경로 종류에 의존하지 않는 순수 함수여야 한다.
   it("returns the same result for identical inputs without an execution-kind branch", () => {
-    const criterion = countCriterion("pause-count");
+    const criterion = countCriterion("long-silence-count");
     const input = {
       criterion,
       observation: observation(criterion, {
         kind: "count" as const,
-        metric: "pause-count" as const,
+        metric: "long-silence-count" as const,
         value: 1,
       }),
       evaluatedAt,
@@ -219,9 +218,9 @@ function durationCriterion(): EvaluationCriterion {
 }
 
 // delivery category에서 지원하는 두 count metric을 같은 helper로 생성한다.
-// filler-word-count는 1개까지, pause-count는 0개까지 통과하도록 서로 다른 경계를 둔다.
+// filler-word-count는 1개까지, long-silence-count는 0개까지 통과하도록 서로 다른 경계를 둔다.
 function countCriterion(
-  metric: "filler-word-count" | "pause-count",
+  metric: "filler-word-count" | "long-silence-count",
 ): EvaluationCriterion {
   return evaluationCriterionSchema.parse({
     criterionId: `criterion_${metric}`,

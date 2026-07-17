@@ -1,6 +1,6 @@
 import type {
   RehearsalComparisonIssue,
-  RehearsalRunComparison
+  RehearsalRunComparison,
 } from "@orbit/shared";
 import { createDemoDeck } from "@orbit/editor-core";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import {
   createComparisonReminderState,
   dismissComparisonReminder,
   enterComparisonSlide,
-  getSemanticOutcomeAnchor
+  getSemanticOutcomeAnchor,
 } from "./rehearsalRunComparisonModel";
 
 describe("buildRehearsalRunComparisonViewModel", () => {
@@ -23,7 +23,7 @@ describe("buildRehearsalRunComparisonViewModel", () => {
       cueRevision: undefined,
       label: "슬라이드 시간 초과",
       severity: "medium",
-      slideId: slide.slideId
+      slideId: slide.slideId,
     });
     const comparison = comparisonFixture({
       briefing: [semantic, timing],
@@ -31,14 +31,14 @@ describe("buildRehearsalRunComparisonViewModel", () => {
       repeated: [semantic, timing],
       newIssues: [issueFixture({ cueId: "scue_new", label: "새 이슈" })],
       incomparable: [
-        issueFixture({ cueId: "scue_changed", label: "비교하지 않은 Cue" })
-      ]
+        issueFixture({ cueId: "scue_changed", label: "비교하지 않은 Cue" }),
+      ],
     });
 
     const model = buildRehearsalRunComparisonViewModel(
       comparison,
       deck,
-      "project_1"
+      "project_1",
     );
 
     expect(model.hasPreviousRun).toBe(true);
@@ -47,27 +47,31 @@ describe("buildRehearsalRunComparisonViewModel", () => {
       categoryLabel: "의미 전달",
       href: `/rehearsal/project_1/report/run_current#${getSemanticOutcomeAnchor(
         semantic.cueId!,
-        semantic.cueRevision!
+        semantic.cueRevision!,
       )}`,
-      slideLabel: expect.stringContaining("슬라이드 1")
+      slideLabel: expect.stringContaining("슬라이드 1"),
     });
     expect(model.briefing[1]?.href).toContain(
-      `#slide-analysis-${slide.slideId}`
+      `#slide-analysis-${slide.slideId}`,
     );
-    expect(model.groups.map((group) => [group.key, group.items.length])).toEqual([
+    expect(
+      model.groups.map((group) => [group.key, group.items.length]),
+    ).toEqual([
       ["repeated", 2],
       ["new", 1],
       ["improved", 1],
-      ["incomparable", 1]
+      ["incomparable", 1],
     ]);
-    expect(model.groups[3]?.description).toContain("부정적인 결과로 계산하지 않아요");
+    expect(model.groups[3]?.description).toContain(
+      "부정적인 결과로 계산하지 않아요",
+    );
   });
 
   it("keeps a first run understandable without inventing a previous comparison", () => {
     const model = buildRehearsalRunComparisonViewModel(
       comparisonFixture({ previousRunId: null }),
       null,
-      "project_1"
+      "project_1",
     );
 
     expect(model.hasPreviousRun).toBe(false);
@@ -84,32 +88,38 @@ describe("comparison slide-entry reminder", () => {
         issueFixture({
           cueId: "scue_medium",
           severity: "medium",
-          slideId: "slide_2"
-        })
+          slideId: "slide_2",
+        }),
       ],
-      newIssues: [issueFixture({ cueId: "scue_new", slideId: "slide_3" })]
+      newIssues: [issueFixture({ cueId: "scue_new", slideId: "slide_3" })],
     });
 
     const entered = enterComparisonSlide(
       createComparisonReminderState(),
       comparison,
-      "slide_1"
+      "slide_1",
     );
     expect(entered.active).toMatchObject({
       label: highRepeated.label,
-      slideId: "slide_1"
+      slideId: "slide_1",
     });
 
     const dismissed = dismissComparisonReminder(entered);
     expect(dismissed.active).toBeNull();
-    expect(enterComparisonSlide(dismissed, comparison, "slide_1").active).toBeNull();
-    expect(enterComparisonSlide(dismissed, comparison, "slide_2").active).toBeNull();
-    expect(enterComparisonSlide(dismissed, comparison, "slide_3").active).toBeNull();
+    expect(
+      enterComparisonSlide(dismissed, comparison, "slide_1").active,
+    ).toBeNull();
+    expect(
+      enterComparisonSlide(dismissed, comparison, "slide_2").active,
+    ).toBeNull();
+    expect(
+      enterComparisonSlide(dismissed, comparison, "slide_3").active,
+    ).toBeNull();
   });
 });
 
 function issueFixture(
-  patch: Partial<RehearsalComparisonIssue> = {}
+  patch: Partial<RehearsalComparisonIssue> = {},
 ): RehearsalComparisonIssue {
   return {
     category: "semantic-cue",
@@ -119,21 +129,32 @@ function issueFixture(
     label: "고객 가치",
     severity: "high",
     reason: "두 회차 연속 핵심 의미를 충분히 전달하지 못했습니다.",
-    ...patch
+    ...patch,
   };
 }
 
 function comparisonFixture(
-  patch: Partial<RehearsalRunComparison> = {}
+  patch: Partial<RehearsalRunComparison> = {},
 ): RehearsalRunComparison {
   return {
     currentRunId: "run_current",
     previousRunId: "run_previous",
+    silenceComparison: {
+      state: "unavailable",
+      metricDefinitionVersion: null,
+      currentLongSilenceCount: null,
+      previousLongSilenceCount: null,
+      longSilenceCountDelta: null,
+      currentTotalSilenceSeconds: null,
+      previousTotalSilenceSeconds: null,
+      totalSilenceSecondsDelta: null,
+      reasonCode: "LEGACY_COMPARISON",
+    },
     improved: [],
     repeated: [],
     newIssues: [],
     incomparable: [],
     briefing: [],
-    ...patch
+    ...patch,
   };
 }

@@ -30,6 +30,7 @@ function createPatch(
 
 function createSlide(slideId: string, order: number): Slide {
   return {
+    kind: "content",
     slideId,
     order,
     title: `Slide ${order}`,
@@ -1127,6 +1128,43 @@ describe("applyDeckPatch", () => {
         code: "ELEMENT_NOT_FOUND",
       },
     });
+  });
+
+  it("clears the composition focal reference when its element is deleted", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0]!.aiNotes = {
+      emphasisPoints: [],
+      sourceEvidence: [],
+      compositionPlan: {
+        compositionId: "editorial-split",
+        variant: "light",
+        backgroundMode: "light",
+        focalType: "process-step",
+        primaryFocalElementId: "el_1",
+        assetRole: "none",
+        requiredAsset: false,
+      },
+    };
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "delete_element",
+          slideId: "slide_1",
+          elementId: "el_1",
+        },
+        {
+          type: "add_element",
+          slideId: "slide_1",
+          element: createTextElement("el_diagram_1"),
+        },
+      ]),
+    );
+
+    expect(
+      result.deck.slides[0]?.aiNotes?.compositionPlan?.primaryFocalElementId,
+    ).toBeUndefined();
   });
 
   it("fails when a slide action targets a missing animation", () => {

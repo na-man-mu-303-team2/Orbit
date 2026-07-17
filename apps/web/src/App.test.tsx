@@ -131,6 +131,13 @@ describe("App shell routing", () => {
     expect(
       shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
     ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "audience-activity",
+        sessionId: "session-1",
+        activityId: "activity-1"
+      })
+    ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
@@ -181,6 +188,14 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
+  it("parses the canonical direct audience activity route", () => {
+    expect(getRoute("/audience/session_1/a/activity_1")).toEqual({
+      name: "audience-activity",
+      sessionId: "session_1",
+      activityId: "activity_1"
+    });
+  });
+
   it("renders the production AI PPT wizard from the createdeck route", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(authMeQueryKey, {
@@ -199,8 +214,8 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("AI PPT Wizard");
-      expect(html).toContain("Design Pack으로 시작하는 새 발표 생성");
+      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
       queryClient.clear();
@@ -215,6 +230,33 @@ describe("App shell routing", () => {
     expect(getRoute("/project/project_demo_1/history")).toEqual({
       name: "project-history",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/project/project_demo_1/presentation-sessions/session_demo_1/results",
+      ),
+    ).toEqual({
+      name: "activity-results",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+    });
+  });
+
+  it("matches Story Review before the generic project route", () => {
+    expect(getRoute("/project/project_demo_1/story-plan/job-1")).toEqual({
+      name: "story-plan-review",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+    expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
+      name: "story-style-color",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+    expect(getRoute("/project/project_demo_1/generation/job-1")).toEqual({
+      name: "ai-deck-generation",
+      projectId: "project_demo_1",
+      jobId: "job-1",
     });
   });
 
@@ -284,7 +326,6 @@ describe("App shell routing", () => {
     });
   });
 });
-
 describe("public and authentication surfaces", () => {
   it("renders the public landing conversion path without unsupported auth actions", () => {
     const html = renderToStaticMarkup(

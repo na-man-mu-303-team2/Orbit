@@ -7,58 +7,19 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Protocol
-from urllib.error import URLError
-from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from fastapi import Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.audio.models import AudioContent, AudioReference
+from app.audio.source import AudioProcessingError, load_audio_content
 from app.config import PythonWorkerConfig
-
-SUPPORTED_AUDIO_MIME_TYPES = {
-    "audio/m4a",
-    "audio/mp3",
-    "audio/mp4",
-    "audio/mpeg",
-    "audio/mpga",
-    "audio/flac",
-    "audio/wav",
-    "audio/webm",
-    "audio/x-m4a",
-    "audio/x-wav",
-    "video/mp4",
-}
 
 _MULTIPART_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
-
-class AudioTranscriptionError(RuntimeError):
-    def __init__(self, code: str, message: str, status_code: int) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-
-
-class AudioReference(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    file_id: str = Field(alias="fileId", min_length=1)
-    object_key: str | None = Field(default=None, alias="objectKey", min_length=1)
-    storage_url: str | None = Field(default=None, alias="storageUrl", min_length=1)
-    mime_type: str = Field(alias="mimeType", min_length=1)
-
-    @model_validator(mode="after")
-    def validate_reference(self) -> AudioReference:
-        if not self.object_key and not self.storage_url:
-            raise ValueError("audio reference requires objectKey or storageUrl")
-
-        if self.mime_type not in SUPPORTED_AUDIO_MIME_TYPES:
-            raise ValueError(f"unsupported audio mime type: {self.mime_type}")
-
-        return self
+AudioTranscriptionError = AudioProcessingError
 
 
 class AudioTranscribeRequest(BaseModel):
@@ -89,12 +50,6 @@ class AudioTranscribeResponse(BaseModel):
     model: str
     duration_seconds: float | None = Field(default=None, alias="durationSeconds")
     segments: list[TranscriptSegment]
-
-
-class AudioContent(BaseModel):
-    data: bytes
-    file_name: str
-    mime_type: str
 
 
 class ProviderTranscription(BaseModel):
@@ -285,10 +240,20 @@ def transcribe_rehearsal_audio(
     payload: AudioTranscribeRequest,
     provider: ReportSttProvider,
 ) -> AudioTranscribeResponse:
-    audio = read_audio_content(payload.audio)
+    audio_content = load_audio_content(payload.audio)
+    provider_transcription = transcribe_audio_content(audio_content, provider)
+
+    return build_audio_transcribe_response(payload, provider_transcription)
+
+
+def transcribe_audio_content(
+    audio_content: AudioContent,
+    provider: ReportSttProvider,
+) -> ProviderTranscription:
+    """이미 로드된 음성을 STT Provider로 전사한다."""
 
     try:
-        result = provider.transcribe(audio)
+        return provider.transcribe(audio_content)
     except AudioTranscriptionError:
         raise
     except Exception as exc:
@@ -298,60 +263,26 @@ def transcribe_rehearsal_audio(
             502,
         ) from exc
 
+
+def build_audio_transcribe_response(
+    payload: AudioTranscribeRequest,
+    provider_transcription: ProviderTranscription,
+) -> AudioTranscribeResponse:
+    """Provider 전사 결과를 HTTP 응답 계약으로 변환한다."""
     return AudioTranscribeResponse(
         runId=payload.run_id,
         projectId=payload.project_id,
         fileId=payload.audio.file_id,
-        transcript=result.transcript,
-        language=result.language,
-        provider=result.provider,
-        model=result.model,
-        durationSeconds=result.duration_seconds,
-        segments=result.segments,
+        transcript=provider_transcription.transcript,
+        language=provider_transcription.language,
+        provider=provider_transcription.provider,
+        model=provider_transcription.model,
+        durationSeconds=provider_transcription.duration_seconds,
+        segments=provider_transcription.segments,
     )
 
 
-def read_audio_content(reference: AudioReference) -> AudioContent:
-    source = reference.storage_url or reference.object_key
-    if not source:
-        raise AudioTranscriptionError(
-            "invalid_audio_reference",
-            "audio reference requires objectKey or storageUrl",
-            400,
-        )
-
-    parsed = urlparse(source)
-    file_name = _file_name(reference)
-
-    try:
-        if parsed.scheme in {"http", "https"}:
-            request = UrlRequest(source, headers={"User-Agent": "orbit-python-worker"})
-            with urlopen(request, timeout=15) as response:
-                return AudioContent(
-                    data=response.read(),
-                    file_name=file_name,
-                    mime_type=reference.mime_type,
-                )
-
-        if parsed.scheme == "file":
-            data = Path(parsed.path).read_bytes()
-        else:
-            data = Path(source).read_bytes()
-    except (OSError, URLError) as exc:
-        raise AudioTranscriptionError(
-            "file_access_failed",
-            "Could not read rehearsal audio from the supplied reference",
-            404,
-        ) from exc
-
-    if not data:
-        raise AudioTranscriptionError(
-            "empty_audio",
-            "Rehearsal audio is empty",
-            400,
-        )
-
-    return AudioContent(data=data, file_name=file_name, mime_type=reference.mime_type)
+read_audio_content = load_audio_content
 
 
 def to_http_exception(error: AudioTranscriptionError) -> HTTPException:
@@ -376,27 +307,6 @@ def _openai_response_format(model: str) -> str:
         return "json"
 
     return "verbose_json"
-
-
-def _file_name(reference: AudioReference) -> str:
-    source = reference.storage_url or reference.object_key or reference.file_id
-    name = Path(urlparse(source).path).name
-    return name or f"{reference.file_id}{_extension_for_mime(reference.mime_type)}"
-
-
-def _extension_for_mime(mime_type: str) -> str:
-    return {
-        "audio/m4a": ".m4a",
-        "audio/mp3": ".mp3",
-        "audio/mp4": ".mp4",
-        "audio/mpeg": ".mp3",
-        "audio/flac": ".flac",
-        "audio/wav": ".wav",
-        "audio/webm": ".webm",
-        "audio/x-m4a": ".m4a",
-        "audio/x-wav": ".wav",
-        "video/mp4": ".mp4",
-    }.get(mime_type, ".audio")
 
 
 def _read_field(data: Any, field: str, default: Any) -> Any:

@@ -28,4 +28,25 @@ describe("ORBIT-93 S3-compatible storage presign", () => {
     );
     expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy();
   });
+
+  it("uses the requested expiry for a signed read URL", async () => {
+    const storage = new LocalMinioStorage({
+      endpoint: "http://minio:9000",
+      publicEndpoint: "http://localhost:9000",
+      bucket: "orbit-local",
+      region: "ap-northeast-2",
+      accessKeyId: "orbit",
+      secretAccessKey: "orbit-password",
+      forcePathStyle: true,
+    });
+
+    const url = new URL(
+      await storage.getSignedReadUrl(
+        "projects/project_1/assets/file_audio_1/rehearsal.webm",
+        300,
+      ),
+    );
+
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
+  });
 });

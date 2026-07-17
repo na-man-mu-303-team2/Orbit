@@ -29,7 +29,7 @@ export const practiceGoalEvidenceRefSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("delivery-count"),
       slideId: coachingIdSchema.optional(),
-      metric: z.enum(["filler-word-count", "pause-count"]),
+      metric: z.enum(["filler-word-count", "long-silence-count"]),
       count: z.number().int().nonnegative(),
     })
     .strict(),
@@ -112,33 +112,37 @@ export const coachingActionSchema = z
     if (shouldHaveReason !== (action.unavailableReason !== null)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "only unavailable coaching actions require an unavailable reason.",
+        message:
+          "only unavailable coaching actions require an unavailable reason.",
         path: ["unavailableReason"],
       });
     }
   });
 
 const practiceGoalShape = {
-    goalId: coachingIdSchema,
-    goalSetId: coachingIdSchema,
-    projectId: coachingIdSchema,
-    originFullRunId: coachingIdSchema,
-    priority: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    patternKey: z.string().regex(/^[a-f0-9]{64}$/i),
-    category: z.enum(["semantic", "timing", "delivery", "structure"]),
-    criterionRef: criterionRefSchema,
-    targetScope: focusedPracticeTargetScopeSchema.nullable(),
-    recommendedPracticeMode: z.enum(["focused", "full-run-only"]),
-    evidenceRefs: z.array(practiceGoalEvidenceRefSchema).max(20),
-    problemLabel: z.string().trim().min(1).max(240),
-    nextAction: z.string().trim().min(1).max(240),
-    successCondition: z.string().trim().min(1).max(240),
-    measurementState: z.enum(["measured", "unmeasured"]),
-    createdAt: isoDateTimeSchema,
+  goalId: coachingIdSchema,
+  goalSetId: coachingIdSchema,
+  projectId: coachingIdSchema,
+  originFullRunId: coachingIdSchema,
+  priority: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  patternKey: z.string().regex(/^[a-f0-9]{64}$/i),
+  category: z.enum(["semantic", "timing", "delivery", "structure"]),
+  criterionRef: criterionRefSchema,
+  targetScope: focusedPracticeTargetScopeSchema.nullable(),
+  recommendedPracticeMode: z.enum(["focused", "full-run-only"]),
+  evidenceRefs: z.array(practiceGoalEvidenceRefSchema).max(20),
+  problemLabel: z.string().trim().min(1).max(240),
+  nextAction: z.string().trim().min(1).max(240),
+  successCondition: z.string().trim().min(1).max(240),
+  measurementState: z.enum(["measured", "unmeasured"]),
+  createdAt: isoDateTimeSchema,
 } as const;
 
 function validatePracticeGoal(
-  goal: { recommendedPracticeMode: "focused" | "full-run-only"; targetScope: unknown },
+  goal: {
+    recommendedPracticeMode: "focused" | "full-run-only";
+    targetScope: unknown;
+  },
   context: z.RefinementCtx,
 ) {
   if (
@@ -147,7 +151,8 @@ function validatePracticeGoal(
   ) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "focused goals require a target scope and full-run-only goals must not have one.",
+      message:
+        "focused goals require a target scope and full-run-only goals must not have one.",
       path: ["targetScope"],
     });
   }
@@ -191,7 +196,10 @@ export const practiceGoalSetSchema = z
       });
     }
     set.goals.forEach((goal, index) => {
-      if (goal.goalSetId !== set.goalSetId || goal.projectId !== set.projectId) {
+      if (
+        goal.goalSetId !== set.goalSetId ||
+        goal.projectId !== set.projectId
+      ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: "goal identity must belong to its containing set.",
@@ -269,8 +277,15 @@ const readyPracticePlanResponseSchema = z
 
 export const practicePlanResponseSchema = z.discriminatedUnion("status", [
   readyPracticePlanResponseSchema,
-  z.object({ status: z.literal("processing"), sourceFullRunId: coachingIdSchema }).strict(),
-  z.object({ status: z.literal("no-goal"), sourceFullRunId: coachingIdSchema }).strict(),
+  z
+    .object({
+      status: z.literal("processing"),
+      sourceFullRunId: coachingIdSchema,
+    })
+    .strict(),
+  z
+    .object({ status: z.literal("no-goal"), sourceFullRunId: coachingIdSchema })
+    .strict(),
   z
     .object({
       status: z.literal("stale"),
