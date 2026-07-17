@@ -495,49 +495,52 @@ export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
     });
   });
 
-export const deckSchema = z
-  .object({
-    deckId: deckIdSchema,
-    projectId: z.string().min(1),
-    title: z.string().min(1),
-    version: z.number().int().positive(),
-    metadata: deckMetadataSchema.default({}),
-    targetDurationMinutes: z.number().int().positive().default(10),
-    canvas: deckCanvasSchema,
-    theme: themeSchema.default({}),
-    slides: z.array(slideSchema).min(1)
-  })
-  .superRefine((deck, ctx) => {
-    const activityIds = new Set<string>();
-    const hasActivitySlides = deck.slides.some(
-      (slide) => slide.kind === "activity" || slide.kind === "activity-results"
-    );
+const deckObjectSchema = z.object({
+  deckId: deckIdSchema,
+  projectId: z.string().min(1),
+  title: z.string().min(1),
+  version: z.number().int().positive(),
+  metadata: deckMetadataSchema.default({}),
+  targetDurationMinutes: z.number().int().positive().default(10),
+  canvas: deckCanvasSchema,
+  theme: themeSchema.default({}),
+  slides: z.array(slideSchema).min(1)
+});
 
-    if (hasActivitySlides && deck.canvas.preset !== "wide-16-9") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["canvas", "preset"],
-        message: "Decks with Activity slides must use the wide-16-9 canvas"
-      });
+export const deckShellSchema = deckObjectSchema.omit({ slides: true });
+
+export const deckSchema = deckObjectSchema.superRefine((deck, ctx) => {
+  const activityIds = new Set<string>();
+  const hasActivitySlides = deck.slides.some(
+    (slide) => slide.kind === "activity" || slide.kind === "activity-results"
+  );
+
+  if (hasActivitySlides && deck.canvas.preset !== "wide-16-9") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["canvas", "preset"],
+      message: "Decks with Activity slides must use the wide-16-9 canvas"
+    });
+  }
+
+  deck.slides.forEach((slide, index) => {
+    if (slide.kind !== "activity") {
+      return;
     }
 
-    deck.slides.forEach((slide, index) => {
-      if (slide.kind !== "activity") {
-        return;
-      }
-
-      if (activityIds.has(slide.activity.activityId)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["slides", index, "activity", "activityId"],
-          message: "activity IDs must be unique within a Deck"
-        });
-      }
-      activityIds.add(slide.activity.activityId);
-    });
+    if (activityIds.has(slide.activity.activityId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slides", index, "activity", "activityId"],
+        message: "activity IDs must be unique within a Deck"
+      });
+    }
+    activityIds.add(slide.activity.activityId);
   });
+});
 
 export type Deck = z.infer<typeof deckSchema>;
+export type DeckShell = z.infer<typeof deckShellSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;

@@ -576,12 +576,39 @@ def program_v2_slide_summary(
     slide_plan: SlidePlan,
     raw_input: RawInput | None = None,
 ) -> dict[str, Any]:
+    content_items = [
+        item.model_dump(by_alias=True) for item in slide_plan.content_items
+    ]
+    if not content_items:
+        estimated_count = {
+            "cover": 1,
+            "title": 1,
+            "problem": 2,
+            "solution": 2,
+            "feature-grid": 3,
+            "process": 3,
+            "architecture": 3,
+            "data": 2,
+            "chart": 2,
+            "comparison": 2,
+            "quote": 1,
+            "summary": 1,
+        }.get(slide_plan.slide_type, 1)
+        content_items = [
+            {
+                "contentItemId": f"story_{slide_plan.order}_{index}",
+                "text": (
+                    slide_plan.message
+                    if index == 1
+                    else f"Supporting point {index} for {slide_plan.title}"
+                ),
+            }
+            for index in range(1, estimated_count + 1)
+        ]
     summary: dict[str, Any] = {
         "title": slide_plan.title,
         "message": slide_plan.message,
-        "contentItems": [
-            item.model_dump(by_alias=True) for item in slide_plan.content_items
-        ],
+        "contentItems": content_items,
         "slideType": slide_plan.slide_type,
         "visualIntent": slide_plan.visual_intent.model_dump(by_alias=True),
         "mediaIntent": slide_plan.media_intent.model_dump(),

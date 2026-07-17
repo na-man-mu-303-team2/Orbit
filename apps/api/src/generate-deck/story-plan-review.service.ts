@@ -501,6 +501,7 @@ const storySlideSchema = z
   .passthrough();
 const contentArtifactPayloadSchema = z
   .object({
+    artifactVersion: z.literal(2).optional(),
     rawInput: z
       .object({
         research_quality: z.string().optional(),

@@ -190,6 +190,7 @@ export function withVisualIssues(
 export function runInitialSemanticQuality(input: {
   deck: Deck;
   validation: GenerateDeckValidation;
+  allowRepair?: boolean;
 }): {
   deck: Deck;
   validation: GenerateDeckValidation;
@@ -202,7 +203,7 @@ export function runInitialSemanticQuality(input: {
   const shouldRepairSemanticIssues = initialSemanticIssues.some((issue) =>
     ["SLIDE_MESSAGE_MULTIPLE", "IMAGE_RELEVANCE_WEAK"].includes(issue.code),
   );
-  if (shouldRepairSemanticIssues) {
+  if (shouldRepairSemanticIssues && input.allowRepair !== false) {
     deck = deckSchema.parse(repairSemanticQaOnce(deck));
     warnings.push("Semantic QA bounded repair applied once.");
   }

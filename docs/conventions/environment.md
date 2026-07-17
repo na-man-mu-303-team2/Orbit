@@ -56,7 +56,7 @@ LLM_PROVIDER=openai
 | `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
 | `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                             |
 | `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
-| `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
+| `bullmq`                 | `image`                | `image-slide` queue만 소비한다. legacy에서는 image 대상 slide, v2에서는 모든 slide의 상세 생성·asset·QA shard를 처리한다.             |
 | `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
 | `pg`                     | `all`                  | 로컬 기본값. `ai_deck_generation_stages`를 직접 claim한다. AI Deck BullMQ coordinator·stage queue는 enqueue/consume하지 않고 process 전체 5개, 사용자 전체 5개 기본 상한을 적용한다. |
 
