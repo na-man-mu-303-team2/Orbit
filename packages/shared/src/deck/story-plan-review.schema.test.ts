@@ -11,6 +11,7 @@ const response = {
   jobId: "job-1",
   projectId: "project-1",
   status: "review-pending",
+  styleContext: { topic: "ORBIT", tone: "professional" },
   plan: {
     revision: 1,
     regenerationCount: 0,
@@ -98,5 +99,29 @@ describe("Story Plan Review contracts", () => {
         rawPrompt: "do not expose",
       }).success,
     ).toBe(false);
+    expect(
+      storyPlanApproveRequestSchema.safeParse({
+        expectedRevision: 1,
+        designSelection: {
+          paletteOptionId: "brandlogy-blue",
+          paletteOverride: {
+            primary: "#6846D8",
+            secondary: "#1F1D3D",
+            background: "#F7F7F5",
+            surface: "#FFFFFF",
+            muted: "#F1ECFF",
+            border: "#E6E6E6",
+            text: "#090909",
+            accentColor: "#C5B0F4",
+          },
+          fontOverride: {
+            fontId: "pretendard",
+            name: "Pretendard",
+            headingFontFamily: "Pretendard",
+            bodyFontFamily: "Pretendard",
+          },
+        },
+      }).success,
+    ).toBe(true);
   });
 });

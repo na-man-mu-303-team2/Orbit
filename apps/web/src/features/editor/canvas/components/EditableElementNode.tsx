@@ -157,9 +157,10 @@ export function EditableElementNode(props: {
       scaleY={presentationState?.scaleY ?? 1}
       x={frame.x}
       y={frame.y}
-      onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
-        handlePointerSelect(Boolean(event.evt.shiftKey))
-      }
+      onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0) return;
+        handlePointerSelect(Boolean(event.evt.shiftKey));
+      }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
@@ -172,6 +173,7 @@ export function EditableElementNode(props: {
         }
 
         event.evt.preventDefault();
+        event.cancelBubble = true;
         if (!shouldKeepSelection) {
           onSelect(false);
         }

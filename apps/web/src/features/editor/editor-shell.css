@@ -35,6 +35,10 @@
 .orbit-shell .editor-document-title > span { align-items: baseline; display: flex; gap: 8px; min-width: 0; }
 .orbit-shell .editor-document-title strong { font-size: 14px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .orbit-shell .editor-document-title small { color: var(--orbit-ds-text-muted); font-size: 12px; white-space: nowrap; }
+.orbit-shell .editor-document-title-content { align-items: center; }
+.orbit-shell .editor-title-edit-button { align-items: center; background: transparent; border: 0; border-radius: 6px; color: #64748b; display: inline-flex; flex: 0 0 auto; justify-content: center; padding: 4px; }
+.orbit-shell .editor-title-edit-button:hover { background: var(--blue-soft); color: var(--blue); }
+.orbit-shell .editor-document-title-input { background: #fff; border: 1px solid var(--blue); border-radius: 6px; color: #111827; font: inherit; font-size: 14px; font-weight: 800; height: 28px; max-width: 360px; min-width: 180px; outline: 2px solid rgba(37, 99, 235, 0.14); padding: 0 8px; }
 .orbit-shell .menu-row { gap: 1px; padding-left: 34px; }
 .orbit-shell .menu-row > .top-icon-button:first-child { display: none; }
 .orbit-shell .top-menu-button { border-radius: 6px; font-size: 12px; font-weight: 500; min-height: 26px; padding: 0 8px; }
@@ -1586,6 +1590,13 @@
   text-align: left;
 }
 
+.slides-list.thumbnail-view .slide-item {
+  align-self: start;
+  grid-template-rows: max-content max-content;
+  height: max-content;
+  min-height: 0;
+}
+
 .slides-list.list-view .slide-item {
   min-height: 46px;
   grid-template-columns: 22px 1fr;
@@ -1635,6 +1646,7 @@
 
 .slide-thumb {
   aspect-ratio: 16 / 9;
+  box-sizing: border-box;
   display: block;
   grid-column: 1 / -1;
   height: auto;

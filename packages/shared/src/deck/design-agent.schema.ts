@@ -45,7 +45,7 @@ export const designAgentCapabilityOperationSchema = z.enum([
 export const designAgentCapabilitiesSchema = z.object({
   version: z.literal("1"),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
-  addableElementTypes: z.array(z.enum(["text", "rect"])),
+  addableElementTypes: z.array(z.enum(["text", "rect", "chart", "table"])),
   canEditTextContent: z.boolean(),
   canGenerateImages: z.boolean(),
   canModifyLockedElements: z.boolean(),
@@ -60,7 +60,7 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "delete_element",
     "update_slide_style",
   ],
-  addableElementTypes: ["text", "rect"],
+  addableElementTypes: ["text", "rect", "chart", "table"],
   canEditTextContent: true,
   canGenerateImages: false,
   canModifyLockedElements: true,

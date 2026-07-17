@@ -3,7 +3,15 @@ import { z } from "zod";
 import { deckElementIdSchema } from "./id.schema";
 import { deckElementRoleSchema, deckElementTypeSchema } from "./slide-object.schema";
 
-export const smartArtLayoutTypeSchema = z.enum(["list", "process", "card_grid"]);
+export const smartArtLayoutTypeSchema = z.enum([
+  "list",
+  "process",
+  "card_grid",
+  "comparison",
+  "classification_grid",
+  "timeline",
+  "metric_cards"
+]);
 
 export const smartArtItemSchema = z.object({
   title: z.string().trim().min(1).max(120),

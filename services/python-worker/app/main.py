@@ -10,8 +10,11 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ai.color_options import (
+    DeckColorCustomizationRequest,
+    DeckColorCustomizationResponse,
     DeckColorOptionsRequest,
     DeckColorOptionsResponse,
+    customize_deck_color_palette,
     generate_deck_color_options,
 )
 from app.ai.deck_pptx_export import (
@@ -804,6 +807,22 @@ def generate_ai_deck_color_options(
 ) -> DeckColorOptionsResponse:
     config = _config(request)
     return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post(
+    "/ai/deck-color-customization",
+    response_model=DeckColorCustomizationResponse,
+)
+def generate_ai_deck_color_customization(
+    payload: DeckColorCustomizationRequest,
+    request: Request,
+) -> DeckColorCustomizationResponse:
+    config = _config(request)
+    return customize_deck_color_palette(
         payload,
         model=config.openai_model,
         api_key=config.openai_api_key,
