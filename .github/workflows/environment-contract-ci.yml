@@ -8,6 +8,13 @@ on:
   push:
     branches:
       - develop
+  workflow_dispatch:
+    inputs:
+      deploy_personal_staging:
+        description: 환경 계약 검증 후 personal staging full 배포 실행
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -38,11 +45,15 @@ jobs:
           node --test infra/scripts/personal-staging-env.test.mjs infra/scripts/personal-staging-wrapper.test.mjs
 
   deploy-personal-staging:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/develop' &&
+      inputs.deploy_personal_staging)
     needs:
       - environment-contract
     uses: ./.github/workflows/deploy-personal-staging.yml
     with:
       deployment_mode: full
       expected_sha: ${{ github.sha }}
-      trigger_source: develop-push
+      trigger_source: ${{ github.event_name == 'push' && 'develop-push' || 'manual-recovery' }}

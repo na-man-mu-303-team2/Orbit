@@ -246,6 +246,27 @@ sudo mv -f \
 
 GitHub Environment `personal-staging`에는 required reviewer를 설정하지 않는다. `develop` merge 후 완전 자동 배포가 팀의 고정 규칙이다.
 
+### 수동 full 배포 복구
+
+토큰 교체, GitHub Environment 설정 변경, 일시적인 Actions 장애 뒤에는 기존 run의 `Re-run failed jobs`를 반복하지 않는다. 같은 run의 attempt는 최초 실행과 구분하기 어렵기 때문에 완전히 새로운 run ID에서 환경 계약, Doppler 동기화, full 배포를 다시 검증한다.
+
+GitHub Actions의 `Environment Contract CI`에서 `Run workflow`를 누르고 다음처럼 실행한다.
+
+1. branch는 `develop`을 선택한다.
+2. `deploy_personal_staging`을 활성화한다.
+3. workflow를 실행한다.
+
+이 경로는 `manual-recovery` 출처로 기록된다. `develop`이 아닌 ref에서는 배포 job을 실행하지 않으며, Doppler sync와 full 배포는 자동 `develop` 배포 및 `environment-only` 배포와 동일한 `personal-staging-deploy` concurrency group에서 직렬화한다. 환경 계약이 실패하거나 `DOPPLER_STG_SYNC_TOKEN`이 비어 있으면 self-hosted runner 배포를 시작하지 않는다.
+
+새 run에서는 다음 순서와 결과를 확인한다.
+
+1. `environment-contract`가 성공한다.
+2. `sync-personal-staging-env`가 `DOPPLER_STG_SYNC_TOKEN`의 존재 여부만 확인하고 성공한다.
+3. `deploy`가 같은 SHA를 개인 서버 wrapper에 전달한다.
+4. 서버 HEAD가 해당 SHA와 일치하고 API/root health check가 성공한다.
+
+토큰 값이나 Doppler secret 값은 workflow log에 출력하지 않는다.
+
 ### Doppler stg 변경 자동 재배포
 
 Doppler `orbit / stg` secret 변경은 같은 workflow의 `environment-only` mode를 호출한다. 이 경로는 production secret 또는 AWS production 배포와 연결하지 않는다.

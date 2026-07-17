@@ -186,3 +186,38 @@ test("develop deploy syncs safe Doppler defaults before server deployment", () =
     /needs\.sync-personal-staging-env\.result == 'success'/,
   );
 });
+
+test("manual recovery keeps env sync and full deploy on the develop-only serialized path", () => {
+  const contractWorkflow = fs.readFileSync(
+    ".github/workflows/environment-contract-ci.yml",
+    "utf8",
+  );
+  const deployWorkflow = fs.readFileSync(
+    ".github/workflows/deploy-personal-staging.yml",
+    "utf8",
+  );
+
+  assert.match(contractWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(contractWorkflow, /^      deploy_personal_staging:$/m);
+  assert.match(
+    contractWorkflow,
+    /github\.event_name == 'workflow_dispatch'[\s\S]*github\.ref == 'refs\/heads\/develop'[\s\S]*inputs\.deploy_personal_staging/,
+  );
+  assert.match(
+    contractWorkflow,
+    /trigger_source: \$\{\{ github\.event_name == 'push' && 'develop-push' \|\| 'manual-recovery' \}\}/,
+  );
+  assert.match(deployWorkflow, /^          - manual-recovery$/m);
+  assert.match(
+    deployWorkflow,
+    /inputs\.trigger_source == 'develop-push' \|\|\s+inputs\.trigger_source == 'manual-recovery'/,
+  );
+  assert.match(
+    deployWorkflow,
+    /inputs\.trigger_source != 'manual-recovery' \|\|\s+github\.ref == 'refs\/heads\/develop'/,
+  );
+  assert.match(
+    deployWorkflow,
+    /^concurrency:\s+group: personal-staging-deploy\s+cancel-in-progress: false$/m,
+  );
+});

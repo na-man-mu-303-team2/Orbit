@@ -13,6 +13,7 @@
 | automation-only PR | Environment Contract CI와 automation JSON 확인, Node script syntax check, 필요한 경우 `pnpm lint` | workflow/script/schema 변경 자체를 검증 |
 | app/API/shared/worker/compose/env/lockfile PR | Environment Contract CI; TypeScript CI: `pnpm build`, `pnpm lint`, `pnpm test`; 수동: Python `ruff/mypy/pytest`, `docker compose config --quiet` 중 변경 경로와 관련된 명령 | 환경 계약과 빠른 TypeScript 회귀를 자동 확인하고, Python/Compose 계층은 필요 시 수동 확인 |
 | `develop` push | Environment Contract CI와 TypeScript CI 자동 실행, 안전한 repo default의 Doppler 동기화, 개인 서버 full 배포 | merge 후 환경 계약과 base branch TypeScript 조합을 검증하고 누락된 일반 설정을 수동 작업 없이 적용 |
+| personal staging 수동 복구 | `develop`의 `Environment Contract CI`를 `deploy_personal_staging=true`로 새 실행, `manual-recovery` Doppler sync와 full 배포 | 기존 run 재실행과 분리된 새 run ID에서 갱신된 Environment secret 주입과 전체 배포를 검증하고 동일 concurrency group으로 직렬화 |
 | Doppler `orbit / stg` 변경 | `Deploy Personal Staging`의 `environment-only` 실행, stable wrapper의 mode·SHA 전달, 서버 env preflight, Compose config, API/root health check | 유효한 secret 변경만 앱 컨테이너에 재적용하고 누락·공백이면 기존 컨테이너 유지 |
 | `main` push | 자동 CI 없음 | release branch 조합 검증은 필요 시 수동으로 실행 |
 | 수동 또는 scheduled | `pnpm test:smoke`, 전체 Playwright E2E, 1000명 load test, 실제 브라우저 STT 측정 | 무겁거나 환경 의존적인 검증 |
