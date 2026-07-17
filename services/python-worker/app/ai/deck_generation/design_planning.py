@@ -576,12 +576,39 @@ def program_v2_slide_summary(
     slide_plan: SlidePlan,
     raw_input: RawInput | None = None,
 ) -> dict[str, Any]:
+    content_items = [
+        item.model_dump(by_alias=True) for item in slide_plan.content_items
+    ]
+    if not content_items:
+        estimated_count = {
+            "cover": 1,
+            "title": 1,
+            "problem": 2,
+            "solution": 2,
+            "feature-grid": 3,
+            "process": 3,
+            "architecture": 3,
+            "data": 2,
+            "chart": 2,
+            "comparison": 2,
+            "quote": 1,
+            "summary": 1,
+        }.get(slide_plan.slide_type, 1)
+        content_items = [
+            {
+                "contentItemId": f"story_{slide_plan.order}_{index}",
+                "text": (
+                    slide_plan.message
+                    if index == 1
+                    else f"Supporting point {index} for {slide_plan.title}"
+                ),
+            }
+            for index in range(1, estimated_count + 1)
+        ]
     summary: dict[str, Any] = {
         "title": slide_plan.title,
         "message": slide_plan.message,
-        "contentItems": [
-            item.model_dump(by_alias=True) for item in slide_plan.content_items
-        ],
+        "contentItems": content_items,
         "slideType": slide_plan.slide_type,
         "visualIntent": slide_plan.visual_intent.model_dump(by_alias=True),
         "mediaIntent": slide_plan.media_intent.model_dump(),
@@ -686,15 +713,18 @@ def color_role_distance(left: str, right: str) -> int:
 def apply_design_options(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
+    *,
+    preserve_approved_content: bool = False,
 ) -> list[SlidePlan]:
     for slide_plan in slide_plans:
         slide_plan.media_intent = media_intent_for_policy(
             slide_plan.media_intent,
             raw_input.design.media_policy,
         )
-    for slide_plan in slide_plans:
-        compact_dense_speaker_notes(slide_plan)
-    ensure_profile_closing_action(raw_input, slide_plans)
+    if not preserve_approved_content:
+        for slide_plan in slide_plans:
+            compact_dense_speaker_notes(slide_plan)
+        ensure_profile_closing_action(raw_input, slide_plans)
     apply_design_pack_media_plan(raw_input, slide_plans)
 
     return slide_plans
@@ -1656,11 +1686,16 @@ def plan_design(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
     *,
+    preserve_approved_content: bool = False,
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
 ) -> DesignPlan:
-    slide_plans = apply_design_options(raw_input, slide_plans)
+    slide_plans = apply_design_options(
+        raw_input,
+        slide_plans,
+        preserve_approved_content=preserve_approved_content,
+    )
     theme = direct_design(raw_input, slide_plans)
     theme = apply_font_override(theme, raw_input.design.font_override)
     try:
@@ -1682,6 +1717,7 @@ def plan_design(
             force_dark=design_pack_locks_dark_canvas(raw_input),
             media_policy=raw_input.design.media_policy,
             media_budget=4,
+            preserve_slide_types=preserve_approved_content,
         )
     except (CompositionCompileError, DesignProgramError) as error:
         raise DeckContentGenerationError(str(error)) from error

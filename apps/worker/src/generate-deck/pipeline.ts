@@ -36,6 +36,7 @@ import {
   hasBlockingQualityGateIssues,
   runInitialSemanticQuality,
   withDuplicateMediaAssetIssue,
+  withGenerationQualityMetadata,
   withHybridMediaBudgetIssue,
   withVisualIssues,
 } from "./semantic-quality";
@@ -87,6 +88,20 @@ export async function processGenerateDeckPipeline(input: {
     );
     const emitEvent = (event: string, fields: Record<string, unknown>) =>
       emitGenerateDeckEvent(input.eventLogger, event, fields);
+    const research = input.workerPayload.diagnostics;
+    if (research.researchQuality !== "not-run") {
+      emitEvent("ai-ppt.web-research.completed", {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        quality: research.researchQuality,
+        issueCodes: research.researchIssueCodes,
+        attempts: research.researchAttempts,
+        relevantSourceCount: research.relevantWebSourceCount,
+        officialSourceCount: research.officialWebSourceCount,
+        independentSourceCount: research.independentWebSourceCount,
+        factCoverageSatisfied: research.researchFactCoverageSatisfied,
+      });
+    }
     emitEvent("ai-ppt.design-program.created", {
       jobId: input.jobId,
       projectId: input.projectId,
@@ -359,7 +374,11 @@ export async function processGenerateDeckPipeline(input: {
         jobId: input.jobId,
         projectId: input.projectId,
         workerPayload: input.workerPayload,
-        deck: unavailableDeck,
+        deck: withGenerationQualityMetadata(
+          unavailableDeck,
+          unavailableValidation,
+          "unavailable",
+        ),
         warnings: [
           ...input.workerPayload.warnings,
           ...imageWarnings,
@@ -373,37 +392,19 @@ export async function processGenerateDeckPipeline(input: {
       });
     }
     deck = visualOutcome.deck;
-    validation = visualOutcome.validation;
+    validation = visualOutcome.issues.length > 0
+      ? withVisualIssues(visualOutcome.validation, visualOutcome.issues)
+      : visualOutcome.validation;
+    deck = withGenerationQualityMetadata(
+      deck,
+      validation,
+      visualOutcome.issues.length > 0 ? "advisory" : "passed",
+    );
     imageWarnings.push(...visualOutcome.warnings);
     diagnostics = {
       ...renderedVisualQualityDiagnostics(visualOutcome, diagnostics),
       validationIssueCount: allValidationIssues(validation).length,
     };
-    if (!visualOutcome.passed) {
-      const visualValidation = withVisualIssues(
-        validation,
-        visualOutcome.issues,
-      );
-      emitEvent("ai-ppt.visual-gate.failed", {
-        jobId: input.jobId,
-        projectId: input.projectId,
-        deckId: deck.deckId,
-        issueCount: visualOutcome.issues.length,
-        stage: "visual-review",
-      });
-      return failGenerateDeckQualityGate(
-        input.dataSource,
-        input.jobId,
-        input.workerPayload,
-        deck,
-        visualValidation,
-        [...input.workerPayload.warnings, ...imageWarnings],
-        {
-          errorCode: "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
-          diagnostics,
-        },
-      );
-    }
     await updateGenerateDeckJob(input.dataSource, input.jobId, {
       status: "running",
       progress: 95,

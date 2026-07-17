@@ -17,6 +17,9 @@ export type ApplyDeckPatchErrorCode =
   | "DUPLICATE_ELEMENT_ID"
   | "DUPLICATE_ANIMATION_ID"
   | "DUPLICATE_SLIDE_ACTION_ID"
+  | "SLIDE_KIND_MISMATCH"
+  | "LAST_SLIDE_DELETE_FORBIDDEN"
+  | "INVALID_SLIDE_REORDER"
   | "UNSUPPORTED_OPERATION";
 
 export type DeckPatchVersionMetadata = {

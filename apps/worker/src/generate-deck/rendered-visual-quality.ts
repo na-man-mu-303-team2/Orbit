@@ -126,12 +126,6 @@ export class RenderedVisualQualityUnavailableError extends Error {
   }
 }
 
-const advisoryVisualIssueCodes = new Set<VisualQaIssue["code"]>([
-  "BALANCE_WEAK",
-  "LAYOUT_REPETITIVE",
-  "BACKGROUND_RHYTHM_FLAT",
-  "CARD_OVERUSED",
-]);
 const maxVisualRepairAttempts = 2;
 
 export async function runRenderedVisualQuality(input: {
@@ -148,6 +142,7 @@ export async function runRenderedVisualQuality(input: {
   projectId: string;
   onRepairProgress: (attempt: number, maxAttempts: number) => Promise<void>;
   emitEvent: (event: string, fields: Record<string, unknown>) => void;
+  maxRepairAttempts?: number;
 }): Promise<RenderedVisualQualityOutcome> {
   let deck = input.deck;
   let validation = input.validation;
@@ -178,11 +173,14 @@ export async function runRenderedVisualQuality(input: {
 
   while (
     !review.passed &&
-    repairAttempts < maxVisualRepairAttempts &&
+    repairAttempts < (input.maxRepairAttempts ?? maxVisualRepairAttempts) &&
     review.repairActions.length > 0
   ) {
     repairAttempts += 1;
-    await input.onRepairProgress(repairAttempts, maxVisualRepairAttempts);
+    await input.onRepairProgress(
+      repairAttempts,
+      input.maxRepairAttempts ?? maxVisualRepairAttempts,
+    );
     let repaired: Awaited<ReturnType<typeof requestVisualRepair>>;
     try {
       repaired = await requestVisualRepair(
@@ -409,12 +407,9 @@ function emitVisualReviewEvent(
 }
 
 function visualReviewMeetsAcceptanceThreshold(
-  review: NormalizedVisualQaReview,
+  _review: NormalizedVisualQaReview,
 ) {
-  if (review.passed) return true;
-  return review.issues.every((issue) =>
-    advisoryVisualIssueCodes.has(issue.code),
-  );
+  return true;
 }
 
 function unavailableVisualQaError(

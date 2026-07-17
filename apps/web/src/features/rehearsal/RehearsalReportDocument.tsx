@@ -12,7 +12,8 @@ import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
-import { RehearsalPauseOverview } from "./RehearsalPauseOverview";
+import { RehearsalSilenceOverview } from "./RehearsalSilenceOverview";
+import { RehearsalVolumeOverview } from "./RehearsalVolumeOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
@@ -174,13 +175,15 @@ export function RehearsalReportDocument({
         {/* ── 2. 말버릇 ── */}
         <RehearsalHabitOverview prevReport={prevReport} report={report} />
 
-        {/* ── 3. 음성 타임라인 / 긴 멈춤 ── */}
-        <RehearsalPauseOverview
+        {/* ── 3. 음성 타임라인 / 긴 침묵 ── */}
+        <RehearsalSilenceOverview
           deck={deck}
           formatDuration={fmt}
           report={report}
         />
       </div>
+
+      <RehearsalVolumeOverview formatDuration={fmt} report={report} />
 
       {/* ── 4. 전사본 ── */}
       {transcriptAvailable && (
@@ -260,6 +263,7 @@ export function RehearsalReportDocument({
             <RehearsalSlideTimingOverview
               deck={reportDeck}
               formatDuration={fmt}
+              slideInsights={report.slideInsights}
               slideTimings={slideTimings}
             />
           </div>

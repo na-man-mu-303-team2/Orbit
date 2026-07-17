@@ -66,7 +66,7 @@ LOG_PRETTY=false | true
 
 ## AI PPT stage 진단 로그
 
-BullMQ 기반 AI PPT stage는 `ai-ppt.stage.started`, `ai-ppt.stage.succeeded`,
+AI PPT stage는 transport와 관계없이 `ai-ppt.stage.started`, `ai-ppt.stage.succeeded`,
 `ai-ppt.stage.attempt-failed`, `ai-ppt.stage.failed` 이벤트를 사용한다. 재시도 예정
 실패는 `warn`, checkpoint와 parent Job에 반영된 최종 실패는 `error`로 기록한다.
 이미지 provider 실패가 placeholder fallback으로 흡수되면
@@ -78,3 +78,12 @@ allowlist `code`, `reasonCode`, `name`, HTTP status, provider, provider request 
 retry-after, 저장소 내부 첫 stack frame, message fingerprint와 안전한 issue code만 허용한다.
 prompt, 사용자 입력, provider response body, 전체 message/stack, Deck JSON, 이미지
 base64, signed URL은 AI PPT stage 로그에도 남기지 않는다.
+
+PostgreSQL transport의 bootstrap·runner 경계는 `ai_deck.postgres_initialized`,
+`ai_deck.postgres_initialization_failed`, `ai-ppt.stage.retry-scheduled`,
+`ai-ppt.stage.runner-failed`를 사용한다. 로그에는 checkpoint identity와 안전하게
+직렬화한 오류만 기록하고 부모 Job payload, source, OCR, content, provider 응답은 기록하지 않는다.
+
+Design Selection 확정 경계는 `ai_ppt.design_selection.selected`를 `info`로 기록한다.
+공통 필드는 `jobId`와 `projectId`만 사용하고 자연어 디자인 요청, palette, font,
+outline, slide content, source metadata, OCR와 provider 응답은 기록하지 않는다.

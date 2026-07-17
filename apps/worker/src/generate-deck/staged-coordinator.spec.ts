@@ -3,6 +3,7 @@ import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  initializePendingAiDeckGenerationJobs,
   planAiDeckInitialStages,
   processAiDeckStagedCoordinatorJob,
 } from "./staged-coordinator";
@@ -301,6 +302,52 @@ describe("processAiDeckStagedCoordinatorJob", () => {
       ),
     ).rejects.toThrow();
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("initializePendingAiDeckGenerationJobs", () => {
+  it("initializes planning when only the cover stage exists", async () => {
+    const request = generateDeckRequestSchema.parse({
+      topic: "cover race",
+      referencePolicy: "user-input-only",
+    });
+    const query = vi
+      .fn<QueryFunction>()
+      .mockResolvedValue([
+        { job_id: "job-ai-deck-1", project_id: "project-a" },
+      ]);
+    const transactionQuery = vi
+      .fn<QueryFunction>()
+      .mockResolvedValueOnce([
+        parentJobRow({ status: "running", payload: { request } }),
+      ])
+      .mockResolvedValueOnce([
+        parentJobRow({ status: "running", progress: 10, payload: { request } }),
+      ])
+      .mockResolvedValueOnce([
+        { ...checkpointRow(""), stage: "source-grounding", shard_key: "" },
+      ]);
+    const transaction = vi.fn(
+      async (work: (manager: { query: QueryFunction }) => unknown) =>
+        work({ query: transactionQuery }),
+    );
+
+    await expect(
+      initializePendingAiDeckGenerationJobs({
+        query,
+        transaction,
+      } as unknown as DataSource),
+    ).resolves.toEqual({ scanned: 1, initialized: 1 });
+
+    expect(compactSql(query.mock.calls[0]?.[0])).toContain(
+      "stages.stage IN ( 'reference-extract-file', 'source-grounding', 'content-planning' )",
+    );
+    expect(transactionQuery.mock.calls[2]?.[1]?.slice(0, 4)).toEqual([
+      "job-ai-deck-1",
+      "project-a",
+      "source-grounding",
+      "",
+    ]);
   });
 });
 

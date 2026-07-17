@@ -44,9 +44,18 @@ type CustomShapeEditDraft = {
 
 export function CustomShapeInsertOverlay(props: {
   draft: CustomShapeInsertDraft;
+  primaryColor: string;
+  primaryMediumColor: string;
+  primarySoftColor: string;
   onClosePath: () => void;
 }) {
-  const { draft, onClosePath } = props;
+  const {
+    draft,
+    onClosePath,
+    primaryColor,
+    primaryMediumColor,
+    primarySoftColor
+  } = props;
   const previewNodes =
     draft.pointer && draft.activeNodeIndex === null && draft.nodes.length > 0
       ? [...draft.nodes, createCustomShapeNode(draft.pointer)]
@@ -64,7 +73,7 @@ export function CustomShapeInsertOverlay(props: {
           sceneFunc={(context: Konva.Context, shape: Konva.Shape) =>
             drawCustomShapeScene(context, shape, previewDataArray)
           }
-          stroke="#2563eb"
+          stroke={primaryColor}
           strokeWidth={2}
         />
       ) : null}
@@ -77,16 +86,16 @@ export function CustomShapeInsertOverlay(props: {
               <Line
                 dash={[4, 4]}
                 points={[node.x, node.y, node.outX, node.outY]}
-                stroke="rgba(37, 99, 235, 0.5)"
+                stroke={primaryMediumColor}
                 strokeWidth={1}
               />
             ) : null}
             {typeof node.outX === "number" && typeof node.outY === "number" ? (
               <Circle
-                fill="#dbeafe"
+                fill={primarySoftColor}
                 listening={false}
                 radius={4}
-                stroke="#2563eb"
+                stroke={primaryColor}
                 strokeWidth={1.5}
                 x={node.outX}
                 y={node.outY}
@@ -95,7 +104,7 @@ export function CustomShapeInsertOverlay(props: {
             <Circle
               fill={isClosableStart ? "#dcfce7" : "#ffffff"}
               radius={isClosableStart ? 7 : 6}
-              stroke={isClosableStart ? "#16a34a" : "#2563eb"}
+              stroke={isClosableStart ? "#16a34a" : primaryColor}
               strokeWidth={2}
               x={node.x}
               y={node.y}
@@ -123,6 +132,9 @@ export function CustomShapeEditOverlay(props: {
     height: number;
     rotation: number;
   };
+  primaryColor: string;
+  primaryMediumColor: string;
+  primarySoftColor: string;
   onChangeDraft: (draft: CustomShapeEditDraft | null) => void;
   onCommitDraft: (draft: CustomShapeEditDraft) => void;
   viewBoxHeight: number;
@@ -133,6 +145,9 @@ export function CustomShapeEditOverlay(props: {
     frame,
     onChangeDraft,
     onCommitDraft,
+    primaryColor,
+    primaryMediumColor,
+    primarySoftColor,
     viewBoxHeight,
     viewBoxWidth
   } = props;
@@ -186,7 +201,7 @@ export function CustomShapeEditOverlay(props: {
               <Line
                 dash={[4, 4]}
                 points={[displayNode.x, displayNode.y, displayIn.x, displayIn.y]}
-                stroke="rgba(37, 99, 235, 0.55)"
+                stroke={primaryMediumColor}
                 strokeWidth={1}
               />
             ) : null}
@@ -194,16 +209,16 @@ export function CustomShapeEditOverlay(props: {
               <Line
                 dash={[4, 4]}
                 points={[displayNode.x, displayNode.y, displayOut.x, displayOut.y]}
-                stroke="rgba(37, 99, 235, 0.55)"
+                stroke={primaryMediumColor}
                 strokeWidth={1}
               />
             ) : null}
             {displayIn ? (
               <Circle
                 draggable
-                fill="#dbeafe"
+                fill={primarySoftColor}
                 radius={4.5}
-                stroke="#2563eb"
+                stroke={primaryColor}
                 strokeWidth={1.5}
                 x={displayIn.x}
                 y={displayIn.y}
@@ -260,9 +275,9 @@ export function CustomShapeEditOverlay(props: {
             {displayOut ? (
               <Circle
                 draggable
-                fill="#dbeafe"
+                fill={primarySoftColor}
                 radius={4.5}
-                stroke="#2563eb"
+                stroke={primaryColor}
                 strokeWidth={1.5}
                 x={displayOut.x}
                 y={displayOut.y}
@@ -318,9 +333,9 @@ export function CustomShapeEditOverlay(props: {
             ) : null}
             <Circle
               draggable
-              fill={isSelected ? "#2563eb" : "#ffffff"}
+              fill={isSelected ? primaryColor : "#ffffff"}
               radius={7}
-              stroke="#2563eb"
+              stroke={primaryColor}
               strokeWidth={2}
               x={displayNode.x}
               y={displayNode.y}

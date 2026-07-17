@@ -4,10 +4,14 @@ import {
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
 import {
+  deckColorCustomizationRequestSchema,
+  deckColorCustomizationResponseSchema,
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckRequestSchema,
-  jobSchema,
+  generateDeckStartResponseSchema,
+  generateDeckStoredJobPayloadSchema,
+  type DeckColorCustomizationResponse,
   type DeckColorOptionsResponse
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
@@ -18,7 +22,6 @@ import {
   Optional,
   ServiceUnavailableException
 } from "@nestjs/common";
-import { z } from "zod";
 import { parseRequest } from "../common/zod-request";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
@@ -26,11 +29,9 @@ import { ProjectsService } from "../projects/projects.service";
 import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
 
-const generateDeckJobResponseSchema = z.object({
-  job: jobSchema
-});
-
-type GenerateDeckJobResponse = z.infer<typeof generateDeckJobResponseSchema>;
+type GenerateDeckJobResponse = ReturnType<
+  typeof generateDeckStartResponseSchema.parse
+>;
 @Injectable()
 export class GenerateDeckService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
@@ -73,20 +74,22 @@ export class GenerateDeckService {
     const request = resolved.request;
     await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
+    const storedPayload = generateDeckStoredJobPayloadSchema.parse({
+      request,
+      ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
+      ...(userId
+        ? {
+            requestedByUserId: userId,
+            imageAssetScope: {
+              userId
+            }
+          }
+        : {}),
+    });
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
-      payload: {
-        request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(userId
-          ? {
-              imageAssetScope: {
-                userId
-              }
-            }
-          : {})
-      }
+      payload: storedPayload
     });
 
     try {
@@ -96,15 +99,7 @@ export class GenerateDeckService {
         redisUrl: this.config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        request,
-        ...(resolved.snapshot ? { designPackSnapshot: resolved.snapshot } : {}),
-        ...(userId
-          ? {
-              imageAssetScope: {
-                userId
-              }
-            }
-          : {})
+        ...storedPayload
       });
     } catch (error) {
       await this.jobsService.update(queuedJob.jobId, {
@@ -122,7 +117,9 @@ export class GenerateDeckService {
       throw error;
     }
 
-    return generateDeckJobResponseSchema.parse({ job: queuedJob });
+    return generateDeckStartResponseSchema.parse({
+      job: queuedJob,
+    });
   }
 
   async createColorOptions(body: unknown): Promise<DeckColorOptionsResponse> {
@@ -164,14 +161,57 @@ export class GenerateDeckService {
     }
   }
 
+  async customizeColorPalette(
+    body: unknown
+  ): Promise<DeckColorCustomizationResponse> {
+    const request = parseRequest(deckColorCustomizationRequestSchema, body);
+    let response: Response;
+
+    try {
+      response = await fetch(
+        workerUrl(this.config.PYTHON_WORKER_URL, "/ai/deck-color-customization"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(30_000)
+        }
+      );
+    } catch {
+      throw new ServiceUnavailableException(
+        "AI palette customization is temporarily unavailable."
+      );
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        "AI palette customization failed. Keep the selected palette and retry."
+      );
+    }
+
+    try {
+      return deckColorCustomizationResponseSchema.parse(await response.json());
+    } catch {
+      throw new InternalServerErrorException(
+        "Python worker returned an invalid customized palette."
+      );
+    }
+  }
+
   async retryJob(projectId: string, jobId: string) {
-    if (this.config.AI_DECK_EXECUTION_MODE !== "bullmq") {
+    if (
+      this.config.AI_DECK_EXECUTION_MODE !== "bullmq" &&
+      this.config.AI_DECK_EXECUTION_MODE !== "pg"
+    ) {
       throw new ServiceUnavailableException(
         "AI deck stage retry requires bullmq execution mode."
       );
     }
     const retried = await this.jobsService.retryAiDeckGeneration(projectId, jobId);
-    if (retried.restartCoordinator) {
+    if (
+      retried.restartCoordinator &&
+      this.config.AI_DECK_EXECUTION_MODE === "bullmq"
+    ) {
       try {
         await retryAiDeckStagedCoordinatorJob({
           redisUrl: this.config.REDIS_URL,

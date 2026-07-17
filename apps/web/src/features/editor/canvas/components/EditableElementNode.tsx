@@ -32,6 +32,10 @@ import {
   getDisplayIdLabel,
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
+import {
+  getSnappedElementPosition,
+  type CanvasSnapGuide
+} from "../utils/canvasInteractionUtils";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -52,6 +56,10 @@ export function EditableElementNode(props: {
   deck: Deck;
   disablePointerEvents: boolean;
   element: DeckElement;
+  editorPrimaryColor: string;
+  editorPrimaryMediumColor: string;
+  editorPrimarySoftColor: string;
+  editorPrimaryStrongSoftColor: string;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
   selectedCount: number;
@@ -70,6 +78,8 @@ export function EditableElementNode(props: {
   onMountNode: (node: Konva.Group | null) => void;
   onOpenContextMenu: (clientX: number, clientY: number) => void;
   onSelect: (append: boolean) => void;
+  onSnapGuidesChange: (guides: CanvasSnapGuide[]) => void;
+  snapThreshold: number;
 }) {
   const {
     accentColor,
@@ -77,6 +87,10 @@ export function EditableElementNode(props: {
     deck,
     disablePointerEvents,
     element,
+    editorPrimaryColor,
+    editorPrimaryMediumColor,
+    editorPrimarySoftColor,
+    editorPrimaryStrongSoftColor,
     isSelected,
     presentationState,
     selectedCount,
@@ -89,6 +103,8 @@ export function EditableElementNode(props: {
     onMountNode,
     onOpenContextMenu,
     onSelect,
+    onSnapGuidesChange,
+    snapThreshold,
   } = props;
   const [previewFrame, setPreviewFrame] = useState<{
     x: number;
@@ -107,10 +123,10 @@ export function EditableElementNode(props: {
   const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
     ? isMultiSelected
-      ? "rgba(37, 99, 235, 0.16)"
-      : "rgba(37, 99, 235, 0.08)"
+      ? editorPrimaryStrongSoftColor
+      : editorPrimarySoftColor
     : "rgba(15, 23, 42, 0.001)";
-  const selectionStroke = isSelected ? "#2563eb" : "transparent";
+  const selectionStroke = isSelected ? editorPrimaryColor : "transparent";
   const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
   const selectionDash = isMultiSelected ? [12, 6] : undefined;
   const elementIdLabel = getDisplayIdLabel(element.elementId);
@@ -157,9 +173,10 @@ export function EditableElementNode(props: {
       scaleY={presentationState?.scaleY ?? 1}
       x={frame.x}
       y={frame.y}
-      onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
-        handlePointerSelect(Boolean(event.evt.shiftKey))
-      }
+      onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0) return;
+        handlePointerSelect(Boolean(event.evt.shiftKey));
+      }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
@@ -172,17 +189,39 @@ export function EditableElementNode(props: {
         }
 
         event.evt.preventDefault();
+        event.cancelBubble = true;
         if (!shouldKeepSelection) {
           onSelect(false);
         }
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
       onDblClick={() => {
-        if (element.type === "text") {
+        if (element.type === "text" || element.type === "table" || element.type === "chart") {
           onDoubleClick();
         }
       }}
+      onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
+        if (event.evt.altKey) {
+          onSnapGuidesChange([]);
+          return;
+        }
+        const snapped = getSnappedElementPosition({
+          canvas: deck.canvas,
+          elementId: element.elementId,
+          elements: slide.elements,
+          frame: {
+            x: event.target.x(),
+            y: event.target.y(),
+            width: frame.width,
+            height: frame.height
+          },
+          threshold: snapThreshold
+        });
+        event.target.position({ x: snapped.x, y: snapped.y });
+        onSnapGuidesChange(snapped.guides);
+      }}
       onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
+        onSnapGuidesChange([]);
         setPreviewFrame(null);
         onCommitFrame({
           x: event.target.x(),
@@ -257,6 +296,9 @@ export function EditableElementNode(props: {
         <CustomShapeEditOverlay
           draft={customShapeEditDraft}
           frame={frame}
+          primaryColor={editorPrimaryColor}
+          primaryMediumColor={editorPrimaryMediumColor}
+          primarySoftColor={editorPrimarySoftColor}
           onChangeDraft={onChangeCustomShapeEditDraft}
           onCommitDraft={onCommitCustomShapeEditDraft}
           {...getCustomShapeOverlayViewBox({
@@ -279,7 +321,7 @@ export function EditableElementNode(props: {
             shadowBlur={14}
             shadowColor="rgba(15, 23, 42, 0.18)"
             shadowOpacity={0.28}
-            stroke="#2563eb"
+            stroke={editorPrimaryColor}
             strokeWidth={1.5}
             width={canvasIdBadgeWidth}
           />

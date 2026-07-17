@@ -89,6 +89,27 @@ describe("KeywordDetail", () => {
     expect(html).toContain('keyword-control-button "');
     expect(html).not.toContain("keyword-control-button active");
   });
+
+  it("marks required checkpoint badges for emphasized editor styling", () => {
+    const keyword: Keyword = {
+      keywordId: "kw_required",
+      text: "핵심 개념",
+      synonyms: [],
+      abbreviations: [],
+      required: true
+    };
+
+    const html = renderToString(
+      <KeywordList
+        keywords={[keyword]}
+        selectedKeywordId={null}
+        showIds={false}
+        onSelectKeyword={vi.fn()}
+      />
+    );
+
+    expect(html).toContain('class="keyword-chip-badge required">필수');
+  });
 });
 
 describe("KeywordHighlightedNotes", () => {
@@ -123,7 +144,7 @@ describe("KeywordHighlightedNotes", () => {
       /\.keyword-note-token strong\s*\{[^}]*font-weight:\s*inherit;/s
     );
     expect(css).toMatch(
-      /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*1\.6;/s
+      /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*var\(--redesign-type-body-sm-size\);[^}]*line-height:\s*1\.6;/s
     );
   });
 

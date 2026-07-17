@@ -15,7 +15,11 @@ describe("RehearsalRunComparisonOverview", () => {
     expect(html).toContain("개선됨");
     expect(html).toContain("비교 제외");
     expect(html).toContain("부정적인 결과로 계산하지 않아요");
-    expect(html).toContain('href="/rehearsal/project_1/report/run_current#semantic-outcome-cue_1-1"');
+    expect(html).toContain("1회 → 0회");
+    expect(html).toContain("총 1.2초 → 0초");
+    expect(html).toContain(
+      'href="/rehearsal/project_1/report/run_current#semantic-outcome-cue_1-1"',
+    );
   });
 
   it("explains a first run with no comparison issues", () => {
@@ -52,6 +56,14 @@ function modelFixture(): RehearsalRunComparisonViewModel {
     briefing: [item],
     contextLabel: "직전 완료 회차와 비교했어요",
     hasPreviousRun: true,
+    silenceComparison: {
+      currentLongSilenceCount: 0,
+      previousLongSilenceCount: 1,
+      longSilenceCountDelta: -1,
+      currentTotalSilenceSeconds: 0,
+      previousTotalSilenceSeconds: 1.2,
+      totalSilenceSecondsDelta: -1.2,
+    },
     groups: [
       {
         key: "repeated",

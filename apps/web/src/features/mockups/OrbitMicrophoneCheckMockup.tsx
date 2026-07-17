@@ -14,7 +14,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import "./orbit-microphone-check-mockup.css";
 
 type MicrophoneCheckMockupProps = {
@@ -87,7 +87,7 @@ export function OrbitMicrophoneCheckMockup(props: MicrophoneCheckMockupProps) {
 
       <main className="microphone-check-main">
         <header className="microphone-check-intro">
-          <p className="orbit-ds-eyebrow">PRE-REHEARSAL CHECK</p>
+          <p className="redesign-eyebrow">PRE-REHEARSAL CHECK</p>
           <h1>내 목소리가 잘 들리는지 확인해요.</h1>
           <p>리허설을 시작하기 전에 마이크 권한과 입력 음량을 한 번만 점검할게요.</p>
         </header>

@@ -13,16 +13,12 @@ import {
   shouldWaitForAuthResolution
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-  submitOrbitAuth
-} from "./features/auth/OrbitAuthPage";
+import { OrbitAuthPage, submitOrbitAuth } from "./features/auth/AuthPage";
+import { LandingPage } from "./features/landing/LandingPage";
 import { authMeQueryKey } from "./features/auth/auth-session";
-import {
-  OrbitProjectExplorer,
-  OrbitWorkspaceHome
-} from "./features/projects/OrbitProjectHub";
+import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
+import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -71,10 +67,8 @@ describe("App shell routing", () => {
 
   it("resolves the header active item from production routes", () => {
     expect(getAppNavigationItem({ name: "home" })).toBe("home");
-    expect(getAppNavigationItem({ name: "project-list" }, "")).toBe("project");
-    expect(getAppNavigationItem({ name: "project-list" }, "?intent=rehearsal")).toBe(
-      "rehearsal"
-    );
+    expect(getAppNavigationItem({ name: "project-list" })).toBe("project");
+    expect(getAppNavigationItem({ name: "rehearsal-project-list" })).toBe("rehearsal");
     expect(getAppNavigationItem({ name: "report-list" })).toBe("reports");
     expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
   });
@@ -131,11 +125,21 @@ describe("App shell routing", () => {
     expect(
       shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
     ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "audience-activity",
+        sessionId: "session-1",
+        activityId: "activity-1"
+      })
+    ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
     expect(shouldWaitForAuthResolution({ name: "home" })).toBe(true);
     expect(shouldWaitForAuthResolution({ name: "project-list" })).toBe(true);
+    expect(
+      shouldWaitForAuthResolution({ name: "rehearsal-project-list" })
+    ).toBe(true);
     expect(
       shouldWaitForAuthResolution({ name: "project-editor", projectId: "project-1" })
     ).toBe(true);
@@ -181,6 +185,14 @@ describe("App shell routing", () => {
     expect(getRoute("/signup")).toEqual({ name: "signup" });
   });
 
+  it("parses the canonical direct audience activity route", () => {
+    expect(getRoute("/audience/session_1/a/activity_1")).toEqual({
+      name: "audience-activity",
+      sessionId: "session_1",
+      activityId: "activity_1"
+    });
+  });
+
   it("renders the production AI PPT wizard from the createdeck route", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(authMeQueryKey, {
@@ -199,8 +211,8 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("AI PPT Wizard");
-      expect(html).toContain("Design Pack으로 시작하는 새 발표 생성");
+      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
       queryClient.clear();
@@ -215,6 +227,28 @@ describe("App shell routing", () => {
     expect(getRoute("/project/project_demo_1/history")).toEqual({
       name: "project-history",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/project/project_demo_1/presentation-sessions/session_demo_1/results",
+      ),
+    ).toEqual({
+      name: "activity-results",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+    });
+  });
+
+  it("matches Style & Color and generation before the generic project route", () => {
+    expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
+      name: "story-style-color",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+    expect(getRoute("/project/project_demo_1/generation/job-1")).toEqual({
+      name: "ai-deck-generation",
+      projectId: "project_demo_1",
+      jobId: "job-1",
     });
   });
 
@@ -273,8 +307,7 @@ describe("App shell routing", () => {
 
   it("preserves rehearsal intent in the project selection route", () => {
     expect(getRoute("/project", "?intent=rehearsal")).toEqual({
-      name: "project-list",
-      intent: "rehearsal"
+      name: "rehearsal-project-list"
     });
   });
 
@@ -284,18 +317,18 @@ describe("App shell routing", () => {
     });
   });
 });
-
 describe("public and authentication surfaces", () => {
-  it("renders the public landing conversion path without unsupported auth actions", () => {
+  it("renders the public landing hero with login and signup entry points", () => {
     const html = renderToStaticMarkup(
-      <OrbitPublicLandingPage onNavigate={() => undefined} />
+        <LandingPage onNavigate={() => undefined} />
     );
 
-    expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
-    expect(html).toContain("무료로 발표 만들기");
-    expect(html).toContain("생성");
-    expect(html).toContain("편집");
-    expect(html).toContain("리허설");
+    expect(html).toContain("생각을 발표로 바꾸는");
+    expect(html).toContain("가장 빠른 캔버스");
+    expect(html).toContain("로그인");
+    expect(html).toContain("무료로 시작");
+    expect(html.match(/redesign-gradient-button/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain("랜딩 페이지 메뉴");
     expect(html).not.toContain("Google");
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });
@@ -317,6 +350,8 @@ describe("public and authentication surfaces", () => {
     expect(signupHtml).toContain("첫 발표를 시작해 볼까요?");
     expect(loginHtml).toContain('type="email"');
     expect(loginHtml).toContain('type="password"');
+    expect(loginHtml).toContain("redesign-gradient-button");
+    expect(signupHtml).toContain("redesign-gradient-button");
     expect(signupHtml).not.toContain("Google");
     expect(signupHtml).not.toContain('autocomplete="name"');
   });
@@ -358,23 +393,36 @@ describe("workspace project surfaces", () => {
     expect(getProjectAccessRoleLabel("viewer")).toBe("보기 전용");
   });
 
-  it("keeps a single AI presentation primary action on workspace home", () => {
+  it("renders a recents-only workspace home with an AI creation tile", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      ["projects"],
+      Array.from({ length: 9 }, (_, index) => ({
+        createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+        createdBy: "user_1",
+        projectId: `project_${index + 1}`,
+        title: `프로젝트 ${index + 1}`,
+        workspaceId: "workspace_1"
+      }))
+    );
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <OrbitWorkspaceHome onNavigate={() => undefined} userName="지윤" />
       </QueryClientProvider>
     );
 
-    expect(html).toContain("지윤님,");
-    expect(html.match(/<button class="orbit-ds-button/g)).toHaveLength(1);
-    expect(html).toContain("프로젝트를 불러오는 중입니다.");
-    expect(html).toContain("리허설 시작하기");
+    expect(html).toContain("최근 작업");
+    expect(html).not.toContain("Workspace");
+    expect(html).toContain("더보기");
+    expect(html).toContain('aria-label="AI 발표자료 만들기"');
+    expect(html.match(/class="workspace-home-card"/g)).toHaveLength(7);
+    expect(html).not.toContain("워크스페이스 메뉴");
   });
 
   it("renders search, sorting, refresh and creation controls in project explorer", () => {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <OrbitProjectExplorer onNavigate={() => undefined} />
+        <ProjectExplorerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
@@ -387,12 +435,12 @@ describe("workspace project surfaces", () => {
   it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <OrbitProjectExplorer intent="rehearsal" onNavigate={() => undefined} />
+        <RehearsalProjectPickerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
-    expect(html).toContain("리허설할 프로젝트 선택");
-    expect(html).toContain("마이크 점검");
+    expect(html).toContain(">리허설<");
+    expect(html).toContain("연습할 발표자료를 선택하세요.");
     expect(html).not.toContain("빈 프로젝트");
   });
 });

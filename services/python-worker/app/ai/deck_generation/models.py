@@ -35,6 +35,16 @@ ReferencePolicy = Literal[
 ]
 SourceType = Literal["topic", "uploaded", "web", "generated", "none"]
 SourceAuthority = Literal["official", "independent", "unknown"]
+ResearchQuality = Literal["not-run", "complete", "partial", "unavailable"]
+ResearchIssueCode = Literal[
+    "provider-unavailable",
+    "provider-call-failed",
+    "no-citations",
+    "vetting-failed",
+    "official-missing",
+    "independent-missing",
+    "fact-coverage",
+]
 RepairReasonCode = Literal[
     "SLIDE_COUNT_SHORT",
     "CONTENT_DUPLICATED",
@@ -158,6 +168,12 @@ class WebResearchResult(BaseModel):
     attempts: int = 0
     relevant_source_count: int = 0
     official_source_count: int = 0
+    independent_source_count: int = 0
+    quality: ResearchQuality = "not-run"
+    issue_codes: list[ResearchIssueCode] = Field(default_factory=list)
+    fact_coverage_satisfied: bool = False
+    timed_out: bool = False
+    elapsed_ms: int = 0
 
 
 class WebSourceAssessment(BaseModel):
@@ -501,9 +517,24 @@ class RawInput(BaseModel):
     research_attempts: int = 0
     relevant_web_source_count: int = 0
     official_web_source_count: int = 0
+    independent_web_source_count: int = 0
+    research_quality: ResearchQuality = "not-run"
+    research_issue_codes: list[ResearchIssueCode] = Field(default_factory=list)
+    research_fact_coverage_satisfied: bool = False
+    web_research_timed_out: bool = False
+    web_research_elapsed_ms: int = 0
     warning_codes: list[WarningCode] = Field(
         default_factory=list,
         alias="warningCodes",
+    )
+    regeneration_instruction: str = Field(
+        default="",
+        alias="regenerationInstruction",
+        max_length=240,
+    )
+    previous_slide_titles: list[str] = Field(
+        default_factory=list,
+        alias="previousSlideTitles",
     )
     design_program_context: InternalDesignProgramContext = Field(
         default_factory=InternalDesignProgramContext,
@@ -598,6 +629,39 @@ class GeneratedSlideContent(BaseModel):
 class GeneratedDeckContentPlan(BaseModel):
     title: str = Field(min_length=1)
     slides: list[GeneratedSlideContent] = Field(min_length=1)
+
+
+class GeneratedStorySlide(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    slide_type: SlideType = Field(alias="slideType")
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+
+
+class GeneratedStoryBriefAnalysis(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    purpose: Purpose | None = None
+    presentation_context: str = Field(default="", alias="presentationContext")
+    presentation_type: str = Field(default="", alias="presentationType")
+    duration_minutes: int | None = Field(
+        default=None,
+        alias="durationMinutes",
+        ge=1,
+        le=120,
+    )
+    slide_count: int | None = Field(default=None, alias="slideCount", ge=1, le=20)
+
+
+class GeneratedStoryPlan(BaseModel):
+    title: str = Field(min_length=1)
+    brief_analysis: GeneratedStoryBriefAnalysis = Field(
+        default_factory=GeneratedStoryBriefAnalysis,
+        alias="briefAnalysis",
+    )
+    slides: list[GeneratedStorySlide] = Field(min_length=1)
 
 
 class SpeakerNotesRepairItem(BaseModel):
@@ -749,7 +813,7 @@ class TemplateSelectionItem(BaseModel):
 
 
 class GenerateDeckDiagnostics(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     reference_policy: ReferencePolicy = Field(
         default="topic-only",
@@ -767,6 +831,23 @@ class GenerateDeckDiagnostics(BaseModel):
         default=0,
         alias="officialWebSourceCount",
         ge=0,
+    )
+    independent_web_source_count: int = Field(
+        default=0,
+        alias="independentWebSourceCount",
+        ge=0,
+    )
+    research_quality: ResearchQuality = Field(
+        default="not-run",
+        alias="researchQuality",
+    )
+    research_issue_codes: list[ResearchIssueCode] = Field(
+        default_factory=list,
+        alias="researchIssueCodes",
+    )
+    research_fact_coverage_satisfied: bool = Field(
+        default=False,
+        alias="researchFactCoverageSatisfied",
     )
     repair_attempted: bool = Field(default=False, alias="repairAttempted")
     repair_reasons: list[RepairReasonCode] = Field(

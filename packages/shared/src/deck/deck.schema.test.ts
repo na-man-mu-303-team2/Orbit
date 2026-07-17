@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deckSchema } from "./deck.schema";
+import { deckSchema, deckShellSchema } from "./deck.schema";
 import { createKeywordOccurrenceId } from "./keyword-occurrences";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
@@ -20,6 +20,16 @@ type DeckValidationInput = {
     purpose?: string;
     tone?: string;
     presentationProfile?: string;
+    generationQuality?: {
+      status: string;
+      issues: Array<{
+        code: string;
+        message: string;
+        severity: string;
+        slideId?: string;
+        slideOrder?: number;
+      }>;
+    };
     designProgramSnapshot?: {
       version: string;
       visualConcept: string;
@@ -293,6 +303,13 @@ describe("deckSchema validation", () => {
     expectValidDeck(createValidDeck());
   });
 
+  it("projects a deck shell without slide validation state", () => {
+    const shell = deckShellSchema.parse(createValidDeck());
+
+    expect(shell).not.toHaveProperty("slides");
+    expect(shell.deckId).toBe("deck_test_1");
+  });
+
   it("accepts a program-v2 design snapshot and composition plan", () => {
     const deck = createValidDeck();
     deck.metadata.designProgramSnapshot = {
@@ -490,6 +507,24 @@ describe("deckSchema validation", () => {
 
     expect(result.targetDurationMinutes).toBe(20);
     expect(result.slides[0].estimatedSeconds).toBe(90);
+  });
+
+  it("accepts persisted advisory generation quality reasons", () => {
+    const deck = createValidDeck();
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "IMAGE_CROP_WEAK",
+          message: "The focal subject is cropped too tightly.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    expect(deckSchema.parse(deck).metadata.generationQuality?.issues).toHaveLength(1);
   });
 
   it("accepts cue-driven slide actions", () => {

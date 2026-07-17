@@ -282,6 +282,7 @@ describe("processGenerateDeckJob", () => {
   it("publishes a program-v2 deck only after rendered visual QA passes", async () => {
     const deck = programV2DeckWithOptionalMedia();
     const trace: string[] = [];
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
     let generatedAsset:
       | { file_id: string; storage_key: string; mime_type: string }
       | undefined;
@@ -322,7 +323,16 @@ describe("processGenerateDeckJob", () => {
       const url = String(input);
       if (url.endsWith("/ai/generate-deck")) {
         trace.push("python.generate");
-        return generateDeckResponse(deck);
+        return generateDeckResponse(deck, {
+          referencePolicy: "research-first",
+          researchQuality: "partial",
+          researchIssueCodes: ["independent-missing"],
+          researchAttempts: 3,
+          relevantWebSourceCount: 1,
+          officialWebSourceCount: 1,
+          independentWebSourceCount: 0,
+          researchFactCoverageSatisfied: true
+        });
       }
       if (url === "http://storage.local/generated.png") {
         return new Response(image);
@@ -372,7 +382,10 @@ describe("processGenerateDeckJob", () => {
         maxPerDeck: 4,
         maxPerUserPerDay: 20
       },
-      (event) => trace.push(`event:${event}`)
+      (event, fields) => {
+        trace.push(`event:${event}`);
+        events.push({ event, fields });
+      }
     );
 
     expect(job.status).toBe("succeeded");
@@ -395,6 +408,7 @@ describe("processGenerateDeckJob", () => {
     expect(trace).toEqual([
       "job:running:15",
       "python.generate",
+      "event:ai-ppt.web-research.completed",
       "event:ai-ppt.design-program.created",
       "event:ai-ppt.composition.completed",
       "job:running:45",
@@ -411,6 +425,20 @@ describe("processGenerateDeckJob", () => {
       "event:ai-ppt.deck.published",
       "job:succeeded:100"
     ]);
+    expect(events).toContainEqual({
+      event: "ai-ppt.web-research.completed",
+      fields: {
+        jobId: "job-1",
+        projectId: "project-a",
+        quality: "partial",
+        issueCodes: ["independent-missing"],
+        attempts: 3,
+        relevantSourceCount: 1,
+        officialSourceCount: 1,
+        independentSourceCount: 0,
+        factCoverageSatisfied: true
+      }
+    });
   });
 
   it("embeds stored image assets only in the visual review request", async () => {
@@ -565,8 +593,14 @@ describe("processGenerateDeckJob", () => {
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
-        passed: true,
-        designIssues: []
+        passed: false,
+        designIssues: [1, 2, 3].map((order) =>
+          expect.objectContaining({
+            code: "BALANCE_WEAK",
+            path: `slides.${order - 1}`,
+            blocking: false,
+          }),
+        ),
       },
       diagnostics: {
         visualQaStatus: "advisory",
@@ -583,7 +617,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("retains a twice-repaired blocking visual failure without publishing", async () => {
+  it("publishes a twice-repaired visual issue as an advisory", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     let repairCount = 0;
@@ -612,11 +646,9 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe(
-      "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
-    );
-    expect(job.progress).toBe(90);
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
+    expect(job.progress).toBe(100);
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
@@ -626,7 +658,7 @@ describe("processGenerateDeckJob", () => {
         ]
       },
       diagnostics: {
-        visualQaStatus: "failed",
+        visualQaStatus: "advisory",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
         visualIssueCodes: ["IMAGE_CONTENT_MISMATCH"]
@@ -634,7 +666,7 @@ describe("processGenerateDeckJob", () => {
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("converts an unresolved optional image to a no-media composition", async () => {
@@ -1688,6 +1720,118 @@ describe("processGenerateDeckJob", () => {
       );
     });
 
+    it("repairs a single-slide shard using its actual deck order", async () => {
+      const base = programV2Deck();
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [{ ...base.slides[0], slideId: "slide_5", order: 5 }]
+      });
+      const repairedDeck = deckSchema.parse({
+        ...deck,
+        title: "Repaired fifth slide"
+      });
+      const repairBodies: Array<Record<string, unknown>> = [];
+      let reviewCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            reviewCount += 1;
+            return reviewCount === 1
+              ? visualFailureResponse("FOCAL_POINT_WEAK", [5], "slide_5")
+              : visualPassResponse();
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairBodies.push(JSON.parse(String(init?.body)));
+            return visualRepairResponse(repairedDeck);
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 2,
+        repairAttempts: 1,
+        deck: { title: "Repaired fifth slide" }
+      });
+      expect(repairBodies[0]?.actions).toEqual([
+        expect.objectContaining({
+          action: "increaseFocalScale",
+          slideId: "slide_5"
+        })
+      ]);
+    });
+
+    it("keeps a visual issue without repair actions as an advisory", async () => {
+      const deck = programV2Deck();
+      const repairRequest = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            return new Response(
+              JSON.stringify({
+                review: {
+                  passed: false,
+                  issues: [
+                    {
+                      code: "FOCAL_POINT_WEAK",
+                      slideOrder: 1,
+                      message: "Visual hierarchy is weak."
+                    }
+                  ],
+                  repairActions: []
+                },
+                warnings: []
+              })
+            );
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairRequest();
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 1,
+        repairAttempts: 0
+      });
+      expect(repairRequest).not.toHaveBeenCalled();
+    });
+
     it("reapplies the current publication upsert and Job result on recall", async () => {
       const deck = programV2Deck();
       const workerPayload = parsedGenerateDeckResponse(deck);
@@ -2070,13 +2214,16 @@ function designProgramSnapshot() {
   };
 }
 
-function generateDeckResponse(deck: Deck) {
+function generateDeckResponse(
+  deck: Deck,
+  diagnosticOverrides: Record<string, unknown> = {}
+) {
   return new Response(
     JSON.stringify({
       deck,
       warnings: [],
       validation: validation(),
-      diagnostics: diagnostics()
+      diagnostics: diagnostics(diagnosticOverrides)
     })
   );
 }
@@ -2101,7 +2248,8 @@ function visualPassResponse() {
 
 function visualFailureResponse(
   code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH",
-  slideOrders = [1]
+  slideOrders = [1],
+  slideId = "slide_1"
 ) {
   return new Response(
     JSON.stringify({
@@ -2115,7 +2263,7 @@ function visualFailureResponse(
         repairActions: [
           {
             action: "increaseFocalScale",
-            slideId: "slide_1",
+            slideId,
             targetElementId: "el_1_program_v2_title",
             compositionId: null,
             backgroundMode: null,

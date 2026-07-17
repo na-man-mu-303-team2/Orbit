@@ -40,6 +40,19 @@ describe("RehearsalsController", () => {
     ).toBeLessThan(rehearsalsService.getReport.mock.invocationCallOrder[0]);
   });
 
+  it("requires project read permission before returning an audio playback URL", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+
+    await controller.getAudioPlaybackUrl("run-1", signedRequest());
+
+    expect(rehearsalsService.getRunProjectId).toHaveBeenCalledWith("run-1");
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(rehearsalsService.getAudioPlaybackUrl).toHaveBeenCalledWith("run-1");
+  });
+
   it("requires project read permission before returning a run comparison", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
@@ -121,6 +134,11 @@ function createController() {
       briefing: []
     })),
     getReport: vi.fn(async () => ({ report: null })),
+    getAudioPlaybackUrl: vi.fn(async () => ({
+      playbackUrl: "https://storage.example.com/audio?signature=short-lived",
+      expiresAt: "2026-07-16T00:15:00.000Z",
+      retentionExpiresAt: "2026-07-30T00:00:00.000Z",
+    })),
     getRunProjectId: vi.fn(async () => "project-a"),
   };
 

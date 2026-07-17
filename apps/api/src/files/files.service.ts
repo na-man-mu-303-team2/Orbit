@@ -2,6 +2,7 @@ import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
   ownerOnlyFilePurposes,
+  privateAudioPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
 import type {
@@ -30,6 +31,7 @@ export const STORAGE_PORT = Symbol("STORAGE_PORT");
 export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
 
 const uploadUrlExpiresInSeconds = 15 * 60;
+const maximumPrivateAudioReadUrlExpiresInSeconds = 15 * 60;
 const publicAssetContentPurposes = new Set<FilePurpose>([
   "thumbnail",
   "pptx-import",
@@ -236,6 +238,27 @@ export class FilesService {
     return asset;
   }
 
+  async createPrivateAudioReadUrl(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+    expiresInSeconds: number,
+  ): Promise<string> {
+    if (!privateAudioPurposes.has(purpose)) {
+      throw new BadRequestException("Private audio purpose is required.");
+    }
+    if (
+      !Number.isInteger(expiresInSeconds) ||
+      expiresInSeconds < 1 ||
+      expiresInSeconds > maximumPrivateAudioReadUrlExpiresInSeconds
+    ) {
+      throw new BadRequestException("Private audio read URL expiry is invalid.");
+    }
+
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    return this.storage.getSignedReadUrl(asset.storageKey, expiresInSeconds);
+  }
+
   private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
     const head = await this.storage.headObject(asset.storageKey);
 
@@ -285,10 +308,6 @@ export class FilesService {
       }
 
       return asset.deletedAt.toISOString();
-    }
-
-    if (asset.status !== "uploaded") {
-      throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
     }
 
     await this.storage.removeObject(asset.storageKey);

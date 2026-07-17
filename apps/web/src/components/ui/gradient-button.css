@@ -1,0 +1,52 @@
+.redesign-gradient-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--redesign-space-2);
+  min-height: var(--redesign-size-control-md);
+  padding: var(--redesign-space-2) var(--redesign-space-4);
+  border: 0;
+  border-radius: var(--redesign-radius);
+  background: linear-gradient(
+    115deg,
+    var(--redesign-color-primary) 0%,
+    color-mix(
+      in srgb,
+      var(--redesign-color-primary) 42%,
+      var(--redesign-color-secondary)
+    ) 52%,
+    var(--redesign-color-secondary) 100%
+  );
+  color: var(--redesign-color-on-primary);
+  font-family: var(--redesign-font-family);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: var(--redesign-type-label-md-weight);
+  cursor: pointer;
+  box-shadow: var(--redesign-glow-primary);
+  transition: box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard),
+    filter var(--redesign-duration-normal) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-standard);
+}
+
+.redesign-gradient-button-large {
+  min-height: var(--redesign-size-control-lg);
+  padding: var(--redesign-space-2) var(--redesign-space-6);
+  font-size: var(--redesign-type-label-md-size);
+}
+
+.redesign-gradient-button:hover:not(:disabled) {
+  box-shadow: var(--redesign-glow-secondary);
+  filter: saturate(1.03) brightness(1.02);
+  transform: translateY(-1px);
+}
+
+.redesign-gradient-button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring);
+}
+
+.redesign-gradient-button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.5);
+  opacity: 0.58;
+}

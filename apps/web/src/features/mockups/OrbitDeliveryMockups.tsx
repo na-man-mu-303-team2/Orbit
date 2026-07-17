@@ -22,7 +22,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
 import orbitLogoWhite from "../../assets/orbit-logo-white.png";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import "./orbit-delivery-mockups.css";
 
 type DeliveryMockupProps = {
@@ -239,7 +239,7 @@ export function OrbitRehearsalMockup(props: DeliveryMockupProps) {
         <div className="delivery-complete-backdrop" role="dialog" aria-label="리허설 완료" aria-modal="true">
           <section className="delivery-complete-card">
             <span className="delivery-complete-icon"><IconCheck size={30} /></span>
-            <p className="orbit-ds-eyebrow">REHEARSAL COMPLETE</p>
+            <p className="redesign-eyebrow">REHEARSAL COMPLETE</p>
             <h1>첫 리허설을 마쳤어요.</h1>
             <p>발표 시간 04:32 · 핵심 키워드 2/3 · 말하기 속도 안정적</p>
             <div><button onClick={() => setPhase("paused")} type="button">계속 연습</button><OrbitButton onClick={() => props.onNavigate("/mockup/rehearsal-complete")}>리포트 보기</OrbitButton></div>
@@ -401,7 +401,7 @@ export function OrbitPresenterMockup(props: DeliveryMockupProps) {
         <div className="delivery-complete-backdrop dark" role="dialog" aria-label="발표 종료" aria-modal="true">
           <section className="delivery-complete-card">
             <span className="delivery-complete-icon"><IconCheck size={30} /></span>
-            <p className="orbit-ds-eyebrow">PRESENTATION COMPLETE</p>
+            <p className="redesign-eyebrow">PRESENTATION COMPLETE</p>
             <h1>발표를 종료할까요?</h1>
             <p>청중 화면 연결을 종료하고 프로젝트 허브로 돌아갑니다.</p>
             <div><button onClick={() => setIsEnded(false)} type="button">발표 계속</button><OrbitButton onClick={() => props.onNavigate("/mockup/home")}>종료하고 나가기</OrbitButton></div>

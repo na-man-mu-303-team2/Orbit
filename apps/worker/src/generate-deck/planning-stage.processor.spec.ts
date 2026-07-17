@@ -15,6 +15,15 @@ const sourceMessage = {
 const sourcePayload = {
   rawInput: {
     topic: "Safe topic",
+    research_quality: "partial",
+    research_issue_codes: ["independent-missing"],
+    research_attempts: 3,
+    relevant_web_source_count: 1,
+    official_web_source_count: 1,
+    independent_web_source_count: 0,
+    research_fact_coverage_satisfied: true,
+    web_research_timed_out: false,
+    web_research_elapsed_ms: 18_400,
     warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"],
   },
   sourceRecords: [],
@@ -24,6 +33,7 @@ const sourcePayload = {
 
 describe("processAiDeckPlanningStage", () => {
   it("commits the artifact, checkpoint, next stage, and parent progress together", async () => {
+    const eventLogger = vi.fn();
     const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
       const compact = compactSql(sql);
       if (
@@ -107,12 +117,28 @@ describe("processAiDeckPlanningStage", () => {
         "http://python-worker:8000",
         "worker-a",
         sourceMessage,
-        { fetchImpl },
+        { fetchImpl, eventLogger },
       ),
     ).resolves.toMatchObject({ status: "running", progress: 25 });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(eventLogger).toHaveBeenCalledWith(
+      "ai-ppt.web-research.completed",
+      {
+        pipelineJobId: sourceMessage.pipelineJobId,
+        projectId: sourceMessage.projectId,
+        quality: "partial",
+        issueCodes: ["independent-missing"],
+        attempts: 3,
+        relevantSourceCount: 1,
+        officialSourceCount: 1,
+        independentSourceCount: 0,
+        factCoverageSatisfied: true,
+        timedOut: false,
+        elapsedMs: 18_400,
+      },
+    );
   });
 
   it("releases retryable provider failures and signals BullMQ retry", async () => {
@@ -197,6 +223,9 @@ describe("processAiDeckPlanningStage", () => {
       if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
         return [artifactRow("content-planning", contentPayload)];
       }
+      if (compact.includes("SELECT payload FROM jobs")) {
+        return [{ payload: { request: { topic: "Safe topic" } } }];
+      }
       if (compact.includes("SET status = 'failed', error_json")) {
         return [
           checkpointRow(
@@ -223,14 +252,18 @@ describe("processAiDeckPlanningStage", () => {
         "worker-a",
         message,
         {
-          fetchImpl: async () =>
-            jsonResponse(
+          fetchImpl: async (_input, init) => {
+            expect(JSON.parse(String(init?.body))).toMatchObject({
+              preserveApprovedContent: true,
+            });
+            return jsonResponse(
               {
                 detail:
                   "Art Director could not create a valid design plan. Please retry deck generation.",
               },
               503,
-            ),
+            );
+          },
           eventLogger,
         },
       ),

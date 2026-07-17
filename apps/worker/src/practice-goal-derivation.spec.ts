@@ -7,7 +7,7 @@ import {
   reportObservationSchema,
   type EvaluationCriterion,
   type RehearsalEvaluationSnapshot,
-  type RehearsalReport
+  type RehearsalReport,
 } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 
@@ -18,7 +18,7 @@ import {
   loadPracticeGoalRankingContext,
   persistPracticeGoalSet,
   persistSourceGoalResolutions,
-  type PracticeGoalRankingContext
+  type PracticeGoalRankingContext,
 } from "./practice-goal-derivation";
 
 describe("practice goal derivation", () => {
@@ -28,21 +28,21 @@ describe("practice goal derivation", () => {
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: snapshot(),
-      report: report(true)
+      report: report(true),
     });
     const repeated = derivePracticeGoalSet({
       projectId: "project-a",
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: snapshot(),
-      report: report(true)
+      report: report(true),
     });
     const recovered = derivePracticeGoalSet({
       projectId: "project-a",
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 2,
       snapshot: snapshot(),
-      report: report(false)
+      report: report(false),
     });
 
     expect(first).toEqual(repeated);
@@ -51,7 +51,7 @@ describe("practice goal derivation", () => {
     expect(first?.goals.map((goal) => goal.category)).toEqual([
       "semantic",
       "timing",
-      "delivery"
+      "delivery",
     ]);
     expect(first?.goals.map((goal) => goal.priority)).toEqual([1, 2, 3]);
     expect(recovered?.analysisState).toBe("final");
@@ -85,7 +85,7 @@ describe("practice goal derivation", () => {
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: snapshot(),
-      report: passingReport()
+      report: passingReport(),
     });
 
     expect(set?.analysisState).toBe("final");
@@ -98,58 +98,61 @@ describe("practice goal derivation", () => {
     const briefCriterionIds = new Set([
       "criterion_brief_must_cover",
       "criterion_brief_opening",
-      "criterion_brief_closing"
+      "criterion_brief_closing",
     ]);
 
     const evaluation = evaluateFullRunCriteria({
       sourceFullRunId: "run-a",
       snapshot: sourceSnapshot,
-      report: sourceReport
+      report: sourceReport,
     });
     const set = derivePracticeGoalSet({
       projectId: "project-a",
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: sourceSnapshot,
-      report: sourceReport
+      report: sourceReport,
     });
 
     expect(
       evaluation.results.filter((result) =>
-        briefCriterionIds.has(result.criterionRef.criterionId)
-      )
+        briefCriterionIds.has(result.criterionRef.criterionId),
+      ),
     ).toEqual([
       expect.objectContaining({
-        criterionRef: { criterionId: "criterion_brief_must_cover", revision: 1 },
+        criterionRef: {
+          criterionId: "criterion_brief_must_cover",
+          revision: 1,
+        },
         measurementState: "unmeasured",
         evaluationStatus: "not-evaluated",
         observationId: null,
-        reasonCode: "NO_MEASUREMENT"
+        reasonCode: "NO_MEASUREMENT",
       }),
       expect.objectContaining({
         criterionRef: { criterionId: "criterion_brief_opening", revision: 1 },
         measurementState: "unmeasured",
         evaluationStatus: "not-evaluated",
         observationId: null,
-        reasonCode: "NO_MEASUREMENT"
+        reasonCode: "NO_MEASUREMENT",
       }),
       expect.objectContaining({
         criterionRef: { criterionId: "criterion_brief_closing", revision: 1 },
         measurementState: "unmeasured",
         evaluationStatus: "not-evaluated",
         observationId: null,
-        reasonCode: "NO_MEASUREMENT"
-      })
+        reasonCode: "NO_MEASUREMENT",
+      }),
     ]);
     expect(
       evaluation.observations.some((observation) =>
-        briefCriterionIds.has(observation.criterionRef.criterionId)
-      )
+        briefCriterionIds.has(observation.criterionRef.criterionId),
+      ),
     ).toBe(false);
     expect(
       set?.goals.some((goal) =>
-        briefCriterionIds.has(goal.criterionRef.criterionId)
-      )
+        briefCriterionIds.has(goal.criterionRef.criterionId),
+      ),
     ).toBe(false);
   });
 
@@ -164,35 +167,35 @@ describe("practice goal derivation", () => {
             priority: 1,
             kind: "filler-words",
             label: "반복 말버릇 줄이기",
-            targetScope: null
+            targetScope: null,
           },
           {
             focusItemId: "focus_passing_pause",
             priority: 2,
-            kind: "pauses",
-            label: "긴 멈춤 줄이기",
-            targetScope: null
-          }
-        ]
-      }
+            kind: "silences",
+            label: "긴 침묵 줄이기",
+            targetScope: null,
+          },
+        ],
+      },
     });
     const set = derivePracticeGoalSet({
       projectId: "project-a",
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: focusedSnapshot,
-      report: report(false)
+      report: report(false),
     });
 
     expect(set?.goals.map((goal) => goal.criterionRef.criterionId)).toEqual([
       "criterion_cue_scue_1_r1",
       "criterion_timing_slide_1",
-      "criterion_system_filler_v1"
+      "criterion_system_filler_v1",
     ]);
     expect(
       set?.goals.some(
-        (goal) => goal.criterionRef.criterionId === "criterion_system_pause_v1"
-      )
+        (goal) => goal.criterionRef.criterionId === "criterion_system_pause_v1",
+      ),
     ).toBe(false);
   });
 
@@ -206,50 +209,57 @@ describe("practice goal derivation", () => {
       label: "핵심 수치",
       measurement: {
         type: "semantic-coverage",
-        expectedConceptIds: ["concept_1"]
-      }
+        expectedConceptIds: ["concept_1"],
+      },
     };
     const first = syntheticCandidate({
       sourceFullRunId: "run-a",
       criterion,
-      value: { kind: "semantic", value: "missed" }
+      value: { kind: "semantic", value: "missed" },
     });
     const repeated = syntheticCandidate({
       sourceFullRunId: "run-a",
       criterion,
-      value: { kind: "semantic", value: "missed" }
+      value: { kind: "semantic", value: "missed" },
     });
     const anotherRun = syntheticCandidate({
       sourceFullRunId: "run-b",
       criterion,
-      value: { kind: "semantic", value: "missed" }
+      value: { kind: "semantic", value: "missed" },
     });
     const anotherTarget = syntheticCandidate({
       sourceFullRunId: "run-a",
       criterion: {
         ...criterion,
-        scope: { type: "slide", slideId: "slide_2" }
+        scope: { type: "slide", slideId: "slide_2" },
       },
       value: { kind: "semantic", value: "missed" },
-      slideOrder: [["slide_1", 1], ["slide_2", 2]]
+      slideOrder: [
+        ["slide_1", 1],
+        ["slide_2", 2],
+      ],
     });
     const frozenSentenceTarget = {
       type: "sentence",
       scopeId: "scope_frozen_sentence",
       slideId: "slide_1",
       sentenceIndex: 0,
-      textSnapshotHash: "a".repeat(64)
+      textSnapshotHash: "a".repeat(64),
     } as const;
     const focused = syntheticCandidate({
       sourceFullRunId: "run-a",
       criterion,
       value: { kind: "semantic", value: "missed" },
-      focusTarget: frozenSentenceTarget
+      focusTarget: frozenSentenceTarget,
     });
 
     expect(first.targetScope?.scopeId).toBe(repeated.targetScope?.scopeId);
-    expect(first.targetScope?.scopeId).not.toBe(anotherRun.targetScope?.scopeId);
-    expect(first.targetScope?.scopeId).not.toBe(anotherTarget.targetScope?.scopeId);
+    expect(first.targetScope?.scopeId).not.toBe(
+      anotherRun.targetScope?.scopeId,
+    );
+    expect(first.targetScope?.scopeId).not.toBe(
+      anotherTarget.targetScope?.scopeId,
+    );
     expect(focused.targetScope).toEqual(frozenSentenceTarget);
   });
 
@@ -265,11 +275,11 @@ describe("practice goal derivation", () => {
         label: "핵심 수치",
         measurement: {
           type: "semantic-coverage",
-          expectedConceptIds: ["concept_1"]
-        }
+          expectedConceptIds: ["concept_1"],
+        },
       },
       value: { kind: "semantic", value: "missed" },
-      expected: "핵심 수치의 필수 내용을 모두 전달합니다."
+      expected: "핵심 수치의 필수 내용을 모두 전달합니다.",
     },
     {
       name: "filler",
@@ -283,29 +293,29 @@ describe("practice goal derivation", () => {
         measurement: {
           type: "max-count",
           metric: "filler-word-count",
-          maximum: 1
-        }
+          maximum: 1,
+        },
       },
       value: { kind: "count", metric: "filler-word-count", value: 2 },
-      expected: "반복 말버릇을 1회 이하로 유지합니다."
+      expected: "반복 말버릇을 1회 이하로 유지합니다.",
     },
     {
-      name: "pause",
+      name: "silence",
       criterion: {
-        criterionId: "criterion_pause",
+        criterionId: "criterion_silence",
         revision: 1,
         category: "delivery",
         source: "system",
         scope: { type: "run" },
-        label: "긴 멈춤",
+        label: "긴 침묵",
         measurement: {
           type: "max-count",
-          metric: "pause-count",
-          maximum: 0
-        }
+          metric: "long-silence-count",
+          maximum: 0,
+        },
       },
-      value: { kind: "count", metric: "pause-count", value: 1 },
-      expected: "긴 멈춤을 0회 이하로 유지합니다."
+      value: { kind: "count", metric: "long-silence-count", value: 1 },
+      expected: "긴 침묵을 0회 이하로 유지합니다.",
     },
     {
       name: "opening",
@@ -318,11 +328,11 @@ describe("practice goal derivation", () => {
         label: "발표 목적",
         measurement: {
           type: "semantic-coverage",
-          expectedConceptIds: ["concept_opening"]
-        }
+          expectedConceptIds: ["concept_opening"],
+        },
       },
       value: { kind: "semantic", value: "partial" },
-      expected: "도입부에서 발표 목적을 명확히 전달합니다."
+      expected: "도입부에서 발표 목적을 명확히 전달합니다.",
     },
     {
       name: "closing",
@@ -335,15 +345,20 @@ describe("practice goal derivation", () => {
         label: "다음 행동",
         measurement: {
           type: "semantic-coverage",
-          expectedConceptIds: ["concept_closing"]
-        }
+          expectedConceptIds: ["concept_closing"],
+        },
       },
       value: { kind: "semantic", value: "missed" },
-      expected: "마무리에서 다음 행동을 명확히 전달합니다."
-    }
-  ])("uses the contract success condition for $name", ({ criterion, value, expected }) => {
-    expect(syntheticCandidate({ criterion, value }).successCondition).toBe(expected);
-  });
+      expected: "마무리에서 다음 행동을 명확히 전달합니다.",
+    },
+  ])(
+    "uses the contract success condition for $name",
+    ({ criterion, value, expected }) => {
+      expect(syntheticCandidate({ criterion, value }).successCondition).toBe(
+        expected,
+      );
+    },
+  );
 
   it("keeps invalid slide ranges as full-run-only problems", () => {
     const criterion = {
@@ -354,35 +369,46 @@ describe("practice goal derivation", () => {
       scope: {
         type: "slide-range",
         startSlideId: "slide_1",
-        endSlideId: "slide_3"
+        endSlideId: "slide_3",
       },
       label: "문제와 해결 흐름",
       measurement: {
         type: "semantic-coverage",
-        expectedConceptIds: ["concept_range"]
-      }
+        expectedConceptIds: ["concept_range"],
+      },
     };
     const value = { kind: "semantic", value: "missed" };
     const valid = syntheticCandidate({
       criterion,
       value,
-      slideOrder: [["slide_1", 1], ["slide_2", 2], ["slide_3", 3]]
+      slideOrder: [
+        ["slide_1", 1],
+        ["slide_2", 2],
+        ["slide_3", 3],
+      ],
     });
     const reversed = syntheticCandidate({
       criterion,
       value,
-      slideOrder: [["slide_1", 3], ["slide_2", 2], ["slide_3", 1]]
+      slideOrder: [
+        ["slide_1", 3],
+        ["slide_2", 2],
+        ["slide_3", 1],
+      ],
     });
     const missing = syntheticCandidate({
       criterion,
       value,
-      slideOrder: [["slide_1", 1], ["slide_2", 2]]
+      slideOrder: [
+        ["slide_1", 1],
+        ["slide_2", 2],
+      ],
     });
 
     expect(valid.targetScope).toMatchObject({
       type: "slide-range",
       startSlideId: "slide_1",
-      endSlideId: "slide_3"
+      endSlideId: "slide_3",
     });
     expect(reversed.targetScope).toBeNull();
     expect(missing.targetScope).toBeNull();
@@ -397,34 +423,36 @@ describe("practice goal derivation", () => {
         "run-previous",
         "2026-07-10T00:00:00.000Z",
         previousReport,
-        sourceSnapshot
-      )
+        sourceSnapshot,
+      ),
     ]);
     const rankingContext = await loadPracticeGoalRankingContext({
       executor: { query } as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
-      snapshot: sourceSnapshot
+      snapshot: sourceSnapshot,
     });
 
     const candidates = candidatesFor(
       "run-current",
       sourceSnapshot,
       currentReport,
-      rankingContext
+      rankingContext,
     );
 
-    expect(candidates.map((candidate) => candidate.criterion.criterionId)).toEqual([
+    expect(
+      candidates.map((candidate) => candidate.criterion.criterionId),
+    ).toEqual([
       "criterion_cue_scue_1_r1",
       "criterion_cue_scue_2_r1",
       "criterion_timing_slide_1",
-      "criterion_system_filler_v1"
+      "criterion_system_filler_v1",
     ]);
     expect(candidates.map((candidate) => candidate.repeated)).toEqual([
       true,
       false,
       true,
-      true
+      true,
     ]);
   });
 
@@ -435,22 +463,25 @@ describe("practice goal derivation", () => {
         "run-previous",
         "2026-07-10T00:00:00.000Z",
         passingReport(),
-        sourceSnapshot
-      )
+        sourceSnapshot,
+      ),
     ]);
     const rankingContext = await loadPracticeGoalRankingContext({
       executor: { query } as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
-      snapshot: sourceSnapshot
+      snapshot: sourceSnapshot,
     });
 
     const semantic = candidatesFor(
       "run-current",
       sourceSnapshot,
       report(false),
-      rankingContext
-    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+      rankingContext,
+    ).find(
+      (candidate) =>
+        candidate.criterion.criterionId === "criterion_cue_scue_1_r1",
+    );
 
     expect(semantic?.repeated).toBe(false);
   });
@@ -462,54 +493,57 @@ describe("practice goal derivation", () => {
         "run-latest",
         "2026-07-10T00:00:00.000Z",
         passingReport(),
-        sourceSnapshot
+        sourceSnapshot,
       ),
       historyRow(
         "run-previous-2",
         "2026-07-09T00:00:00.000Z",
         report(false),
-        sourceSnapshot
+        sourceSnapshot,
       ),
       historyRow(
         "run-previous-3",
         "2026-07-08T00:00:00.000Z",
         passingReport(),
-        sourceSnapshot
+        sourceSnapshot,
       ),
       historyRow(
         "run-previous-4",
         "2026-07-07T00:00:00.000Z",
         passingReport(),
-        sourceSnapshot
+        sourceSnapshot,
       ),
       historyRow(
         "run-previous-5",
         "2026-07-06T00:00:00.000Z",
         passingReport(),
-        sourceSnapshot
-      )
+        sourceSnapshot,
+      ),
     ]);
     const rankingContext = await loadPracticeGoalRankingContext({
       executor: { query } as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
-      snapshot: sourceSnapshot
+      snapshot: sourceSnapshot,
     });
 
     const semantic = candidatesFor(
       "run-current",
       sourceSnapshot,
       report(false),
-      rankingContext
-    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+      rankingContext,
+    ).find(
+      (candidate) =>
+        candidate.criterion.criterionId === "criterion_cue_scue_1_r1",
+    );
 
     expect(semantic?.repeated).toBe(true);
     expect(
       [...rankingContext.patternHistory.values()].find(
         (history) =>
           history.previousCompatibleRunCount === 5 &&
-          history.previousIssueCount === 1
-      )
+          history.previousIssueCount === 1,
+      ),
     ).toBeDefined();
   });
 
@@ -521,44 +555,47 @@ describe("practice goal derivation", () => {
         ...outcome,
         status: "unmeasured" as const,
         measurementMode: "none" as const,
-        unmeasuredReason: "transcript_incomplete" as const
-      }))
+        unmeasuredReason: "transcript_incomplete" as const,
+      })),
     });
     const incompatibleSnapshot = rehearsalEvaluationSnapshotSchema.parse({
       ...sourceSnapshot,
-      deckContentHash: "b".repeat(64)
+      deckContentHash: "b".repeat(64),
     });
     const query = vi.fn(async () => [
       historyRow(
         "run-incompatible",
         "2026-07-10T00:00:00.000Z",
         report(false),
-        incompatibleSnapshot
+        incompatibleSnapshot,
       ),
       historyRow(
         "run-unmeasured",
         "2026-07-09T00:00:00.000Z",
         unmeasuredReport,
-        sourceSnapshot
-      )
+        sourceSnapshot,
+      ),
     ]);
     const rankingContext = await loadPracticeGoalRankingContext({
       executor: { query } as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
-      snapshot: sourceSnapshot
+      snapshot: sourceSnapshot,
     });
 
     const semantic = candidatesFor(
       "run-current",
       sourceSnapshot,
       report(false),
-      rankingContext
-    ).find((candidate) => candidate.criterion.criterionId === "criterion_cue_scue_1_r1");
+      rankingContext,
+    ).find(
+      (candidate) =>
+        candidate.criterion.criterionId === "criterion_cue_scue_1_r1",
+    );
 
     expect(rankingContext.mode).toBe("rerun");
     expect(semantic?.repeated).toBe(false);
-    expect(rankingContext.patternHistory.size).toBe(3);
+    expect(rankingContext.patternHistory.size).toBe(2);
   });
 
   it("merges duplicate criterion scopes and keeps ordering independent from input order", () => {
@@ -566,11 +603,11 @@ describe("practice goal derivation", () => {
     const evaluation = evaluateFullRunCriteria({
       sourceFullRunId: "run-a",
       snapshot: sourceSnapshot,
-      report: report(false)
+      report: report(false),
     });
     const firstResult = evaluation.results[0];
     const firstObservation = evaluation.observations.find(
-      (observation) => observation.observationId === firstResult?.observationId
+      (observation) => observation.observationId === firstResult?.observationId,
     );
     if (!firstResult?.observationId || !firstObservation) {
       throw new Error("Expected a measured semantic fixture.");
@@ -578,16 +615,16 @@ describe("practice goal derivation", () => {
     const partialResult = {
       ...firstResult,
       evaluationStatus: "partial" as const,
-      reasonCode: "PARTIAL" as const
+      reasonCode: "PARTIAL" as const,
     };
     const duplicateObservation = {
       ...firstObservation,
       observationId: "observation_duplicate",
-      value: { kind: "semantic" as const, value: "contradicted" as const }
+      value: { kind: "semantic" as const, value: "contradicted" as const },
     };
     const duplicateResult = {
       ...firstResult,
-      observationId: duplicateObservation.observationId
+      observationId: duplicateObservation.observationId,
     };
     const sharedInput = {
       sourceFullRunId: "run-a",
@@ -598,44 +635,55 @@ describe("practice goal derivation", () => {
       coreSemanticCriterionKeys: new Set<string>(),
       rankingContext: {
         mode: "baseline" as const,
-        patternHistory: new Map()
-      }
+        patternHistory: new Map(),
+      },
     };
     const forward = deriveProblemCandidates({
       ...sharedInput,
       results: [partialResult, ...evaluation.results.slice(1), duplicateResult],
-      observations: [...evaluation.observations, duplicateObservation]
+      observations: [...evaluation.observations, duplicateObservation],
     });
     const reversed = deriveProblemCandidates({
       ...sharedInput,
-      results: [partialResult, ...evaluation.results.slice(1), duplicateResult].reverse(),
-      observations: [...evaluation.observations, duplicateObservation].reverse()
+      results: [
+        partialResult,
+        ...evaluation.results.slice(1),
+        duplicateResult,
+      ].reverse(),
+      observations: [
+        ...evaluation.observations,
+        duplicateObservation,
+      ].reverse(),
     });
 
     expect(forward).toEqual(reversed);
     const merged = forward.filter(
       (candidate) =>
-        candidate.criterion.criterionId === firstResult.criterionRef.criterionId
+        candidate.criterion.criterionId ===
+        firstResult.criterionRef.criterionId,
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
       evaluationStatus: "failed",
       severity: 3,
-      observationIds: [firstObservation.observationId, "observation_duplicate"].sort()
+      observationIds: [
+        firstObservation.observationId,
+        "observation_duplicate",
+      ].sort(),
     });
     expect(merged[0]?.evidenceRefs).toEqual([
       {
         kind: "semantic-cue",
         slideId: "slide_1",
         cueId: "scue_1",
-        outcome: "contradicted"
+        outcome: "contradicted",
       },
       {
         kind: "semantic-cue",
         slideId: "slide_1",
         cueId: "scue_1",
-        outcome: "missed"
-      }
+        outcome: "missed",
+      },
     ]);
   });
 
@@ -645,32 +693,38 @@ describe("practice goal derivation", () => {
       sourceFullRunId: "run-a",
       sourceAnalysisRevision: 1,
       snapshot: snapshot(),
-      report: report(true)
+      report: report(true),
     });
     if (!set) throw new Error("Expected a goal set.");
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => []);
     const dataSource = {
-      transaction: vi.fn(async (callback: (manager: { query: typeof query }) => unknown) =>
-        callback({ query }))
+      transaction: vi.fn(
+        async (callback: (manager: { query: typeof query }) => unknown) =>
+          callback({ query }),
+      ),
     };
 
     await persistPracticeGoalSet(dataSource as never, set);
 
     expect(query).toHaveBeenCalledTimes(5);
-    expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO practice_goal_sets");
     expect(query.mock.calls[0]?.[0]).toContain(
-      "ON CONFLICT (source_full_run_id, revision) DO NOTHING"
+      "INSERT INTO practice_goal_sets",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "ON CONFLICT (source_full_run_id, revision) DO NOTHING",
     );
     for (const [index, goal] of set.goals.entries()) {
       const evidenceRefsParameter = query.mock.calls[index + 1]?.[1]?.[10];
       expect(typeof evidenceRefsParameter).toBe("string");
-      expect(JSON.parse(String(evidenceRefsParameter))).toEqual(goal.evidenceRefs);
+      expect(JSON.parse(String(evidenceRefsParameter))).toEqual(
+        goal.evidenceRefs,
+      );
       expect(query.mock.calls[index + 1]?.[0]).toContain(
-        "ON CONFLICT (goal_id) DO NOTHING"
+        "ON CONFLICT (goal_id) DO NOTHING",
       );
     }
     expect(query.mock.calls.at(-1)?.[0]).toContain(
-      "practice_goal_heads.current_analysis_revision < EXCLUDED.current_analysis_revision"
+      "practice_goal_heads.current_analysis_revision < EXCLUDED.current_analysis_revision",
     );
   });
 
@@ -679,29 +733,28 @@ describe("practice goal derivation", () => {
     let queryCount = 0;
     const query = vi.fn(
       async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> =>
-        queryCount++ === 0 ? [
-        {
-          goal_id: "goal_source",
-          origin_full_run_id: "run-source",
-          criterion_ref_json: {
-            criterionId: "criterion_system_filler_v1",
-            revision: 1
-          },
-          target_scope_json: null,
-          category: "delivery"
-        }
-      ] : []
+        queryCount++ === 0
+          ? [
+              {
+                goal_id: "goal_source",
+                origin_full_run_id: "run-source",
+                criterion_ref_json: {
+                  criterionId: "criterion_system_filler_v1",
+                  revision: 1,
+                },
+                target_scope_json: null,
+                category: "delivery",
+              },
+            ]
+          : [],
     );
 
-    const resolutions = await persistSourceGoalResolutions(
-      { query } as never,
-      {
-        projectId: "project-a",
-        evaluatedFullRunId: "run-a",
-        snapshot: sourceSnapshot,
-        report: report(false)
-      }
-    );
+    const resolutions = await persistSourceGoalResolutions({ query } as never, {
+      projectId: "project-a",
+      evaluatedFullRunId: "run-a",
+      snapshot: sourceSnapshot,
+      report: report(false),
+    });
 
     expect(resolutions).toMatchObject([
       {
@@ -709,11 +762,11 @@ describe("practice goal derivation", () => {
         status: "repeated",
         measurementState: "measured",
         observation: { kind: "count", metric: "filler-word-count", value: 4 },
-        reasonCode: "FAILED"
-      }
+        reasonCode: "FAILED",
+      },
     ]);
     expect(query.mock.calls[1]?.[0]).toContain(
-      "ON CONFLICT (goal_id, evaluated_full_run_id) DO NOTHING"
+      "ON CONFLICT (goal_id, evaluated_full_run_id) DO NOTHING",
     );
   });
 
@@ -729,17 +782,17 @@ describe("practice goal derivation", () => {
                 origin_full_run_id: "run-source",
                 criterion_ref_json: {
                   criterionId: "criterion_cue_scue_1_r1",
-                  revision: 1
+                  revision: 1,
                 },
                 target_scope_json: {
                   type: "slide",
                   scopeId: "scope_slide_1",
-                  slideId: "slide_1"
+                  slideId: "slide_1",
                 },
-                category: "semantic"
-              }
+                category: "semantic",
+              },
             ]
-          : []
+          : [],
     );
     const partialReport = rehearsalReportSchema.parse({
       ...passingReport(),
@@ -755,20 +808,17 @@ describe("practice goal derivation", () => {
           measurementMode: "full",
           fallbackUsed: false,
           coveredConcepts: ["가치"],
-          missingConcepts: ["근거"]
-        }
-      ]
+          missingConcepts: ["근거"],
+        },
+      ],
     });
 
-    const resolutions = await persistSourceGoalResolutions(
-      { query } as never,
-      {
-        projectId: "project-a",
-        evaluatedFullRunId: "run-a",
-        snapshot: sourceSnapshot,
-        report: partialReport
-      }
-    );
+    const resolutions = await persistSourceGoalResolutions({ query } as never, {
+      projectId: "project-a",
+      evaluatedFullRunId: "run-a",
+      snapshot: sourceSnapshot,
+      report: partialReport,
+    });
 
     expect(resolutions).toMatchObject([
       {
@@ -776,8 +826,8 @@ describe("practice goal derivation", () => {
         status: "repeated",
         measurementState: "measured",
         observation: { kind: "semantic", value: "partial" },
-        reasonCode: "FAILED"
-      }
+        reasonCode: "FAILED",
+      },
     ]);
   });
 
@@ -792,23 +842,25 @@ describe("practice goal derivation", () => {
       report: rehearsalReportSchema.parse({
         ...previousReport,
         reportId: "report_run-previous",
-        runId: "run-previous"
-      })
+        runId: "run-previous",
+      }),
     });
     const fillerGoal = previousSet?.goals.find(
-      (goal) => goal.criterionRef.criterionId === "criterion_system_filler_v1"
+      (goal) => goal.criterionRef.criterionId === "criterion_system_filler_v1",
     );
     if (!fillerGoal) throw new Error("Expected a previous filler goal.");
-    const rows = [{
-      run_id: "run-previous",
-      created_at: "2026-07-10T00:00:00.000Z",
-      evaluation_snapshot_json: previousSnapshot,
-      report_json: {
-        ...previousReport,
-        reportId: "report_run-previous",
-        runId: "run-previous"
-      }
-    }];
+    const rows = [
+      {
+        run_id: "run-previous",
+        created_at: "2026-07-10T00:00:00.000Z",
+        evaluation_snapshot_json: previousSnapshot,
+        report_json: {
+          ...previousReport,
+          reportId: "report_run-previous",
+          runId: "run-previous",
+        },
+      },
+    ];
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]) => rows);
     const executor = { query };
 
@@ -816,7 +868,7 @@ describe("practice goal derivation", () => {
       executor: executor as never,
       projectId: "project-a",
       sourceFullRunId: "run-current",
-      snapshot: snapshot()
+      snapshot: snapshot(),
     });
     const incompatible = await loadPracticeGoalRankingContext({
       executor: executor as never,
@@ -824,8 +876,8 @@ describe("practice goal derivation", () => {
       sourceFullRunId: "run-current",
       snapshot: rehearsalEvaluationSnapshotSchema.parse({
         ...snapshot(),
-        deckContentHash: "b".repeat(64)
-      })
+        deckContentHash: "b".repeat(64),
+      }),
     });
 
     expect(rankingContext.mode).toBe("rerun");
@@ -833,11 +885,14 @@ describe("practice goal derivation", () => {
       previousCompatibleRunCount: 1,
       previousIssueCount: 1,
       issueInLatestCompatibleRun: true,
-      lastOccurredAt: "2026-07-10T00:00:00.000Z"
+      lastOccurredAt: "2026-07-10T00:00:00.000Z",
     });
-    expect(incompatible).toEqual({ mode: "baseline", patternHistory: new Map() });
+    expect(incompatible).toEqual({
+      mode: "baseline",
+      patternHistory: new Map(),
+    });
     expect(query.mock.calls[0]?.[0]).toContain(
-      "runs.semantic_evaluation_mode = 'full'"
+      "runs.semantic_evaluation_mode = 'full'",
     );
     expect(query.mock.calls[0]?.[0]).toContain("runs.status = 'succeeded'");
     expect(query.mock.calls[0]?.[0]).toContain("LIMIT 5");
@@ -857,13 +912,13 @@ function syntheticCandidate(input: {
     observationId: `observation_${criterion.criterionId}`,
     criterionRef: {
       criterionId: criterion.criterionId,
-      revision: criterion.revision
+      revision: criterion.revision,
     },
     scope: criterion.scope,
     measurementState: "measured",
     value: input.value,
     evidenceRefs: [],
-    observedAt: "2026-07-14T00:00:00.000Z"
+    observedAt: "2026-07-14T00:00:00.000Z",
   });
   const isPartial =
     observation.value.kind === "semantic" &&
@@ -880,7 +935,7 @@ function syntheticCandidate(input: {
       : observation.value.kind === "semantic"
         ? "CONCEPT_MISSED"
         : "THRESHOLD_EXCEEDED",
-    evaluatedAt: observation.observedAt
+    evaluatedAt: observation.observedAt,
   });
   const focusProfileSnapshot = input.focusTarget
     ? rehearsalFocusProfileSnapshotSchema.parse({
@@ -889,13 +944,14 @@ function syntheticCandidate(input: {
           {
             focusItemId: "focus_1",
             priority: 1,
-            kind: criterion.measurement.type === "semantic-coverage"
-              ? "semantic-coverage"
-              : "custom",
+            kind:
+              criterion.measurement.type === "semantic-coverage"
+                ? "semantic-coverage"
+                : "custom",
             label: "고정 Target",
-            targetScope: input.focusTarget
-          }
-        ]
+            targetScope: input.focusTarget,
+          },
+        ],
       })
     : null;
   const candidates = deriveProblemCandidates({
@@ -907,7 +963,7 @@ function syntheticCandidate(input: {
     evaluatorLensId: "general-novice",
     slideOrder: new Map(input.slideOrder ?? [["slide_1", 1]]),
     coreSemanticCriterionKeys: new Set(),
-    rankingContext: { mode: "baseline", patternHistory: new Map() }
+    rankingContext: { mode: "baseline", patternHistory: new Map() },
   });
   const candidate = candidates[0];
   if (!candidate) throw new Error("Expected a synthetic problem candidate.");
@@ -918,12 +974,12 @@ function candidatesFor(
   sourceFullRunId: string,
   sourceSnapshot: RehearsalEvaluationSnapshot,
   sourceReport: RehearsalReport,
-  rankingContext: PracticeGoalRankingContext
+  rankingContext: PracticeGoalRankingContext,
 ) {
   const evaluation = evaluateFullRunCriteria({
     sourceFullRunId,
     snapshot: sourceSnapshot,
-    report: sourceReport
+    report: sourceReport,
   });
   return deriveProblemCandidates({
     sourceFullRunId,
@@ -932,12 +988,13 @@ function candidatesFor(
     observations: evaluation.observations,
     focusProfileSnapshot: sourceSnapshot.focusProfileSnapshot,
     evaluatorLensId:
-      sourceSnapshot.evaluationPlan?.evaluatorLensRef.lensId ?? "general-novice",
+      sourceSnapshot.evaluationPlan?.evaluatorLensRef.lensId ??
+      "general-novice",
     slideOrder: new Map(
-      sourceSnapshot.slides.map((slide) => [slide.slideId, slide.order])
+      sourceSnapshot.slides.map((slide) => [slide.slideId, slide.order]),
     ),
     coreSemanticCriterionKeys: coreSemanticKeysForTest(sourceSnapshot),
-    rankingContext
+    rankingContext,
   });
 }
 
@@ -952,7 +1009,10 @@ function coreSemanticKeysForTest(snapshot: RehearsalEvaluationSnapshot) {
         ) {
           return true;
         }
-        if (criterion.source !== "deck-cue" || criterion.scope.type !== "slide") {
+        if (
+          criterion.source !== "deck-cue" ||
+          criterion.scope.type !== "slide"
+        ) {
           return false;
         }
         const slideId = criterion.scope.slideId;
@@ -964,11 +1024,11 @@ function coreSemanticKeysForTest(snapshot: RehearsalEvaluationSnapshot) {
                 cue.importance === "core" &&
                 criterion.criterionId ===
                   `criterion_cue_${cue.cueId}_r${cue.revision}`.slice(0, 128) &&
-                criterion.revision === cue.revision
-            )
+                criterion.revision === cue.revision,
+            ),
         );
       })
-      .map(criterionScopeKeyForTest)
+      .map(criterionScopeKeyForTest),
   );
 }
 
@@ -976,16 +1036,19 @@ function criterionScopeKeyForTest(criterion: EvaluationCriterion) {
   return canonicalJsonForTest({
     criterionId: criterion.criterionId,
     revision: criterion.revision,
-    scope: criterion.scope
+    scope: criterion.scope,
   });
 }
 
 function canonicalJsonForTest(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJsonForTest).join(",")}]`;
+  if (Array.isArray(value))
+    return `[${value.map(canonicalJsonForTest).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonForTest(item)}`)
+      .map(
+        ([key, item]) => `${JSON.stringify(key)}:${canonicalJsonForTest(item)}`,
+      )
       .join(",")}}`;
   }
   return JSON.stringify(value);
@@ -995,7 +1058,7 @@ function historyRow(
   runId: string,
   createdAt: string,
   sourceReport: RehearsalReport,
-  sourceSnapshot: RehearsalEvaluationSnapshot
+  sourceSnapshot: RehearsalEvaluationSnapshot,
 ) {
   return {
     run_id: runId,
@@ -1004,8 +1067,8 @@ function historyRow(
     report_json: {
       ...sourceReport,
       reportId: `report_${runId}`,
-      runId
-    }
+      runId,
+    },
   };
 }
 
@@ -1013,7 +1076,8 @@ function twoCoreSnapshot() {
   const base = snapshot();
   const plan = base.evaluationPlan;
   const firstSlide = base.slides[0];
-  if (!plan || !firstSlide) throw new Error("Expected ranking snapshot fixtures.");
+  if (!plan || !firstSlide)
+    throw new Error("Expected ranking snapshot fixtures.");
   return rehearsalEvaluationSnapshotSchema.parse({
     ...base,
     evaluationPlan: {
@@ -1029,11 +1093,11 @@ function twoCoreSnapshot() {
           label: "두 번째 핵심 가치",
           measurement: {
             type: "semantic-coverage",
-            expectedConceptIds: ["concept_second_value"]
-          }
+            expectedConceptIds: ["concept_second_value"],
+          },
         },
-        ...plan.criteria.slice(1)
-      ]
+        ...plan.criteria.slice(1),
+      ],
     },
     slides: [
       {
@@ -1045,11 +1109,11 @@ function twoCoreSnapshot() {
             cueId: "scue_2",
             meaning: "두 번째 핵심 가치",
             requiredConcepts: ["두 번째 가치"],
-            nliHypotheses: ["발표자는 두 번째 가치를 설명했다"]
-          }
-        ]
-      }
-    ]
+            nliHypotheses: ["발표자는 두 번째 가치를 설명했다"],
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -1068,9 +1132,9 @@ function twoCoreReport(secondStatus: "covered" | "missed") {
         reportLabelSnapshot: "두 번째 핵심 가치",
         status: secondStatus,
         coveredConcepts: secondStatus === "covered" ? ["두 번째 가치"] : [],
-        missingConcepts: secondStatus === "covered" ? [] : ["두 번째 가치"]
-      }
-    ]
+        missingConcepts: secondStatus === "covered" ? [] : ["두 번째 가치"],
+      },
+    ],
   });
 }
 
@@ -1095,8 +1159,8 @@ function snapshot(sourceGoalSetId: string | null = null) {
           label: "핵심 가치",
           measurement: {
             type: "semantic-coverage",
-            expectedConceptIds: ["concept_value"]
-          }
+            expectedConceptIds: ["concept_value"],
+          },
         },
         {
           criterionId: "criterion_timing_slide_1",
@@ -1105,7 +1169,7 @@ function snapshot(sourceGoalSetId: string | null = null) {
           source: "system",
           scope: { type: "slide", slideId: "slide_1" },
           label: "첫 장 목표 시간",
-          measurement: { type: "max-duration-seconds", maximum: 30 }
+          measurement: { type: "max-duration-seconds", maximum: 30 },
         },
         {
           criterionId: "criterion_system_filler_v1",
@@ -1117,28 +1181,33 @@ function snapshot(sourceGoalSetId: string | null = null) {
           measurement: {
             type: "max-count",
             metric: "filler-word-count",
-            maximum: 1
-          }
+            maximum: 1,
+          },
         },
         {
-          criterionId: "criterion_system_pause_v1",
+          criterionId: "criterion_system_long_silence_v1",
           revision: 1,
           category: "delivery",
           source: "system",
           scope: { type: "run" },
-          label: "긴 멈춤",
+          label: "긴 침묵",
           measurement: {
             type: "max-count",
-            metric: "pause-count",
-            maximum: 0
-          }
-        }
+            metric: "long-silence-count",
+            maximum: 0,
+          },
+        },
       ],
-      metricDefinitionVersions: { timing: 1, filler: 1, pause: 1, semantic: 1 },
+      metricDefinitionVersions: {
+        timing: 1,
+        filler: 1,
+        silence: 1,
+        semantic: 1,
+      },
       approvedReferences: [],
       practiceGoalSetRef: sourceGoalSetId
         ? { goalSetId: sourceGoalSetId, revision: 1 }
-        : null
+        : null,
     },
     slides: [
       {
@@ -1165,11 +1234,11 @@ function snapshot(sourceGoalSetId: string | null = null) {
             nliHypotheses: ["발표자는 가치를 설명했다"],
             negativeHints: [],
             targetElementIds: [],
-            triggerActionIds: []
-          }
-        ]
-      }
-    ]
+            triggerActionIds: [],
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -1192,8 +1261,8 @@ function snapshotWithBriefCriteria() {
           label: "필수 내용 전달",
           measurement: {
             type: "semantic-coverage",
-            expectedConceptIds: ["brief_concept_must_cover"]
-          }
+            expectedConceptIds: ["brief_concept_must_cover"],
+          },
         },
         {
           criterionId: "criterion_brief_opening",
@@ -1204,8 +1273,8 @@ function snapshotWithBriefCriteria() {
           label: "도입부 목표 전달",
           measurement: {
             type: "semantic-coverage",
-            expectedConceptIds: ["brief_concept_opening"]
-          }
+            expectedConceptIds: ["brief_concept_opening"],
+          },
         },
         {
           criterionId: "criterion_brief_closing",
@@ -1216,11 +1285,11 @@ function snapshotWithBriefCriteria() {
           label: "마무리 목표 전달",
           measurement: {
             type: "semantic-coverage",
-            expectedConceptIds: ["brief_concept_closing"]
-          }
-        }
-      ]
-    }
+            expectedConceptIds: ["brief_concept_closing"],
+          },
+        },
+      ],
+    },
   });
 }
 
@@ -1236,14 +1305,13 @@ function report(retryable: boolean) {
       durationSeconds: 45,
       wordsPerMinute: 120,
       fillerWordCount: 4,
-      pauseCount: 0,
-      keywordCoverage: 0.5
+      keywordCoverage: 0.5,
     },
     semanticEvaluation: {
       state: retryable ? "partial" : "succeeded",
       measurementMode: "full",
       reasons: retryable ? ["timeout"] : [],
-      retryable
+      retryable,
     },
     semanticCueOutcomes: [
       {
@@ -1257,12 +1325,14 @@ function report(retryable: boolean) {
         measurementMode: "full",
         fallbackUsed: false,
         coveredConcepts: [],
-        missingConcepts: ["가치"]
-      }
+        missingConcepts: ["가치"],
+      },
     ],
-    slideTimings: [{ slideId: "slide_1", targetSeconds: 30, actualSeconds: 45 }],
+    slideTimings: [
+      { slideId: "slide_1", targetSeconds: 30, actualSeconds: 45 },
+    ],
     coaching: null,
-    generatedAt: "2026-07-11T00:01:00.000Z"
+    generatedAt: "2026-07-11T00:01:00.000Z",
   });
 }
 
@@ -1273,8 +1343,7 @@ function passingReport() {
       durationSeconds: 28,
       wordsPerMinute: 120,
       fillerWordCount: 0,
-      pauseCount: 0,
-      keywordCoverage: 1
+      keywordCoverage: 1,
     },
     semanticCueOutcomes: [
       {
@@ -1288,9 +1357,11 @@ function passingReport() {
         measurementMode: "full",
         fallbackUsed: false,
         coveredConcepts: ["가치"],
-        missingConcepts: []
-      }
+        missingConcepts: [],
+      },
     ],
-    slideTimings: [{ slideId: "slide_1", targetSeconds: 30, actualSeconds: 20 }]
+    slideTimings: [
+      { slideId: "slide_1", targetSeconds: 30, actualSeconds: 20 },
+    ],
   });
 }

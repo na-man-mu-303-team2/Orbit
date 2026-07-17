@@ -16,6 +16,12 @@ import type { DataSource } from "typeorm";
 import { z } from "zod";
 
 type QueryExecutor = Pick<DataSource, "query">;
+type TransactionalQueryExecutor = QueryExecutor & {
+  transaction<T>(
+    isolationLevel: "READ COMMITTED",
+    callback: (manager: QueryExecutor) => Promise<T>,
+  ): Promise<T>;
+};
 
 const workerIdSchema = z
   .string()
@@ -36,6 +42,7 @@ const exhaustedErrorSchema = jobErrorSchema.extend({
 });
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const dispatchLimitSchema = z.number().int().min(1).max(500);
+const userConcurrencySchema = z.number().int().min(1).max(32);
 
 const checkpointRowSchema = z.object({
   pipeline_job_id: z.string().min(1),
@@ -55,6 +62,20 @@ const checkpointRowSchema = z.object({
 
 const dispatchableCheckpointRowSchema = checkpointRowSchema.extend({
   project_id: z.string().min(1),
+});
+const claimCandidateUserRowSchema = z.object({
+  requested_by_user_id: z.string().min(1),
+  running_count: z.number().int().nonnegative(),
+  oldest_created_at: timestampSchema,
+});
+const advisoryLockRowSchema = z.object({ acquired: z.boolean() });
+const userClaimGuardRowSchema = z.object({ user_id: z.string().min(1) });
+const runningCountRowSchema = z.object({
+  running_count: z.number().int().nonnegative(),
+});
+const claimedCheckpointRowSchema = checkpointRowSchema.extend({
+  project_id: z.string().min(1),
+  requested_by_user_id: z.string().min(1),
 });
 
 export interface AiDeckGenerationStageCheckpoint {
@@ -76,6 +97,12 @@ export interface AiDeckGenerationStageCheckpoint {
 export interface DispatchableAiDeckGenerationStage {
   message: AiDeckGenerationStageMessage;
   attempt: number;
+}
+
+export interface ClaimedAiDeckGenerationStage {
+  message: AiDeckGenerationStageMessage;
+  checkpoint: AiDeckGenerationStageCheckpoint;
+  requestedByUserId: string;
 }
 
 export class AiDeckGenerationStageCheckpointRepository {
@@ -163,6 +190,181 @@ export class AiDeckGenerationStageCheckpointRepository {
       messageParameters(message, leaseOwner),
     );
     return checkpointFromQuery(rows);
+  }
+
+  async claimNext(
+    rawWorkerId: unknown,
+    rawUserConcurrency: unknown,
+  ): Promise<ClaimedAiDeckGenerationStage | null> {
+    const workerId = workerIdSchema.parse(rawWorkerId);
+    const userConcurrency = userConcurrencySchema.parse(rawUserConcurrency);
+    const transactional = this.db as Partial<TransactionalQueryExecutor>;
+    if (typeof transactional.transaction !== "function") {
+      throw new Error("PostgreSQL stage claim requires a transaction-capable data source.");
+    }
+
+    return transactional.transaction("READ COMMITTED", async (manager) => {
+      const candidateRows = await manager.query(
+        `
+          WITH runnable AS (
+            SELECT
+              COALESCE(NULLIF(jobs.payload->>'requestedByUserId', ''), projects.created_by)
+                AS requested_by_user_id,
+              stages.created_at
+            FROM ai_deck_generation_stages stages
+            JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+            JOIN projects ON projects.project_id = jobs.project_id
+            WHERE jobs.type = 'ai-deck-generation'
+              AND jobs.status IN ('queued','running')
+              AND stages.stage IN (
+                'reference-extract-file','source-grounding','content-planning',
+                'cover-slide','design-planning','layout-compile','image-slide',
+                'semantic-quality','rendered-visual-quality','publication'
+              )
+              AND stages.status = 'queued'
+              AND stages.attempt < 5
+          ),
+          running AS (
+            SELECT
+              COALESCE(NULLIF(jobs.payload->>'requestedByUserId', ''), projects.created_by)
+                AS requested_by_user_id,
+              COUNT(*)::int AS running_count
+            FROM ai_deck_generation_stages stages
+            JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+            JOIN projects ON projects.project_id = jobs.project_id
+            WHERE jobs.type = 'ai-deck-generation'
+              AND jobs.status IN ('queued','running')
+              AND stages.status = 'running'
+            GROUP BY requested_by_user_id
+          )
+          SELECT runnable.requested_by_user_id,
+                 COALESCE(running.running_count, 0)::int AS running_count,
+                 MIN(runnable.created_at) AS oldest_created_at
+          FROM runnable
+          LEFT JOIN running USING (requested_by_user_id)
+          WHERE COALESCE(running.running_count, 0) < $1
+          GROUP BY runnable.requested_by_user_id, running.running_count
+          ORDER BY running_count, oldest_created_at, requested_by_user_id
+          LIMIT 100
+        `,
+        [userConcurrency],
+      );
+      if (!Array.isArray(candidateRows)) return null;
+
+      for (const rawCandidate of candidateRows) {
+        const candidate = claimCandidateUserRowSchema.parse(rawCandidate);
+        const lockRows = await manager.query(
+          `
+            SELECT pg_try_advisory_xact_lock(
+              hashtextextended('ai-deck-user:' || $1, 0)
+            ) AS acquired
+          `,
+          [candidate.requested_by_user_id],
+        );
+        const lock = advisoryLockRowSchema.parse(firstQueryRow(lockRows));
+        if (!lock.acquired) continue;
+
+        const guardRows = await manager.query(
+          `
+            SELECT users.user_id
+            FROM users
+            WHERE users.user_id = $1
+            FOR UPDATE
+          `,
+          [candidate.requested_by_user_id],
+        );
+        const guardRow = firstQueryRow(guardRows);
+        if (!guardRow) continue;
+        userClaimGuardRowSchema.parse(guardRow);
+
+        const runningRows = await manager.query(
+          `
+            SELECT COUNT(*)::int AS running_count
+            FROM ai_deck_generation_stages stages
+            JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+            JOIN projects ON projects.project_id = jobs.project_id
+            WHERE jobs.type = 'ai-deck-generation'
+              AND jobs.status IN ('queued','running')
+              AND stages.status = 'running'
+              AND COALESCE(
+                NULLIF(jobs.payload->>'requestedByUserId', ''),
+                projects.created_by
+              ) = $1
+          `,
+          [candidate.requested_by_user_id],
+        );
+        const running = runningCountRowSchema.parse(firstQueryRow(runningRows));
+        if (running.running_count >= userConcurrency) continue;
+
+        const leaseOwner = `${workerId}:${randomUUID()}`;
+        const claimedRows = await manager.query(
+          `
+            WITH candidate AS (
+              SELECT stages.pipeline_job_id,
+                     stages.stage,
+                     stages.shard_key,
+                     jobs.project_id
+              FROM ai_deck_generation_stages stages
+              JOIN jobs ON jobs.job_id = stages.pipeline_job_id
+              JOIN projects ON projects.project_id = jobs.project_id
+              WHERE jobs.type = 'ai-deck-generation'
+                AND jobs.status IN ('queued','running')
+                AND stages.stage IN (
+                  'reference-extract-file','source-grounding','content-planning',
+                  'cover-slide','design-planning','layout-compile','image-slide',
+                  'semantic-quality','rendered-visual-quality','publication'
+                )
+                AND stages.status = 'queued'
+                AND stages.attempt < 5
+                AND COALESCE(
+                  NULLIF(jobs.payload->>'requestedByUserId', ''),
+                  projects.created_by
+                ) = $1
+              ORDER BY CASE WHEN stages.stage = 'cover-slide' THEN 0 ELSE 1 END,
+                       stages.created_at,
+                       stages.pipeline_job_id,
+                       stages.stage,
+                       stages.shard_key
+              LIMIT 1
+              FOR UPDATE OF stages SKIP LOCKED
+            )
+            UPDATE ai_deck_generation_stages stages
+            SET status = 'running',
+                attempt = stages.attempt + 1,
+                error_json = NULL,
+                lease_owner = $2,
+                lease_expires_at = now() + interval '10 minutes',
+                updated_at = now()
+            FROM candidate
+            WHERE stages.pipeline_job_id = candidate.pipeline_job_id
+              AND stages.stage = candidate.stage
+              AND stages.shard_key = candidate.shard_key
+              AND stages.status = 'queued'
+              AND stages.attempt < 5
+            RETURNING stages.*,
+                      candidate.project_id,
+                      $1::text AS requested_by_user_id
+          `,
+          [candidate.requested_by_user_id, leaseOwner],
+        );
+        const rawClaimed = firstQueryRow(claimedRows);
+        if (!rawClaimed) continue;
+        const row = claimedCheckpointRowSchema.parse(rawClaimed);
+        const checkpoint = checkpointFromQuery([rawClaimed]);
+        if (!checkpoint) continue;
+        return {
+          requestedByUserId: row.requested_by_user_id,
+          message: aiDeckGenerationStageMessageSchema.parse({
+            pipelineJobId: row.pipeline_job_id,
+            projectId: row.project_id,
+            stage: row.stage,
+            shardKey: row.shard_key,
+          }),
+          checkpoint,
+        };
+      }
+      return null;
+    });
   }
 
   async renewLease(
@@ -384,7 +586,7 @@ export class AiDeckGenerationStageCheckpointRepository {
             AND jobs.status IN ('queued','running')
             AND stages.stage IN (
               'reference-extract-file','source-grounding','content-planning',
-              'design-planning','layout-compile','image-slide',
+              'cover-slide','design-planning','layout-compile','image-slide',
               'semantic-quality','rendered-visual-quality','publication'
             )
             AND stages.status = 'queued'
@@ -424,12 +626,13 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile','image-slide',
+            'cover-slide','design-planning','layout-compile','image-slide',
             'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'queued'
           AND stages.dispatched_at IS NULL
-        ORDER BY stages.created_at, stages.pipeline_job_id, stages.shard_key
+        ORDER BY CASE WHEN stages.stage = 'cover-slide' THEN 0 ELSE 1 END,
+                 stages.created_at, stages.pipeline_job_id, stages.shard_key
         LIMIT $1
       `,
       [limit],
@@ -462,7 +665,7 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile','image-slide',
+            'cover-slide','design-planning','layout-compile','image-slide',
             'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'running'

@@ -1,22 +1,6 @@
-name: Deploy Personal Staging
+name: Personal Staging deploy
 
 on:
-  workflow_call:
-    inputs:
-      deployment_mode:
-        description: full 또는 environment-only
-        required: false
-        default: full
-        type: string
-      expected_sha:
-        description: Environment Contract CI를 통과한 develop commit SHA
-        required: true
-        type: string
-      trigger_source:
-        description: 배포 요청 출처
-        required: false
-        default: develop-push
-        type: string
   workflow_dispatch:
     inputs:
       deployment_mode:
@@ -48,7 +32,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  sync-personal-staging-env:
+    if: >-
+      inputs.deployment_mode == 'full' &&
+      inputs.trigger_source == 'manual' &&
+      github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: personal-staging
+    steps:
+      - name: Checkout validated develop commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Sync safe env defaults to Doppler
+        shell: bash
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_STG_SYNC_TOKEN }}
+        run: |
+          if [[ -z "${DOPPLER_TOKEN:-}" ]]; then
+            echo "DOPPLER_STG_SYNC_TOKEN is required."
+            exit 1
+          fi
+
+          node infra/scripts/sync-personal-staging-doppler.mjs \
+            --apply \
+            --project orbit \
+            --config stg
+
   deploy:
+    needs: sync-personal-staging-env
+    if: >-
+      always() &&
+      (needs.sync-personal-staging-env.result == 'success' ||
+      needs.sync-personal-staging-env.result == 'skipped')
     runs-on: [self-hosted, orbit-personal-staging]
     timeout-minutes: 30
     environment: personal-staging

@@ -7,6 +7,7 @@ export const jobQueueDriverSchema = z.enum(["bullmq", "sqs"]);
 export const aiDeckExecutionModeSchema = z.enum([
   "monolith",
   "bullmq",
+  "pg",
   "sqs",
 ]);
 export const aiDeckWorkerQueueSchema = z.enum([

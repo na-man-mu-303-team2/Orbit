@@ -7,7 +7,7 @@ import {
   IconSquare,
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import { fetchProjectDeck } from "../rehearsal/keywords/keywordEditorApi";
 import { fetchPracticePlan } from "./practicePlanApi";
 import { completeFocusedSession, createFocusedSession, getFocusedSession, submitFocusedAudio } from "./focusedPracticeApi";
@@ -178,13 +178,13 @@ export function FocusedPracticePage(props: {
   }, [isRecording]);
 
   if (loadState === "error") {
-    return <div className="orbit-ds-page focused-practice-page"><section className="focused-practice-shell"><p className="orbit-ds-eyebrow">집중 연습</p><h1>집중 연습을 준비하지 못했습니다.</h1><p className="focused-practice-error" role="alert">{error}</p><footer><OrbitButton onClick={() => setReloadKey((value) => value + 1)} icon={<IconRefresh size={18} />}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></footer></section></div>;
+    return <div className="redesign-page focused-practice-page"><section className="focused-practice-shell"><p className="redesign-eyebrow">집중 연습</p><h1>집중 연습을 준비하지 못했습니다.</h1><p className="focused-practice-error" role="alert">{error}</p><footer><OrbitButton onClick={() => setReloadKey((value) => value + 1)} icon={<IconRefresh size={18} />}>다시 시도</OrbitButton><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}>연습 계획으로 돌아가기</a></footer></section></div>;
   }
 
-  return <div className="orbit-ds-page focused-practice-page">
+  return <div className="redesign-page focused-practice-page">
     <div className="focused-practice-breadcrumb"><a href={`/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`}><IconArrowLeft size={17} /> 연습 계획</a><span>/</span><strong>집중 연습</strong></div>
     <section className="focused-practice-shell">
-      <header><div><p className="orbit-ds-eyebrow">집중 연습</p><h1>한 구간만 짧게 반복하세요.</h1></div><OrbitStatus tone={stabilized ? "success" : "lilac"}>{stabilized ? "연습에서 안정화됨" : status}</OrbitStatus></header>
+      <header><div><p className="redesign-eyebrow">집중 연습</p><h1>한 구간만 짧게 반복하세요.</h1></div><OrbitStatus tone={stabilized ? "success" : "lilac"}>{stabilized ? "연습에서 안정화됨" : status}</OrbitStatus></header>
       {error ? <p role="alert" className="focused-practice-error">{error}</p> : null}
       {activeSlide && targetScope ? <header className="focused-practice-slide-heading">
         <small>{targetLabel(targetScope, rangeSlideIndex, resolvedSlideIds.length)}</small>

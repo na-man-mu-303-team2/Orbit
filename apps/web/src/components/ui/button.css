@@ -1,0 +1,86 @@
+.redesign-button {
+  align-items: center;
+  border: var(--redesign-border-width) solid transparent;
+  border-radius: var(--redesign-radius);
+  display: inline-flex;
+  font-family: var(--redesign-font-family);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: var(--redesign-type-label-md-weight);
+  gap: var(--redesign-space-2);
+  justify-content: center;
+  line-height: var(--redesign-type-label-md-line-height);
+  padding-inline: var(--redesign-space-4);
+  transition: var(--redesign-transition-color), var(--redesign-transition-transform);
+}
+
+.redesign-button-compact { min-height: var(--redesign-size-control-sm); padding-inline: var(--redesign-space-3); }
+.redesign-button-default { min-height: var(--redesign-size-control-md); }
+.redesign-button-prominent { min-height: var(--redesign-size-control-lg); padding-inline: var(--redesign-space-5); }
+
+.redesign-button-primary {
+  background: var(--redesign-color-primary-emphasis);
+  color: var(--redesign-color-on-primary);
+}
+
+.redesign-button-primary:hover:not(:disabled) {
+  background: var(--redesign-color-on-primary-container);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.redesign-button-secondary {
+  background: transparent;
+  border-color: var(--redesign-color-primary-emphasis);
+  color: var(--redesign-color-primary-emphasis);
+}
+
+.redesign-button-secondary:hover:not(:disabled) {
+  background: var(--redesign-color-primary-container);
+}
+
+.redesign-button-quiet {
+  background: transparent;
+  color: var(--redesign-color-on-surface);
+}
+
+.redesign-button-quiet:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container);
+}
+
+.redesign-button-danger {
+  background: var(--redesign-color-error);
+  color: var(--redesign-color-on-error);
+}
+
+.redesign-button-danger:hover:not(:disabled) {
+  box-shadow: var(--redesign-glow-error);
+  filter: brightness(0.92);
+}
+
+.redesign-button:active:not(:disabled) { transform: translateY(1px); }
+
+.redesign-button:focus-visible {
+  box-shadow: var(--redesign-focus-ring);
+  outline: none;
+}
+
+.redesign-button:disabled {
+  background: var(--redesign-color-disabled-container);
+  border-color: transparent;
+  color: var(--redesign-color-on-disabled);
+  cursor: not-allowed;
+}
+
+.redesign-button-spinner {
+  animation: redesign-button-spin var(--redesign-duration-slow) linear infinite;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: var(--redesign-radius-full);
+  height: var(--redesign-size-icon-sm);
+  width: var(--redesign-size-icon-sm);
+}
+
+@keyframes redesign-button-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .redesign-button-spinner { animation-duration: var(--redesign-duration-slow); }
+}

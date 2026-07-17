@@ -16,6 +16,7 @@ import {
   focusedPracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
+  activityResponseRetentionJobPayloadSchema,
   nowIso,
   type Deck,
   type DeckExportFormat,
@@ -25,6 +26,7 @@ import {
   type SemanticCueExtractionJobPayload,
   type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
+  type ActivityResponseRetentionJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
 
@@ -78,6 +80,8 @@ export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
 export const pptxOoxmlSyncJobName = "pptx-ooxml-sync";
 export const workerHealthCheckQueueName = "worker-health-check";
 export const workerHealthCheckJobName = "worker-health-check";
+export const activityResponseRetentionQueueName = "activity-response-retention";
+export const activityResponseRetentionJobName = "activity-response-retention";
 
 export function aiDeckGenerationStageJobId(
   input: AiDeckGenerationStageMessage,
@@ -151,6 +155,7 @@ export interface GenerateDeckBullMqPayload {
   projectId: string;
   request: GenerateDeckRequest;
   designPackSnapshot?: SavedDesignPackSnapshot;
+  requestedByUserId?: string;
   imageAssetScope?: {
     userId: string;
   };
@@ -183,6 +188,7 @@ export interface DeckExportBullMqPayload {
   projectId: string;
   deck: Deck;
   format: DeckExportFormat;
+  presentationSessionId?: string;
 }
 
 export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
@@ -240,6 +246,15 @@ export interface EnqueueWorkerHealthCheckJobInput extends WorkerHealthCheckBullM
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
+
+export type ActivityResponseRetentionBullMqPayload =
+  ActivityResponseRetentionJobPayload;
+
+export type EnqueueActivityResponseRetentionJobInput =
+  ActivityResponseRetentionBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export async function enqueueReferenceExtractJob(
   input: EnqueueReferenceExtractJobInput,
@@ -323,6 +338,7 @@ export async function enqueueGenerateDeckJob(
   if (executionMode === "sqs") {
     throw new Error("AI Deck SQS transport is not implemented yet.");
   }
+  if (executionMode === "pg") return;
 
   const queue = new Queue(generateDeckQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
@@ -355,6 +371,9 @@ export async function enqueueGenerateDeckJob(
           : {}),
         ...(input.imageAssetScope
           ? { imageAssetScope: input.imageAssetScope }
+          : {}),
+        ...(input.requestedByUserId
+          ? { requestedByUserId: input.requestedByUserId }
           : {}),
       } satisfies GenerateDeckBullMqPayload,
       canonicalJobOptions(input.jobId),
@@ -473,6 +492,9 @@ export async function enqueueDeckExportJob(
       projectId: input.projectId,
       deck: deckSchema.parse(input.deck),
       format: deckExportFormatSchema.parse(input.format),
+      ...(input.presentationSessionId
+        ? { presentationSessionId: input.presentationSessionId }
+        : {}),
     } satisfies DeckExportBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
@@ -594,6 +616,35 @@ export async function enqueueWorkerHealthCheckJob(
   }
 }
 
+export async function enqueueActivityResponseRetentionJob(
+  input: EnqueueActivityResponseRetentionJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(activityResponseRetentionQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      activityResponseRetentionJobName,
+      activityResponseRetentionJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        presentationSessionId: input.presentationSessionId,
+      }),
+      {
+        ...canonicalJobOptions(input.jobId),
+        backoff: { type: "exponential", delay: 1_000 },
+      },
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
 export function redisConnectionOptions(redisUrl: string) {
   const url = new URL(redisUrl);
   if (!["redis:", "rediss:"].includes(url.protocol)) {
@@ -633,6 +684,7 @@ export function aiDeckGenerationStageQueueName(
     case "design-planning":
     case "layout-compile":
       return aiDeckDesignLayoutQueueName;
+    case "cover-slide":
     case "image-slide":
       return aiDeckImageQueueName;
     case "semantic-quality":
@@ -649,6 +701,7 @@ function aiDeckGenerationStageJobOptions(
     jobId: aiDeckGenerationStageJobId(message),
     attempts: 5,
     backoff: { type: "exponential" as const, delay: 1_000 },
+    priority: message.stage === "cover-slide" ? 1 : 10,
     removeOnComplete: true,
     removeOnFail: true,
   };

@@ -63,6 +63,7 @@ import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import { RehearsalScriptTeleprompter } from "./presenter/RehearsalScriptTeleprompter";
 import "./rehearsal-preflight.css";
 import "./rehearsal-report-detail.css";
 import "./rehearsal-workspace-orbit.css";
@@ -140,6 +141,7 @@ import {
   type RequestSlideWindowFullscreenResult,
   type SlideDisplayOptions,
 } from "./presenter/DisplayControls";
+import { AudienceOutputControls } from "./presenter/AudienceOutputControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen,
@@ -161,6 +163,8 @@ import {
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
 import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
+import { useAudienceScreenShare } from "./presenter/useAudienceScreenShare";
+import type { AudienceStreamBridgeWindow } from "./presenter/audienceStreamBridge";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
 import { AutoAdvanceStatus } from "./advance/AutoAdvanceStatus";
@@ -271,6 +275,7 @@ export {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio,
 } from "./sherpaOnnxLiveSttAdapter";
+export { getRehearsalTeleprompterScrollBehavior } from "./presenter/RehearsalScriptTeleprompter";
 
 type Fetcher = (
   input: RequestInfo | URL,
@@ -1953,6 +1958,9 @@ export function RehearsalWorkspace(props: {
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
   >("presenter");
+  const [audienceOutputMode, setAudienceOutputMode] = useState<
+    "slide" | "screen-share" | "black"
+  >("slide");
   const [slideReceiverMessage, setSlideReceiverMessage] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideElapsedSeconds, setSlideElapsedSeconds] = useState(0);
@@ -1999,6 +2007,8 @@ export function RehearsalWorkspace(props: {
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
   const slideWindowRef = useRef<SlideWindowRef | null>(null);
+  const reattachAudienceStreamRef = useRef<() => boolean>(() => true);
+  const stopAudienceStreamRef = useRef<() => void>(() => undefined);
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -2190,6 +2200,11 @@ export function RehearsalWorkspace(props: {
       return;
     }
     if (deckSnapshot.slides.length === 0) {
+      return;
+    }
+
+    if (command.action === "set-audience-output") {
+      setAudienceOutputMode(command.mode);
       return;
     }
 
@@ -2398,6 +2413,7 @@ export function RehearsalWorkspace(props: {
     () =>
       currentSlide
         ? {
+            audienceOutputMode,
             highlights: [],
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,
@@ -2430,6 +2446,7 @@ export function RehearsalWorkspace(props: {
         : null,
     [
       canStartLiveDemo,
+      audienceOutputMode,
       currentSlide?.slideId,
       currentSlideIndex,
       currentSlideTargetSeconds,
@@ -2458,10 +2475,51 @@ export function RehearsalWorkspace(props: {
         displayRole === "slide-receiver" ||
         displayRole === "slide-surface"),
     onCommand: handlePresenterRemoteCommand,
+    onPeerReady: (peer) => {
+      if (peer === "slide-window") reattachAudienceStreamRef.current();
+    },
+    onScreenShareEnded: () => stopAudienceStreamRef.current(),
     sessionId: props.presenterSessionId,
     state: presentationChannelState,
     triggerAnimationIds,
   });
+  const audienceScreenShareIdentity = useMemo(
+    () => ({
+      deckId: deck?.deckId ?? "pending-deck",
+      sessionId: presentationChannel.sessionId,
+    }),
+    [deck?.deckId, presentationChannel.sessionId],
+  );
+  const audienceScreenShare = useAudienceScreenShare({
+    connected:
+      displayRole === "presenter" &&
+      presentationChannel.status === "connected" &&
+      Boolean(slideWindowRef.current && !slideWindowRef.current.closed),
+    getTargetWindow: () =>
+      slideWindowRef.current as unknown as AudienceStreamBridgeWindow | null,
+    identity: audienceScreenShareIdentity,
+    onOutputModeChange: setAudienceOutputMode,
+    outputMode: audienceOutputMode,
+  });
+  reattachAudienceStreamRef.current = audienceScreenShare.reattach;
+  stopAudienceStreamRef.current = () =>
+    audienceScreenShare.stopSharing({ returnToSlide: true });
+
+  useEffect(() => {
+    if (
+      presentationChannel.status === "stale" ||
+      presentationChannel.status === "closed" ||
+      presentationChannel.status === "failed"
+    ) {
+      audienceScreenShare.handlePeerUnavailable();
+    }
+  }, [presentationChannel.status]);
+
+  useEffect(() => {
+    if (displayRole !== "presenter") {
+      audienceScreenShare.handlePeerUnavailable();
+    }
+  }, [displayRole]);
   const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({
@@ -4155,6 +4213,7 @@ export function RehearsalWorkspace(props: {
     return fullscreenStarted;
   };
   const openSlideDisplay = async (options: SlideDisplayOptions) => {
+    audienceScreenShare.returnToSlide();
     if (!deck || !currentSlide) {
       return {
         displayMode: options.displayMode,
@@ -4419,12 +4478,9 @@ export function RehearsalWorkspace(props: {
   const slideReceiverIdentity = useMemo(
     () =>
       deck
-        ? {
-            deckId: deck.deckId,
-            sessionId: presentationChannel.sessionId,
-          }
+        ? audienceScreenShareIdentity
         : null,
-    [deck?.deckId, presentationChannel.sessionId],
+    [audienceScreenShareIdentity, deck],
   );
   const slideReceiverSnapshot = useMemo(
     () =>
@@ -4753,6 +4809,20 @@ export function RehearsalWorkspace(props: {
                 onOpenSlideDisplay={openSlideDisplay}
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
+              />
+              <AudienceOutputControls
+                connected={
+                  displayRole === "presenter" &&
+                  presentationChannel.status === "connected" &&
+                  Boolean(slideWindowRef.current && !slideWindowRef.current.closed)
+                }
+                error={audienceScreenShare.error}
+                onReturnToSlide={audienceScreenShare.returnToSlide}
+                onShowBlack={audienceScreenShare.showBlack}
+                onStartMonitor={audienceScreenShare.startMonitor}
+                onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
+                outputMode={audienceOutputMode}
+                status={audienceScreenShare.status}
               />
               <button
                 className="presenter-single-screen-button"
@@ -5091,7 +5161,7 @@ export function RehearsalFailureScreen(props: {
     <main className="rehearsal-preflight-screen" aria-label="리허설 오류">
       <section className="rehearsal-preflight-card" role="alert">
         <div className="rehearsal-preflight-copy">
-          <span className="orbit-ds-eyebrow">REHEARSAL ERROR</span>
+          <span className="redesign-eyebrow">REHEARSAL ERROR</span>
           <h1>리허설을 시작하지 못했습니다.</h1>
           <p>{props.error}</p>
         </div>
@@ -5803,17 +5873,6 @@ export function RehearsalCompletionScreen(props: {
   );
 }
 
-export function getRehearsalTeleprompterScrollBehavior(
-  previousFocusSentenceId: string | null | undefined,
-  nextFocusSentenceId: string | null,
-): ScrollBehavior | null {
-  if (!nextFocusSentenceId || previousFocusSentenceId === nextFocusSentenceId) {
-    return null;
-  }
-
-  return previousFocusSentenceId === undefined ? "auto" : "smooth";
-}
-
 function RehearsalTeleprompter(props: {
   countdownMs: number;
   focusScopeId: string;
@@ -5823,74 +5882,23 @@ function RehearsalTeleprompter(props: {
   scriptProgressPercent: number;
   state: AdvanceControllerState;
 }) {
-  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
-  const focusRowRef = useRef<HTMLParagraphElement | null>(null);
-  const previousFocusSentenceIdRef = useRef<string | null | undefined>(
-    undefined,
-  );
   const countdownSeconds = getAutoAdvanceCountdownSeconds(
     props.state,
     props.countdownMs,
     props.nowMs,
   );
-  const focusKey = props.rows.focusSentenceId
-    ? `${props.focusScopeId}:${props.rows.focusSentenceId}`
-    : null;
-
-  useEffect(() => {
-    const scrollBehavior = getRehearsalTeleprompterScrollBehavior(
-      previousFocusSentenceIdRef.current,
-      focusKey,
-    );
-    previousFocusSentenceIdRef.current = focusKey;
-    if (!scrollBehavior) {
-      return;
-    }
-
-    const viewport = scrollViewportRef.current;
-    const focusRow = focusRowRef.current;
-    if (!viewport || !focusRow) {
-      return;
-    }
-
-    const centeredTop = Math.max(
-      0,
-      focusRow.offsetTop - (viewport.clientHeight - focusRow.clientHeight) / 2,
-    );
-    viewport.scrollTo({
-      behavior: scrollBehavior,
-      top: centeredTop,
-    });
-  }, [focusKey]);
 
   return (
-    <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
-      <div
-        className="rehearsal-teleprompter-lyrics"
-        ref={scrollViewportRef}
-        tabIndex={0}
-      >
-        {props.rows.items.map((row) => (
-          <p
-            aria-current={row.isFocusTarget ? "true" : undefined}
-            aria-live={row.isFocusTarget ? "polite" : undefined}
-            className={`rehearsal-teleprompter-line rehearsal-teleprompter-line-${row.status} ${
-              row.isFocusTarget ? "rehearsal-teleprompter-current" : ""
-            }`.trim()}
-            key={row.sentenceId}
-            ref={row.isFocusTarget ? focusRowRef : undefined}
-          >
-            {row.text}
-          </p>
-        ))}
-      </div>
-      <output
-        aria-label="원문 기준 실시간 진행률"
-        className="rehearsal-teleprompter-progress"
-      >
-        원문 진행 {props.scriptProgressPercent}%
-      </output>
-
+    <RehearsalScriptTeleprompter
+      focusScopeId={props.focusScopeId}
+      progressPercent={props.scriptProgressPercent}
+      rows={props.rows.items.map((row) => ({
+        id: row.sentenceId,
+        isFocusTarget: row.isFocusTarget,
+        status: row.status,
+        text: row.text,
+      }))}
+    >
       {countdownSeconds !== null ? (
         <div className="rehearsal-auto-advance-card" role="status">
           <strong>{countdownSeconds}</strong>
@@ -5910,7 +5918,7 @@ function RehearsalTeleprompter(props: {
           <span>발표 종료 준비됨</span>
         </div>
       ) : null}
-    </section>
+    </RehearsalScriptTeleprompter>
   );
 }
 

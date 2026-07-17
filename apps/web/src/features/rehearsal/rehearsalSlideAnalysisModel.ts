@@ -29,7 +29,9 @@ function getSlideLabel(deck: Deck, slideId: string) {
   }
 
   const title = slide.title.trim();
-  return title ? `슬라이드 ${slide.order} · ${title}` : `슬라이드 ${slide.order}`;
+  return title
+    ? `슬라이드 ${slide.order} · ${title}`
+    : `슬라이드 ${slide.order}`;
 }
 
 function buildSlideAverageMap(prevReports: RehearsalReport[]) {
@@ -47,7 +49,8 @@ function buildSlideAverageMap(prevReports: RehearsalReport[]) {
   for (const [slideId, durations] of raw) {
     averages.set(
       slideId,
-      durations.reduce((total, duration) => total + duration, 0) / durations.length,
+      durations.reduce((total, duration) => total + duration, 0) /
+        durations.length,
     );
   }
 
@@ -112,15 +115,15 @@ function buildFeedbackItems({
     );
   }
 
-  if (slideInsight && slideInsight.fillerWordCount >= 2) {
+  if (slideInsight && (slideInsight.fillerWordCount ?? 0) >= 2) {
     feedback.push(
       `이 구간에서 습관어가 ${slideInsight.fillerWordCount}회 나왔습니다. 장표 전환 직후 첫 문장을 짧게 정리해서 다시 연습하는 편이 좋습니다.`,
     );
   }
 
-  if (slideInsight && slideInsight.pauseCount >= 1) {
+  if (slideInsight && (slideInsight.longSilenceCount ?? 0) >= 1) {
     feedback.push(
-      `설명이 끊긴 긴 멈춤이 ${slideInsight.pauseCount}회 있었습니다. 다음 문장 연결어를 미리 준비해 두는 편이 좋습니다.`,
+      `1초 이상 말하지 않은 구간이 ${slideInsight.longSilenceCount}회 있었습니다. 다음 문장 연결어를 미리 준비해 두는 편이 좋습니다.`,
     );
   }
 
@@ -154,12 +157,12 @@ function buildSignalTags({
 }) {
   const signalTags: string[] = [];
 
-  if (slideInsight && slideInsight.fillerWordCount > 0) {
+  if (slideInsight && (slideInsight.fillerWordCount ?? 0) > 0) {
     signalTags.push(`습관어 ${slideInsight.fillerWordCount}회`);
   }
 
-  if (slideInsight && slideInsight.pauseCount > 0) {
-    signalTags.push(`긴 멈춤 ${slideInsight.pauseCount}회`);
+  if (slideInsight && (slideInsight.longSilenceCount ?? 0) > 0) {
+    signalTags.push(`긴 침묵 ${slideInsight.longSilenceCount}회`);
   }
 
   if (recurring && recurring.timeOverCount >= 2) {

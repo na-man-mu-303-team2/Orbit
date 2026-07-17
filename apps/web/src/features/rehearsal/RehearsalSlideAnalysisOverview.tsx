@@ -52,7 +52,9 @@ export function RehearsalSlideAnalysisOverview({
         }));
 
     return timings.map((timing, index) => {
-      const slide = deck?.slides.find((item) => item.slideId === timing.slideId);
+      const slide = deck?.slides.find(
+        (item) => item.slideId === timing.slideId,
+      );
       const card = cardBySlideId.get(timing.slideId);
       const order = slide?.order ?? index + 1;
       const title = slide?.title.trim() || "장표 내용 확인";
@@ -101,7 +103,8 @@ export function RehearsalSlideAnalysisOverview({
   useEffect(() => {
     if (typeof window === "undefined" || !window.location.hash) return;
     const targetIndex = sortedCards.findIndex(
-      (card) => `#${getSlideAnalysisAnchor(card.slideId)}` === window.location.hash,
+      (card) =>
+        `#${getSlideAnalysisAnchor(card.slideId)}` === window.location.hash,
     );
     if (targetIndex < 0) return;
 
@@ -137,13 +140,19 @@ export function RehearsalSlideAnalysisOverview({
       </header>
 
       {priorityItems.length > 0 && (
-        <section className="rrd-slide-priority" aria-label="슬라이드별 우선순위">
+        <section
+          className="rrd-slide-priority"
+          aria-label="슬라이드별 우선순위"
+        >
           <header className="rrd-slide-priority-head">
             <div>
               <span>SLIDE PRIORITY</span>
               <strong>먼저 볼 장표</strong>
             </div>
-            <div className="rrd-slide-priority-legend" aria-label="우선순위 범례">
+            <div
+              className="rrd-slide-priority-legend"
+              aria-label="우선순위 범례"
+            >
               {Object.entries(PRIORITY_META).map(([key, meta]) => (
                 <span key={key}>
                   <i className={`rrd-slide-priority-dot ${meta.className}`} />
@@ -157,7 +166,9 @@ export function RehearsalSlideAnalysisOverview({
               const priorityMeta = PRIORITY_META[item.priority];
               const content = (
                 <>
-                  <span className={`rrd-slide-priority-number ${priorityMeta.className}`}>
+                  <span
+                    className={`rrd-slide-priority-number ${priorityMeta.className}`}
+                  >
                     {item.order}
                   </span>
                   <small>{item.title}</small>
@@ -240,7 +251,9 @@ export function RehearsalSlideAnalysisOverview({
                   </div>
 
                   <div className="rrd-slide-row">
-                    <span className="rrd-slide-row-label">놓친 핵심 메시지</span>
+                    <span className="rrd-slide-row-label">
+                      놓친 핵심 메시지
+                    </span>
                     {card.missedKeywords.length > 0 ? (
                       <div className="rrd-keyword-chips">
                         {card.missedKeywords.map((keyword) => (
@@ -250,7 +263,9 @@ export function RehearsalSlideAnalysisOverview({
                         ))}
                       </div>
                     ) : (
-                      <span className="rrd-muted">직접 누락된 핵심 메시지는 없습니다.</span>
+                      <span className="rrd-muted">
+                        직접 누락된 핵심 메시지는 없습니다.
+                      </span>
                     )}
                   </div>
 
@@ -265,7 +280,9 @@ export function RehearsalSlideAnalysisOverview({
                         ))}
                       </div>
                     ) : (
-                      <span className="rrd-muted">반복 신호는 크지 않습니다.</span>
+                      <span className="rrd-muted">
+                        반복 신호는 크지 않습니다.
+                      </span>
                     )}
                   </div>
 
@@ -331,9 +348,7 @@ function getSlidePriority(
   if (
     card.missedKeywords.length > 0 ||
     card.feedbackItems.length >= 2 ||
-    card.signalTags.some((tag) =>
-      /긴 멈춤|메시지 누락|시간 초과/.test(tag),
-    )
+    card.signalTags.some((tag) => /긴 침묵|메시지 누락|시간 초과/.test(tag))
   ) {
     return "high";
   }

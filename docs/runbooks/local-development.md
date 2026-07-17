@@ -110,7 +110,7 @@ AI_DECK_EXECUTION_MODE=bullmq
 AI_DECK_WORKER_QUEUE=all
 ```
 
-API와 Worker를 재기동한 뒤 인증된 브라우저의 `/createdeck`에서 GenerateDeck을 1회 완료한다. 최종 `ai-deck-generation` Job은 `succeeded`, `progress=100`이고 생성된 Deck이 에디터에서 열려야 한다. `image-slide`은 이미지가 필요한 slide별 shard로 fan-out하며, `semantic-quality`, `rendered-visual-quality`, `publication`까지 모두 terminal 상태여야 한다. request payload, prompt, OCR 원문, provider 응답은 검증 로그에 남기지 않는다.
+API와 Worker를 재기동한 뒤 인증된 브라우저의 `/createdeck`에서 GenerateDeck을 1회 완료한다. 최종 `ai-deck-generation` Job은 `succeeded`, `progress=100`이고 생성된 Deck이 에디터에서 열려야 한다. v2 `image-slide`은 모든 slide별 상세 생성 shard로 fan-out하며 `/project/:projectId/generation/:jobId`에서 실제 완료된 연속 prefix가 먼저 보여야 한다. `semantic-quality`, `rendered-visual-quality`, `publication`까지 모두 terminal 상태여야 한다. request payload, prompt, OCR 원문, provider 응답은 검증 로그에 남기지 않는다.
 
 ### checkpoint와 artifact 확인
 

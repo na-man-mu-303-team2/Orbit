@@ -3,6 +3,7 @@ import { authSessionCookieName } from "../auth/auth.constants";
 import type { AuthService } from "../auth/auth.service";
 import type { SignedCookieRequest } from "../auth/current-user";
 import { GenerateDeckController } from "../generate-deck/generate-deck.controller";
+import { DesignSelectionController } from "../generate-deck/design-selection.controller";
 import { PptxOoxmlGenerationsController } from "../pptx-ooxml-generations/pptx-ooxml-generations.controller";
 import type { ProjectsService } from "../projects/projects.service";
 
@@ -53,6 +54,30 @@ describe("project job controllers", () => {
     expect(service.createGeneration).toHaveBeenCalledWith("project-a", {
       fileId: "file-1",
     });
+  });
+
+  it("requires write permission before selecting an AI deck design", async () => {
+    const { authService, projectsService } = createAuthHarness();
+    const service = { select: vi.fn(async () => ({ status: "generating" })) };
+    const controller = new DesignSelectionController(
+      authService,
+      projectsService as unknown as ProjectsService,
+      service as never,
+    );
+
+    const body = { paletteOptionId: "blue" };
+    await controller.put(
+      "project-a",
+      "job-1",
+      body,
+      signedRequest(),
+    );
+
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(service.select).toHaveBeenCalledWith("project-a", "job-1", body);
   });
 });
 

@@ -18,6 +18,7 @@ from app.ai.deck_generation.models import (
     GenerateDeckRequest,
     GeneratedContentItem,
     GeneratedDeckContentPlan,
+    GeneratedStoryPlan,
     PresentationProfile,
     PresentationTimingPlan,
     RawInput,
@@ -26,6 +27,7 @@ from app.ai.deck_generation.models import (
     SlidePlan,
     SlideType,
     SpeakerNotesRepairPlan,
+    SourceRecord,
     StylePromptContext,
 )
 from app.ai.deck_generation.source_grounding import (
@@ -50,6 +52,108 @@ DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
     GeneratedDeckContentPlan,
 ] = OrderedDict()
+
+
+STORY_PLAN_INSTRUCTIONS = """
+You create a concise Korean presentation story plan for ORBIT.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Return exactly the requested number of slides.
+- Analyze the free-form user prompt into purpose, presentationContext,
+  presentationType, durationMinutes, and slideCount. Treat explicit duration and
+  slide-count wording as authoritative; otherwise return the supplied operational
+  values. This analysis is generation metadata and must not become slide copy.
+- Include only a deck title and, per slide, title, one core message, slideType,
+  and verified sourceRefs.
+- Keep title and message concrete, concise, and grounded in the supplied topic,
+  prompt, and source records.
+- Use only sourceRefs listed in the supplied source records.
+- Preserve exact product names, dates, platforms, availability, and defining
+  features from sources. Omit unsupported details instead of guessing.
+- Do not create speaker notes, content items, keywords, visual intent, media
+  intent, coordinates, or final Deck JSON.
+""".strip()
+
+
+def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
+    source_ids = sorted(
+        source.source_id for source in story_source_records(raw_input)
+    )
+    source_items: dict[str, Any] = {"type": "string"}
+    if source_ids:
+        source_items["enum"] = source_ids
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": "deck_story_plan_v2",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "briefAnalysis": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "purpose": {
+                                "type": "string",
+                                "enum": ["inform", "persuade", "teach", "report"],
+                            },
+                            "presentationContext": {"type": "string"},
+                            "presentationType": {"type": "string"},
+                            "durationMinutes": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 120,
+                            },
+                            "slideCount": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 20,
+                            },
+                        },
+                        "required": [
+                            "purpose",
+                            "presentationContext",
+                            "presentationType",
+                            "durationMinutes",
+                            "slideCount",
+                        ],
+                    },
+                    "slides": {
+                        "type": "array",
+                        "minItems": raw_input.slide_count,
+                        "maxItems": raw_input.slide_count,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "title": {"type": "string"},
+                                "message": {"type": "string"},
+                                "slideType": {
+                                    "type": "string",
+                                    "enum": list(SLIDE_TYPES),
+                                },
+                                "sourceRefs": {
+                                    "type": "array",
+                                    "items": source_items,
+                                },
+                            },
+                            "required": [
+                                "title",
+                                "message",
+                                "slideType",
+                                "sourceRefs",
+                            ],
+                        },
+                    },
+                },
+                "required": ["title", "briefAnalysis", "slides"],
+            },
+        }
+    }
 
 
 SLIDE_TYPES: tuple[SlideType, ...] = (
@@ -283,6 +387,7 @@ def deck_content_response_format_for(
     raw_input: RawInput,
     *,
     exact_slide_count: int | None = None,
+    content_item_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     response_format = deepcopy(DESIGN_PACK_CONTENT_RESPONSE_FORMAT)
 
@@ -300,6 +405,11 @@ def deck_content_response_format_for(
     source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
     if source_ids:
         source_ref_items["enum"] = source_ids
+    if content_item_range is not None:
+        content_items_schema = slides_schema["items"]["properties"]["contentItems"]
+        content_items_schema["minItems"], content_items_schema["maxItems"] = (
+            content_item_range
+        )
     return response_format
 
 
@@ -960,6 +1070,10 @@ def unsupported_numeric_claim_reasons(
     globally_supported_values = {
         value for record in records.values() for value in numeric_values(record.content)
     }
+    one_month_schedule = any(
+        re.search(r"(?:한\s*달|1\s*개월)", record.content)
+        for record in records.values()
+    )
     reasons: list[str] = []
     for slide in slide_plans:
         source_ids = slide.source_refs or default_source_refs(raw_input, slide.order)
@@ -981,6 +1095,11 @@ def unsupported_numeric_claim_reasons(
             len(slide.content_items),
             slide.order,
         )
+        if one_month_schedule:
+            structural_values.update(
+                match.group(1)
+                for match in re.finditer(r"(?<![\w])([1-4])\s*주차", claim_text)
+            )
         unsupported = sorted(
             numeric_values(claim_text)
             - supported_values
@@ -1949,6 +2068,236 @@ def plan_deck_content(
     return outline, slide_plans
 
 
+def generate_story_plan_with_llm(
+    raw_input: RawInput,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> GeneratedStoryPlan | None:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            if requires_llm_content(raw_input):
+                raise DeckContentGenerationError(
+                    "OPENAI_API_KEY is required for prompt or reference-based deck generation."
+                )
+            return None
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=STORY_PLAN_INSTRUCTIONS,
+            input=deck_content_prompt(raw_input, style_context),
+            text=story_plan_response_format_for(raw_input),
+        )
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM story plan generation failed: {error}"
+        ) from error
+    output_text = str(getattr(response, "output_text", "")).strip()
+    if not output_text:
+        raise DeckContentGenerationError("LLM returned an empty story plan.")
+    try:
+        plan = GeneratedStoryPlan.model_validate_json(output_text)
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM returned an invalid story plan: {error}"
+        ) from error
+    if len(plan.slides) != raw_input.slide_count:
+        raise DeckContentGenerationError(
+            "LLM story plan did not match the requested slide count."
+        )
+    return plan
+
+
+def plan_story_content(
+    raw_input: RawInput,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> ContentPlan:
+    generated = generate_story_plan_with_llm(
+        raw_input,
+        style_context,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
+    if generated is None:
+        outline = plan_presentation(raw_input)
+        slide_plans = plan_slides(raw_input, outline)
+        for planned_slide in slide_plans:
+            planned_slide.speaker_notes = ""
+            planned_slide.keywords = []
+            planned_slide.content_items = []
+    else:
+        apply_story_brief_analysis(raw_input, generated)
+        available_source_ids = {
+            source.source_id
+            for source in (raw_input.source_records or initial_source_records(raw_input))
+        }
+        slide_plans = []
+        for order, story_slide in enumerate(generated.slides, start=1):
+            unknown_refs = set(story_slide.source_refs) - available_source_ids
+            if unknown_refs:
+                raise DeckContentGenerationError(
+                    "LLM story plan referenced unavailable source IDs: "
+                    + ", ".join(sorted(unknown_refs))
+                )
+            source_refs = list(story_slide.source_refs) or default_source_refs(raw_input, order)
+            fallback_type = slide_type_for(order, raw_input.slide_count)
+            slide_type = normalize_slide_type(story_slide.slide_type, fallback_type)
+            if slide_type == "cover" and order != 1:
+                slide_type = fallback_type
+            if slide_type == "summary" and order != raw_input.slide_count:
+                slide_type = fallback_type
+            slide_plans.append(
+                SlidePlan(
+                    order=order,
+                    slide_type=slide_type,
+                    title=normalize_design_pack_slide_title(story_slide.title, slide_type),
+                    message=story_slide.message,
+                    speaker_notes="",
+                    keywords=[],
+                    evidence=evidence_for(raw_input.references, story_slide.title),
+                    content_items=[],
+                    source_refs=source_refs,
+                )
+            )
+        outline = DeckOutline(
+            title=deck_title_for_topic(raw_input.topic, generated.title),
+            slide_titles=[slide.title for slide in slide_plans],
+        )
+    slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
+    return ContentPlan(
+        outline=outline,
+        slidePlans=slide_plans,
+        slideCount=len(slide_plans),
+        timingPlan=raw_input.timing_plan.model_copy(deep=True),
+        repairAttempted=False,
+        repairReasonCodes=[],
+    )
+
+
+def apply_story_brief_analysis(
+    raw_input: RawInput,
+    generated: GeneratedStoryPlan,
+) -> None:
+    analysis = generated.brief_analysis
+    if analysis.purpose is not None:
+        raw_input.metadata = raw_input.metadata.model_copy(
+            update={"purpose": analysis.purpose}
+        )
+    raw_input.brief = raw_input.brief.model_copy(
+        update={
+            "presentation_context": (
+                raw_input.brief.presentation_context
+                or analysis.presentation_context
+            ),
+            "presentation_type": (
+                raw_input.brief.presentation_type
+                or analysis.presentation_type
+            ),
+            "duration_minutes": raw_input.target_duration_minutes,
+        }
+    )
+    if analysis.purpose == "persuade":
+        raw_input.presentation_profile = "proposal"
+    elif analysis.purpose == "report":
+        raw_input.presentation_profile = "executive-report"
+    elif analysis.purpose == "teach":
+        raw_input.presentation_profile = "education"
+
+
+def compose_slide_detail_with_llm(
+    raw_input: RawInput,
+    target: SlidePlan,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    content_item_range: tuple[int, int] = (1, 5),
+) -> SlidePlan:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            raise DeckContentGenerationError(
+                "OPENAI_API_KEY is required for slide composition."
+            )
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input, style_context),
+            "Compose details for exactly this approved slide:",
+            json.dumps(
+                {
+                    "order": target.order,
+                    "title": target.title,
+                    "message": target.message,
+                    "slideType": target.slide_type,
+                    "sourceRefs": target.source_refs,
+                    "targetSeconds": target.target_seconds,
+                    "targetSpeakerNotesChars": target.target_speaker_notes_chars,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=(
+                DECK_CONTENT_INSTRUCTIONS
+                + "\n- Return one slide only. Preserve the supplied title, message, "
+                "slideType, and sourceRefs exactly. Generate only its detailed fields."
+                f"\n- Return {content_item_range[0]}-{content_item_range[1]} "
+                "content items so the approved composition can render them."
+            ),
+            input=prompt,
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=1,
+                content_item_range=content_item_range,
+            ),
+        )
+        generated = GeneratedDeckContentPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        ).slides[0]
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM slide composition failed: {error}"
+        ) from error
+    content_items = [
+        GeneratedContentItem(
+            contentItemId=f"content_{target.order}_{index}",
+            text=item.text,
+        )
+        for index, item in enumerate(generated.content_items, start=1)
+    ] or content_items_from_message(target.message, target.order)
+    return target.model_copy(
+        deep=True,
+        update={
+            "speaker_notes": target.speaker_notes or generated.speaker_notes,
+            "keywords": merge_keywords(
+                reference_keywords_for(raw_input.reference_keywords),
+                generated.keywords,
+            )[:6],
+            "visual_intent": generated.visual_intent,
+            "media_intent": generated.media_intent,
+            "content_items": content_items,
+        },
+    )
+
+
 def plan_content(
     raw_input: RawInput,
     style_context: StylePromptContext,
@@ -2183,7 +2532,7 @@ def deck_content_prompt(
     style_context: StylePromptContext,
 ) -> str:
     keywords = reference_keywords_for(raw_input.reference_keywords)
-    source_records = raw_input.source_records or initial_source_records(raw_input)
+    source_records = story_source_records(raw_input)
     allowed_numeric_values = sorted(
         {
             value
@@ -2204,7 +2553,7 @@ def deck_content_prompt(
                 source.content[:1600],
             ]
         )
-        for source in source_records[:12]
+        for source in source_records
     )
     lines = [
         f"Topic: {raw_input.topic}",
@@ -2234,6 +2583,39 @@ def deck_content_prompt(
             "instructions, not evidence. Never repeat them as presentation claims."
         ),
     ]
+    if raw_input.regeneration_instruction or raw_input.previous_slide_titles:
+        lines.extend(
+            [
+                (
+                    "Regeneration instruction is not evidence and cannot override source "
+                    "constraints, factual boundaries, or the requested reference policy."
+                ),
+                (
+                    "Regeneration instruction: "
+                    f"{raw_input.regeneration_instruction or '(none)'}"
+                ),
+                (
+                    "Previous slide titles to improve rather than copy: "
+                    + (
+                        ", ".join(raw_input.previous_slide_titles)
+                        if raw_input.previous_slide_titles
+                        else "(none)"
+                    )
+                ),
+            ]
+        )
+    if raw_input.research_quality == "partial":
+        lines.append(
+            "Research quality is partial. Use external facts only when they are "
+            "directly stated in the supplied verified web source records; omit every "
+            "unsupported detail."
+        )
+    elif raw_input.research_quality == "unavailable":
+        lines.append(
+            "No verified web sources are available. Treat the topic and brief only as "
+            "user-provided framing. Do not add external dates, numeric claims, product "
+            "availability, platforms, features, or other specific facts; omit them."
+        )
     lines.extend(presentation_rule_prompt(raw_input))
     if uses_conversational_design_flow(raw_input):
         lines.append(
@@ -2262,6 +2644,25 @@ def deck_content_prompt(
         ]
     )
     return "\n".join(lines)
+
+
+def story_source_records(raw_input: RawInput) -> list[SourceRecord]:
+    records = raw_input.source_records or initial_source_records(raw_input)
+    topics = [record for record in records if record.source_type == "topic"][:1]
+    uploaded = [record for record in records if record.source_type == "uploaded"]
+    web = [record for record in records if record.source_type == "web"]
+    policy = raw_input.brief.reference_policy
+    if policy == "references-only":
+        evidence = uploaded[:12]
+    elif policy == "references-first":
+        evidence = [*uploaded[:12], *web[: max(0, 12 - len(uploaded))]]
+    elif policy == "research-first":
+        evidence = [*web[:8], *uploaded[:4]]
+    elif policy == "user-input-only":
+        evidence = []
+    else:
+        evidence = uploaded[:12]
+    return [*topics, *evidence]
 
 
 def narrative_design_prompt(

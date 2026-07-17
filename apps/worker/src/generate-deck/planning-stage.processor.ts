@@ -1,24 +1,32 @@
 import {
   aiDeckGenerationStageMessageSchema,
+  generateDeckResearchIssueCodeSchema,
+  generateDeckResearchQualitySchema,
   generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
   referenceExtractionResultSchema,
-  savedDesignPackSnapshotSchema,
   type AiDeckGenerationStageMessage,
   type GenerateDeckRequest,
   type Job,
   type JobError,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { AiDeckPlanningArtifactRepository } from "./planning-artifact-repository";
 import {
+  completedSlideV2ArtifactPayloadSchema,
+  coverSlideArtifactPayloadSchema,
+} from "./execution-stage-contract";
+import {
   contentPlanningArtifactPayloadSchema,
   designPlanningArtifactPayloadSchema,
   isAiDeckPlanningStage,
+  isLayoutCompileV2Artifact,
   layoutCompileArtifactPayloadSchema,
   sourceGroundingArtifactPayloadSchema,
   type AiDeckPlanningArtifactPayload,
@@ -33,7 +41,10 @@ import {
   sourceGroundingStageInput,
   type AiDeckPlanningStagePythonClientOptions,
 } from "./planning-stage-python-client";
-import { AiDeckGenerationStageCheckpointRepository } from "./stage-checkpoint-repository";
+import {
+  AiDeckGenerationStageCheckpointRepository,
+  type AiDeckGenerationStageCheckpoint,
+} from "./stage-checkpoint-repository";
 import {
   compactDiagnostics,
   contractErrorDiagnostics,
@@ -48,13 +59,18 @@ const planningMessageSchema = aiDeckGenerationStageMessageSchema.refine(
   (message) => isAiDeckPlanningStage(message.stage),
   { message: "Planning stage required" },
 );
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-    designPackSnapshot: savedDesignPackSnapshotSchema.optional(),
-  })
-  .passthrough();
 const extractionRowSchema = z.object({ extraction_json: z.unknown() });
+const sourceGroundingResearchDiagnosticsSchema = z.object({
+  research_quality: generateDeckResearchQualitySchema,
+  research_issue_codes: z.array(generateDeckResearchIssueCodeSchema),
+  research_attempts: z.number().int().nonnegative(),
+  relevant_web_source_count: z.number().int().nonnegative(),
+  official_web_source_count: z.number().int().nonnegative(),
+  independent_web_source_count: z.number().int().nonnegative(),
+  research_fact_coverage_satisfied: z.boolean(),
+  web_research_timed_out: z.boolean().default(false),
+  web_research_elapsed_ms: z.number().int().nonnegative().default(0),
+});
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
@@ -86,6 +102,7 @@ const progressByStage: Record<AiDeckPlanningStage, number> = {
 export interface AiDeckPlanningStageProcessorOptions extends AiDeckPlanningStagePythonClientOptions {
   heartbeatIntervalMs?: number;
   eventLogger?: AiDeckStageEventLogger;
+  claimedCheckpoint?: AiDeckGenerationStageCheckpoint;
 }
 
 export async function processAiDeckPlanningStage(
@@ -101,8 +118,10 @@ export async function processAiDeckPlanningStage(
   }
   const message = { ...parsedMessage, stage: parsedMessage.stage };
   const checkpoints = new AiDeckGenerationStageCheckpointRepository(dataSource);
-  const claimed = await checkpoints.claim(message, workerId);
+  const claimed =
+    options.claimedCheckpoint ?? (await checkpoints.claim(message, workerId));
   if (!claimed) return;
+  assertClaimMatches(message, claimed);
   if (!claimed.leaseOwner) {
     throw new Error("Claimed stage is missing its lease owner.");
   }
@@ -152,6 +171,38 @@ export async function processAiDeckPlanningStage(
       },
     );
     if (leaseLost) return;
+    if (message.stage === "source-grounding") {
+      const sourcePayload = sourceGroundingArtifactPayloadSchema.parse(payload);
+      const research = sourceGroundingResearchDiagnosticsSchema.safeParse(
+        sourcePayload.rawInput,
+      );
+      if (
+        research.success &&
+        (research.data.research_quality !== "not-run" ||
+          research.data.research_attempts > 0 ||
+          research.data.web_research_timed_out)
+      ) {
+        emitStageEvent(
+          options.eventLogger,
+          "ai-ppt.web-research.completed",
+          {
+            pipelineJobId: message.pipelineJobId,
+            projectId: message.projectId,
+            quality: research.data.research_quality,
+            issueCodes: research.data.research_issue_codes,
+            attempts: research.data.research_attempts,
+            relevantSourceCount: research.data.relevant_web_source_count,
+            officialSourceCount: research.data.official_web_source_count,
+            independentSourceCount:
+              research.data.independent_web_source_count,
+            factCoverageSatisfied:
+              research.data.research_fact_coverage_satisfied,
+            timedOut: research.data.web_research_timed_out,
+            elapsedMs: research.data.web_research_elapsed_ms,
+          },
+        );
+      }
+    }
     const result = await completeStage(
       dataSource,
       message,
@@ -221,6 +272,20 @@ export async function processAiDeckPlanningStage(
   }
 }
 
+function assertClaimMatches(
+  message: AiDeckGenerationStageMessage,
+  claimed: AiDeckGenerationStageCheckpoint,
+): void {
+  if (
+    claimed.pipelineJobId !== message.pipelineJobId ||
+    claimed.stage !== message.stage ||
+    claimed.shardKey !== message.shardKey ||
+    claimed.status !== "running"
+  ) {
+    throw new Error("Preclaimed AI deck checkpoint identity mismatch.");
+  }
+}
+
 async function buildStageInput(
   dataSource: DataSource,
   message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
@@ -252,7 +317,8 @@ async function buildStageInput(
         "content-planning",
       );
       return designPlanningStageInput(
-        contentPlanningArtifactPayloadSchema.parse(artifact.payload),
+        await applySelectedDesign(dataSource, message, artifact.payload),
+        true,
       );
     }
     case "layout-compile": {
@@ -266,6 +332,41 @@ async function buildStageInput(
       );
     }
   }
+}
+
+async function applySelectedDesign(
+  dataSource: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+  rawContent: unknown,
+) {
+  const content = contentPlanningArtifactPayloadSchema.parse(rawContent);
+  const parent = firstQueryRow(
+    await dataSource.query(
+      `SELECT payload FROM jobs
+       WHERE job_id = $1 AND project_id = $2 AND type = 'ai-deck-generation'`,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (!parent || typeof parent !== "object" || !("payload" in parent)) {
+    throw new Error("AI deck generation parent job not found.");
+  }
+  const stored = generateDeckStoredJobPayloadSchema.parse(parent.payload);
+  if (!stored.designSelection) return content;
+  const rawInput = z.record(z.unknown()).parse(content.rawInput);
+  const rawDesign = z.record(z.unknown()).catch({}).parse(rawInput.design);
+  return contentPlanningArtifactPayloadSchema.parse({
+    ...content,
+    rawInput: {
+      ...rawInput,
+      designPrompt:
+        stored.designSelection.designPrompt ?? stored.request.designPrompt ?? "",
+      design: {
+        ...rawDesign,
+        paletteOverride: stored.designSelection.paletteOverride,
+        fontOverride: stored.designSelection.fontOverride,
+      },
+    },
+  });
 }
 
 async function loadGroundingRequest(
@@ -294,7 +395,9 @@ async function loadGroundingRequest(
   ) {
     throw new Error("AI deck generation parent job not found.");
   }
-  const storedPayload = storedPayloadSchema.parse(rawParent.payload);
+  const storedPayload = generateDeckStoredJobPayloadSchema.parse(
+    rawParent.payload,
+  );
   const request = storedPayload.request;
   const extractionRows = await dataSource.query(
     `
@@ -360,6 +463,17 @@ async function completeStage(
     );
     if (!succeeded) throw new AiDeckStageFencingLostError();
 
+    if (
+      message.stage === "content-planning" &&
+      !(await canStartDesignPlanning(manager, message))
+    ) {
+      return updateParentProgress(
+        manager,
+        message,
+        progressByStage[message.stage],
+      );
+    }
+
     const nextStage = nextStageByStage[message.stage];
     if (nextStage) {
       const next = await checkpoints.ensureQueued(
@@ -370,6 +484,7 @@ async function completeStage(
         throw new Error("Next AI deck planning checkpoint was not created.");
     } else {
       await ensureImageOrSemanticCheckpoints(
+        manager,
         checkpoints,
         message,
         payload,
@@ -384,7 +499,47 @@ async function completeStage(
   });
 }
 
+async function canStartDesignPlanning(
+  manager: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+): Promise<boolean> {
+  const parent = firstQueryRow(
+    await manager.query(
+      `
+        SELECT payload
+        FROM jobs
+        WHERE job_id = $1 AND project_id = $2
+          AND type = 'ai-deck-generation'
+        FOR UPDATE
+      `,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  const designSelected = Boolean(
+    parent &&
+      typeof parent === "object" &&
+      "payload" in parent &&
+      generateDeckStoredJobPayloadSchema.parse(parent.payload).designSelection,
+  );
+  if (!designSelected) return false;
+  const cover = firstQueryRow(
+    await manager.query(
+      `SELECT status FROM ai_deck_generation_stages
+       WHERE pipeline_job_id = $1
+         AND stage = 'cover-slide' AND shard_key = ''`,
+      [message.pipelineJobId],
+    ),
+  );
+  return Boolean(
+    cover &&
+      typeof cover === "object" &&
+      "status" in cover &&
+      (cover.status === "succeeded" || cover.status === "failed"),
+  );
+}
+
 async function ensureImageOrSemanticCheckpoints(
+  db: Pick<DataSource, "query">,
   checkpoints: AiDeckGenerationStageCheckpointRepository,
   message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
   payload: AiDeckPlanningArtifactPayload,
@@ -392,6 +547,37 @@ async function ensureImageOrSemanticCheckpoints(
 ): Promise<void> {
   if (message.stage !== "layout-compile") return;
   const layout = layoutCompileArtifactPayloadSchema.parse(payload);
+  if (isLayoutCompileV2Artifact(layout)) {
+    const reusedSourceOrder = await reuseCoverAsFirstSlide(
+      db,
+      message,
+      layout,
+      layoutReference,
+    );
+    let queued = 0;
+    for (const slide of layout.slides) {
+      if (slide.sourceOrder === reusedSourceOrder) continue;
+      const next = await checkpoints.ensureQueued(
+        {
+          ...message,
+          stage: "image-slide",
+          shardKey: slide.shardKey,
+        },
+        layoutReference,
+      );
+      if (!next) {
+        throw new Error("Next AI deck slide checkpoint was not created.");
+      }
+      queued += 1;
+    }
+    if (queued === 0 && reusedSourceOrder !== null) {
+      await checkpoints.ensureQueued(
+        { ...message, stage: "semantic-quality", shardKey: "" },
+        layoutReference,
+      );
+    }
+    return;
+  }
   const visualRequirements = z
     .object({
       items: z.array(
@@ -426,6 +612,91 @@ async function ensureImageOrSemanticCheckpoints(
     if (!next)
       throw new Error("Next AI deck execution checkpoint was not created.");
   }
+}
+
+async function reuseCoverAsFirstSlide(
+  db: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+  layout: Extract<
+    ReturnType<typeof layoutCompileArtifactPayloadSchema.parse>,
+    { artifactVersion: 2 }
+  >,
+  layoutReference: Record<string, unknown>,
+): Promise<number | null> {
+  const descriptor = [...layout.slides].sort(
+    (left, right) => left.order - right.order,
+  )[0];
+  if (!descriptor || descriptor.order !== 1) return null;
+  const rawCover = firstQueryRow(
+    await db.query(
+      `SELECT artifacts.payload_json
+       FROM ai_deck_execution_artifacts artifacts
+       JOIN ai_deck_generation_stages stages
+         ON stages.pipeline_job_id = artifacts.pipeline_job_id
+        AND stages.stage = artifacts.stage
+        AND stages.shard_key = artifacts.shard_key
+       WHERE artifacts.pipeline_job_id = $1 AND artifacts.project_id = $2
+         AND artifacts.stage = 'cover-slide' AND stages.status = 'succeeded'`,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (
+    !rawCover ||
+    typeof rawCover !== "object" ||
+    !("payload_json" in rawCover)
+  ) return null;
+  const cover = coverSlideArtifactPayloadSchema.parse(rawCover.payload_json);
+  const sourceSlide = cover.deck.slides[0];
+  if (!sourceSlide) return null;
+  const slide = {
+    ...sourceSlide,
+    slideId: descriptor.slideId,
+    order: descriptor.order,
+  };
+  const completed = completedSlideV2ArtifactPayloadSchema.parse({
+    artifactVersion: 2,
+    sourceOrder: descriptor.sourceOrder,
+    order: descriptor.order,
+    slideId: descriptor.slideId,
+    slide,
+    warnings: cover.warnings,
+    validation: cover.validation,
+  });
+  const checkpointRows = await db.query(
+    `INSERT INTO ai_deck_generation_stages (
+       pipeline_job_id, stage, shard_key, status, attempt,
+       input_ref_json, result_ref_json
+     ) VALUES ($1, 'image-slide', $2, 'succeeded', 0, $3::jsonb, NULL)
+     ON CONFLICT (pipeline_job_id, stage, shard_key) DO NOTHING
+     RETURNING pipeline_job_id`,
+    [message.pipelineJobId, descriptor.shardKey, layoutReference],
+  );
+  if (!firstQueryRow(checkpointRows)) return null;
+  const artifactId = randomUUID();
+  const artifactRows = await db.query(
+    `INSERT INTO ai_deck_execution_artifacts (
+       artifact_id, pipeline_job_id, project_id, stage, shard_key, payload_json
+     ) VALUES ($1, $2, $3, 'image-slide', $4, $5::jsonb)
+     ON CONFLICT (pipeline_job_id, stage, shard_key) DO UPDATE
+       SET payload_json = EXCLUDED.payload_json, updated_at = now()
+     RETURNING artifact_id`,
+    [artifactId, message.pipelineJobId, message.projectId, descriptor.shardKey, completed],
+  );
+  const storedArtifact = z
+    .object({ artifact_id: z.string().uuid() })
+    .parse(firstQueryRow(artifactRows));
+  await db.query(
+    `UPDATE ai_deck_generation_stages
+     SET result_ref_json = $3::jsonb, updated_at = now()
+     WHERE pipeline_job_id = $1 AND stage = 'image-slide'
+       AND shard_key = $2 AND status = 'succeeded'`,
+    [
+      message.pipelineJobId,
+      descriptor.shardKey,
+      { executionArtifactId: storedArtifact.artifact_id },
+    ],
+  );
+  return descriptor.sourceOrder;
 }
 
 async function failStageAndParent(

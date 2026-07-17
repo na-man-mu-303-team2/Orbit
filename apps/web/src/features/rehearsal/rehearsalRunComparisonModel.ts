@@ -22,6 +22,14 @@ export type RehearsalRunComparisonViewModel = {
   contextLabel: string;
   groups: RehearsalRunComparisonGroupViewModel[];
   hasPreviousRun: boolean;
+  silenceComparison: {
+    currentLongSilenceCount: number;
+    previousLongSilenceCount: number;
+    longSilenceCountDelta: number;
+    currentTotalSilenceSeconds: number;
+    previousTotalSilenceSeconds: number;
+    totalSilenceSecondsDelta: number;
+  } | null;
 };
 
 export type ComparisonReminder = {
@@ -65,6 +73,23 @@ export function buildRehearsalRunComparisonViewModel(
         ? "첫 비교 기준을 만들었어요"
         : "직전 완료 회차와 비교했어요",
     briefing: comparison.briefing.slice(0, 3).map(toItem),
+    silenceComparison:
+      comparison.silenceComparison.state === "comparable"
+        ? {
+            currentLongSilenceCount:
+              comparison.silenceComparison.currentLongSilenceCount!,
+            previousLongSilenceCount:
+              comparison.silenceComparison.previousLongSilenceCount!,
+            longSilenceCountDelta:
+              comparison.silenceComparison.longSilenceCountDelta!,
+            currentTotalSilenceSeconds:
+              comparison.silenceComparison.currentTotalSilenceSeconds!,
+            previousTotalSilenceSeconds:
+              comparison.silenceComparison.previousTotalSilenceSeconds!,
+            totalSilenceSecondsDelta:
+              comparison.silenceComparison.totalSilenceSecondsDelta!,
+          }
+        : null,
     groups: [
       {
         key: "repeated",

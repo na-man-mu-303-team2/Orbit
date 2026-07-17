@@ -9,10 +9,12 @@ import {
   createPresenterRemoteReadyMessage,
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
+  createScreenShareEndedMessage,
 } from "./presentationChannel";
 import {
   createPresentationPublisherController,
   isPresentationPeerStale,
+  publishPresenterHeartbeat,
   type PresentationChannelStatus,
 } from "./usePresentationChannelPublisher";
 
@@ -25,6 +27,24 @@ const publisherHookSourcePath = fileURLToPath(
 );
 
 describe("createPresentationPublisherController", () => {
+  it("publishes owner heartbeat to both audience and presenter remote channels", () => {
+    const slideWindowChannel = { postMessage: vi.fn() };
+    const presenterRemoteChannel = { postMessage: vi.fn() };
+
+    publishPresenterHeartbeat({
+      identity,
+      presenterRemoteChannel,
+      slideWindowChannel,
+    });
+
+    expect(slideWindowChannel.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "presenter-heartbeat" }),
+    );
+    expect(presenterRemoteChannel.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "presenter-heartbeat" }),
+    );
+  });
+
   it("publishes a full sanitized snapshot when the slide window becomes ready", () => {
     const posted: unknown[] = [];
     const statuses: PresentationChannelStatus[] = [];
@@ -230,6 +250,31 @@ describe("createPresentationPublisherController", () => {
     expect(commands).toEqual([{ action: "next-step" }]);
     expect(postMessage).not.toHaveBeenCalled();
     expect(statuses).toEqual(["connected"]);
+  });
+
+  it("reports ready and screen-share lifecycle events to the capture owner", () => {
+    const onPeerReady = vi.fn();
+    const onScreenShareEnded = vi.fn();
+    const controller = createPresentationPublisherController({
+      channel: { close: vi.fn(), postMessage: vi.fn() },
+      getSnapshot: () => null,
+      getState: () => null,
+      identity,
+      onPeerReady,
+      onScreenShareEnded,
+    });
+
+    controller.handleIncoming(createSlideWindowReadyMessage(identity, 81));
+    controller.handleIncoming(
+      createScreenShareEndedMessage({
+        identity,
+        reason: "stream-missing",
+        sentAt: 82,
+      }),
+    );
+
+    expect(onPeerReady).toHaveBeenCalledTimes(1);
+    expect(onScreenShareEnded).toHaveBeenCalledWith("stream-missing");
   });
 
   it("marks peer state stale only after the 5 second heartbeat window", () => {

@@ -13,6 +13,7 @@ const expectedStages = [
   "reference-extract-file",
   "source-grounding",
   "content-planning",
+  "cover-slide",
   "design-planning",
   "layout-compile",
   "image-slide",
@@ -22,7 +23,7 @@ const expectedStages = [
 ] as const;
 
 describe("aiDeckGenerationStageSchema", () => {
-  it("keeps the nine program-v2 pipeline stages exact", () => {
+  it("keeps the ten program-v2 pipeline stages exact", () => {
     expect(aiDeckGenerationStageSchema.options).toEqual(expectedStages);
   });
 });

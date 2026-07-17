@@ -55,6 +55,7 @@ const designPackDeck: Deck = {
   },
   slides: [
     {
+      kind: "content",
       slideId: "slide_1",
       order: 1,
       title: "Visual Plan",
@@ -194,6 +195,90 @@ const designPackDeck: Deck = {
 };
 
 describe("editor design-pack validation", () => {
+  it("shows persisted generation QA advisories in the AI coach inspection panel", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    expect(getEditorValidationItems(deck, deck.slides[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          slideId: "slide_1",
+        }),
+      ]),
+    );
+  });
+
+  it("shows only QA warnings assigned to the current slide", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "현재 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "다른 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_2",
+          slideOrder: 2,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "전체 발표의 초점이 약합니다.",
+          severity: "warning",
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).toContain("현재 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("다른 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("전체 발표의 초점이 약합니다.");
+  });
+
+  it("recomputes character warnings for the current slide instead of using stored copies", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "SPEAKER_NOTES_DENSE",
+          message: "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).not.toContain(
+      "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+    );
+  });
+
   it("accepts generated text fitting and expected media placeholders", () => {
     const items = getEditorValidationItems(designPackDeck);
 

@@ -1,5 +1,5 @@
 import {
-  generateDeckRequestSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
@@ -18,13 +18,13 @@ const coordinatorPayloadSchema = z
   })
   .strict();
 
-const storedPayloadSchema = z
-  .object({
-    request: generateDeckRequestSchema,
-  })
-  .passthrough();
 
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
+const initializationLimitSchema = z.number().int().min(1).max(500);
+const pendingParentRowSchema = z.object({
+  job_id: z.string().min(1),
+  project_id: z.string().min(1),
+});
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
   project_id: z.string().min(1),
@@ -111,7 +111,7 @@ export async function processAiDeckStagedCoordinatorJob(
       return rowToJob(parent);
     }
 
-    const storedPayload = storedPayloadSchema.parse(parent.payload);
+    const storedPayload = generateDeckStoredJobPayloadSchema.parse(parent.payload);
     const plan = planAiDeckInitialStages(storedPayload.request);
     if (requiresUnavailableGrounding(storedPayload.request, plan)) {
       const failedRows = await manager.query(
@@ -191,6 +191,54 @@ export async function processAiDeckStagedCoordinatorJob(
 
     return rowToJob(updatedParent);
   });
+}
+
+export async function initializePendingAiDeckGenerationJobs(
+  dataSource: DataSource,
+  options: {
+    limit?: number;
+    onError?: (
+      error: unknown,
+      parent: { jobId: string; projectId: string },
+    ) => void;
+  } = {},
+): Promise<{ scanned: number; initialized: number }> {
+  const limit = initializationLimitSchema.parse(options.limit ?? 100);
+  const rows = await dataSource.query(
+    `
+      SELECT jobs.job_id, jobs.project_id
+      FROM jobs
+      WHERE jobs.type = 'ai-deck-generation'
+        AND jobs.status IN ('queued','running')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ai_deck_generation_stages stages
+          WHERE stages.pipeline_job_id = jobs.job_id
+            AND stages.stage IN (
+              'reference-extract-file',
+              'source-grounding',
+              'content-planning'
+            )
+        )
+      ORDER BY jobs.created_at, jobs.job_id
+      LIMIT $1
+    `,
+    [limit],
+  );
+  if (!Array.isArray(rows)) return { scanned: 0, initialized: 0 };
+
+  let initialized = 0;
+  for (const rawRow of rows) {
+    const row = pendingParentRowSchema.parse(rawRow);
+    const parent = { jobId: row.job_id, projectId: row.project_id };
+    try {
+      const result = await processAiDeckStagedCoordinatorJob(dataSource, parent);
+      if (result.status === "running") initialized += 1;
+    } catch (error) {
+      options.onError?.(error, parent);
+    }
+  }
+  return { scanned: rows.length, initialized };
 }
 
 function requiresUnavailableGrounding(

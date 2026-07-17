@@ -10,8 +10,8 @@ import {
   createPresenterRemoteStateMessage,
   getPresentationChannelName,
   getPresenterRemoteChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
   type PresenterRemoteCommand,
@@ -19,6 +19,7 @@ import {
   type PresenterStateMessage,
   type PresenterRemoteSnapshotMessage,
   type PresenterRemoteStateMessage,
+  type ScreenShareEndedReason,
 } from "./presentationChannel";
 
 export type PresentationChannelStatus =
@@ -56,12 +57,16 @@ export function usePresentationChannelPublisher(args: {
   state: PresenterSlideshowState | null;
   triggerAnimationIds: string[];
   onCommand?: (command: PresenterRemoteCommand) => void;
+  onPeerReady?: (peer: "presenter-remote" | "slide-window") => void;
+  onScreenShareEnded?: (reason: ScreenShareEndedReason) => void;
 }) {
   const {
     channelFactory = createBroadcastChannel,
     deck,
     enabled = true,
     onCommand,
+    onPeerReady,
+    onScreenShareEnded,
     sessionId: sessionIdOverride,
     state,
     triggerAnimationIds,
@@ -77,8 +82,13 @@ export function usePresentationChannelPublisher(args: {
   const lastPeerSeenAtRef = useRef<number | null>(null);
   const peerWaitStartedAtRef = useRef<number | null>(null);
   const latestCommandHandlerRef = useRef<typeof onCommand>(onCommand);
+  const latestPeerReadyHandlerRef = useRef<typeof onPeerReady>(onPeerReady);
+  const latestScreenShareEndedHandlerRef =
+    useRef<typeof onScreenShareEnded>(onScreenShareEnded);
   const latestRef = useRef({ deck, state, triggerAnimationIds });
   latestCommandHandlerRef.current = onCommand;
+  latestPeerReadyHandlerRef.current = onPeerReady;
+  latestScreenShareEndedHandlerRef.current = onScreenShareEnded;
   latestRef.current = { deck, state, triggerAnimationIds };
 
   const identity = useMemo<PresentationChannelIdentity | null>(
@@ -134,6 +144,9 @@ export function usePresentationChannelPublisher(args: {
       },
       identity,
       onCommand: (command) => latestCommandHandlerRef.current?.(command),
+      onPeerReady: () => latestPeerReadyHandlerRef.current?.("slide-window"),
+      onScreenShareEnded: (reason) =>
+        latestScreenShareEndedHandlerRef.current?.(reason),
       onPeerSeen: () => {
         lastPeerSeenAtRef.current = Date.now();
         peerWaitStartedAtRef.current = null;
@@ -168,6 +181,10 @@ export function usePresentationChannelPublisher(args: {
       },
       identity,
       onCommand: (command) => latestCommandHandlerRef.current?.(command),
+      onPeerReady: () =>
+        latestPeerReadyHandlerRef.current?.("presenter-remote"),
+      onScreenShareEnded: (reason) =>
+        latestScreenShareEndedHandlerRef.current?.(reason),
       onPeerSeen: () => {
         lastPeerSeenAtRef.current = Date.now();
         peerWaitStartedAtRef.current = null;
@@ -205,9 +222,11 @@ export function usePresentationChannelPublisher(args: {
     }
 
     const heartbeatTimer = window.setInterval(() => {
-      channelRef.current?.postMessage(
-        createPresenterHeartbeatMessage(identity),
-      );
+      publishPresenterHeartbeat({
+        identity,
+        presenterRemoteChannel: presenterRemoteChannelRef.current,
+        slideWindowChannel: channelRef.current,
+      });
     }, 1000);
     const staleTimer = window.setInterval(() => {
       const lastPeerSeenAt = lastPeerSeenAtRef.current;
@@ -253,6 +272,16 @@ export function usePresentationChannelPublisher(args: {
   };
 }
 
+export function publishPresenterHeartbeat(args: {
+  identity: PresentationChannelIdentity;
+  presenterRemoteChannel: Pick<PresentationChannelLike, "postMessage"> | null;
+  slideWindowChannel: Pick<PresentationChannelLike, "postMessage"> | null;
+}) {
+  const message = createPresenterHeartbeatMessage(args.identity);
+  args.slideWindowChannel?.postMessage(message);
+  args.presenterRemoteChannel?.postMessage(message);
+}
+
 export function createPresentationPublisherController(args: {
   channel: Pick<PresentationChannelLike, "close" | "postMessage">;
   getSnapshot: () =>
@@ -262,6 +291,8 @@ export function createPresentationPublisherController(args: {
   getState: () => PresenterStateMessage | PresenterRemoteStateMessage | null;
   identity: PresentationChannelIdentity;
   onCommand?: (command: PresenterRemoteCommand) => void;
+  onPeerReady?: () => void;
+  onScreenShareEnded?: (reason: ScreenShareEndedReason) => void;
   onPeerSeen?: () => void;
   onStatusChange?: (status: PresentationChannelStatus) => void;
 }): PresentationPublisherController {
@@ -271,6 +302,8 @@ export function createPresentationPublisherController(args: {
     getState,
     identity,
     onCommand,
+    onPeerReady,
+    onScreenShareEnded,
     onPeerSeen,
     onStatusChange,
   } = args;
@@ -281,16 +314,19 @@ export function createPresentationPublisherController(args: {
       onStatusChange?.("closed");
     },
     handleIncoming: (data: unknown) => {
-      if (!isPresentationChannelMessage(data)) {
+      const message = parsePresentationChannelMessage(data);
+      if (!message) {
         return;
       }
-      if (!matchesPresentationChannelIdentity(data, identity)) {
+      if (!matchesPresentationChannelIdentity(message, identity)) {
         return;
       }
 
       onPeerSeen?.();
-      handlePublisherMessage(data, {
+      handlePublisherMessage(message, {
         handleCommand: onCommand,
+        handlePeerReady: onPeerReady,
+        handleScreenShareEnded: onScreenShareEnded,
         publishSnapshot: () => {
           const snapshot = getSnapshot();
           if (snapshot) {
@@ -329,6 +365,8 @@ function handlePublisherMessage(
   message: PresentationChannelMessage,
   handlers: {
     handleCommand?: (command: PresenterRemoteCommand) => void;
+    handlePeerReady?: () => void;
+    handleScreenShareEnded?: (reason: ScreenShareEndedReason) => void;
     publishSnapshot: () => void;
     setConnected: () => void;
   },
@@ -339,6 +377,7 @@ function handlePublisherMessage(
   ) {
     handlers.publishSnapshot();
     handlers.setConnected();
+    handlers.handlePeerReady?.();
     return;
   }
 
@@ -352,6 +391,12 @@ function handlePublisherMessage(
 
   if (message.type === "presenter-command") {
     handlers.handleCommand?.(message.command);
+    handlers.setConnected();
+    return;
+  }
+
+  if (message.type === "screen-share-ended") {
+    handlers.handleScreenShareEnded?.(message.reason);
     handlers.setConnected();
   }
 }

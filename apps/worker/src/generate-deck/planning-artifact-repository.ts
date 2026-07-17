@@ -128,7 +128,7 @@ export class AiDeckPlanningArtifactRepository {
     rawMessage: unknown,
     expectedStage: AiDeckPlanningStage,
   ): Promise<AiDeckPlanningArtifact> {
-    const message = planningMessage(rawMessage);
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
     const rows = await this.db.query(
       `
         SELECT artifacts.*
