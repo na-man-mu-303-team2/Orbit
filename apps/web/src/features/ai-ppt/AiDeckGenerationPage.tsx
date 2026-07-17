@@ -6,6 +6,7 @@ import { OrbitButton } from "../../design-system";
 import { getResponsiveEditorStageScale } from "../editor/shell/utils/editorLayout";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import {
+  readySlidePrefix,
   requestAiDeckPreview,
   retryAiDeckGeneration,
 } from "./ai-deck-preview-api";
@@ -13,20 +14,6 @@ import "./ai-deck-generation.css";
 
 const pollingIntervalMs = 1200;
 const revealIntervalMs = 500;
-
-export function readySlidePrefix(
-  deck: Deck | null,
-  completedSlideIds: readonly string[],
-) {
-  if (!deck) return 0;
-  const completed = new Set(completedSlideIds);
-  let count = 0;
-  for (const slide of deck.slides) {
-    if (!completed.has(slide.slideId)) break;
-    count += 1;
-  }
-  return count;
-}
 
 export function AiDeckGenerationPage(props: {
   jobId: string;

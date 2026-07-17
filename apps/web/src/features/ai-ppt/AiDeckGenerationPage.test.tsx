@@ -1,7 +1,7 @@
 import type { Deck } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
-import { readySlidePrefix } from "./AiDeckGenerationPage";
+import { readySlidePrefix } from "./ai-deck-preview-api";
 
 describe("readySlidePrefix", () => {
   it("exposes only the contiguous completed prefix", () => {

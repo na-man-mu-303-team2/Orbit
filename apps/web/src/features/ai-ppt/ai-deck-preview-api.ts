@@ -1,4 +1,18 @@
-import { aiDeckPreviewResponseSchema } from "@orbit/shared";
+import { aiDeckPreviewResponseSchema, type Deck } from "@orbit/shared";
+
+export function readySlidePrefix(
+  deck: Deck | null,
+  completedSlideIds: readonly string[],
+) {
+  if (!deck) return 0;
+  const completed = new Set(completedSlideIds);
+  let count = 0;
+  for (const slide of deck.slides) {
+    if (!completed.has(slide.slideId)) break;
+    count += 1;
+  }
+  return count;
+}
 
 export async function requestAiDeckPreview(projectId: string, jobId: string) {
   const response = await fetch(
