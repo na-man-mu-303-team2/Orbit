@@ -4123,7 +4123,7 @@
 
 .ai-chat-selected-image span {
   color: var(--redesign-color-primary);
-  font-size: var(--redesign-type-label-xs-size);
+  font-size: var(--redesign-type-label-sm-size);
   font-weight: 800;
 }
 
