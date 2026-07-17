@@ -1,6 +1,8 @@
 # AI PPT 생성 중 읽기 전용 에디터 미리보기 계획
 
-> 구현 상태: 2026-07-17 `feature/ai-ppt-progressive-preview`에서 artifact 기반 REST preview, 순차 공개 Web UI와 canonical editor handoff를 구현했다. Story 생성 자체는 단일 structured content plan과 조건부 repair 호출을 완료한 뒤 공개하므로 slide 단위 streaming 대상이 아니다.
+> 구현 상태: 2026-07-17 `feature/ai-ppt-slide-streaming-generation`에서 기존 `image-slide` fan-out을 v2 실제 slide 생성 transport로 확장한다. Story는 경량 목차를 한 번만 생성하고, 각 slide shard가 상세 콘텐츠·layout·asset·QA를 완료한 결과만 REST preview에 공개한다.
+
+> 현재 계약 우선순위: 아래 문서의 기존 full Deck `layout-compile`, image-only `image-slide`, 500ms reveal 설명은 legacy 구현 분석 기록이다. 현재 v2 계약은 [`ai-ppt-slide-streaming-generation.md`](./ai-ppt-slide-streaming-generation.md)와 `docs/contracts.md`를 우선한다. v2 Preview는 서버 완료 artifact의 연속 prefix를 즉시 표시하며 시간 기반 stagger를 사용하지 않는다.
 
 ## 문서 목적
 

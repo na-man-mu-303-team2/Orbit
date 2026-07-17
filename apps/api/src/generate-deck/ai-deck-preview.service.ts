@@ -51,12 +51,26 @@ const visualRequirementsSchema = z.object({
     }),
   ),
 });
-const layoutPayloadSchema = z
+const legacyLayoutPayloadSchema = z
   .object({
     workerPayload: generateDeckResponseSchema,
     visualRequirements: visualRequirementsSchema,
   })
   .passthrough();
+const layoutManifestSlideSchema = z.object({
+  sourceOrder: z.number().int().positive(),
+  order: z.number().int().positive(),
+  slideId: z.string().min(1),
+  shardKey: z.string().min(1),
+});
+const layoutV2PayloadSchema = z
+  .object({
+    artifactVersion: z.literal(2),
+    deckShell: deckSchema.omit({ slides: true }),
+    slides: z.array(layoutManifestSlideSchema).min(1),
+    warnings: z.array(z.string()),
+  })
+  .strict();
 const imageRowSchema = z.object({
   shard_key: z.string().min(1),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
@@ -64,6 +78,17 @@ const imageRowSchema = z.object({
 });
 const imagePayloadSchema = z
   .object({ slide: slideSchema, warnings: z.array(z.string()) })
+  .strict();
+const imageV2PayloadSchema = z
+  .object({
+    artifactVersion: z.literal(2),
+    sourceOrder: z.number().int().positive(),
+    order: z.number().int().positive(),
+    slideId: z.string().min(1),
+    slide: slideSchema,
+    warnings: z.array(z.string()),
+    validation: z.record(z.unknown()),
+  })
   .strict();
 const qualityRowSchema = z.object({ payload_json: z.unknown() });
 const qualityPayloadSchema = z
@@ -193,39 +218,77 @@ export function projectAiDeckPreview(input: {
     ).workerPayload.deck;
     completedSlideIds = deck.slides.map((slide) => slide.slideId);
   } else if (layoutRow) {
-    const layout = layoutPayloadSchema.parse(layoutRow.payload_json);
-    const imageSlides = new Map(
-      input.imageRows.flatMap((row) => {
-        if (row.status !== "succeeded" || !row.payload_json) return [];
-        const parsed = imagePayloadSchema.safeParse(row.payload_json);
-        return parsed.success
-          ? [[parsed.data.slide.slideId, parsed.data.slide] as const]
-          : [];
-      }),
+    const parsedV2Layout = layoutV2PayloadSchema.safeParse(
+      layoutRow.payload_json,
     );
-    const imageNeeded = new Set(
-      layout.visualRequirements.items
-        .filter((item) => item.visualPlan.imageNeeded === true)
-        .map((item) => item.slideId),
-    );
-    deck = {
-      ...layout.workerPayload.deck,
-      slides: layout.workerPayload.deck.slides.map(
-        (slide) => imageSlides.get(slide.slideId) ?? slide,
-      ),
-    };
-    completedSlideIds = deck.slides
-      .filter(
-        (slide) =>
-          !imageNeeded.has(slide.slideId) || imageSlides.has(slide.slideId),
-      )
-      .map((slide) => slide.slideId);
-    pendingSlideIds = deck.slides
-      .filter(
-        (slide) =>
-          imageNeeded.has(slide.slideId) && !imageSlides.has(slide.slideId),
-      )
-      .map((slide) => slide.slideId);
+    if (parsedV2Layout.success) {
+      const v2Layout = parsedV2Layout.data;
+      const completedBySourceOrder = new Map(
+        input.imageRows.flatMap((row) => {
+          if (row.status !== "succeeded" || !row.payload_json) return [];
+          const parsed = imageV2PayloadSchema.safeParse(row.payload_json);
+          return parsed.success
+            ? [[parsed.data.sourceOrder, parsed.data] as const]
+            : [];
+        }),
+      );
+      const prefix: z.infer<typeof slideSchema>[] = [];
+      for (const descriptor of v2Layout.slides) {
+        const completed = completedBySourceOrder.get(descriptor.sourceOrder);
+        if (
+          !completed ||
+          completed.slideId !== descriptor.slideId ||
+          completed.order !== descriptor.order
+        ) {
+          break;
+        }
+        prefix.push(completed.slide);
+      }
+      if (prefix.length > 0) {
+        deck = deckSchema.parse({ ...v2Layout.deckShell, slides: prefix });
+        completedSlideIds = prefix.map((slide) => slide.slideId);
+      }
+      pendingSlideIds = v2Layout.slides
+        .slice(prefix.length)
+        .map((slide) => slide.slideId);
+    } else {
+      const legacyLayout = legacyLayoutPayloadSchema.parse(
+        layoutRow.payload_json,
+      );
+      const imageSlides = new Map(
+        input.imageRows.flatMap((row) => {
+          if (row.status !== "succeeded" || !row.payload_json) return [];
+          const parsed = imagePayloadSchema.safeParse(row.payload_json);
+          return parsed.success
+            ? [[parsed.data.slide.slideId, parsed.data.slide] as const]
+            : [];
+        }),
+      );
+      const imageNeeded = new Set(
+        legacyLayout.visualRequirements.items
+          .filter((item) => item.visualPlan.imageNeeded === true)
+          .map((item) => item.slideId),
+      );
+      const legacyDeck = {
+        ...legacyLayout.workerPayload.deck,
+        slides: legacyLayout.workerPayload.deck.slides.map(
+          (slide) => imageSlides.get(slide.slideId) ?? slide,
+        ),
+      };
+      deck = legacyDeck;
+      completedSlideIds = legacyDeck.slides
+        .filter(
+          (slide) =>
+            !imageNeeded.has(slide.slideId) || imageSlides.has(slide.slideId),
+        )
+        .map((slide) => slide.slideId);
+      pendingSlideIds = legacyDeck.slides
+        .filter(
+          (slide) =>
+            imageNeeded.has(slide.slideId) && !imageSlides.has(slide.slideId),
+        )
+        .map((slide) => slide.slideId);
+    }
   }
 
   const cancelled =

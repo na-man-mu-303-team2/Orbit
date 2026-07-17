@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconClock,
-  IconDeviceFloppy,
   IconFileText,
   IconGripVertical,
   IconInfoCircle,
@@ -475,7 +474,6 @@ export function StoryPlanReviewView(props: {
         onChange={(tab) => props.onTabChange(tab as StoryTab)}
         tabs={[
           { id: "outline", label: "목차" },
-          { id: "script", label: "대본" },
         ]}
       >
         {props.activeTab === "outline" ? (
@@ -483,17 +481,6 @@ export function StoryPlanReviewView(props: {
             disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onReorder={props.onReorder}
             onStoryChange={props.onStoryChange}
-            plan={plan}
-          />
-        ) : null}
-        {props.activeTab === "script" ? (
-          <StoryScript
-            disabled={props.busy || !reviewPending}
-            drafts={props.scriptDrafts}
-            onChange={props.onScriptChange}
-            onReorder={props.onReorder}
-            onSave={props.onSaveScript}
-            reorderDisabled={props.hasUnsavedScripts}
             plan={plan}
           />
         ) : null}
@@ -611,65 +598,6 @@ function StoryOutline(props: {
   );
 }
 
-function StoryScript(props: {
-  disabled?: boolean;
-  drafts: Record<number, string>;
-  onChange: (order: number, value: string) => void;
-  onReorder: (fromOrder: number, toOrder: number) => void;
-  onSave: (order: number) => void;
-  plan: StoryPlan;
-  reorderDisabled?: boolean;
-}) {
-  return (
-    <div className="story-review-card-list">
-      {props.plan.slides.map((slide, index) => {
-        const draft = props.drafts[slide.sourceOrder] ?? slide.speakerNotes;
-        const dirty = draft !== slide.speakerNotes;
-        return (
-          <StoryCard
-            disabled={props.disabled || props.reorderDisabled}
-            index={index}
-            key={slide.order}
-            onReorder={props.onReorder}
-            slide={slide}
-            total={props.plan.slides.length}
-          >
-            <div className="story-review-card-heading">
-              <div>
-                <small>{slideTypeLabel(slide.slideType)}</small>
-                <h2>{slide.title}</h2>
-              </div>
-              <time>{formatSeconds(slide.targetSeconds)}</time>
-            </div>
-            <OrbitTextarea
-              aria-label={`${slide.order}번 슬라이드 대본`}
-              disabled={props.disabled}
-              maxLength={5000}
-              onChange={(event) =>
-                props.onChange(slide.sourceOrder, event.target.value)
-              }
-              rows={6}
-              value={draft}
-            />
-            <ExternalStorySources slide={slide} />
-            <div className="story-review-script-actions">
-              <small>{draft.length}/5000자</small>
-              <OrbitButton
-                disabled={props.disabled || !dirty || !draft.trim()}
-                onClick={() => props.onSave(slide.sourceOrder)}
-                variant="secondary"
-              >
-                <IconDeviceFloppy aria-hidden="true" size={16} />
-                대본 저장
-              </OrbitButton>
-            </div>
-          </StoryCard>
-        );
-      })}
-    </div>
-  );
-}
-
 function StoryCard(props: {
   children: ReactNode;
   disabled?: boolean;
@@ -731,28 +659,6 @@ function StoryCard(props: {
   );
 }
 
-function ExternalStorySources({ slide }: { slide: StorySlide }) {
-  const sources = slide.sources.filter(
-    (source) => source.type === "web" || source.type === "uploaded",
-  );
-  if (!sources.length) return null;
-  return (
-    <aside
-      className="story-review-script-sources"
-      aria-label="AI가 사용한 근거"
-    >
-      <span>AI가 참고한 근거</span>
-      <ul>
-        {sources.map((source, index) => (
-          <li key={`${source.title}-${index}`}>
-            {source.title} · {sourceTypeLabel(source.type)}
-          </li>
-        ))}
-      </ul>
-    </aside>
-  );
-}
-
 export function moveStorySlideOrder(
   orders: number[],
   fromOrder: number,
@@ -808,13 +714,6 @@ function formatMinutes(seconds: number) {
 function formatSeconds(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function sourceTypeLabel(type: string) {
-  if (type === "web") return "웹 자료";
-  if (type === "uploaded") return "참고 자료";
-  if (type === "topic") return "사용자 입력";
-  return "생성 참고자료";
 }
 
 function slideTypeLabel(type: string) {

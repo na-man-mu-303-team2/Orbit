@@ -42,10 +42,13 @@ from app.ai.deck_generation.stage_runtime import (
     DesignPlanningStageResult,
     LayoutCompileStageInput,
     LayoutCompileStageResult,
+    SlideComposeStageInput,
+    SlideComposeStageResult,
     SourceGroundingStageInput,
     run_content_planning_stage,
     run_design_planning_stage,
     run_layout_compile_stage,
+    run_slide_compose_stage,
     run_source_grounding_stage,
 )
 from app.ai.deck_generation.models import SourceGroundingResult
@@ -791,6 +794,27 @@ def layout_compile_stage(
         api_key=config.openai_api_key,
         image_review_mode=config.ai_slide_image_review_mode,
     )
+
+
+@app.post(
+    "/internal/ai/deck-generation/slide-compose",
+    response_model=SlideComposeStageResult,
+)
+def slide_compose_stage(
+    payload: SlideComposeStageInput,
+    request: Request,
+) -> SlideComposeStageResult:
+    config = _config(request)
+    try:
+        return run_slide_compose_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
 
 
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
