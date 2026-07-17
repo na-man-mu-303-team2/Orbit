@@ -189,7 +189,7 @@ class VisualQaUnavailableError(RuntimeError):
 
 
 def visual_review_response_format(
-    slide_count: int,
+    slide_orders: list[int],
     *,
     slide_ids: list[str] | None = None,
     element_ids: list[str] | None = None,
@@ -235,8 +235,7 @@ def visual_review_response_format(
                                 "code": {"type": "string", "enum": issue_codes},
                                 "slideOrder": {
                                     "type": "integer",
-                                    "minimum": 1,
-                                    "maximum": slide_count,
+                                    "enum": slide_orders,
                                 },
                                 "message": {"type": "string"},
                             },
@@ -334,7 +333,10 @@ def review_deck_visuals(
                 }
             ],
             text=visual_review_response_format(
-                len(assets),
+                [
+                    int(slide.get("order", index + 1))
+                    for index, slide in enumerate(deck.get("slides", []))
+                ],
                 slide_ids=[
                     str(slide.get("slideId", f"slide_{index + 1}"))
                     for index, slide in enumerate(deck.get("slides", []))
