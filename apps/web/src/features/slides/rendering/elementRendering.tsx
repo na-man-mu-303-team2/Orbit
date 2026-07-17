@@ -8,7 +8,7 @@ import type {
   ShapeElementProps,
   TableElementProps,
   Slide,
-  TextElementProps
+  TextElementProps,
 } from "@orbit/shared";
 import { getGroupChildElements } from "@orbit/editor-core";
 import type Konva from "konva";
@@ -21,7 +21,7 @@ import {
   RegularPolygon as KonvaRegularPolygon,
   Shape as KonvaShape,
   Star as KonvaStarComponent,
-  Text as KonvaText
+  Text as KonvaText,
 } from "react-konva";
 import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
@@ -34,17 +34,18 @@ import {
   getCustomShapeDimension,
   getCustomShapePaint,
   getCustomShapePathData,
-  getCustomShapeStrokeWidth
+  getCustomShapeStrokeWidth,
 } from "../../editor/canvas/custom-shape/geometry";
 import {
   drawCustomShapeScene,
-  getCustomShapeDataArray
+  getCustomShapeDataArray,
 } from "../../editor/canvas/custom-shape/render";
 import {
   getKonvaFontStyle,
-  getTextElementLayout
+  getTextElementLayout,
 } from "../../editor/canvas/text/textLayout";
 import { getGroupedChildPreviewFrame } from "../../editor/canvas/utils/canvasElementUtils";
+import { getTableLayout } from "../../editor/canvas/table/tableLayout";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -93,7 +94,7 @@ export function ElementNodeContent(props: {
     element,
     elementStates,
     frame,
-    slide
+    slide,
   } = props;
 
   if (element.type === "text") {
@@ -101,7 +102,7 @@ export function ElementNodeContent(props: {
       frame,
       props: element.props as TextElementProps,
       slide,
-      theme: deck.theme
+      theme: deck.theme,
     });
     const textProps = element.props as TextElementProps;
 
@@ -141,7 +142,9 @@ export function ElementNodeContent(props: {
               listening={false}
               padding={0}
               text={fragment.text}
-              textDecoration={fragment.style.underline ? "underline" : undefined}
+              textDecoration={
+                fragment.style.underline ? "underline" : undefined
+              }
               width={Math.max(1, fragment.width)}
               wrap="none"
               x={fragment.x}
@@ -201,7 +204,10 @@ export function ElementNodeContent(props: {
 
   if (element.type === "group") {
     const groupProps = element.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
+    const childElements = getGroupChildElements(
+      slide,
+      groupProps.childElementIds,
+    );
 
     if (childElements.length === 0) {
       return null;
@@ -210,18 +216,23 @@ export function ElementNodeContent(props: {
     return (
       <Group listening={false}>
         {childElements.map((childElement) => {
-          const renderableChildElement = normalizeRenderableElement(deck.canvas, childElement);
-          const childPresentationState = elementStates?.[childElement.elementId];
+          const renderableChildElement = normalizeRenderableElement(
+            deck.canvas,
+            childElement,
+          );
+          const childPresentationState =
+            elementStates?.[childElement.elementId];
           const presentedChildElement = applyPresentationStateToElement(
             renderableChildElement,
-            childPresentationState
+            childPresentationState,
           );
           const childFrame = getGroupedChildPreviewFrame({
             childElement: presentedChildElement,
             currentGroupFrame: element,
-            previewGroupFrame: frame
+            previewGroupFrame: frame,
           });
-          const childVisible = childPresentationState?.visible ?? childElement.visible;
+          const childVisible =
+            childPresentationState?.visible ?? childElement.visible;
           const childOpacity = childVisible
             ? (childPresentationState?.opacity ?? childElement.opacity)
             : 0;
@@ -249,7 +260,7 @@ export function ElementNodeContent(props: {
                   y: 0,
                   width: childFrame.width,
                   height: childFrame.height,
-                  rotation: childFrame.rotation
+                  rotation: childFrame.rotation,
                 }}
                 slide={slide}
               />
@@ -263,7 +274,7 @@ export function ElementNodeContent(props: {
                     visible: childVisible,
                     width: childFrame.width,
                     x: 0,
-                    y: 0
+                    y: 0,
                   }}
                 />
               ) : null}
@@ -277,10 +288,9 @@ export function ElementNodeContent(props: {
   if (element.type === "customShape") {
     const customShapeProps = element.props as CustomShapeElementProps;
     const isClosed = customShapePreview?.closed ?? customShapeProps.closed;
-    const pathData =
-      customShapePreview?.nodes.length
-        ? buildCustomShapePathDataFromNodes(customShapePreview.nodes, isClosed)
-        : getCustomShapePathData(customShapeProps);
+    const pathData = customShapePreview?.nodes.length
+      ? buildCustomShapePathDataFromNodes(customShapePreview.nodes, isClosed)
+      : getCustomShapePathData(customShapeProps);
     const dataArray = getCustomShapeDataArray(pathData);
     const fill = getCustomShapePaint(customShapeProps, "fill", "#f5edff");
     const stroke = getCustomShapePaint(customShapeProps, "stroke", "#9333ea");
@@ -289,12 +299,12 @@ export function ElementNodeContent(props: {
     const viewBoxWidth = getCustomShapeDimension(
       customShapeProps,
       "viewBoxWidth",
-      frame.width
+      frame.width,
     );
     const viewBoxHeight = getCustomShapeDimension(
       customShapeProps,
       "viewBoxHeight",
-      frame.height
+      frame.height,
     );
 
     if (dataArray.length > 0) {
@@ -302,11 +312,14 @@ export function ElementNodeContent(props: {
         <Group listening={false}>
           <Rect fill="transparent" width={frame.width} height={frame.height} />
           <Shape
-            {...getFillRenderProps(isClosed ? customShapeProps.fill : "transparent", {
-              fallback: fill,
-              height: viewBoxHeight,
-              width: viewBoxWidth
-            })}
+            {...getFillRenderProps(
+              isClosed ? customShapeProps.fill : "transparent",
+              {
+                fallback: fill,
+                height: viewBoxHeight,
+                width: viewBoxWidth,
+              },
+            )}
             {...getShadowRenderProps(customShapeProps)}
             fillEnabled={isClosed}
             lineCap={strokeProps.lineCap}
@@ -332,7 +345,7 @@ export function ElementNodeContent(props: {
           {...getFillRenderProps(customShapeProps.fill, {
             fallback: fill,
             height: frame.height,
-            width: frame.width
+            width: frame.width,
           })}
           {...getShadowRenderProps(customShapeProps)}
           stroke={stroke}
@@ -355,7 +368,10 @@ export function ElementNodeContent(props: {
 
   if (element.type === "ellipse") {
     const strokeWidth = Math.max(1, element.props.strokeWidth);
-    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const radius = Math.max(
+      1,
+      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2,
+    );
     const strokeProps = getStrokeRenderProps(element.props);
 
     return (
@@ -364,7 +380,7 @@ export function ElementNodeContent(props: {
           {...getFillRenderProps(element.props.fill, {
             fallback: "transparent",
             height: frame.height,
-            width: frame.width
+            width: frame.width,
           })}
           {...getShadowRenderProps(element.props)}
           dash={strokeProps.dash}
@@ -381,9 +397,14 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "polygon") {
-    const polygonProps = element.props as ShapeElementProps & { sides?: number };
+    const polygonProps = element.props as ShapeElementProps & {
+      sides?: number;
+    };
     const strokeWidth = Math.max(1, element.props.strokeWidth);
-    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const radius = Math.max(
+      1,
+      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2,
+    );
     const sides = polygonProps.sides ?? 3;
     const strokeProps = getStrokeRenderProps(element.props);
 
@@ -394,7 +415,7 @@ export function ElementNodeContent(props: {
           {...getFillRenderProps(element.props.fill, {
             fallback: "transparent",
             height: frame.height,
-            width: frame.width
+            width: frame.width,
           })}
           {...getShadowRenderProps(element.props)}
           dash={strokeProps.dash}
@@ -415,7 +436,7 @@ export function ElementNodeContent(props: {
     const strokeProps = getStrokeRenderProps(element.props);
     const outerRadius = Math.max(
       1,
-      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2
+      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2,
     );
 
     return (
@@ -424,7 +445,7 @@ export function ElementNodeContent(props: {
           {...getFillRenderProps(element.props.fill, {
             fallback: "transparent",
             height: frame.height,
-            width: frame.width
+            width: frame.width,
           })}
           {...getShadowRenderProps(element.props)}
           dash={strokeProps.dash}
@@ -444,7 +465,10 @@ export function ElementNodeContent(props: {
 
   if (element.type === "ring") {
     const strokeWidth = Math.max(6, element.props.strokeWidth * 4 || 12);
-    const radius = Math.max(1, Math.min(frame.width, frame.height) / 2 - strokeWidth / 2);
+    const radius = Math.max(
+      1,
+      Math.min(frame.width, frame.height) / 2 - strokeWidth / 2,
+    );
     const strokeProps = getStrokeRenderProps(element.props);
 
     return (
@@ -457,7 +481,7 @@ export function ElementNodeContent(props: {
           radius={radius}
           stroke={getSolidPaint(
             element.props.stroke,
-            getSolidPaint(element.props.fill, "#2563eb")
+            getSolidPaint(element.props.fill, "#2563eb"),
           )}
           strokeWidth={strokeWidth}
           x={frame.width / 2}
@@ -476,7 +500,11 @@ export function ElementNodeContent(props: {
 
     return (
       <Group listening={false}>
-        <Rect fill="transparent" width={frame.width} height={Math.max(20, frame.height)} />
+        <Rect
+          fill="transparent"
+          width={frame.width}
+          height={Math.max(20, frame.height)}
+        />
         <KonvaArrow
           fill={stroke}
           dash={strokeProps.dash}
@@ -498,7 +526,11 @@ export function ElementNodeContent(props: {
 
     return (
       <Group listening={false}>
-        <Rect fill="transparent" width={frame.width} height={Math.max(16, frame.height)} />
+        <Rect
+          fill="transparent"
+          width={frame.width}
+          height={Math.max(16, frame.height)}
+        />
         <Line
           dash={strokeProps.dash}
           lineCap={strokeProps.lineCap}
@@ -519,12 +551,16 @@ export function ElementNodeContent(props: {
         {...getFillRenderProps(element.props.fill, {
           fallback: "transparent",
           height: frame.height,
-          width: frame.width
+          width: frame.width,
         })}
         {...getShadowRenderProps(element.props)}
         {...getStrokeRenderProps(element.props)}
         stroke={getSolidPaint(element.props.stroke, "transparent")}
-        strokeWidth={element.props.stroke === "transparent" ? 0 : Math.max(1, element.props.strokeWidth)}
+        strokeWidth={
+          element.props.stroke === "transparent"
+            ? 0
+            : Math.max(1, element.props.strokeWidth)
+        }
         width={frame.width}
         height={frame.height}
       />
@@ -542,7 +578,13 @@ function ChartElementContent(props: {
     return <PieChartContent chart={chart} frame={frame} />;
   }
 
-  return <CartesianChartContent accentColor={accentColor} chart={chart} frame={frame} />;
+  return (
+    <CartesianChartContent
+      accentColor={accentColor}
+      chart={chart}
+      frame={frame}
+    />
+  );
 }
 
 function CartesianChartContent(props: {
@@ -551,8 +593,8 @@ function CartesianChartContent(props: {
   frame: SlideElementFrame;
 }) {
   const { accentColor, chart, frame } = props;
-  const data = chart.data.filter((datum): datum is { label: string; value: number } =>
-    "value" in datum
+  const data = chart.data.filter(
+    (datum): datum is { label: string; value: number } => "value" in datum,
   );
   const values = data.map((datum) => datum.value);
   const maxValue = niceChartMax(Math.max(1, ...values));
@@ -561,11 +603,12 @@ function CartesianChartContent(props: {
     height: frame.height * 0.716,
     width: frame.width * (isLineChart ? 0.73 : 0.91),
     x: frame.width * 0.0715,
-    y: frame.height * 0.185
+    y: frame.height * 0.185,
   };
   const tickCount = 10;
   const slotWidth = plot.width / Math.max(1, data.length);
-  const seriesColor = chart.style.colors[0] ?? officeChartColors[0] ?? accentColor;
+  const seriesColor =
+    chart.style.colors[0] ?? officeChartColors[0] ?? accentColor;
 
   return (
     <Group listening={false}>
@@ -605,7 +648,14 @@ function CartesianChartContent(props: {
         );
       })}
       <Line
-        points={[plot.x, plot.y, plot.x, plot.y + plot.height, plot.x + plot.width, plot.y + plot.height]}
+        points={[
+          plot.x,
+          plot.y,
+          plot.x,
+          plot.y + plot.height,
+          plot.x + plot.width,
+          plot.y + plot.height,
+        ]}
         stroke="#8A8A8A"
         strokeWidth={1}
       />
@@ -668,7 +718,7 @@ function LineChartSeries(props: {
   const slotWidth = plot.width / Math.max(1, data.length);
   const points = data.flatMap((datum, index) => [
     plot.x + slotWidth * (index + 0.5),
-    plot.y + plot.height - (plot.height * datum.value) / maxValue
+    plot.y + plot.height - (plot.height * datum.value) / maxValue,
   ]);
 
   return (
@@ -697,27 +747,40 @@ function ChartLegend(props: {
   plot: { height: number; width: number; x: number; y: number };
 }) {
   const { color, frame, label, plot } = props;
-  const x = Math.min(frame.width - 170, plot.x + plot.width + frame.width * 0.04);
+  const x = Math.min(
+    frame.width - 170,
+    plot.x + plot.width + frame.width * 0.04,
+  );
   const y = plot.y + plot.height * 0.44;
 
   return (
     <Group listening={false} x={x} y={y}>
       <Line points={[0, 12, 42, 12]} stroke={color} strokeWidth={4} />
       <Rect fill={color} height={18} width={18} x={12} y={3} />
-      <Text fill="#000000" fontSize={32} listening={false} text={label} x={56} y={-5} />
+      <Text
+        fill="#000000"
+        fontSize={32}
+        listening={false}
+        text={label}
+        x={56}
+        y={-5}
+      />
     </Group>
   );
 }
 
 function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
   const { chart, frame } = props;
-  const data = chart.data.filter((datum): datum is { label: string; value: number } =>
-    "value" in datum
+  const data = chart.data.filter(
+    (datum): datum is { label: string; value: number } => "value" in datum,
   );
-  const total = data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0) || 1;
+  const total =
+    data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0) || 1;
   const radius = Math.min(frame.width, frame.height) * 0.4;
   const center = { x: frame.width / 2, y: frame.height * 0.57 };
-  const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
+  const colors = chart.style.colors.length
+    ? chart.style.colors
+    : officeChartColors;
   let startAngle = -90;
 
   return (
@@ -766,7 +829,8 @@ function niceChartMax(value: number) {
   }
   const magnitude = 10 ** Math.floor(Math.log10(value));
   const normalized = value / magnitude;
-  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  const nice =
+    normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return nice * magnitude;
 }
 
@@ -779,36 +843,24 @@ function TableElementContent(props: {
   table: TableElementProps;
 }) {
   const { frame, table } = props;
-  const rows = table.rows ?? [];
-  const rowCount = Math.max(1, rows.length);
-  const columnCount = Math.max(1, ...rows.map((row) => row.length));
-  const columnWidths = distributeTableSizes(
-    table.columnWidths,
-    columnCount,
-    frame.width
-  );
-  const rowHeights = distributeTableSizes(table.rowHeights, rowCount, frame.height);
-  const rowOffsets = cumulativeOffsets(rowHeights);
-  const columnOffsets = cumulativeOffsets(columnWidths);
+  const layout = getTableLayout(table, frame);
 
   return (
     <Group listening={false}>
-      {rows.flatMap((row, rowIndex) =>
-        row.map((cell, columnIndex) => {
-          const colSpan = Math.max(1, cell.colSpan ?? 1);
-          const rowSpan = Math.max(1, cell.rowSpan ?? 1);
-          const width = sumRange(columnWidths, columnIndex, colSpan);
-          const height = sumRange(rowHeights, rowIndex, rowSpan);
-          const x = columnOffsets[columnIndex] ?? 0;
-          const y = rowOffsets[rowIndex] ?? 0;
-
+      {layout.cells.map(
+        ({ cell, columnIndex, height, rowIndex, width, x, y }) => {
           return (
-            <Group key={`${rowIndex}-${columnIndex}`} listening={false} x={x} y={y}>
+            <Group
+              key={`${rowIndex}-${columnIndex}`}
+              listening={false}
+              x={x}
+              y={y}
+            >
               <Rect
                 {...getFillRenderProps(cell.fill ?? "transparent", {
                   fallback: "transparent",
                   height,
-                  width
+                  width,
                 })}
                 stroke={cell.borderColor ?? table.borderColor}
                 strokeWidth={cell.borderWidth ?? table.borderWidth}
@@ -830,40 +882,10 @@ function TableElementContent(props: {
               />
             </Group>
           );
-        })
+        },
       )}
     </Group>
   );
-}
-
-function distributeTableSizes(
-  explicitSizes: number[] | undefined,
-  count: number,
-  total: number
-) {
-  if (explicitSizes?.length === count) {
-    const explicitTotal = explicitSizes.reduce((sum, size) => sum + size, 0);
-    if (explicitTotal > 0) {
-      return explicitSizes.map((size) => (size / explicitTotal) * total);
-    }
-  }
-
-  return Array.from({ length: count }, () => total / count);
-}
-
-function cumulativeOffsets(sizes: number[]) {
-  let offset = 0;
-  return sizes.map((size) => {
-    const current = offset;
-    offset += size;
-    return current;
-  });
-}
-
-function sumRange(values: number[], start: number, count: number) {
-  return values
-    .slice(start, Math.min(values.length, start + count))
-    .reduce((sum, value) => sum + value, 0);
 }
 
 function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {
@@ -884,7 +906,7 @@ function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {
 
 function getFillRenderProps(
   paint: DeckElementPaint | undefined,
-  frame: { fallback: string; height: number; width: number }
+  frame: { fallback: string; height: number; width: number },
 ) {
   if (!paint || typeof paint === "string") {
     return { fill: getSolidPaint(paint, frame.fallback) };
@@ -902,21 +924,21 @@ function getFillRenderProps(
   return {
     fillLinearGradientColorStops: paint.stops.flatMap((stop) => [
       stop.offset,
-      stop.opacity < 1 ? withOpacity(stop.color, stop.opacity) : stop.color
+      stop.opacity < 1 ? withOpacity(stop.color, stop.opacity) : stop.color,
     ]),
     fillLinearGradientEndPoint: {
       x: frame.width / 2 + dx,
-      y: frame.height / 2 + dy
+      y: frame.height / 2 + dy,
     },
     fillLinearGradientStartPoint: {
       x: frame.width / 2 - dx,
-      y: frame.height / 2 - dy
-    }
+      y: frame.height / 2 - dy,
+    },
   };
 }
 
 function getPatternFillRenderProps(
-  paint: Extract<DeckElementPaint, { type: "pattern" }>
+  paint: Extract<DeckElementPaint, { type: "pattern" }>,
 ) {
   const pattern = createPatternCanvas(paint);
   if (!pattern) {
@@ -926,12 +948,12 @@ function getPatternFillRenderProps(
   return {
     fill: paint.background,
     fillPatternImage: pattern,
-    fillPatternRepeat: "repeat"
+    fillPatternRepeat: "repeat",
   };
 }
 
 function createPatternCanvas(
-  paint: Extract<DeckElementPaint, { type: "pattern" }>
+  paint: Extract<DeckElementPaint, { type: "pattern" }>,
 ) {
   if (typeof document === "undefined") {
     return null;
@@ -973,15 +995,19 @@ function createPatternCanvas(
   return canvas;
 }
 
-function getStrokeRenderProps(props: ShapeElementProps | CustomShapeElementProps) {
+function getStrokeRenderProps(
+  props: ShapeElementProps | CustomShapeElementProps,
+) {
   return {
     dash: props.dash,
     lineCap: props.lineCap,
-    lineJoin: props.lineJoin
+    lineJoin: props.lineJoin,
   };
 }
 
-function getShadowRenderProps(props: ShapeElementProps | CustomShapeElementProps) {
+function getShadowRenderProps(
+  props: ShapeElementProps | CustomShapeElementProps,
+) {
   if (!props.shadow) {
     return {};
   }
@@ -991,7 +1017,7 @@ function getShadowRenderProps(props: ShapeElementProps | CustomShapeElementProps
     shadowColor: props.shadow.color,
     shadowOffsetX: props.shadow.offsetX,
     shadowOffsetY: props.shadow.offsetY,
-    shadowOpacity: props.shadow.opacity
+    shadowOpacity: props.shadow.opacity,
   };
 }
 
@@ -1005,7 +1031,7 @@ function withOpacity(color: string, opacity: number) {
 
 function applyPresentationStateToElement<T extends DeckElement>(
   element: T,
-  state: ElementPresentationState | undefined
+  state: ElementPresentationState | undefined,
 ): T {
   if (!state) {
     return element;
@@ -1019,7 +1045,7 @@ function applyPresentationStateToElement<T extends DeckElement>(
     visible: state.visible ?? element.visible,
     width: state.width ?? element.width,
     x: state.x ?? element.x,
-    y: state.y ?? element.y
+    y: state.y ?? element.y,
   };
 
   return presentedElement;

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorContextMenus } from "./EditorContextMenus";
 
 vi.mock("react-dom", () => ({
-  createPortal: (content: ReactNode) => content
+  createPortal: (content: ReactNode) => content,
 }));
 
 describe("EditorContextMenus capability gates", () => {
@@ -27,7 +27,7 @@ describe("EditorContextMenus capability gates", () => {
           left: 10,
           slideId: "slide_1",
           top: 20,
-          type: "image"
+          type: "image",
         }}
         isImageUploadPending={false}
         isShapeMenuOpen={false}
@@ -38,11 +38,13 @@ describe("EditorContextMenus capability gates", () => {
         onReplaceImage={vi.fn()}
         onUngroup={vi.fn()}
         shapeMenuPosition={null}
-      />
+      />,
     );
 
     expect(html).toMatch(
-      new RegExp(`class="element-context-menu-item" disabled=""[^>]*title="${reason}"`)
+      new RegExp(
+        `class="element-context-menu-item" disabled=""[^>]*title="${reason}"`,
+      ),
     );
     expect(html).toContain(`<small>${reason}</small>`);
   });
@@ -55,9 +57,9 @@ describe("EditorContextMenus capability gates", () => {
           left: 10,
           slideId: "slide_1",
           top: 20,
-          type: "selection" as const
+          type: "selection" as const,
         },
-        { group: "그룹 생성은 지원되지 않습니다." }
+        { group: "그룹 생성은 지원되지 않습니다." },
       ],
       [
         {
@@ -65,10 +67,10 @@ describe("EditorContextMenus capability gates", () => {
           left: 10,
           slideId: "slide_1",
           top: 20,
-          type: "group" as const
+          type: "group" as const,
         },
-        { ungroup: "그룹 해제는 지원되지 않습니다." }
-      ]
+        { ungroup: "그룹 해제는 지원되지 않습니다." },
+      ],
     ] as const) {
       const reason = disabledReasons.group ?? disabledReasons.ungroup;
       const html = renderToStaticMarkup(
@@ -84,7 +86,7 @@ describe("EditorContextMenus capability gates", () => {
           onReplaceImage={vi.fn()}
           onUngroup={vi.fn()}
           shapeMenuPosition={null}
-        />
+        />,
       );
 
       expect(html).toContain("disabled");

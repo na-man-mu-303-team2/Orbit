@@ -35,8 +35,10 @@ import {
 import type { CanvasSelectionModifiers } from "../utils/canvasSelection";
 import {
   resolveCanvasDragInteraction,
-  type CanvasSnapGuide
+  type CanvasSnapGuide,
 } from "../utils/canvasSnapping";
+import { TableCellHitTargets } from "../table/TableCellHitTargets";
+import { useEditorShellUiStore } from "../../shell/editorShellUiStore";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -112,12 +114,16 @@ export function EditableElementNode(props: {
     height: number;
     rotation: number;
   } | null>(null);
+  const tableCellEditing = useEditorShellUiStore(
+    (state) =>
+      element.type === "table" && state.editingElementId === element.elementId,
+  );
   const frame = previewFrame ?? {
     x: presentationState?.x ?? element.x,
     y: presentationState?.y ?? element.y,
     width: presentationState?.width ?? element.width,
     height: presentationState?.height ?? element.height,
-    rotation: presentationState?.rotation ?? element.rotation
+    rotation: presentationState?.rotation ?? element.rotation,
   };
   const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
@@ -143,7 +149,7 @@ export function EditableElementNode(props: {
 
   function handlePointerSelect(modifiers: CanvasSelectionModifiers) {
     const hasSelectionModifier = Boolean(
-      modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey
+      modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey,
     );
 
     if (
@@ -162,7 +168,7 @@ export function EditableElementNode(props: {
   function resolveDragInteraction(
     phase: "cancel" | "end" | "move",
     node: Konva.Node,
-    bypassSnapping = false
+    bypassSnapping = false,
   ) {
     return resolveCanvasDragInteraction({
       bypassSnapping,
@@ -173,13 +179,13 @@ export function EditableElementNode(props: {
         y: node.y(),
         width: frame.width,
         height: frame.height,
-        rotation: node.rotation()
+        rotation: node.rotation(),
       },
       movingElementId: element.elementId,
       phase,
       selectedElementIds,
       snappingEnabled,
-      stageScale
+      stageScale,
     });
   }
 
@@ -188,11 +194,11 @@ export function EditableElementNode(props: {
       draggable={
         !disablePointerEvents &&
         !customShapeEditDraft &&
+        !tableCellEditing &&
         element.role !== "background"
       }
       listening={
-        !disablePointerEvents &&
-        (presentationState?.visible ?? element.visible)
+        !disablePointerEvents && (presentationState?.visible ?? element.visible)
       }
       orbitElementId={element.elementId}
       orbitElementRole={element.role}
@@ -215,7 +221,7 @@ export function EditableElementNode(props: {
         handlePointerSelect({
           ctrlKey: event.evt.ctrlKey,
           metaKey: event.evt.metaKey,
-          shiftKey: event.evt.shiftKey
+          shiftKey: event.evt.shiftKey,
         });
       }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
@@ -247,7 +253,7 @@ export function EditableElementNode(props: {
         const result = resolveDragInteraction(
           "move",
           event.currentTarget,
-          event.evt.altKey
+          event.evt.altKey,
         );
 
         if (!result.previewFrame) {
@@ -256,7 +262,7 @@ export function EditableElementNode(props: {
 
         event.currentTarget.position({
           x: result.previewFrame.x,
-          y: result.previewFrame.y
+          y: result.previewFrame.y,
         });
         setPreviewFrame(result.previewFrame);
         onChangeDragGuides(result.guides);
@@ -265,7 +271,7 @@ export function EditableElementNode(props: {
         const result = resolveDragInteraction(
           "end",
           event.currentTarget,
-          event.evt.altKey
+          event.evt.altKey,
         );
 
         setPreviewFrame(null);
@@ -280,7 +286,7 @@ export function EditableElementNode(props: {
 
         event.currentTarget.position({
           x: presentationState?.x ?? element.x,
-          y: presentationState?.y ?? element.y
+          y: presentationState?.y ?? element.y,
         });
         setPreviewFrame(result.previewFrame);
         onChangeDragGuides(result.guides);
@@ -326,12 +332,6 @@ export function EditableElementNode(props: {
         });
       }}
     >
-      <ElementInteractionHitTargets
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
       <Rect
         cornerRadius={10}
         dash={selectionDash}
@@ -349,6 +349,17 @@ export function EditableElementNode(props: {
         element={element}
         frame={frame}
         slide={slide}
+      />
+      <ElementInteractionHitTargets
+        deck={deck}
+        disabled={disablePointerEvents}
+        element={element}
+        frame={frame}
+        isSelected={isSelected}
+        onOpenContextMenu={onOpenContextMenu}
+        onSelect={onSelect}
+        slide={slide}
+        stageScale={stageScale}
       />
       {customShapeEditDraft && element.type === "customShape" ? (
         <CustomShapeEditOverlay
@@ -396,6 +407,7 @@ export function EditableElementNode(props: {
 
 function ElementInteractionHitTargets(props: {
   deck: Deck;
+  disabled: boolean;
   element: DeckElement;
   frame: {
     x: number;
@@ -404,9 +416,23 @@ function ElementInteractionHitTargets(props: {
     height: number;
     rotation: number;
   };
+  isSelected: boolean;
+  onOpenContextMenu: (clientX: number, clientY: number) => void;
+  onSelect: (modifiers: CanvasSelectionModifiers) => void;
   slide: Slide;
+  stageScale: number;
 }) {
-  const { deck, element, frame, slide } = props;
+  const {
+    deck,
+    disabled,
+    element,
+    frame,
+    isSelected,
+    onOpenContextMenu,
+    onSelect,
+    slide,
+    stageScale,
+  } = props;
   const hitFill = "rgba(15, 23, 42, 0.001)";
 
   if (element.type === "group") {
@@ -459,6 +485,22 @@ function ElementInteractionHitTargets(props: {
         y={textLayout.y}
         width={Math.max(24, textLayout.contentWidth)}
         height={Math.max(1, textLayout.contentHeight)}
+      />
+    );
+  }
+
+  if (element.type === "table") {
+    return (
+      <TableCellHitTargets
+        deck={deck}
+        disabled={disabled}
+        element={element}
+        frame={frame}
+        isSelected={isSelected}
+        slide={slide}
+        stageScale={stageScale}
+        onOpenContextMenu={onOpenContextMenu}
+        onSelect={onSelect}
       />
     );
   }

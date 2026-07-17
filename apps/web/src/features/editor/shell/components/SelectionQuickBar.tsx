@@ -36,6 +36,7 @@ import {
 } from "../../canvas/text/textLayout";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import type { OoxmlEditCapability } from "../editorOoxmlCapabilities";
+import { useEditorShellUiStore } from "../editorShellUiStore";
 import { buildAnimationSummary } from "./animation";
 import { IdBadge } from "./EditorIdBadge";
 
@@ -285,15 +286,23 @@ export function SelectionQuickBar(props: {
         </div>
       ) : null}
       <div className="selection-quickbar-fields">
-        <CapabilityFieldset capability={elementPropertiesCapability}>
-          <ElementQuickBarFields
-            customShapeEditActive={customShapeEditActive}
+        {element.type === "table" ? (
+          <TableQuickBarFields
+            capability={elementPropertiesCapability}
             element={element}
             onChangeProps={onChangeProps}
-            onToggleCustomShapeClosed={onToggleCustomShapeClosed}
-            onToggleCustomShapeEdit={onToggleCustomShapeEdit}
           />
-        </CapabilityFieldset>
+        ) : (
+          <CapabilityFieldset capability={elementPropertiesCapability}>
+            <ElementQuickBarFields
+              customShapeEditActive={customShapeEditActive}
+              element={element}
+              onChangeProps={onChangeProps}
+              onToggleCustomShapeClosed={onToggleCustomShapeClosed}
+              onToggleCustomShapeEdit={onToggleCustomShapeEdit}
+            />
+          </CapabilityFieldset>
+        )}
         {imageCropActionState.visible ? (
           <button
             aria-describedby={
@@ -447,6 +456,72 @@ function CapabilityFieldset(props: {
         </span>
       ) : null}
     </fieldset>
+  );
+}
+
+function TableQuickBarFields(props: {
+  capability: OoxmlEditCapability | null | undefined;
+  element: Extract<DeckElement, { type: "table" }>;
+  onChangeProps: (props: Record<string, unknown>) => void;
+}) {
+  const activeTableCell = useEditorShellUiStore(
+    (state) => state.activeTableCell,
+  );
+  const setEditingElementId = useEditorShellUiStore(
+    (state) => state.setEditingElementId,
+  );
+  const tableProps = props.element.props as TableElementProps;
+  const selectedCell =
+    activeTableCell?.elementId === props.element.elementId
+      ? activeTableCell
+      : null;
+  const editDisabledReason = selectedCell
+    ? selectedCell.cellEditDisabledReason
+    : "편집할 셀을 먼저 선택하세요.";
+  const reasonId = `table-cell-edit-reason-${props.element.elementId}`;
+
+  return (
+    <>
+      <button
+        aria-describedby={editDisabledReason ? reasonId : undefined}
+        className="quickbar-action-chip"
+        disabled={Boolean(editDisabledReason)}
+        title={editDisabledReason ?? "선택한 셀 편집"}
+        type="button"
+        onClick={() => setEditingElementId(props.element.elementId)}
+      >
+        셀 편집
+      </button>
+      {selectedCell ? (
+        <span className="quickbar-inline-hint">
+          {selectedCell.rowIndex + 1}행 {selectedCell.columnIndex + 1}열
+        </span>
+      ) : null}
+      {editDisabledReason ? (
+        <span
+          className="quickbar-inline-hint quickbar-inline-hint-warning"
+          id={reasonId}
+          role="status"
+        >
+          {editDisabledReason}
+        </span>
+      ) : null}
+      <CapabilityFieldset capability={props.capability}>
+        <PropertyColorField
+          className="compact-property-field compact-property-field-color"
+          label="선"
+          value={tableProps.borderColor ?? "#CBD5E1"}
+          onCommit={(value) => props.onChangeProps({ borderColor: value })}
+        />
+        <PropertyNumberField
+          className="compact-property-field compact-property-field-sm"
+          label="선두께"
+          min={0}
+          onCommit={(value) => props.onChangeProps({ borderWidth: value })}
+          value={tableProps.borderWidth ?? 1}
+        />
+      </CapabilityFieldset>
+    </>
   );
 }
 
@@ -681,46 +756,6 @@ function ElementQuickBarFields(props: {
           value={imageProps.focusY ?? 0.5}
           onCommit={(value) => onChangeProps({ focusY: clampUnit(value) })}
         />
-      </>
-    );
-  }
-
-  if (element.type === "table") {
-    const tableProps = element.props as TableElementProps;
-
-    return (
-      <>
-        <PropertyTextAreaField
-          className="compact-property-field compact-property-field-table"
-          label="표 내용"
-          value={tableDataDraft(tableProps)}
-          onCommit={(value) =>
-            onChangeProps(
-              parseTableDataDraft(
-                value,
-                tableProps,
-                element.width,
-                element.height,
-              ),
-            )
-          }
-        />
-        <PropertyColorField
-          className="compact-property-field compact-property-field-color"
-          label="선"
-          value={tableProps.borderColor ?? "#CBD5E1"}
-          onCommit={(value) => onChangeProps({ borderColor: value })}
-        />
-        <PropertyNumberField
-          className="compact-property-field compact-property-field-sm"
-          label="선두께"
-          min={0}
-          onCommit={(value) => onChangeProps({ borderWidth: value })}
-          value={tableProps.borderWidth ?? 1}
-        />
-        <span className="quickbar-inline-hint">
-          행은 줄바꿈, 셀은 탭으로 구분합니다.
-        </span>
       </>
     );
   }
@@ -1277,43 +1312,6 @@ function PropertyTextField(props: {
         onChange={(event) => setDraftValue(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
-            commitValue(event.currentTarget.value);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </label>
-  );
-}
-
-function PropertyTextAreaField(props: {
-  className?: string;
-  label: string;
-  value: string;
-  onCommit: (value: string) => void;
-}) {
-  const { className, label, onCommit, value } = props;
-  const [draftValue, setDraftValue] = useState(value);
-
-  useEffect(() => {
-    setDraftValue(value);
-  }, [value]);
-
-  function commitValue(nextValue: string) {
-    onCommit(nextValue);
-    setDraftValue(nextValue);
-  }
-
-  return (
-    <label className={["property-field", className].filter(Boolean).join(" ")}>
-      <span>{label}</span>
-      <textarea
-        rows={2}
-        value={draftValue}
-        onBlur={(event) => commitValue(event.target.value)}
-        onChange={(event) => setDraftValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             commitValue(event.currentTarget.value);
             event.currentTarget.blur();
           }

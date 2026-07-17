@@ -1,0 +1,21 @@
+.table-cell-editor-overlay {
+  position: absolute;
+  z-index: 7;
+  box-sizing: border-box;
+  min-width: 1px;
+  min-height: 1px;
+  resize: none;
+  padding: 6px;
+  border: 2px solid var(--blue, #2563eb);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.98);
+  caret-color: var(--ink, #111827);
+  line-height: 1.2;
+  outline: 0;
+  overflow: auto;
+  transform-origin: top left;
+}
+
+.table-cell-editor-overlay:focus-visible {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+}

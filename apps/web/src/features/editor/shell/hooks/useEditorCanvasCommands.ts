@@ -6,11 +6,15 @@ import {
   createGroupedElementFramePatch,
   createSlideId,
   getGroupChildElements,
-  getGroupedSelectionBounds
+  getGroupedSelectionBounds,
+  createTableOperationPatch,
+  getTableOperationCapability,
+  getTableStructureCapability,
+  type TableOperation,
 } from "../../../../../../../packages/editor-core/src/index";
 import {
   createElementFramePatch,
-  normalizeElementFrameDraft
+  normalizeElementFrameDraft,
 } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import type {
   CustomShapeNode,
@@ -19,9 +23,9 @@ import type {
   DeckElementRole,
   DeckPatch,
   GroupElementProps,
-  Slide
+  Slide,
 } from "@orbit/shared";
-import { useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 
 import { normalizeCustomShapeAbsoluteGeometry } from "../../canvas/custom-shape/geometry";
 import type { ShapeInsertType } from "../components/EditorContextMenus";
@@ -29,11 +33,14 @@ import { resolveOoxmlEditCapability } from "../editorOoxmlCapabilities";
 import type {
   EditorShellUiUpdater,
   ElementContextMenuState,
-  InsertTool
+  InsertTool,
+  TableCellTarget,
+  TableContextAction,
 } from "../editorShellUiStore";
+import { useEditorShellUiStore } from "../editorShellUiStore";
 import {
   getContextMenuPosition,
-  getNextElementZIndex
+  getNextElementZIndex,
 } from "../utils/editorLayout";
 import type { PatchProducer } from "./useEditorPersistenceState";
 
@@ -52,33 +59,203 @@ export type ElementFrameChange = {
 type ClipboardState = { element: DeckElement; pasteCount: number };
 type CommitPatch = (
   patch: DeckPatch | PatchProducer,
-  baseDeck?: Deck
+  baseDeck?: Deck,
 ) => boolean;
+
+type TableElement = Extract<DeckElement, { type: "table" }>;
+type TableActionState =
+  | { enabled: true; reason: null }
+  | { enabled: false; reason: string };
+
+export type TableContextActionStates = Record<
+  TableContextAction | "cellText",
+  TableActionState
+>;
+
+const tableDisabledReasonLabels = {
+  "cell-out-of-bounds": "선택한 셀을 찾을 수 없습니다.",
+  "column-index-out-of-bounds": "선택한 열을 찾을 수 없습니다.",
+  "column-track-mismatch": "열 너비 정보가 표 구조와 일치하지 않습니다.",
+  "empty-grid": "비어 있는 표는 셀을 편집할 수 없습니다.",
+  "jagged-grid": "행마다 셀 수가 다른 표는 안전하게 편집할 수 없습니다.",
+  "last-column": "마지막 열은 삭제할 수 없습니다.",
+  "last-row": "마지막 행은 삭제할 수 없습니다.",
+  "merged-cells": "병합된 셀이 있는 표는 구조를 안전하게 편집할 수 없습니다.",
+  "row-index-out-of-bounds": "선택한 행을 찾을 수 없습니다.",
+  "row-track-mismatch": "행 높이 정보가 표 구조와 일치하지 않습니다.",
+  "table-element-not-found": "편집할 표를 찾지 못했습니다.",
+  "table-element-type-mismatch": "선택한 요소가 표가 아닙니다.",
+} as const;
+
+export function getTableContextActionStates(args: {
+  deck: Deck;
+  element: TableElement;
+}): TableContextActionStates {
+  const structure = getTableStructureCapability(args.element.props);
+  const cellCapability = structure.enabled
+    ? resolveOoxmlEditCapability({
+        deck: args.deck,
+        element: args.element,
+        feature: "table-cell-text",
+      })
+    : {
+        enabled: false,
+        reason:
+          tableDisabledReasonLabels[structure.reason] ??
+          "이 표의 셀 구조를 안전하게 편집할 수 없습니다.",
+      };
+  let structureDisabledReason: string | null = structure.enabled
+    ? null
+    : (tableDisabledReasonLabels[structure.reason] ??
+      "이 표의 행과 열을 안전하게 편집할 수 없습니다.");
+
+  if (!structureDisabledReason && args.deck.metadata.sourceType === "import") {
+    if (args.element.ooxmlOrigin === "imported") {
+      structureDisabledReason =
+        "가져온 표의 행과 열 구조는 원본 OOXML 보존을 위해 편집할 수 없습니다.";
+    } else {
+      const capability = resolveOoxmlEditCapability({
+        deck: args.deck,
+        element: args.element,
+        feature: "element-properties",
+      });
+      if (!capability.enabled) {
+        structureDisabledReason =
+          capability.reason ??
+          "이 표의 행과 열 구조를 OOXML에 안전하게 저장할 수 없습니다.";
+      }
+    }
+  }
+
+  const structuralState: TableActionState = structureDisabledReason
+    ? { enabled: false, reason: structureDisabledReason }
+    : { enabled: true, reason: null };
+  const deleteRowState = structureDisabledReason
+    ? structuralState
+    : tableOperationState(
+        getTableOperationCapability(args.element.props, {
+          index: 0,
+          type: "delete_row",
+        }),
+      );
+  const deleteColumnState = structureDisabledReason
+    ? structuralState
+    : tableOperationState(
+        getTableOperationCapability(args.element.props, {
+          index: 0,
+          type: "delete_column",
+        }),
+      );
+
+  return {
+    cellText: cellCapability.enabled
+      ? { enabled: true, reason: null }
+      : {
+          enabled: false,
+          reason:
+            cellCapability.reason ??
+            "이 표의 셀 텍스트를 OOXML에 안전하게 저장할 수 없습니다.",
+        },
+    deleteColumn: deleteColumnState,
+    deleteRow: deleteRowState,
+    insertColumnLeft: structuralState,
+    insertColumnRight: structuralState,
+    insertRowAbove: structuralState,
+    insertRowBelow: structuralState,
+  };
+}
+
+export function createTableUiOperationPatch(args: {
+  deck: Deck;
+  elementId: string;
+  operation: TableOperation;
+  slideId: string;
+}) {
+  return createTableOperationPatch(
+    args.deck,
+    args.slideId,
+    args.elementId,
+    args.operation,
+  );
+}
+
+function tableOperationState(
+  capability: ReturnType<typeof getTableOperationCapability>,
+): TableActionState {
+  return capability.enabled
+    ? { enabled: true, reason: null }
+    : {
+        enabled: false,
+        reason:
+          tableDisabledReasonLabels[capability.reason] ??
+          "이 표 작업을 안전하게 실행할 수 없습니다.",
+      };
+}
+
+function tableOperationForContextAction(
+  action: TableContextAction,
+  rowIndex: number,
+  columnIndex: number,
+): TableOperation {
+  switch (action) {
+    case "insertRowAbove":
+      return { index: rowIndex, type: "insert_row" };
+    case "insertRowBelow":
+      return { index: rowIndex + 1, type: "insert_row" };
+    case "insertColumnLeft":
+      return { index: columnIndex, type: "insert_column" };
+    case "insertColumnRight":
+      return { index: columnIndex + 1, type: "insert_column" };
+    case "deleteRow":
+      return { index: rowIndex, type: "delete_row" };
+    case "deleteColumn":
+      return { index: columnIndex, type: "delete_column" };
+  }
+}
+
+function nextTableCellTarget(
+  target: TableCellTarget,
+  action: TableContextAction,
+): TableCellTarget {
+  if (action === "insertRowAbove") {
+    return { ...target, rowIndex: target.rowIndex + 1 };
+  }
+  if (action === "insertColumnLeft") {
+    return { ...target, columnIndex: target.columnIndex + 1 };
+  }
+  if (action === "deleteRow") {
+    return { ...target, rowIndex: Math.max(0, target.rowIndex - 1) };
+  }
+  if (action === "deleteColumn") {
+    return { ...target, columnIndex: Math.max(0, target.columnIndex - 1) };
+  }
+  return target;
+}
 
 export function resolveProposedElementAddCapability(
   deck: Deck,
   slide: Slide | null,
-  element: DeckElement
+  element: DeckElement,
 ) {
   if (deck.metadata.sourceType !== "import") {
     return resolveOoxmlEditCapability({
       deck,
       element,
       feature: "add-element",
-      slide
+      slide,
     });
   }
 
   const authoredElement = {
     ...element,
-    ooxmlOrigin: "authored" as const
+    ooxmlOrigin: "authored" as const,
   };
   delete authoredElement.ooxmlEditCapabilities;
   return resolveOoxmlEditCapability({
     deck,
     element: authoredElement,
     feature: "add-element",
-    slide
+    slide,
   });
 }
 
@@ -86,12 +263,12 @@ export function resolveEditorAddElementCapabilities(deck: Deck, slide: Slide) {
   const text = createTextElementDraft(
     deck,
     slide,
-    "el_text_insert_capability_probe"
+    "el_text_insert_capability_probe",
   );
   const chart = createChartElementDraft(
     deck,
     slide,
-    "el_chart_insert_capability_probe"
+    "el_chart_insert_capability_probe",
   );
   const shapes = Object.fromEntries(
     (
@@ -103,7 +280,7 @@ export function resolveEditorAddElementCapabilities(deck: Deck, slide: Slide) {
         "triangle",
         "polygon",
         "star",
-        "customShape"
+        "customShape",
       ] as const
     ).map((shapeType) => [
       shapeType,
@@ -113,10 +290,10 @@ export function resolveEditorAddElementCapabilities(deck: Deck, slide: Slide) {
         createShapeElementDraft(
           slide,
           `el_${shapeType}_insert_capability_probe`,
-          shapeType
-        )
-      )
-    ])
+          shapeType,
+        ),
+      ),
+    ]),
   ) as Record<
     ShapeInsertType,
     ReturnType<typeof resolveProposedElementAddCapability>
@@ -125,26 +302,26 @@ export function resolveEditorAddElementCapabilities(deck: Deck, slide: Slide) {
   return {
     chart: resolveProposedElementAddCapability(deck, slide, chart),
     shapes,
-    text: resolveProposedElementAddCapability(deck, slide, text)
+    text: resolveProposedElementAddCapability(deck, slide, text),
   };
 }
 
 export function resolveGroupCreationCapability(
   deck: Deck,
   slide: Slide,
-  elements: DeckElement[]
+  elements: DeckElement[],
 ) {
   return resolveProposedElementAddCapability(
     deck,
     slide,
-    createGroupElementDraft(deck, elements)
+    createGroupElementDraft(deck, elements),
   );
 }
 
 function createTextElementDraft(
   deck: Deck,
   slide: Slide,
-  elementId: string
+  elementId: string,
 ): DeckElement {
   return {
     elementId,
@@ -168,15 +345,15 @@ function createTextElementDraft(
       color: slide.style.textColor ?? deck.theme.textColor,
       align: "left",
       verticalAlign: "top",
-      lineHeight: 1.2
-    }
+      lineHeight: 1.2,
+    },
   };
 }
 
 function createChartElementDraft(
   deck: Deck,
   slide: Slide,
-  elementId: string
+  elementId: string,
 ): DeckElement {
   return {
     elementId,
@@ -197,7 +374,7 @@ function createChartElementDraft(
       data: [
         { label: "A", value: 48 },
         { label: "B", value: 72 },
-        { label: "C", value: 56 }
+        { label: "C", value: 56 },
       ],
       style: {
         colors: ["#2563eb", "#0ea5e9", "#7c3aed"],
@@ -214,16 +391,16 @@ function createChartElementDraft(
         showGrid: true,
         xAxisTitle: "",
         yAxisTitle: "",
-        unit: ""
-      }
-    }
+        unit: "",
+      },
+    },
   };
 }
 
 function createShapeElementDraft(
   slide: Slide,
   elementId: string,
-  shapeType: ShapeInsertType
+  shapeType: ShapeInsertType,
 ): DeckElement {
   const frames: Record<
     ShapeInsertType,
@@ -236,7 +413,7 @@ function createShapeElementDraft(
     triangle: { x: 260, y: 220, width: 180, height: 180 },
     polygon: { x: 260, y: 220, width: 180, height: 180 },
     star: { x: 260, y: 220, width: 180, height: 180 },
-    customShape: { x: 260, y: 220, width: 220, height: 160 }
+    customShape: { x: 260, y: 220, width: 220, height: 160 },
   };
   const frame = frames[shapeType];
   const common = {
@@ -253,7 +430,7 @@ function createShapeElementDraft(
     opacity: 1,
     zIndex: getNextElementZIndex(slide.elements),
     locked: false,
-    visible: true
+    visible: true,
   };
 
   if (shapeType === "customShape") {
@@ -268,8 +445,8 @@ function createShapeElementDraft(
         stroke: "#9333ea",
         strokeWidth: 2,
         viewBoxHeight: 1,
-        viewBoxWidth: 1
-      }
+        viewBoxWidth: 1,
+      },
     };
   }
 
@@ -288,19 +465,19 @@ function createShapeElementDraft(
         ? { sides: 3 }
         : shapeType === "polygon"
           ? { sides: 6 }
-          : {})
-    }
+          : {}),
+    },
   };
 }
 
 function createGroupElementDraft(
   deck: Deck,
-  elements: DeckElement[]
+  elements: DeckElement[],
 ): DeckElement {
   const bounds = getGroupedSelectionBounds(elements);
   const highestZIndex = elements.reduce(
     (highest, element) => Math.max(highest, element.zIndex),
-    0
+    0,
   );
   return {
     elementId: createElementId(deck),
@@ -316,8 +493,8 @@ function createGroupElementDraft(
     locked: false,
     visible: true,
     props: {
-      childElementIds: elements.map((element) => element.elementId)
-    }
+      childElementIds: elements.map((element) => element.elementId),
+    },
   };
 }
 
@@ -332,11 +509,11 @@ export function useEditorCanvasCommands(args: {
   selectedElements: DeckElement[];
   setCurrentSlideIndex: (index: number) => void;
   setCustomShapeEditElementId: (
-    updater: EditorShellUiUpdater<string | null>
+    updater: EditorShellUiUpdater<string | null>,
   ) => void;
   setEditingElementId: (updater: EditorShellUiUpdater<string | null>) => void;
   setElementContextMenu: (
-    updater: EditorShellUiUpdater<ElementContextMenuState | null>
+    updater: EditorShellUiUpdater<ElementContextMenuState | null>,
   ) => void;
   setInsertTool: (updater: EditorShellUiUpdater<InsertTool>) => void;
   setIsShapeMenuOpen: (updater: EditorShellUiUpdater<boolean>) => void;
@@ -345,22 +522,97 @@ export function useEditorCanvasCommands(args: {
   workingDeckRef: MutableRefObject<Deck>;
 }) {
   const copiedElementRef = useRef<ClipboardState | null>(null);
+  const tableOperationRequest = useEditorShellUiStore(
+    (state) => state.tableOperationRequest,
+  );
+
+  useEffect(() => {
+    if (!tableOperationRequest) return;
+    useEditorShellUiStore.getState().setTableOperationRequest(null);
+
+    const activeDeck = args.workingDeckRef.current;
+    const slide = activeDeck.slides.find(
+      (candidate) => candidate.slideId === tableOperationRequest.slideId,
+    );
+    const element = slide?.elements.find(
+      (candidate) => candidate.elementId === tableOperationRequest.elementId,
+    );
+    if (!slide || !element || element.type !== "table") {
+      args.setLastPatchLabel("편집할 표를 찾지 못했습니다.");
+      return;
+    }
+
+    const actionStates = getTableContextActionStates({
+      deck: activeDeck,
+      element,
+    });
+    const actionState =
+      tableOperationRequest.action === "updateCellText"
+        ? actionStates.cellText
+        : actionStates[tableOperationRequest.action];
+    if (!actionState.enabled) {
+      args.setLastPatchLabel(actionState.reason);
+      return;
+    }
+
+    const operation: TableOperation =
+      tableOperationRequest.action === "updateCellText"
+        ? {
+            columnIndex: tableOperationRequest.columnIndex,
+            rowIndex: tableOperationRequest.rowIndex,
+            text: tableOperationRequest.text,
+            type: "update_cell_text",
+          }
+        : tableOperationForContextAction(
+            tableOperationRequest.action,
+            tableOperationRequest.rowIndex,
+            tableOperationRequest.columnIndex,
+          );
+    const result = createTableUiOperationPatch({
+      deck: activeDeck,
+      elementId: element.elementId,
+      operation,
+      slideId: slide.slideId,
+    });
+    if (!result.ok) {
+      args.setLastPatchLabel(
+        tableDisabledReasonLabels[result.reason] ??
+          "표 편집 작업을 적용하지 못했습니다.",
+      );
+      return;
+    }
+    if (!args.commitPatch(result.patch)) return;
+
+    const currentTarget = useEditorShellUiStore.getState().activeTableCell;
+    if (
+      tableOperationRequest.action !== "updateCellText" &&
+      currentTarget?.slideId === slide.slideId &&
+      currentTarget.elementId === element.elementId
+    ) {
+      useEditorShellUiStore
+        .getState()
+        .setActiveTableCell(
+          nextTableCellTarget(currentTarget, tableOperationRequest.action),
+        );
+    }
+    args.setElementContextMenu(null);
+  }, [tableOperationRequest]);
 
   function commitAddedElement(slideId: string, element: DeckElement) {
     const activeDeck = args.workingDeckRef.current;
     const capability = resolveProposedElementAddCapability(
       activeDeck,
       activeDeck.slides.find((slide) => slide.slideId === slideId) ?? null,
-      element
+      element,
     );
     if (!capability.enabled) {
       args.setLastPatchLabel(
-        capability.reason ?? "이 요소를 PPTX에 안전하게 추가할 수 없습니다."
+        capability.reason ?? "이 요소를 PPTX에 안전하게 추가할 수 없습니다.",
       );
       return false;
     }
     return args.commitPatch((currentDeck) =>
-      createAddElementPatch(currentDeck, slideId, element)
+      createAddElementPatch(currentDeck, slideId, element),
     );
   }
 
@@ -370,7 +622,7 @@ export function useEditorCanvasCommands(args: {
     const element = createTextElementDraft(
       args.deck,
       args.currentSlide,
-      elementId
+      elementId,
     );
     if (!commitAddedElement(args.currentSlide.slideId, element)) return;
     args.setSelectedElementIds([elementId]);
@@ -384,7 +636,7 @@ export function useEditorCanvasCommands(args: {
     const element = createChartElementDraft(
       args.deck,
       args.currentSlide,
-      elementId
+      elementId,
     );
     if (!commitAddedElement(args.currentSlide.slideId, element)) return;
     args.setSelectedElementIds([elementId]);
@@ -404,7 +656,7 @@ export function useEditorCanvasCommands(args: {
     const nextElement = createShapeElementDraft(
       args.currentSlide,
       elementId,
-      shapeType
+      shapeType,
     );
     if (!commitAddedElement(args.currentSlide.slideId, nextElement)) return;
     args.setSelectedElementIds([elementId]);
@@ -416,12 +668,12 @@ export function useEditorCanvasCommands(args: {
     const capability = resolveOoxmlEditCapability({
       deck: args.workingDeckRef.current,
       feature: "add-slide",
-      slide: args.currentSlide
+      slide: args.currentSlide,
     });
     if (!capability.enabled) {
       args.setLastPatchLabel(
         capability.reason ??
-          "이 Deck에는 슬라이드를 안전하게 추가할 수 없습니다."
+          "이 Deck에는 슬라이드를 안전하게 추가할 수 없습니다.",
       );
       return;
     }
@@ -441,7 +693,7 @@ export function useEditorCanvasCommands(args: {
           layout: "title-content",
           backgroundColor: currentDeck.theme.backgroundColor,
           textColor: currentDeck.theme.textColor,
-          accentColor: currentDeck.theme.accentColor
+          accentColor: currentDeck.theme.accentColor,
         },
         speakerNotes: "",
         keywords: [],
@@ -468,12 +720,12 @@ export function useEditorCanvasCommands(args: {
               color: currentDeck.theme.textColor,
               align: "left",
               verticalAlign: "top",
-              lineHeight: 1.1
-            }
-          }
+              lineHeight: 1.1,
+            },
+          },
         ],
         animations: [],
-        actions: []
+        actions: [],
       });
     });
     if (!committed) return;
@@ -485,27 +737,27 @@ export function useEditorCanvasCommands(args: {
     if (!args.currentSlide || args.selectedElementIds.length === 0) return;
     const currentDeck = args.workingDeckRef.current;
     const currentSlide = currentDeck.slides.find(
-      (candidate) => candidate.slideId === args.currentSlide!.slideId
+      (candidate) => candidate.slideId === args.currentSlide!.slideId,
     );
     const deniedCapability = args.selectedElementIds
       .map((elementId) =>
         currentSlide?.elements.find(
-          (candidate) => candidate.elementId === elementId
-        )
+          (candidate) => candidate.elementId === elementId,
+        ),
       )
       .filter((element): element is DeckElement => Boolean(element))
       .map((element) =>
         resolveOoxmlEditCapability({
           deck: currentDeck,
           element,
-          feature: "delete-element"
-        })
+          feature: "delete-element",
+        }),
       )
       .find((capability) => !capability.enabled);
     if (deniedCapability) {
       args.setLastPatchLabel(
         deniedCapability.reason ??
-          "이 요소를 PPTX에서 안전하게 삭제할 수 없습니다."
+          "이 요소를 PPTX에서 안전하게 삭제할 수 없습니다.",
       );
       return;
     }
@@ -517,8 +769,8 @@ export function useEditorCanvasCommands(args: {
       operations: args.selectedElementIds.map((elementId) => ({
         type: "delete_element" as const,
         slideId: args.currentSlide!.slideId,
-        elementId
-      }))
+        elementId,
+      })),
     }));
     args.setSelectedElementIds([]);
     args.setEditingElementId(null);
@@ -531,7 +783,7 @@ export function useEditorCanvasCommands(args: {
     const nextZIndex =
       args.currentSlide.elements.reduce(
         (highest, element) => Math.max(highest, element.zIndex),
-        0
+        0,
       ) + 1;
     const offset = 24 * offsetMultiplier;
     const element: DeckElement = {
@@ -539,7 +791,7 @@ export function useEditorCanvasCommands(args: {
       elementId: nextElementId,
       x: sourceElement.x + offset,
       y: sourceElement.y + offset,
-      zIndex: nextZIndex
+      zIndex: nextZIndex,
     };
     if (!commitAddedElement(args.currentSlide.slideId, element)) return null;
     args.setSelectedElementIds([nextElementId]);
@@ -554,11 +806,11 @@ export function useEditorCanvasCommands(args: {
     const capability = resolveOoxmlEditCapability({
       deck: args.workingDeckRef.current,
       element: args.selectedElement,
-      feature: "duplicate-element"
+      feature: "duplicate-element",
     });
     if (!capability.enabled) {
       args.setLastPatchLabel(
-        capability.reason ?? "OOXML 복제를 지원하지 않습니다."
+        capability.reason ?? "OOXML 복제를 지원하지 않습니다.",
       );
       return;
     }
@@ -566,7 +818,7 @@ export function useEditorCanvasCommands(args: {
       const duplicated = createDuplicateElementPatch(
         args.workingDeckRef.current,
         args.currentSlide.slideId,
-        args.selectedElement.elementId
+        args.selectedElement.elementId,
       );
       if (!duplicated || !args.commitPatch(duplicated.patch)) return;
       args.setSelectedElementIds([duplicated.duplicateElementId]);
@@ -582,7 +834,7 @@ export function useEditorCanvasCommands(args: {
     args.setElementContextMenu(null);
     copiedElementRef.current = {
       element: structuredClone(args.selectedElement),
-      pasteCount: 0
+      pasteCount: 0,
     };
   }
 
@@ -604,7 +856,7 @@ export function useEditorCanvasCommands(args: {
           y: number;
           width: number;
           height: number;
-        }
+        },
   ) {
     if (!args.currentSlide) return;
     const elementId = createElementId(args.deck);
@@ -633,8 +885,8 @@ export function useEditorCanvasCommands(args: {
             args.currentSlide!.style.textColor ?? args.deck.theme.textColor,
           align: "left",
           verticalAlign: "top",
-          lineHeight: 1.2
-        }
+          lineHeight: 1.2,
+        },
       };
       if (!commitAddedElement(args.currentSlide.slideId, element)) return;
       args.setEditingElementId(elementId);
@@ -656,8 +908,8 @@ export function useEditorCanvasCommands(args: {
           fill: draft.type === "line" ? "transparent" : "#dbeafe",
           stroke: "#2563eb",
           strokeWidth: 3,
-          borderRadius: 18
-        }
+          borderRadius: 18,
+        },
       };
       if (!commitAddedElement(args.currentSlide.slideId, element)) return;
     }
@@ -693,8 +945,8 @@ export function useEditorCanvasCommands(args: {
         strokeWidth: 2,
         viewBoxWidth: geometry.props.viewBoxWidth,
         viewBoxHeight: geometry.props.viewBoxHeight,
-        pathData: geometry.props.pathData
-      }
+        pathData: geometry.props.pathData,
+      },
     };
     if (!commitAddedElement(args.currentSlide.slideId, element)) {
       args.setInsertTool("select");
@@ -709,13 +961,13 @@ export function useEditorCanvasCommands(args: {
     slideId: string,
     elementId: string,
     nodes: CustomShapeNode[],
-    closed: boolean
+    closed: boolean,
   ) {
     const slide = args.deck.slides.find(
-      (candidate) => candidate.slideId === slideId
+      (candidate) => candidate.slideId === slideId,
     );
     const element = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
     if (
       !slide ||
@@ -727,12 +979,12 @@ export function useEditorCanvasCommands(args: {
     const capability = resolveOoxmlEditCapability({
       deck: args.workingDeckRef.current,
       element,
-      feature: "element-properties"
+      feature: "element-properties",
     });
     if (!capability.enabled) {
       args.setLastPatchLabel(
         capability.reason ??
-          "이 요소의 도형 속성을 안전하게 저장할 수 없습니다."
+          "이 요소의 도형 속성을 안전하게 저장할 수 없습니다.",
       );
       return;
     }
@@ -749,8 +1001,8 @@ export function useEditorCanvasCommands(args: {
           frame: normalizeElementFrameDraft(
             currentDeck.canvas,
             element,
-            geometry.frame
-          )
+            geometry.frame,
+          ),
         },
         {
           type: "update_element_props",
@@ -761,39 +1013,39 @@ export function useEditorCanvasCommands(args: {
             nodes: geometry.props.nodes,
             pathData: geometry.props.pathData,
             viewBoxWidth: geometry.props.viewBoxWidth,
-            viewBoxHeight: geometry.props.viewBoxHeight
-          }
-        }
-      ]
+            viewBoxHeight: geometry.props.viewBoxHeight,
+          },
+        },
+      ],
     }));
   }
 
   function changeElementFrame(
     slideId: string,
     elementId: string,
-    frame: ElementFrameChange
+    frame: ElementFrameChange,
   ) {
     const slide = args.deck.slides.find(
-      (candidate) => candidate.slideId === slideId
+      (candidate) => candidate.slideId === slideId,
     );
     const element = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
     if (!slide || !element) return;
     const feature = Object.keys(frame).some((key) =>
-      ["opacity", "role", "visible"].includes(key)
+      ["opacity", "role", "visible"].includes(key),
     )
       ? "element-appearance"
       : "element-frame";
     const capability = resolveOoxmlEditCapability({
       deck: args.workingDeckRef.current,
       element,
-      feature
+      feature,
     });
     if (!capability.enabled) {
       args.setLastPatchLabel(
         capability.reason ??
-          "이 요소 변경을 PPTX에 안전하게 저장할 수 없습니다."
+          "이 요소 변경을 PPTX에 안전하게 저장할 수 없습니다.",
       );
       return;
     }
@@ -804,23 +1056,20 @@ export function useEditorCanvasCommands(args: {
               currentDeck,
               slideId,
               elementId,
-              frame
+              frame,
             )
-          : createElementFramePatch(currentDeck, slideId, elementId, frame)
+          : createElementFramePatch(currentDeck, slideId, elementId, frame),
       );
     } catch (error) {
       args.setLastPatchLabel(
-        error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown"
+        error instanceof Error ? `실패 · ${error.message}` : "실패 · unknown",
       );
     }
   }
 
   function createGroupFromSelection() {
     if (!args.currentSlide || args.selectedElements.length < 2) return;
-    const element = createGroupElementDraft(
-      args.deck,
-      args.selectedElements
-    );
+    const element = createGroupElementDraft(args.deck, args.selectedElements);
     const elementId = element.elementId;
     if (!commitAddedElement(args.currentSlide.slideId, element)) return;
     args.setElementContextMenu(null);
@@ -831,39 +1080,39 @@ export function useEditorCanvasCommands(args: {
 
   function ungroupElement(slideId: string, elementId: string) {
     const slide = args.deck.slides.find(
-      (candidate) => candidate.slideId === slideId
+      (candidate) => candidate.slideId === slideId,
     );
     const groupElement = slide?.elements.find(
-      (candidate) => candidate.elementId === elementId
+      (candidate) => candidate.elementId === elementId,
     );
     if (!slide || !groupElement || groupElement.type !== "group") return;
     const capability = resolveOoxmlEditCapability({
       deck: args.workingDeckRef.current,
       element: groupElement,
-      feature: "delete-element"
+      feature: "delete-element",
     });
     if (!capability.enabled) {
       args.setLastPatchLabel(
-        capability.reason ?? "이 그룹을 PPTX에서 안전하게 해제할 수 없습니다."
+        capability.reason ?? "이 그룹을 PPTX에서 안전하게 해제할 수 없습니다.",
       );
       return;
     }
     const groupProps = groupElement.props as GroupElementProps;
     const childElements = getGroupChildElements(
       slide,
-      groupProps.childElementIds
+      groupProps.childElementIds,
     );
     args.commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
       baseVersion: currentDeck.version,
       source: "user",
-      operations: [{ type: "delete_element", slideId, elementId }]
+      operations: [{ type: "delete_element", slideId, elementId }],
     }));
     args.setElementContextMenu(null);
     args.setEditingElementId(null);
     args.setCustomShapeEditElementId(null);
     args.setSelectedElementIds(
-      childElements.map((element) => element.elementId)
+      childElements.map((element) => element.elementId),
     );
   }
 
@@ -881,21 +1130,23 @@ export function useEditorCanvasCommands(args: {
     slideId: string;
   }) {
     const isSelectedElement = args.selectedElementIds.includes(
-      input.element.elementId
+      input.element.elementId,
     );
     const isGroupingTarget =
       isSelectedElement && args.selectedElementIds.length > 1;
+    const isTableCellTarget = input.element.type === "table";
     if (
       !isGroupingTarget &&
       input.element.type !== "image" &&
-      input.element.type !== "group"
+      input.element.type !== "group" &&
+      !isTableCellTarget
     )
       return;
     const { left, top } = getContextMenuPosition({
       clientX: input.clientX,
       clientY: input.clientY,
-      height: 60,
-      width: 196
+      height: isTableCellTarget ? 304 : 60,
+      width: 196,
     });
     args.setEditingElementId(null);
     if (isGroupingTarget) {
@@ -904,7 +1155,49 @@ export function useEditorCanvasCommands(args: {
         left,
         slideId: input.slideId,
         top,
-        type: "selection"
+        type: "selection",
+      });
+      return;
+    }
+    if (input.element.type === "table") {
+      const activeTableCell = useEditorShellUiStore.getState().activeTableCell;
+      if (
+        !activeTableCell ||
+        activeTableCell.elementId !== input.element.elementId ||
+        activeTableCell.slideId !== input.slideId
+      ) {
+        return;
+      }
+      const actionStates = getTableContextActionStates({
+        deck: args.workingDeckRef.current,
+        element: input.element,
+      });
+      const actionDisabledReasons = Object.fromEntries(
+        (
+          [
+            "insertRowAbove",
+            "insertRowBelow",
+            "insertColumnLeft",
+            "insertColumnRight",
+            "deleteRow",
+            "deleteColumn",
+          ] as const
+        ).flatMap((action) =>
+          actionStates[action].enabled
+            ? []
+            : [[action, actionStates[action].reason] as const],
+        ),
+      );
+      args.setSelectedElementIds([input.element.elementId]);
+      args.setElementContextMenu({
+        actionDisabledReasons,
+        columnIndex: activeTableCell.columnIndex,
+        elementId: input.element.elementId,
+        left,
+        rowIndex: activeTableCell.rowIndex,
+        slideId: input.slideId,
+        top,
+        type: "table-cell",
       });
       return;
     }
@@ -914,7 +1207,7 @@ export function useEditorCanvasCommands(args: {
       left,
       slideId: input.slideId,
       top,
-      type: input.element.type === "group" ? "group" : "image"
+      type: input.element.type === "group" ? "group" : "image",
     });
   }
 
@@ -935,8 +1228,8 @@ export function useEditorCanvasCommands(args: {
       insertShapeElement,
       openElementContextMenu,
       pasteCopiedElement,
-      ungroupElement
+      ungroupElement,
     },
-    refs: { copiedElementRef }
+    refs: { copiedElementRef },
   };
 }
