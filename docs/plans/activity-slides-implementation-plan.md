@@ -63,7 +63,7 @@
 | D2 | Activity가 하나라도 있는 Deck은 `wide-16-9`만 허용한다. | 사용자가 확정한 편집 장표 16:9 조건을 계약, UI, export에서 동일하게 보장한다. |
 | D3 | legacy slide는 parse 시 `kind: "content"`로 정규화한다. | 기존 Deck JSON과 snapshot을 깨지 않는다. |
 | D4 | `slide.elements`는 사용자가 만든 정적 요소만 보관한다. QR, 참여 인원, 상태, 집계는 역할별 system layer가 렌더링한다. | runtime 데이터를 Deck에 역직렬화하거나 patch history에 복제하지 않는다. |
-| D5 | Activity system layer는 선택·이동할 수 없는 잠긴 계층이고, 정적 element 편집은 기존 Konva 경로를 유지한다. | 현재 editor-core와 canvas interaction을 재사용하면서 시스템 데이터의 소유권을 분리한다. |
+| D5 | `activity`, `activity-results` 장표는 일반 element 추가·선택·이동·애니메이션을 허용하지 않는 시스템 관리 장표다. 문항, 운영 상태, 원본 연결은 전용 `장표 설정`에서만 변경한다. | 역할별 렌더링과 Deck 정의의 소유권을 명확히 하고 빈 요소나 숨은 편집 결과가 생기는 것을 막는다. |
 | D6 | 세션 생성은 항상 서버의 현재 Deck과 version을 조회해 연결한다. 클라이언트가 보낸 definition이나 deckVersion을 신뢰하지 않는다. | snapshot과 결과의 출처를 서버에서 검증한다. |
 | D7 | `GET current`는 진행 중 세션 재접속, `POST`는 명시적 새 세션 생성이다. 새 세션 생성은 기존 활성 세션을 원자적으로 닫고 빈 결과로 시작한다. | 새 발표와 재접속의 의미를 API 수준에서 분리한다. |
 | D8 | 한 PresentationSession에는 응답 가능한 `open` Activity Run이 최대 하나다. 새 run을 열면 이전 `open` run을 닫고 `activeActivityRunId`를 교체한다. | 청중 자동 전환의 단일 source of truth를 만든다. |

@@ -24,6 +24,7 @@ import {
   toEditorErrorMessage
 } from "../utils/editorFileValidation";
 import { createSlideScopedUploadFile } from "../utils/slideRenderUtils";
+import { canEditSlideCanvas } from "../utils/slideEditingPolicy";
 
 export type ImageUploadTarget =
   | { type: "insert"; slideId: string }
@@ -74,6 +75,10 @@ export function useEditorFileTransfer(args: {
 
   function openImageFilePicker(target: ImageUploadTarget) {
     if (isImageUploadPending) return;
+    const targetSlide = args.workingDeckRef.current.slides.find(
+      (slide) => slide.slideId === target.slideId
+    );
+    if (!canEditSlideCanvas(targetSlide)) return;
     args.onCloseContextMenu();
     imageUploadTargetRef.current = target;
     imageFileInputRef.current?.click();
@@ -108,6 +113,9 @@ export function useEditorFileTransfer(args: {
       if (targetSlideIndex < 0) throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
 
       const targetSlide = activeDeck.slides[targetSlideIndex];
+      if (!canEditSlideCanvas(targetSlide)) {
+        throw new Error("특수 장표에는 이미지를 추가하거나 교체할 수 없습니다.");
+      }
       const uploadProjectId = await resolveUploadProject(activeDeck.projectId);
       const uploaded = await uploadProjectAsset(
         uploadProjectId,

@@ -3428,6 +3428,16 @@
   padding-bottom: 18px;
 }
 
+.ai-chat-editing-locked {
+  background: var(--surface-subtle, #f4f4ef);
+  border: 1px solid var(--line);
+  color: var(--text-muted, #666);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 12px;
+}
+
 .ai-chat-history {
   min-height: 0;
   display: flex;

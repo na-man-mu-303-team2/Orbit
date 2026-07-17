@@ -28,6 +28,7 @@ import type {
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
+import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -445,6 +446,28 @@ export function EditorShell(props: { projectId?: string }) {
     !isDeckLoading &&
     !isDeckError;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const canEditCurrentSlideCanvas = canEditSlideCanvas(currentSlide);
+
+  useEffect(() => {
+    if (canEditCurrentSlideCanvas) return;
+    setInsertTool("select");
+    setIsShapeMenuOpen(false);
+    setIsAnimationPanelOpen(false);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+  }, [
+    canEditCurrentSlideCanvas,
+    currentSlide?.slideId,
+    setCustomShapeEditElementId,
+    setEditingElementId,
+    setElementContextMenu,
+    setInsertTool,
+    setIsAnimationPanelOpen,
+    setIsShapeMenuOpen,
+    setSelectedElementIds
+  ]);
   const {
     actions: speakerNotesEditorActions,
     state: speakerNotesEditorState
@@ -1331,7 +1354,7 @@ export function EditorShell(props: { projectId?: string }) {
 
         <section className="stage-pane">
           <EditorToolbar
-            canUseCurrentSlide={Boolean(currentSlide)}
+            canUseCurrentSlide={canEditCurrentSlideCanvas}
             insertTool={insertTool}
             isAnimationPanelOpen={isAnimationPanelOpen}
             isImageUploadPending={isImageUploadPending}
