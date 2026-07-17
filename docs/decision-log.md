@@ -662,3 +662,15 @@
 - Rationale: 그래프는 원본이 아니라 분석 중 계산한 bounded 파생 sample만 필요하다. 개인정보 보존 정책을 바꾸지 않고도 신규 기록을 정확히 표시할 수 있으며, 과거 형식과 실제 분석 실패를 구분해 사용자가 재시도 방법을 알 수 있다.
 - Affected files: `apps/web/src/features/editor/practice/PracticeReportContent.tsx`, 관련 테스트, `docs/decision-log.md`. 런타임에서는 `orbit-editor-report-qa`의 `api`, `worker`, `python-worker`, `web` 이미지를 현재 소스와 맞춘다.
 - Follow-up review notes: 10초 이상 새 연습 후 DB에서 `reportVersion: 2`, `loudnessSamples > 0`, `speedSamples > 0`인지 확인한다. v2에서도 speed sample이 비면 Report STT segment timestamp 반환을, loudness sample이 비면 PCM decoder 경로를 별도로 진단한다.
+
+## ORBIT editor slide practice same-origin upload proxy
+
+- Context: 5174 side-port에서 한 장 연습 분석 생성은 성공했지만, API가 local MinIO upload proxy 주소를 고정 `WEB_ORIGIN`인 5173으로 반환해 브라우저의 녹음 `PUT`이 API에 도달하지 못했다. 일반 파일 업로드는 이미 요청 `Origin`을 정규화해 같은 브라우저 origin으로 upload proxy URL을 만들지만, slide practice 생성 경로는 이 값을 전달하지 않았다.
+- Options considered:
+  - 5174 테스트 스택의 `WEB_ORIGIN`만 수동 변경한다.
+  - Web이 API가 반환한 upload URL의 host와 port를 현재 location으로 다시 쓴다.
+  - API가 검증된 요청 `Origin`을 `FilesService.createUploadUrl`에 전달해 기존 same-origin upload proxy 규칙을 재사용한다.
+- Final decision: `SlidePracticeController`는 요청 `Origin`을 `normalizeHttpOrigin`으로 제한한 뒤 `SlidePracticeService.createAnalysis`에 전달한다. 서비스는 이 값을 `FilesService.createUploadUrl`의 `requestOrigin`으로 넘기고, Web은 API가 발급한 private upload command를 그대로 사용한다. Origin이 없거나 http/https가 아니면 기존 `WEB_ORIGIN` fallback을 유지한다.
+- Rationale: `localhost`와 `127.0.0.1`, 기본 포트와 side-port의 차이를 API 경계에서 한 번만 처리하고, 브라우저가 인증 cookie를 같은 origin의 private upload endpoint에 보낼 수 있게 한다. Web에서 signed 또는 proxy URL을 임의 재작성하지 않아 운영 S3 경로와 local MinIO 경로의 분리를 보존한다.
+- Affected files: `apps/api/src/slide-practice/slide-practice.controller.ts`, `apps/api/src/slide-practice/slide-practice.service.ts`, `apps/api/src/slide-practice/slide-practice.controller.spec.ts`, `docs/decision-log.md`.
+- Follow-up review notes: 5174의 `127.0.0.1`과 `localhost`에서 각각 분석 생성 뒤 `PUT /api/v1/projects/:projectId/assets/:fileId/content`가 같은 origin으로 204를 반환하는지 확인한다. raw audio, upload URL, cookie는 로그에 추가하지 않는다.

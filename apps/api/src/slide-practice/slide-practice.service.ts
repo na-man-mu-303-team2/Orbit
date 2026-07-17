@@ -45,7 +45,12 @@ export class SlidePracticeService {
     private readonly logger: PinoLogger,
   ) {}
 
-  async createAnalysis(projectId: string, actorUserId: string, body: unknown) {
+  async createAnalysis(
+    projectId: string,
+    actorUserId: string,
+    body: unknown,
+    requestOrigin?: string | null,
+  ) {
     this.assertEnabled();
     const request = createSlidePracticeAnalysisRequestSchema.parse(body);
     const existing = firstRow(await this.dataSource.query(
@@ -71,12 +76,16 @@ export class SlidePracticeService {
     if (!slide || slide.order !== request.slideOrder) {
       throw new NotFoundException("Slide not found at the requested order in the current deck.");
     }
-    const upload = await this.files.createUploadUrl(projectId, {
-      originalName: slidePracticeAudioFileName(request.mimeType),
-      mimeType: request.mimeType,
-      size: request.size,
-      purpose: "slide-practice-audio",
-    });
+    const upload = await this.files.createUploadUrl(
+      projectId,
+      {
+        originalName: slidePracticeAudioFileName(request.mimeType),
+        mimeType: request.mimeType,
+        size: request.size,
+        purpose: "slide-practice-audio",
+      },
+      requestOrigin,
+    );
     const now = new Date();
     const rows = await this.dataSource.query(
       `INSERT INTO slide_practice_audio_analyses (

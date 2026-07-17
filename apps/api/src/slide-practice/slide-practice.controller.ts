@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, Req } from "@nestjs/com
 
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
+import { normalizeHttpOrigin } from "../common/web-origin";
 import { ProjectsService } from "../projects/projects.service";
 import { SlidePracticeService } from "./slide-practice.service";
 
@@ -43,7 +44,12 @@ export class SlidePracticeController {
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.slidePracticeService.createAnalysis(projectId, user.userId, body);
+    return this.slidePracticeService.createAnalysis(
+      projectId,
+      user.userId,
+      body,
+      normalizeHttpOrigin(request.get("origin")),
+    );
   }
 
   @Post("api/v1/slide-practice-analyses/:analysisId/audio/complete")
