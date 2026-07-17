@@ -2416,6 +2416,30 @@
   padding: 34px 24px 30px;
 }
 
+.editor-image-transfer-notice {
+  position: sticky;
+  top: 10px;
+  z-index: 12;
+  width: fit-content;
+  max-width: min(680px, calc(100% - 24px));
+  margin: 0 auto 12px;
+  padding: 9px 13px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: rgba(239, 246, 255, 0.96);
+  color: #1d4ed8;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.editor-image-transfer-notice.error {
+  border-color: #fecaca;
+  background: rgba(255, 241, 242, 0.97);
+  color: #b42318;
+}
+
 .editor-loading-guard {
   align-items: center;
   background: rgba(248, 250, 252, 0.82);
@@ -2641,6 +2665,37 @@
 
 .orbit-stage-shell {
   overflow: hidden;
+}
+
+.orbit-stage-shell.is-image-drop-target {
+  box-shadow:
+    0 0 0 4px rgba(37, 99, 235, 0.58),
+    0 22px 58px rgba(37, 99, 235, 0.2);
+}
+
+.editor-image-drop-overlay {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  pointer-events: none;
+  border: 4px dashed rgba(37, 99, 235, 0.75);
+  background: rgba(239, 246, 255, 0.82);
+  color: #1d4ed8;
+  text-align: center;
+}
+
+.editor-image-drop-overlay strong {
+  font-size: clamp(18px, 2vw, 30px);
+  font-weight: 900;
+}
+
+.editor-image-drop-overlay span {
+  font-size: clamp(12px, 1.2vw, 16px);
+  font-weight: 800;
 }
 
 .konva-editor-stage {

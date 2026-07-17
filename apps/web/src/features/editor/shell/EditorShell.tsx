@@ -135,7 +135,10 @@ import { useSlideRenderPipeline } from "./hooks/useSlideRenderPipeline";
 import { useEditorKeyboardShortcuts } from "./hooks/useEditorKeyboardShortcuts";
 import { useOoxmlSyncJob } from "./hooks/useOoxmlSyncJob";
 import { useSpeakerNotesEditor } from "./hooks/useSpeakerNotesEditor";
-import { useEditorFileTransfer } from "./hooks/useEditorFileTransfer";
+import {
+  canAcceptCanvasImageDrop,
+  useEditorFileTransfer
+} from "./hooks/useEditorFileTransfer";
 import { useEditorDocumentController } from "./hooks/useEditorDocumentController";
 import { useEditorCanvasCommands } from "./hooks/useEditorCanvasCommands";
 import {
@@ -687,6 +690,8 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const { imageFileInputRef, pptxFileInputRef } = editorFileTransferRefs;
   const {
+    imageUploadError,
+    imageUploadStatus,
     isImageUploadPending,
     isPptxExporting,
     pptxExportError,
@@ -694,6 +699,7 @@ export function EditorShell(props: { projectId?: string }) {
     pptxImportState
   } = editorFileTransferState;
   const openImageFilePicker = editorFileTransferActions.openImageFilePicker;
+  const insertImageFiles = editorFileTransferActions.insertImageFiles;
   const handleImageFileInputChange = editorFileTransferActions.handleImageFileInputChange;
   const handlePptxFileInputChange = editorFileTransferActions.handlePptxFileInputChange;
   function openPptxFilePicker() {
@@ -701,6 +707,13 @@ export function EditorShell(props: { projectId?: string }) {
     setActiveTopMenu(null);
     editorFileTransferActions.openPptxFilePicker();
   }
+  const hasBlockingEditorDialog = Boolean(
+    isAudienceLinkModalOpen ||
+    isExitConfirmOpen ||
+    isPresenceDebugOpen ||
+    isSharePanelOpen ||
+    isSpeakerNotesAssistantOpen
+  );
   const {
     activeStartAction: activePresentationAction,
     startPresentation: handleStartPresentation,
@@ -1016,6 +1029,20 @@ export function EditorShell(props: { projectId?: string }) {
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
+  const currentImageInsertCapability = currentSlide
+    ? editorFileTransferActions.getImageInsertCapability(currentSlide.slideId)
+    : null;
+  const imageDropEnabled =
+    !isCustomShapeEditingSelection &&
+    canAcceptCanvasImageDrop({
+      canMutateDeck,
+      hasBlockingDialog: hasBlockingEditorDialog,
+      hasCurrentSlide: Boolean(currentSlide),
+      inlineTextEditing: Boolean(editingElementId),
+      insertCapabilityEnabled: currentImageInsertCapability?.enabled ?? false,
+      isUploadPending: isImageUploadPending,
+      speakerNotesEditing: isSpeakerNotesEditing
+    });
   const isDev = import.meta.env.DEV;
   function handleDesignAgentProposalApplied(
     response: ApplyDesignAgentProposalResponse
@@ -1418,16 +1445,11 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEditorKeyboardShortcuts({
     canMutateDeck,
+    canPasteImage: imageDropEnabled,
     copiedElementRef,
     editingElementId,
     hasOpenMenu: Boolean(activeTopMenu || isShapeMenuOpen || elementContextMenu),
-    hasOpenModal: Boolean(
-      isAudienceLinkModalOpen ||
-        isExitConfirmOpen ||
-        isPresenceDebugOpen ||
-        isSharePanelOpen ||
-        isSpeakerNotesAssistantOpen
-    ),
+    hasOpenModal: hasBlockingEditorDialog,
     insertToolActive: insertTool !== "select",
     isCropEditing: false,
     isCustomShapeEditingSelection,
@@ -1456,6 +1478,17 @@ export function EditorShell(props: { projectId?: string }) {
       if (patch) commitPatch(patch);
     },
     onPaste: handlePasteCopiedElement,
+    onPasteImageFiles: (files) => {
+      if (!currentSlide) return;
+      void insertImageFiles(
+        files,
+        { slideId: currentSlide.slideId, type: "insert" },
+        {
+          centerX: deck.canvas.width / 2,
+          centerY: deck.canvas.height / 2
+        }
+      );
+    },
     onRedo: handleRedo,
     onSave: () => void handleSaveDeck(),
     onSelectAll: handleSelectAllElements,
@@ -1877,6 +1910,22 @@ export function EditorShell(props: { projectId?: string }) {
               onOpenElementContextMenu: handleOpenElementContextMenu,
               onSelectElement: handleElementSelection,
               onSelectElements: handleMarqueeSelection
+            }}
+            imageDropEnabled={imageDropEnabled}
+            imageTransferMessage={
+              imageUploadError
+                ? { kind: "error", message: imageUploadError }
+                : imageUploadStatus
+                  ? { kind: "status", message: imageUploadStatus }
+                  : null
+            }
+            onImageFilesDrop={(files, placement) => {
+              if (!currentSlide) return;
+              void insertImageFiles(
+                files,
+                { slideId: currentSlide.slideId, type: "insert" },
+                placement
+              );
             }}
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}

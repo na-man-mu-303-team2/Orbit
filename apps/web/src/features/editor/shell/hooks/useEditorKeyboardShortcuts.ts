@@ -2,12 +2,59 @@ import type { DeckElement } from "@orbit/shared";
 import { useEffect } from "react";
 
 import {
+  isEditorKeyboardCommandSuppressedTarget,
   resolveEditorKeyboardCommand,
   type EditorEscapeLayer
 } from "../editorKeyboardCommands";
+import { getEditorClipboardImageFiles } from "../utils/editorClipboard";
+
+export type EditorPasteAction =
+  | { type: "native" }
+  | { files: File[]; type: "paste-image" }
+  | { type: "paste-element" };
+
+export function resolveEditorPasteAction(input: {
+  canMutateDeck: boolean;
+  canPasteImage: boolean;
+  clipboardData: Pick<DataTransfer, "files" | "items"> | null;
+  defaultPrevented: boolean;
+  editingElementId: string | null;
+  hasCopiedElement: boolean;
+  hasOpenMenu: boolean;
+  hasOpenModal: boolean;
+  isCropEditing: boolean;
+  isCustomShapeEditingSelection: boolean;
+  target: EventTarget | null;
+}): EditorPasteAction {
+  if (
+    input.defaultPrevented ||
+    input.editingElementId ||
+    input.hasOpenMenu ||
+    input.hasOpenModal ||
+    input.isCropEditing ||
+    input.isCustomShapeEditingSelection ||
+    isEditorKeyboardCommandSuppressedTarget(input.target)
+  ) {
+    return { type: "native" };
+  }
+
+  if (!input.canMutateDeck) return { type: "native" };
+
+  const files = getEditorClipboardImageFiles(input.clipboardData);
+  if (files.length > 0) {
+    return input.canPasteImage
+      ? { files, type: "paste-image" }
+      : { type: "native" };
+  }
+
+  return input.hasCopiedElement
+    ? { type: "paste-element" }
+    : { type: "native" };
+}
 
 export function useEditorKeyboardShortcuts(args: {
   canMutateDeck: boolean;
+  canPasteImage: boolean;
   copiedElementRef: { current: unknown };
   editingElementId: string | null;
   hasOpenMenu: boolean;
@@ -24,6 +71,7 @@ export function useEditorKeyboardShortcuts(args: {
   onNavigateSlide: (direction: "next" | "previous") => void;
   onNudge: (deltaX: number, deltaY: number) => void;
   onPaste: () => void;
+  onPasteImageFiles: (files: File[]) => void;
   onRedo: () => void;
   onSave: () => void;
   onSelectAll: () => void;
@@ -57,6 +105,8 @@ export function useEditorKeyboardShortcuts(args: {
         target: event.target,
       });
 
+      if (command?.type === "paste-selection") return;
+
       if (command) {
         event.preventDefault();
         switch (command.type) {
@@ -70,7 +120,6 @@ export function useEditorKeyboardShortcuts(args: {
             break;
           case "navigate-slide": args.onNavigateSlide(command.direction); break;
           case "nudge-selection": args.onNudge(command.deltaX, command.deltaY); break;
-          case "paste-selection": args.onPaste(); break;
           case "redo": args.onRedo(); break;
           case "save": if (command.canExecute) args.onSave(); break;
           case "select-all": args.onSelectAll(); break;
@@ -81,29 +130,40 @@ export function useEditorKeyboardShortcuts(args: {
       }
     }
 
+    function handlePaste(event: ClipboardEvent) {
+      const action = resolveEditorPasteAction({
+        canMutateDeck: args.canMutateDeck,
+        canPasteImage: args.canPasteImage,
+        clipboardData: event.clipboardData,
+        defaultPrevented: event.defaultPrevented,
+        editingElementId: args.editingElementId,
+        hasCopiedElement: Boolean(args.copiedElementRef.current),
+        hasOpenMenu: args.hasOpenMenu,
+        hasOpenModal: args.hasOpenModal,
+        isCropEditing: Boolean(args.isCropEditing),
+        isCustomShapeEditingSelection: args.isCustomShapeEditingSelection,
+        target: event.target
+      });
+      if (action.type === "native") return;
+
+      event.preventDefault();
+      if (action.type === "paste-image") {
+        args.onPasteImageFiles(action.files);
+      } else {
+        args.onPaste();
+      }
+      event.stopImmediatePropagation();
+    }
+
     window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("paste", handlePaste, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("paste", handlePaste, true);
+    };
   }, [args]);
 }
 
 export function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest(
-        "[contenteditable='true'], input, textarea, select"
-      )
-    );
-  }
-
-  return false;
+  return isEditorKeyboardCommandSuppressedTarget(target);
 }
