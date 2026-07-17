@@ -74,5 +74,8 @@ curl --fail --silent "${python_url}/health" >/dev/null || {
 
 ORBIT_DB_INTEGRATION=1 \
 ORBIT_PYTHON_WORKER_URL="${python_url}" \
+ORBIT_INTEGRATION_DATABASE_URL="${database_url}" \
 PPTX_INTEGRATION_DATABASE_URL="${database_url}" \
-pnpm exec vitest run apps/worker/integration/pptx-ooxml-roundtrip.integration.spec.ts
+pnpm exec vitest run \
+  apps/worker/integration/slide-question-guide-generation-postgres.integration.spec.ts \
+  apps/worker/integration/pptx-ooxml-roundtrip.integration.spec.ts

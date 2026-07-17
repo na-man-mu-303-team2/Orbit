@@ -46,7 +46,7 @@ export async function processSlideQuestionGuideGenerationJob(
   dataSource: DataSource,
   pythonWorkerUrl: string,
   rawPayload: unknown,
-  onEvent?: (event: SlideQuestionGuideResearchBusinessEvent) => void,
+  onEvent?: (event: SlideQuestionGuideBusinessEvent) => void,
 ): Promise<Job> {
   const payload = slideQuestionGuideJobPayloadSchema.parse(rawPayload);
   const guide = firstRow(await dataSource.query(
@@ -65,6 +65,8 @@ export async function processSlideQuestionGuideGenerationJob(
   );
   await updateJob(dataSource, payload.jobId, "running", 20, "슬라이드 질문 근거 확인 중", null, null);
 
+  const startedAt = Date.now();
+  let failureStage: SlideQuestionGuideFailureStage = "source-snapshot-validation";
   try {
     const sourceSnapshot = slideQuestionGuideSourceSnapshotSchema.parse(
       typeof guide.source_snapshot_json === "string"
@@ -79,11 +81,13 @@ export async function processSlideQuestionGuideGenerationJob(
       throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
     }
 
+    failureStage = "brief-context-load";
     const briefRow = firstRow(await dataSource.query(
       `SELECT content_json FROM presentation_briefs WHERE project_id = $1`,
       [payload.projectId],
     ));
     const brief = briefRow ? briefContextSchema.parse(briefRow.content_json) : null;
+    failureStage = "approved-reference-load";
     const references = await dataSource.query(
       `SELECT chunks.id::text AS chunk_id, chunks.file_id, chunks.content, chunks.content_hash
        FROM presentation_brief_approved_references approved
@@ -115,6 +119,7 @@ export async function processSlideQuestionGuideGenerationJob(
       brief,
       questionCount: 3,
     };
+    failureStage = "python-worker-request";
     const response = await fetch(new URL("/slide-question-guides/generate", pythonWorkerUrl), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -122,8 +127,9 @@ export async function processSlideQuestionGuideGenerationJob(
       body: JSON.stringify(request),
     });
     if (!response.ok) throw new Error("SLIDE_QUESTION_GUIDE_PROVIDER_FAILED");
+    failureStage = "provider-response-validation";
     const generated = responseSchema.parse(await response.json());
-    onEvent?.({
+    emitBusinessEvent(onEvent, {
       event: "slide_question_guide.web_research.completed",
       projectId: payload.projectId,
       guideId: payload.guideId,
@@ -132,6 +138,7 @@ export async function processSlideQuestionGuideGenerationJob(
       officialSourceCount: generated.research.officialSourceCount,
       issueCodes: generated.research.issueCodes,
     });
+    failureStage = "source-ref-validation";
     validateSourceRefs(generated.items, sourceSnapshot, references, generated.webSources);
     const generatedAt = new Date().toISOString();
     const items = generated.items.map((item, index) => slideQuestionGuideItemSchema.parse({
@@ -139,6 +146,7 @@ export async function processSlideQuestionGuideGenerationJob(
       questionId: `slide_question_${payload.guideId}_${index + 1}`.slice(0, 128),
     }));
 
+    failureStage = "guide-persistence";
     await dataSource.transaction(async (manager) => {
       const locked = firstRow(await manager.query(
         `SELECT status, deck_version, slide_content_hash FROM slide_question_guides
@@ -162,7 +170,7 @@ export async function processSlideQuestionGuideGenerationJob(
         `UPDATE slide_question_guides SET
           status = 'succeeded', model = $3, error_code = NULL,
           research_status = $4, research_attempts = $5,
-          official_source_count = $6, research_issue_codes = $7,
+          official_source_count = $6, research_issue_codes = $7::jsonb,
           researched_at = $8, generated_at = $9, updated_at = $9
          WHERE guide_id = $1 AND project_id = $2`,
         [
@@ -172,13 +180,14 @@ export async function processSlideQuestionGuideGenerationJob(
           generated.research.status,
           generated.research.attempts,
           generated.research.officialSourceCount,
-          generated.research.issueCodes,
+          JSON.stringify(generated.research.issueCodes),
           generated.research.researchedAt,
           generatedAt,
         ],
       );
     });
 
+    failureStage = "job-result-validation";
     const result = slideQuestionGuideJobResultSchema.parse({
       guideId: payload.guideId,
       projectId: payload.projectId,
@@ -188,11 +197,23 @@ export async function processSlideQuestionGuideGenerationJob(
       itemCount: items.length,
       generatedAt,
     });
-    return updateJob(dataSource, payload.jobId, "succeeded", 100, "슬라이드 질문 준비 완료", result, null);
+    failureStage = "job-persistence";
+    return await updateJob(dataSource, payload.jobId, "succeeded", 100, "슬라이드 질문 준비 완료", result, null);
   } catch (error) {
     const errorCode = error instanceof Error && error.message === "SLIDE_QUESTION_GUIDE_SOURCE_STALE"
       ? "SLIDE_QUESTION_GUIDE_SOURCE_STALE"
       : "SLIDE_QUESTION_GUIDE_GENERATION_FAILED";
+    const postgresErrorCode = safePostgresErrorCode(error);
+    emitBusinessEvent(onEvent, {
+      event: "slide_question_guide.generation.failed",
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      guideId: payload.guideId,
+      stage: failureStage,
+      errorCode,
+      ...(postgresErrorCode ? { postgresErrorCode } : {}),
+      durationMs: Math.max(0, Date.now() - startedAt),
+    });
     await dataSource.query(
       `UPDATE slide_question_guides SET status = 'failed', error_code = $3, updated_at = now()
        WHERE guide_id = $1 AND project_id = $2 AND status IN ('queued','running')`,
@@ -255,6 +276,57 @@ export type SlideQuestionGuideResearchBusinessEvent = {
   officialSourceCount: number;
   issueCodes: string[];
 };
+
+export type SlideQuestionGuideFailureStage =
+  | "source-snapshot-validation"
+  | "brief-context-load"
+  | "approved-reference-load"
+  | "python-worker-request"
+  | "provider-response-validation"
+  | "source-ref-validation"
+  | "guide-persistence"
+  | "job-result-validation"
+  | "job-persistence";
+
+export type SlideQuestionGuideFailureBusinessEvent = {
+  event: "slide_question_guide.generation.failed";
+  jobId: string;
+  projectId: string;
+  guideId: string;
+  stage: SlideQuestionGuideFailureStage;
+  errorCode:
+    | "SLIDE_QUESTION_GUIDE_SOURCE_STALE"
+    | "SLIDE_QUESTION_GUIDE_GENERATION_FAILED";
+  postgresErrorCode?: string;
+  durationMs: number;
+};
+
+export type SlideQuestionGuideBusinessEvent =
+  | SlideQuestionGuideResearchBusinessEvent
+  | SlideQuestionGuideFailureBusinessEvent;
+
+function emitBusinessEvent(
+  onEvent: ((event: SlideQuestionGuideBusinessEvent) => void) | undefined,
+  event: SlideQuestionGuideBusinessEvent,
+) {
+  try {
+    onEvent?.(event);
+  } catch {
+    // Diagnostic logging must not change question guide generation behavior.
+  }
+}
+
+function safePostgresErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const record = error as {
+    code?: unknown;
+    driverError?: { code?: unknown };
+  };
+  const value = record.driverError?.code ?? record.code;
+  return typeof value === "string" && /^[0-9A-Z]{5}$/.test(value)
+    ? value
+    : undefined;
+}
 
 function updateJob(
   dataSource: DataSource,

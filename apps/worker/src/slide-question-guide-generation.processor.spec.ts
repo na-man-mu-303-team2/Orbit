@@ -50,6 +50,10 @@ describe("processSlideQuestionGuideGenerationJob", () => {
       issueCodes: ["no-citations"],
       researchedAt: "2026-07-17T00:00:00.000Z",
     });
+    expect(harness.storedResearchSql).toContain(
+      "research_issue_codes = $7::jsonb",
+    );
+    expect(harness.storedResearchParameter).toBe('["no-citations"]');
     expect(events).toEqual([{
       event: "slide_question_guide.web_research.completed",
       projectId: "project-1",
@@ -104,6 +108,8 @@ describe("processSlideQuestionGuideGenerationJob", () => {
     expect(job.status).toBe("succeeded");
     expect(harness.insertedItems).toHaveLength(3);
     expect(harness.storedResearch?.officialSourceCount).toBe(1);
+    expect(harness.storedResearch?.issueCodes).toEqual([]);
+    expect(harness.storedResearchParameter).toBe("[]");
   });
 
   it("rejects a web citation that is not in the provider allowlist", async () => {
@@ -124,10 +130,105 @@ describe("processSlideQuestionGuideGenerationJob", () => {
     expect(job.status).toBe("failed");
     expect(harness.insertedItems).toHaveLength(0);
   });
+
+  it("emits only safe PostgreSQL diagnostics when guide persistence fails", async () => {
+    const sensitiveSentinel = "private-question-guide-payload";
+    const persistenceError = Object.assign(new Error(sensitiveSentinel), {
+      driverError: {
+        code: "22P02",
+        detail: sensitiveSentinel,
+      },
+      query: sensitiveSentinel,
+      parameters: [sensitiveSentinel],
+    });
+    const harness = createHarness({ persistenceError });
+    const events: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      [0, 1, 2].map((index) => generatedItem(index)),
+    ))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+      (event) => events.push(event),
+    );
+
+    expect(job.status).toBe("failed");
+    expect(events.at(-1)).toEqual({
+      event: "slide_question_guide.generation.failed",
+      jobId: "job-guide-1",
+      projectId: "project-1",
+      guideId: "guide-1",
+      stage: "guide-persistence",
+      errorCode: "SLIDE_QUESTION_GUIDE_GENERATION_FAILED",
+      postgresErrorCode: "22P02",
+      durationMs: expect.any(Number),
+    });
+    expect(JSON.stringify(events.at(-1))).not.toContain(sensitiveSentinel);
+  });
+
+  it("does not let diagnostic logging failures change generation behavior", async () => {
+    const harness = createHarness();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      [0, 1, 2].map((index) => generatedItem(index)),
+    ))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+      () => {
+        throw new Error("logger unavailable");
+      },
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(harness.storedResearch?.issueCodes).toEqual(["no-citations"]);
+  });
+
+  it("keeps Job persistence failures inside the safe diagnostic boundary", async () => {
+    const sensitiveSentinel = "private-job-persistence-payload";
+    const jobPersistenceError = Object.assign(new Error(sensitiveSentinel), {
+      code: "57P01",
+      detail: sensitiveSentinel,
+      query: sensitiveSentinel,
+    });
+    const harness = createHarness({ jobPersistenceError });
+    const events: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      [0, 1, 2].map((index) => generatedItem(index)),
+    ))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+      (event) => events.push(event),
+    );
+
+    expect(job.status).toBe("failed");
+    expect(events.at(-1)).toEqual({
+      event: "slide_question_guide.generation.failed",
+      jobId: "job-guide-1",
+      projectId: "project-1",
+      guideId: "guide-1",
+      stage: "job-persistence",
+      errorCode: "SLIDE_QUESTION_GUIDE_GENERATION_FAILED",
+      postgresErrorCode: "57P01",
+      durationMs: expect.any(Number),
+    });
+    expect(JSON.stringify(events.at(-1))).not.toContain(sensitiveSentinel);
+  });
 });
 
-function createHarness() {
+function createHarness(options: {
+  persistenceError?: Error;
+  jobPersistenceError?: Error;
+} = {}) {
   const insertedItems: unknown[] = [];
+  let storedResearchSql: string | null = null;
+  let storedResearchParameter: string | null = null;
   let storedResearch: {
     status: string;
     attempts: number;
@@ -145,6 +246,9 @@ function createHarness() {
       content_hash: referenceHash,
     }];
     if (normalized.startsWith("UPDATE jobs")) {
+      if (parameters[1] === "succeeded" && options.jobPersistenceError) {
+        throw options.jobPersistenceError;
+      }
       return [jobRow(
         parameters[1] as "running" | "succeeded" | "failed",
         parameters[4] as Record<string, unknown> | null,
@@ -162,11 +266,14 @@ function createHarness() {
       insertedItems.push(parameters[4]);
     }
     if (normalized.startsWith("UPDATE slide_question_guides SET status = 'succeeded'")) {
+      storedResearchSql = normalized;
+      storedResearchParameter = String(parameters[6]);
+      if (options.persistenceError) throw options.persistenceError;
       storedResearch = {
         status: String(parameters[3]),
         attempts: Number(parameters[4]),
         officialSourceCount: Number(parameters[5]),
-        issueCodes: parameters[6] as string[],
+        issueCodes: JSON.parse(storedResearchParameter) as string[],
         researchedAt: parameters[7] === null ? null : String(parameters[7]),
       };
     }
@@ -182,6 +289,8 @@ function createHarness() {
     dataSource,
     insertedItems,
     get storedResearch() { return storedResearch; },
+    get storedResearchSql() { return storedResearchSql; },
+    get storedResearchParameter() { return storedResearchParameter; },
   };
 }
 
