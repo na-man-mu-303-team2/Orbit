@@ -106,18 +106,34 @@ export class PresentationSessionRepository {
     );
   }
 
-  async findAccessibleBySessionId(sessionId: string): Promise<PresentationSessionRow | null> {
+  async findAccessibleBySessionId(
+    sessionId: string,
+    now = new Date()
+  ): Promise<PresentationSessionRow | null> {
     const rows = await this.dataSource.query<PresentationSessionRow[]>(
       `
+        WITH activated AS (
+          UPDATE presentation_sessions
+          SET status = 'live',
+              started_at = COALESCE(started_at, starts_at),
+              updated_at = $2
+          WHERE session_id = $1
+            AND status = 'draft'
+            AND starts_at <= $2
+            AND expires_at > $2
+          RETURNING ${sessionColumns}
+        )
+        SELECT * FROM activated
+        UNION ALL
         SELECT ${sessionColumns}
         FROM presentation_sessions
         WHERE session_id = $1
           AND status = 'live'
-          AND starts_at <= now()
-          AND expires_at > now()
+          AND starts_at <= $2
+          AND expires_at > $2
         LIMIT 1
       `,
-      [sessionId]
+      [sessionId, now]
     );
     return rows[0] ?? null;
   }

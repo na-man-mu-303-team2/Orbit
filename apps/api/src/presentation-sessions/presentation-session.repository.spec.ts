@@ -79,6 +79,23 @@ describe("PresentationSessionRepository", () => {
     );
   });
 
+  it("atomically promotes a scheduled session when its access window opens", async () => {
+    const query = vi.fn().mockResolvedValue([{ session_id: "session_scheduled", status: "live" }]);
+    const repository = new PresentationSessionRepository({ query } as unknown as DataSource);
+    const now = new Date("2026-07-17T01:00:00.000Z");
+
+    await expect(
+      repository.findAccessibleBySessionId("session_scheduled", now)
+    ).resolves.toMatchObject({ status: "live" });
+
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("WITH activated AS");
+    expect(sql).toContain("status = 'draft'");
+    expect(sql).toContain("started_at = COALESCE(started_at, starts_at)");
+    expect(sql).toContain("expires_at > $2");
+    expect(query.mock.calls[0]?.[1]).toEqual(["session_scheduled", now]);
+  });
+
   it("sets the natural-expiry retention deadline when creating and updating sessions", async () => {
     const inserted = { session_id: "session_1", status: "draft" };
     const query = vi.fn().mockResolvedValue([inserted]);
