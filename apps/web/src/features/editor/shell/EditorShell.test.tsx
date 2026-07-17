@@ -168,6 +168,16 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 }
 
 describe("editor shell", () => {
+  it("omits the save control for accepted viewers", () => {
+    const queryClient = createTestQueryClient();
+    setDeckData(queryClient, createDemoDeck());
+
+    const html = renderApp(queryClient, undefined, "viewer");
+
+    expect(html).not.toContain('class="editor-save-button"');
+    expect(html).toContain("보기 전용으로 열었습니다.");
+  });
+
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -526,6 +536,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("Data View");
     expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
+    expect(html).toContain('data-testid="editor-canvas-pane"');
     expect(html).toContain('data-testid="editor-slide-quickbar"');
     expect(html).toContain("테마 배경");
     expect(html).toContain('aria-label="ORBIT 홈으로 이동"');

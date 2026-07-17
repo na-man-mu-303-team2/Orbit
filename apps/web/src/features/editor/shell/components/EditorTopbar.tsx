@@ -13,7 +13,7 @@ import {
   IconUpload as Upload,
   IconWand as Wand2
 } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type Ref } from "react";
 
 import orbitLogo from "../../../../assets/orbit-logo.png";
 import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
@@ -24,6 +24,7 @@ import {
 } from "../hooks/useProjectPresence";
 import { EditorSaveControl } from "./EditorSaveControl";
 import { PresentationMenu } from "./PresentationMenu";
+import { usePopupMenuKeyboard } from "./usePopupMenuKeyboard";
 
 type EditorTopbarProps = {
   activePresentationAction: "presentation" | "rehearsal" | null;
@@ -68,6 +69,7 @@ type EditorTopbarProps = {
 
 export function EditorTopbar(props: EditorTopbarProps) {
   const topbarRef = useRef<HTMLElement | null>(null);
+  const fileMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const {
     activePresentationAction,
     activeTopMenu,
@@ -108,6 +110,11 @@ export function EditorTopbar(props: EditorTopbarProps) {
     showLoadedFileLabel,
     saving
   } = props;
+  const fileMenuKeyboard = usePopupMenuKeyboard({
+    getTrigger: () => fileMenuTriggerRef.current,
+    isOpen: activeTopMenu === "file",
+    onClose: () => setActiveTopMenu(null),
+  });
 
   useEffect(() => {
     if (!activeTopMenu) return;
@@ -182,7 +189,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
             <button aria-label="ORBIT 홈으로 이동" className="top-icon-button" title="홈으로 이동" type="button" onClick={onExitToHome}>
               <Home size={15} />
             </button>
-            <TopMenuButton activeTopMenu={activeTopMenu} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
+            <TopMenuButton activeTopMenu={activeTopMenu} buttonRef={fileMenuTriggerRef} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
             <TopMenuButton activeTopMenu={activeTopMenu} label="크기 조정" menu="resize" setActiveTopMenu={setActiveTopMenu} />
             <TopMenuButton activeTopMenu={activeTopMenu} label="편집 중" menu="editMode" setActiveTopMenu={setActiveTopMenu} />
             <button
@@ -198,7 +205,13 @@ export function EditorTopbar(props: EditorTopbarProps) {
           </div>
 
           {activeTopMenu === "file" ? (
-            <div className="file-menu-popover" role="menu">
+            <div
+              className="file-menu-popover"
+              data-editor-keyboard-scope="popup-menu"
+              ref={fileMenuKeyboard.menuRef}
+              role="menu"
+              onKeyDown={fileMenuKeyboard.onKeyDown}
+            >
               <div className="file-menu-header">
                 <div>
                   <strong>{deckTitle}</strong>
@@ -258,19 +271,21 @@ export function EditorTopbar(props: EditorTopbarProps) {
             {projectPresenceUsers.length > 4 ? <span className="avatar presence-avatar-more">+{projectPresenceUsers.length - 4}</span> : null}
           </button>
         ) : null}
-        <EditorSaveControl
-          disabled={!canMutateDeck || isDeckLoading || isUsingFallbackDeck}
-          emptyStateLabel={showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"}
-          isSaving={saving}
-          lastSavedAtLabel={lastSavedAtLabel}
-          onSave={onSave}
-          recoveryHint={recoveryHint}
-          statusLabel={saveStatusLabel}
-        />
+        {canMutateDeck ? (
+          <EditorSaveControl
+            disabled={isDeckLoading || isUsingFallbackDeck}
+            emptyStateLabel={showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"}
+            isSaving={saving}
+            lastSavedAtLabel={lastSavedAtLabel}
+            onSave={onSave}
+            recoveryHint={recoveryHint}
+            statusLabel={saveStatusLabel}
+          />
+        ) : null}
         {ooxmlSyncStatus ? <span className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`} title={ooxmlSyncStatus.detail}>{ooxmlSyncStatus.label}</span> : null}
         <button aria-label="발표 준비 경로 열기" className="editor-context-top-button" onClick={onOpenJourney} type="button"><Wand2 size={15} /><span>준비 경로</span></button>
-        <button className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button"><FileText size={15} /><span>브리프</span></button>
-        <button className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={15} /><span>버전</span></button>
+        <button aria-label="브리프 열기" className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button"><FileText aria-hidden="true" size={15} /><span>브리프</span></button>
+        <button aria-label="버전 기록 열기" className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History aria-hidden="true" size={15} /><span>버전</span></button>
         <PresentationMenu
           activeStartAction={activePresentationAction}
           canCreatePresentationSession={canCreatePresentationSession}
@@ -303,6 +318,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
 
 function TopMenuButton(props: {
   activeTopMenu: TopMenu | null;
+  buttonRef?: Ref<HTMLButtonElement>;
   label: string;
   menu: TopMenu;
   setActiveTopMenu: (updater: EditorShellUiUpdater<TopMenu | null>) => void;
@@ -313,6 +329,7 @@ function TopMenuButton(props: {
       aria-expanded={active}
       aria-haspopup="menu"
       className={`top-menu-button ${active ? "active" : ""}`}
+      ref={props.buttonRef}
       type="button"
       onClick={() => props.setActiveTopMenu((current) => current === props.menu ? null : props.menu)}
     >

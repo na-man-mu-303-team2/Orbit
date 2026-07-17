@@ -27,10 +27,15 @@ import { EditorDebugPanels } from "./components/EditorDebugPanels";
 import { EditorTopbar } from "./components/EditorTopbar";
 import { createInitialAiChatState } from "./components/AiChatPanel";
 import { EditorSelectionProperties } from "./components/EditorSelectionProperties";
+import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
 import type { SaveErrorCode, SaveState } from "./hooks/useEditorPersistenceState";
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
+import {
+  createDistributeSelectionPatch,
+  type DistributeAxis,
+} from "./utils/selectionDistribution";
 export { EditorStateNotice } from "./components/EditorStateNotice";
 export {
   mergeDeckIntoQueryCache,
@@ -258,6 +263,8 @@ export function EditorShell(props: { projectId?: string }) {
   const isRightPanelOpen = useEditorShellUiStore((state) => state.isRightPanelOpen);
   const setIsRightPanelOpen = useEditorShellUiStore((state) => state.setIsRightPanelOpen);
   const [rightPanelView, setRightPanelView] = useState<RightPanelView>("ai");
+  const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const selectionInspectorRef = useRef<HTMLElement | null>(null);
   const [presentationJourneyBusy, setPresentationJourneyBusy] = useState(false);
   const [presentationJourneyStatus, setPresentationJourneyStatus] = useState("");
   const presentationJourneyBusyRef = useRef(false);
@@ -826,6 +833,8 @@ export function EditorShell(props: { projectId?: string }) {
       }),
     [currentSlide?.elements, editorViewportWidth, selectedElementIds]
   );
+  const isCompactEditorLayout =
+    resolveSelectionInspectorCompactMode(editorViewportWidth) === true;
   const { actions: editorCanvasActions, refs: editorCanvasRefs } = useEditorCanvasCommands({
     commitPatch,
     confirmDiscardSpeakerNotesDraft,
@@ -1190,6 +1199,19 @@ export function EditorShell(props: { projectId?: string }) {
     );
   }
 
+  function openDesignInspectorForCanvasSelection(nextSelectedElementIds: string[]) {
+    const nextInspectorModel = createSelectionInspectorModel({
+      compact: resolveSelectionInspectorCompactMode(editorViewportWidth),
+      currentSlideElementIds: visibleElements.map((element) => element.elementId),
+      origin: "canvas",
+      selectedElementIds: nextSelectedElementIds
+    });
+    if (!nextInspectorModel.shouldAutoOpenDesignInspector) return;
+
+    setRightPanelView("design");
+    setIsRightPanelOpen(true);
+  }
+
   function handleElementSelection(elementId: string, modifiers: CanvasSelectionModifiers = {}) {
     const hasSelectionModifier = Boolean(
       modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey
@@ -1204,14 +1226,14 @@ export function EditorShell(props: { projectId?: string }) {
       setEditingElementId(null);
     }
 
-    setSelectedElementIds((current) =>
-      applyCanvasSelection({
-        currentSelection: current,
-        elements: visibleElements,
-        hitElementIds: [elementId],
-        modifiers
-      })
-    );
+    const nextSelectedElementIds = applyCanvasSelection({
+      currentSelection: useEditorShellUiStore.getState().selectedElementIds,
+      elements: visibleElements,
+      hitElementIds: [elementId],
+      modifiers
+    });
+    setSelectedElementIds(nextSelectedElementIds);
+    openDesignInspectorForCanvasSelection(nextSelectedElementIds);
   }
 
   function handleMarqueeSelection(elementIds: string[]) {
@@ -1219,6 +1241,7 @@ export function EditorShell(props: { projectId?: string }) {
     setEditingElementId(null);
     setCustomShapeEditElementId(null);
     setSelectedElementIds(elementIds);
+    openDesignInspectorForCanvasSelection(elementIds);
   }
 
   function handleStartInlineElementEditing(elementId: string) {
@@ -1465,6 +1488,10 @@ export function EditorShell(props: { projectId?: string }) {
     isCropEditing,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
+    onCommitInlineTextEditing: () => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) activeElement.blur();
+    },
     onDelete: handleDeleteSelectedElement,
     onDismissLayer: handleDismissKeyboardLayer,
     onDuplicate: handleDuplicateSelectedElement,
@@ -1508,6 +1535,52 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElement,
     selectedElementIds
   });
+
+  function focusSelectionInspector() {
+    requestAnimationFrame(() => selectionInspectorRef.current?.focus());
+  }
+
+  function focusCompactSelectionTriggerOrPanelControl() {
+    requestAnimationFrame(() => {
+      const focusTarget =
+        compactSelectionTriggerRef.current ??
+        document.querySelector<HTMLButtonElement>(
+          'button[aria-label="오른쪽 패널 펼치기"]'
+        );
+      focusTarget?.focus();
+    });
+  }
+
+  function handleOpenCompactSelectionInspector() {
+    setRightPanelView("design");
+    setIsRightPanelOpen(true);
+    focusSelectionInspector();
+  }
+
+  function handleRightPanelOpenChange(open: boolean) {
+    setIsRightPanelOpen(open);
+  }
+
+  function handleSelectionInspectorEscape() {
+    if (isCompactEditorLayout) {
+      setIsRightPanelOpen(false);
+      focusCompactSelectionTriggerOrPanelControl();
+      return;
+    }
+
+    requestAnimationFrame(() => document.getElementById("editor-design-tab")?.focus());
+  }
+
+  function handleDistributeSelection(axis: DistributeAxis) {
+    if (!currentSlide) return;
+    const patch = createDistributeSelectionPatch(
+      workingDeckRef.current,
+      currentSlide,
+      selectedElements,
+      axis
+    );
+    if (patch) commitPatch(patch);
+  }
 
   function renderSelectionInspector(instanceKey: string) {
     const sharedProperties = {
@@ -1556,12 +1629,17 @@ export function EditorShell(props: { projectId?: string }) {
           ) : null
         }
         elementLabel={selectedElement?.type}
+        focusRef={selectionInspectorRef}
         model={selectionInspectorModel}
         multiControls={
-          <p className="selection-inspector-multi-summary">
-            여러 요소를 함께 이동하거나 정렬할 수 있습니다.
-          </p>
+          <MultiSelectionQuickBar
+            canDistribute={selectionInspectorModel.selectedCount >= 3}
+            selectedCount={selectionInspectorModel.selectedCount}
+            onDistributeX={() => handleDistributeSelection("x")}
+            onDistributeY={() => handleDistributeSelection("y")}
+          />
         }
+        onEscape={handleSelectionInspectorEscape}
         slideControls={
           <EditorSelectionProperties {...sharedProperties} element={null} slide={currentSlide} />
         }
@@ -1869,6 +1947,25 @@ export function EditorShell(props: { projectId?: string }) {
               }}
               canMutate={canMutateDeck}
               canUseCurrentSlide={Boolean(currentSlide)}
+              compactSelectionTrigger={
+                isCompactEditorLayout && selectionInspectorModel.selectedCount > 0 ? (
+                  <button
+                    aria-controls="editor-design-panel"
+                    aria-describedby="compact-selection-count"
+                    aria-expanded={isRightPanelOpen && rightPanelView === "design"}
+                    aria-label="선택 항목 속성 열기"
+                    className="compact-selection-trigger"
+                    ref={compactSelectionTriggerRef}
+                    type="button"
+                    onClick={handleOpenCompactSelectionInspector}
+                  >
+                    <span>속성</span>
+                    <span id="compact-selection-count">
+                      {selectionInspectorModel.selectedCount}개 선택됨
+                    </span>
+                  </button>
+                ) : null
+              }
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
               isImageUploadPending={isImageUploadPending}
@@ -1890,7 +1987,6 @@ export function EditorShell(props: { projectId?: string }) {
               onUndo={handleUndo}
               redoDisabled={redoStack.length === 0}
               selectedElementAnimationCount={selectedElementAnimations.length}
-              selectionProperties={renderSelectionInspector("toolbar-properties")}
               shapeMenuButtonRef={shapeMenuButtonRef}
               undoDisabled={undoStack.length === 0}
               zoomControl={
@@ -2072,7 +2168,7 @@ export function EditorShell(props: { projectId?: string }) {
             selectedElementIds={selectedElementIds}
             semanticCueExtractionState={semanticCueExtractionState}
             setAiPanelView={setAiPanelView}
-            setIsOpen={setIsRightPanelOpen}
+            setIsOpen={handleRightPanelOpenChange}
             setRightPanelView={setRightPanelView}
             validationRepairStatus={validationRepairStatus}
           />

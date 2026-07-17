@@ -297,12 +297,22 @@ for (const viewport of compactViewports) {
     await expectNoHorizontalDocumentOverflow(page);
     await expectNoCriticalOrSeriousAxeViolations(page);
 
-    await selectCanvasElement(page, "el_3");
-
     const expandButton = page.getByRole("button", {
       name: "오른쪽 패널 펼치기",
       exact: true,
     });
+    await expandButton.click();
+    await page.getByRole("tab", { name: "디자인", exact: true }).click();
+    const slideInspector = page.getByRole("region", {
+      name: "현재 선택",
+      exact: true,
+    });
+    await slideInspector.focus();
+    await slideInspector.press("Escape");
+    await expect(expandButton).toBeFocused();
+
+    await selectCanvasElement(page, "el_3");
+
     const compactTrigger = page.getByRole("button", {
       name: "선택 항목 속성 열기",
       exact: true,
@@ -334,6 +344,14 @@ for (const viewport of compactViewports) {
     await selectionInspector.press("Escape");
     await expect(compactTrigger).toBeFocused();
     await expect(expandButton).toBeVisible();
+
+    await expandButton.click();
+    const collapseButton = page.getByRole("button", {
+      name: "오른쪽 패널 접기",
+      exact: true,
+    });
+    await collapseButton.click();
+    await expect(expandButton).toBeFocused();
   });
 }
 

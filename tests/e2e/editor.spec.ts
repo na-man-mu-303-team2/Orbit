@@ -85,6 +85,17 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
 
     const stageShell = page.getByTestId("editor-stage-shell");
     await expect(stageShell).toBeVisible();
+    const snappingToggle = page.getByRole("button", {
+      name: "스마트 가이드 끄기",
+      exact: true,
+    });
+    await snappingToggle.click();
+    await expect(
+      page.getByRole("button", {
+        name: "스마트 가이드 켜기",
+        exact: true,
+      })
+    ).toHaveAttribute("aria-pressed", "false");
 
     const stageBox = await stageShell.boundingBox();
 

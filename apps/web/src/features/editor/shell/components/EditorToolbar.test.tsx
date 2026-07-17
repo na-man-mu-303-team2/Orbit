@@ -15,6 +15,7 @@ function renderToolbar(
     <EditorToolbar
       canMutate
       canUseCurrentSlide
+      compactSelectionTrigger={null}
       insertTool="select"
       isAnimationPanelOpen={false}
       isImageUploadPending={false}
@@ -29,7 +30,6 @@ function renderToolbar(
       onUndo={vi.fn()}
       redoDisabled
       selectedElementAnimationCount={0}
-      selectionProperties={null}
       shapeMenuButtonRef={{ current: null }}
       undoDisabled
       zoomControl={null}
@@ -84,5 +84,20 @@ describe("EditorToolbar smart guides", () => {
         )
       );
     }
+  });
+
+  it("shows the compact selection trigger only to editors", () => {
+    const compactSelectionTrigger = (
+      <button data-testid="compact-selection-trigger" type="button">
+        선택 속성
+      </button>
+    );
+
+    expect(renderToolbar({ compactSelectionTrigger })).toContain(
+      'data-testid="compact-selection-trigger"'
+    );
+    expect(
+      renderToolbar({ canMutate: false, compactSelectionTrigger })
+    ).not.toContain('data-testid="compact-selection-trigger"');
   });
 });

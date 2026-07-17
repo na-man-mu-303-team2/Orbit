@@ -79,6 +79,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
         {isOpen ? (
           <div
             className="file-menu-popover action-popover"
+            data-editor-keyboard-scope="popup-menu"
             ref={menuKeyboard.menuRef}
             role="menu"
             onKeyDown={menuKeyboard.onKeyDown}

@@ -79,7 +79,10 @@ export function SlideNavigatorPane(props: {
   );
 
   return (
-    <aside className={`slides-pane ${props.isCollapsed ? "collapsed" : ""}`}>
+    <aside
+      className={`slides-pane ${props.isCollapsed ? "collapsed" : ""}`}
+      data-testid="editor-slide-rail-pane"
+    >
       <div className="slides-pane-header">
         {!props.isCollapsed ? (
           <div className="slides-pane-title">

@@ -13,6 +13,22 @@ export type EditorPasteAction =
   | { files: File[]; type: "paste-image" }
   | { type: "paste-element" };
 
+export function isEditorKeyboardCompositionEvent(
+  event: Pick<KeyboardEvent, "isComposing" | "keyCode">,
+) {
+  return event.isComposing || event.keyCode === 229;
+}
+
+export function isEditorSaveShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey">,
+) {
+  return (
+    !event.altKey &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === "s"
+  );
+}
+
 export function resolveEditorPasteAction(input: {
   canMutateDeck: boolean;
   canPasteImage: boolean;
@@ -63,6 +79,7 @@ export function useEditorKeyboardShortcuts(args: {
   isCropEditing?: boolean;
   isCustomShapeEditingSelection: boolean;
   onCopy: () => void;
+  onCommitInlineTextEditing: () => void;
   onDelete: () => void;
   onDismissLayer: (layer: EditorEscapeLayer) => void;
   onDuplicate: () => void;
@@ -82,6 +99,11 @@ export function useEditorKeyboardShortcuts(args: {
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (isEditorKeyboardCompositionEvent(event)) {
+        if (isEditorSaveShortcut(event)) event.preventDefault();
+        return;
+      }
+
       const command = resolveEditorKeyboardCommand({
         altKey: event.altKey,
         canGroup: args.selectedElementIds.length > 1,
@@ -121,12 +143,19 @@ export function useEditorKeyboardShortcuts(args: {
           case "navigate-slide": args.onNavigateSlide(command.direction); break;
           case "nudge-selection": args.onNudge(command.deltaX, command.deltaY); break;
           case "redo": args.onRedo(); break;
-          case "save": if (command.canExecute) args.onSave(); break;
+          case "save":
+            if (command.canExecute) {
+              if (args.editingElementId) args.onCommitInlineTextEditing();
+              args.onSave();
+            }
+            break;
           case "select-all": args.onSelectAll(); break;
           case "ungroup-selection": args.onUngroup(); break;
           case "undo": args.onUndo(); break;
         }
-        event.stopImmediatePropagation();
+        if (command.type !== "save") {
+          event.stopImmediatePropagation();
+        }
       }
     }
 

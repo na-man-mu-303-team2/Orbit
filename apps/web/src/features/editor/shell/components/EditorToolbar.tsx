@@ -27,6 +27,7 @@ type EditorToolbarProps = {
   actionDisabledReasons?: Partial<Record<EditorToolbarAction, string>>;
   canMutate: boolean;
   canUseCurrentSlide: boolean;
+  compactSelectionTrigger: ReactNode;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isImageUploadPending: boolean;
@@ -41,7 +42,6 @@ type EditorToolbarProps = {
   onUndo: () => void;
   redoDisabled: boolean;
   selectedElementAnimationCount: number;
-  selectionProperties: ReactNode;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
   undoDisabled: boolean;
   zoomControl: ReactNode;
@@ -67,6 +67,7 @@ export function EditorToolbar(props: EditorToolbarProps) {
       >
         {props.canMutate ? (
           <>
+            {props.compactSelectionTrigger}
             <div className="tool-group">
               <button
                 aria-label="실행 취소"
@@ -189,7 +190,6 @@ export function EditorToolbar(props: EditorToolbarProps) {
         ) : null}
         {props.zoomControl}
       </div>
-      {props.canMutate ? props.selectionProperties : null}
     </div>
   );
 }

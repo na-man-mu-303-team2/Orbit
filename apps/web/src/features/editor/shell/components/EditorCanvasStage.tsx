@@ -84,7 +84,15 @@ export function EditorCanvasStage(props: EditorCanvasStageProps) {
   }
 
   return (
-    <div className="canvas-scroll" ref={props.canvasViewportRef}>
+    <div
+      aria-label="슬라이드 캔버스 작업 영역"
+      className="canvas-scroll"
+      data-zoom-percent={Math.round(props.stageScale * 100)}
+      data-testid="editor-canvas-pane"
+      ref={props.canvasViewportRef}
+      role="region"
+      tabIndex={0}
+    >
       {props.imageTransferMessage ? (
         <div
           aria-live="polite"

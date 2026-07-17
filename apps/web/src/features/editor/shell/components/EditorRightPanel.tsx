@@ -3,7 +3,7 @@ import {
   IconLayoutSidebarRightCollapse as PanelRightClose,
   IconLayoutSidebarRightExpand as PanelRightOpen
 } from "@tabler/icons-react";
-import type { Dispatch, KeyboardEvent, PointerEvent, ReactNode, SetStateAction } from "react";
+import { useRef, type Dispatch, type KeyboardEvent, type PointerEvent, type ReactNode, type SetStateAction } from "react";
 
 import { SourceLedgerPanel } from "../../ai/quality/SourceLedgerPanel";
 import { ValidationPanel } from "../../ai/quality/ValidationPanel";
@@ -56,6 +56,16 @@ type EditorRightPanelProps = {
 };
 
 export function EditorRightPanel(props: EditorRightPanelProps) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const openButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  function setPanelOpenWithFocus(open: boolean) {
+    props.setIsOpen(open);
+    requestAnimationFrame(() => {
+      (open ? closeButtonRef.current : openButtonRef.current)?.focus();
+    });
+  }
+
   function handleRightPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
@@ -79,14 +89,17 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   }
 
   return (
-    <aside className={`ai-pane ${props.isOpen ? "" : "collapsed"}`}>
+    <aside
+      className={`ai-pane ${props.isOpen ? "" : "collapsed"}`}
+      data-testid="editor-inspector-pane"
+    >
       {props.isOpen ? (
         <>
           <button aria-label="오른쪽 패널 크기 조정" className="right-pane-resizer" type="button" onPointerDown={props.onResizeStart} />
           <div className="ai-header">
             <h2>편집 패널</h2>
             <div>
-              <button aria-label="오른쪽 패널 접기" className="collapse-right-pane-button" title="오른쪽 패널 접기" type="button" onClick={() => props.setIsOpen(false)}>
+              <button aria-label="오른쪽 패널 접기" className="collapse-right-pane-button" ref={closeButtonRef} title="오른쪽 패널 접기" type="button" onClick={() => setPanelOpenWithFocus(false)}>
                 <PanelRightClose size={16} />
               </button>
             </div>
@@ -137,7 +150,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
         </>
       ) : (
         <div className="collapsed-right-rail">
-          <button aria-label="오른쪽 패널 펼치기" className="collapse-right-pane-button" title="오른쪽 패널 펼치기" type="button" onClick={() => props.setIsOpen(true)}><PanelRightOpen size={16} /></button>
+          <button aria-label="오른쪽 패널 펼치기" className="collapse-right-pane-button" ref={openButtonRef} title="오른쪽 패널 펼치기" type="button" onClick={() => setPanelOpenWithFocus(true)}><PanelRightOpen size={16} /></button>
           <span>도구</span>
         </div>
       )}
