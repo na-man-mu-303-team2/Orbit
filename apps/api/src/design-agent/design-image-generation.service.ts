@@ -8,6 +8,9 @@ import {
   type CreateDesignImageGenerationRequest,
   type CreateDesignImageGenerationResponse,
   type Deck,
+  type DesignImageReferenceAttachment,
+  type SelectedDesignImageReference,
+  type Slide,
 } from "@orbit/shared";
 import {
   BadRequestException,
@@ -17,6 +20,7 @@ import {
 } from "@nestjs/common";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DecksService } from "../decks/decks.service";
+import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { serializeLogError } from "../logging";
 
@@ -27,11 +31,18 @@ export type DesignImageGenerationEnqueueJob = (
   input: EnqueueDesignImageGenerationJobInput,
 ) => Promise<void>;
 
+const designImageReferenceMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 @Injectable()
 export class DesignImageGenerationService {
   constructor(
     private readonly decksService: DecksService,
     private readonly jobsService: JobsService,
+    private readonly filesService: FilesService,
     @Inject(DESIGN_IMAGE_GENERATION_ENQUEUE_JOB)
     private readonly enqueueImageGeneration: DesignImageGenerationEnqueueJob,
     @InjectPinoLogger(DesignImageGenerationService.name)
@@ -56,6 +67,15 @@ export class DesignImageGenerationService {
     if (!slide) {
       throw new BadRequestException("Design image slide does not exist.");
     }
+    const selectedImageReference = await this.resolveSelectedImageReference(
+      projectId,
+      request.selectedImageReference,
+      slide,
+    );
+    const referenceImages = await this.resolveReferenceImages(
+      projectId,
+      request.referenceImages ?? [],
+    );
 
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -72,6 +92,8 @@ export class DesignImageGenerationService {
       prompt: request.prompt,
       aspectRatio: resolveAspectRatio(current.deck),
       slideContext: buildSlideContext(current.deck, request.slideId),
+      ...(selectedImageReference ? { selectedImageReference } : {}),
+      referenceImages,
     });
 
     try {
@@ -116,6 +138,65 @@ export class DesignImageGenerationService {
 
     return createDesignImageGenerationResponseSchema.parse({ job: queuedJob });
   }
+
+  private async resolveSelectedImageReference(
+    projectId: string,
+    reference: SelectedDesignImageReference | undefined,
+    slide: Slide,
+  ): Promise<SelectedDesignImageReference | undefined> {
+    if (!reference) return undefined;
+    if (reference.projectId !== projectId) {
+      throw new BadRequestException("Selected image projectId does not match project.");
+    }
+    const element = slide.elements.find(
+      (candidate) => candidate.elementId === reference.elementId,
+    );
+    if (!element || element.type !== "image") {
+      throw new BadRequestException("Selected image reference must target an image element.");
+    }
+    if (element.props.src !== reference.src) {
+      throw new BadRequestException("Selected image reference src does not match slide.");
+    }
+    const descriptor = parseProjectAssetDescriptor(element.props.src);
+    if (
+      !descriptor ||
+      descriptor.projectId !== projectId ||
+      descriptor.fileId !== reference.fileId
+    ) {
+      throw new BadRequestException("Selected image reference must be a project asset.");
+    }
+    const asset = await this.filesService.getUploadedAsset(projectId, reference.fileId);
+    if (!designImageReferenceMimeTypes.has(asset.mimeType)) {
+      throw new BadRequestException("Selected image reference must be an image asset.");
+    }
+    return {
+      ...reference,
+      alt: reference.alt || element.props.alt || asset.originalName,
+    };
+  }
+
+  private async resolveReferenceImages(
+    projectId: string,
+    images: DesignImageReferenceAttachment[] = [],
+  ): Promise<DesignImageReferenceAttachment[]> {
+    const resolved = new Map<string, DesignImageReferenceAttachment>();
+    for (const image of images) {
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        image.fileId,
+        "reference-material",
+      );
+      if (!designImageReferenceMimeTypes.has(asset.mimeType)) {
+        throw new BadRequestException("Design image references must be image assets.");
+      }
+      resolved.set(asset.fileId, {
+        fileId: asset.fileId,
+        fileName: asset.originalName,
+        mimeType: asset.mimeType as DesignImageReferenceAttachment["mimeType"],
+      });
+    }
+    return [...resolved.values()];
+  }
 }
 
 function nullSafePayload(request: CreateDesignImageGenerationRequest) {
@@ -123,7 +204,51 @@ function nullSafePayload(request: CreateDesignImageGenerationRequest) {
     deckId: request.deckId,
     slideId: request.slideId,
     baseVersion: request.baseVersion,
+    ...(request.selectedImageReference
+      ? {
+          selectedImageReference: {
+            elementId: request.selectedImageReference.elementId,
+            fileId: request.selectedImageReference.fileId,
+            projectId: request.selectedImageReference.projectId,
+          },
+        }
+      : {}),
+    referenceImageFileIds: (request.referenceImages ?? []).map((image) => image.fileId),
   };
+}
+
+function parseProjectAssetDescriptor(src: string) {
+  try {
+    const url = new URL(src, "http://localhost");
+    const proxyMatch = url.pathname.match(
+      /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/content$/,
+    );
+    if (proxyMatch) {
+      return {
+        projectId: decodeURIComponent(proxyMatch[1]),
+        fileId: decodeURIComponent(proxyMatch[2]),
+      };
+    }
+
+    const nestedMinioMatch = url.pathname.match(
+      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+)\/[^/]+$/,
+    );
+    const flatUuidMinioMatch = url.pathname.match(
+      /\/orbit-local\/projects\/([^/]+)\/assets\/(file_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-[^/]+$/,
+    );
+    const flatLegacyMinioMatch = url.pathname.match(
+      /\/orbit-local\/projects\/([^/]+)\/assets\/([^/]+?)-[^/]+$/,
+    );
+    const minioMatch =
+      nestedMinioMatch ?? flatUuidMinioMatch ?? flatLegacyMinioMatch;
+    if (!minioMatch) return null;
+    return {
+      projectId: decodeURIComponent(minioMatch[1]),
+      fileId: decodeURIComponent(minioMatch[2]),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function resolveAspectRatio(deck: Deck) {

@@ -49,10 +49,18 @@ export type ImageAssetCandidate = {
   generationPrompt?: string;
 };
 
+export type GeneratedImageReferenceImage = {
+  body: Uint8Array;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  fileName: string;
+  inputFidelity?: "high" | "low";
+};
+
 export interface GeneratedImageProvider {
   generate(input: {
     prompt: string;
     aspectRatio?: "landscape" | "portrait" | "square";
+    referenceImages?: readonly GeneratedImageReferenceImage[];
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate>;
 }

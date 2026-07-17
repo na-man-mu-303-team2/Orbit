@@ -18,6 +18,7 @@ describe("design image generation API", () => {
       deckId: "deck_1",
       slideId: "slide_1",
       baseVersion: 1,
+      referenceImages: [],
     });
 
     expect(fetcher).toHaveBeenCalledWith(

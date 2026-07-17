@@ -3,6 +3,7 @@ import { enqueueDesignImageGenerationJob } from "@orbit/job-queue";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
+import { FilesModule } from "../files/files.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { SmartArtLayoutsModule } from "../smart-art-layouts/smart-art-layouts.module";
@@ -20,6 +21,7 @@ import {
   imports: [
     AuthModule,
     DecksModule,
+    FilesModule,
     ProjectsModule,
     JobsModule,
     SmartArtLayoutsModule,
