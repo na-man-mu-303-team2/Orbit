@@ -53,6 +53,7 @@ from app.ai.pptx_design_importer import (
 from app.ai.pptx_ooxml_generation import (
     PptxOoxmlGenerationError,
     PptxOoxmlGenerationResult,
+    PptxRenderUnavailableError,
     PptxOoxmlSyncResult,
     UnsupportedPptxAspectRatioError,
     generate_pptx_ooxml,
@@ -60,6 +61,12 @@ from app.ai.pptx_ooxml_generation import (
 )
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
+)
+from app.ai.pptx_png_zip_export import (
+    PptxPngZipExportError,
+    PptxPngZipExportRequest,
+    PptxPngZipExportResponse,
+    export_pptx_png_zip,
 )
 from app.ai.visual_qa import (
     VisualQaRequest,
@@ -826,6 +833,18 @@ def propose_slide_design(
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
 def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
     return export_deck_pptx(payload)
+
+
+@app.post("/ai/export-pptx-png-zip", response_model=PptxPngZipExportResponse)
+def export_pptx_png_zip_endpoint(
+    payload: PptxPngZipExportRequest,
+) -> PptxPngZipExportResponse:
+    try:
+        return export_pptx_png_zip(payload)
+    except PptxRenderUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except PptxPngZipExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/ai/review-deck-visuals", response_model=VisualQaResponse)
