@@ -2089,6 +2089,7 @@ export function EditorShell(props: { projectId?: string }) {
           onHighlightElementIds={setValidationHighlightElementIds}
           onExitRehearsal={() => setSlideRehearsalReport(null)}
           onProposalApplied={handleDesignAgentProposalApplied}
+          onGeneratedImageInsert={editorFileTransferActions.insertGeneratedImage}
           onPlayAnimations={playCurrentSlideAnimations}
           onSpeakerNotesAssistantRequest={
             speakerNotesEditorActions.openAssistantAndGenerate

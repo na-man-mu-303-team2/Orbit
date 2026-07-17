@@ -5,7 +5,9 @@ import type {
   PublicImageSearchProvider
 } from "@orbit/ai";
 import {
+  designImageGenerationResultSchema,
   deckSchema,
+  type DesignImageGenerationJobPayload,
   type Deck,
   type Slide
 } from "@orbit/shared";
@@ -24,6 +26,77 @@ export type ImageAssetRuntime = {
 export type ImageAssetScope = {
   userId: string;
 };
+
+export async function generateDesignImageAsset(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "putObject">,
+  runtime: ImageAssetRuntime,
+  payload: DesignImageGenerationJobPayload,
+) {
+  if (!runtime.generated) {
+    throw new Error("Image generation provider is disabled");
+  }
+  const deterministicIdentity = `design-image:${payload.jobId}`;
+  const deterministicFileId = stableImageAssetFileId(deterministicIdentity);
+  if (
+    (await remainingDailyBudget(
+      dataSource,
+      runtime,
+      { userId: payload.userId },
+      deterministicFileId,
+    )) <= 0
+  ) {
+    throw new Error("Daily image generation limit exceeded");
+  }
+
+  const enrichedPrompt = buildDesignImagePrompt(payload);
+  const asset = await retryImageRequest(
+    () =>
+      runtime.generated!.generate({
+        prompt: enrichedPrompt,
+        aspectRatio: payload.aspectRatio,
+        abortSignal: AbortSignal.timeout(120_000),
+      }),
+    1,
+  );
+  assertCandidate(asset, "ai-generated");
+  const dimensions = imageDimensions(asset.body, asset.mimeType);
+  if (!dimensions) throw new Error("Generated image dimensions are unavailable");
+  const stored = await storeImageAsset(
+    dataSource,
+    storage,
+    payload.projectId,
+    { ...asset, generationPrompt: enrichedPrompt },
+    { userId: payload.userId },
+    deterministicIdentity,
+  );
+
+  return designImageGenerationResultSchema.parse({
+    ...stored,
+    projectId: payload.projectId,
+    purpose: "design-asset",
+    mimeType: asset.mimeType,
+    width: dimensions.width,
+    height: dimensions.height,
+    prompt: payload.prompt,
+    aspectRatio: payload.aspectRatio,
+  });
+}
+
+function buildDesignImagePrompt(payload: DesignImageGenerationJobPayload) {
+  const context = payload.slideContext;
+  const slideText = context.text.join(" · ");
+  return [
+    payload.prompt,
+    context.title ? `Presentation context: ${context.title}.` : "",
+    slideText ? `Visible slide text: ${slideText}.` : "",
+    `Visual style: ${context.theme.name}; primary ${context.theme.primaryColor}; secondary ${context.theme.secondaryColor}; accent ${context.theme.accentColor}; background ${context.theme.backgroundColor}.`,
+    "Create a presentation-ready image with no text, logo, or watermark.",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 4_000);
+}
 
 export type ImageAssetFallbackDiagnostic = {
   reasonCode:
@@ -208,7 +281,8 @@ function isResolvableImageSlide(slide: Slide) {
 async function remainingDailyBudget(
   dataSource: DataSource,
   runtime: ImageAssetRuntime,
-  scope: ImageAssetScope
+  scope: ImageAssetScope,
+  excludeFileId?: string,
 ) {
   const rows = (await dataSource.query(
     `
@@ -217,8 +291,9 @@ async function remainingDailyBudget(
       FROM project_assets
       WHERE created_at >= date_trunc('day', now())
         AND asset_provider IS NOT NULL
+        AND ($2::text IS NULL OR file_id <> $2)
     `,
-    [scope.userId]
+    [scope.userId, excludeFileId ?? null]
   )) as Array<{ user_count: string | number }>;
   return Math.max(
     0,
@@ -356,10 +431,10 @@ async function storeImageAsset(
   deterministicIdentity?: string
 ) {
   const stableHash = deterministicIdentity
-    ? createHash("sha256").update(deterministicIdentity).digest("hex").slice(0, 32)
+    ? stableImageAssetHash(deterministicIdentity)
     : undefined;
-  const fileId = stableHash
-    ? `file_aideck_${stableHash}`
+  const fileId = deterministicIdentity
+    ? stableImageAssetFileId(deterministicIdentity)
     : `file_${randomUUID()}`;
   const originalName = safeStorageName(asset.fileName);
   const storageKey = stableHash
@@ -433,6 +508,14 @@ async function storeImageAsset(
     );
   }
   return { fileId, url };
+}
+
+function stableImageAssetHash(identity: string) {
+  return createHash("sha256").update(identity).digest("hex").slice(0, 32);
+}
+
+function stableImageAssetFileId(identity: string) {
+  return `file_aideck_${stableImageAssetHash(identity)}`;
 }
 
 function replaceSlideImagePlaceholder(

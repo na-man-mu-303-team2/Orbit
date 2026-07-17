@@ -23,13 +23,15 @@ describe("image providers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await new OpenAiGeneratedImageProvider("secret-key").generate({
-      prompt: "presentation visual"
+      prompt: "presentation visual",
+      aspectRatio: "portrait"
     });
 
     expect(Array.from(result.body)).toEqual([1, 2]);
     expect(result.mimeType).toBe("image/png");
     const requestBody = String(fetchMock.mock.calls[0]?.[1]?.body ?? "");
     expect(requestBody).not.toContain("secret-key");
+    expect(JSON.parse(requestBody)).toMatchObject({ size: "1024x1536" });
   });
 
   it("returns Openverse attribution and license metadata", async () => {
