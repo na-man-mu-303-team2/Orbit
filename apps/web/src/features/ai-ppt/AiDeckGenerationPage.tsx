@@ -6,6 +6,7 @@ import { OrbitButton } from "../../design-system";
 import { getResponsiveEditorStageScale } from "../editor/shell/utils/editorLayout";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import {
+  previewBannerText,
   readySlidePrefix,
   requestAiDeckPreview,
   retryAiDeckGeneration,
@@ -331,25 +332,6 @@ function statusLabel(status?: AiDeckPreviewResponse["status"]) {
   if (status === "failed") return "생성 실패";
   if (status === "cancelled") return "생성 취소";
   return "슬라이드 구성 중";
-}
-
-export function previewBannerText(preview: AiDeckPreviewResponse) {
-  const base =
-    "현재 화면은 슬라이드 구성 미리보기이며 검증 중 변경될 수 있습니다. Vision QA가 끝나면 편집기로 이동합니다.";
-  if (preview.status === "grounding") {
-    return `${base} 첨부한 참고자료를 분석하고 있습니다.`;
-  }
-  if (preview.status === "planning" || preview.status === "composing") {
-    return `${base} 발표 목차와 슬라이드 구성을 정리하고 있습니다.`;
-  }
-  if (preview.status === "rendering") {
-    const total = preview.outline.length || preview.expectedSlideCountRange.max;
-    return `${base} 총 ${total}장 중 ${preview.completedSlideIds.length}장을 만들었습니다.`;
-  }
-  if (preview.status === "quality-check") {
-    return `${base} 모든 슬라이드를 만들었습니다. 최종 품질을 확인하고 있어 일부 표현이 달라질 수 있습니다.`;
-  }
-  return base;
 }
 
 function replaceRoute(path: string) {
