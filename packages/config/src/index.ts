@@ -200,6 +200,7 @@ export const orbitEnvSchema = z.object({
     "API_JSON_BODY_LIMIT_BYTES",
     defaultApiJsonBodyLimitBytes
   ),
+  API_TRUST_PROXY_HOPS: optionalIntegerInRange("API_TRUST_PROXY_HOPS", 0, 0, 10),
   WORKER_PORT: requiredPort("WORKER_PORT"),
   PYTHON_WORKER_PORT: requiredPort("PYTHON_WORKER_PORT"),
   WEB_ORIGIN: requiredUrl("WEB_ORIGIN"),

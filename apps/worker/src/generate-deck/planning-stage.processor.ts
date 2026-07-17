@@ -21,6 +21,7 @@ import {
   contentPlanningArtifactPayloadSchema,
   designPlanningArtifactPayloadSchema,
   isAiDeckPlanningStage,
+  isLayoutCompileV2Artifact,
   layoutCompileArtifactPayloadSchema,
   sourceGroundingArtifactPayloadSchema,
   type AiDeckPlanningArtifactPayload,
@@ -323,6 +324,7 @@ async function buildStageInput(
       );
       return designPlanningStageInput(
         contentPlanningArtifactPayloadSchema.parse(artifact.payload),
+        await hasApprovedStoryReview(dataSource, message),
       );
     }
     case "layout-compile": {
@@ -336,6 +338,26 @@ async function buildStageInput(
       );
     }
   }
+}
+
+async function hasApprovedStoryReview(
+  dataSource: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+): Promise<boolean> {
+  return Boolean(
+    firstQueryRow(
+      await dataSource.query(
+        `
+          SELECT 1
+          FROM ai_deck_story_reviews
+          WHERE pipeline_job_id = $1
+            AND project_id = $2
+            AND status = 'approved'
+        `,
+        [message.pipelineJobId, message.projectId],
+      ),
+    ),
+  );
 }
 
 async function loadRegenerationContext(
@@ -599,6 +621,22 @@ async function ensureImageOrSemanticCheckpoints(
 ): Promise<void> {
   if (message.stage !== "layout-compile") return;
   const layout = layoutCompileArtifactPayloadSchema.parse(payload);
+  if (isLayoutCompileV2Artifact(layout)) {
+    for (const slide of layout.slides) {
+      const next = await checkpoints.ensureQueued(
+        {
+          ...message,
+          stage: "image-slide",
+          shardKey: slide.shardKey,
+        },
+        layoutReference,
+      );
+      if (!next) {
+        throw new Error("Next AI deck slide checkpoint was not created.");
+      }
+    }
+    return;
+  }
   const visualRequirements = z
     .object({
       items: z.array(

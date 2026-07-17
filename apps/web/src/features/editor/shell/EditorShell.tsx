@@ -1,5 +1,7 @@
 import {
   createDemoDeck,
+  createUpdateActivityDefinitionPatch,
+  createUpdateActivityResultDefinitionPatch,
   getElementAnimations,
   deriveKeywordActionUsage,
   validateSlideAnimations
@@ -26,6 +28,7 @@ import type {
 import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
+import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -62,6 +65,8 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DeckAnimation,
+  DeckExportFormat,
+  DeckExportRequest,
   SemanticCue,
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -73,6 +78,10 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import {
+  ActivityResultSlideInspector,
+  ActivitySlideInspector
+} from "../../activity-slides";
 import {
   type SemanticCueExtractionUiState
 } from "../semantic-cues/SemanticCueReviewPanel";
@@ -87,6 +96,7 @@ import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
 import { EditorCanvasStage } from "./components/EditorCanvasStage";
 import { EditorToolbar } from "./components/EditorToolbar";
+import { IconLibrarySidePanel } from "./components/IconLibrarySidePanel";
 import {
   EditorRightPanel,
   type AiPanelView,
@@ -129,6 +139,7 @@ export {
   createDeckExportJob,
   createPptxOoxmlGenerationJob,
   createSemanticCueExtractionJob,
+  exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
   requireMatchingPptxImportedDeck,
@@ -195,6 +206,10 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const setIsAnimationPanelOpen = useEditorShellUiStore(
     (state) => state.setIsAnimationPanelOpen
+  );
+  const isIconPanelOpen = useEditorShellUiStore((state) => state.isIconPanelOpen);
+  const setIsIconPanelOpen = useEditorShellUiStore(
+    (state) => state.setIsIconPanelOpen
   );
   const isRightPanelOpen = useEditorShellUiStore((state) => state.isRightPanelOpen);
   const setIsRightPanelOpen = useEditorShellUiStore(
@@ -306,6 +321,9 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const [semanticCueExtractionState, setSemanticCueExtractionState] =
     useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [exportDialogFormat, setExportDialogFormat] =
+    useState<DeckExportFormat>("pptx");
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const ooxmlSyncJob = useOoxmlSyncJob();
 
@@ -434,6 +452,28 @@ export function EditorShell(props: { projectId?: string }) {
     !isDeckLoading &&
     !isDeckError;
   const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const canEditCurrentSlideCanvas = canEditSlideCanvas(currentSlide);
+
+  useEffect(() => {
+    if (canEditCurrentSlideCanvas) return;
+    setInsertTool("select");
+    setIsShapeMenuOpen(false);
+    setIsAnimationPanelOpen(false);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+  }, [
+    canEditCurrentSlideCanvas,
+    currentSlide?.slideId,
+    setCustomShapeEditElementId,
+    setEditingElementId,
+    setElementContextMenu,
+    setInsertTool,
+    setIsAnimationPanelOpen,
+    setIsShapeMenuOpen,
+    setSelectedElementIds
+  ]);
   const {
     actions: speakerNotesEditorActions,
     state: speakerNotesEditorState
@@ -666,6 +706,9 @@ export function EditorShell(props: { projectId?: string }) {
   const { copiedElementRef } = editorCanvasRefs;
   const handleAddChartElement = editorCanvasActions.addChartElement;
   const handleAddSlide = editorCanvasActions.addSlide;
+  const handleAddActivitySlide = editorCanvasActions.addActivitySlide;
+  const handleAddActivityResultsSlide =
+    editorCanvasActions.addActivityResultsSlide;
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
@@ -824,8 +867,14 @@ export function EditorShell(props: { projectId?: string }) {
     return editorDocumentActions.save(commitSpeakerNotesDraftIfDirty);
   }
 
-  async function handleExportPptx() {
-    await editorFileTransferActions.exportPptx(handleSaveDeck);
+  async function handleExportDeck(input: DeckExportRequest) {
+    return editorFileTransferActions.exportDeck(handleSaveDeck, input);
+  }
+
+  function openExportDialog(format: DeckExportFormat) {
+    setExportDialogFormat(format);
+    setIsExportDialogOpen(true);
+    setActiveTopMenu(null);
   }
 
   function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
@@ -940,7 +989,15 @@ export function EditorShell(props: { projectId?: string }) {
   }
 
   function openAnimationInspector() {
+    setIsIconPanelOpen(false);
     setIsAnimationPanelOpen(true);
+  }
+
+  function toggleIconLibrary() {
+    setIsIconPanelOpen((current) => {
+      if (!current) setIsAnimationPanelOpen(false);
+      return !current;
+    });
   }
 
   function handleSelectSlideAnimationFromPanel(animation: DeckAnimation) {
@@ -1102,7 +1159,7 @@ export function EditorShell(props: { projectId?: string }) {
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
           ooxmlSyncStatus={ooxmlSyncStatus}
           onExitToHome={handleExitToHome}
-          onExportPptx={() => void handleExportPptx()}
+          onOpenExport={openExportDialog}
           onImportPptx={openPptxFilePicker}
           onOpenAudienceLink={() => {
             setIsAudienceLinkModalOpen(true);
@@ -1113,6 +1170,14 @@ export function EditorShell(props: { projectId?: string }) {
           onRefresh={() => {
             void health.refetch();
             void deckQuery.refetch();
+          }}
+          onRenameDeckTitle={(title) => {
+            commitPatch((currentDeck) => ({
+              baseVersion: currentDeck.version,
+              deckId: currentDeck.deckId,
+              operations: [{ type: "update_deck", title }],
+              source: "user"
+            }));
           }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
@@ -1136,6 +1201,7 @@ export function EditorShell(props: { projectId?: string }) {
         />
       <EditorModals
         audienceLink={{
+          deckId: deck.deckId,
           isOpen: isAudienceLinkModalOpen,
           onClose: () => setIsAudienceLinkModalOpen(false),
           projectId
@@ -1150,6 +1216,17 @@ export function EditorShell(props: { projectId?: string }) {
               void handleSaveAndExit();
             }
           }
+        }}
+        exportDialog={{
+          deckId: deck.deckId,
+          errorMessage: pptxExportError,
+          initialFormat: exportDialogFormat,
+          onClose: () => setIsExportDialogOpen(false),
+          onExport: handleExportDeck,
+          open: isExportDialogOpen,
+          pending: isPptxExporting,
+          projectId,
+          statusMessage: pptxExportStatus
         }}
         presence={{
           isOpen: isPresenceDebugOpen,
@@ -1192,7 +1269,7 @@ export function EditorShell(props: { projectId?: string }) {
       ) : null}
 
       <section
-        className={`editor-panel ${isAnimationPanelOpen ? "animation-panel-open" : ""} ${
+        className={`editor-panel ${isAnimationPanelOpen || isIconPanelOpen ? "animation-panel-open" : ""} ${
           isRightPanelOpen ? "" : "right-panel-closed"
         } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
         aria-label="Presentation editor"
@@ -1212,6 +1289,16 @@ export function EditorShell(props: { projectId?: string }) {
           currentSlideIndex={currentSlideIndex}
           deck={deck}
           isCollapsed={isSlidesPaneCollapsed}
+          onAddActivitySlide={(template) => {
+            if (!handleAddActivitySlide(template)) return;
+            setIsRightPanelOpen(true);
+            setRightPanelView("design");
+          }}
+          onAddActivityResultsSlide={() => {
+            if (!handleAddActivityResultsSlide()) return;
+            setIsRightPanelOpen(true);
+            setRightPanelView("design");
+          }}
           onAddSlide={handleAddSlide}
           onResizeStart={handleSlidesPaneResizeStart}
           onSelectSlide={handleSelectSlideIndex}
@@ -1223,6 +1310,13 @@ export function EditorShell(props: { projectId?: string }) {
           slideThumbnailUrls={slideThumbnailUrls}
           view={slidePanelView}
         />
+        {isIconPanelOpen ? (
+          <IconLibrarySidePanel
+            accentColor={currentSlide?.style.accentColor ?? deck.theme.accentColor}
+            onClose={() => setIsIconPanelOpen(false)}
+            onInsert={editorCanvasActions.addIconElement}
+          />
+        ) : null}
         {isAnimationPanelOpen ? (
           <AnimationSidePanel
             animations={selectedElementAnimations}
@@ -1281,14 +1375,16 @@ export function EditorShell(props: { projectId?: string }) {
 
         <section className="stage-pane">
           <EditorToolbar
-            canUseCurrentSlide={Boolean(currentSlide)}
+            canUseCurrentSlide={canEditCurrentSlideCanvas}
             insertTool={insertTool}
             isAnimationPanelOpen={isAnimationPanelOpen}
+            isIconPanelOpen={isIconPanelOpen}
             isImageUploadPending={isImageUploadPending}
             isShapeMenuOpen={isShapeMenuOpen}
             onAddChart={handleAddChartElement}
             onAddText={handleAddTextElement}
             onOpenAnimation={openAnimationInspector}
+            onOpenIconLibrary={toggleIconLibrary}
             onOpenImagePicker={() => {
               if (currentSlide) {
                 openImageFilePicker({ slideId: currentSlide.slideId, type: "insert" });
@@ -1390,7 +1486,13 @@ export function EditorShell(props: { projectId?: string }) {
               onSetCustomShapeEditElementId: setCustomShapeEditElementId,
               onSetInsertTool: setInsertTool,
               onOpenElementContextMenu: handleOpenElementContextMenu,
-              onSelectElement: handleElementSelection
+              onSelectElement: handleElementSelection,
+              onSelectElements: (elementIds) => {
+                setElementContextMenu(null);
+                setEditingElementId(null);
+                setCustomShapeEditElementId(null);
+                setSelectedElementIds(elementIds);
+              }
             }}
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}
@@ -1475,7 +1577,44 @@ export function EditorShell(props: { projectId?: string }) {
           currentSlide={currentSlide}
           deck={deck}
           designProperties={
-            <EditorSelectionProperties
+            currentSlide?.kind === "activity" ? (
+              <ActivitySlideInspector
+                deckId={deck.deckId}
+                onOpenAudienceLink={() => setIsAudienceLinkModalOpen(true)}
+                projectId={deck.projectId}
+                slide={currentSlide}
+                onChange={(activity) => {
+                  commitPatch((currentDeck) =>
+                    createUpdateActivityDefinitionPatch(
+                      currentDeck,
+                      currentSlide.slideId,
+                      activity
+                    )
+                  );
+                }}
+              />
+            ) : currentSlide?.kind === "activity-results" ? (
+              <ActivityResultSlideInspector
+                deck={deck}
+                projectId={deck.projectId}
+                slide={currentSlide}
+                onChange={(activityResult) => {
+                  commitPatch((currentDeck) =>
+                    createUpdateActivityResultDefinitionPatch(
+                      currentDeck,
+                      currentSlide.slideId,
+                      activityResult
+                    )
+                  );
+                }}
+                onSelectSourceSlide={(slideId) => {
+                  const index = deck.slides.findIndex(
+                    (slide) => slide.slideId === slideId
+                  );
+                  if (index >= 0) handleSelectSlideIndex(index);
+                }}
+              />
+            ) : <EditorSelectionProperties
               animations={selectedElementAnimations}
               animationDiagnostics={currentSlideAnimationDiagnostics}
               canvas={deck.canvas}
@@ -1509,6 +1648,7 @@ export function EditorShell(props: { projectId?: string }) {
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
           onProposalApplied={handleDesignAgentProposalApplied}
+          onSpeakerNotesAssistantRequest={speakerNotesEditorActions.openAssistantAndGenerate}
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}

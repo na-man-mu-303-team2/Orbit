@@ -31,6 +31,7 @@ export const historicalJobTypeSchema = z.enum([
   "challenge-qna-answer-analysis",
   "slide-question-guide-generation",
   "private-audio-cleanup",
+  "activity-response-retention",
 ]);
 
 export const jobTypeSchema = historicalJobTypeSchema;

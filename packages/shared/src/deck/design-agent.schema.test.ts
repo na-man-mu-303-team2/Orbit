@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { designAgentWorkerResponseSchema } from "./design-agent.schema";
+import {
+  designAgentCapabilities,
+  designAgentWorkerResponseSchema,
+} from "./design-agent.schema";
 
 describe("design agent schema", () => {
+  it("enables supported animation patch operations", () => {
+    expect(designAgentCapabilities.operations).toEqual(
+      expect.arrayContaining(["add_animation", "update_animation", "delete_animation"]),
+    );
+  });
   it("accepts patch operations returned by the worker", () => {
     const response = designAgentWorkerResponseSchema.parse({
       message: "변경안을 준비했습니다.",

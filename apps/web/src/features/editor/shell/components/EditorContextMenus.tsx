@@ -130,7 +130,7 @@ export function EditorContextMenus(props: {
                   </button>
                 ) : (
                   <button className="element-context-menu-item" role="menuitem" type="button" onClick={props.onCreateGroup}>
-                    <Shapes size={16} /><span>그룹</span>
+                    <Shapes size={16} /><span>그룹화</span>
                   </button>
                 )}
               </div>

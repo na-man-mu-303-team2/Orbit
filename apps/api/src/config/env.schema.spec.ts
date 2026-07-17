@@ -7,6 +7,7 @@ const validEnv = {
   WEB_PORT: "5173",
   API_PORT: "3000",
   API_JSON_BODY_LIMIT_BYTES: "5000000",
+  API_TRUST_PROXY_HOPS: "0",
   WORKER_PORT: "3001",
   PYTHON_WORKER_PORT: "8000",
   WEB_ORIGIN: "http://localhost:5173",
@@ -211,9 +212,11 @@ describe("ORBIT env validation", () => {
     delete env.LOG_LEVEL;
     delete env.LOG_PRETTY;
     delete env.API_JSON_BODY_LIMIT_BYTES;
+    delete env.API_TRUST_PROXY_HOPS;
 
     expect(loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" })).toMatchObject({
       API_JSON_BODY_LIMIT_BYTES: 5000000,
+      API_TRUST_PROXY_HOPS: 0,
       LOG_LEVEL: "info",
       LOG_PRETTY: false
     });
@@ -235,6 +238,21 @@ describe("ORBIT env validation", () => {
         { service: "api" }
       )
     ).toThrow(/API_JSON_BODY_LIMIT_BYTES/);
+  });
+
+  it("validates trusted proxy hop configuration", () => {
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, API_TRUST_PROXY_HOPS: "1" },
+        { service: "api" }
+      ).API_TRUST_PROXY_HOPS
+    ).toBe(1);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, API_TRUST_PROXY_HOPS: "-1" },
+        { service: "api" }
+      )
+    ).toThrow(/API_TRUST_PROXY_HOPS/);
   });
 
   it("keeps live STT and report STT provider contracts separate", () => {

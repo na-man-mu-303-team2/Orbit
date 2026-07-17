@@ -1,9 +1,10 @@
-import { AudienceEntrance } from "../../features/audience/AudienceEntrance";
+import { AudienceSatisfactionPage } from "../../features/activity-slides";
 
 type AudienceSessionPageProps = {
+  activityId?: string;
   sessionId: string;
 };
 
-export function AudienceSessionPage({ sessionId }: AudienceSessionPageProps) {
-  return <AudienceEntrance sessionId={sessionId} />;
+export function AudienceSessionPage({ activityId, sessionId }: AudienceSessionPageProps) {
+  return <AudienceSatisfactionPage activityId={activityId} sessionId={sessionId} />;
 }

@@ -27,6 +27,8 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 
 `API_JSON_BODY_LIMIT_BYTES`는 API의 JSON request body 최대 크기다. 기본값은 `5000000`이며, full deck 저장(`PUT /api/v1/projects/:projectId/deck`)처럼 checkpoint용 Deck JSON을 보내는 경로가 Express 기본값 100KB에 걸리지 않도록 명시한다.
 
+`API_TRUST_PROXY_HOPS`는 API 앞에서 신뢰할 reverse proxy hop 수다. 직접 접속하는 local/test는 `0`, ALB 또는 단일 Nginx 뒤의 staging/production은 `1`을 사용한다. 실제 proxy 수보다 크게 설정하면 외부 `X-Forwarded-For`를 신뢰하게 되므로 배포 topology와 정확히 맞춰야 한다.
+
 ## driver 값
 
 ```txt
@@ -56,7 +58,7 @@ LLM_PROVIDER=openai
 | `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
 | `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                             |
 | `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
-| `bullmq`                 | `image`                | `image-slide` queue만 소비한다.                                                                                                      |
+| `bullmq`                 | `image`                | `image-slide` queue만 소비한다. legacy에서는 image 대상 slide, v2에서는 모든 slide의 상세 생성·asset·QA shard를 처리한다.             |
 | `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
 | `pg`                     | `all`                  | 로컬 기본값. `ai_deck_generation_stages`를 직접 claim한다. AI Deck BullMQ coordinator·stage queue는 enqueue/consume하지 않고 process 전체 5개, 사용자 전체 5개 기본 상한을 적용한다. |
 

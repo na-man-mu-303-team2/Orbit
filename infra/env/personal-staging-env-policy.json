@@ -41,6 +41,10 @@
       "source": "repo-default",
       "delivery": "code-default"
     },
+    "API_TRUST_PROXY_HOPS": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "API_PORT": {
       "source": "doppler-required",
       "delivery": "compose"

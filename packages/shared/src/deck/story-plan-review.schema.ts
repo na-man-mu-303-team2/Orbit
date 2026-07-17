@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { generateDeckRepairReasonSchema } from "./generate-deck.schema";
+import { aiDeckToneSchema } from "./deck.schema";
+import {
+  generateDeckFontOverrideSchema,
+  generateDeckPaletteOverrideSchema,
+  generateDeckRepairReasonSchema,
+} from "./generate-deck.schema";
 import { jobSchema } from "../jobs/job.schema";
 
 export const storyPlanReviewStatusSchema = z.enum([
@@ -29,6 +34,7 @@ export const storyPlanSourceMetadataSchema = z
 export const storyPlanSlideSchema = z
   .object({
     order: z.number().int().min(1),
+    sourceOrder: z.number().int().min(1),
     slideType: z.string().trim().min(1),
     title: z.string(),
     message: z.string(),
@@ -78,6 +84,13 @@ export const storyPlanReviewResponseSchema = z
     jobId: z.string().trim().min(1),
     projectId: z.string().trim().min(1),
     status: storyPlanReviewStatusSchema,
+    styleContext: z
+      .object({
+        topic: z.string().trim().min(1),
+        tone: aiDeckToneSchema,
+      })
+      .strict()
+      .nullable(),
     plan: storyPlanSchema.nullable(),
     error: storyPlanReviewErrorSchema.nullable(),
   })
@@ -91,8 +104,57 @@ export const storyPlanRegenerateRequestSchema = z
   .strict();
 
 export const storyPlanApproveRequestSchema = z
-  .object({ expectedRevision: z.number().int().min(1) })
+  .object({
+    expectedRevision: z.number().int().min(1),
+    slides: z
+      .array(
+        z
+          .object({
+            sourceOrder: z.number().int().min(1),
+            title: z.string().trim().min(1).max(200),
+            message: z.string().trim().min(1).max(1000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100)
+      .optional(),
+    designSelection: z
+      .object({
+        paletteOptionId: z.string().trim().min(1).max(80),
+        paletteOverride: generateDeckPaletteOverrideSchema.required(),
+        fontOverride: generateDeckFontOverrideSchema,
+      })
+      .strict()
+      .optional(),
+  })
   .strict();
+
+const storyPlanSlideOrderSchema = z
+  .array(z.number().int().min(1))
+  .min(1)
+  .max(100)
+  .refine((orders) => new Set(orders).size === orders.length, {
+    message: "Slide orders must be unique",
+  });
+
+export const storyPlanEditRequestSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("reorder"),
+      expectedRevision: z.number().int().min(1),
+      orders: storyPlanSlideOrderSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("speaker-notes"),
+      expectedRevision: z.number().int().min(1),
+      order: z.number().int().min(1),
+      speakerNotes: z.string().trim().min(1).max(5000),
+    })
+    .strict(),
+]);
 
 export const generateDeckStartResponseSchema = z
   .object({
@@ -110,3 +172,4 @@ export type StoryPlanRegenerateRequest = z.infer<
 export type StoryPlanApproveRequest = z.infer<
   typeof storyPlanApproveRequestSchema
 >;
+export type StoryPlanEditRequest = z.infer<typeof storyPlanEditRequestSchema>;

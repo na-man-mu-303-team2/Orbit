@@ -167,7 +167,7 @@ test("sync arguments are dry-run by default and reject unknown input", () => {
 
 test("develop deploy syncs safe Doppler defaults before server deployment", () => {
   const workflow = fs.readFileSync(
-    ".github/workflows/deploy-personal-staging.yml",
+    ".github/workflows/environment-contract-ci.yml",
     "utf8",
   );
 
@@ -180,9 +180,45 @@ test("develop deploy syncs safe Doppler defaults before server deployment", () =
     workflow,
     /node infra\/scripts\/sync-personal-staging-doppler\.mjs \\\s+--apply/,
   );
-  assert.match(workflow, /^    needs: sync-personal-staging-env$/m);
+  assert.doesNotMatch(
+    workflow,
+    /uses: \.\/\.github\/workflows\/deploy-personal-staging\.yml/,
+  );
   assert.match(
     workflow,
     /needs\.sync-personal-staging-env\.result == 'success'/,
+  );
+  assert.match(
+    workflow,
+    /'personal-staging-deploy' \|\| format\('environment-contract-\{0\}-\{1\}', github\.workflow, github\.ref\)/,
+  );
+  assert.match(
+    workflow,
+    /sudo \/usr\/local\/sbin\/orbit-deploy-personal-staging "\$DEPLOYMENT_MODE" "\$EXPECTED_SHA"/,
+  );
+});
+
+test("manual full recovery uses the existing dispatch and serialized develop sync path", () => {
+  const contractWorkflow = fs.readFileSync(
+    ".github/workflows/environment-contract-ci.yml",
+    "utf8",
+  );
+  const deployWorkflow = fs.readFileSync(
+    ".github/workflows/deploy-personal-staging.yml",
+    "utf8",
+  );
+
+  assert.doesNotMatch(contractWorkflow, /^  workflow_dispatch:$/m);
+  assert.doesNotMatch(deployWorkflow, /^  workflow_call:$/m);
+  assert.match(deployWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(deployWorkflow, /^          - manual$/m);
+  assert.match(
+    deployWorkflow,
+    /inputs\.deployment_mode == 'full' &&[\s\S]*inputs\.trigger_source == 'manual' &&[\s\S]*github\.ref == 'refs\/heads\/develop'/,
+  );
+  assert.doesNotMatch(deployWorkflow, /develop-push/);
+  assert.match(
+    deployWorkflow,
+    /^concurrency:\s+group: personal-staging-deploy\s+cancel-in-progress: false$/m,
   );
 });

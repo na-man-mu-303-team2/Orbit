@@ -243,11 +243,28 @@ def add_chart(slide: Any, element: dict[str, Any], warnings: list[str]) -> None:
         return
 
     chart_data = CategoryChartData()  # type: ignore[no-untyped-call]
-    chart_data.categories = [str(item.get("label", "")) for item in data]
-    chart_data.add_series(  # type: ignore[no-untyped-call]
-        str(props.get("title") or "Series"),
-        [float(item.get("value", 0)) for item in data],
-    )
+    if chart_type == "line":
+        categories = list(dict.fromkeys(str(item.get("label", "")) for item in data))
+        series_names = list(
+            dict.fromkeys(str(item.get("series") or "Series 1") for item in data)
+        )
+        chart_data.categories = categories
+        for series_name in series_names:
+            values_by_category = {
+                str(item.get("label", "")): float(item.get("value", 0))
+                for item in data
+                if str(item.get("series") or "Series 1") == series_name
+            }
+            chart_data.add_series(  # type: ignore[no-untyped-call]
+                series_name,
+                [values_by_category.get(category, 0.0) for category in categories],
+            )
+    else:
+        chart_data.categories = [str(item.get("label", "")) for item in data]
+        chart_data.add_series(  # type: ignore[no-untyped-call]
+            str(props.get("title") or "Series"),
+            [float(item.get("value", 0)) for item in data],
+        )
     chart_shape_type = {
         "bar": XL_CHART_TYPE.COLUMN_CLUSTERED,
         "line": XL_CHART_TYPE.LINE,

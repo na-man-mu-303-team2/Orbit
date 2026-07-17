@@ -1,22 +1,6 @@
-name: Deploy Personal Staging
+name: Personal Staging deploy
 
 on:
-  workflow_call:
-    inputs:
-      deployment_mode:
-        description: full 또는 environment-only
-        required: false
-        default: full
-        type: string
-      expected_sha:
-        description: Environment Contract CI를 통과한 develop commit SHA
-        required: true
-        type: string
-      trigger_source:
-        description: 배포 요청 출처
-        required: false
-        default: develop-push
-        type: string
   workflow_dispatch:
     inputs:
       deployment_mode:
@@ -51,7 +35,7 @@ jobs:
   sync-personal-staging-env:
     if: >-
       inputs.deployment_mode == 'full' &&
-      inputs.trigger_source == 'develop-push' &&
+      inputs.trigger_source == 'manual' &&
       github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 5

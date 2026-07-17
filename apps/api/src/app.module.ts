@@ -14,6 +14,7 @@ import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
 import { PptxOoxmlGenerationsModule } from "./pptx-ooxml-generations/pptx-ooxml-generations.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
+import { ActivitiesModule } from "./activities/activities.module";
 import { PptAdvisorModule } from "./ppt-advisor/ppt-advisor.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
@@ -44,6 +45,7 @@ import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-questio
     PptxOoxmlGenerationsModule,
     JobsModule,
     PresentationSessionsModule,
+    ActivitiesModule,
     PptAdvisorModule,
     ReferencesModule,
     RuntimeConfigModule,

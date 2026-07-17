@@ -70,6 +70,15 @@ describe("jobTypeSchema", () => {
       expect(publicCreatableJobTypeSchema.safeParse(type).success).toBe(false);
     }
   });
+
+  it("keeps activity retention internal while allowing worker execution", () => {
+    expect(activeJobTypeSchema.parse("activity-response-retention")).toBe(
+      "activity-response-retention",
+    );
+    expect(
+      publicCreatableJobTypeSchema.safeParse("activity-response-retention").success,
+    ).toBe(false);
+  });
 });
 
 describe("jobSchema error metadata", () => {

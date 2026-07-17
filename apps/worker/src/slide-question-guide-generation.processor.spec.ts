@@ -1,5 +1,6 @@
 import type { DataSource } from "typeorm";
 import { createHash } from "node:crypto";
+import { deckSchema } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
@@ -9,8 +10,9 @@ const payload = {
   projectId: "project-1",
   guideId: "guide-1",
 };
-const slideHash = sha256Canonical(deckFixture().slides[0]);
-const supportingSlideHash = sha256Canonical(deckFixture().slides[1]);
+const canonicalDeck = deckSchema.parse(deckFixture());
+const slideHash = sha256Canonical(canonicalDeck.slides[0]);
+const supportingSlideHash = sha256Canonical(canonicalDeck.slides[1]);
 const referenceHash = "b".repeat(64);
 
 describe("processSlideQuestionGuideGenerationJob", () => {

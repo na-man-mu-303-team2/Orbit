@@ -4,6 +4,7 @@ import { DataSource, DataSourceOptions } from "typeorm";
 import { SavedDesignPackEntity } from "../saved-design-packs/saved-design-pack.entity";
 import { DesignAgentMessageEntity } from "../design-agent/design-agent-message.entity";
 import { DesignAgentProposalEntity } from "../design-agent/design-agent-proposal.entity";
+import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.entity";
 import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
@@ -45,10 +46,18 @@ import { ExpandAiDeckStageDispatchRecovery2026071601100 } from "./migrations/202
 import { CreateAiDeckExecutionArtifacts2026071602000 } from "./migrations/2026071602000-CreateAiDeckExecutionArtifacts";
 import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603000-AddRehearsalAudioRetention";
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
+import { ExpandPresentationSessionsForActivities2026071701000 } from "./migrations/2026071701000-ExpandPresentationSessionsForActivities";
+import { CreateActivityRuntime2026071702000 } from "./migrations/2026071702000-CreateActivityRuntime";
+import { CreatePresentationSessionAudienceRegistry2026071703000 } from "./migrations/2026071703000-CreatePresentationSessionAudienceRegistry";
 import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
 import { CreateSlidePracticeAndQuestionGuides2026071701000 } from "./migrations/2026071701000-CreateSlidePracticeAndQuestionGuides";
 import { AddSlideQuestionGuideWebResearch2026071702000 } from "./migrations/2026071702000-AddSlideQuestionGuideWebResearch";
 import { CreateSlidePracticeAudioAnalyses2026071703000 } from "./migrations/2026071703000-CreateSlidePracticeAudioAnalyses";
+import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
+import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702000-AddSmartArtTemplateLayouts";
+import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703000-IncreaseSmartArtTypography";
+import { RepairActivityRetentionPrivacy2026071704000 } from "./migrations/2026071704000-RepairActivityRetentionPrivacy";
+import { CenterSmartArtCardText2026071705000 } from "./migrations/2026071705000-CenterSmartArtCardText";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -66,7 +75,8 @@ export const databaseOptions: DataSourceOptions = {
     RehearsalRunEntity,
     SavedDesignPackEntity,
     DesignAgentMessageEntity,
-    DesignAgentProposalEntity
+    DesignAgentProposalEntity,
+    SmartArtLayoutEntity
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -108,8 +118,16 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalTranscriptArtifacts2026071603000,
     CreateAiDeckStoryReviews2026071604000,
     CreateSlidePracticeAndQuestionGuides2026071701000,
+    CreateSmartArtLayouts2026071701000,
+    ExpandPresentationSessionsForActivities2026071701000,
     AddSlideQuestionGuideWebResearch2026071702000,
-    CreateSlidePracticeAudioAnalyses2026071703000
+    CreateActivityRuntime2026071702000,
+    AddSmartArtTemplateLayouts2026071702000,
+    CreateSlidePracticeAudioAnalyses2026071703000,
+    CreatePresentationSessionAudienceRegistry2026071703000,
+    IncreaseSmartArtTypography2026071703000,
+    RepairActivityRetentionPrivacy2026071704000,
+    CenterSmartArtCardText2026071705000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

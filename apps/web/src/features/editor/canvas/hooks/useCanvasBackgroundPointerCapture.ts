@@ -1,6 +1,6 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
 import type Konva from "konva";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteractionUtils";
 import type { CustomShapeEditDraft } from "./types";
@@ -16,6 +16,9 @@ export function useCanvasBackgroundPointerCapture(args: {
   stageScale: number;
   visibleElements: DeckElement[];
   onClearSelection: () => void;
+  onSelectionDragStart: (point: { x: number; y: number }) => void;
+  onSelectionDragMove: (point: { x: number; y: number }) => void;
+  onSelectionDragEnd: () => void;
   onMarkTextBlurForClear: () => void;
   setCustomShapeEditDraft: (
     updater:
@@ -25,6 +28,7 @@ export function useCanvasBackgroundPointerCapture(args: {
   ) => void;
   isKeyboardEditableTarget: (target: EventTarget | null) => boolean;
 }) {
+  const activeSelectionPointerIdRef = useRef<number | null>(null);
   const {
     deck,
     editingElementId,
@@ -36,6 +40,9 @@ export function useCanvasBackgroundPointerCapture(args: {
     stageScale,
     visibleElements,
     onClearSelection,
+    onSelectionDragStart,
+    onSelectionDragMove,
+    onSelectionDragEnd,
     onMarkTextBlurForClear,
     setCustomShapeEditDraft,
     isKeyboardEditableTarget
@@ -62,7 +69,7 @@ export function useCanvasBackgroundPointerCapture(args: {
     function handleCanvasBackgroundSelection() {
       if (editingElementId) {
         onMarkTextBlurForClear();
-        return;
+        return false;
       }
 
       const customShapeDraftElementId = customShapeEditDraft?.elementId ?? null;
@@ -81,13 +88,14 @@ export function useCanvasBackgroundPointerCapture(args: {
               }
             : current
         );
-        return;
+        return false;
       }
 
       onClearSelection();
+      return true;
     }
 
-    function handleNativeBackgroundCapture(event: MouseEvent | PointerEvent) {
+    function handleNativeBackgroundCapture(event: PointerEvent) {
       if (event.button !== 0 || insertTool !== "select") {
         return;
       }
@@ -97,18 +105,31 @@ export function useCanvasBackgroundPointerCapture(args: {
       }
 
       const point = getCanvasPointFromClientPosition(event.clientX, event.clientY);
-      const isElementHit = visibleElements.some((element) =>
-        isCanvasPointInsideElementSelectionArea({
-          deck,
-          element,
-          point,
-          slide
-        })
+      const isElementHit = visibleElements.some(
+        (element) =>
+          element.role !== "background" &&
+          isCanvasPointInsideElementSelectionArea({ deck, element, point, slide })
       );
 
-      if (!isElementHit) {
-        handleCanvasBackgroundSelection();
+      if (!isElementHit && handleCanvasBackgroundSelection()) {
+        activeSelectionPointerIdRef.current = event.pointerId;
+        activeStageContainer.setPointerCapture?.(event.pointerId);
+        onSelectionDragStart(point);
       }
+    }
+
+    function handleNativeSelectionMove(event: PointerEvent) {
+      if (event.pointerId !== activeSelectionPointerIdRef.current) return;
+      onSelectionDragMove(getCanvasPointFromClientPosition(event.clientX, event.clientY));
+    }
+
+    function finishNativeSelection(event: PointerEvent) {
+      if (event.pointerId !== activeSelectionPointerIdRef.current) return;
+      activeSelectionPointerIdRef.current = null;
+      if (activeStageContainer.hasPointerCapture?.(event.pointerId)) {
+        activeStageContainer.releasePointerCapture(event.pointerId);
+      }
+      onSelectionDragEnd();
     }
 
     activeStageContainer.addEventListener(
@@ -116,11 +137,9 @@ export function useCanvasBackgroundPointerCapture(args: {
       handleNativeBackgroundCapture,
       true
     );
-    activeStageContainer.addEventListener(
-      "mousedown",
-      handleNativeBackgroundCapture,
-      true
-    );
+    activeStageContainer.addEventListener("pointermove", handleNativeSelectionMove, true);
+    activeStageContainer.addEventListener("pointerup", finishNativeSelection, true);
+    activeStageContainer.addEventListener("pointercancel", finishNativeSelection, true);
 
     return () => {
       activeStageContainer.removeEventListener(
@@ -128,11 +147,9 @@ export function useCanvasBackgroundPointerCapture(args: {
         handleNativeBackgroundCapture,
         true
       );
-      activeStageContainer.removeEventListener(
-        "mousedown",
-        handleNativeBackgroundCapture,
-        true
-      );
+      activeStageContainer.removeEventListener("pointermove", handleNativeSelectionMove, true);
+      activeStageContainer.removeEventListener("pointerup", finishNativeSelection, true);
+      activeStageContainer.removeEventListener("pointercancel", finishNativeSelection, true);
     };
   }, [
     customShapeEditDraft,
@@ -142,6 +159,9 @@ export function useCanvasBackgroundPointerCapture(args: {
     isKeyboardEditableTarget,
     onClearSelection,
     onMarkTextBlurForClear,
+    onSelectionDragEnd,
+    onSelectionDragMove,
+    onSelectionDragStart,
     selectedElementIds,
     setCustomShapeEditDraft,
     slide,

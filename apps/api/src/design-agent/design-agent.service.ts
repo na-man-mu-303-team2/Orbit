@@ -1,16 +1,23 @@
 import { randomUUID } from "node:crypto";
+import { applyDeckPatch } from "@orbit/editor-core";
 import {
   applyDesignAgentProposalResponseSchema,
   createDesignAgentMessageResponseSchema,
+  deckPatchOperationSchema,
   designAgentMessageSchema,
   designAgentCapabilities,
   designAgentProposalSchema,
   type ApplyDesignAgentProposalResponse,
   type CreateDesignAgentMessageRequest,
   type CreateDesignAgentMessageResponse,
+  type Deck,
+  type DeckCanvas,
+  type DeckPatchOperation,
   type DesignAgentContext,
   type DesignAgentMessage,
   type DesignAgentProposal,
+  type SmartArtItem,
+  type SmartArtRequest,
 } from "@orbit/shared";
 import {
   BadRequestException,
@@ -22,6 +29,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { Repository } from "typeorm";
 import { DecksService } from "../decks/decks.service";
+import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.entity";
+import { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
 import { DesignAgentPythonClient } from "./design-agent-python.client";
@@ -35,6 +44,7 @@ export class DesignAgentService {
     private readonly proposalsRepository: Repository<DesignAgentProposalEntity>,
     private readonly decksService: DecksService,
     private readonly pythonClient: DesignAgentPythonClient,
+    private readonly smartArtLayoutsService: SmartArtLayoutsService,
     @InjectPinoLogger(DesignAgentService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -44,7 +54,7 @@ export class DesignAgentService {
     actorUserId: string,
     input: CreateDesignAgentMessageRequest,
   ): Promise<CreateDesignAgentMessageResponse> {
-    await this.assertCurrentContext(projectId, input.context);
+    const currentDeck = await this.assertCurrentContext(projectId, input.context);
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
     const history = await this.loadHistory(projectId, actorUserId, sessionId);
@@ -69,12 +79,22 @@ export class DesignAgentService {
     );
 
     try {
+      const availableSmartArtLayouts = (
+        await this.smartArtLayoutsService.listActiveCatalog()
+      ).map((layout) => ({
+        layoutId: layout.layoutId,
+        layoutType: layout.layoutType,
+        name: layout.name,
+        itemCountMin: layout.itemCountMin,
+        itemCountMax: layout.itemCountMax,
+      }));
       const aiResult = await this.pythonClient.propose({
         projectId,
         sessionId,
         question: input.content,
         context: input.context,
         history,
+        availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
       });
       const responseNow = new Date();
@@ -101,8 +121,57 @@ export class DesignAgentService {
       requestMessage.updatedAt = responseNow;
       await this.messagesRepository.save(requestMessage);
 
+      const smartArtSourceElementIds = new Set(
+        aiResult.smartArtRequest?.sourceElementIds ?? [],
+      );
+      if (
+        aiResult.operations.some(
+          (operation) =>
+            "elementId" in operation &&
+            smartArtSourceElementIds.has(operation.elementId),
+        )
+      ) {
+        throw new BadRequestException(
+          "SmartArt source elements must not also be targeted by direct operations.",
+        );
+      }
+
+      const smartArtOperations = aiResult.smartArtRequest
+        ? await this.expandSmartArtRequest(
+            aiResult.smartArtRequest,
+            input.context,
+            aiResult.interpretedIntent.target,
+          )
+        : [];
+      const operations = [...aiResult.operations, ...smartArtOperations];
+      if (operations.length > 0) {
+        const preview = applyDeckPatch(currentDeck, {
+          deckId: input.context.deckId,
+          baseVersion: input.context.baseVersion,
+          source: "ai",
+          operations,
+        });
+        if (!preview.ok) {
+          throw new BadRequestException(
+            `Design agent proposal is invalid: ${preview.error.code}${
+              preview.error.details?.[0] ? ` (${preview.error.details[0]})` : ""
+            }`,
+          );
+        }
+      }
+      const affectedElementIds = Array.from(
+        new Set([
+          ...aiResult.affectedElementIds,
+          ...operations.flatMap((operation) => {
+            if (operation.type === "add_element") return [operation.element.elementId];
+            if ("elementId" in operation) return [operation.elementId];
+            return [];
+          }),
+        ]),
+      );
+
       const proposal =
-        aiResult.operations.length > 0
+        operations.length > 0
           ? await this.proposalsRepository.save(
               this.proposalsRepository.create({
                 proposalId: `design_proposal_${randomUUID()}`,
@@ -114,9 +183,9 @@ export class DesignAgentService {
                 baseVersion: input.context.baseVersion,
                 title: "AI 디자인 변경안",
                 summary: aiResult.message,
-                operations: aiResult.operations,
+                operations,
                 interpretedIntent: aiResult.interpretedIntent,
-                affectedElementIds: aiResult.affectedElementIds,
+                affectedElementIds,
                 warnings: aiResult.warnings,
                 status: "pending",
                 appliedChangeId: null,
@@ -134,7 +203,8 @@ export class DesignAgentService {
           deckId: input.context.deckId,
           slideId: input.context.slide.slideId,
           sessionId,
-          operationCount: aiResult.operations.length,
+          operationCount: operations.length,
+          smartArtLayoutType: aiResult.smartArtRequest?.layoutType ?? null,
           warningCount: aiResult.warnings.length,
         },
         "Design agent response completed.",
@@ -145,6 +215,7 @@ export class DesignAgentService {
         requestMessage: toMessageDto(requestMessage),
         responseMessage: toMessageDto(responseMessage),
         ...(proposal ? { proposal: toProposalDto(proposal) } : {}),
+        uiAction: aiResult.uiAction,
       });
     } catch (error) {
       requestMessage.status = "failed";
@@ -241,7 +312,7 @@ export class DesignAgentService {
   private async assertCurrentContext(
     projectId: string,
     context: DesignAgentContext,
-  ): Promise<void> {
+  ): Promise<Deck> {
     const current = await this.decksService.getDeck(projectId);
     if (current.deck.deckId !== context.deckId) {
       throw new BadRequestException("Design agent deckId does not match project deck.");
@@ -252,6 +323,7 @@ export class DesignAgentService {
     if (!current.deck.slides.some((slide) => slide.slideId === context.slide.slideId)) {
       throw new BadRequestException("Design agent slide does not exist in project deck.");
     }
+    return current.deck;
   }
 
   private async loadHistory(
@@ -269,6 +341,199 @@ export class DesignAgentService {
       content: message.content,
     }));
   }
+
+  private async expandSmartArtRequest(
+    smartArtRequest: SmartArtRequest,
+    context: DesignAgentContext,
+    target: "selected-elements" | "current-slide",
+  ): Promise<DeckPatchOperation[]> {
+    const selectedElementIds = new Set(context.selectedElementIds);
+    const visibleElementIds = new Set(
+      context.slide.elements
+        .filter((element) => element.visible !== false)
+        .map((element) => element.elementId),
+    );
+    const allowsSlideSources = target === "current-slide";
+    for (const elementId of smartArtRequest.sourceElementIds) {
+      if (
+        !visibleElementIds.has(elementId) ||
+        (!allowsSlideSources && !selectedElementIds.has(elementId))
+      ) {
+        throw new BadRequestException(
+          allowsSlideSources
+            ? "SmartArt sourceElementIds must reference visible slide elements."
+            : "SmartArt sourceElementIds must reference visible selected elements.",
+        );
+      }
+    }
+
+    const layout = await this.smartArtLayoutsService.findActiveById(
+      smartArtRequest.layoutId,
+    );
+    if (
+      !layout ||
+      layout.layoutType !== smartArtRequest.layoutType ||
+      smartArtRequest.items.length < layout.itemCountMin ||
+      smartArtRequest.items.length > layout.itemCountMax
+    ) {
+      throw new BadRequestException(
+        `SmartArt layout is unavailable: ${smartArtRequest.layoutId}/${smartArtRequest.items.length}`,
+      );
+    }
+
+    return buildSmartArtOperations(
+      layout,
+      smartArtRequest.items,
+      context.slide.slideId,
+      context.canvas,
+      smartArtRequest.sourceElementIds,
+    );
+  }
+}
+
+export function allowsUnselectedSmartArtSources(question: string) {
+  const normalized = question.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const broadPresetRequest = [
+    "꾸며줘",
+    "꾸며 줘",
+    "디자인해줘",
+    "디자인 해줘",
+    "보기 좋게",
+    "예쁘게",
+    "이쁘게",
+    "재디자인",
+    "다른 디자인",
+    "다른 스타일",
+    "다르게",
+    "재구성",
+    "구성 바꿔",
+    "구성을 바꿔",
+    "reconfigure",
+    "redesign",
+    "another design",
+    "beautify",
+    "decorate",
+  ].some((phrase) => normalized.includes(phrase));
+  const explicitSmallEdit = [
+    "색상만",
+    "색만",
+    "글자 크기",
+    "폰트만",
+    "정렬만",
+    "위치만",
+    "간격만",
+    "투명도",
+    "회전",
+    "애니메이션",
+  ].some((phrase) => normalized.includes(phrase));
+  return (broadPresetRequest && !explicitSmallEdit) || [
+    "현재 페이지",
+    "이 페이지",
+    "페이지 전체",
+    "현재 슬라이드",
+    "이 슬라이드",
+    "슬라이드 전체",
+    "가운데 텍스트",
+    "중앙 텍스트",
+    "current page",
+    "this page",
+    "whole page",
+    "current slide",
+    "this slide",
+    "whole slide",
+    "center text",
+    "centre text",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+export function buildSmartArtOperations(
+  layout: SmartArtLayoutEntity,
+  items: SmartArtItem[],
+  slideId: string,
+  canvas: DeckCanvas,
+  sourceElementIds: string[] = [],
+): DeckPatchOperation[] {
+  const instanceId = randomUUID().slice(0, 8);
+  const operations: DeckPatchOperation[] = sourceElementIds.map((elementId) =>
+    deckPatchOperationSchema.parse({ type: "delete_element", slideId, elementId }),
+  );
+  const generatedElements: Array<{
+    elementId: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    zIndex: number;
+  }> = [];
+
+  for (const template of layout.elements) {
+    if (template.itemIndex !== null && template.itemIndex >= items.length) continue;
+
+    const item = template.itemIndex !== null ? items[template.itemIndex] : null;
+    const props = { ...template.props };
+    if (template.textField && item) {
+      props.text = (template.textField === "title" ? item.title : item.description) ?? "";
+    }
+
+    const element = {
+      elementId: `el_smartart_${instanceId}_${template.elementIdSuffix}`,
+      type: template.type,
+      role: template.role,
+      x: template.xFrac * canvas.width,
+      y: template.yFrac * canvas.height,
+      width: template.widthFrac * canvas.width,
+      height: template.heightFrac * canvas.height,
+      rotation: template.rotation,
+      opacity: 1,
+      zIndex: template.zIndex,
+      locked: false,
+      visible: true,
+      props,
+    };
+    operations.push(
+      deckPatchOperationSchema.parse({
+        type: "add_element",
+        slideId,
+        element,
+      }),
+    );
+    generatedElements.push(element);
+  }
+
+  if (generatedElements.length > 0) {
+    const minX = Math.min(...generatedElements.map((element) => element.x));
+    const minY = Math.min(...generatedElements.map((element) => element.y));
+    const maxX = Math.max(
+      ...generatedElements.map((element) => element.x + element.width),
+    );
+    const maxY = Math.max(
+      ...generatedElements.map((element) => element.y + element.height),
+    );
+    operations.push(
+      deckPatchOperationSchema.parse({
+        type: "add_element",
+        slideId,
+        element: {
+          elementId: `el_smartart_${instanceId}_group`,
+          type: "group",
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+          rotation: 0,
+          opacity: 1,
+          zIndex: Math.max(...generatedElements.map((element) => element.zIndex)) + 1,
+          locked: false,
+          visible: true,
+          props: {
+            childElementIds: generatedElements.map((element) => element.elementId),
+          },
+        },
+      }),
+    );
+  }
+
+  return operations;
 }
 
 function toMessageDto(entity: DesignAgentMessageEntity): DesignAgentMessage {
