@@ -45,7 +45,8 @@ import {
   OrbitMockupFlow,
   type OrbitMockupScreen,
 } from "./features/mockups/OrbitMockupFlow";
-import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
+import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -53,6 +54,7 @@ import {
   RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
+import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
@@ -67,7 +69,8 @@ export type Route =
   | { name: "signup" }
   | { name: "home" }
   | { name: "create-deck" }
-  | { name: "project-list"; intent?: "rehearsal" }
+  | { name: "project-list" }
+  | { name: "rehearsal-project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
@@ -335,7 +338,7 @@ export function getRoute(pathname?: string, search?: string): Route {
     if (normalized === "/createdeck") return { name: "create-deck" };
     if (normalized === "/project") {
       return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
-        ? { name: "project-list", intent: "rehearsal" }
+        ? { name: "rehearsal-project-list" }
         : { name: "project-list" };
     }
     if (normalized === "/reports") return { name: "report-list" };
@@ -632,9 +635,10 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;
   if (route.name === "project-list") {
-    return (
-      <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />
-    );
+    return <ProjectExplorerPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "rehearsal-project-list") {
+    return <RehearsalProjectPickerPage onNavigate={navigateTo} />;
   }
   if (route.name === "project-editor") {
     return (
@@ -948,10 +952,7 @@ function AppFrame(props: {
   );
 }
 
-export function getAppNavigationItem(
-  route: Route,
-  currentSearch = typeof window === "undefined" ? "" : window.location.search,
-): OrbitAppNavigationItem {
+export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (route.name === "home") return "home";
   if (
     route.name === "report-list" ||
@@ -961,9 +962,7 @@ export function getAppNavigationItem(
   }
   if (
     route.name === "rehearsal" ||
-    (route.name === "project-list" &&
-      (route.intent === "rehearsal" ||
-        new URLSearchParams(currentSearch).get("intent") === "rehearsal"))
+    route.name === "rehearsal-project-list"
   ) {
     return "rehearsal";
   }

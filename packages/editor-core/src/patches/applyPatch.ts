@@ -183,23 +183,36 @@ function applyOperation(
         return slideNotFound(operation.type, operation.slideId);
       }
 
+      if (deck.slides.length === 1) {
+        return failure(
+          "LAST_SLIDE_DELETE_FORBIDDEN",
+          "A deck must retain at least one slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`],
+          },
+        );
+      }
+
       deck.slides.splice(slideIndex, 1);
+      normalizeSlideOrders(deck);
       return { ok: true };
     }
 
-    case "reorder_slides":
+    case "reorder_slides": {
+      const validationFailure = validateSlideReorder(deck, operation.slideOrders);
+      if (validationFailure) {
+        return validationFailure;
+      }
+
       for (const slideOrder of operation.slideOrders) {
-        const slide = findSlide(deck, slideOrder.slideId);
-
-        if (!slide) {
-          return slideNotFound(operation.type, slideOrder.slideId);
-        }
-
-        slide.order = slideOrder.order;
+        findSlide(deck, slideOrder.slideId)!.order = slideOrder.order;
       }
 
       sortSlides(deck);
+      normalizeSlideOrders(deck);
       return { ok: true };
+    }
 
     case "update_theme":
       mergeRecordPatch(
@@ -800,6 +813,52 @@ function isKeywordBasedTrigger(
 
 function sortSlides(deck: Deck): void {
   deck.slides.sort((a, b) => a.order - b.order);
+}
+
+function normalizeSlideOrders(deck: Deck): void {
+  sortSlides(deck);
+  deck.slides.forEach((slide, index) => {
+    slide.order = index + 1;
+  });
+}
+
+function validateSlideReorder(
+  deck: Deck,
+  slideOrders: Array<{ slideId: string; order: number }>,
+): ApplyDeckPatchFailure | null {
+  const currentSlideIds = deck.slides.map((slide) => slide.slideId);
+  const requestedSlideIds = slideOrders.map((slideOrder) => slideOrder.slideId);
+  const requestedOrders = slideOrders.map((slideOrder) => slideOrder.order);
+  const currentSlideIdSet = new Set(currentSlideIds);
+  const requestedSlideIdSet = new Set(requestedSlideIds);
+  const requestedOrderSet = new Set(requestedOrders);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const hasExactSlidePermutation =
+    currentSlideIdSet.size === currentSlideIds.length &&
+    requestedSlideIds.length === currentSlideIds.length &&
+    requestedSlideIdSet.size === requestedSlideIds.length &&
+    requestedSlideIds.every((slideId) => currentSlideIdSet.has(slideId));
+  const hasExactOrderPermutation =
+    requestedOrders.length === deck.slides.length &&
+    requestedOrderSet.size === requestedOrders.length &&
+    requestedOrders.every((order) => expectedOrders.has(order));
+
+  if (hasExactSlidePermutation && hasExactOrderPermutation) {
+    return null;
+  }
+
+  return failure(
+    "INVALID_SLIDE_REORDER",
+    "Slide reorder must contain exact slide ID and order permutations",
+    {
+      operationType: "reorder_slides",
+      details: [
+        `expectedSlideIds=${currentSlideIds.join(",")}`,
+        `requestedSlideIds=${requestedSlideIds.join(",")}`,
+        `requestedOrders=${requestedOrders.join(",")}`,
+      ],
+    },
+  );
 }
 
 function sortElements(slide: Slide): void {

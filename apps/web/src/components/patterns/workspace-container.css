@@ -1,0 +1,12 @@
+.redesign-workspace-container {
+  box-sizing: border-box;
+  width: min(100%, var(--redesign-layout-workspace-max-width));
+  margin-inline: auto;
+  padding-inline: var(--redesign-layout-workspace-margin);
+}
+
+@media (max-width: 760px) {
+  .redesign-workspace-container {
+    padding-inline: var(--redesign-space-4);
+  }
+}

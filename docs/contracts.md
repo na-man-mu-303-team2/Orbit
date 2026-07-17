@@ -456,7 +456,8 @@ patch 적용 규칙:
 - `update_theme.effects.shadow`에 `null`을 전달하면 theme shadow override를 제거한다.
 - `update_element_frame.role`에 `null`을 전달하면 element role을 제거한다.
 - `update_element_props.props`는 타입별 props의 부분 업데이트를 위해 `record unknown`으로 받는다. 다만 patch 적용 후 최종 element는 `deckElementSchema`가 검증해야 한다.
-- `delete_slide`는 최소 1개 slide가 남아야 한다. 이 제약은 patch 적용 후 `deckSchema`의 `slides.min(1)` 검증으로 확인한다.
+- `delete_slide`는 최소 1개 slide가 남아야 한다. 마지막 slide 삭제 요청은 적용 전에 `LAST_SLIDE_DELETE_FORBIDDEN`으로 거부한다.
+- `reorder_slides`는 현재 slide ID 전체와 `1..N` order 전체를 각각 정확한 permutation으로 전달해야 한다. 누락·중복·알 수 없는 ID 또는 order는 `INVALID_SLIDE_REORDER`로 거부하고, 성공 시 order를 연속된 `1..N`으로 정규화한다.
 - group의 child 삭제, animation 대상 element 삭제처럼 참조 무결성이 걸린 작업은 patch 적용 계층에서 정리한 뒤 최종 Deck 검증과 별도 참조 검사를 수행한다.
 
 DeckChangeRecord는 검증된 patch가 실제 Deck에 적용된 뒤 저장하는 변경 이력이다.
