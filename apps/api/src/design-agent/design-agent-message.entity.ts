@@ -1,5 +1,5 @@
 import type {
-  DesignAgentContext,
+  DesignAgentMessageContext,
   DesignAgentMessageRole,
   DesignAgentMessageStatus,
 } from "@orbit/shared";
@@ -36,7 +36,7 @@ export class DesignAgentMessageEntity {
   status!: DesignAgentMessageStatus;
 
   @Column({ name: "context_json", nullable: true, type: "jsonb" })
-  contextJson!: DesignAgentContext | null;
+  contextJson!: DesignAgentMessageContext | null;
 
   @Column({ name: "error_code", nullable: true, type: "text" })
   errorCode!: string | null;

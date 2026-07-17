@@ -3,6 +3,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
 import { ProjectsModule } from "../projects/projects.module";
+import { FilesModule } from "../files/files.module";
 import { SmartArtLayoutsModule } from "../smart-art-layouts/smart-art-layouts.module";
 import { DesignAgentController } from "./design-agent.controller";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
@@ -15,6 +16,7 @@ import { DesignAgentService } from "./design-agent.service";
     AuthModule,
     DecksModule,
     ProjectsModule,
+    FilesModule,
     SmartArtLayoutsModule,
     TypeOrmModule.forFeature([
       DesignAgentMessageEntity,

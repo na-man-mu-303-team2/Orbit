@@ -2,6 +2,7 @@ import { applyDeckPatch } from "@orbit/editor-core";
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
+  DesignAgentReferenceAttachment,
   DesignAgentProposal,
   SpeakerNotesSuggestionMode,
   Slide
@@ -9,14 +10,20 @@ import type {
 import { IconArrowUp as ArrowUp } from "@tabler/icons-react";
 import {
   useState,
+  useRef,
   type Dispatch,
   type FormEvent,
+  type ChangeEvent,
   type SetStateAction
 } from "react";
 import {
   applyDesignAgentProposal,
   createDesignAgentMessage
 } from "../../design-agent/designAgentApi";
+import {
+  getAssetValidationMessage,
+  uploadProjectAsset
+} from "../../../projects/ProjectAssetWorkspace";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
 export type AiChatMessage = {
@@ -68,7 +75,67 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [referenceAttachments, setReferenceAttachments] = useState<
+    DesignAgentReferenceAttachment[]
+  >([]);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const maxReferenceAttachments = 3;
+
+  function attachmentKind(mimeType: string) {
+    return mimeType.startsWith("image/") ? "image" : "document";
+  }
+
+  async function handleAttachmentSelection(event: ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!file) return;
+
+    if (!props.currentSlide || !designEditingEnabled) return;
+    if (referenceAttachments.length >= maxReferenceAttachments) {
+      appendErrorMessage("참고자료는 최대 3개까지만 첨부할 수 있습니다.");
+      return;
+    }
+
+    const validationMessage = getAssetValidationMessage(file);
+    if (validationMessage) {
+      appendErrorMessage(validationMessage);
+      return;
+    }
+
+    setIsUploadingAttachment(true);
+    try {
+      const uploaded = await uploadProjectAsset(
+        props.projectId,
+        file,
+        "reference-material"
+      );
+      const nextAttachment: DesignAgentReferenceAttachment = {
+        fileId: uploaded.fileId,
+        fileName: uploaded.originalName,
+        mimeType: uploaded.mimeType,
+        kind: attachmentKind(uploaded.mimeType),
+      };
+      setReferenceAttachments((current) => {
+        if (current.some((item) => item.fileId === nextAttachment.fileId)) {
+          return current;
+        }
+        if (current.length >= maxReferenceAttachments) return current;
+        return [...current, nextAttachment];
+      });
+    } catch (error) {
+      appendErrorMessage(error);
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  }
+
+  function removeReferenceAttachment(fileId: string) {
+    setReferenceAttachments((current) =>
+      current.filter((attachment) => attachment.fileId !== fileId)
+    );
+  }
 
   function updateMessages(
     updater: (current: AiChatMessage[]) => AiChatMessage[]
@@ -105,7 +172,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
           slide: props.currentSlide,
           selectedElementIds: props.selectedElementIds,
           theme: props.deck.theme
-        }
+        },
+        referenceAttachments
       });
       props.onChatStateChange((current) =>
         current.projectId === props.projectId
@@ -199,7 +267,11 @@ export function AiChatPanel(props: AiChatPanelProps) {
   }
 
   const canSend = Boolean(
-    draft.trim() && props.currentSlide && designEditingEnabled && !isSending
+    draft.trim() &&
+      props.currentSlide &&
+      designEditingEnabled &&
+      !isSending &&
+      !isUploadingAttachment
   );
 
   return (
@@ -229,6 +301,49 @@ export function AiChatPanel(props: AiChatPanelProps) {
       </div>
 
       <form className="ai-chat-composer" onSubmit={handleSubmit}>
+        <div className="ai-chat-attachments-header">
+          <span>참고자료</span>
+          <button
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            disabled={
+              !designEditingEnabled ||
+              !props.currentSlide ||
+              isUploadingAttachment ||
+              referenceAttachments.length >= maxReferenceAttachments
+            }
+            aria-label="참고자료 첨부하기"
+          >
+            {isUploadingAttachment
+              ? "첨부중..."
+              : "파일 첨부"}
+          </button>
+          <span>{referenceAttachments.length}/{maxReferenceAttachments}</span>
+        </div>
+        <div className="ai-chat-attachments" aria-live="polite">
+          {referenceAttachments.map((attachment) => (
+            <div key={attachment.fileId} className="ai-chat-attachment-item">
+              <span>
+                {attachment.kind === "image" ? "이미지" : "문서"}: {attachment.fileName}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeReferenceAttachment(attachment.fileId)}
+                aria-label={`${attachment.fileName} 삭제`}
+                disabled={!designEditingEnabled || !props.currentSlide}
+              >
+                삭제
+              </button>
+            </div>
+          ))}
+        </div>
+        <input
+          ref={attachmentInputRef}
+          type="file"
+          accept=".jpeg,.jpg,.png,.webp,.pdf,.docx,.pptx,.txt,.md,.markdown,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          onChange={handleAttachmentSelection}
+          style={{ display: "none" }}
+        />
         <textarea
           aria-label="AI에게 메시지 보내기"
           placeholder={designEditingEnabled

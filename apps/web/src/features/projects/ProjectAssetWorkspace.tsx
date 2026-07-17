@@ -30,6 +30,9 @@ const documentMimeByExtension: Record<string, AssetMimeType> = {
   png: "image/png",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   webp: "image/webp",
+  txt: "text/plain",
+  md: "text/markdown",
+  markdown: "text/markdown",
 };
 
 export class ProjectAssetError extends Error {
@@ -55,7 +58,7 @@ export function getAssetValidationMessage(
   file: Pick<File, "name" | "size" | "type">,
 ) {
   if (!resolveAssetMimeType(file)) {
-    return "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 업로드할 수 있습니다.";
+    return "PDF, PPTX, DOCX, TXT, MD, JPG, PNG, WebP 파일만 업로드할 수 있습니다.";
   }
 
   if (file.size > maxAssetUploadSizeBytes) {

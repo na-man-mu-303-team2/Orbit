@@ -3,6 +3,7 @@ import { deckElementSchema, type DeckPatch } from "@orbit/shared";
 import type { Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import type { DecksService } from "../decks/decks.service";
+import type { FilesService } from "../files/files.service";
 import type { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.entity";
 import type { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
@@ -101,6 +102,7 @@ describe("DesignAgentService.applyProposal", () => {
       proposalsRepository,
       decksService,
       {} as DesignAgentPythonClient,
+      {} as FilesService,
       {} as SmartArtLayoutsService,
       { info: vi.fn(), warn: vi.fn() } as never,
     );
@@ -216,6 +218,9 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       listActiveCatalog: vi.fn(async () => [fakeLayout]),
       findActiveById: vi.fn(async () => fakeLayout),
     } as unknown as SmartArtLayoutsService;
+    const filesService = {
+      getUploadedAsset: vi.fn(),
+    } as unknown as FilesService;
 
     const pythonClient = {
       propose: vi.fn(async () => ({
@@ -238,6 +243,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       proposalsRepository,
       decksService,
       pythonClient,
+      filesService,
       smartArtLayoutsService,
       { info: vi.fn(), warn: vi.fn() } as never,
     );
@@ -252,6 +258,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         selectedElementIds: [sourceElementId!],
         theme: deck.theme,
       },
+      referenceAttachments: [],
     });
 
     expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(
@@ -282,6 +289,117 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
       expect(groupOperation.element.props.childElementIds).toHaveLength(3);
     }
+  });
+
+  it("verifies reference attachments and forwards text summaries to the worker", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const canvas = deck.canvas;
+    const savedMessages: DesignAgentMessageEntity[] = [];
+    const messagesRepository = {
+      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      save: vi.fn(async (value: DesignAgentMessageEntity) => {
+        savedMessages.push(value);
+        return value;
+      }),
+      find: vi.fn(async () => []),
+    } as unknown as Repository<DesignAgentMessageEntity>;
+    const proposalsRepository = {
+      create: vi.fn(),
+      save: vi.fn(),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-18T00:00:00.000Z",
+      })),
+    } as unknown as DecksService;
+    const pythonClient = {
+      propose: vi.fn(async () => ({
+        message: "첨부한 브랜드 노트를 참고해 디자인 방향을 정리했어요.",
+        interpretedIntent: { target: "current-slide", action: "use reference" },
+        operations: [],
+        affectedElementIds: [],
+        warnings: [],
+        smartArtRequest: null,
+        uiAction: null,
+      })),
+    } as unknown as DesignAgentPythonClient;
+    const filesService = {
+      getUploadedAsset: vi.fn(async () => ({
+        fileId: "file_brand_notes",
+        projectId: deck.projectId,
+        originalName: "brand-notes.md",
+        mimeType: "text/markdown",
+        purpose: "reference-material",
+        status: "uploaded",
+      })),
+      readUploadedAssetContent: vi.fn(async () => ({
+        contentType: "text/markdown",
+        body: new TextEncoder().encode("# Brand\n\nBlue first, minimal photography."),
+      })),
+    } as unknown as FilesService;
+    const smartArtLayoutsService = {
+      listActiveCatalog: vi.fn(async () => []),
+    } as unknown as SmartArtLayoutsService;
+    const service = new DesignAgentService(
+      messagesRepository,
+      proposalsRepository,
+      decksService,
+      pythonClient,
+      filesService,
+      smartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await service.createMessage(deck.projectId, "user_demo_1", {
+      content: "첨부한 브랜드 노트를 참고해서 더 깔끔하게 바꿔줘.",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+      referenceAttachments: [
+        {
+          fileId: "file_brand_notes",
+          fileName: "ignored-client-name.md",
+          mimeType: "text/markdown",
+          kind: "document",
+        },
+      ],
+    });
+
+    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
+      deck.projectId,
+      "file_brand_notes",
+      "reference-material",
+    );
+    expect(filesService.readUploadedAssetContent).toHaveBeenCalledWith(
+      deck.projectId,
+      "file_brand_notes",
+      "reference-material",
+    );
+    expect(pythonClient.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceAttachments: [
+          {
+            fileId: "file_brand_notes",
+            fileName: "brand-notes.md",
+            mimeType: "text/markdown",
+            kind: "document",
+            summary: "# Brand Blue first, minimal photography.",
+          },
+        ],
+      }),
+    );
+    expect(savedMessages[0]?.contextJson?.referenceAttachments?.[0]).toMatchObject({
+      fileName: "brand-notes.md",
+      summary: "# Brand Blue first, minimal photography.",
+    });
   });
 
   it("replaces overlapping current-slide graphics when no elements are selected", async () => {
@@ -469,6 +587,9 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       listActiveCatalog: vi.fn(async () => [fakeLayout]),
       findActiveById: vi.fn(async () => fakeLayout),
     } as unknown as SmartArtLayoutsService;
+    const filesService = {
+      getUploadedAsset: vi.fn(),
+    } as unknown as FilesService;
 
     const pythonClient = {
       propose: vi.fn(async () => ({
@@ -499,6 +620,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       proposalsRepository,
       decksService,
       pythonClient,
+      filesService,
       smartArtLayoutsService,
       { info: vi.fn(), warn: vi.fn() } as never,
     );
@@ -513,6 +635,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         selectedElementIds: [],
         theme: deck.theme,
       },
+      referenceAttachments: [],
     });
 
     expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(

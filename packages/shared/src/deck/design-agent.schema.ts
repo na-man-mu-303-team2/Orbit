@@ -49,6 +49,16 @@ export const designAgentCapabilityOperationSchema = z.enum([
   "delete_animation",
 ]);
 
+export const designAgentAttachmentKindSchema = z.enum(["image", "document"]);
+
+export const designAgentAttachmentSchema = z.object({
+  fileId: z.string().trim().min(1),
+  fileName: z.string().trim().min(1),
+  mimeType: z.string().trim().min(1),
+  kind: designAgentAttachmentKindSchema,
+  summary: z.string().trim().max(1_000).optional(),
+});
+
 export const designAgentCapabilitiesSchema = z.object({
   version: z.literal("1"),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
@@ -89,6 +99,10 @@ export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
   context: designAgentContextSchema,
+  referenceAttachments: z
+    .array(designAgentAttachmentSchema)
+    .max(3)
+    .default([]),
 });
 
 export const designAgentIntentSchema = z.object({
@@ -112,6 +126,10 @@ export const designAgentWorkerRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200),
   question: z.string().trim().min(1).max(2_000),
   context: designAgentContextSchema,
+  referenceAttachments: z
+    .array(designAgentAttachmentSchema)
+    .max(3)
+    .default([]),
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
   availableSmartArtLayouts: z.array(availableSmartArtLayoutSchema).max(200).default([]),
   capabilities: designAgentCapabilitiesSchema.default(designAgentCapabilities),
@@ -204,6 +222,12 @@ export type DesignAgentProposalStatus = z.infer<
   typeof designAgentProposalStatusSchema
 >;
 export type DesignAgentContext = z.infer<typeof designAgentContextSchema>;
+export type DesignAgentReferenceAttachment = z.infer<
+  typeof designAgentAttachmentSchema
+>;
+export type DesignAgentMessageContext = DesignAgentContext & {
+  referenceAttachments?: DesignAgentReferenceAttachment[];
+};
 export type CreateDesignAgentMessageRequest = z.infer<
   typeof createDesignAgentMessageRequestSchema
 >;

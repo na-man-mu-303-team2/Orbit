@@ -10,6 +10,7 @@ from app.ai.design_agent import (
     DesignAgentGenerationError,
     DesignAgentRequest,
     _build_deterministic_preset_proposal,
+    design_agent_user_prompt,
     design_agent_system_prompt,
     generate_design_proposal,
 )
@@ -30,7 +31,13 @@ class FakeClient:
         self.responses = FakeResponses(payload)
 
 
-def request_payload(*, locked: bool = False) -> DesignAgentRequest:
+def request_payload(
+    *,
+    locked: bool = False,
+    reference_attachments: list[dict[str, Any]] | None = None,
+) -> DesignAgentRequest:
+    if reference_attachments is None:
+        reference_attachments = []
     return DesignAgentRequest.model_validate(
         {
             "projectId": "project_1",
@@ -92,6 +99,7 @@ def request_payload(*, locked: bool = False) -> DesignAgentRequest:
                 "canGenerateImages": False,
                 "canModifyLockedElements": True,
             },
+            "referenceAttachments": reference_attachments,
         }
     )
 
@@ -210,6 +218,30 @@ def test_prompt_uses_actual_canvas_dimensions() -> None:
     assert "Explicit table or tabular-format requests also take precedence" in prompt
     assert "Only use fade-in and fade-out effects" in prompt
     assert "open-speaker-notes-assistant" in prompt
+
+
+def test_user_prompt_includes_reference_attachments() -> None:
+    payload = design_agent_user_prompt(
+        request_payload(
+            reference_attachments=[
+                {
+                    "fileId": "file_1",
+                    "fileName": "Brand Guide.pdf",
+                    "mimeType": "application/pdf",
+                    "kind": "document",
+                    "summary": "브랜드 색상은 #1D4ED8 중심으로 설정",
+                }
+            ]
+        ),
+    )
+
+    parsed = json.loads(payload)
+    attachments = parsed["referenceAttachments"]
+
+    assert len(attachments) == 1
+    assert attachments[0]["fileId"] == "file_1"
+    assert attachments[0]["fileName"] == "Brand Guide.pdf"
+    assert attachments[0]["summary"] == "브랜드 색상은 #1D4ED8 중심으로 설정"
 
 
 def test_accepts_speaker_notes_assistant_ui_action() -> None:

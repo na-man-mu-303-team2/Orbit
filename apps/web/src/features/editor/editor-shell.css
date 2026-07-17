@@ -3945,6 +3945,7 @@
 .ai-chat-composer {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--redesign-space-2);
   min-height: 48px;
   padding: var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-4);
@@ -3994,6 +3995,60 @@
   background: var(--redesign-color-outline-variant);
   color: var(--redesign-color-on-surface-variant);
   cursor: default;
+}
+
+.ai-chat-attachments-header,
+.ai-chat-attachments {
+  flex: 1 0 100%;
+}
+
+.ai-chat-attachments-header {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-2);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+}
+
+.ai-chat-attachments-header span:last-child {
+  margin-left: auto;
+}
+
+.ai-chat-attachments {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.ai-chat-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-2);
+  min-width: 0;
+  padding: var(--redesign-space-1) var(--redesign-space-2);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.ai-chat-attachment-item span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-chat-composer .ai-chat-attachments-header button,
+.ai-chat-composer .ai-chat-attachment-item button {
+  width: auto;
+  height: 28px;
+  padding: 0 var(--redesign-space-2);
+  border-radius: var(--redesign-radius-sm);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
 }
 
 .design-proposal-modal-backdrop {
@@ -8197,6 +8252,19 @@ body.is-resizing-speaker-notes {
   width: 30px;
   height: 30px;
   border-radius: var(--redesign-radius);
+}
+
+.orbit-shell.editor-professional
+  .ai-chat-composer
+  .ai-chat-attachments-header
+  button,
+.orbit-shell.editor-professional
+  .ai-chat-composer
+  .ai-chat-attachment-item
+  button {
+  width: auto;
+  height: 28px;
+  border-radius: var(--redesign-radius-sm);
 }
 
 .orbit-shell.editor-professional .editor-design-panel {

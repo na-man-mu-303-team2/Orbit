@@ -15,6 +15,7 @@ import {
   type DeckElement,
   type DeckPatchOperation,
   type DesignAgentContext,
+  type DesignAgentReferenceAttachment,
   type DesignAgentMessage,
   type DesignAgentProposal,
   type Slide,
@@ -31,6 +32,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { Repository } from "typeorm";
 import { DecksService } from "../decks/decks.service";
+import { FilesService } from "../files/files.service";
 import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.entity";
 import { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
@@ -46,6 +48,7 @@ export class DesignAgentService {
     private readonly proposalsRepository: Repository<DesignAgentProposalEntity>,
     private readonly decksService: DecksService,
     private readonly pythonClient: DesignAgentPythonClient,
+    private readonly filesService: FilesService,
     private readonly smartArtLayoutsService: SmartArtLayoutsService,
     @InjectPinoLogger(DesignAgentService.name)
     private readonly logger: PinoLogger,
@@ -56,6 +59,10 @@ export class DesignAgentService {
     actorUserId: string,
     input: CreateDesignAgentMessageRequest,
   ): Promise<CreateDesignAgentMessageResponse> {
+    const referenceAttachments = await this.resolveReferenceAttachments(
+      projectId,
+      input.referenceAttachments,
+    );
     const currentDeck = await this.assertCurrentContext(projectId, input.context);
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
@@ -72,7 +79,7 @@ export class DesignAgentService {
         role: "user",
         content: input.content,
         status: "pending",
-        contextJson: input.context,
+        contextJson: { ...input.context, referenceAttachments },
         errorCode: null,
         errorMessage: null,
         createdAt: now,
@@ -95,6 +102,7 @@ export class DesignAgentService {
         sessionId,
         question: input.content,
         context: input.context,
+        referenceAttachments,
         history,
         availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
@@ -328,6 +336,58 @@ export class DesignAgentService {
       throw new BadRequestException("Design agent slide does not exist in project deck.");
     }
     return current.deck;
+  }
+
+  private async resolveReferenceAttachments(
+    projectId: string,
+    attachments: DesignAgentReferenceAttachment[] = [],
+  ): Promise<DesignAgentReferenceAttachment[]> {
+    const resolved = new Map<string, DesignAgentReferenceAttachment>();
+
+    for (const attachment of attachments) {
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        attachment.fileId,
+        "reference-material",
+      );
+      const kind = asset.mimeType.startsWith("image/") ? "image" : "document";
+      const summary =
+        attachment.summary?.trim() ||
+        (await this.readPlainTextReferenceSummary(
+          projectId,
+          asset.fileId,
+          asset.mimeType,
+        ));
+
+      resolved.set(attachment.fileId, {
+        fileId: asset.fileId,
+        fileName: asset.originalName,
+        mimeType: asset.mimeType,
+        kind,
+        ...(summary ? { summary } : {}),
+      });
+    }
+
+    return [...resolved.values()];
+  }
+
+  private async readPlainTextReferenceSummary(
+    projectId: string,
+    fileId: string,
+    mimeType: string,
+  ): Promise<string | undefined> {
+    if (mimeType !== "text/plain" && mimeType !== "text/markdown") {
+      return undefined;
+    }
+
+    const content = await this.filesService.readUploadedAssetContent(
+      projectId,
+      fileId,
+      "reference-material",
+    );
+    const text = new TextDecoder().decode(content.body);
+    const normalized = text.replace(/\s+/g, " ").trim();
+    return normalized ? normalized.slice(0, 1_000) : undefined;
   }
 
   private async loadHistory(

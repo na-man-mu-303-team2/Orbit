@@ -44,6 +44,8 @@ export const allowedAssetMimeTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
+  "text/plain",
+  "text/markdown",
   "audio/mp3",
   "audio/m4a",
   "audio/mp4",

@@ -1,10 +1,102 @@
 import { describe, expect, it } from "vitest";
 import {
   designAgentCapabilities,
+  designAgentWorkerRequestSchema,
   designAgentWorkerResponseSchema,
 } from "./design-agent.schema";
 
 describe("design agent schema", () => {
+  it("accepts reference attachments in worker request", () => {
+    const request = designAgentWorkerRequestSchema.parse({
+      projectId: "project_1",
+      sessionId: "design_session_1",
+      question: "색상을 바꿔줘",
+      context: {
+        deckId: "deck_1",
+        baseVersion: 3,
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9",
+        },
+        slide: {
+          slideId: "slide_1",
+          elements: [],
+          order: 1,
+          title: "",
+        },
+        selectedElementIds: [],
+        theme: { name: "Business" },
+      },
+      referenceAttachments: [
+        {
+          fileId: "file_1",
+          fileName: "sample.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+        },
+      ],
+    });
+
+    expect(request.referenceAttachments).toHaveLength(1);
+    expect(request.referenceAttachments[0]?.kind).toBe("document");
+  });
+
+  it("rejects too many reference attachments", () => {
+    const payload = {
+      projectId: "project_1",
+      sessionId: "design_session_1",
+      question: "색상을 바꿔줘",
+      context: {
+        deckId: "deck_1",
+        baseVersion: 3,
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9",
+        },
+        slide: {
+          slideId: "slide_1",
+          elements: [],
+          order: 1,
+          title: "",
+        },
+        selectedElementIds: [],
+        theme: { name: "Business" },
+      },
+      referenceAttachments: [
+        {
+          fileId: "file_1",
+          fileName: "sample-1.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+        },
+        {
+          fileId: "file_2",
+          fileName: "sample-2.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+        },
+        {
+          fileId: "file_3",
+          fileName: "sample-3.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+        },
+        {
+          fileId: "file_4",
+          fileName: "sample-4.pdf",
+          mimeType: "application/pdf",
+          kind: "document",
+        },
+      ],
+    };
+
+    expect(designAgentWorkerRequestSchema.safeParse(payload).success).toBe(false);
+  });
+
   it("enables supported animation patch operations", () => {
     expect(designAgentCapabilities.operations).toEqual(
       expect.arrayContaining(["add_animation", "update_animation", "delete_animation"]),
